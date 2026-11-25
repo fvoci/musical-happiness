@@ -4,7 +4,7 @@ use anyhow::bail;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 13] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 14] = [
     ("smtp_host", super::EnvKind::Text),
     ("smtp_port", super::EnvKind::Number),
     ("smtp_tls", super::EnvKind::Text),
@@ -18,6 +18,7 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 13] = [
     ("invitation_mail_recipients", super::EnvKind::Number),
     ("invitation_mail_per_hour", super::EnvKind::Number),
     ("invitation_mail_per_org_hour", super::EnvKind::Number),
+    ("invitation_mail_per_address_hour", super::EnvKind::Number),
 ];
 
 /// How the connection to the SMTP server is protected; a value that is none of these
@@ -71,6 +72,9 @@ pub struct SmtpSettings {
     /// until organizations have limits of their own (`App::limits`); at least
     /// `invitation_mail_per_hour`.
     pub invitation_mail_per_org_hour: u32,
+    /// The most invitation messages sent to a single recipient address in an hour across
+    /// all organizations; excess addresses are silently skipped without creating guest links.
+    pub invitation_mail_per_address_hour: u32,
 }
 
 impl Default for SmtpSettings {
@@ -89,6 +93,7 @@ impl Default for SmtpSettings {
             invitation_mail_recipients: 20,
             invitation_mail_per_hour: 100,
             invitation_mail_per_org_hour: 300,
+            invitation_mail_per_address_hour: 5,
         }
     }
 }
@@ -115,6 +120,10 @@ impl std::fmt::Debug for SmtpSettings {
             .field(
                 "invitation_mail_per_org_hour",
                 &self.invitation_mail_per_org_hour,
+            )
+            .field(
+                "invitation_mail_per_address_hour",
+                &self.invitation_mail_per_address_hour,
             )
             .finish_non_exhaustive()
     }
@@ -153,6 +162,10 @@ impl SmtpSettings {
             (
                 "invitation_mail_recipients",
                 self.invitation_mail_recipients,
+            ),
+            (
+                "invitation_mail_per_address_hour",
+                self.invitation_mail_per_address_hour,
             ),
         ] {
             if value == 0 {

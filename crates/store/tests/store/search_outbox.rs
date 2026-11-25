@@ -170,15 +170,13 @@ async fn what_a_search_would_find_differently_is_noted_with_its_write() {
     );
     settle_all(store).await;
 
-    // A card that is made a comment is searched no more, and that is noted.
-    let no_card = BlockPatch {
-        block_type: Some(BlockType::Comment),
-        parent_id: Some(card.id.clone()),
-        ..BlockPatch::default()
-    };
+    // A card that is deleted is searched no more, and that is noted.
     let other = self::card(store, &board.id, &user_id).await;
     settle_all(store).await;
-    patch(store, &other.id, &no_card, &user_id).await;
+    store
+        .delete_block(&other.id, &user_id)
+        .await
+        .expect("deleted");
     assert_eq!(
         listed(store).await,
         [(SearchTarget::Block, other.id.clone())]
@@ -196,7 +194,7 @@ async fn what_a_search_would_find_differently_is_noted_with_its_write() {
             "새 제목".to_owned(),
             "환불규정을 따른다".to_owned()
         )],
-        "the card has a document, and what is a comment now has none"
+        "the live card has a document, and the deleted card has none"
     );
     test.teardown().await;
 }

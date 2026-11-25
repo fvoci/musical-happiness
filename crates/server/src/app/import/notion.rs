@@ -16,21 +16,24 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fvoci_model::{
-    BLOCK_TITLE_MAX_CHARS, Block, BlockType, Body, Container, ContainerKind, ContainerVisibility,
-    JsonMap, PAGE_ORDER_FIELD, new_id, order_between,
+    BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockType, Body, Container, ContainerKind,
+    ContainerVisibility, JsonMap, PAGE_ORDER_FIELD, PageLimits, new_id, order_between,
 };
+use fvoci_store::StoreError;
 use serde_json::{Value, json};
 
 use super::bundle::{BundleEntry, SafeBundle, resolve_relative_bundle_path};
 use super::markdown::{
     AssetResolver, BodyContext, MarkdownNotice, ResolvedTarget, blocks_to_body, markdown_to_blocks,
 };
+use super::markdown_nodes::BodyBudget;
 use super::notion_csv::{ParsedCsvDatabase, parse_notion_csv_bounded};
 use super::staged::{StagedArchive, StagedContainer, StagedFile};
 use super::summary::{
     BundleLimits, ImportFormat, ImportSummary, ImportWarningCode, truncate_chars,
 };
 use crate::app::files::stored_extension;
+use crate::app::pages::refused_without_member;
 use crate::error::{AppError, Reason};
 
 /// File extensions treated as inline `image` blocks rather than `file` download blocks.
@@ -134,6 +137,7 @@ async fn plan_csv_databases<'a>(
 pub(crate) async fn convert_notion_bundle(
     bundle: &SafeBundle,
     limits: &BundleLimits,
+    page_limits: PageLimits,
 ) -> Result<StagedArchive, AppError> {
     let (wrapper_title, logical_entries) = strip_single_wrapper(bundle.entries());
     let mut summary = ImportSummary::new(ImportFormat::Notion);
@@ -144,7 +148,7 @@ pub(crate) async fn convert_notion_bundle(
         card_ids_per_db,
         claimed_mds,
         mut md_to_block_id,
-        mut planned_items,
+        planned_items,
     } = plan_csv_databases(csv_specs, &logical_entries, bundle, limits).await?;
 
     let wiki_mds: Vec<&LogicalEntry<'_>> = logical_entries
@@ -160,15 +164,14 @@ pub(crate) async fn convert_notion_bundle(
         ));
     }
 
-    let wiki_plan = build_wiki_plan(&wiki_mds, &mut md_to_block_id, &mut summary);
-    if !wiki_plan.pages.is_empty() {
-        planned_items = planned_items
-            .saturating_add(1)
-            .saturating_add(u64::try_from(wiki_plan.pages.len()).unwrap_or(u64::MAX));
-        if planned_items > limits.max_entries {
-            return Err(too_many_notion_items(limits.max_entries));
-        }
-    }
+    let wiki_plan = build_wiki_plan(
+        &wiki_mds,
+        &mut md_to_block_id,
+        &mut summary,
+        planned_items,
+        limits.max_entries,
+        page_limits,
+    )?;
 
     let lookup = Arc::new(AssetLookup {
         by_logical: logical_entries
@@ -178,6 +181,7 @@ pub(crate) async fn convert_notion_bundle(
         md_to_block_id,
     });
     let mut containers = Vec::new();
+    let mut body_budget = BodyBudget::default();
 
     if !wiki_plan.pages.is_empty() {
         let wiki_title = wrapper_title.as_deref().unwrap_or("Notion Import");
@@ -187,6 +191,7 @@ pub(crate) async fn convert_notion_bundle(
             bundle,
             &lookup,
             limits,
+            &mut body_budget,
             &mut summary,
         )
         .await?;
@@ -202,6 +207,7 @@ pub(crate) async fn convert_notion_bundle(
             bundle,
             &lookup,
             limits,
+            &mut body_budget,
             &mut summary,
         )
         .await?;
@@ -402,13 +408,43 @@ struct WikiPlan<'a> {
     pages: Vec<PlannedPage<'a>>,
 }
 
+fn check_planned_wiki_pages(
+    page_count: usize,
+    planned_items: u64,
+    max_entries: u64,
+    page_limits: PageLimits,
+) -> Result<(), AppError> {
+    if page_count == 0 {
+        return Ok(());
+    }
+    let total_items = planned_items
+        .saturating_add(1)
+        .saturating_add(u64::try_from(page_count).unwrap_or(u64::MAX));
+    if total_items > max_entries {
+        return Err(too_many_notion_items(max_entries));
+    }
+    if usize::try_from(page_limits.pages).is_ok_and(|most| page_count > most) {
+        return Err(refused_without_member(StoreError::InvalidBlock {
+            id: String::new(),
+            source: BlockError::TooManyPages {
+                limit: page_limits.pages,
+            },
+        }));
+    }
+    Ok(())
+}
+
 /// Builds the Wiki page hierarchy from unclaimed Markdown entries, synthesizing folder
-/// pages when a subfolder has no matching `<folder>.md` sibling.
+/// pages when a subfolder has no matching `<folder>.md` sibling, and enforcing item and
+/// wiki page count limits before any Markdown body is parsed.
 fn build_wiki_plan<'a>(
     wiki_mds: &[&'a LogicalEntry<'a>],
     md_to_block_id: &mut HashMap<String, String>,
     summary: &mut ImportSummary,
-) -> WikiPlan<'a> {
+    planned_items: u64,
+    max_entries: u64,
+    page_limits: PageLimits,
+) -> Result<WikiPlan<'a>, AppError> {
     let mut nodes_by_key: BTreeMap<String, (String, Option<&'a LogicalEntry<'a>>)> =
         BTreeMap::new();
     for item in wiki_mds {
@@ -421,6 +457,12 @@ fn build_wiki_plan<'a>(
             );
             continue;
         }
+        check_planned_wiki_pages(
+            nodes_by_key.len().saturating_add(1),
+            planned_items,
+            max_entries,
+            page_limits,
+        )?;
         let id = new_id();
         md_to_block_id.insert(item.logical_path.clone(), id.clone());
         nodes_by_key.insert(key, (id, Some(*item)));
@@ -431,6 +473,12 @@ fn build_wiki_plan<'a>(
         let mut current = key.as_str();
         while let Some((parent, _)) = current.rsplit_once('/') {
             if !nodes_by_key.contains_key(parent) {
+                check_planned_wiki_pages(
+                    nodes_by_key.len().saturating_add(1),
+                    planned_items,
+                    max_entries,
+                    page_limits,
+                )?;
                 nodes_by_key.insert(parent.to_owned(), (new_id(), None));
             }
             current = parent;
@@ -477,7 +525,7 @@ fn build_wiki_plan<'a>(
             queue.push(child_key.clone());
         }
     }
-    WikiPlan { pages }
+    Ok(WikiPlan { pages })
 }
 
 async fn convert_markdown_off_thread(
@@ -522,6 +570,7 @@ async fn build_wiki_container(
     bundle: &SafeBundle,
     lookup: &Arc<AssetLookup>,
     limits: &BundleLimits,
+    body_budget: &mut BodyBudget,
     summary: &mut ImportSummary,
 ) -> Result<StagedContainer, AppError> {
     let wiki_id = new_id();
@@ -548,6 +597,7 @@ async fn build_wiki_container(
                 staged_files,
             )
             .await?;
+            body_budget.charge(body.as_ref())?;
             file_placeholders = next_placeholders;
             staged_files = next_files;
             for notice in notices {
@@ -601,6 +651,7 @@ async fn build_board_container(
     bundle: &SafeBundle,
     lookup: &Arc<AssetLookup>,
     limits: &BundleLimits,
+    body_budget: &mut BodyBudget,
     summary: &mut ImportSummary,
 ) -> Result<StagedContainer, AppError> {
     let board_id = new_id();
@@ -639,6 +690,7 @@ async fn build_board_container(
                 staged_files,
             )
             .await?;
+            body_budget.charge(body.as_ref())?;
             file_placeholders = next_placeholders;
             staged_files = next_files;
             for notice in notices {

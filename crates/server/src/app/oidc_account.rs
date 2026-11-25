@@ -114,13 +114,13 @@ pub(super) struct FoundAccount<'a> {
 }
 
 /// The address a provider vouches for: one it gives, that reads as an address, and
-/// that it does not say is unverified.
+/// that it explicitly marks as verified (`email_verified == Some(true)`, `H-8`).
 pub(super) fn proved_address(claims: &IdClaims) -> Option<&str> {
     claims
         .email
         .as_deref()
         .map(str::trim)
-        .filter(|email| is_email_valid(email) && claims.email_verified != Some(false))
+        .filter(|email| is_email_valid(email) && claims.email_verified == Some(true))
 }
 
 /// The user name of a new account, before it is seen to be free: what the provider
@@ -174,9 +174,9 @@ mod tests {
             Some("a@b.test")
         );
         assert_eq!(
-            vouched(&said(Some("a@b.test"), None)).as_deref(),
-            Some("a@b.test"),
-            "said, and not called unverified"
+            vouched(&said(Some("a@b.test"), None)),
+            None,
+            "missing email_verified is never treated as verified"
         );
         assert_eq!(vouched(&said(Some("a@b.test"), Some(false))), None);
         assert_eq!(vouched(&said(Some("no address"), Some(true))), None);

@@ -11,12 +11,13 @@ use serde_json::{Map, Value};
 
 use super::mail::loopback_address;
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 6] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 7] = [
     ("search_url", super::EnvKind::Text),
     ("search_username", super::EnvKind::Text),
     ("search_password", super::EnvKind::Text),
     ("search_api_key", super::EnvKind::Text),
     ("search_index", super::EnvKind::Text),
+    ("search_ca_file", super::EnvKind::Text),
     ("search_requests_per_second", super::EnvKind::Number),
 ];
 
@@ -47,6 +48,10 @@ pub struct SearchSettings {
     pub search_api_key: String,
     /// The index that is this server's, which it makes, and makes again.
     pub search_index: String,
+    /// Optional PEM file of additional root certificates trusted exclusively by the
+    /// search HTTP client (`FVOCI_SEARCH_CA_FILE`), keeping search TLS trust isolated
+    /// from OIDC, webhooks, S3, and mail.
+    pub search_ca_file: String,
     /// How many searches a user may make in a second; 0 for no limit.
     pub search_requests_per_second: u32,
     /// Whether the upkeep of the search runs only when it is called
@@ -68,6 +73,7 @@ impl Default for SearchSettings {
             search_password: String::new(),
             search_api_key: String::new(),
             search_index: "fvoci".to_owned(),
+            search_ca_file: String::new(),
             search_requests_per_second: 5,
             upkeep_by_hand: false,
             timeout: SEARCH_TIMEOUT,
@@ -81,6 +87,7 @@ impl fmt::Debug for SearchSettings {
             .field("search_url", &shown_url(&self.search_url))
             .field("search_username", &self.search_username)
             .field("search_index", &self.search_index)
+            .field("search_ca_file", &self.search_ca_file)
             .field(
                 "search_requests_per_second",
                 &self.search_requests_per_second,
@@ -125,6 +132,8 @@ pub struct SearchServer {
     pub credentials: SearchCredentials,
     /// The index that is this server's.
     pub index: String,
+    /// Optional PEM file of root certificates trusted only for this search server.
+    pub ca_file: Option<String>,
 }
 
 impl SearchSettings {
@@ -148,6 +157,7 @@ impl SearchSettings {
                 ("search_username", &self.search_username),
                 ("search_password", &self.search_password),
                 ("search_api_key", &self.search_api_key),
+                ("search_ca_file", &self.search_ca_file),
             ]
             .into_iter()
             .find(|(_, value)| !value.is_empty());
@@ -156,10 +166,13 @@ impl SearchSettings {
             }
             return Ok(None);
         }
+        let ca_file =
+            (!self.search_ca_file.trim().is_empty()).then(|| self.search_ca_file.trim().to_owned());
         Ok(Some(SearchServer {
             url: self.url()?,
             credentials: self.credentials()?,
             index: self.index()?,
+            ca_file,
         }))
     }
 

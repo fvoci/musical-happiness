@@ -164,9 +164,10 @@ impl ReadingCache {
         if new_blocks.is_empty() {
             return true;
         }
+        let delete_index = DeleteIndex::of(txn_deletes);
         for block in &new_blocks {
             if (block.holds.is_squashable() || block.holds == Holds::Collected)
-                && overlaps_any_delete(block.client, block.begin, block.end, txn_deletes)
+                && delete_index.overlaps(block.client, block.begin, block.end)
             {
                 return false;
             }
@@ -175,18 +176,14 @@ impl ReadingCache {
             return false;
         };
         for block in ordered {
-            if !self.integrate_one_block(&block, txn_deletes) {
+            if !self.integrate_one_block(&block, &delete_index) {
                 return false;
             }
         }
         true
     }
 
-    fn integrate_one_block(
-        &mut self,
-        block: &ParsedBlock<'_>,
-        txn_deletes: &[(u64, u32, u32)],
-    ) -> bool {
+    fn integrate_one_block(&mut self, block: &ParsedBlock<'_>, delete_index: &DeleteIndex) -> bool {
         if block.holds == Holds::Collected {
             return false;
         }
@@ -235,7 +232,7 @@ impl ReadingCache {
         if !self.is_conflict_free(parent, sub, origin_item, right_item) {
             return false;
         }
-        match self.try_squash_onto_prev(client_idx, block, origin_item, right_item, txn_deletes) {
+        match self.try_squash_onto_prev(client_idx, block, origin_item, right_item, delete_index) {
             SquashOutcome::Squashed => true,
             SquashOutcome::Fallback => false,
             SquashOutcome::NotSquashed => {
@@ -359,7 +356,7 @@ impl ReadingCache {
         block: &ParsedBlock<'_>,
         origin_item: Option<u32>,
         right_item: Option<u32>,
-        txn_deletes: &[(u64, u32, u32)],
+        delete_index: &DeleteIndex,
     ) -> SquashOutcome {
         let run = &self.runs[index(client_idx)];
         if run.is_empty() {
@@ -376,7 +373,7 @@ impl ReadingCache {
         if origin_item != Some(prev_idx)
             || block.left != Some((block.client, u64::from(prev_last)))
             || prev.deleted()
-            || overlaps_any_delete(block.client, prev_last, prev_end, txn_deletes)
+            || delete_index.overlaps(block.client, prev_last, prev_end)
             || prev.holds() != block.holds
             || prev.right != right_item.unwrap_or(NONE)
             || !block.holds.is_squashable()
@@ -950,8 +947,36 @@ fn first_missing_run(
         })
 }
 
-fn overlaps_any_delete(client: u64, begin: u32, end: u32, deletes: &[(u64, u32, u32)]) -> bool {
-    deletes
-        .iter()
-        .any(|&(dc, ds, de)| dc == client && ds < end && begin < de)
+/// Per-client sorted, merged deletion intervals for `O(log D)` overlap queries (`H1`).
+struct DeleteIndex(HashMap<u64, Vec<(u32, u32)>>);
+
+impl DeleteIndex {
+    fn of(deletes: &[(u64, u32, u32)]) -> Self {
+        if deletes.is_empty() {
+            return Self(HashMap::new());
+        }
+        let mut by: HashMap<u64, Vec<(u32, u32)>> = HashMap::new();
+        for &(client, start, end) in deletes {
+            if start < end {
+                by.entry(client).or_default().push((start, end));
+            }
+        }
+        for ranges in by.values_mut() {
+            ranges.sort_unstable();
+            ranges.dedup_by(|next, kept| {
+                (next.0 <= kept.1)
+                    .then(|| kept.1 = kept.1.max(next.1))
+                    .is_some()
+            });
+        }
+        Self(by)
+    }
+
+    fn overlaps(&self, client: u64, begin: u32, end: u32) -> bool {
+        let Some(ranges) = self.0.get(&client) else {
+            return false;
+        };
+        let at = ranges.partition_point(|&(_, de)| de <= begin);
+        ranges.get(at).is_some_and(|&(ds, _)| ds < end)
+    }
 }

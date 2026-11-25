@@ -31,7 +31,7 @@ impl FileToUpload {
         if let Err(unfit) = check_file_name(&self.name) {
             let reason = match unfit {
                 UnfitName::TooLong => RefusalReason::TooLong,
-                UnfitName::Nul => RefusalReason::InvalidCharacters,
+                UnfitName::Nul | UnfitName::ControlOrBidi => RefusalReason::InvalidCharacters,
                 UnfitName::NoFile => RefusalReason::Required,
                 UnfitName::Dots => RefusalReason::InvalidFormat,
             };

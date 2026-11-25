@@ -242,11 +242,9 @@ pub enum BlockError {
     /// it.
     #[error("a comment is the parent of no block")]
     ParentIsComment,
-    /// A change of type that would leave a comment off a card or a page: a block with
-    /// blocks below it becomes a comment, a block off a card becomes a comment where it
-    /// stands, or a card with comments becomes another type.
-    #[error("the type would leave a comment off a card or a page")]
-    TypeStrandsComments,
+    /// A write attempts to change the type of an existing block.
+    #[error("a block's type does not change")]
+    TypeChanges,
     /// The title is longer than [`BLOCK_TITLE_MAX_CHARS`].
     #[error("block title size limit exceeded")]
     TitleSizeLimitExceeded,
@@ -416,9 +414,6 @@ pub enum BlockError {
     /// A card that has sub-cards is turned into a template card.
     #[error("a card with sub-cards cannot become a template")]
     TemplateCardHasChildren,
-    /// A card with sub-cards is changed to another block type.
-    #[error("the type would leave a sub-card off a card")]
-    TypeStrandsCards,
     /// A card, or a sub-card below it, would be deeper on its board than the limit.
     #[error("the card would be deeper on its board than {limit}")]
     CardTooDeep {
@@ -843,17 +838,14 @@ impl Block {
     }
 }
 
-/// A partial update of a [`Block`]. Absent members leave the block unchanged.
+/// A partial update of a [`Block`]. Absent members leave the block unchanged. A block's
+/// [`BlockType`] is fixed when the block is created and cannot be patched.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BlockPatch {
     /// The new parent identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
-    /// The new block type: `card`, `view`, `comment` or `attachment`. Any other is
-    /// refused (400 naming `type`).
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub block_type: Option<BlockType>,
     /// The new title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -925,9 +917,6 @@ impl BlockPatch {
         if let Some(parent_id) = &self.parent_id {
             block.parent_id.clone_from(parent_id);
         }
-        if let Some(block_type) = self.block_type {
-            block.block_type = block_type;
-        }
         if let Some(title) = &self.title {
             block.title.clone_from(title);
         }
@@ -939,18 +928,6 @@ impl BlockPatch {
         }
         self.property_changes.apply_to_fields(&mut block.fields);
         self.body.apply_to(&mut block.body);
-    }
-
-    /// Checks the type the patch gives a block: none, or one a block may be given.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`BlockError::TypeNotCurrent`] for another type.
-    pub fn check_type(&self) -> Result<(), BlockError> {
-        match &self.block_type {
-            Some(new_type) if !new_type.is_current() => Err(BlockError::type_not_current(new_type)),
-            _ => Ok(()),
-        }
     }
 }
 

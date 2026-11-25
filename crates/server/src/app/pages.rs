@@ -61,7 +61,7 @@ impl App {
         let wiki = self.store().get_container(wiki_id).await?;
         let limits = self.limits().pages;
         let written = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, wiki_id).await;
             self.store()
                 .create_page(wiki_id, new, limits, user_id)
                 .await?
@@ -93,7 +93,7 @@ impl App {
         let wiki = self.store().get_container(wiki_id).await?;
         let limits = self.limits().pages;
         let written = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, wiki_id).await;
             self.store()
                 .move_page(wiki_id, page_id, to, limits, user_id)
                 .await?
@@ -137,7 +137,7 @@ impl App {
             mut pages,
             renumbered,
         } = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, wiki_id).await;
             self.store()
                 .duplicate_page(wiki_id, page_id, title, limits, user_id)
                 .await
@@ -238,7 +238,7 @@ impl App {
         let wiki = self.store().get_container(wiki_id).await?;
         let limits = self.limits().pages;
         let restored = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, wiki_id).await;
             self.store()
                 .undelete_page(wiki_id, page_id, limits, user_id)
                 .await

@@ -83,6 +83,9 @@ impl App {
         let Some(within) = self.enter_org_as_member(user_id, org_id).await? else {
             return Err(AppError::not_found("organization"));
         };
+        within
+            .collab()
+            .narrowing_access(&within, &AccessScope::organization().of_user(user_id));
         match within.store().leave_organization(user_id).await? {
             Departure::Left(left) => {
                 tracing::info!(org_id, user_id, "an account left an organization");

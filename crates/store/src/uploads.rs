@@ -64,9 +64,11 @@ impl Store {
         self.with_conn(async |scope| {
             // A closed session is left to whoever closed it for the grace, also past its
             // end: a completion that began just before the end is not cut off.
-            let mut sql = scope.sql(&format!(
-                "SELECT {UPLOAD_COLUMNS} FROM uploads WHERE (closed_at = 0 AND expires_at <= "
-            ));
+            let mut sql = scope.sql([
+                "SELECT ",
+                UPLOAD_COLUMNS,
+                " FROM uploads WHERE (closed_at = 0 AND expires_at <= ",
+            ]);
             sql.bind(now)
                 .push_bind(") OR (closed_at <> 0 AND closed_at < ", closed_before)
                 .push(") ORDER BY expires_at");
@@ -116,7 +118,7 @@ impl Store {
                 UploadPurpose::File => &upload.container_id,
                 UploadPurpose::Import => &upload.workspace_id,
             };
-            let mut sql = scope.sql(&format!("INSERT INTO uploads ({UPLOAD_COLUMNS}) VALUES ("));
+            let mut sql = scope.sql(["INSERT INTO uploads (", UPLOAD_COLUMNS, ") VALUES ("]);
             sql.bind(&upload.id)
                 .push_bind(", ", Id(&upload.user_id))
                 .push_bind(", ", Id(target))
@@ -151,7 +153,7 @@ impl Store {
         now: i64,
     ) -> Result<Upload, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!("SELECT {UPLOAD_COLUMNS} FROM uploads WHERE id = "));
+            let mut sql = scope.sql(["SELECT ", UPLOAD_COLUMNS, " FROM uploads WHERE id = "]);
             sql.bind(upload_id)
                 .push_bind(" AND user_id = ", Id(user_id))
                 .push_bind(" AND expires_at > ", now);

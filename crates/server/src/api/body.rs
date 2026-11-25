@@ -130,13 +130,20 @@ pub(crate) fn take_patch_bodies<'a>(
     patches
         .into_iter()
         .enumerate()
-        .map(
-            |(index, patch)| match patch.and_then(|patch| patch.remove("body")) {
+        .map(|(index, patch)| {
+            if patch
+                .as_ref()
+                .is_some_and(|patch| patch.contains_key("type"))
+            {
+                return Err(AppError::from(fvoci_model::BlockError::TypeChanges)
+                    .under(&element_pointer(list, index)));
+            }
+            match patch.and_then(|patch| patch.remove("body")) {
                 None => Ok(BodyChange::Keep),
                 Some(value) => BodyChange::parse(value)
                     .map_err(|error| body_refused(error).under(&element_pointer(list, index))),
-            },
-        )
+            }
+        })
         .collect()
 }
 

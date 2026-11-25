@@ -1,8 +1,11 @@
 //! Course exams (`course_exams`) and strictly personal exam scores (`exam_scores`).
 //!
 //! Individual scores and notes are never returned for any user other than the authenticated
-//! caller. Aggregate statistics (`average_score`, `score_count`) are computed exclusively
-//! over active enrolled course members whose accounts are live.
+//! caller. Aggregate statistics (`average_score`, `published_score_bucket`) are disclosed
+//! only from a frozen snapshot created when a course administrator explicitly publishes
+//! results (`publish_course_exam_results`), requiring at least [`MIN_SCORERS_TO_PUBLISH`]
+//! active scorers and rounded to 0.1 / buckets of 5 so neither learners nor administrators
+//! can reverse-engineer an individual score via time-differencing.
 //!
 //! Rows survive soft deletion of a course into the trash and are removed on permanent
 //! purge ([`forget_gone_containers`]). Personal `exam_scores` rows are deleted when a user
@@ -18,12 +21,20 @@ use fvoci_model::{
 };
 
 use crate::Store;
-use crate::containers::inherited_members_source;
+use crate::course_cleanup::{self, PersonalCourseTable};
 use crate::course_meetings::{
     push_active_course_members_subquery, require_active_course_member, require_live_course,
 };
-use crate::db::{Dialect, Id, Param, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, Param, Row, Scope};
 use crate::error::StoreError;
+
+/// Minimum active enrolled course members with a recorded score required to publish an
+/// exam result snapshot (`P2-2`).
+pub const MIN_SCORERS_TO_PUBLISH: u32 = 5;
+
+/// Minimum absolute change in active scorer count since the last published snapshot
+/// required before republishing exam results (`P2-2`).
+pub const MIN_SCORER_DELTA_TO_REPUBLISH: u32 = 3;
 
 /// Outcome of recording the caller's personal exam score.
 #[derive(Debug, Clone, PartialEq)]
@@ -37,16 +48,91 @@ pub enum ExamScoreOutcome {
     },
 }
 
+/// Reason publishing or republishing exam results was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExamPublishError {
+    /// Fewer than [`MIN_SCORERS_TO_PUBLISH`] active course members have recorded a score.
+    TooFewScorers {
+        /// Current active scorer count.
+        active_scorers: u32,
+        /// Minimum active scorers required (`5`).
+        minimum: u32,
+    },
+    /// Results were already published and the active scorer count has changed by fewer
+    /// than [`MIN_SCORER_DELTA_TO_REPUBLISH`] since the previous snapshot.
+    TooFewChangesSincePublish {
+        /// Current active scorer count.
+        current_scorers: u32,
+        /// Active scorer count recorded at the previous publication.
+        previous_scorers: u32,
+        /// Minimum absolute change required (`3`).
+        minimum_delta: u32,
+    },
+}
+
+impl std::fmt::Display for ExamPublishError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooFewScorers {
+                active_scorers,
+                minimum,
+            } => write!(
+                f,
+                "exam results require at least {minimum} active member scores to publish (currently {active_scorers})"
+            ),
+            Self::TooFewChangesSincePublish {
+                current_scorers,
+                previous_scorers,
+                minimum_delta,
+            } => write!(
+                f,
+                "republishing exam results requires a change of at least {minimum_delta} active member scores since the last snapshot ({previous_scorers} -> {current_scorers})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ExamPublishError {}
+
+struct StoredExam {
+    exam: CourseExam,
+    results_published_at: Option<i64>,
+    published_average_score: Option<f64>,
+    published_score_bucket: Option<u32>,
+    published_submission_count: Option<u32>,
+}
+
+impl StoredExam {
+    fn into_view(
+        mut self,
+        caller_present: bool,
+        live_score_count: u32,
+        my_score: Option<MyExamScore>,
+    ) -> CourseExam {
+        if caller_present {
+            self.exam.score_count = live_score_count;
+            self.exam.my_score = my_score;
+            if self.results_published_at.is_some() {
+                self.exam.results_published_at = self.results_published_at;
+                self.exam.average_score = self.published_average_score;
+                self.exam.published_score_bucket = self.published_score_bucket;
+            }
+        }
+        self.exam
+    }
+}
+
 impl Store {
     /// Lists all exams of live course `course_id`, ordered by `exam_date ASC NULLS LAST,
     /// created_at ASC, id ASC`.
     ///
-    /// When `caller_user_id` is `Some(uid)` (an active enrolled course member), includes
-    /// `my_score` strictly for `uid`, `score_count` across active enrolled course
-    /// members, and `average_score` only when at least 2 other active members (`<> uid`)
-    /// have recorded a score. When `caller_user_id` is `None` (unjoined reader), omits
-    /// `my_score` and suppresses aggregates (`average_score: None`, `score_count: 0`).
-    /// Never fetches or returns any other member's individual score or note.
+    /// When `caller_user_id` is `Some(uid)` (an active enrolled course member or course
+    /// administrator), includes `my_score` strictly for `uid`, `score_count` across active
+    /// enrolled course members, and the frozen snapshot (`average_score`,
+    /// `results_published_at`, `published_score_bucket`) if and only if results have been
+    /// published. Before publication, `average_score` is `None` for every caller
+    /// (including administrators). When `caller_user_id` is `None` (unjoined reader),
+    /// omits `my_score` and suppresses all aggregates.
     ///
     /// # Errors
     ///
@@ -61,7 +147,9 @@ impl Store {
             let org = scope.org()?;
             let mut sql = scope.sql(
                 "SELECT e.id, e.container_id, e.title, e.exam_date, e.max_score, \
-                 e.description, e.created_at, e.updated_at \
+                 e.description, e.created_at, e.updated_at, e.results_published_at, \
+                 e.published_average_score, e.published_score_bucket, \
+                 e.published_submission_count \
                  FROM course_exams AS e \
                  JOIN containers AS c ON c.id = e.container_id \
                  JOIN workspaces AS w ON w.id = c.workspace_id \
@@ -80,26 +168,29 @@ impl Store {
                      e.exam_date ASC, e.created_at ASC, e.id ASC",
                 );
             let rows = scope.fetch_all(sql).await?;
-            let mut exams = Vec::with_capacity(rows.len());
+            let mut stored = Vec::with_capacity(rows.len());
             for row in &rows {
-                exams.push(exam_from_row(row)?);
+                stored.push(stored_exam_from_row(row)?);
             }
-            if exams.is_empty() {
-                return Ok(exams);
+            if stored.is_empty() {
+                return Ok(Vec::new());
             }
             let Some(uid) = caller_user_id else {
-                return Ok(exams);
+                return Ok(stored
+                    .into_iter()
+                    .map(|item| item.into_view(false, 0, None))
+                    .collect());
             };
-            let mut stats = fetch_exam_stats(scope, course_id, &org, uid, None).await?;
+            let mut counts = fetch_exam_counts(scope, course_id, &org, None).await?;
             let mut my_scores = fetch_my_scores(scope, course_id, &org, uid, None).await?;
-            for exam in &mut exams {
-                if let Some((average, count)) = stats.remove(&exam.id) {
-                    exam.average_score = average;
-                    exam.score_count = count;
-                }
-                exam.my_score = my_scores.remove(&exam.id);
-            }
-            Ok(exams)
+            Ok(stored
+                .into_iter()
+                .map(|item| {
+                    let count = counts.remove(&item.exam.id).unwrap_or(0);
+                    let mine = my_scores.remove(&item.exam.id);
+                    item.into_view(true, count, mine)
+                })
+                .collect())
         })
         .await
     }
@@ -120,7 +211,7 @@ impl Store {
             let org = scope.org()?;
             require_live_course(scope, course_id, org.clone()).await?;
             let id = new_id();
-            let now = now_millis();
+            let now = scope.now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO course_exams \
                  (id, org_id, container_id, title, exam_date, max_score, description, \
@@ -150,14 +241,16 @@ impl Store {
                 my_score: None,
                 average_score: None,
                 score_count: 0,
+                results_published_at: None,
+                published_score_bucket: None,
             })
         })
         .await
     }
 
     /// Updates an exam of live course `course_id` and returns the updated view for
-    /// `caller_user_id` under the same `my_score`, `score_count`, and k-anonymity
-    /// (`>= 2` other active scorers) rules as [`Store::list_course_exams`].
+    /// `caller_user_id` under the same snapshot visibility rules as
+    /// [`Store::list_course_exams`].
     ///
     /// Changing `max_score` intentionally does not inspect other members' stored scores
     /// so it cannot be used as an oracle to probe private scores.
@@ -177,56 +270,195 @@ impl Store {
         self.transaction(async |scope| {
             let org = scope.org()?;
             require_live_course(scope, course_id, org.clone()).await?;
-            let existing = fetch_exam_for_update(scope, course_id, exam_id, &org).await?;
-            let now = now_millis();
-            let title = change.title.as_deref().unwrap_or(&existing.title);
+            let mut existing = fetch_exam_for_update(scope, course_id, exam_id, &org).await?;
+            let now = scope.now_millis();
+            let title = change
+                .title
+                .as_deref()
+                .unwrap_or(&existing.exam.title)
+                .to_owned();
             let exam_date = match &change.exam_date {
-                ExamDateChange::Keep => existing.exam_date.clone(),
+                ExamDateChange::Keep => existing.exam.exam_date.clone(),
                 ExamDateChange::Clear => None,
                 ExamDateChange::Set(date) => Some(date.clone()),
             };
-            let max_score = change.max_score.unwrap_or(existing.max_score);
+            let max_score = change.max_score.unwrap_or(existing.exam.max_score);
             let description = change
                 .description
                 .as_deref()
-                .unwrap_or(&existing.description);
+                .unwrap_or(&existing.exam.description)
+                .to_owned();
             let mut sql = scope.sql("UPDATE course_exams SET title = ");
             sql.changing_no_access()
-                .bind(title)
+                .bind(&title)
                 .push_bind(", exam_date = ", Param::OptText(exam_date.clone()))
                 .push_bind(", max_score = ", max_score)
-                .push_bind(", description = ", description)
+                .push_bind(", description = ", &description)
                 .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(exam_id))
                 .push_bind(" AND org_id = ", org.clone())
                 .push_bind(" AND container_id = ", Id(course_id));
             scope.execute(sql).await?;
 
-            let (average_score, score_count, my_score) = match caller_user_id {
+            existing.exam.title = title;
+            existing.exam.exam_date = exam_date;
+            existing.exam.max_score = max_score;
+            existing.exam.description = description;
+            existing.exam.updated_at = now;
+
+            match caller_user_id {
                 Some(uid) => {
-                    let mut stats =
-                        fetch_exam_stats(scope, course_id, &org, uid, Some(exam_id)).await?;
-                    let (avg, cnt) = stats.remove(exam_id).unwrap_or((None, 0));
+                    let count = fetch_exam_counts(scope, course_id, &org, Some(exam_id))
+                        .await?
+                        .remove(exam_id)
+                        .unwrap_or(0);
                     let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
                         .await?
                         .remove(exam_id);
-                    (avg, cnt, mine)
+                    Ok(existing.into_view(true, count, mine))
                 }
-                None => (None, 0, None),
-            };
-            Ok(CourseExam {
-                id: existing.id,
-                container_id: existing.container_id,
-                title: title.to_owned(),
-                exam_date,
-                max_score,
-                description: description.to_owned(),
-                created_at: existing.created_at,
-                updated_at: now,
-                my_score,
-                average_score,
-                score_count,
-            })
+                None => Ok(existing.into_view(false, 0, None)),
+            }
+        })
+        .await
+    }
+
+    /// Publishes or republishes the coarse exam result snapshot (`averageScore` rounded to
+    /// `0.1`, `publishedScoreBucket` rounded down to a multiple of `5`) on live course
+    /// `course_id`.
+    ///
+    /// Requires at least [`MIN_SCORERS_TO_PUBLISH`] active enrolled course members with a
+    /// recorded score, and when republishing an already-published exam requires at least
+    /// [`MIN_SCORER_DELTA_TO_REPUBLISH`] net scorer count change since the previous
+    /// snapshot (`P2-2`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names no organization,
+    /// [`StoreError::NotFound`] if the course or exam does not exist, and
+    /// [`StoreError::Database`] if a statement fails.
+    pub async fn publish_course_exam_results(
+        &self,
+        course_id: &str,
+        exam_id: &str,
+        caller_user_id: Option<&str>,
+    ) -> Result<Result<CourseExam, ExamPublishError>, StoreError> {
+        if !is_id(exam_id) {
+            return Err(StoreError::not_found("exam"));
+        }
+        self.transaction(async |scope| {
+            let org = scope.org()?;
+            require_live_course(scope, course_id, org.clone()).await?;
+            let mut existing = fetch_exam_for_update(scope, course_id, exam_id, &org).await?;
+            let (count, raw_avg) =
+                fetch_single_exam_aggregate(scope, course_id, &org, exam_id).await?;
+            if count < MIN_SCORERS_TO_PUBLISH {
+                return Ok(Err(ExamPublishError::TooFewScorers {
+                    active_scorers: count,
+                    minimum: MIN_SCORERS_TO_PUBLISH,
+                }));
+            }
+            if existing.results_published_at.is_some()
+                && let Some(previous_scorers) = existing.published_submission_count
+                && count.abs_diff(previous_scorers) < MIN_SCORER_DELTA_TO_REPUBLISH
+            {
+                return Ok(Err(ExamPublishError::TooFewChangesSincePublish {
+                    current_scorers: count,
+                    previous_scorers,
+                    minimum_delta: MIN_SCORER_DELTA_TO_REPUBLISH,
+                }));
+            }
+            let rounded = (raw_avg.unwrap_or(0.0) * 10.0).round() / 10.0;
+            let rounded_avg = if rounded == 0.0 { 0.0 } else { rounded };
+            let bucket = (count / 5) * 5;
+            let now = scope.now_millis();
+
+            let mut sql = scope.sql("UPDATE course_exams SET results_published_at = ");
+            sql.changing_no_access()
+                .bind(now)
+                .push_bind(", published_average_score = ", rounded_avg)
+                .push_bind(", published_score_bucket = ", i64::from(bucket))
+                .push_bind(", published_submission_count = ", i64::from(count))
+                .push_bind(", updated_at = ", now)
+                .push_bind(" WHERE id = ", Id(exam_id))
+                .push_bind(" AND org_id = ", org.clone())
+                .push_bind(" AND container_id = ", Id(course_id));
+            scope.execute(sql).await?;
+
+            existing.exam.updated_at = now;
+            existing.results_published_at = Some(now);
+            existing.published_average_score = Some(rounded_avg);
+            existing.published_score_bucket = Some(bucket);
+            existing.published_submission_count = Some(count);
+
+            match caller_user_id {
+                Some(uid) => {
+                    let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
+                        .await?
+                        .remove(exam_id);
+                    Ok(Ok(existing.into_view(true, count, mine)))
+                }
+                None => Ok(Ok(existing.into_view(false, 0, None))),
+            }
+        })
+        .await
+    }
+
+    /// Unpublishes the exam result snapshot on live course `course_id`, clearing
+    /// `results_published_at`, `published_average_score`, `published_score_bucket`, and
+    /// `published_submission_count`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names no organization,
+    /// [`StoreError::NotFound`] if the course or exam does not exist, and
+    /// [`StoreError::Database`] if a statement fails.
+    pub async fn unpublish_course_exam_results(
+        &self,
+        course_id: &str,
+        exam_id: &str,
+        caller_user_id: Option<&str>,
+    ) -> Result<CourseExam, StoreError> {
+        if !is_id(exam_id) {
+            return Err(StoreError::not_found("exam"));
+        }
+        self.transaction(async |scope| {
+            let org = scope.org()?;
+            require_live_course(scope, course_id, org.clone()).await?;
+            let mut existing = fetch_exam_for_update(scope, course_id, exam_id, &org).await?;
+            let now = scope.now_millis();
+
+            let mut sql = scope.sql(
+                "UPDATE course_exams SET results_published_at = NULL, \
+                 published_average_score = NULL, published_score_bucket = NULL, \
+                 published_submission_count = NULL, updated_at = ",
+            );
+            sql.changing_no_access()
+                .bind(now)
+                .push_bind(" WHERE id = ", Id(exam_id))
+                .push_bind(" AND org_id = ", org.clone())
+                .push_bind(" AND container_id = ", Id(course_id));
+            scope.execute(sql).await?;
+
+            existing.exam.updated_at = now;
+            existing.results_published_at = None;
+            existing.published_average_score = None;
+            existing.published_score_bucket = None;
+            existing.published_submission_count = None;
+
+            match caller_user_id {
+                Some(uid) => {
+                    let count = fetch_exam_counts(scope, course_id, &org, Some(exam_id))
+                        .await?
+                        .remove(exam_id)
+                        .unwrap_or(0);
+                    let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
+                        .await?
+                        .remove(exam_id);
+                    Ok(existing.into_view(true, count, mine))
+                }
+                None => Ok(existing.into_view(false, 0, None)),
+            }
         })
         .await
     }
@@ -302,7 +534,7 @@ impl Store {
                 return Ok(ExamScoreOutcome::ExceedsMaxScore { max_score });
             }
             let score = if input.score == 0.0 { 0.0 } else { input.score };
-            let now = now_millis();
+            let now = scope.now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO exam_scores \
                  (exam_id, org_id, container_id, user_id, score, note, updated_at) VALUES (",
@@ -423,10 +655,11 @@ async fn fetch_exam_for_update(
     course_id: &str,
     exam_id: &str,
     org: &Param,
-) -> Result<CourseExam, StoreError> {
+) -> Result<StoredExam, StoreError> {
     let mut sql = scope.sql(
         "SELECT id, container_id, title, exam_date, max_score, description, created_at, \
-         updated_at FROM course_exams WHERE id = ",
+         updated_at, results_published_at, published_average_score, published_score_bucket, \
+         published_submission_count FROM course_exams WHERE id = ",
     );
     sql.bind(Id(exam_id))
         .push_bind(" AND org_id = ", org.clone())
@@ -437,27 +670,17 @@ async fn fetch_exam_for_update(
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Err(StoreError::not_found("exam"));
     };
-    exam_from_row(&row)
+    stored_exam_from_row(&row)
 }
 
-/// Minimum number of other active course members who must have submitted a score before
-/// `averageScore` is disclosed, preventing single-scorer exposure and two-scorer
-/// subtraction (`2 * avg - myScore`).
-const MIN_OTHER_SCORERS_FOR_AVERAGE: i64 = 2;
-
-async fn fetch_exam_stats(
+async fn fetch_exam_counts(
     scope: &mut Scope<'_>,
     course_id: &str,
     org: &Param,
-    caller_user_id: &str,
     exam_id: Option<&str>,
-) -> Result<BTreeMap<String, (Option<f64>, u32)>, StoreError> {
+) -> Result<BTreeMap<String, u32>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT es.exam_id, AVG(es.score), COUNT(*), \
-         COUNT(CASE WHEN es.user_id <> ",
-    );
-    sql.bind(Id(caller_user_id)).push(
-        " THEN 1 END) \
+        "SELECT es.exam_id, COUNT(*) \
          FROM exam_scores AS es \
          JOIN ",
     );
@@ -469,20 +692,38 @@ async fn fetch_exam_stats(
         sql.push_bind(" AND es.exam_id = ", Id(eid));
     }
     sql.push(" GROUP BY es.exam_id");
-    let mut stats = BTreeMap::new();
+    let mut counts = BTreeMap::new();
     for row in scope.fetch_all(sql).await? {
-        let count = u32::try_from(row.int(2)?.max(0)).unwrap_or(u32::MAX);
-        let others = row.int(3)?.max(0);
+        let count = u32::try_from(row.int(1)?.max(0)).unwrap_or(u32::MAX);
         if count > 0 {
-            let avg = if others >= MIN_OTHER_SCORERS_FOR_AVERAGE {
-                row.opt_float(1)?.filter(|v| v.is_finite())
-            } else {
-                None
-            };
-            stats.insert(row.id(0)?, (avg, count));
+            counts.insert(row.id(0)?, count);
         }
     }
-    Ok(stats)
+    Ok(counts)
+}
+
+async fn fetch_single_exam_aggregate(
+    scope: &mut Scope<'_>,
+    course_id: &str,
+    org: &Param,
+    exam_id: &str,
+) -> Result<(u32, Option<f64>), StoreError> {
+    let mut sql = scope.sql(
+        "SELECT COUNT(*), AVG(es.score) \
+         FROM exam_scores AS es \
+         JOIN ",
+    );
+    push_active_course_members_subquery(scope, &mut sql, course_id, org.clone());
+    sql.push(" AS am ON am.user_id = es.user_id WHERE es.container_id = ")
+        .bind(Id(course_id))
+        .push_bind(" AND es.org_id = ", org.clone())
+        .push_bind(" AND es.exam_id = ", Id(exam_id));
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok((0, None));
+    };
+    let count = u32::try_from(row.int(0)?.max(0)).unwrap_or(u32::MAX);
+    let avg = row.opt_float(1)?.filter(|v| v.is_finite());
+    Ok((count, avg))
 }
 
 async fn fetch_my_scores(
@@ -516,48 +757,62 @@ async fn fetch_my_scores(
     Ok(scores)
 }
 
-fn exam_from_row(row: &Row) -> Result<CourseExam, StoreError> {
-    Ok(CourseExam {
-        id: row.id(0)?,
-        container_id: row.id(1)?,
-        title: row.text(2)?,
-        exam_date: row.opt_text(3)?,
-        max_score: row.float(4)?,
-        description: row.text(5)?,
-        created_at: row.int(6)?,
-        updated_at: row.int(7)?,
-        my_score: None,
-        average_score: None,
-        score_count: 0,
+fn stored_exam_from_row(row: &Row) -> Result<StoredExam, StoreError> {
+    let results_published_at = row.opt_int(8)?;
+    let published_average_score = row.opt_float(9)?.filter(|v| v.is_finite());
+    let published_score_bucket = row
+        .opt_int(10)?
+        .map(|v| u32::try_from(v.max(0)).unwrap_or(u32::MAX));
+    let published_submission_count = row
+        .opt_int(11)?
+        .map(|v| u32::try_from(v.max(0)).unwrap_or(u32::MAX));
+    Ok(StoredExam {
+        exam: CourseExam {
+            id: row.id(0)?,
+            container_id: row.id(1)?,
+            title: row.text(2)?,
+            exam_date: row.opt_text(3)?,
+            max_score: row.float(4)?,
+            description: row.text(5)?,
+            created_at: row.int(6)?,
+            updated_at: row.int(7)?,
+            my_score: None,
+            average_score: None,
+            score_count: 0,
+            results_published_at: None,
+            published_score_bucket: None,
+        },
+        results_published_at,
+        published_average_score,
+        published_score_bucket,
+        published_submission_count,
     })
 }
 
 /// Removes `course_exams` and `exam_scores` rows of courses that are gone for good:
 /// neither live in `containers` nor awaiting restore in `deleted_containers`.
 pub(crate) async fn forget_gone_containers(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let del_exams = [
+    let mut sql = scope.sql(
         "DELETE FROM course_exams WHERE NOT EXISTS \
          (SELECT 1 FROM containers AS c WHERE c.id = course_exams.container_id",
-        scope.same_organization(&[("c", "course_exams")]).as_str(),
-        ") AND NOT EXISTS \
-         (SELECT 1 FROM deleted_containers AS d WHERE d.id = course_exams.container_id",
-        scope.same_organization(&[("d", "course_exams")]).as_str(),
-        ")",
-    ]
-    .concat();
-    let mut sql = scope.sql(&del_exams);
-    sql.changing_no_access();
+    );
+    sql.changing_no_access()
+        .push(&scope.same_organization(&[("c", "course_exams")]))
+        .push(
+            ") AND NOT EXISTS \
+             (SELECT 1 FROM deleted_containers AS d WHERE d.id = course_exams.container_id",
+        )
+        .push(&scope.same_organization(&[("d", "course_exams")]))
+        .push(")");
     scope.execute(sql).await?;
 
-    let del_scores = [
+    let mut sql = scope.sql(
         "DELETE FROM exam_scores WHERE NOT EXISTS \
          (SELECT 1 FROM course_exams AS e WHERE e.id = exam_scores.exam_id",
-        scope.same_organization(&[("e", "exam_scores")]).as_str(),
-        ")",
-    ]
-    .concat();
-    let mut sql = scope.sql(&del_scores);
-    sql.changing_no_access();
+    );
+    sql.changing_no_access()
+        .push(&scope.same_organization(&[("e", "exam_scores")]))
+        .push(")");
     scope.execute(sql).await?;
     Ok(())
 }
@@ -569,24 +824,13 @@ pub(crate) async fn forget_user_in_workspace(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("DELETE FROM exam_scores WHERE user_id = ");
-    sql.changing_no_access()
-        .bind(Id(user_id))
-        .push_bind(
-            " AND container_id IN (\
-             SELECT id FROM containers WHERE workspace_id = ",
-            Id(workspace_id),
-        )
-        .push_bind(
-            " UNION SELECT id FROM deleted_containers WHERE workspace_id = ",
-            Id(workspace_id),
-        )
-        .push(")");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push_bind(" AND org_id = ", scope.org()?);
-    }
-    scope.execute(sql).await?;
-    Ok(())
+    course_cleanup::forget_user_in_workspace(
+        scope,
+        PersonalCourseTable::ExamScores,
+        workspace_id,
+        user_id,
+    )
+    .await
 }
 
 /// Deletes `exam_scores` rows of `user_id` in `workspace_id` for courses where `user_id`
@@ -597,42 +841,13 @@ pub(crate) async fn forget_user_in_workspace_unjoined(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let org = scope.org()?;
-    let inherited = inherited_members_source(scope);
-    let mut sql = scope.sql("DELETE FROM exam_scores WHERE user_id = ");
-    sql.changing_no_access()
-        .bind(Id(user_id))
-        .push_bind(
-            " AND container_id IN (\
-             SELECT id FROM containers WHERE workspace_id = ",
-            Id(workspace_id),
-        )
-        .push_bind(
-            " UNION SELECT id FROM deleted_containers WHERE workspace_id = ",
-            Id(workspace_id),
-        )
-        .push(
-            ") AND NOT EXISTS (\
-             SELECT 1 FROM container_members AS cm \
-             WHERE cm.container_id = exam_scores.container_id \
-               AND cm.user_id = exam_scores.user_id",
-        )
-        .push(&scope.same_organization(&[("cm", "exam_scores")]))
-        .push(") AND NOT EXISTS (SELECT 1 FROM ")
-        .push(&inherited)
-        .push(
-            " AS im \
-             WHERE im.container_id = exam_scores.container_id \
-               AND im.user_id = exam_scores.user_id",
-        )
-        .push_bind(" AND im.org_id = ", org.clone())
-        .push(&scope.same_organization(&[("im", "exam_scores")]))
-        .push(")");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push_bind(" AND org_id = ", org);
-    }
-    scope.execute(sql).await?;
-    Ok(())
+    course_cleanup::forget_user_in_workspace_unjoined(
+        scope,
+        PersonalCourseTable::ExamScores,
+        workspace_id,
+        user_id,
+    )
+    .await
 }
 
 /// Deletes every `exam_scores` row of `user_id` belonging to the scope's organization,
@@ -641,29 +856,6 @@ pub(crate) async fn forget_user_in_organization(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let org = scope.org()?;
-    let mut sql = scope.sql("DELETE FROM exam_scores WHERE user_id = ");
-    sql.changing_no_access().bind(Id(user_id));
-    match scope.dialect() {
-        Dialect::Postgres => {
-            sql.push_bind(" AND org_id = ", org);
-        }
-        Dialect::Sqlite => {
-            sql.push_bind(" AND (org_id = ", org.clone())
-                .push_bind(
-                    " OR (org_id = '' AND container_id IN (\
-                     SELECT c.id FROM containers AS c \
-                     JOIN workspaces AS w ON w.id = c.workspace_id WHERE w.org_id = ",
-                    org.clone(),
-                )
-                .push_bind(
-                    " UNION SELECT d.id FROM deleted_containers AS d \
-                     JOIN workspaces AS w ON w.id = d.workspace_id WHERE w.org_id = ",
-                    org,
-                )
-                .push(")))");
-        }
-    }
-    scope.execute(sql).await?;
-    Ok(())
+    course_cleanup::forget_user_in_organization(scope, PersonalCourseTable::ExamScores, user_id)
+        .await
 }

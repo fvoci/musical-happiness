@@ -38,7 +38,7 @@ use crate::blocks::{self, Paging, parents_first};
 use crate::card_hierarchy;
 use crate::category_containers::{self, ContainerPlace};
 use crate::containers;
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, SqlFragment};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
 use crate::files;
@@ -161,10 +161,13 @@ impl Store {
     pub async fn get_blocks_below(&self, block_id: &str) -> Result<Vec<Block>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = with_tree_of(scope, block_id);
-            sql.push(&format!(
-                "SELECT {} FROM blocks WHERE id IN (SELECT id FROM tree) AND id <> ",
-                blocks::block_read_columns()
-            ));
+            sql.push([
+                "SELECT ",
+                blocks::BLOCK_COLUMNS,
+                ", ",
+                crate::comment_versions::EDITED_AT_COLUMN,
+                " FROM blocks WHERE id IN (SELECT id FROM tree) AND id <> ",
+            ]);
             sql.bind(Id(block_id)).push(" ORDER BY id");
             blocks::fetch_blocks(scope, sql).await
         })
@@ -185,32 +188,37 @@ impl Store {
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedBlock>, StoreError> {
         self.with_conn(async |scope| {
-            // The type is in the stored block.
-            let is_card = match scope.dialect() {
-                Dialect::Sqlite => "json_extract(block, '$.type') = 'card'",
-                Dialect::Postgres => "block->>'type' = 'card'",
-            };
             let mut sql = scope.sql(
                 "SELECT block, deleted_by, deleted_at FROM deleted_blocks WHERE container_id = ",
             );
-            sql.bind(Id(container_id)).push(&format!(
-                " AND {is_card} AND NOT EXISTS (SELECT 1 FROM deleted_blocks below \
+            sql.bind(Id(container_id)).push(
+                " AND block_type = 'card' AND NOT EXISTS (SELECT 1 FROM deleted_blocks below \
                  WHERE below.deletion_id = deleted_blocks.deletion_id \
-                 AND below.id = deleted_blocks.parent_id) ORDER BY deleted_at DESC, id"
-            ));
+                 AND below.id = deleted_blocks.parent_id) ORDER BY deleted_at DESC, id",
+            );
             push_paging(&mut sql, paging);
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(|row| {
-                    Ok(DeletedBlock {
-                        block: block_from_json(row, 0)?,
-                        deleted_by: row.id(1)?,
-                        deleted_at: row.int(2)?,
-                    })
-                })
-                .collect()
+            let mut cards = Vec::new();
+            for row in &scope.fetch_all(sql).await? {
+                let block = match block_from_json(row, 0) {
+                    Ok(block) => block,
+                    Err(StoreError::Corrupt { column, reason }) => {
+                        tracing::error!(
+                            container_id,
+                            column,
+                            %reason,
+                            "skipping corrupt deleted card in trash listing"
+                        );
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
+                cards.push(DeletedBlock {
+                    block,
+                    deleted_by: row.id(1)?,
+                    deleted_at: row.int(2)?,
+                });
+            }
+            Ok(cards)
         })
         .await
     }
@@ -344,19 +352,42 @@ impl Store {
             crate::container_kinds::push_kinds(&mut sql, kind, kinds);
             sql.push(" ORDER BY deleted_at DESC, id");
             push_paging(&mut sql, paging);
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(|row| {
-                    Ok(DeletedContainer {
-                        container: from_json(row, 0, "container")?,
-                        members: from_json(row, 1, "members")?,
-                        deleted_by: row.id(2)?,
-                        deleted_at: row.int(3)?,
-                    })
-                })
-                .collect()
+            let mut deleted = Vec::new();
+            for row in &scope.fetch_all(sql).await? {
+                let container = match from_json(row, 0, "container") {
+                    Ok(container) => container,
+                    Err(StoreError::Corrupt { column, reason }) => {
+                        tracing::error!(
+                            workspace_id,
+                            column,
+                            %reason,
+                            "skipping corrupt deleted container in trash listing"
+                        );
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
+                let members = match from_json(row, 1, "members") {
+                    Ok(members) => members,
+                    Err(StoreError::Corrupt { column, reason }) => {
+                        tracing::error!(
+                            workspace_id,
+                            column,
+                            %reason,
+                            "skipping deleted container with corrupt members in trash listing"
+                        );
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
+                deleted.push(DeletedContainer {
+                    container,
+                    members,
+                    deleted_by: row.id(2)?,
+                    deleted_at: row.int(3)?,
+                });
+            }
+            Ok(deleted)
         })
         .await
     }
@@ -432,10 +463,10 @@ pub(crate) async fn remove_containers(
         Trashed::Before(deleted_before) => sql.push_bind("deleted_at < ", deleted_before),
         Trashed::OfWorkspace(workspace_id) => sql.push_bind("workspace_id = ", Id(workspace_id)),
     };
-    sql.push(&format!(
-        " RETURNING id, files{}",
-        org.map_or(String::new(), |column| format!(", {column}"))
-    ));
+    sql.push(" RETURNING id, files");
+    if let Some(column) = org {
+        sql.push([", ", column]);
+    }
     let containers = scope.fetch_all(sql).await?;
     let records = u64::try_from(containers.len()).unwrap_or(u64::MAX);
     let mut gone = Vec::with_capacity(containers.len());
@@ -478,17 +509,16 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
     // A block that was deleted on its own while its board existed has nothing to come
     // back to once the board is neither there nor in the trash of the block's
     // organization.
-    let orphans = [
+    let mut orphans = SqlFragment::of(&[
         "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM containers b \
          WHERE b.id = deleted_blocks.container_id",
-        &scope.same_organization(&[("b", "deleted_blocks")]),
-        ") AND NOT EXISTS (SELECT 1 FROM deleted_containers d \
-         WHERE d.id = deleted_blocks.container_id",
-        &scope.same_organization(&[("d", "deleted_blocks")]),
-        ") RETURNING id",
-    ]
-    .concat();
-    let sql = scope.sql(&orphans);
+    ]);
+    orphans
+        .push_fragment(&scope.same_organization(&[("b", "deleted_blocks")]))
+        .push(") AND NOT EXISTS (SELECT 1 FROM deleted_containers d WHERE d.id = deleted_blocks.container_id")
+        .push_fragment(&scope.same_organization(&[("d", "deleted_blocks")]))
+        .push(") RETURNING id");
+    let sql = scope.sql(orphans);
     let records = remove_blocks(scope, sql).await?;
     block_derived::forget_gone_blocks(scope).await?;
     crate::course_meetings::forget_gone_containers(scope).await?;
@@ -653,23 +683,27 @@ pub(crate) async fn delete_block(
     // The block says which board it is on, and the board is then held: what is below
     // the block is read, written to the trash and deleted without anything being added
     // or taken away in between. Read again under the lock, the block may be gone.
-    let Some(block) = blocks::find_block(scope, block_id).await? else {
+    let Some(container_id) = blocks::find_container_id(scope, block_id).await? else {
         tracing::debug!(block_id, "delete_block: block not found");
         return Ok(Vec::new());
     };
-    containers::lock_container(scope, &block.container_id).await?;
+    containers::lock_container(scope, &container_id).await?;
     let mut sql = with_tree_of(scope, block_id);
-    sql.push(&format!(
-        "SELECT {} FROM blocks WHERE id IN (SELECT id FROM tree)",
-        blocks::block_read_columns()
-    ));
+    sql.push([
+        "SELECT ",
+        blocks::BLOCK_COLUMNS,
+        ", ",
+        crate::comment_versions::EDITED_AT_COLUMN,
+        " FROM blocks WHERE id IN (SELECT id FROM tree)",
+    ]);
     let doomed = blocks::fetch_blocks(scope, sql).await?;
     if doomed.is_empty() {
         tracing::debug!(block_id, "delete_block: block deleted meanwhile");
         return Ok(Vec::new());
     }
 
-    put_blocks_in_trash(scope, &doomed, &new_id(), now_millis(), user_id).await?;
+    let now = scope.now_millis();
+    put_blocks_in_trash(scope, &doomed, &new_id(), now, user_id).await?;
     block_derived::trashed(scope, &doomed).await?;
 
     // One statement for parents and children: the reference from a block to its parent
@@ -680,7 +714,8 @@ pub(crate) async fn delete_block(
     Ok(doomed)
 }
 
-/// Writes the blocks into the trash as one deletion.
+/// Writes the blocks into the trash as one deletion, batching multi-row inserts so
+/// deleting a container or large card tree avoids per-block statement roundtrips.
 async fn put_blocks_in_trash(
     scope: &mut Scope<'_>,
     blocks: &[Block],
@@ -688,26 +723,35 @@ async fn put_blocks_in_trash(
     deleted_at: i64,
     deleted_by: &str,
 ) -> Result<(), StoreError> {
+    const TRASH_INSERT_BATCH: usize = 100;
+    if blocks.is_empty() {
+        return Ok(());
+    }
     let ids: Vec<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
     let mut watchers = watchers::watchers_of(scope, &ids).await?;
-    for block in blocks {
-        let in_trash = Block {
-            deleted_at: Some(deleted_at),
-            ..block.clone()
-        };
-        let stored = watchers::with_watchers(&in_trash, watchers.remove(&block.id))?;
+    for chunk in blocks.chunks(TRASH_INSERT_BATCH) {
         let mut sql = scope.sql(
             "INSERT INTO deleted_blocks \
-             (id, container_id, parent_id, deleted_at, deleted_by, deletion_id, block) VALUES (",
+             (id, container_id, parent_id, block_type, deleted_at, deleted_by, deletion_id, block) \
+             VALUES ",
         );
-        sql.bind(Id(&block.id))
-            .push_bind(", ", Id(&block.container_id))
-            .push_bind(", ", OptId(&block.parent_id))
-            .push_bind(", ", deleted_at)
-            .push_bind(", ", OptId(deleted_by))
-            .push_bind(", ", Id(deletion_id))
-            .push_bind(", ", Param::json(&stored)?)
-            .push(")");
+        for (index, block) in chunk.iter().enumerate() {
+            let in_trash = Block {
+                deleted_at: Some(deleted_at),
+                ..block.clone()
+            };
+            let stored = watchers::with_watchers(&in_trash, watchers.remove(&block.id))?;
+            sql.push(if index == 0 { "(" } else { ", (" })
+                .bind(Id(&block.id))
+                .push_bind(", ", Id(&block.container_id))
+                .push_bind(", ", OptId(&block.parent_id))
+                .push_bind(", ", block.block_type.as_str())
+                .push_bind(", ", deleted_at)
+                .push_bind(", ", OptId(deleted_by))
+                .push_bind(", ", Id(deletion_id))
+                .push_bind(", ", Param::json(&stored)?)
+                .push(")");
+        }
         scope.execute(sql).await?;
     }
     Ok(())
@@ -794,7 +838,8 @@ pub(crate) async fn undelete_block(
         .collect::<Result<_, StoreError>>()?;
     let rerooted = card_hierarchy::check_restore(scope, &family).await?;
 
-    let restored = take_blocks_out_of_trash(scope, &deletion_id, user_id, now_millis(), |block| {
+    let now = scope.now_millis();
+    let restored = take_blocks_out_of_trash(scope, &deletion_id, user_id, now, |block| {
         if rerooted.contains(&block.id) {
             block.parent_id.clear();
         }
@@ -832,7 +877,7 @@ pub(crate) async fn delete_container(
         .map(StoredPlace::from)
         .collect();
 
-    let now = now_millis();
+    let now = scope.now_millis();
     let deletion_id = new_id();
     put_blocks_in_trash(scope, &container_blocks, &deletion_id, now, user_id).await?;
     let in_trash = Container {
@@ -895,7 +940,7 @@ pub(crate) async fn undelete_container(
     let deletion_id = row.id(3)?;
     let places: Vec<StoredPlace> = from_json(&row, 4, "places")?;
 
-    let now = now_millis();
+    let now = scope.now_millis();
     container.deleted_at = None;
     container.updated_at = now;
     user_id.clone_into(&mut container.modified_by);

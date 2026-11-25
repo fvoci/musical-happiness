@@ -7,16 +7,20 @@
 mod discovery;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use axum::body::Body;
 use axum::extract::{OriginalUri, State};
 use axum::http::header::{
     ACCESS_CONTROL_ALLOW_ORIGIN, ALLOW, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE,
-    REFERRER_POLICY, STRICT_TRANSPORT_SECURITY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
+    HeaderName, REFERRER_POLICY, STRICT_TRANSPORT_SECURITY, X_CONTENT_TYPE_OPTIONS,
+    X_FRAME_OPTIONS,
 };
 use axum::http::{HeaderValue, Method, Request, StatusCode, Uri};
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
+use serde::Deserialize;
 use tower::ServiceExt as _;
 use tower_http::services::ServeDir;
 
@@ -40,8 +44,19 @@ const BASE_URL_PLACEHOLDER: &str = "{{.BaseURL}}";
 /// own, so that it never runs with the app's origin.
 const STATIC_DOCUMENT_POLICY: &str = "sandbox allow-scripts";
 
-/// Clickjacking and injection baseline policy for the `index.html` SPA shell.
+/// Clickjacking and injection fallback policy for `index.html` when `csp.json` is absent.
 const INDEX_DOCUMENT_POLICY: &str = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
+
+/// Baseline browser capability lockdown sent on every response.
+const PERMISSIONS_POLICY_VALUE: &str =
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
+
+/// Build-generated inline script hash manifest (`dist/csp.json`).
+#[derive(Deserialize)]
+struct CspManifest {
+    #[serde(rename = "script-src")]
+    script_src: Vec<String>,
+}
 
 /// One-year `Strict-Transport-Security` policy sent when `server_url` uses HTTPS.
 const HSTS_POLICY: &str = "max-age=31536000; includeSubDomains";
@@ -63,6 +78,7 @@ pub struct WebRoot {
     base_url: String,
     https_origin: Option<String>,
     security_txt: Option<SecurityTxt>,
+    warned_missing_csp: Arc<AtomicBool>,
 }
 
 impl WebRoot {
@@ -73,6 +89,7 @@ impl WebRoot {
             base_url: base_url(server_url),
             https_origin: https_origin_of(server_url),
             security_txt: None,
+            warned_missing_csp: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -139,11 +156,11 @@ impl WebRoot {
         let file_name = path.rsplit('/').next().unwrap_or(path);
         let headers = response.headers_mut();
         headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
-        let html = headers
+        let active_document = headers
             .get(CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.starts_with("text/html"));
-        if html {
+            .is_some_and(is_sandboxed_static_mime);
+        if active_document {
             headers.insert(
                 CONTENT_SECURITY_POLICY,
                 HeaderValue::from_static(STATIC_DOCUMENT_POLICY),
@@ -169,43 +186,131 @@ impl WebRoot {
 
     /// Serves `index.html` with the base URL filled in.
     ///
-    /// The file is read on every request, so a new build of the web app is picked up
-    /// without a restart, and the response must be revalidated by caches.
+    /// The file and `csp.json` are read on every request, so a new build of the web app
+    /// is picked up without a restart, and the response must be revalidated by caches.
     pub async fn serve_index(&self) -> Response {
         match tokio::fs::read_to_string(self.root.join("index.html")).await {
-            Ok(template) => (
-                [
-                    (
-                        CONTENT_TYPE,
-                        HeaderValue::from_static("text/html; charset=utf-8"),
-                    ),
-                    (CACHE_CONTROL, HeaderValue::from_static("no-cache")),
-                    (X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")),
-                    (X_FRAME_OPTIONS, HeaderValue::from_static("DENY")),
-                    (
-                        CONTENT_SECURITY_POLICY,
-                        HeaderValue::from_static(INDEX_DOCUMENT_POLICY),
-                    ),
-                ],
-                template.replace(BASE_URL_PLACEHOLDER, &self.base_url),
-            )
-                .into_response(),
+            Ok(template) => {
+                let csp = self.index_csp_header().await;
+                (
+                    [
+                        (
+                            CONTENT_TYPE,
+                            HeaderValue::from_static("text/html; charset=utf-8"),
+                        ),
+                        (CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+                        (X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")),
+                        (X_FRAME_OPTIONS, HeaderValue::from_static("DENY")),
+                        (CONTENT_SECURITY_POLICY, csp),
+                    ],
+                    template.replace(BASE_URL_PLACEHOLDER, &self.base_url),
+                )
+                    .into_response()
+            }
             Err(error) => {
                 tracing::error!(%error, root = %self.root.display(), "unable to serve the index.html file");
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
         }
     }
+
+    async fn index_csp_header(&self) -> HeaderValue {
+        let csp_path = self.root.join("csp.json");
+        match tokio::fs::read_to_string(&csp_path).await {
+            Ok(raw) => match serde_json::from_str::<CspManifest>(&raw)
+                .ok()
+                .and_then(|manifest| strict_index_csp(&manifest.script_src))
+            {
+                Some(policy) => {
+                    self.warned_missing_csp.store(false, Ordering::Relaxed);
+                    policy
+                }
+                None => {
+                    if !self.warned_missing_csp.swap(true, Ordering::Relaxed) {
+                        tracing::warn!(
+                            path = %csp_path.display(),
+                            "csp.json is malformed; falling back to baseline index CSP"
+                        );
+                    }
+                    HeaderValue::from_static(INDEX_DOCUMENT_POLICY)
+                }
+            },
+            Err(error) => {
+                if !self.warned_missing_csp.swap(true, Ordering::Relaxed) {
+                    tracing::warn!(
+                        %error,
+                        path = %csp_path.display(),
+                        "csp.json could not be read; falling back to baseline index CSP"
+                    );
+                }
+                HeaderValue::from_static(INDEX_DOCUMENT_POLICY)
+            }
+        }
+    }
 }
 
-/// Applies baseline security headers (`Referrer-Policy: no-referrer`,
-/// `X-Content-Type-Options: nosniff`, and `Strict-Transport-Security` when `server_url`
-/// uses HTTPS) to every response without duplicating headers set by inner handlers.
+/// Whether `content_type` names an active document type under `/static/` that must carry
+/// `Content-Security-Policy: sandbox allow-scripts` when opened directly.
+fn is_sandboxed_static_mime(content_type: &str) -> bool {
+    let media_type = content_type.split(';').next().map_or("", str::trim);
+    media_type.eq_ignore_ascii_case("text/html")
+        || media_type.eq_ignore_ascii_case("image/svg+xml")
+        || media_type.eq_ignore_ascii_case("application/xhtml+xml")
+        || media_type.eq_ignore_ascii_case("text/xml")
+        || media_type.eq_ignore_ascii_case("application/xml")
+}
+
+/// Validates a `'sha256-...'` source expression from `csp.json`.
+fn is_valid_csp_hash_source(token: &str) -> bool {
+    let Some(digest) = token
+        .strip_prefix("'sha256-")
+        .and_then(|rest| rest.strip_suffix('\''))
+    else {
+        return false;
+    };
+    !digest.is_empty()
+        && digest.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=' | b'-' | b'_')
+        })
+}
+
+/// Builds the strict production Content-Security-Policy matching the E2E/preview server.
+fn strict_index_csp(script_hashes: &[String]) -> Option<HeaderValue> {
+    let mut script_src = String::from("script-src 'self'");
+    for hash in script_hashes {
+        if !is_valid_csp_hash_source(hash) {
+            return None;
+        }
+        script_src.push(' ');
+        script_src.push_str(hash);
+    }
+    let policy = [
+        "default-src 'self'",
+        script_src.as_str(),
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' blob:",
+        "font-src 'self'",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]
+    .join("; ");
+    HeaderValue::from_str(&policy).ok()
+}
+
+/// Applies baseline security headers (`Referrer-Policy`, `X-Content-Type-Options`,
+/// `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` on
+/// non-`/static/` routes, and `Strict-Transport-Security` when `server_url` uses HTTPS)
+/// to every response without duplicating headers set by inner handlers.
 pub(crate) async fn send_security_headers(
     State(transport): State<TransportSecurity>,
     request: Request<Body>,
     next: middleware::Next,
 ) -> Response {
+    let path = request.uri().path();
+    let is_static = path == "/static" || path.starts_with("/static/");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers
@@ -214,6 +319,17 @@ pub(crate) async fn send_security_headers(
     headers
         .entry(X_CONTENT_TYPE_OPTIONS)
         .or_insert(HeaderValue::from_static("nosniff"));
+    headers
+        .entry(HeaderName::from_static("permissions-policy"))
+        .or_insert(HeaderValue::from_static(PERMISSIONS_POLICY_VALUE));
+    headers
+        .entry(HeaderName::from_static("cross-origin-opener-policy"))
+        .or_insert(HeaderValue::from_static("same-origin"));
+    if !is_static {
+        headers
+            .entry(HeaderName::from_static("cross-origin-resource-policy"))
+            .or_insert(HeaderValue::from_static("same-origin"));
+    }
     if transport == TransportSecurity::Https {
         headers
             .entry(STRICT_TRANSPORT_SECURITY)

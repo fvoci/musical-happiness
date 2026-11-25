@@ -338,6 +338,9 @@ impl Setup {
             // Every client of a test comes from one address, and many sign in at once.
             // The limit by address is tested where a test turns it on.
             login_address_attempts_per_minute: 0,
+            // Webhook integration tests bind sinks on 127.0.0.1; SSRF refusal is tested
+            // where a test turns this off or uses `Webhook::new` directly.
+            webhook_allow_private_addresses: true,
             // The executable of the tests is no server: the workers of editing together
             // are started from the worker of the tests, which is built with what the
             // tests ask of a worker whatever the server's executable was last built

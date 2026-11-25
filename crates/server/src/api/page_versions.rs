@@ -11,7 +11,9 @@ use fvoci_model::{BodyVersion, BodyVersionContent, KeptBodyVersion, Page};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::version_number;
+use super::body_versions::{
+    get_body_version, keep_body_version, list_body_versions, restore_body_version,
+};
 use super::contract::params::{MemberWorkspaceId, PageId, PageVersionNumber, WikiId};
 use super::contract::tag;
 use super::wikis::{READ_DENIED, page_with_permission};
@@ -56,8 +58,7 @@ async fn handle_get_page_body_versions(
         READ_DENIED,
     )
     .await?;
-    let versions = ws.app.body_versions(&page.id).await?;
-    Ok(json_response(&versions))
+    list_body_versions(&ws.app, &page.id).await
 }
 
 /// Keep a page's body as a version now
@@ -88,7 +89,7 @@ async fn handle_keep_page_body_version(
         "access denied to keep a version of the page's body",
     )
     .await?;
-    let kept = ws.app.keep_body_version_now(&page.id).await?;
+    let kept = keep_body_version(&ws.app, &page.id).await?;
     tracing::debug!(wiki_id, page_id, user_id, outcome = ?kept.outcome, "KeepPageBodyVersion");
     Ok(json_response(&kept))
 }
@@ -118,11 +119,7 @@ async fn handle_get_page_body_version(
         READ_DENIED,
     )
     .await?;
-    let version = ws
-        .app
-        .body_version(&page.id, version_number(&version)?)
-        .await?;
-    Ok(json_response(&version))
+    get_body_version(&ws.app, &page.id, &version).await
 }
 
 /// Go back to a version of a page's body
@@ -155,10 +152,7 @@ async fn handle_restore_page_body_version(
         "access denied to restore a version of the page's body",
     )
     .await?;
-    let block = ws
-        .app
-        .restore_body_version(&page, version_number(&version)?, user_id)
-        .await?;
+    let block = restore_body_version(&ws.app, &page, &version, user_id).await?;
     tracing::debug!(wiki_id, page_id, user_id, "RestorePageBodyVersion");
     Ok(json_response(&Page::from(block)))
 }

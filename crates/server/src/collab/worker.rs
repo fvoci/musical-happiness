@@ -242,6 +242,7 @@ impl Worker {
             return Err(CallError::Refused(Refused {
                 refusal,
                 message: "the request is larger than a frame".to_owned(),
+                rolled_back: false,
             }));
         }
         self.ask(|answer| Job::Call {

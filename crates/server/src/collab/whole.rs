@@ -2,6 +2,7 @@
 //! stored again): around the documents of the cards, so that what their editors typed
 //! is in the card before, and their documents are that body after.
 
+use std::collections::BTreeSet;
 use std::future::Future;
 
 use fvoci_model::{Block, BlockPatch};
@@ -99,12 +100,21 @@ impl Collab {
         W: FnOnce(App) -> F,
         F: Future<Output = Result<R, AppError>>,
     {
-        let _gate = self.reading(app.store().tenant()).await;
         card_ids.sort();
         card_ids.dedup();
-        let mut held: Vec<(String, Held)> = Vec::with_capacity(card_ids.len());
+        let mut with_containers = Vec::with_capacity(card_ids.len());
+        let mut container_ids = BTreeSet::new();
         for card_id in card_ids {
-            let slot = self.slot(app, &card_id).await;
+            let container_id = self.slot_container_id(app, &card_id).await?;
+            container_ids.insert(container_id.clone());
+            with_containers.push((card_id, container_id));
+        }
+        let _gates = self
+            .reading_many(app.store().tenant(), &container_ids)
+            .await;
+        let mut held: Vec<(String, Held)> = Vec::with_capacity(with_containers.len());
+        for (card_id, container_id) in with_containers {
+            let slot = self.slot_in(app, &card_id, &container_id).await;
             held.push((card_id, slot));
         }
         let mut written_first = Ok(());

@@ -315,8 +315,8 @@ impl BundleLimits {
     pub const DEFAULT_MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
     /// Default maximum single Markdown or CSV entry bytes (16 MiB).
     pub const DEFAULT_MAX_TEXT_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
-    /// Default maximum Trello JSON size (`import::MAX_JSONL_BYTES`, 64 MiB).
-    pub const DEFAULT_MAX_TRELLO_JSON_BYTES: u64 = super::MAX_JSONL_BYTES;
+    /// Default maximum Trello JSON size (16 MiB).
+    pub const DEFAULT_MAX_TRELLO_JSON_BYTES: u64 = 16 * 1024 * 1024;
     /// Default maximum compression ratio (100:1) to halt zip bombs early.
     pub const DEFAULT_MAX_COMPRESSION_RATIO: u64 = 100;
     /// Minimum unpacked size (64 KiB) before enforcing compression ratio.

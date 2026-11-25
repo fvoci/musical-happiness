@@ -12,20 +12,13 @@ all-features = true
 version = 2
 yanked = "deny"
 ignore = [
-    # The SQLite bundled by libsqlite3-sys < 0.39 can return stale memory when it opens a
-    # database together with a crafted `-wal` file of another page size. The server only
-    # opens the database file its operator configures, and the `-wal` beside it is one it
-    # wrote itself (crates/store/src/connect.rs): who could put another there could write
-    # the database. sqlx 0.9.0, the newest release, does not accept libsqlite3-sys 0.39
-    # yet; remove this entry when it does.
-    { id = "RUSTSEC-2026-0459", reason = "no sqlx release accepts the fixed libsqlite3-sys yet; the server opens only the operator's own database file" },
     # smallstr, a small-string type that yrs (the Y documents of crates/collab) builds
     # on, is no longer maintained. The advisory is a notice of that and names no
-    # vulnerability (`informational = "unmaintained"`, no affected function). yrs 0.28.1,
+    # vulnerability (`informational = "unmaintained"`, no affected function). yrs 0.28.2,
     # the newest release, depends on it. Remove this entry when a yrs release no longer
     # does, or when an advisory names a vulnerability in smallstr (which gets its own
     # identifier and fails this check again).
-    { id = "RUSTSEC-2026-0215", reason = "a notice that smallstr is unmaintained, not a vulnerability; yrs 0.28.1, the newest release, depends on it" },
+    { id = "RUSTSEC-2026-0215", reason = "a notice that smallstr is unmaintained, not a vulnerability; yrs 0.28.2, the newest release, depends on it" },
     # chrono and humantime are no longer maintained (notices of 2026-11, no vulnerability
     # named, every release affected). object_store (S3 files) brings both. Remove an
     # entry when the crate is gone from the tree (an object_store release without it),

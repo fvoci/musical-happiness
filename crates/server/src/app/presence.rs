@@ -24,13 +24,16 @@ impl App {
     /// always means an anonymous visit, even on a signed-in connection.
     pub(crate) async fn presence_access(
         &self,
-        asker: Asker<'_>,
+        asker: Option<Asker<'_>>,
         workspace_id: &str,
         container_id: &str,
         card_id: &str,
         read_token: &str,
     ) -> Result<Option<PresenceAccess>, AppError> {
-        let (app, role) = if read_token.is_empty() {
+        let (app, role, user_id) = if read_token.is_empty() {
+            let Some(asker) = asker else {
+                return Ok(None);
+            };
             let entered = match self.enter_workspace_as(asker, workspace_id).await {
                 Ok(Some(entered)) => entered,
                 Ok(None) => return Ok(None),
@@ -46,7 +49,11 @@ impl App {
                 }
                 Err(error) => return Err(error),
             };
-            (entered.app.in_workspace(workspace_id), Some(entered.role))
+            (
+                entered.app.in_workspace(workspace_id),
+                Some(entered.role),
+                asker.user_id,
+            )
         } else {
             let Some(app) = self
                 .enter_shared_container(container_id, read_token)
@@ -54,9 +61,9 @@ impl App {
             else {
                 return Ok(None);
             };
-            (app, None)
+            (app, None, "")
         };
-        let Some(access) = app.container_access(asker.user_id, container_id).await? else {
+        let Some(access) = app.container_access(user_id, container_id).await? else {
             return Ok(None);
         };
         if access.container.deleted_at.is_some()

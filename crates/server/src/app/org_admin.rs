@@ -8,8 +8,9 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    AuditAction, AuditRecord, ContainerKinds, MAX_NAME_CHARS, OrgMember, OrgRole, OrgWorkspace,
-    Organization, OrganizationPatch, Workspace, is_id, new_id,
+    AuditAction, AuditRecord, AuthParamError, ContainerKinds, Named, OrgMember, OrgRole,
+    OrgWorkspace, Organization, OrganizationPatch, Workspace, is_id, new_id, organization_name,
+    required_name,
 };
 use fvoci_store::{
     AuditPlace, Joining, MemberRemoval, OrgRoleChange, StoreError, Taken, WorkspaceTrashing,
@@ -20,17 +21,10 @@ use super::list_page::ListPage;
 use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 
-/// The name of a workspace as it is stored: without the spaces around it, 1 to
-/// [`MAX_NAME_CHARS`] characters.
-fn workspace_name(name: &str) -> Result<&str, AppError> {
-    let name = name.trim();
-    if name.is_empty() || name.chars().count() > MAX_NAME_CHARS {
-        return Err(AppError::bad_request(format!(
-            "a workspace's name has 1 to {MAX_NAME_CHARS} characters"
-        ))
-        .with_field("name"));
-    }
-    Ok(name)
+/// The name of a workspace as it is stored: trimmed, non-empty, within the name length
+/// ceiling, and free of control, invisible, and bidirectional override characters.
+fn workspace_name(name: &str) -> Result<String, AppError> {
+    required_name(name, Named::Workspace).map_err(AppError::from)
 }
 
 fn name_taken() -> AppError {
@@ -72,8 +66,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a 400 for a name over [`MAX_NAME_CHARS`] characters, and the store's
-    /// error.
+    /// Returns a 400 for a name that violates the organization name character or length
+    /// rules, and the store's error.
     pub async fn update_organization(
         &self,
         patch: &OrganizationPatch,
@@ -82,13 +76,22 @@ impl App {
         let mut patch = patch.clone();
         if let Some(name) = &mut patch.name {
             let trimmed = name.trim();
-            if trimmed.chars().count() > MAX_NAME_CHARS {
-                return Err(AppError::bad_request(format!(
-                    "an organization's name has at most {MAX_NAME_CHARS} characters"
-                ))
-                .with_field("name"));
-            }
-            *name = trimmed.to_owned();
+            // Empty stays allowed, as the contract says; anything else is named as on sign-up.
+            *name = if trimmed.is_empty() {
+                String::new()
+            } else {
+                organization_name(trimmed).map_err(|error| {
+                    AppError::from(AuthParamError::new(
+                        "name",
+                        error.reason(),
+                        error.to_string(),
+                    ))
+                })?
+            };
+        }
+        if patch.public_links == Some(false) {
+            self.collab()
+                .narrowing_access(self, &AccessScope::organization());
         }
         let organization = match self.store().update_organization(&patch, actor_id).await {
             Ok(organization) => organization,
@@ -141,6 +144,10 @@ impl App {
         if !is_id(user_id) {
             return Err(AppError::not_found("member"));
         }
+        if role == OrgRole::Member {
+            self.collab()
+                .narrowing_access(self, &AccessScope::organization().of_user(user_id));
+        }
         match self.store().set_org_role(user_id, role, actor_id).await {
             Ok(OrgRoleChange::Done) => {
                 if role == OrgRole::Member {
@@ -181,6 +188,8 @@ impl App {
         if !is_id(user_id) {
             return Err(AppError::not_found("member"));
         }
+        self.collab()
+            .narrowing_access(self, &AccessScope::organization().of_user(user_id));
         match self.store().remove_org_member(user_id, actor_id).await? {
             MemberRemoval::Removed(left) => {
                 tracing::info!(
@@ -240,7 +249,7 @@ impl App {
     ) -> Result<OrgWorkspace, AppError> {
         let workspace = Workspace {
             id: new_id(),
-            title: workspace_name(name)?.to_owned(),
+            title: workspace_name(name)?,
             modified_by: actor_id.to_owned(),
             ..Workspace::default()
         };
@@ -270,7 +279,7 @@ impl App {
         let name = workspace_name(name)?;
         match self
             .store()
-            .rename_workspace(workspace_id, name, actor_id)
+            .rename_workspace(workspace_id, &name, actor_id)
             .await
         {
             Ok(()) => self.org_workspace(actor_id, workspace_id).await,
@@ -295,6 +304,8 @@ impl App {
         actor_id: &str,
     ) -> Result<(), AppError> {
         known_workspace(workspace_id)?;
+        self.collab()
+            .narrowing_access(self, &AccessScope::workspace(workspace_id));
         match self.store().trash_workspace(workspace_id, actor_id).await {
             Ok(WorkspaceTrashing::Done) => {
                 self.ws().stop_following_workspace(workspace_id);
@@ -388,6 +399,8 @@ impl App {
         user_id: &str,
     ) -> Result<OrgWorkspace, AppError> {
         known_workspace(workspace_id)?;
+        self.collab()
+            .narrowing_access(self, &AccessScope::workspace(workspace_id).of_user(user_id));
         if self
             .store()
             .leave_workspace_as_org_admin(workspace_id, user_id)

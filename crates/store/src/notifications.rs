@@ -12,7 +12,7 @@ use fvoci_model::{BlockType, ContainerKind, NotificationKind, SearchKind};
 
 use crate::Store;
 use crate::blocks::Paging;
-use crate::db::{Id, Row, Scope, Sql};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::directory::{HAS_PASSWORD, Making, org_kind, taken};
 use crate::error::StoreError;
 use crate::search_docs::select_documents;
@@ -38,13 +38,14 @@ impl NotificationReader<'_> {
     /// organizations that people work in that require their SSO provider, and personal
     /// spaces whose account has a password that this session has not confirmed.
     async fn closed_organizations(self, scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
-        let mut sql = scope.sql(&format!(
-            "SELECT DISTINCT n.org_id, o.kind, p.id, {HAS_PASSWORD} \
-             FROM notifications AS n \
+        let mut sql = scope.sql([
+            "SELECT DISTINCT n.org_id, o.kind, p.id, ",
+            HAS_PASSWORD,
+            " FROM notifications AS n \
              JOIN organizations AS o ON o.id = n.org_id \
              JOIN users AS u ON u.id = n.recipient_id \
-             LEFT JOIN oidc_providers AS p ON p.org_id = n.org_id AND p.sso_required = "
-        ));
+             LEFT JOIN oidc_providers AS p ON p.org_id = n.org_id AND p.sso_required = ",
+        ]);
         sql.bind(true)
             .push_bind(" WHERE n.recipient_id = ", Id(self.user_id));
         let mut closed = Vec::new();
@@ -137,9 +138,11 @@ impl Store {
         self.system()
             .with_conn(async |scope| {
                 let closed = reader.closed_organizations(scope).await?;
-                let mut sql = scope.sql(&format!(
-                    "SELECT {NOTIFICATION_COLUMNS} FROM notifications WHERE recipient_id = "
-                ));
+                let mut sql = scope.sql([
+                    "SELECT ",
+                    NOTIFICATION_COLUMNS,
+                    " FROM notifications WHERE recipient_id = ",
+                ]);
                 reader.push_theirs(&closed, &mut sql);
                 sql.push_bind(
                     " ORDER BY updated_at DESC, id DESC LIMIT ",
@@ -196,11 +199,12 @@ impl Store {
     ) -> Result<bool, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql(&format!(
-                    "SELECT o.kind, p.id, {HAS_PASSWORD} \
-                     FROM organizations AS o \
-                     JOIN users AS u ON u.id = "
-                ));
+                let mut sql = scope.sql([
+                    "SELECT o.kind, p.id, ",
+                    HAS_PASSWORD,
+                    " FROM organizations AS o \
+                     JOIN users AS u ON u.id = ",
+                ]);
                 sql.bind(Id(reader.user_id))
                     .push_bind(
                         " LEFT JOIN oidc_providers AS p ON p.org_id = o.id AND p.sso_required = ",
@@ -245,8 +249,15 @@ impl Store {
                     return Ok(None);
                 };
                 if row.int(1)? == 0 {
-                    let mut sql = scope.sql("UPDATE notifications SET read_at = ");
-                    sql.bind(now)
+                    let read_at = now.max(1);
+                    let mut sql = match scope.dialect() {
+                        Dialect::Postgres => {
+                            scope.sql("UPDATE notifications SET read_at = GREATEST(")
+                        }
+                        Dialect::Sqlite => scope.sql("UPDATE notifications SET read_at = MAX("),
+                    };
+                    sql.bind(read_at)
+                        .push(", updated_at)")
                         .push_bind(" WHERE recipient_id = ", Id(reader.user_id))
                         .push_bind(" AND id = ", Id(notification_id))
                         .push(" AND read_at = 0");
@@ -273,8 +284,13 @@ impl Store {
         self.system()
             .transaction(async |scope| {
                 let closed = reader.closed_organizations(scope).await?;
-                let mut sql = scope.sql("UPDATE notifications SET read_at = ");
-                sql.bind(now).push(" WHERE read_at = 0 AND recipient_id = ");
+                let read_at = now.max(1);
+                let mut sql = match scope.dialect() {
+                    Dialect::Postgres => scope.sql("UPDATE notifications SET read_at = GREATEST("),
+                    Dialect::Sqlite => scope.sql("UPDATE notifications SET read_at = MAX("),
+                };
+                sql.bind(read_at)
+                    .push(", updated_at) WHERE read_at = 0 AND recipient_id = ");
                 reader.push_theirs(&closed, &mut sql);
                 sql.push_bind(" AND updated_at <= ", through)
                     .push(" RETURNING org_id");

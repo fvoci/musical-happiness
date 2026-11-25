@@ -8,7 +8,7 @@
 use fvoci_model::{Subscriber, Subscription};
 
 use crate::Store;
-use crate::db::{Id, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 
 /// The columns of a subscription, in the order [`subscription_from_row`] reads them.
@@ -118,12 +118,12 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
             sql.push_bind(" AND user_id = ", Id(user_id))
-                .push(&format!(
+                .push(
                     " AND block_id IN (SELECT bl.id FROM blocks AS bl \
-                     JOIN containers AS bo ON bo.id = bl.container_id{} WHERE bo.workspace_id = ",
-                    scope.same_organization(&[("bo", "bl")]),
-                ))
-                .bind(Id(workspace_id))
+                     JOIN containers AS bo ON bo.id = bl.container_id",
+                )
+                .push(&scope.same_organization(&[("bo", "bl")]))
+                .push_bind(" WHERE bo.workspace_id = ", Id(workspace_id))
                 .push(") ORDER BY created_at, block_id");
             fetch_subscriptions(scope, sql).await
         })
@@ -143,15 +143,15 @@ impl Store {
         workspace_id: Option<&str>,
     ) -> Result<Vec<WatchedBlock>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
+            let mut sql = scope.sql(
                 "SELECT s.block_type, s.block_id, s.user_id, s.notified_at, s.created_at, \
                  bl.container_id FROM subscriptions AS s \
-                 JOIN blocks AS bl ON bl.id = s.block_id{} \
-                 JOIN containers AS bo ON bo.id = bl.container_id{} WHERE s.user_id = ",
-                scope.same_organization(&[("bl", "s")]),
-                scope.same_organization(&[("bo", "bl")]),
-            ));
-            sql.bind(Id(user_id));
+                 JOIN blocks AS bl ON bl.id = s.block_id",
+            );
+            sql.push(&scope.same_organization(&[("bl", "s")]))
+                .push(" JOIN containers AS bo ON bo.id = bl.container_id")
+                .push(&scope.same_organization(&[("bo", "bl")]))
+                .push_bind(" WHERE s.user_id = ", Id(user_id));
             if let Some(workspace_id) = workspace_id {
                 sql.push_bind(" AND bo.workspace_id = ", Id(workspace_id));
             }
@@ -221,9 +221,11 @@ impl Store {
 
 /// Starts the query for subscriptions; conditions follow with `AND`.
 fn select_subscriptions(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!(
-        "SELECT {SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE 1 = 1"
-    ))
+    scope.sql([
+        "SELECT ",
+        SUBSCRIPTION_COLUMNS,
+        " FROM subscriptions WHERE 1 = 1",
+    ])
 }
 
 async fn fetch_subscriptions(
@@ -281,7 +283,7 @@ pub(crate) async fn create_subscription(
 
     // The notification time starts at now so that the first notification does not
     // report the block's whole history.
-    let now = now_millis();
+    let now = scope.now_millis();
     let subscription = Subscription {
         notified_at: now,
         created_at: now,
@@ -290,19 +292,24 @@ pub(crate) async fn create_subscription(
     };
 
     // Subscribing again to what one is subscribed to keeps the subscription as it is,
-    // creation time and block type included, and marks it as notified now.
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO subscriptions ({SUBSCRIPTION_COLUMNS}) VALUES ("
-    ));
+    // creation time and block type included, and marks it as notified now without
+    // stepping backward on clock skew.
+    let notified_expr = match scope.dialect() {
+        Dialect::Postgres => "GREATEST(subscriptions.notified_at, EXCLUDED.notified_at)",
+        Dialect::Sqlite => "MAX(subscriptions.notified_at, EXCLUDED.notified_at)",
+    };
+    let mut sql = scope.sql([
+        "INSERT INTO subscriptions (",
+        SUBSCRIPTION_COLUMNS,
+        ") VALUES (",
+    ]);
     sql.bind(subscription.block_type.as_str())
         .push_bind(", ", Id(&subscription.block_id))
         .push_bind(", ", Id(&subscription.user_id))
         .push_bind(", ", subscription.notified_at)
         .push_bind(", ", subscription.created_at)
-        .push(
-            ") ON CONFLICT (block_id, user_id) DO UPDATE SET \
-             notified_at = EXCLUDED.notified_at",
-        );
+        .push(") ON CONFLICT (block_id, user_id) DO UPDATE SET notified_at = ")
+        .push(notified_expr);
     scope
         .execute(sql)
         .await

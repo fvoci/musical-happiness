@@ -1,7 +1,7 @@
 //! How many steps the Y library takes to read a document from its state, counted from
 //! the bytes before it is asked to.
 //!
-//! The library (yrs 0.28.1) reads a state change by change, and places each among the
+//! The library (yrs 0.28.2) reads a state change by change, and places each among the
 //! others of its list by the neighbours it names. Where the change to its left is not
 //! followed by the change to its right, it walks on from the left one past every
 //! change that names the same left neighbour, or one it walked past, until it meets
@@ -339,7 +339,7 @@ fn index(number: u32) -> usize {
 }
 
 fn clock(clock: u64) -> u32 {
-    // A clock is 31 bits at the most ([`scan`]).
+    // A clock is at most u32::MAX here (`scan::id`); state clocks are at most 31 bits.
     u32::try_from(clock).unwrap_or(u32::MAX)
 }
 
@@ -463,11 +463,16 @@ impl<'bytes> Replay<'bytes> {
     /// finds those neighbours. Each cut inside a change is charged the changes of its
     /// client, which the library moves, and the length of the change, which it copies.
     fn cut(&mut self) {
+        const CLOCK_BITS: u64 = 0xffff_ffff;
         let mut cuts: Vec<u64> = Vec::new();
         for piece in &self.pieces {
             if piece.origin != NO_ID {
-                // After the place named: a clock is 31 bits, so the next one fits.
-                cuts.push(piece.origin + 1);
+                // Origin clocks are bounded to u32 by `scan::id`, not to 31 bits: at
+                // u32::MAX the next clock would carry into the client's number, and
+                // there is nothing after it to cut.
+                if piece.origin & CLOCK_BITS != CLOCK_BITS {
+                    cuts.push(piece.origin + 1);
+                }
             }
             if piece.right_origin != NO_ID {
                 cuts.push(piece.right_origin);

@@ -23,7 +23,7 @@ use std::sync::atomic::Ordering;
 
 use crate::Store;
 use crate::containers;
-use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, OptId, Row, Scope, SqlFragment};
 use crate::error::StoreError;
 use crate::files::check_new_path;
 use crate::loose_objects::{self, LooseState};
@@ -292,11 +292,12 @@ impl Head {
     }
 
     fn select(scope: &Scope<'_>, container_id: &str, names: &[&str]) -> crate::db::Sql {
-        let org = loose_objects::org_column(scope).map_or(String::new(), |org| format!(", {org}"));
-        let mut sql = scope.sql(&format!(
-            "SELECT {}{org} FROM files WHERE container_id = ",
-            Self::COLUMNS
-        ));
+        let mut head = SqlFragment::of(&["SELECT ", Self::COLUMNS]);
+        if let Some(org) = loose_objects::org_column(scope) {
+            head.push(", ").push(org);
+        }
+        head.push(" FROM files WHERE container_id = ");
+        let mut sql = scope.sql(head);
         sql.bind(Id(container_id))
             .push(" AND name IN (")
             .bind_list(names.iter().copied())
@@ -510,7 +511,7 @@ async fn write(
         insert_row(scope, file, first).await?;
     }
     let version = file.version + 1;
-    let created_at = now_millis();
+    let created_at = scope.now_millis();
     let row = NewRow {
         version,
         path: bytes.path,
@@ -562,10 +563,11 @@ pub(crate) async fn forget(scope: &mut Scope<'_>, file_ids: &[&str]) -> Result<(
     let org = loose_objects::org_column(scope);
     for batch in file_ids.chunks(FORGET_BATCH) {
         let mut sql = scope.sql("DELETE FROM file_versions WHERE file_id IN (");
-        sql.bind_list(batch.iter().map(|id| Id(id))).push(&format!(
-            ") RETURNING path{}",
-            org.map_or(String::new(), |column| format!(", {column}"))
-        ));
+        sql.bind_list(batch.iter().map(|id| Id(id)))
+            .push(") RETURNING path");
+        if let Some(column) = org {
+            sql.push([", ", column]);
+        }
         let doomed: Vec<(String, Option<String>)> = scope
             .fetch_all(sql)
             .await?
@@ -580,14 +582,15 @@ pub(crate) async fn forget(scope: &mut Scope<'_>, file_ids: &[&str]) -> Result<(
 /// The SQL condition that the user `users.id` uploaded a file of the board `b`, or
 /// wrote a version of one: `OR EXISTS (…)`, for who is named as an author
 /// (`crate::directory`).
-pub(crate) fn or_wrote_file_of_container(scope: &Scope<'_>) -> String {
-    [
-        " OR EXISTS (SELECT 1 FROM files f WHERE f.container_id = b.id",
-        &scope.same_organization(&[("f", "b")]),
-        " AND (f.created_by = users.id OR EXISTS (SELECT 1 FROM file_versions fv \
-         WHERE fv.file_id = f.id AND fv.created_by = users.id",
-        &scope.same_organization(&[("fv", "f")]),
-        ")))",
-    ]
-    .concat()
+pub(crate) fn or_wrote_file_of_container(scope: &Scope<'_>) -> SqlFragment {
+    let mut frag =
+        SqlFragment::of(&[" OR EXISTS (SELECT 1 FROM files f WHERE f.container_id = b.id"]);
+    frag.push_fragment(&scope.same_organization(&[("f", "b")]))
+        .push(
+            " AND (f.created_by = users.id OR EXISTS (SELECT 1 FROM file_versions fv \
+             WHERE fv.file_id = f.id AND fv.created_by = users.id",
+        )
+        .push_fragment(&scope.same_organization(&[("fv", "f")]))
+        .push(")))");
+    frag
 }

@@ -1,6 +1,6 @@
 //! A look through the bytes of an update before the Y library reads them.
 //!
-//! The library (yrs 0.28.1) reads a value that is a list in a list in a list by calling
+//! The library (yrs 0.28.2) reads a value that is a list in a list in a list by calling
 //! itself once a level, without a limit: an update of twenty thousand bytes that nests
 //! a value ten thousand deep ends the stack of the thread that reads it, and with it
 //! the process, which no handler can catch. It also sets aside a table for as many
@@ -38,12 +38,14 @@ const MAX_SAFE_WHOLE: u64 = MAX_CLIENT;
 /// signed numbers of 32 bits.
 const MAX_CLOCK: u64 = 0x7fff_ffff;
 
-/// How often a member of one node (an attribute) may be written without naming the
-/// value it replaces. An editor names it on every write but the first; only editors
-/// that write the first value at once write it so more than once. The library places
-/// each such write by walking every value the member had before, which a document
-/// keeps, as it is made without garbage collection: written over and over, a member
-/// would cost every later reading of the document the square of its writes.
+/// How often a member of one node (an attribute) may be written within a single
+/// update without naming the value it replaces. An editor names it on every write
+/// but the first; only editors that write the first value at once write it so more
+/// than once. The library places each such write by walking every value the member
+/// had before, which a document keeps, as it is made without garbage collection:
+/// written over and over in one update (while across updates `MAX_CLIENT_CHANGES`,
+/// `MAX_TOTAL_CHANGES` and `READING_STEPS` cap total growth), a member would cost
+/// every later reading of the document the square of its writes.
 const MAX_FIRST_WRITES: u32 = 8;
 
 /// Why an update is not handed to the library.
@@ -240,8 +242,12 @@ pub(crate) fn walk_detailed<'bytes>(
         most = most.max(changes);
     }
     // What was deleted: for each client, stretches of its clock.
+    let mut deleters: HashSet<u64> = HashSet::new();
     for _ in 0..walk.count()? {
         let del_client = walk.number(MAX_CLIENT)?;
+        if !deleters.insert(del_client) {
+            return Err(Refusal::Gap);
+        }
         for _ in 0..walk.count()? {
             let clock = walk.number(MAX_CLOCK)?;
             let stretch = walk.number(MAX_CLOCK)?;
@@ -410,9 +416,14 @@ impl<'bytes> Walk<'bytes> {
             }
             // A text.
             4 => Ok(Content::Letters(self.text()?)),
-            // Formatting: the name and the value written as JSON.
+            // Formatting: the name and the value written as JSON. A mark name with a
+            // control character or line terminator is refused outright so server and
+            // editor regexes never split `name--hash` differently.
             6 => {
-                self.text()?;
+                let name = self.text()?;
+                if has_forbidden_mark_char(name) {
+                    return Err(Refusal::Member);
+                }
                 self.text()?;
                 Ok(Content::One)
             }
@@ -521,6 +532,16 @@ impl<'bytes> Walk<'bytes> {
             }
         }
     }
+}
+
+/// Whether a formatting mark key contains invalid UTF-8, a control character, or a
+/// Unicode line terminator (`U+2028`, `U+2029`) that JavaScript `.` does not match.
+fn has_forbidden_mark_char(bytes: &[u8]) -> bool {
+    let Ok(text) = str::from_utf8(bytes) else {
+        return true;
+    };
+    text.chars()
+        .any(|ch| ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}'))
 }
 
 #[cfg(test)]
@@ -686,6 +707,27 @@ mod tests {
             check(&[2, 1, 5, 0, 0, 1, 1, 5, 9, 0, 1, 0]),
             Err(Refusal::Gap)
         );
+        // A client given twice in the delete set is refused as well.
+        assert_eq!(
+            check(&[0, 2, 5, 1, 0, 1, 5, 1, 2, 1]),
+            Err(Refusal::Gap),
+            "duplicate client in delete set"
+        );
+        // A formatting mark whose name contains a newline or line separator is refused.
+        for bad_mark in [
+            &b"x\nlink--abcdefgh"[..],
+            &b"x\rlink--abcdefgh"[..],
+            "x\u{2028}link--abcdefgh".as_bytes(),
+            "x\u{2029}link--abcdefgh".as_bytes(),
+            &b"bold\0"[..],
+        ] {
+            let mut fmt = vec![1, 1, 5, 0, 6, 1, 7];
+            fmt.extend_from_slice(b"default");
+            fmt.push(u8::try_from(bad_mark.len()).expect("short mark"));
+            fmt.extend_from_slice(bad_mark);
+            fmt.extend_from_slice(&[4, b't', b'r', b'u', b'e', 0]);
+            assert_eq!(check(&fmt), Err(Refusal::Member), "{bad_mark:?}");
+        }
         assert_eq!(
             check(&of_values(&[122, 0, 0, 0, 0, 0, 0, 0, 2], 1)),
             Err(Refusal::Unknown),

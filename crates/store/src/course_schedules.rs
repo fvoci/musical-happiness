@@ -20,9 +20,12 @@ use crate::Store;
 use crate::containers::{
     PublicContainers, fetch_containers, lock_container_of_kind, select_containers_of_user,
 };
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::unit_progress::{progress_from_row, require_live_unit};
+
+/// Maximum rows written per batched statement during schedule redistribution.
+const REDISTRIBUTE_BATCH_SIZE: usize = 100;
 
 /// Metadata-only unit/chapter row paired with its decoded `fields` map (never reads `body`).
 struct NodeRow {
@@ -168,6 +171,7 @@ impl Store {
         self.transaction(async |scope| {
             let org = scope.org()?;
             require_live_unit(scope, course_id, unit_id, user_id, org.clone()).await?;
+            let now = scope.now_millis();
             upsert_planned_date_row(
                 scope,
                 course_id,
@@ -175,7 +179,7 @@ impl Store {
                 user_id,
                 org,
                 planned_date.map(|d| d.to_string()),
-                now_millis(),
+                now,
             )
             .await
         })
@@ -219,7 +223,8 @@ impl Store {
             let saved = fetch_course_schedule(scope, course_id, org.clone()).await?;
             let plan = request.resolve(today, saved.as_ref())?;
 
-            let completed = fetch_completed_unit_ids(scope, course_id, user_id).await?;
+            let completed =
+                fetch_completed_unit_ids(scope, course_id, user_id, org.clone()).await?;
             let incomplete: Vec<&UnitNode> = outline_units(&nodes)
                 .into_iter()
                 .filter(|unit| !completed.contains(unit.id.as_str()))
@@ -235,19 +240,16 @@ impl Store {
                 distribute_units(&weights, plan.from_date, plan.target_date, plan.study_days);
             assignments.sort_by(|a, b| a.0.cmp(&b.0));
 
-            let now = now_millis();
-            for (unit_id, date) in assignments {
-                upsert_personal_planned_date_if_incomplete(
-                    scope,
-                    course_id,
-                    &unit_id,
-                    user_id,
-                    org.clone(),
-                    &date.to_string(),
-                    now,
-                )
-                .await?;
-            }
+            let now = scope.now_millis();
+            upsert_personal_planned_dates_if_incomplete(
+                scope,
+                course_id,
+                user_id,
+                org,
+                &assignments,
+                now,
+            )
+            .await?;
             Ok(())
         })
         .await
@@ -434,7 +436,7 @@ pub(crate) async fn upsert_schedule_row(
     schedule: &ValidatedCourseSchedule,
     org: Param,
 ) -> Result<CourseSchedule, StoreError> {
-    let now = now_millis();
+    let now = scope.now_millis();
     let start = schedule.start_date.to_string();
     let target = schedule.target_date.to_string();
     let bits = i64::from(schedule.study_days.bits());
@@ -493,8 +495,8 @@ async fn assign_shared_unit_dates(
         .map(|r| (r.node.id.clone(), r))
         .collect();
 
-    let now = now_millis();
-    let mut updated_ids = Vec::new();
+    let now = scope.now_millis();
+    let mut updates: Vec<(String, String, i64)> = Vec::new();
     for (unit_id, date) in assignments {
         let Some(mut row) = rows_by_id.remove(&unit_id) else {
             continue;
@@ -508,8 +510,10 @@ async fn assign_shared_unit_dates(
         if same {
             continue;
         }
-        row.fields
-            .insert(UNIT_SCHEDULED_DATE_FIELD.to_owned(), Value::from(new_date));
+        row.fields.insert(
+            UNIT_SCHEDULED_DATE_FIELD.to_owned(),
+            Value::from(new_date.as_str()),
+        );
         let check = Block {
             id: row.node.id.clone(),
             container_id: course_id.to_owned(),
@@ -526,17 +530,46 @@ async fn assign_shared_unit_dates(
                 source,
             })?;
         let updated_at = now.max(row.node.updated_at.saturating_add(1));
-        let mut sql = scope.sql("UPDATE blocks SET fields = ");
-        sql.changing_no_access()
-            .bind(Param::json(&check.fields)?)
-            .push_bind(", modified_by = ", OptId(user_id))
-            .push_bind(", updated_at = ", updated_at)
-            .push_bind(" WHERE id = ", Id(&check.id))
-            .push_bind(" AND container_id = ", Id(course_id));
-        scope.execute(sql).await?;
-        updated_ids.push(check.id);
+        updates.push((check.id, new_date, updated_at));
     }
-    Ok(updated_ids)
+
+    for batch in updates.chunks(REDISTRIBUTE_BATCH_SIZE) {
+        let mut sql = match scope.dialect() {
+            Dialect::Sqlite => scope.sql(
+                "UPDATE blocks SET fields = json_set(COALESCE(fields, '{}'), '$.scheduledDate', CASE id",
+            ),
+            Dialect::Postgres => scope.sql(
+                "UPDATE blocks SET fields = jsonb_set(COALESCE(fields::jsonb, '{}'::jsonb), '{scheduledDate}', to_jsonb((CASE id",
+            ),
+        };
+        sql.changing_no_access();
+        for (id, new_date, _) in batch {
+            sql.push_bind(" WHEN ", Id(id))
+                .push_bind(" THEN ", new_date.as_str());
+        }
+        match scope.dialect() {
+            Dialect::Sqlite => {
+                sql.push(" END)");
+            }
+            Dialect::Postgres => {
+                sql.push(" END)::text), true)::json");
+            }
+        }
+        sql.push_bind(", modified_by = ", OptId(user_id))
+            .push(", updated_at = CASE id");
+        for (id, _, updated_at) in batch {
+            sql.push_bind(" WHEN ", Id(id))
+                .push_bind(" THEN ", *updated_at);
+        }
+        sql.push(" ELSE updated_at END WHERE container_id = ")
+            .bind(Id(course_id))
+            .push(" AND id IN (")
+            .bind_list(batch.iter().map(|(id, _, _)| Id(id)))
+            .push(")");
+        scope.execute(sql).await?;
+    }
+
+    Ok(updates.into_iter().map(|(id, _, _)| id).collect())
 }
 
 async fn upsert_planned_date_row(
@@ -548,9 +581,17 @@ async fn upsert_planned_date_row(
     planned_date: Option<String>,
     now: i64,
 ) -> Result<UnitProgress, StoreError> {
-    let conflict_target = match scope.dialect() {
-        Dialect::Postgres => "(unit_id, org_id, user_id)",
-        Dialect::Sqlite => "(unit_id, user_id)",
+    let (conflict_target, updated_expr, org_guard) = match scope.dialect() {
+        Dialect::Postgres => (
+            "(unit_id, org_id, user_id)",
+            "GREATEST(unit_progress.updated_at, excluded.updated_at)",
+            "",
+        ),
+        Dialect::Sqlite => (
+            "(unit_id, user_id)",
+            "MAX(unit_progress.updated_at, excluded.updated_at)",
+            " WHERE unit_progress.org_id = excluded.org_id",
+        ),
     };
     let mut sql = scope.sql(
         "INSERT INTO unit_progress \
@@ -571,51 +612,75 @@ async fn upsert_planned_date_row(
         .push(
             " DO UPDATE SET container_id = excluded.container_id, \
              planned_date = excluded.planned_date, \
-             updated_at = excluded.updated_at \
-             RETURNING unit_id, completed_at, planned_date, last_position, updated_at",
-        );
+             updated_at = ",
+        )
+        .push(updated_expr)
+        .push(org_guard)
+        .push(" RETURNING unit_id, completed_at, planned_date, last_position, updated_at");
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     progress_from_row(&row)
 }
 
-/// Inserts or updates a personal `planned_date` during personal redistribution, leaving
-/// rows that were concurrently marked completed untouched (`WHERE completed_at IS NULL`).
-async fn upsert_personal_planned_date_if_incomplete(
+/// Inserts or updates personal `planned_date` rows in batches during personal
+/// redistribution, leaving rows that were concurrently marked completed untouched
+/// (`WHERE completed_at IS NULL`).
+async fn upsert_personal_planned_dates_if_incomplete(
     scope: &mut Scope<'_>,
     course_id: &str,
-    unit_id: &str,
     user_id: &str,
     org: Param,
-    planned_date: &str,
+    assignments: &[(String, DiaryDate)],
     now: i64,
 ) -> Result<(), StoreError> {
-    let conflict_target = match scope.dialect() {
-        Dialect::Postgres => "(unit_id, org_id, user_id)",
-        Dialect::Sqlite => "(unit_id, user_id)",
+    if assignments.is_empty() {
+        return Ok(());
+    }
+    let (conflict_target, updated_expr) = match scope.dialect() {
+        Dialect::Postgres => (
+            "(unit_id, org_id, user_id)",
+            "GREATEST(unit_progress.updated_at, excluded.updated_at)",
+        ),
+        Dialect::Sqlite => (
+            "(unit_id, user_id)",
+            "MAX(unit_progress.updated_at, excluded.updated_at)",
+        ),
     };
-    let mut sql = scope.sql(
-        "INSERT INTO unit_progress \
-         (unit_id, container_id, user_id, completed_at, planned_date, last_position, \
-          updated_at, org_id) VALUES (",
-    );
-    sql.changing_no_access()
-        .bind(Id(unit_id))
-        .push_bind(", ", Id(course_id))
-        .push_bind(", ", Id(user_id))
-        .push_bind(", ", Param::OptInt(None))
-        .push_bind(", ", planned_date)
-        .push_bind(", ", Param::OptText(None))
-        .push_bind(", ", now)
-        .push_bind(", ", org)
-        .push(") ON CONFLICT ")
-        .push(conflict_target)
-        .push(
-            " DO UPDATE SET container_id = excluded.container_id, \
-             planned_date = excluded.planned_date, \
-             updated_at = excluded.updated_at \
-             WHERE unit_progress.completed_at IS NULL",
+    for batch in assignments.chunks(REDISTRIBUTE_BATCH_SIZE) {
+        let mut sql = scope.sql(
+            "INSERT INTO unit_progress \
+             (unit_id, container_id, user_id, completed_at, planned_date, last_position, \
+              updated_at, org_id) VALUES ",
         );
-    scope.execute(sql).await?;
+        sql.changing_no_access();
+        for (idx, (unit_id, date)) in batch.iter().enumerate() {
+            if idx > 0 {
+                sql.push(", ");
+            }
+            sql.push("(")
+                .bind(Id(unit_id))
+                .push_bind(", ", Id(course_id))
+                .push_bind(", ", Id(user_id))
+                .push_bind(", ", Param::OptInt(None))
+                .push_bind(", ", date.to_string())
+                .push_bind(", ", Param::OptText(None))
+                .push_bind(", ", now)
+                .push_bind(", ", org.clone())
+                .push(")");
+        }
+        sql.push(" ON CONFLICT ")
+            .push(conflict_target)
+            .push(
+                " DO UPDATE SET container_id = excluded.container_id, \
+                 planned_date = excluded.planned_date, \
+                 updated_at = ",
+            )
+            .push(updated_expr)
+            .push(
+                " WHERE unit_progress.completed_at IS NULL \
+                 AND unit_progress.org_id = excluded.org_id",
+            );
+        scope.execute(sql).await?;
+    }
     Ok(())
 }
 
@@ -663,10 +728,12 @@ async fn fetch_completed_unit_ids(
     scope: &mut Scope<'_>,
     course_id: &str,
     user_id: &str,
+    org: Param,
 ) -> Result<HashSet<String>, StoreError> {
     let mut sql = scope.sql("SELECT unit_id FROM unit_progress WHERE container_id = ");
     sql.bind(Id(course_id))
         .push_bind(" AND user_id = ", Id(user_id))
+        .push_bind(" AND org_id = ", org)
         .push(" AND completed_at IS NOT NULL");
     scope
         .fetch_all(sql)
@@ -740,10 +807,8 @@ async fn fetch_my_progress_for_courses(
     sql.bind(Id(user_id))
         .push(" AND up.container_id IN (")
         .bind_list(course_ids.iter().copied().map(Id))
-        .push(")");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push_bind(" AND up.org_id = ", org);
-    }
+        .push(")")
+        .push_bind(" AND up.org_id = ", org);
     let rows = scope.fetch_all(sql).await?;
     let mut map = BTreeMap::new();
     for row in &rows {
@@ -789,22 +854,18 @@ fn schedule_from_row(row: &Row) -> Result<CourseSchedule, StoreError> {
 /// Forgets shared schedules of courses that are gone for good: neither live in
 /// `containers` nor awaiting restore in `deleted_containers` of the row's organization.
 pub(crate) async fn forget_gone_containers(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let statement = [
+    let mut sql = scope.sql(
         "DELETE FROM course_schedules WHERE NOT EXISTS \
          (SELECT 1 FROM containers AS c WHERE c.id = course_schedules.container_id",
-        scope
-            .same_organization(&[("c", "course_schedules")])
-            .as_str(),
-        ") AND NOT EXISTS \
-         (SELECT 1 FROM deleted_containers AS d WHERE d.id = course_schedules.container_id",
-        scope
-            .same_organization(&[("d", "course_schedules")])
-            .as_str(),
-        ")",
-    ]
-    .concat();
-    let mut sql = scope.sql(&statement);
-    sql.changing_no_access();
+    );
+    sql.changing_no_access()
+        .push(&scope.same_organization(&[("c", "course_schedules")]))
+        .push(
+            ") AND NOT EXISTS \
+             (SELECT 1 FROM deleted_containers AS d WHERE d.id = course_schedules.container_id",
+        )
+        .push(&scope.same_organization(&[("d", "course_schedules")]))
+        .push(")");
     scope.execute(sql).await?;
     Ok(())
 }

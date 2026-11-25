@@ -152,8 +152,19 @@ async fn send_blocks(
         })
         .collect();
     let refusals = client.write(&operations).await?;
+    let mut done = Vec::with_capacity(changes.len());
     for (change, refusal) in changes.iter().zip(refusals) {
-        settle(store, versions, metrics, change, refusal.as_ref()).await?;
+        if let Some(refusal) = refusal {
+            settle(store, versions, metrics, change, Some(&refusal)).await?;
+        } else {
+            done.push(change.clone());
+        }
+    }
+    if !done.is_empty() {
+        let settled = store.settle_search_changes(&done).await?;
+        for _ in 0..settled {
+            metrics.search_sent(SearchSent::Done);
+        }
     }
     Ok(())
 }

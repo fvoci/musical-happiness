@@ -264,7 +264,7 @@ async fn exam_scores_never_leak_across_roles_admins_orgs_guests_or_public_links(
         assert_eq!(exams[0].average_score, None, "{label}");
     }
 
-    assert_k_anonymity_api_progression(&a).await;
+    assert_k_anonymity_api_progression(&ts, &a).await;
 
     // Org admin joins WS2 via `joinOrgWorkspace`: STILL sees no private score or note.
     ts.client
@@ -294,76 +294,121 @@ async fn exam_scores_never_leak_across_roles_admins_orgs_guests_or_public_links(
     ts.teardown().await;
 }
 
-async fn assert_k_anonymity_api_progression(a: &IsolationActors) {
-    // 2nd scorer (invited guest = 85): Alice and guest each have only 1 other scorer (`None`),
-    // unsubmitted Bob has 2 other scorers (`Some(90.0)`), and unjoined reader still sees 0 / None.
-    a.guest
-        .put(
-            &format!(
-                "{}/courses/{}/exams/{}/my-score",
-                a.ws2, a.course_id, a.exam.id
-            ),
-            &json!({"score": 85.0, "note": "guest private"}),
-        )
-        .await
-        .check_ok();
-    for (label, scorer) in [
-        ("Alice (2 scorers)", &a.alice),
-        ("Guest (2 scorers)", &a.guest),
+async fn assert_k_anonymity_api_progression(ts: &TestServer, a: &IsolationActors) {
+    let pub_path = format!(
+        "{}/courses/{}/exams/{}/results-publication",
+        a.ws2, a.course_id, a.exam.id
+    );
+    // 2nd and 3rd scorers (guest = 85, Bob = 90): before snapshot publication, NOBODY
+    // (not even course admin Bob) sees `averageScore` (`P2-2`).
+    for (scorer, score, note) in [
+        (&a.guest, 85.0, "guest private"),
+        (&a.bob, 90.0, "bob private"),
     ] {
-        let exams: Vec<CourseExam> = scorer
-            .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
+        scorer
+            .put(
+                &format!(
+                    "{}/courses/{}/exams/{}/my-score",
+                    a.ws2, a.course_id, a.exam.id
+                ),
+                &json!({"score": score, "note": note}),
+            )
             .await
-            .ok_json();
-        assert_eq!(exams[0].score_count, 2, "{label}");
-        assert_eq!(exams[0].average_score, None, "{label}");
+            .check_ok();
     }
-    let bob_two: Vec<CourseExam> = a
-        .bob
-        .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
-        .await
-        .ok_json();
-    assert_eq!(bob_two[0].score_count, 2, "unsubmitted bob sees count 2");
-    assert!(
-        (bob_two[0].average_score.expect("bob 2 others") - 90.0).abs() < 1e-9,
-        "unsubmitted bob sees average 90.0"
-    );
-    let unjoined_two: Vec<CourseExam> = a
-        .unjoined
-        .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
-        .await
-        .ok_json();
-    assert_eq!(
-        unjoined_two[0].score_count, 0,
-        "unjoined reader sees count 0"
-    );
-    assert_eq!(
-        unjoined_two[0].average_score, None,
-        "unjoined reader sees no average"
-    );
-
-    // 3rd scorer (Bob = 90): all three enrolled scorers now have 2 other scorers and see 90.0.
-    a.bob
-        .put(
-            &format!(
-                "{}/courses/{}/exams/{}/my-score",
-                a.ws2, a.course_id, a.exam.id
-            ),
-            &json!({"score": 90.0, "note": "bob private"}),
-        )
-        .await
-        .check_ok();
-    for (label, scorer) in [("Alice", &a.alice), ("Bob", &a.bob), ("Guest", &a.guest)] {
-        let exams: Vec<CourseExam> = scorer
+    for (label, viewer) in [("Alice", &a.alice), ("Bob", &a.bob), ("Guest", &a.guest)] {
+        let exams: Vec<CourseExam> = viewer
             .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
             .await
             .ok_json();
         assert_eq!(exams[0].score_count, 3, "{label}");
-        assert!(
-            (exams[0].average_score.expect("3 scorers avg") - 90.0).abs() < 1e-9,
-            "{label} sees average 90.0"
-        );
+        assert_eq!(exams[0].average_score, None, "{label} unpublished");
+        assert_eq!(exams[0].results_published_at, None, "{label}");
+        assert_eq!(exams[0].published_score_bucket, None, "{label}");
     }
+    // Non-managers are refused 403; course admin Bob with < 5 scorers gets 409 Conflict.
+    a.alice.post(&pub_path, &json!({})).await.check_forbidden();
+    a.unjoined
+        .post(&pub_path, &json!({}))
+        .await
+        .check_forbidden();
+    assert_eq!(
+        a.bob.post(&pub_path, &json!({})).await.status,
+        StatusCode::CONFLICT,
+        "fewer than 5 scorers cannot publish"
+    );
+
+    // Enroll 4th, 5th, and 6th learners in WS2 + course.
+    let dave = ts.add_user("exam-dave").await;
+    let erin = ts.add_user("exam-erin").await;
+    let frank = ts.add_user("exam-frank").await;
+    for extra in [&dave, &erin, &frank] {
+        let uid = extra.me().await.id;
+        ts.app
+            .store()
+            .add_workspace_member(&a.ws2_id, &uid, WorkspaceRole::Member)
+            .await
+            .expect("ws2 extra member");
+        add_member(&a.bob, &a.ws2, &a.course_id, &uid, "viewer").await;
+    }
+    for (scorer, score) in [(&dave, 81.0), (&erin, 80.3)] {
+        scorer
+            .put(
+                &format!(
+                    "{}/courses/{}/exams/{}/my-score",
+                    a.ws2, a.course_id, a.exam.id
+                ),
+                &json!({"score": score}),
+            )
+            .await
+            .check_ok();
+    }
+    // 5 scorers (95 + 85 + 90 + 81 + 80.3 = 431.3 -> 86.26 -> 86.3, bucket 5).
+    let published: CourseExam = a.bob.post(&pub_path, &json!({})).await.ok_json();
+    assert!(published.results_published_at.is_some());
+    assert_eq!(published.published_score_bucket, Some(5));
+    assert!((published.average_score.expect("published avg") - 86.3).abs() < 1e-9);
+
+    // Unjoined reader STILL sees count 0 and no published snapshot.
+    let unjoined_view: Vec<CourseExam> = a
+        .unjoined
+        .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
+        .await
+        .ok_json();
+    assert_eq!(unjoined_view[0].score_count, 0);
+    assert_eq!(unjoined_view[0].average_score, None);
+    assert_eq!(unjoined_view[0].results_published_at, None);
+    assert_eq!(unjoined_view[0].published_score_bucket, None);
+
+    // 6th scorer (`frank = 100.0`): snapshot stays frozen at 86.3, and republish with delta 1 fails 409.
+    frank
+        .put(
+            &format!(
+                "{}/courses/{}/exams/{}/my-score",
+                a.ws2, a.course_id, a.exam.id
+            ),
+            &json!({"score": 100.0}),
+        )
+        .await
+        .check_ok();
+    let frozen: Vec<CourseExam> = a
+        .alice
+        .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
+        .await
+        .ok_json();
+    assert_eq!(frozen[0].score_count, 6);
+    assert!((frozen[0].average_score.expect("frozen avg") - 86.3).abs() < 1e-9);
+    assert_eq!(
+        a.bob.post(&pub_path, &json!({})).await.status,
+        StatusCode::CONFLICT,
+        "republish requires >= 3 net scorer delta"
+    );
+
+    // Unpublish clears snapshot fields back to None.
+    let unpublished: CourseExam = a.bob.delete(&pub_path).await.ok_json();
+    assert_eq!(unpublished.average_score, None);
+    assert_eq!(unpublished.results_published_at, None);
+    assert_eq!(unpublished.published_score_bucket, None);
 }
 
 async fn assert_removed_public_cross_org_and_own_space(ts: &TestServer, a: &IsolationActors) {
@@ -638,10 +683,38 @@ async fn meeting_attendance_permission_matrix() {
         .await
         .check_forbidden();
 
-    unjoined
+    let unjoined_meetings: Vec<CourseMeeting> = unjoined
         .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
         .await
-        .check_ok();
+        .ok_json();
+    assert!(
+        unjoined_meetings[0].attendance.is_empty(),
+        "unjoined open-course reader must receive empty attendance list (`P2-1`)"
+    );
+    let viewer_meetings: Vec<CourseMeeting> = viewer
+        .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
+        .await
+        .ok_json();
+    assert!(
+        !viewer_meetings[0].attendance.is_empty()
+            && viewer_meetings[0]
+                .attendance
+                .iter()
+                .all(|rec| rec.updated_at == 0),
+        "non-manager enrolled member receives attendance with `updated_at = 0` (`P2-1`)"
+    );
+    let admin_meetings: Vec<CourseMeeting> = ts
+        .client
+        .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
+        .await
+        .ok_json();
+    assert!(
+        admin_meetings[0]
+            .attendance
+            .iter()
+            .all(|rec| rec.updated_at > 0),
+        "course role manager receives attendance timestamps (`P2-1`)"
+    );
     unjoined
         .put(&att_path(&unjoined_id), &json!({"status": "present"}))
         .await
@@ -797,7 +870,7 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
         .await
         .ok_json();
     assert_eq!(before[0].score_count, 3);
-    assert!((before[0].average_score.expect("avg") - 90.0).abs() < 1e-9);
+    assert_eq!(before[0].average_score, None);
 
     socket_request(
         &sock,
@@ -823,16 +896,13 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
         .await
         .ok_json();
     assert_eq!(after[0].score_count, 2);
-    assert_eq!(
-        after[0].average_score, None,
-        "scorer with 1 remaining peer has average withheld"
-    );
+    assert_eq!(after[0].average_score, None);
     let after_obs: Vec<CourseExam> = observer
         .get(&format!("{ROOT_WS}/courses/{course_id}/exams"))
         .await
         .ok_json();
     assert_eq!(after_obs[0].score_count, 2);
-    assert!((after_obs[0].average_score.expect("obs avg") - 85.0).abs() < 1e-9);
+    assert_eq!(after_obs[0].average_score, None);
     assert_eq!(
         ts.app
             .store()

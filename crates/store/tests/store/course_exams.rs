@@ -5,7 +5,7 @@ use fvoci_model::{
     Container, ContainerKind, ContainerMember, ContainerVisibility, CourseExamChange,
     ExamDateChange, NewCourseExam, ValidatedMyExamScore, new_id,
 };
-use fvoci_store::{ExamScoreOutcome, Store};
+use fvoci_store::{ExamPublishError, ExamScoreOutcome, Store};
 
 use crate::account_erasure::{T0, erase, founder};
 use crate::common;
@@ -93,8 +93,9 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
         .expect("outcome");
     assert_eq!(over, ExamScoreOutcome::ExceedsMaxScore { max_score: 100.0 });
 
-    // 1st -> 2nd -> 3rd scorer k-anonymity progression and unjoined reader isolation.
-    verify_k_anonymity_progression(&test, &course_id, &first.id, [&alice, &bob, &carol]).await;
+    // Snapshot publication progression (`P2-2`) and unjoined reader isolation.
+    verify_snapshot_publication_progression(&test, &course_id, &first.id, [&alice, &bob, &carol])
+        .await;
 
     let for_alice = test
         .list_course_exams(&course_id, Some(&alice))
@@ -105,8 +106,11 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
         [first.id.as_str(), second.id.as_str(), undated.id.as_str()],
         "dated ascending, undated last"
     );
-    assert_eq!(for_alice[0].score_count, 3);
-    assert!((for_alice[0].average_score.expect("avg") - 80.0).abs() < 1e-9);
+    assert_eq!(for_alice[0].score_count, 8);
+    assert_eq!(
+        for_alice[0].average_score, None,
+        "unpublished again at end of progression"
+    );
     let alice_mine = for_alice[0].my_score.as_ref().expect("alice score");
     assert_eq!(alice_mine.note, "alice private note");
     assert!((alice_mine.score - 90.0).abs() < 1e-9);
@@ -116,99 +120,182 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
     test.teardown().await;
 }
 
-async fn verify_k_anonymity_progression(
+async fn verify_snapshot_publication_progression(
     test: &Store,
     course_id: &str,
     exam_id: &str,
     [alice, bob, carol]: [&String; 3],
 ) {
-    // 1st scorer (Alice = 90): neither Alice nor unsubmitted Bob may see averageScore yet.
-    let saved_a = test
-        .upsert_my_exam_score(
-            course_id,
-            exam_id,
-            alice,
-            &ValidatedMyExamScore {
-                score: 90.0,
-                note: "alice private note".to_owned(),
-            },
-        )
-        .await
-        .expect("alice saved");
-    assert!(
-        matches!(saved_a, ExamScoreOutcome::Saved(ref s) if (s.score - 90.0).abs() < 1e-9),
-        "alice score saved as 90.0"
-    );
-    for viewer in [alice, bob] {
-        let one = test
-            .list_course_exams(course_id, Some(viewer))
+    for (uid, score, note) in [
+        (alice, 90.0, "alice private note"),
+        (bob, 70.0, "bob private note"),
+        (carol, 80.0, "carol private note"),
+    ] {
+        let saved = test
+            .upsert_my_exam_score(
+                course_id,
+                exam_id,
+                uid,
+                &ValidatedMyExamScore {
+                    score,
+                    note: note.to_owned(),
+                },
+            )
             .await
-            .expect("1 scorer list");
-        assert_eq!(one[0].score_count, 1, "single scorer counted");
-        assert_eq!(one[0].average_score, None, "1 scorer must not leak score");
+            .expect("score saved");
+        assert!(matches!(saved, ExamScoreOutcome::Saved(_)));
     }
 
-    // 2nd scorer (Bob = 70): Alice and Bob each have only 1 other scorer (`averageScore: None`),
-    // whereas unsubmitted Carol has 2 other scorers and sees `averageScore: Some(80.0)`.
+    // Before publication, NO caller (not even course admin Alice or unsubmitted peers) sees
+    // `average_score`, eliminating differential subtraction attacks (`P2-2`).
+    let dave = common::user(test, "dave").await;
+    let erin = common::user(test, "erin").await;
+    let frank = common::user(test, "frank").await;
+    let grace = common::user(test, "grace").await;
+    let heidi = common::user(test, "heidi").await;
+    let ws_id = test
+        .get_container(course_id)
+        .await
+        .expect("course")
+        .workspace_id;
+    for extra in [&dave, &erin, &frank, &grace, &heidi] {
+        common::works_in(test, &ws_id, extra).await;
+        enroll(test, course_id, extra).await;
+    }
+    for viewer in [alice, bob, &dave] {
+        let listed = test
+            .list_course_exams(course_id, Some(viewer))
+            .await
+            .expect("unpublished list");
+        assert_eq!(listed[0].score_count, 3);
+        assert_eq!(listed[0].average_score, None);
+        assert_eq!(listed[0].results_published_at, None);
+        assert_eq!(listed[0].published_score_bucket, None);
+    }
+
+    // Publishing with fewer than 5 scorers is refused.
+    assert_eq!(
+        test.publish_course_exam_results(course_id, exam_id, Some(alice))
+            .await
+            .expect("publish check"),
+        Err(ExamPublishError::TooFewScorers {
+            active_scorers: 3,
+            minimum: 5,
+        })
+    );
     test.upsert_my_exam_score(
         course_id,
         exam_id,
-        bob,
+        &dave,
         &ValidatedMyExamScore {
-            score: 70.0,
-            note: "bob private note".to_owned(),
+            score: 81.0,
+            note: String::new(),
         },
     )
     .await
-    .expect("bob saved");
-    for scorer in [alice, bob] {
-        let two = test
-            .list_course_exams(course_id, Some(scorer))
-            .await
-            .expect("2 scorers list");
-        assert_eq!(two[0].score_count, 2, "two scorers counted");
-        assert_eq!(two[0].average_score, None, "2 scorers block subtraction");
-    }
-    let for_unsubmitted_carol = test
-        .list_course_exams(course_id, Some(carol))
-        .await
-        .expect("carol unsubmitted list");
+    .expect("4th scorer");
     assert_eq!(
-        for_unsubmitted_carol[0].score_count, 2,
-        "carol sees count 2"
-    );
-    assert!(
-        (for_unsubmitted_carol[0].average_score.expect("carol avg") - 80.0).abs() < 1e-9,
-        "unsubmitted carol has 2 other scorers so average 80.0 is shown"
+        test.publish_course_exam_results(course_id, exam_id, Some(alice))
+            .await
+            .expect("4-scorer publish check"),
+        Err(ExamPublishError::TooFewScorers {
+            active_scorers: 4,
+            minimum: 5,
+        })
     );
 
-    // Unjoined viewer (`None`) receives neither `my_score` nor aggregate stats (`0` / `None`).
+    // 5th scorer (`erin = 80.3`): mean = 401.3 / 5 = 80.26 -> rounded to 80.3, bucket = 5.
+    test.upsert_my_exam_score(
+        course_id,
+        exam_id,
+        &erin,
+        &ValidatedMyExamScore {
+            score: 80.3,
+            note: String::new(),
+        },
+    )
+    .await
+    .expect("5th scorer");
+    let published = test
+        .publish_course_exam_results(course_id, exam_id, Some(alice))
+        .await
+        .expect("publish call")
+        .expect("5 scorers publish succeeds");
+    assert!(published.results_published_at.is_some());
+    assert_eq!(published.published_score_bucket, Some(5));
+    assert!((published.average_score.expect("published avg") - 80.3).abs() < 1e-9);
+
+    // Unjoined viewer (`None`) receives neither `my_score` nor snapshot/count stats.
     let for_reader = test
         .list_course_exams(course_id, None)
         .await
         .expect("reader list");
-    assert_eq!(for_reader[0].my_score, None, "reader has no personal score");
-    assert_eq!(
-        for_reader[0].average_score, None,
-        "reader does not see exam average"
-    );
-    assert_eq!(
-        for_reader[0].score_count, 0,
-        "reader does not see exam score count"
-    );
+    assert_eq!(for_reader[0].my_score, None);
+    assert_eq!(for_reader[0].average_score, None);
+    assert_eq!(for_reader[0].score_count, 0);
+    assert_eq!(for_reader[0].results_published_at, None);
+    assert_eq!(for_reader[0].published_score_bucket, None);
 
-    // 3rd scorer (Carol = 80): all three scorers now have 2 other scorers and see average 80.0.
+    // 6th scorer (`frank = 100.0`): snapshot stays frozen at 80.3 / bucket 5, and re-publish
+    // is refused until net scorer delta reaches >= 3.
     test.upsert_my_exam_score(
         course_id,
         exam_id,
-        carol,
+        &frank,
         &ValidatedMyExamScore {
-            score: 80.0,
-            note: "carol private note".to_owned(),
+            score: 100.0,
+            note: String::new(),
         },
     )
     .await
-    .expect("carol saved");
+    .expect("6th scorer");
+    let frozen = test
+        .list_course_exams(course_id, Some(alice))
+        .await
+        .expect("frozen list");
+    assert_eq!(frozen[0].score_count, 6);
+    assert!((frozen[0].average_score.expect("frozen avg") - 80.3).abs() < 1e-9);
+    assert_eq!(frozen[0].published_score_bucket, Some(5));
+    assert_eq!(
+        test.publish_course_exam_results(course_id, exam_id, Some(alice))
+            .await
+            .expect("republish check"),
+        Err(ExamPublishError::TooFewChangesSincePublish {
+            current_scorers: 6,
+            previous_scorers: 5,
+            minimum_delta: 3,
+        })
+    );
+
+    // 7th and 8th scorers (`|8 - 5| == 3`): re-publish succeeds (701.3 / 8 = 87.6625 -> 87.7).
+    for extra in [&grace, &heidi] {
+        test.upsert_my_exam_score(
+            course_id,
+            exam_id,
+            extra,
+            &ValidatedMyExamScore {
+                score: 100.0,
+                note: String::new(),
+            },
+        )
+        .await
+        .expect("7th/8th scorer");
+    }
+    let republished = test
+        .publish_course_exam_results(course_id, exam_id, Some(alice))
+        .await
+        .expect("republish call")
+        .expect("delta 3 republish succeeds");
+    assert!((republished.average_score.expect("republished avg") - 87.7).abs() < 1e-9);
+    assert_eq!(republished.published_score_bucket, Some(5));
+
+    let unpublished = test
+        .unpublish_course_exam_results(course_id, exam_id, Some(alice))
+        .await
+        .expect("unpublish succeeds");
+    assert_eq!(unpublished.average_score, None);
+    assert_eq!(unpublished.results_published_at, None);
+    assert_eq!(unpublished.published_score_bucket, None);
 }
 
 async fn verify_exam_patch_and_deletions(
@@ -256,22 +343,10 @@ async fn verify_exam_patch_and_deletions(
         .find(|e| e.id == exam_id)
         .expect("first exam");
     assert_eq!(first_view.my_score, None, "alice score removed");
-    assert_eq!(first_view.score_count, 2, "bob and carol remain");
-    assert!(
-        (first_view.average_score.expect("avg") - 75.0).abs() < 1e-9,
-        "unsubmitted alice sees average of bob (70) and carol (80)"
-    );
-    let bob_after_del = test
-        .list_course_exams(course_id, Some(bob))
-        .await
-        .expect("bob listed");
-    let bob_first = bob_after_del
-        .iter()
-        .find(|e| e.id == exam_id)
-        .expect("bob first exam");
+    assert_eq!(first_view.score_count, 7, "7 other scorers remain");
     assert_eq!(
-        bob_first.average_score, None,
-        "submitted bob now has only 1 other scorer so average is hidden again"
+        first_view.average_score, None,
+        "unpublished average stays None"
     );
 
     test.delete_course_exam(course_id, exam_id)
@@ -319,16 +394,15 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
         .expect("saved");
     }
 
-    // With 3 scorers (owner=80, bob=60, carol=100), owner has 2 other scorers -> avg 80.
+    // With 3 scorers (owner=80, bob=60, carol=100) and unpublished results, average is None.
     let before = test
         .list_course_exams(&course_id, Some(&owner))
         .await
         .expect("before removal");
     assert_eq!(before[0].score_count, 3);
-    assert!((before[0].average_score.expect("avg") - 80.0).abs() < 1e-9);
+    assert_eq!(before[0].average_score, None);
 
-    // Remove Bob from workspace -> Bob's score row deleted; unsubmitted Dave (2 other scorers:
-    // owner=80 + carol=100) sees avg 90, while submitted owner (1 other scorer) gets None.
+    // Remove Bob from workspace -> Bob's score row deleted (`score_count == 2`).
     test.remove_workspace_member(&test.workspace_id, &bob, &owner)
         .await
         .expect("bob removed");
@@ -343,9 +417,9 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
         .await
         .expect("listed for dave");
     assert_eq!(exams_dave[0].score_count, 2);
-    assert!((exams_dave[0].average_score.expect("dave avg") - 90.0).abs() < 1e-9);
+    assert_eq!(exams_dave[0].average_score, None);
 
-    // Erase Carol -> Carol's score row deleted; only 1 scorer remains so average is hidden for all.
+    // Erase Carol -> Carol's score row deleted (`score_count == 1`).
     erase(&test, &carol, fvoci_store::Erasing::AtOnce, T0 + 1000).await;
     let exams = test
         .list_course_exams(&course_id, Some(&dave))

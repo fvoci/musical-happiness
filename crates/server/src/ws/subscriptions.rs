@@ -1,18 +1,32 @@
 //! Validating subscriptions, and registering them unless what concerns them was taken
 //! back meanwhile (`revocations.rs`).
 
+use std::collections::BTreeSet;
+
 use fvoci_model::WorkspaceRole;
 
 use super::ending::{Ended, Of};
 use super::readers::ReaderLimits;
 use super::revocations::Followed;
 use super::{
-    CHECKED_AT_MOST, Command, Hub, ListenerId, ReadPermit, remove_from, subscribe_to_blocks,
-    subscribe_to_workspace, unsubscribe_from_blocks,
+    CHECKED_AT_MOST, Command, Hub, ListenerId, ReadPermit, SubscribedBlocksMessage,
+    SubscribedWorkspaceMessage, remove_from, subscribe_to_blocks, subscribe_to_workspace,
+    unsubscribe_from_blocks,
 };
 use crate::app::App;
 use crate::error::AppError;
 use crate::metrics::Disconnect;
+
+/// Maximum distinct block IDs accepted in one `subscribeBlocks` command (`gapfill H-2`).
+const MOST_BLOCKS_PER_COMMAND: usize = 200;
+
+/// Truncates an untrusted command type to 64 characters for debug diagnostics (`3ab H-2`).
+fn truncated_command_kind(kind: &str) -> &str {
+    match kind.char_indices().nth(64) {
+        Some((idx, _)) => &kind[..idx],
+        None => kind,
+    }
+}
 
 /// Why a connection does not follow a workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,17 +51,33 @@ impl Hub {
                 return true;
             }
             "unsubscribeBlocks" => {
-                // Following less grants nothing: a token that cannot be checked
-                // still stops what the page asked to stop.
-                match self.container_of_read_token(&command).await {
-                    Ok(Some(_)) => {
-                        unsubscribe_from_blocks(&mut self.listeners(), id, &command.block_ids);
+                // Following less grants nothing: deduplicate IDs and drop local tracking
+                // directly without unbounded DB lookups.
+                let deduped: Vec<String> = command
+                    .block_ids
+                    .iter()
+                    .cloned()
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                if !deduped.is_empty() && deduped.len() <= MOST_BLOCKS_PER_COMMAND {
+                    match self
+                        .container_of_read_token(
+                            &command.workspace_id,
+                            &command.read_token,
+                            &deduped,
+                        )
+                        .await
+                    {
+                        Ok(Some(_)) => {
+                            unsubscribe_from_blocks(&mut self.listeners(), id, &deduped);
+                        }
+                        Err(error) => {
+                            tracing::error!(%error, workspace_id = %command.workspace_id, "websocket: checking a read token failed");
+                            unsubscribe_from_blocks(&mut self.listeners(), id, &deduped);
+                        }
+                        Ok(None) => {}
                     }
-                    Err(error) => {
-                        tracing::error!(%error, workspace_id = %command.workspace_id, "websocket: checking a read token failed");
-                        unsubscribe_from_blocks(&mut self.listeners(), id, &command.block_ids);
-                    }
-                    Ok(None) => {}
                 }
                 return true;
             }
@@ -60,7 +90,10 @@ impl Hub {
             .map(|listener| listener.user_id.clone())
             .unwrap_or_default();
         if user_id.is_empty() {
-            tracing::error!(command_type = %command.kind, "websocket: rejected an unauthenticated message");
+            tracing::debug!(
+                command_type = truncated_command_kind(&command.kind),
+                "websocket: rejected an unauthenticated message"
+            );
             return true;
         }
         match command.kind.as_str() {
@@ -78,20 +111,44 @@ impl Hub {
                 }
                 remove_from(&mut listeners.by_workspace, &command.workspace_id, id);
             }
-            other => tracing::error!(command_type = other, "websocket: invalid command type"),
+            other => tracing::debug!(
+                command_type = truncated_command_kind(other),
+                "websocket: invalid command type"
+            ),
         }
         true
     }
 
     /// Follows the blocks of a shared board by its read token, if `limits` take one
     /// more reader of the board by its link (`readers.rs`); tells the connection
-    /// `blocksUnsubscribed` otherwise.
+    /// `blocksUnsubscribed` otherwise, and `blocksSubscribed` once accepted.
     async fn subscribe_blocks(&self, id: ListenerId, command: &Command, limits: ReaderLimits) {
+        let deduped_blocks: Vec<String> = command
+            .block_ids
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if deduped_blocks.is_empty() || deduped_blocks.len() > MOST_BLOCKS_PER_COMMAND {
+            tracing::debug!(
+                count = deduped_blocks.len(),
+                "websocket: ignored subscribeBlocks with empty or excessive blockIds"
+            );
+            return;
+        }
         // The board its token opened when it was first checked.
         let mut validated: Option<String> = None;
         for _ in 0..CHECKED_AT_MOST {
             let since = self.listeners().revoked.now();
-            let container_id = match self.container_of_read_token(command).await {
+            let container_id = match self
+                .container_of_read_token(
+                    &command.workspace_id,
+                    &command.read_token,
+                    &deduped_blocks,
+                )
+                .await
+            {
                 Ok(Some(container_id)) => container_id,
                 Ok(None) => {
                     // The page believes it follows the blocks: it is told they ended,
@@ -101,7 +158,7 @@ impl Hub {
                             id,
                             container_id,
                             &command.workspace_id,
-                            &command.block_ids,
+                            &deduped_blocks,
                         );
                     }
                     return;
@@ -130,15 +187,31 @@ impl Hub {
                 continue;
             }
             if !listeners.admits_reader(id, &container_id, limits) {
-                let told = listeners.refuse_blocks(id, &command.workspace_id, &command.block_ids);
+                let told = listeners.refuse_blocks(id, &command.workspace_id, &deduped_blocks);
                 drop(listeners);
                 self.count_told("blocksUnsubscribed", usize::from(told));
                 return;
             }
-            subscribe_to_blocks(&mut listeners, id, &command.block_ids);
+            subscribe_to_blocks(&mut listeners, id, &deduped_blocks);
             if let Some(listener) = listeners.by_id.get_mut(&id) {
-                permit_blocks(&mut listener.shared_containers, container_id, command);
+                permit_blocks(
+                    &mut listener.shared_containers,
+                    container_id,
+                    &command.workspace_id,
+                    &command.read_token,
+                    &deduped_blocks,
+                );
             }
+            let told = listeners.tell(
+                id,
+                &SubscribedBlocksMessage {
+                    kind: "blocksSubscribed",
+                    workspace_id: &command.workspace_id,
+                    block_ids: &deduped_blocks,
+                },
+            );
+            drop(listeners);
+            self.count_told("blocksSubscribed", usize::from(told));
             return;
         }
         tracing::warn!(
@@ -193,6 +266,15 @@ impl Hub {
             if let Some(listener) = listeners.by_id.get_mut(&id) {
                 listener.workspace_roles.insert(workspace.to_owned(), role);
             }
+            let told = listeners.tell(
+                id,
+                &SubscribedWorkspaceMessage {
+                    kind: "workspaceSubscribed",
+                    workspace_id: workspace,
+                },
+            );
+            drop(listeners);
+            self.count_told("workspaceSubscribed", usize::from(told));
             return;
         }
         tracing::warn!(
@@ -230,7 +312,8 @@ impl Hub {
             .by_id
             .get(&id)
             .ok_or(NotOpened::Ended(Ended::Access))?;
-        if access.takes.opened_by(listener.made().making()) {
+        let made = listener.made().ok_or(NotOpened::Ended(Ended::Access))?;
+        if access.takes.opened_by(made.making()) {
             Ok((access.workspace_role, access.org_id))
         } else if access.takes.asks_for_password() {
             Err(NotOpened::Ended(Ended::Password))
@@ -246,15 +329,23 @@ impl Hub {
     ///
     /// Returns the store's error if the blocks or the token cannot be checked: that is
     /// no "refused".
-    async fn container_of_read_token(&self, command: &Command) -> Result<Option<String>, AppError> {
-        if command.workspace_id.is_empty() {
+    async fn container_of_read_token(
+        &self,
+        workspace_id: &str,
+        read_token: &str,
+        block_ids: &[String],
+    ) -> Result<Option<String>, AppError> {
+        if workspace_id.is_empty()
+            || block_ids.is_empty()
+            || block_ids.len() > MOST_BLOCKS_PER_COMMAND
+        {
             return Ok(None);
         }
         let mut container_id = String::new();
-        for block_id in &command.block_ids {
+        for block_id in block_ids {
             let Some(of_block) = self
                 .audience
-                .board_of_shared_block(&command.workspace_id, block_id, &command.read_token)
+                .board_of_shared_block(workspace_id, block_id, read_token)
                 .await?
             else {
                 return Ok(None);
@@ -268,7 +359,7 @@ impl Hub {
         let valid = self
             .inner
             .auth
-            .is_valid_read_token(&container_id, &command.read_token)
+            .is_valid_read_token(&container_id, read_token)
             .await?;
         Ok(valid.then_some(container_id))
     }
@@ -277,7 +368,13 @@ impl Hub {
 /// Counts the blocks among those followed of the board by its read token: with the
 /// board's permit if the connection follows it already, in a new one if not. The
 /// permit keeps the token it was first given.
-fn permit_blocks(permits: &mut Vec<ReadPermit>, container_id: String, command: &Command) {
+fn permit_blocks(
+    permits: &mut Vec<ReadPermit>,
+    container_id: String,
+    workspace_id: &str,
+    read_token: &str,
+    block_ids: &[String],
+) {
     let permit = if let Some(at) = permits
         .iter()
         .position(|permit| permit.container == container_id)
@@ -286,13 +383,13 @@ fn permit_blocks(permits: &mut Vec<ReadPermit>, container_id: String, command: &
     } else {
         permits.push(ReadPermit {
             container: container_id,
-            token: command.read_token.clone(),
-            workspace: command.workspace_id.clone(),
+            token: read_token.to_owned(),
+            workspace: workspace_id.to_owned(),
             blocks: Vec::new(),
         });
         permits.last_mut().expect("a permit was just pushed")
     };
-    for block in &command.block_ids {
+    for block in block_ids {
         if !permit.blocks.contains(block) {
             permit.blocks.push(block.clone());
         }

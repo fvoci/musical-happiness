@@ -132,6 +132,11 @@ impl App {
             self.require_makes(container)?;
         }
 
+        let total_new_bytes = prepared_files.iter().fold(0_u64, |acc, file| {
+            acc.saturating_add(u64::try_from(file.record.size).unwrap_or(0))
+        });
+        self.check_org_storage_room(total_new_bytes).await?;
+
         let written_paths = self
             .write_staged_files(bundle, &prepared_files, limits.max_file_bytes)
             .await?;
@@ -140,16 +145,14 @@ impl App {
             .iter()
             .map(|file| file.record.clone())
             .collect();
-        let commit_result = {
-            let _structure = self.collab().changing_structure(self).await;
-            self.store()
-                .create_imported_containers_blocks_and_files(
-                    &mut combined,
-                    &records,
-                    &options.modified_by,
-                )
-                .await
-        };
+        let commit_result = self
+            .store()
+            .create_imported_containers_blocks_and_files(
+                &mut combined,
+                &records,
+                &options.modified_by,
+            )
+            .await;
 
         let members = match commit_result {
             Ok(members) => members,

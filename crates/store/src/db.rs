@@ -8,7 +8,7 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use fvoci_model::is_id;
 use serde_json::Value;
@@ -18,6 +18,7 @@ use sqlx::types::Uuid;
 use sqlx::{AssertSqlSafe, Row as _};
 
 use crate::Tenant;
+use crate::clock::Clock;
 use crate::error::StoreError;
 
 /// The SQL dialect of the connected database.
@@ -31,10 +32,116 @@ pub enum Dialect {
 
 /// Returns the current time in milliseconds since the Unix epoch.
 pub(crate) fn now_millis() -> i64 {
-    let since_epoch = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    i64::try_from(since_epoch.as_millis()).unwrap_or(i64::MAX)
+    crate::clock::system_millis()
+}
+
+/// Compile-time-checked SQL text fragment built exclusively from `'static` SQL pieces
+/// and validated table aliases. Prevents accidental `format!` runtime interpolation into
+/// SQL statements (`H-6`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct SqlFragment(String);
+
+impl SqlFragment {
+    pub(crate) fn new() -> Self {
+        Self(String::new())
+    }
+
+    pub(crate) fn of(parts: &[&'static str]) -> Self {
+        Self(parts.concat())
+    }
+
+    pub(crate) fn push(&mut self, part: &'static str) -> &mut Self {
+        self.0.push_str(part);
+        self
+    }
+
+    pub(crate) fn push_fragment(&mut self, part: &Self) -> &mut Self {
+        self.0.push_str(&part.0);
+        self
+    }
+}
+
+mod sealed {
+    pub(crate) trait Sealed {}
+}
+
+/// Sealed trait implemented only for `'static` SQL string slices/arrays and
+/// [`SqlFragment`], rejecting dynamic `String` / `&str` formatting at compile time.
+pub(crate) trait IntoSql: sealed::Sealed {
+    fn into_sql_string(self) -> String;
+    fn push_sql_into(self, out: &mut String);
+}
+
+impl sealed::Sealed for &'static str {}
+impl IntoSql for &'static str {
+    fn into_sql_string(self) -> String {
+        self.to_owned()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        out.push_str(self);
+    }
+}
+
+impl<const N: usize> sealed::Sealed for [&'static str; N] {}
+impl<const N: usize> IntoSql for [&'static str; N] {
+    fn into_sql_string(self) -> String {
+        self.concat()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        for part in self {
+            out.push_str(part);
+        }
+    }
+}
+
+impl<const N: usize> sealed::Sealed for &[&'static str; N] {}
+impl<const N: usize> IntoSql for &[&'static str; N] {
+    fn into_sql_string(self) -> String {
+        self.concat()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        for part in self {
+            out.push_str(part);
+        }
+    }
+}
+
+impl sealed::Sealed for &[&'static str] {}
+impl IntoSql for &[&'static str] {
+    fn into_sql_string(self) -> String {
+        self.concat()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        for part in self {
+            out.push_str(part);
+        }
+    }
+}
+
+impl sealed::Sealed for SqlFragment {}
+impl IntoSql for SqlFragment {
+    fn into_sql_string(self) -> String {
+        self.0
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        out.push_str(&self.0);
+    }
+}
+
+impl sealed::Sealed for &SqlFragment {}
+impl IntoSql for &SqlFragment {
+    fn into_sql_string(self) -> String {
+        self.0.clone()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        out.push_str(&self.0);
+    }
 }
 
 /// A query parameter.
@@ -223,9 +330,9 @@ impl Sql {
         self
     }
 
-    /// Appends SQL text. The text must not contain values; bind those instead.
-    pub(crate) fn push(&mut self, text: &str) -> &mut Self {
-        self.text.push_str(text);
+    /// Appends static SQL text. The text must not contain values; bind those instead.
+    pub(crate) fn push(&mut self, text: impl IntoSql) -> &mut Self {
+        text.push_sql_into(&mut self.text);
         self
     }
 
@@ -250,7 +357,7 @@ impl Sql {
     }
 
     /// Appends `text` followed by a placeholder: `push("id = ").bind(id)` in one call.
-    pub(crate) fn push_bind(&mut self, text: &str, param: impl Into<Bound>) -> &mut Self {
+    pub(crate) fn push_bind(&mut self, text: impl IntoSql, param: impl Into<Bound>) -> &mut Self {
         self.push(text).bind(param)
     }
 
@@ -292,6 +399,10 @@ pub(crate) struct Scope<'c> {
     /// Whose rows the operation reaches. On PostgreSQL the transaction was told so when
     /// it began.
     tenant: Tenant,
+    /// Whether `fvoci.system` is currently `'on'` in this PostgreSQL transaction.
+    wall_open: bool,
+    /// Monotonic clock shared with the owning [`crate::Store`].
+    clock: Option<&'c Clock>,
     /// Whether a statement ran that may have changed something: anything but a plain
     /// `SELECT`. Set when the statement starts.
     wrote: bool,
@@ -372,6 +483,8 @@ impl<'c> Scope<'c> {
         Self {
             conn,
             tenant,
+            wall_open: matches!(tenant, Tenant::System),
+            clock: None,
             wrote: false,
             writes: None,
             visibility: None,
@@ -379,6 +492,27 @@ impl<'c> Scope<'c> {
             search_outbox: None,
             noting: Noting::Named,
         }
+    }
+
+    /// Attaches the owning store's monotonic [`Clock`] to this scope.
+    pub(crate) fn with_clock(self, clock: &'c Clock) -> Self {
+        Self {
+            clock: Some(clock),
+            ..self
+        }
+    }
+
+    /// Current monotonic time in milliseconds since the Unix epoch.
+    pub(crate) fn now_millis(&self) -> i64 {
+        self.clock.map_or_else(now_millis, Clock::now_millis)
+    }
+
+    pub(crate) fn is_wall_open(&self) -> bool {
+        self.wall_open
+    }
+
+    pub(crate) fn set_wall_open(&mut self, open: bool) {
+        self.wall_open = open;
     }
 
     /// The same scope, whose writes of blocks note whom to tell as `noting` says.
@@ -430,13 +564,6 @@ impl<'c> Scope<'c> {
         self.wrote = true;
         if let Some(writes) = self.writes {
             writes.store(true, Ordering::Relaxed);
-        }
-    }
-
-    /// A structural change affects visibility even though its SQL also writes ordinary fields.
-    pub(crate) fn invalidate_visibility(&self) {
-        if let Some(visibility) = self.visibility {
-            visibility.invalidate();
         }
     }
 
@@ -532,7 +659,7 @@ impl<'c> Scope<'c> {
         if self.dialect() != Dialect::Postgres {
             return Ok(());
         }
-        let mut sql = self.sql(&format!("SELECT set_config('{}', ", crate::ORG_SETTING));
+        let mut sql = self.sql(["SELECT set_config('", crate::ORG_SETTING, "', "]);
         sql.bind(tenant.org_id().unwrap_or_default())
             .push(", true)");
         self.fetch_optional(sql).await?;
@@ -545,14 +672,25 @@ impl<'c> Scope<'c> {
     /// on SQLite. For the statements that reach across every organization and match rows
     /// by an identifier that the keys of the schema do not hold to one organization, or
     /// that do not take the keys on trust.
-    pub(crate) fn same_organization(&self, pairs: &[(&str, &str)]) -> String {
-        if self.dialect() == Dialect::Sqlite {
-            return String::new();
+    pub(crate) fn same_organization(&self, pairs: &[(&'static str, &'static str)]) -> SqlFragment {
+        for &(row, parent) in pairs {
+            assert!(
+                is_sql_ident(row) && is_sql_ident(parent),
+                "invalid SQL table alias in same_organization: ({row:?}, {parent:?})"
+            );
         }
-        pairs
-            .iter()
-            .map(|(row, parent)| [" AND ", row, ".org_id = ", parent, ".org_id"].concat())
-            .collect()
+        if self.dialect() == Dialect::Sqlite {
+            return SqlFragment::new();
+        }
+        let mut out = SqlFragment::new();
+        for &(row, parent) in pairs {
+            out.push(" AND ")
+                .push(row)
+                .push(".org_id = ")
+                .push(parent)
+                .push(".org_id");
+        }
+        out
     }
 
     /// How many earlier versions of a comment are kept, at least one.
@@ -578,8 +716,20 @@ impl<'c> Scope<'c> {
         }
     }
 
-    /// Starts a statement with the given text.
-    pub(crate) fn sql(&self, text: &str) -> Sql {
+    /// Starts a statement with static SQL text.
+    pub(crate) fn sql(&self, text: impl IntoSql) -> Sql {
+        Sql {
+            dialect: self.dialect(),
+            text: text.into_sql_string(),
+            params: Vec::new(),
+            invalid_id: None,
+            changes_no_access: false,
+        }
+    }
+
+    /// Starts a statement from raw SQL text in test code only.
+    #[cfg(any(test, feature = "test-util"))]
+    pub(crate) fn sql_unchecked(&self, text: &str) -> Sql {
         Sql {
             dialect: self.dialect(),
             text: text.to_owned(),
@@ -760,6 +910,13 @@ impl Drop for SqliteStop {
 /// `UPDATE ... RETURNING`) counts as one that may write, whatever it does.
 fn is_plain_select(text: &str) -> bool {
     text.trim_start().starts_with("SELECT ")
+}
+
+fn is_sql_ident(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 /// A result row from either database, read by column position.
@@ -954,7 +1111,7 @@ mod tests {
         let run = async |text: &str, by: Instant| {
             store
                 .with_conn(async |scope| {
-                    let sql = scope.sql(text);
+                    let sql = scope.sql_unchecked(text);
                     scope.fetch_all_by(sql, by).await
                 })
                 .await
@@ -971,7 +1128,7 @@ mod tests {
         }
         let plain = store
             .with_conn(async |scope| {
-                let sql = scope.sql(&counting(300_000));
+                let sql = scope.sql_unchecked(&counting(300_000));
                 scope.fetch_all(sql).await
             })
             .await;

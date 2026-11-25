@@ -716,3 +716,49 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
         ["public_links_enabled", "public_links_disabled"]
     );
 }
+
+/// `gapfill H-1`: `PATCH /org/{orgId}` and `PATCH /org/{orgId}/workspaces/{workspaceId}`
+/// enforce the same character rules as registration, rejecting control, invisible, and
+/// Unicode bidi-override characters with 400 Bad Request.
+#[tokio::test]
+async fn org_and_workspace_rename_reject_control_invisible_and_bidi_characters() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let org_id = org_of(&ts).await;
+    let ws_id = make_workspace(&ts, &org_id, "Clean Name").await;
+
+    for bad in [
+        "Evil\u{202E}Name",
+        "Zero\u{200B}Width",
+        "Isolate\u{2066}Text",
+        "Control\u{0007}Bell",
+        "Line\nBreak",
+        "   ",
+    ] {
+        let org_resp = ts
+            .client
+            .patch(&format!("/org/{org_id}"), &json!({ "name": bad }))
+            .await;
+        org_resp.check_bad_request();
+        assert_eq!(
+            org_resp.refused_at(),
+            "/name",
+            "org rename rejected {bad:?}"
+        );
+
+        let ws_resp = ts
+            .client
+            .patch(
+                &format!("/org/{org_id}/workspaces/{ws_id}"),
+                &json!({ "name": bad }),
+            )
+            .await;
+        ws_resp.check_bad_request();
+        assert_eq!(
+            ws_resp.refused_at(),
+            "/name",
+            "workspace rename rejected {bad:?}"
+        );
+    }
+
+    ts.teardown().await;
+}

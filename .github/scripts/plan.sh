@@ -69,6 +69,10 @@ tested_tree() {
     echo "plan: HEAD is not a two-parent merge commit: not reusing a tested tree"
     return 1
   fi
+  if ! git diff --quiet 'HEAD^1' 'HEAD' -- .github/; then
+    echo "plan: .github/ changed in merge: not reusing a tested tree"
+    return 1
+  fi
   tree=$(git rev-parse 'HEAD^{tree}')
   if ! runs=$(gh api --jq '[.artifacts[]
       | select(

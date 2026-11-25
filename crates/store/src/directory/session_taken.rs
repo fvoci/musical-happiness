@@ -196,14 +196,15 @@ pub(crate) async fn memberships_of(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<Vec<Membership>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT t.id, t.org_id, t.name, wm.role, p.id, o.kind, {HAS_PASSWORD} \
-         FROM workspace_members AS wm \
+    let mut sql = scope.sql([
+        "SELECT t.id, t.org_id, t.name, wm.role, p.id, o.kind, ",
+        HAS_PASSWORD,
+        " FROM workspace_members AS wm \
          JOIN users AS u ON u.id = wm.user_id \
          JOIN workspaces AS t ON t.id = wm.workspace_id \
          JOIN organizations AS o ON o.id = t.org_id \
          LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
-    ));
+    ]);
     sql.bind(true)
         .push_bind(" WHERE wm.user_id = ", Id(user_id))
         .push(IN_USE)

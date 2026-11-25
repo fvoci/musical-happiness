@@ -16,11 +16,13 @@
 use std::sync::atomic::Ordering;
 
 use crate::Store;
-use crate::db::{Id, Row, Scope, now_millis};
+use crate::db::{Id, Row, Scope};
 use crate::error::StoreError;
 
 /// Bounded parameters however many blocks one change notes.
 const BATCH: usize = 300;
+/// Bounded rows settled in one multi-tuple `DELETE FROM search_outbox` statement.
+const SETTLE_BATCH: usize = 100;
 
 /// What a row of the list is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -122,8 +124,11 @@ impl Store {
             if rows.map(|row| row.int(0)).transpose()?.unwrap_or(0) == 0 {
                 return Ok(());
             }
-            for table in ["search_outbox", "search_index_state"] {
-                let sql = scope.sql(&format!("DELETE FROM {table}"));
+            for stmt in [
+                "DELETE FROM search_outbox",
+                "DELETE FROM search_index_state",
+            ] {
+                let sql = scope.sql(stmt);
                 scope.execute(sql).await?;
             }
             Ok(())
@@ -148,9 +153,11 @@ impl Store {
         limit: i64,
     ) -> Result<Vec<SearchChange>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {CHANGE_COLUMNS} FROM search_outbox WHERE due_at <= "
-            ));
+            let mut sql = scope.sql([
+                "SELECT ",
+                CHANGE_COLUMNS,
+                " FROM search_outbox WHERE due_at <= ",
+            ]);
             sql.bind(now)
                 .push_bind(" ORDER BY due_at, scope, id LIMIT ", limit);
             scope
@@ -171,10 +178,39 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn settle_search_change(&self, change: &SearchChange) -> Result<bool, StoreError> {
-        self.with_write_conn(async |scope| {
-            let mut sql = scope.sql("DELETE FROM search_outbox");
-            push_row(&mut sql, change);
-            Ok(scope.execute(sql).await? > 0)
+        Ok(self
+            .settle_search_changes(std::slice::from_ref(change))
+            .await?
+            > 0)
+    }
+
+    /// Takes a batch of rows off the list in one transaction once the search server
+    /// holds what was stored when they were read. Rows noted again since (`seq`
+    /// advanced) stay on the list for the next round. Returns how many rows were
+    /// deleted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn settle_search_changes(&self, changes: &[SearchChange]) -> Result<u64, StoreError> {
+        if changes.is_empty() {
+            return Ok(0);
+        }
+        self.transaction(async |scope| {
+            let mut total = 0_u64;
+            for chunk in changes.chunks(SETTLE_BATCH) {
+                let mut sql = scope.sql("DELETE FROM search_outbox WHERE ");
+                for (index, change) in chunk.iter().enumerate() {
+                    sql.push(if index == 0 { "(" } else { " OR (" })
+                        .push_bind("org_id = ", Id(&change.org_id))
+                        .push_bind(" AND scope = ", change.target.as_str())
+                        .push_bind(" AND id = ", Id(&change.id))
+                        .push_bind(" AND seq = ", change.seq)
+                        .push(")");
+                }
+                total += scope.execute(sql).await?;
+            }
+            Ok(total)
         })
         .await
     }
@@ -277,13 +313,11 @@ impl Store {
         mark: &SearchIndexMark,
     ) -> Result<u64, StoreError> {
         self.transaction(async |scope| {
-            let now = now_millis();
-            let statement = [
-                "INSERT INTO search_outbox (scope, id, org_id, seq, due_at) SELECT ",
-                "'container', bo.id, w.org_id, ",
-            ]
-            .concat();
-            let mut sql = scope.sql(&statement);
+            let now = scope.now_millis();
+            let mut sql = scope.sql(
+                "INSERT INTO search_outbox (scope, id, org_id, seq, due_at) \
+                 SELECT 'container', bo.id, w.org_id, ",
+            );
             sql.bind(now)
                 .push_bind(", ", now)
                 .push(" FROM containers AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
@@ -332,7 +366,7 @@ pub(crate) async fn note_blocks(scope: &mut Scope<'_>, ids: &[&str]) -> Result<(
     if !scope.keeps_search_outbox() {
         return Ok(());
     }
-    let now = now_millis();
+    let now = scope.now_millis();
     for batch in ids.chunks(BATCH) {
         let mut sql = scope.sql(
             "INSERT INTO search_outbox (scope, id, org_id, seq, due_at) \
@@ -376,7 +410,7 @@ pub(crate) async fn note_container_regardless(
     scope: &mut Scope<'_>,
     container_id: &str,
 ) -> Result<(), StoreError> {
-    let now = now_millis();
+    let now = scope.now_millis();
     let mut sql = scope.sql(
         "INSERT INTO search_outbox (scope, id, org_id, seq, due_at) \
          SELECT 'container', bo.id, w.org_id, ",

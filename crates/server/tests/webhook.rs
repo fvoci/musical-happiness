@@ -35,7 +35,7 @@ async fn client_update_notify() {
         .expect("a local port is free");
     let closed_address = closed.local_addr().expect("the listener has an address");
     drop(closed);
-    let client = Webhook::new(vec![
+    let client = Webhook::for_testing(vec![
         format!("http://{closed_address}/unreachable"),
         format!("http://{address}/hook"),
     ])
@@ -64,4 +64,37 @@ async fn no_addresses_no_requests() {
         .expect("no addresses need no client")
         .notify_update(&Block::default())
         .await;
+}
+
+/// Production webhook clients reject loopback, private, and link-local sinks.
+#[tokio::test]
+async fn production_webhook_rejects_private_sinks() {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("a local port is free");
+    let address = listener.local_addr().expect("the listener has an address");
+    let hit = Arc::new(Mutex::new(false));
+    let seen = Arc::clone(&hit);
+    let hook = Router::new().route(
+        "/hook",
+        post(move || async move {
+            *seen.lock().expect("no poisoned mutex") = true;
+        }),
+    );
+    let serving = tokio::spawn(async move { axum::serve(listener, hook).await });
+
+    let client = Webhook::new(vec![format!("http://{address}/hook")])
+        .expect("public-only webhook client builds");
+    client
+        .notify_update(&Block {
+            id: "b1".to_owned(),
+            block_type: BlockType::Card,
+            ..Block::default()
+        })
+        .await;
+    assert!(
+        !*hit.lock().expect("no poisoned mutex"),
+        "public-only webhook resolver must refuse loopback addresses"
+    );
+    serving.abort();
 }

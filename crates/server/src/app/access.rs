@@ -71,27 +71,16 @@ impl App {
         user_id: &str,
         container_id: &str,
     ) -> Result<Option<ContainerAccess>, AppError> {
-        let (container, member, team_role) = tokio::join!(
-            self.store().get_container(container_id),
-            self.store().get_member_for_container(container_id, user_id),
-            self.store().container_team_role(container_id, user_id),
-        );
-        let container = match container {
-            Ok(container) => Some(container).filter(|container| self.reaches_container(container)),
-            Err(error) if error.is_not_found() => None,
-            Err(error) => {
-                return Err(AppError::from(error).context("reading a board to check access"));
-            }
-        };
-        let member = match member {
-            Ok(member) => Some(member),
-            Err(error) if error.is_not_found() => None,
-            Err(error) => {
-                return Err(AppError::from(error).context("reading the membership of a board"));
-            }
-        };
-        let team_role = team_role
-            .map_err(|error| AppError::from(error).context("reading the team roles on a board"))?;
+        let facts = self
+            .store()
+            .container_access_facts(container_id, user_id)
+            .await
+            .map_err(|error| AppError::from(error).context("reading a board to check access"))?;
+        let container = facts
+            .container
+            .filter(|container| self.reaches_container(container));
+        let member = facts.member;
+        let team_role = facts.team_role;
         let workspace_id = match container.as_ref() {
             Some(container) if container.is_builtin => self.workspace.as_deref().unwrap_or(""),
             Some(container) => &container.workspace_id,
@@ -260,6 +249,13 @@ impl App {
     ///
     /// Returns the store's error if the membership cannot be read.
     pub async fn actor(&self, user_id: &str, workspace_id: &str) -> Result<Actor, AppError> {
+        if !workspace_id.is_empty()
+            && let Some((known_user, known_ws, actor)) = self.known_actor.as_deref()
+            && known_user == user_id
+            && known_ws == workspace_id
+        {
+            return Ok(*actor);
+        }
         let access = self
             .store()
             .resolve_workspace(user_id, workspace_id)

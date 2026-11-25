@@ -8,22 +8,28 @@
 use std::collections::{HashMap, HashSet};
 use std::io::BufReader;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use fvoci_model::{ArchiveLine, Block, BlockType, UnmatchedRelation, rewrite_block_ids};
+use fvoci_model::{Block, BlockType, UnmatchedRelation, rewrite_block_ids};
 use fvoci_store::{StoreError, StreamBatch};
+use serde_json::value::RawValue;
 use tokio::sync::mpsc;
 
 use super::MAX_JSONL_BYTES;
 use super::archive::Archive;
 use super::native_stream::{
-    LINE_BUF_SHRINK_THRESHOLD, MAX_LINE_BYTES, STREAM_READER_BUF_BYTES, StreamPlan,
-    clear_block_values_of_another_kind, read_bounded_line,
+    LINE_BUF_SHRINK_THRESHOLD, MAX_LINE_BYTES, RawArchiveLine, STREAM_READER_BUF_BYTES, StreamPlan,
+    clear_block_values_of_another_kind, decode_archive_block, read_bounded_line,
 };
 use super::pointing::{came_with_more, pointed};
 use super::summary::ImportCounts;
 use super::trim;
 use crate::auth::now_millis;
 use crate::error::AppError;
+
+/// Hard wall-clock deadline for Pass-2 archive streaming so revisit sweeps cannot hold
+/// the organization's visibility write counter indefinitely (`gapfill H-4`).
+pub(super) const IMPORT_STREAM_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Maximum number of blocks accumulated in one Pass-2 insert batch.
 const BATCH_MAX_BLOCKS: usize = 64;
@@ -92,9 +98,17 @@ pub(super) fn spawn_archive_streamer(
     let stats = tokio::task::spawn_blocking(move || {
         let mut combined = StreamedBoardStats::default();
         let now = now_millis();
+        let deadline = Instant::now() + IMPORT_STREAM_TIMEOUT;
         for (zip_index, plan) in plans {
-            let mut streamer =
-                BoardStreamer::new(zip.clone(), zip_index, plan, &shared, now, tx.clone());
+            let mut streamer = BoardStreamer::new(
+                zip.clone(),
+                zip_index,
+                plan,
+                &shared,
+                now,
+                deadline,
+                tx.clone(),
+            );
             match streamer.stream_all_passes() {
                 Ok(()) => {
                     combined.counts.cards += streamer.stats.counts.cards;
@@ -123,6 +137,7 @@ struct BoardStreamer<'a> {
     plan: StreamPlan,
     shared: &'a ArchiveStreamShared,
     now: i64,
+    deadline: Instant,
     tx: mpsc::Sender<StreamBatch<AppError>>,
     emitted_parents: HashSet<String>,
     pending: Vec<(Block, usize)>,
@@ -143,6 +158,7 @@ impl<'a> BoardStreamer<'a> {
         plan: StreamPlan,
         shared: &'a ArchiveStreamShared,
         now: i64,
+        deadline: Instant,
         tx: mpsc::Sender<StreamBatch<AppError>>,
     ) -> Self {
         Self {
@@ -151,6 +167,7 @@ impl<'a> BoardStreamer<'a> {
             plan,
             shared,
             now,
+            deadline,
             tx,
             emitted_parents: HashSet::new(),
             pending: Vec::new(),
@@ -161,6 +178,15 @@ impl<'a> BoardStreamer<'a> {
             seen_inserted: HashSet::new(),
             stats: StreamedBoardStats::default(),
         }
+    }
+
+    fn check_deadline(&self) -> Result<(), AppError> {
+        if Instant::now() > self.deadline {
+            return Err(AppError::bad_request(
+                "archive import exceeded maximum streaming time limit",
+            ));
+        }
+        Ok(())
     }
 
     fn stream_all_passes(&mut self) -> Result<(), AppError> {
@@ -228,6 +254,9 @@ impl<'a> BoardStreamer<'a> {
             &entry_label,
         )? {
             line_number += 1;
+            if line_number & 0xFF == 0 {
+                self.check_deadline()?;
+            }
             if pass == StreamPass::Revisit && !self.revisit_lines.contains_key(&line_number) {
                 continue;
             }
@@ -236,7 +265,7 @@ impl<'a> BoardStreamer<'a> {
                 continue;
             }
             let raw_len = line.len();
-            let archive_line: ArchiveLine = serde_json::from_slice(line).map_err(|error| {
+            let archive_line: RawArchiveLine = serde_json::from_slice(line).map_err(|error| {
                 AppError::bad_request(format_args!(
                     "error parsing archive line {line_number}: {error}"
                 ))
@@ -263,7 +292,8 @@ impl<'a> BoardStreamer<'a> {
                         .get(idx)
                         .is_some_and(Option::is_some)
                     {
-                        self.handle_block_line(idx, archive_line.data, line_number, raw_len)?;
+                        let raw_data = archive_line.data.as_deref().map_or("null", RawValue::get);
+                        self.handle_block_line(idx, raw_data, line_number, raw_len)?;
                     }
                 }
                 other => {
@@ -283,7 +313,7 @@ impl<'a> BoardStreamer<'a> {
     fn handle_block_line(
         &mut self,
         idx: usize,
-        data: serde_json::Value,
+        raw_data: &str,
         line_number: usize,
         raw_len: usize,
     ) -> Result<(), AppError> {
@@ -299,11 +329,7 @@ impl<'a> BoardStreamer<'a> {
             return Ok(());
         };
         let new_cid = &self.plan.container_new_ids[cidx];
-        let mut block: Block = serde_json::from_value(data).map_err(|error| {
-            AppError::bad_request(format_args!(
-                "invalid block in archive line {line_number}: {error}"
-            ))
-        })?;
+        let mut block = decode_archive_block(raw_data, line_number)?;
         self.shared.modified_by.clone_into(&mut block.modified_by);
         block.updated_at = self.now;
         block.deleted_at = None;
@@ -396,6 +422,7 @@ impl<'a> BoardStreamer<'a> {
     }
 
     fn flush_batch(&mut self) -> Result<(), AppError> {
+        self.check_deadline()?;
         if self.batch.is_empty() {
             return Ok(());
         }

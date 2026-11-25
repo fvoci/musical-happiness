@@ -14,9 +14,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::archive::{Archive, SharedFile, count_central_headers};
+use super::archive::{
+    Archive, SharedFile, check_declared_eocd_entries, count_central_headers, zip_error,
+};
 use super::summary::BundleLimits;
 use crate::app::doomed::Doomed;
+use crate::app::file_name::is_control_or_bidi;
 use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
 
@@ -408,10 +411,10 @@ fn open_zip_bounded(path: &Path, max_entries: u64) -> Result<OpenedArchive, AppE
     if headers > max_entries {
         return Err(too_many_bundle_entries(max_entries));
     }
+    check_declared_eocd_entries(&mut shared, file_len, headers, max_entries)?;
     shared.rewind_start();
     let (counted_shared, bytes_read) = shared.with_fresh_counter();
-    let archive = zip::ZipArchive::new(counted_shared)
-        .map_err(|error| AppError::bad_request(format_args!("invalid ZIP archive: {error}")))?;
+    let archive = zip::ZipArchive::new(counted_shared).map_err(|error| zip_error(&error))?;
     if u64::try_from(archive.len())
         .ok()
         .is_none_or(|count| count > max_entries)
@@ -430,7 +433,7 @@ fn open_zip_bounded(path: &Path, max_entries: u64) -> Result<OpenedArchive, AppE
 fn validate_entry_metadata(archive: &mut Archive, index: usize) -> Result<String, AppError> {
     let entry = archive
         .by_index_raw(index)
-        .map_err(|error| AppError::bad_request(format_args!("invalid ZIP entry: {error}")))?;
+        .map_err(|error| zip_error(&error))?;
     if entry.encrypted() {
         return Err(AppError::bad_request(
             "encrypted ZIP entries are not supported",
@@ -454,7 +457,7 @@ fn validate_entry_metadata(archive: &mut Archive, index: usize) -> Result<String
     }
     let name = entry
         .name()
-        .map_err(|error| AppError::bad_request(format_args!("invalid ZIP entry name: {error}")))?;
+        .map_err(|_| AppError::bad_request("invalid ZIP entry name"))?;
     Ok(name.into_owned())
 }
 
@@ -477,9 +480,9 @@ pub(crate) fn validate_bundle_path(
             limits.max_path_bytes
         )));
     }
-    if raw.chars().any(|ch| ch == '\0' || ch.is_control()) {
+    if raw.chars().any(is_control_or_bidi) {
         return Err(AppError::bad_request(
-            "archive entry path contains forbidden control or NUL characters",
+            "archive entry path contains forbidden control, bidirectional, or NUL characters",
         ));
     }
     if raw.contains('\\') {
@@ -582,9 +585,10 @@ fn stream_decompress(
     out: &mut impl io::Write,
 ) -> Result<u64, AppError> {
     let raw_before = opened.bytes_read.load(Ordering::Relaxed);
-    let mut entry = opened.archive.by_index(index).map_err(|error| {
-        AppError::bad_request(format_args!("cannot open archive entry: {error}"))
-    })?;
+    let mut entry = opened
+        .archive
+        .by_index(index)
+        .map_err(|error| zip_error(&error))?;
     let header_compressed = entry.compressed_size().min(opened.file_len);
     let mut buf = vec![0_u8; STREAM_CHUNK_BYTES];
     let mut entry_read: u64 = 0;
@@ -796,7 +800,7 @@ pub(crate) fn resolve_relative_bundle_path(base_dir: &str, raw_target: &str) -> 
         || decoded.starts_with('/')
         || decoded.contains('\\')
         || has_drive_prefix(&decoded)
-        || decoded.chars().any(|ch| ch == '\0' || ch.is_control())
+        || decoded.chars().any(is_control_or_bidi)
     {
         return None;
     }

@@ -277,3 +277,58 @@ fn the_operators_webhooks_are_posted_from_one_place() {
         "the lines that reach the webhook client"
     );
 }
+
+/// Every `store/src` module that reaches across the organization wall (`system()`) and
+/// reads from an organization-scoped table (`ORG_TABLES`) must explicitly bind a scoping
+/// predicate (`org_id`, `workspace_id`, `container_id`, `recipient_id`, `user_id`,
+/// `owner_id`, `actor_id`, `subject_id`, `created_by`, `written_by`, or `token`) so
+/// SQLite personal spaces and shared organizations cannot mix (`1.4.3 H-5`).
+#[test]
+fn system_queries_on_org_tables_scope_by_caller_or_open_organization() {
+    const SYSTEM_READERS: [&str; 9] = [
+        "notifications.rs",
+        "time_entries.rs",
+        "account_deletion.rs",
+        "account_erasure.rs",
+        "directory.rs",
+        "directory/every_organization.rs",
+        "directory/sign_in.rs",
+        "operator_records.rs",
+        "visibility.rs",
+    ];
+    const SCOPING_KEYS: [&str; 12] = [
+        "org_id",
+        "workspace_id",
+        "container_id",
+        "recipient_id",
+        "user_id",
+        "owner_id",
+        "actor_id",
+        "subject_id",
+        "created_by",
+        "written_by",
+        "token",
+        "id = ",
+    ];
+    let store_src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for rel in SYSTEM_READERS {
+        let text = std::fs::read_to_string(store_src.join(rel)).expect("system reader source");
+        let prod: String = text
+            .lines()
+            .take_while(|line| !line.trim_start().starts_with("mod tests"))
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mentions_org_table = fvoci_store::testing::ORG_TABLES.iter().any(|table| {
+            prod.contains(&format!("FROM {table} "))
+                || prod.contains(&format!("FROM {table}\n"))
+                || prod.contains(&format!("JOIN {table} "))
+        });
+        if mentions_org_table {
+            assert!(
+                SCOPING_KEYS.iter().any(|key| prod.contains(key)),
+                "{rel} queries ORG_TABLES under system() without an explicit scoping predicate"
+            );
+        }
+    }
+}

@@ -99,9 +99,17 @@ fn marks_of(formatting: &Attrs) -> Vec<Value> {
 
 /// The name of the mark a formatting member stands for. The binding names a mark that
 /// may lie over another of its kind `name--hash`, the hash being eight letters of
-/// base64; the mark is the name before it.
+/// base64; the mark is the name before it. Any member containing control characters or
+/// Unicode line terminators (`U+2028`, `U+2029`) is never stripped so a newline before
+/// `--hash` cannot disguise an invalid name as a known mark.
 fn mark_name(member: &str) -> &str {
     const HASH_LENGTH: usize = 8;
+    if member
+        .chars()
+        .any(|ch| ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}'))
+    {
+        return member;
+    }
     let Some(split) = member.len().checked_sub(HASH_LENGTH + 2) else {
         return member;
     };
@@ -277,6 +285,10 @@ mod tests {
             ("--abcdefgh", ""),
             ("볼드--abcdefgh", "볼드"),
             ("b--한글abcd", "b--한글abcd"),
+            ("x\nlink--abcdefgh", "x\nlink--abcdefgh"),
+            ("x\rlink--abcdefgh", "x\rlink--abcdefgh"),
+            ("x\u{2028}link--abcdefgh", "x\u{2028}link--abcdefgh"),
+            ("x\u{2029}link--abcdefgh", "x\u{2029}link--abcdefgh"),
             ("", ""),
         ] {
             assert_eq!(mark_name(member), mark, "{member:?}");

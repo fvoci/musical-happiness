@@ -1,10 +1,10 @@
 //! Trash snapshots include pending edits, and no document work crosses deletion.
 
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::sync::Arc;
 
-use fvoci_model::BlockType;
-use fvoci_store::{BlockFilter, Previews, Tenant};
+use fvoci_store::Tenant;
 #[cfg(feature = "test-util")]
 use tokio::sync::Notify;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
@@ -23,36 +23,118 @@ pub(crate) enum Deletion {
     Containers(Vec<String>),
 }
 
-/// Keeps a structural store mutation on one side of a document deletion.
+/// Keeps a structural store mutation on one side of a document deletion for the touched
+/// container(s): structure locks are acquired before document gates, in sorted
+/// `container_id` order, and never called while a document gate or slot is already held.
 #[derive(Debug)]
-#[must_use = "the gate is let go when this is dropped"]
+#[must_use = "the gates are let go when this is dropped"]
 pub(crate) struct StructureChange {
-    _held: OwnedRwLockReadGuard<()>,
+    _structures: Vec<OwnedRwLockReadGuard<()>>,
+    _held: Vec<OwnedRwLockReadGuard<()>>,
 }
 
 impl Collab {
-    /// Hold only around direct store writes, never around another collab operation:
-    /// a deletion waiting for the gate would hold the second read back.
-    pub(crate) async fn changing_structure(&self, app: &App) -> StructureChange {
+    /// Hold only around direct store writes on `container_id`, never around another
+    /// collab operation or while holding a document gate: a deletion waiting for the
+    /// gate would hold the second read back.
+    pub(crate) async fn changing_structure(
+        &self,
+        app: &App,
+        container_id: &str,
+    ) -> StructureChange {
+        let tenant = app.store().tenant();
+        let structure = self.structure(tenant, container_id).read_owned().await;
+        let gate = self.reading(tenant, container_id).await;
         StructureChange {
-            _held: self.reading(app.store().tenant()).await,
+            _structures: vec![structure],
+            _held: vec![gate],
         }
     }
 
-    /// The gate of an organization's documents: document work reads it, a deletion
-    /// writes it. Organizations do not wait for each other's deletions.
-    fn gate(&self, tenant: Tenant) -> Arc<RwLock<()>> {
+    /// Hold around direct store writes spanning multiple containers, acquiring structure
+    /// locks and then document gates in sorted `container_id` order.
+    pub(crate) async fn changing_structures<I, S>(
+        &self,
+        app: &App,
+        container_ids: I,
+    ) -> StructureChange
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let tenant = app.store().tenant();
+        let sorted: BTreeSet<String> = container_ids
+            .into_iter()
+            .map(|id| id.as_ref().to_owned())
+            .collect();
+        let mut structures = Vec::with_capacity(sorted.len());
+        for id in &sorted {
+            structures.push(self.structure(tenant, id).read_owned().await);
+        }
+        let held = self.reading_many(tenant, &sorted).await;
+        StructureChange {
+            _structures: structures,
+            _held: held,
+        }
+    }
+
+    /// The gate of a container's documents: document work reads it, a deletion writes
+    /// it. Neither organizations nor unrelated containers wait for each other's
+    /// deletions.
+    fn gate(&self, tenant: Tenant, container_id: &str) -> Arc<RwLock<()>> {
         let mut gates = self.inner.gates.lock().expect("the gates are not poisoned");
-        Arc::clone(gates.entry(tenant).or_default())
+        Arc::clone(gates.entry((tenant, container_id.to_owned())).or_default())
     }
 
-    /// Taken before any slot of the organization, never while one is held.
-    pub(super) async fn reading(&self, tenant: Tenant) -> OwnedRwLockReadGuard<()> {
-        self.gate(tenant).read_owned().await
+    /// The structure lock of a container: `changing_structure` reads it and the
+    /// `Deletion::Block` fast-path writes it so a room-bearing block cannot move under a
+    /// non-room block between the fast-path check and the deletion.
+    fn structure(&self, tenant: Tenant, container_id: &str) -> Arc<RwLock<()>> {
+        let mut structures = self
+            .inner
+            .structures
+            .lock()
+            .expect("the structures are not poisoned");
+        Arc::clone(
+            structures
+                .entry((tenant, container_id.to_owned()))
+                .or_default(),
+        )
     }
 
-    async fn writing(&self, tenant: Tenant) -> OwnedRwLockWriteGuard<()> {
-        self.gate(tenant).write_owned().await
+    /// Taken before any slot of the container, never while one is held.
+    pub(super) async fn reading(
+        &self,
+        tenant: Tenant,
+        container_id: &str,
+    ) -> OwnedRwLockReadGuard<()> {
+        self.gate(tenant, container_id).read_owned().await
+    }
+
+    /// Acquires read gates for `container_ids` in their `BTreeSet` order.
+    pub(super) async fn reading_many(
+        &self,
+        tenant: Tenant,
+        container_ids: &BTreeSet<String>,
+    ) -> Vec<OwnedRwLockReadGuard<()>> {
+        let mut guards = Vec::with_capacity(container_ids.len());
+        for id in container_ids {
+            guards.push(self.reading(tenant, id).await);
+        }
+        guards
+    }
+
+    async fn writing(
+        &self,
+        tenant: Tenant,
+        container_ids: &[String],
+    ) -> Vec<OwnedRwLockWriteGuard<()>> {
+        let sorted: BTreeSet<&str> = container_ids.iter().map(String::as_str).collect();
+        let mut guards = Vec::with_capacity(sorted.len());
+        for id in sorted {
+            guards.push(self.gate(tenant, id).write_owned().await);
+        }
+        guards
     }
 
     /// Writes pending bodies before the trash snapshot, then closes the deleted rooms.
@@ -120,12 +202,29 @@ impl Collab {
         W: FnOnce(App) -> F,
         F: Future<Output = Result<T, AppError>>,
     {
-        // A block that holds no card (a comment, a view) takes no document along: the
-        // organization's documents do not wait for it.
-        if matches!(deletion, Deletion::Block(_)) && deletion.cards(app).await?.is_empty() {
-            return remove(app.clone()).await;
-        }
-        let documents = self.writing(app.store().tenant()).await;
+        let tenant = app.store().tenant();
+        let container_ids = match &deletion {
+            Deletion::Block(block_id) => {
+                let Some(container_id) = app.store().find_block_container_id(block_id).await?
+                else {
+                    return remove(app.clone()).await;
+                };
+                // Serialize the fast-path check and removal with `changing_structure` on
+                // this container so a unit/card cannot move under a chapter/comment
+                // between checking `cards` and deleting the subtree, without waiting on
+                // open document work when no room-bearing block is involved.
+                let structure = self.structure(tenant, &container_id).write_owned().await;
+                if deletion.cards(app).await?.is_empty() {
+                    let removed = remove(app.clone()).await;
+                    drop(structure);
+                    return removed;
+                }
+                drop(structure);
+                vec![container_id]
+            }
+            Deletion::Containers(ids) => ids.clone(),
+        };
+        let documents = self.writing(tenant, &container_ids).await;
         let card_ids = deletion.cards(app).await?;
         self.write_deleted(app, &card_ids).await;
         #[cfg(feature = "test-util")]
@@ -160,7 +259,14 @@ impl Collab {
             }
         };
         for card_id in &pending {
-            let mut slot = self.slot(app, card_id).await;
+            let container_id = match self.slot_container_id(app, card_id).await {
+                Ok(container_id) => container_id,
+                Err(error) => {
+                    tracing::error!(%error, card_id, "cannot find a deleted card's container; its log keeps it");
+                    continue;
+                }
+            };
+            let mut slot = self.slot_in(app, card_id, &container_id).await;
             if let Err(error) = self
                 .write_pending(app, card_id, &mut slot, super::whole::DueVersion::Keep)
                 .await
@@ -255,20 +361,7 @@ impl Deletion {
                 );
             }
             Self::Containers(ids) => {
-                // A board has cards and a wiki pages: each is asked for both, as its
-                // kind is not read here.
-                for id in ids {
-                    for with_room in BlockType::WITH_ROOM {
-                        let blocks = app
-                            .store()
-                            .get_listed_blocks(
-                                &BlockFilter::container(id).with_type(with_room),
-                                Previews::Without,
-                            )
-                            .await?;
-                        cards.extend(blocks.into_iter().map(|listed| listed.block.id));
-                    }
-                }
+                cards = app.store().room_block_ids_of_containers(ids).await?;
             }
         }
         cards.sort();

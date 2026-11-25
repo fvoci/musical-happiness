@@ -124,26 +124,6 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
             );
         }
     }
-    // Nor does a block become what its board has not: no patch makes a page.
-    let to = |block_type: BlockType| BlockPatch {
-        block_type: Some(block_type),
-        ..BlockPatch::default()
-    };
-    assert_eq!(
-        refusal(
-            test.patch_block(&card.id, &to(BlockType::Page), &user_id)
-                .await
-        ),
-        BlockError::PageByBlocks
-    );
-    assert_eq!(
-        refusal(
-            test.patch_block(&on_wiki, &to(BlockType::Card), &user_id)
-                .await
-        ),
-        BlockError::NotPageOnWiki
-    );
-
     // Nothing of what was refused is there.
     let blocks_of = async |board: &Container| {
         let filter = fvoci_store::BlockFilter::container(&board.id);

@@ -5,11 +5,11 @@
 //! are in [`crate::trash`]. Lists come oldest first, by creation time and then by
 //! identifier.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use fvoci_model::{
     BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, BodySummary,
-    TaskCount,
+    ContainerKind, TaskCount,
 };
 use serde_json::Value;
 
@@ -22,7 +22,7 @@ use crate::card_values::{self, NamedCards};
 use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::containers;
-use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Id, OptId, Param, Row, Scope, Sql, SqlFragment};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
 use crate::notification_noting::{self, Telling};
@@ -32,19 +32,14 @@ use crate::page_places;
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, type, title, \
                              fields, created_at, updated_at, container_id, number, body";
 
-/// The columns a block is read with: [`BLOCK_COLUMNS`], and when its body was last
-/// changed if it is a comment with versions.
-pub(crate) fn block_read_columns() -> String {
-    format!("{BLOCK_COLUMNS}, {EDITED_AT_COLUMN}")
-}
-
-/// The column of a block read with [`block_read_columns`] that says when its body was
-/// last changed.
+/// The column of a block read with [`BLOCK_COLUMNS`] + [`EDITED_AT_COLUMN`] that says
+/// when its body was last changed.
 const EDITED_AT: usize = 12;
 
 /// The columns that [`BLOCK_COLUMNS`] does not read: what is worked out from the body
 /// when it is stored.
-const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, body_tasks_done";
+const BODY_SUMMARY_COLUMNS: &str =
+    "body_version, body_text, body_tasks_total, body_tasks_done, body_first_image";
 
 /// The columns of a listed block: [`BLOCK_COLUMNS`] with no body, and what a list says
 /// about the body in its place.
@@ -69,15 +64,13 @@ const LISTED_TASKS_DONE: usize = 14;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
 const LISTED_LAST_COMMENT_AT: usize = 15;
 /// The columns a list reads for previews, after the last comment's time: the beginning
-/// of the plain text of the body, worked out when it was stored, and the body. The text
-/// is 201 characters (code points, each of one or two UTF-16 code units): the 200 units
-/// a preview shows are among them, and a character as it is seen that the cut splits
-/// runs past 200 units, so the preview leaves it out whole.
-const PREVIEW_COLUMNS: &str = "SUBSTR(body_text, 1, 201), body";
+/// of the plain text of the body and the first image's stored file identifier, both
+/// worked out when the body was stored so listing never loads `blocks.body`.
+const PREVIEW_COLUMNS: &str = "SUBSTR(body_text, 1, 201), body_first_image";
 /// The column of the plain text of the body, read for previews.
 const LISTED_BODY_TEXT: usize = 16;
-/// The column of the body, read for previews.
-const LISTED_BODY: usize = 17;
+/// The column of the first image file identifier of the body, read for previews.
+const LISTED_FIRST_IMAGE: usize = 17;
 
 /// The order of every list of blocks.
 pub(crate) const OLDEST_FIRST: &str = " ORDER BY created_at, id";
@@ -246,11 +239,17 @@ impl Store {
         previews: Previews,
     ) -> Result<Vec<ListedBlock>, StoreError> {
         self.with_conn(async |scope| {
-            let mut columns = format!("{LISTED_BLOCK_COLUMNS}, {LAST_COMMENT_AT_COLUMN}");
-            if previews == Previews::With {
-                columns = format!("{columns}, {PREVIEW_COLUMNS}");
-            }
-            let sql = filtered_blocks(scope, filter, &columns);
+            let columns: &[&str] = match previews {
+                Previews::Without => &[LISTED_BLOCK_COLUMNS, ", ", LAST_COMMENT_AT_COLUMN],
+                Previews::With => &[
+                    LISTED_BLOCK_COLUMNS,
+                    ", ",
+                    LAST_COMMENT_AT_COLUMN,
+                    ", ",
+                    PREVIEW_COLUMNS,
+                ],
+            };
+            let sql = filtered_blocks(scope, filter, columns);
             scope
                 .fetch_all(sql)
                 .await?
@@ -287,9 +286,11 @@ impl Store {
     /// Returns the database's error.
     pub async fn get_last_comment_at(&self, block_id: &str) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {LAST_COMMENT_AT_COLUMN} FROM blocks WHERE id = "
-            ));
+            let mut sql = scope.sql([
+                "SELECT ",
+                LAST_COMMENT_AT_COLUMN,
+                " FROM blocks WHERE id = ",
+            ]);
             sql.bind(Id(block_id));
             // No such block has no comments.
             let row = scope.fetch_optional(sql).await?;
@@ -298,21 +299,26 @@ impl Store {
         .await
     }
 
-    /// Returns the blocks with the given identifiers, oldest first.
+    /// Returns the distinct blocks matching `ids`, oldest first. Duplicate identifiers in
+    /// `ids` are deduplicated before querying.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotAllFound`] unless exactly one block is found per
-    /// identifier.
+    /// Returns [`StoreError::NotAllFound`] unless every distinct identifier in `ids`
+    /// resolves to a live block.
     pub async fn get_blocks_by_ids(&self, ids: &[String]) -> Result<Vec<Block>, StoreError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let unique: BTreeSet<&str> = ids.iter().map(String::as_str).collect();
         self.with_conn(async |scope| {
             let mut sql = select_blocks(scope);
             sql.push(" WHERE id IN (")
-                .bind_list(ids.iter().map(|id| Id(id)))
+                .bind_list(unique.iter().copied().map(Id))
                 .push(")")
                 .push(OLDEST_FIRST);
             let blocks = fetch_blocks(scope, sql).await?;
-            if blocks.len() == ids.len() {
+            if blocks.len() == unique.len() {
                 Ok(blocks)
             } else {
                 Err(StoreError::NotAllFound {
@@ -375,7 +381,8 @@ impl Store {
         .await
     }
 
-    /// Applies `patch` to the block with the given identifier.
+    /// Applies `patch` to the block with the given identifier and returns the updated
+    /// block as stored.
     ///
     /// # Errors
     ///
@@ -386,7 +393,7 @@ impl Store {
         block_id: &str,
         patch: &BlockPatch,
         user_id: &str,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Block, StoreError> {
         self.transaction(async |scope| {
             let telling = Telling::of(scope);
             patch_block(scope, block_id, patch, user_id, BodyWrite::Whole, telling).await
@@ -456,12 +463,7 @@ impl Store {
             // Which boards the blocks are on is read first, so that the boards are
             // locked in one order whatever the order of the blocks.
             // A block that does not exist is reported where it is patched, below.
-            let mut container_ids = Vec::with_capacity(batch.block_ids.len());
-            for block_id in &batch.block_ids {
-                if let Some(block) = find_block(scope, block_id).await? {
-                    container_ids.push(block.container_id);
-                }
-            }
+            let container_ids = find_container_ids(scope, &batch.block_ids).await?;
             containers::lock_containers(scope, container_ids.iter().map(String::as_str)).await?;
             for (index, block_id) in batch.block_ids.iter().enumerate() {
                 let patch = batch
@@ -493,11 +495,104 @@ impl Store {
         })
         .await
     }
+
+    /// Lightweight lookup of the live `container_id` owning `block_id`, without reading
+    /// `body` or `fields`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidId`] if `block_id` is invalid, or
+    /// [`StoreError::Database`] if the query fails.
+    pub async fn find_block_container_id(
+        &self,
+        block_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.with_conn(async |scope| find_container_id(scope, block_id).await)
+            .await
+    }
+
+    /// Lightweight lookup of the `container_id` owning `block_id` in either `blocks` or
+    /// `deleted_blocks`, without reading `body` or `fields`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidId`] if `block_id` is invalid, or
+    /// [`StoreError::Database`] if the query fails.
+    pub async fn find_any_block_container_id(
+        &self,
+        block_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.with_conn(async |scope| {
+            if let Some(id) = find_container_id(scope, block_id).await? {
+                return Ok(Some(id));
+            }
+            let mut sql = scope.sql("SELECT container_id FROM deleted_blocks WHERE id = ");
+            sql.bind(Id(block_id)).push(" LIMIT 1");
+            scope
+                .fetch_optional(sql)
+                .await?
+                .map(|row| row.id(0))
+                .transpose()
+        })
+        .await
+    }
+
+    /// Bulk lookup of distinct live `container_id`s for `block_ids` without reading
+    /// `body` or `fields`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidId`] if an identifier is invalid, or
+    /// [`StoreError::Database`] if a query fails.
+    pub async fn find_block_container_ids(
+        &self,
+        block_ids: &[String],
+    ) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| find_container_ids(scope, block_ids).await)
+            .await
+    }
+
+    /// Returns the identifiers of all live room-bearing blocks (`card`, `page`, `entry`,
+    /// `unit`) in `container_ids` using a single index scan per chunk, without reading
+    /// `body`, `fields`, or comment timestamps.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidId`] if any container identifier is invalid, or
+    /// [`StoreError::Database`] if the query fails.
+    pub async fn room_block_ids_of_containers(
+        &self,
+        container_ids: &[String],
+    ) -> Result<Vec<String>, StoreError> {
+        const CHUNK: usize = 500;
+        if container_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_conn(async |scope| {
+            let mut found = BTreeSet::new();
+            for chunk in container_ids.chunks(CHUNK) {
+                let mut sql = scope.sql("SELECT id FROM blocks WHERE container_id IN (");
+                sql.bind_list(chunk.iter().map(|id| Id(id))).push(") AND ");
+                sql.push(body_versions::with_room_sql("type"));
+                for row in scope.fetch_all(sql).await? {
+                    found.insert(row.id(0)?);
+                }
+            }
+            Ok(found.into_iter().collect())
+        })
+        .await
+    }
 }
 
 /// Starts `SELECT <block columns> FROM blocks`.
 pub(crate) fn select_blocks(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!("SELECT {} FROM blocks", block_read_columns()))
+    scope.sql([
+        "SELECT ",
+        BLOCK_COLUMNS,
+        ", ",
+        EDITED_AT_COLUMN,
+        " FROM blocks",
+    ])
 }
 
 pub(crate) async fn fetch_blocks(
@@ -557,15 +652,9 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
 
 /// What a preview shows of the body of a listed row read with [`PREVIEW_COLUMNS`].
 fn preview_from_row(row: &Row) -> Result<BodyPreview, StoreError> {
-    let first_image = match row.json(LISTED_BODY, "body")? {
-        Value::Null => None,
-        document => Body::from_stored(document)
-            .first_image_file_id()
-            .map(str::to_owned),
-    };
     Ok(BodyPreview {
         text: row.text(LISTED_BODY_TEXT)?,
-        first_image,
+        first_image: row.opt_text(LISTED_FIRST_IMAGE)?,
     })
 }
 
@@ -573,7 +662,7 @@ pub(crate) async fn get_blocks(
     scope: &mut Scope<'_>,
     filter: &BlockFilter,
 ) -> Result<Vec<Block>, StoreError> {
-    let sql = filtered_blocks(scope, filter, &block_read_columns());
+    let sql = filtered_blocks(scope, filter, &[BLOCK_COLUMNS, ", ", EDITED_AT_COLUMN]);
     fetch_blocks(scope, sql).await
 }
 
@@ -586,9 +675,13 @@ fn count_column(row: &Row, index: usize, column: &'static str) -> Result<u32, St
 }
 
 /// The query for the blocks that match `filter`, reading `columns`.
-fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sql {
-    let mut sql = scope.sql(&format!("SELECT {columns} FROM blocks"));
-    sql.push(" WHERE 1 = 1");
+fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &[&'static str]) -> Sql {
+    let mut head = SqlFragment::of(&["SELECT "]);
+    for part in columns {
+        head.push(part);
+    }
+    head.push(" FROM blocks WHERE 1 = 1");
+    let mut sql = scope.sql(head);
     if let Some(container_id) = &filter.container_id {
         sql.push_bind(" AND container_id = ", Id(container_id));
     }
@@ -606,6 +699,42 @@ fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sq
             .push_bind(" OFFSET ", offset);
     }
     sql
+}
+
+/// Lightweight lookup of the container ID owning `block_id` without reading `body` or
+/// `fields`, used to determine which container lock to acquire before reading the block.
+pub(crate) async fn find_container_id(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT container_id FROM blocks WHERE id = ");
+    sql.bind(Id(block_id));
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
+}
+
+/// Bulk lookup of distinct `container_id`s for `block_ids` without reading `body` or
+/// `fields`, chunked well below bind-parameter limits.
+pub(crate) async fn find_container_ids(
+    scope: &mut Scope<'_>,
+    block_ids: &[String],
+) -> Result<Vec<String>, StoreError> {
+    const CHUNK: usize = 500;
+    if block_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut found = BTreeSet::new();
+    for chunk in block_ids.chunks(CHUNK) {
+        let mut sql = scope.sql("SELECT DISTINCT container_id FROM blocks WHERE id IN (");
+        sql.bind_list(chunk.iter().map(|id| Id(id))).push(")");
+        for row in scope.fetch_all(sql).await? {
+            found.insert(row.id(0)?);
+        }
+    }
+    Ok(found.into_iter().collect())
 }
 
 pub(crate) async fn find_block(
@@ -709,6 +838,17 @@ pub(crate) async fn insert_block_at(
     at: Option<i64>,
     how: Written,
 ) -> Result<Vec<NamedCards>, StoreError> {
+    insert_block_inner(scope, block, user_id, at, how, None).await
+}
+
+async fn insert_block_inner(
+    scope: &mut Scope<'_>,
+    block: &mut Block,
+    user_id: &str,
+    at: Option<i64>,
+    how: Written,
+    preloaded: Option<(ContainerKind, Block)>,
+) -> Result<Vec<NamedCards>, StoreError> {
     let Written {
         new_files,
         body_write,
@@ -719,24 +859,36 @@ pub(crate) async fn insert_block_at(
         source,
     };
     block.validate().map_err(|source| invalid(block, source))?;
-    // One writer per board at a time, from before anything is read: the parent that is
-    // found below is still there when the block is stored.
-    let Some(kind) = containers::lock_container_of_kind(scope, &block.container_id).await? else {
-        return Err(StoreError::not_found(format_args!(
-            "board ID={} of block {}",
-            block.container_id, block.id
-        )));
+    let (kind, existing) = match preloaded {
+        Some((kind, existing)) => (kind, Some(existing)),
+        None => {
+            // One writer per board at a time, from before anything is read: the parent
+            // that is found below is still there when the block is stored.
+            let Some(kind) = containers::lock_container_of_kind(scope, &block.container_id).await?
+            else {
+                return Err(StoreError::not_found(format_args!(
+                    "board ID={} of block {}",
+                    block.container_id, block.id
+                )));
+            };
+            let existing = find_block(scope, &block.id).await?;
+            (kind, existing)
+        }
     };
+    if let Some(before) = &existing
+        && block.block_type != before.block_type
+    {
+        return Err(invalid(block, BlockError::TypeChanges));
+    }
     let parent = info_of_parent(scope, block).await?;
     let parent_type = parent.as_ref().map(|info| &info.block_type);
-    let now = at.unwrap_or_else(now_millis);
+    let now = at.unwrap_or_else(|| scope.now_millis());
     block.updated_at = now;
     block.deleted_at = None;
     user_id.clone_into(&mut block.modified_by);
 
-    let existing = find_block(scope, &block.id).await?;
     page_places::check(block, kind, parent_type)?;
-    comment_places::check(scope, block, parent_type, existing.as_ref()).await?;
+    comment_places::check(block, parent_type, existing.as_ref())?;
     // A block that moves must not end up below itself: checked before card hierarchy
     // rules so moving a card onto a block below it always reports `ParentBelowBlock`.
     if let Some(before) = &existing
@@ -750,12 +902,11 @@ pub(crate) async fn insert_block_at(
     let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     card_numbers::number_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
-        if block.block_type != existing.block_type {
-            scope.invalidate_visibility();
-        }
         // Every change of a block moves its `updatedAt` on, also within one millisecond
         // and when the clock steps back: a writer that read the block before this
         // change is told so (`readAt`).
+        block.created_by.clone_from(&existing.created_by);
+        block.created_at = existing.created_at;
         block.updated_at = now.max(existing.updated_at.saturating_add(1));
         crate::diaries::stamp_entry_body_time(block, Some(&existing));
         // A block stays on its board: the update is keyed by the board too, and a block
@@ -763,7 +914,6 @@ pub(crate) async fn insert_block_at(
         let mut sql = scope.sql("UPDATE blocks SET ");
         sql.push_bind("parent_id = ", OptId(&block.parent_id))
             .push_bind(", modified_by = ", OptId(&block.modified_by))
-            .push_bind(", type = ", block.block_type.as_str())
             .push_bind(", title = ", &block.title)
             .push_bind(", fields = ", Param::json(&block.fields)?)
             .push_bind(", number = ", card_numbers::number_param(block.number))
@@ -808,9 +958,13 @@ pub(crate) async fn insert_block_row(
     block: &Block,
     new_files: NewBodyFiles,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO blocks ({BLOCK_COLUMNS}, {BODY_SUMMARY_COLUMNS}) VALUES ("
-    ));
+    let mut sql = scope.sql([
+        "INSERT INTO blocks (",
+        BLOCK_COLUMNS,
+        ", ",
+        BODY_SUMMARY_COLUMNS,
+        ") VALUES (",
+    ]);
     sql.bind(Id(&block.id))
         .push_bind(", ", OptId(&block.parent_id))
         .push_bind(", ", OptId(&block.created_by))
@@ -838,19 +992,25 @@ enum BodyColumns {
     List,
 }
 
-/// Appends the body and what is worked out from it.
+/// Appends the body and what is worked out from it (`body_version`, `body_text`,
+/// `body_tasks_total`, `body_tasks_done`, `body_first_image`).
 fn push_body(sql: &mut Sql, body: Option<&Body>, how: BodyColumns) -> Result<(), StoreError> {
     let tasks = body.map(Body::tasks).unwrap_or_default();
+    let first_image = body.and_then(Body::first_image_file_id).map(str::to_owned);
     let values = [
-        ("body", Param::opt_jsonb(body.map(Body::document))?),
-        ("body_version", Param::OptInt(body.map(|_| BODY_VERSION))),
-        ("body_text", Param::OptText(body.map(Body::text))),
-        ("body_tasks_total", Param::Int(i64::from(tasks.total))),
-        ("body_tasks_done", Param::Int(i64::from(tasks.done))),
+        (", body = ", Param::opt_jsonb(body.map(Body::document))?),
+        (
+            ", body_version = ",
+            Param::OptInt(body.map(|_| BODY_VERSION)),
+        ),
+        (", body_text = ", Param::OptText(body.map(Body::text))),
+        (", body_tasks_total = ", Param::Int(i64::from(tasks.total))),
+        (", body_tasks_done = ", Param::Int(i64::from(tasks.done))),
+        (", body_first_image = ", Param::OptText(first_image)),
     ];
-    for (column, value) in values {
+    for (assign, value) in values {
         match how {
-            BodyColumns::Assign => sql.push_bind(&format!(", {column} = "), value),
+            BodyColumns::Assign => sql.push_bind(assign, value),
             BodyColumns::List => sql.push_bind(", ", value),
         };
     }
@@ -883,7 +1043,7 @@ pub(crate) async fn insert_blocks(
     // identifier: with a time for each, where a millisecond happened to end would
     // decide the order they are listed in. With one time it is that of their
     // identifiers, which whoever made them made in the order that is meant.
-    let now = now_millis();
+    let now = scope.now_millis();
     // What relation values name is asked for once all are stored: two new cards may
     // name each other.
     let mut named = Vec::new();
@@ -942,8 +1102,9 @@ pub(crate) fn parents_first(blocks: &[Block]) -> Vec<usize> {
     }
 }
 
-/// Applies a patch to a block; the versions of a card's body are kept as `body_write`
-/// says, and the people the patched block newly names told as `telling` says.
+/// Applies a patch to a block and returns the updated block; the versions of a card's
+/// body are kept as `body_write` says, and the people the patched block newly names told
+/// as `telling` says.
 pub(crate) async fn patch_block(
     scope: &mut Scope<'_>,
     block_id: &str,
@@ -951,25 +1112,26 @@ pub(crate) async fn patch_block(
     user_id: &str,
     body_write: BodyWrite,
     telling: Telling,
-) -> Result<(), StoreError> {
-    // The block says which board to hold; what is patched is read under the lock, so
-    // that of two patches at once the second is applied to what the first left.
-    let container_id = get_block(scope, block_id).await?.container_id;
-    containers::lock_container(scope, &container_id).await?;
-    let mut block = get_block(scope, block_id).await?;
-    let (min_read_at, stored_updated_at) = crate::diaries::read_at_window(&block);
+) -> Result<Block, StoreError> {
+    // Only the owning `container_id` is fetched before locking, avoiding a full block
+    // read before acquiring the container lock and another full read inside `insert_block`.
+    let container_id = find_container_id(scope, block_id)
+        .await?
+        .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))?;
+    let Some(kind) = containers::lock_container_of_kind(scope, &container_id).await? else {
+        return Err(StoreError::not_found(format_args!(
+            "board ID={container_id} of block {block_id}"
+        )));
+    };
+    let existing = get_block(scope, block_id).await?;
+    let (min_read_at, stored_updated_at) = crate::diaries::read_at_window(&existing);
+    let mut block = existing.clone();
     // What the block was stored with before it was refused is not the patch's fault.
     block.drop_malformed_fields();
-    patch
-        .check_type()
-        .map_err(|source| StoreError::InvalidBlock {
-            id: block.id.clone(),
-            source,
-        })?;
     patch.apply(&mut block);
     // A patch whose block breaks the limits of a block (title, fields) is refused as
     // such (400) before it is refused for being made against an older block (409). The
-    // checks of the parent still come after, in `insert_block_at`.
+    // checks of the parent still come after, in `insert_block_inner`.
     block
         .validate()
         .map_err(|source| StoreError::InvalidBlock {
@@ -990,8 +1152,17 @@ pub(crate) async fn patch_block(
         body_write,
         telling,
     };
-    let named = insert_block_at(scope, &mut block, user_id, None, how).await?;
-    card_values::check_named_cards(scope, &named).await
+    let named = insert_block_inner(
+        scope,
+        &mut block,
+        user_id,
+        None,
+        how,
+        Some((kind, existing)),
+    )
+    .await?;
+    card_values::check_named_cards(scope, &named).await?;
+    Ok(block)
 }
 
 #[cfg(test)]

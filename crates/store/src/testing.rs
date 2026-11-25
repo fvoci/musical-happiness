@@ -755,6 +755,20 @@ pub async fn migrate_to_before_user_settings_and_block_cleanup(database: &TestDa
     .await;
 }
 
+/// Brings a test database to the schema right before migration `0077`: every migration
+/// up to `0076`.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_server_indexes_and_derived_columns(database: &TestDatabase) {
+    migrate_database(
+        database,
+        crate::schema::BEFORE_SERVER_INDEXES_AND_DERIVED_COLUMNS_VERSION,
+    )
+    .await;
+}
+
 /// Brings a test database to the schema as a server left it before the organization's
 /// management (migration 23): every migration before that one, and none of the changes
 /// of the data that follow the migrations.
@@ -891,7 +905,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn count_rows(&self, table: &str) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
-            let sql = scope.sql(&format!("SELECT count(*) FROM {table}"));
+            let sql = scope.sql_unchecked(&format!("SELECT count(*) FROM {table}"));
             match scope.fetch_optional(sql).await? {
                 Some(row) => row.int(0),
                 None => Ok(0),
@@ -909,7 +923,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn texts_unchecked(&self, query: &str) -> Result<Vec<String>, StoreError> {
         self.with_conn(async |scope| {
-            let sql = scope.sql(query);
+            let sql = scope.sql_unchecked(query);
             scope
                 .fetch_all(sql)
                 .await?
@@ -929,7 +943,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn execute_unchecked(&self, statement: &str) -> Result<u64, StoreError> {
         self.with_write_conn(async |scope| {
-            let sql = scope.sql(statement);
+            let sql = scope.sql_unchecked(statement);
             scope.execute(sql).await
         })
         .await

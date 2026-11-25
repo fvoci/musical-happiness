@@ -529,7 +529,7 @@
         "type": "object"
       },
       "BlockPatch": {
-        "description": "A partial update of a `Block`. Absent members leave the block unchanged.",
+        "description": "A partial update of a `Block`. Absent members leave the block unchanged. A block's\n`BlockType` is fixed when the block is created and cannot be patched.",
         "properties": {
           "body": {
             "oneOf": [
@@ -569,17 +569,6 @@
             "type": [
               "string",
               "null"
-            ]
-          },
-          "type": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BlockType",
-                "description": "The new block type: `card`, `view`, `comment` or `attachment`. Any other is\nrefused (400 naming `type`)."
-              },
-              {
-                "type": "null"
-              }
             ]
           },
           "updatedFields": {
@@ -1653,7 +1642,7 @@
         "description": "A course exam with the caller's own score (if any) and aggregate statistics across\nactive enrolled course members.",
         "properties": {
           "averageScore": {
-            "description": "Mean score across active enrolled course members who recorded a score when at least\ntwo other active members have scored (`scoreCount >= 3` when the caller scored,\n`scoreCount >= 2` when the caller has not); `null` otherwise or for unjoined readers.",
+            "description": "Published snapshot mean score (rounded to 0.1) across active enrolled course members\nonce a course administrator publishes exam results (requiring at least 5 active\nscorers); `null` before publication or for unjoined readers.",
             "format": "double",
             "type": [
               "number",
@@ -1700,6 +1689,23 @@
               }
             ]
           },
+          "publishedScoreBucket": {
+            "description": "Published active-scorer count rounded down to a multiple of 5 (`count / 5 * 5`), or\n`null` while unpublished or for unjoined readers.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "resultsPublishedAt": {
+            "description": "When the exam result snapshot was published by a course administrator, in\nmilliseconds since the Unix epoch; `null` while unpublished or for unjoined readers.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "scoreCount": {
             "description": "Number of active enrolled course members who recorded a score (`0` for unjoined\nreaders).",
             "format": "int32",
@@ -1725,6 +1731,8 @@
           "id",
           "maxScore",
           "myScore",
+          "publishedScoreBucket",
+          "resultsPublishedAt",
           "scoreCount",
           "title",
           "updatedAt"
@@ -3523,7 +3531,7 @@
             "description": "Recorded attendance status."
           },
           "updatedAt": {
-            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "description": "Last modification time in milliseconds since the Unix epoch (`0` when hidden from\nnon-administrators).",
             "format": "int64",
             "type": "integer"
           },
@@ -5425,6 +5433,11 @@
             "reason": "file_too_large",
             "title": "File too large",
             "type": "/problems/file-too-large"
+          },
+          {
+            "reason": "storage_full",
+            "title": "Organization storage full",
+            "type": "/problems/storage-full"
           },
           {
             "reason": "archive_too_large",
@@ -16512,7 +16525,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/exams": {
       "get": {
-        "description": "Returns every exam of the course ordered by `examDate` ascending (exams without a date\nlast), then by `createdAt` and `id`. Enrolled members receive `scoreCount` across active\nenrolled course members, `averageScore` when at least two other active members have\nsubmitted a score (`scoreCount >= 3` if the caller submitted, `scoreCount >= 2` if not;\n`null` otherwise), and `myScore` containing only the caller's own score. Unjoined readers\nreceive `myScore: null`, `averageScore: null`, and `scoreCount: 0`. Another member's\nindividual score or note is never returned under any role.",
+        "description": "Returns every exam of the course ordered by `examDate` ascending (exams without a date\nlast), then by `createdAt` and `id`. Enrolled members receive `scoreCount` across active\nenrolled course members, `myScore` containing only the caller's own score, and — once a\ncourse manager publishes a result snapshot (`publishCourseExamResults`) — the frozen\ncoarse snapshot (`averageScore` rounded to one decimal place, `resultsPublishedAt`, and\n`publishedScoreBucket` rounded down to a multiple of 5). Before publication,\n`averageScore` is `null` for every role (including admins) so individual scores cannot be\nrecovered by differencing (`P2-2`). Unjoined readers receive `myScore: null`,\n`averageScore: null`, and `scoreCount: 0`. Another member's individual score or note is\nnever returned under any role.",
         "operationId": "listCourseExams",
         "parameters": [
           {
@@ -16871,9 +16884,129 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}/results-publication": {
+      "delete": {
+        "description": "Clears the published result snapshot on the exam so `averageScore`,\n`resultsPublishedAt`, and `publishedScoreBucket` return to `null`. Requires course role\nmanagement (`ManageRoles`).",
+        "operationId": "unpublishCourseExamResults",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the exam: an exam of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "examId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseExam"
+                }
+              }
+            },
+            "description": "The exam with its result snapshot unpublished."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Unpublish a course exam's aggregate result snapshot",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and\n`publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course\nrole management (`ManageRoles`), at least 5 active enrolled scorers, and — when\nrepublishing an already-published exam — a net scorer count change of at least 3 since\nthe previous snapshot (`409` otherwise).",
+        "operationId": "publishCourseExamResults",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the exam: an exam of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "examId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseExam"
+                }
+              }
+            },
+            "description": "The exam with its published result snapshot."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Publish a course exam's aggregate result snapshot",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/courses/{courseId}/meetings": {
       "get": {
-        "description": "Returns every study meeting of the course together with its attendance records\n(`attendance`, ordered by `userId`), ordered by `startsAt` ascending, then by `id`.\nReadable by anyone who can view the course (including unjoined workspace members on an\nopen course and personal-space owners). Non-course containers and unreadable private\ncourses answer 404.",
+        "description": "Returns every study meeting of the course ordered by `startsAt` ascending, then by `id`.\nEnrolled course members and course role managers (`ManageRoles`) receive per-member\n`attendance` records (ordered by `userId`), with `updatedAt` populated only for\n`ManageRoles` managers (`0` for non-manager members); unjoined open-course readers and\nnon-enrolled guests receive `attendance: []` (`P2-1`). Non-course containers and\nunreadable private courses answer 404.",
         "operationId": "listCourseMeetings",
         "parameters": [
           {
@@ -17431,7 +17564,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/progress/summary": {
       "get": {
-        "description": "Returns the total number of live units in the course (excluding chapters and trashed\nunits) and the completed live-unit count for each active course member, ordered by\n`userId`. Accounts that have been deleted, are pending deletion, or are no longer\nactive members of the workspace or course are excluded. Never discloses which units a\nmember completed, completion timestamps, planned dates, or last positions. Readable\nby anyone who can view the course (and the owner of a personal-space course);\nunreadable private courses and non-course containers answer 404.",
+        "description": "Returns the total number of live units in the course (excluding chapters and trashed\nunits) and, for enrolled course members and course role managers (`ManageRoles`), the\ncompleted live-unit count for each active course member ordered by `userId`. Unjoined\nreaders of an open course and non-enrolled guests receive `members: []` (`P2-1`).\nAccounts that have been deleted, are pending deletion, or are no longer active members\nof the workspace or course are excluded. Never discloses which units a member\ncompleted, completion timestamps, planned dates, or last positions. Unreadable private\ncourses and non-course containers answer 404.",
         "operationId": "getCourseProgressSummary",
         "parameters": [
           {

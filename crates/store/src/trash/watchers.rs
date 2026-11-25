@@ -84,9 +84,29 @@ pub(super) fn take_kept(block: &mut Value) -> Result<Vec<StoredWatcher>, StoreEr
 }
 
 /// Removes `user_id` from the saved watchers of the trashed blocks selected by `sql`
-/// (`SELECT id, block FROM deleted_blocks WHERE ...`), writing back only rows that
-/// actually named `user_id`.
-async fn forget_watcher(scope: &mut Scope<'_>, sql: Sql, user_id: &str) -> Result<(), StoreError> {
+/// (`SELECT id, block FROM deleted_blocks WHERE ...`), pre-filtering in SQL with
+/// `instr`/`strpos` so trashed blocks without `watchedBy` or `user_id` never deserialize
+/// their full JSON payloads, and writing back only rows that actually named `user_id`.
+async fn forget_watcher(
+    scope: &mut Scope<'_>,
+    mut sql: Sql,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    if !fvoci_model::is_id(user_id) {
+        return Ok(());
+    }
+    match scope.dialect() {
+        Dialect::Sqlite => {
+            sql.push(" AND instr(block, 'watchedBy') > 0 AND instr(block, ")
+                .bind(user_id)
+                .push(") > 0");
+        }
+        Dialect::Postgres => {
+            sql.push(" AND strpos(block::text, 'watchedBy') > 0 AND strpos(block::text, ")
+                .bind(user_id)
+                .push(") > 0");
+        }
+    }
     for row in scope.fetch_all(sql).await? {
         let mut block = row.json(1, "block")?;
         let Some(watchers) = block.get_mut(KEY).and_then(Value::as_array_mut) else {

@@ -39,6 +39,8 @@ pub(super) struct Slot {
     key: String,
     /// The card.
     pub(super) card_id: String,
+    /// The container owning the card.
+    pub(super) container_id: String,
     /// The organization of the card.
     pub(super) tenant: Tenant,
     /// The slot is no longer in the place: whoever waited for it looks again.
@@ -257,29 +259,67 @@ pub(super) fn key_of(tenant: Tenant, card_id: &str) -> String {
 }
 
 impl Collab {
-    /// The slot of a card of `app`'s organization, held.
-    pub(super) async fn slot(&self, app: &App, card_id: &str) -> Held {
+    /// Resolves the `container_id` of `card_id`, checking the in-memory `slots` table
+    /// first and falling back to a lightweight store lookup across live and deleted
+    /// blocks.
+    pub(super) async fn slot_container_id(
+        &self,
+        app: &App,
+        card_id: &str,
+    ) -> Result<String, AppError> {
+        if let Some(container_id) = self.existing_slot_container_id(app, card_id) {
+            return Ok(container_id);
+        }
+        Ok(app
+            .store()
+            .find_any_block_container_id(card_id)
+            .await?
+            .unwrap_or_default())
+    }
+
+    /// Returns the `container_id` of `card_id` if a slot currently exists in memory.
+    pub(super) fn existing_slot_container_id(&self, app: &App, card_id: &str) -> Option<String> {
+        let key = key_of(app.store().tenant(), card_id);
+        let slots = self.inner.slots.lock().expect("the slots are not poisoned");
+        slots
+            .get(&key)
+            .map(|(container_id, _)| container_id.clone())
+    }
+
+    /// The slot of a card of `app`'s organization in `container_id`, held.
+    pub(super) async fn slot_in(&self, app: &App, card_id: &str, container_id: &str) -> Held {
         let tenant = app.store().tenant();
         let key = key_of(tenant, card_id);
         loop {
             let shared = {
                 let mut slots = self.inner.slots.lock().expect("the slots are not poisoned");
-                Arc::clone(slots.entry(key.clone()).or_insert_with(|| {
-                    Arc::new(Mutex::new(Slot {
-                        key: key.clone(),
-                        card_id: card_id.to_owned(),
-                        tenant,
-                        retired: false,
-                        open: None,
-                        deaths: 0,
-                        last_death: None,
-                        closed_until: None,
-                        remake_failed_at: None,
-                    }))
-                }))
+                let entry = slots.entry(key.clone()).or_insert_with(|| {
+                    (
+                        container_id.to_owned(),
+                        Arc::new(Mutex::new(Slot {
+                            key: key.clone(),
+                            card_id: card_id.to_owned(),
+                            container_id: container_id.to_owned(),
+                            tenant,
+                            retired: false,
+                            open: None,
+                            deaths: 0,
+                            last_death: None,
+                            closed_until: None,
+                            remake_failed_at: None,
+                        })),
+                    )
+                });
+                if entry.0.is_empty() && !container_id.is_empty() {
+                    entry.0 = container_id.to_owned();
+                }
+                Arc::clone(&entry.1)
             };
-            let slot = shared.lock_owned().await;
+            let mut slot = shared.lock_owned().await;
             if !slot.retired {
+                if slot.container_id.is_empty() && !container_id.is_empty() {
+                    slot.container_id = container_id.to_owned();
+                }
                 return slot;
             }
         }
@@ -291,7 +331,7 @@ impl Collab {
         loop {
             let shared = {
                 let slots = self.inner.slots.lock().expect("the slots are not poisoned");
-                Arc::clone(slots.get(&key)?)
+                Arc::clone(&slots.get(&key)?.1)
             };
             let slot = shared.lock_owned().await;
             if !slot.retired {
@@ -346,7 +386,7 @@ impl Collab {
     /// Every slot.
     pub(super) fn all_slots(&self) -> Vec<Arc<Mutex<Slot>>> {
         let slots = self.inner.slots.lock().expect("the slots are not poisoned");
-        slots.values().map(Arc::clone).collect()
+        slots.values().map(|(_, slot)| Arc::clone(slot)).collect()
     }
 
     /// Takes a slot out of the place, unless its document is open, or it remembers that
@@ -364,7 +404,7 @@ impl Collab {
         let mut slots = self.inner.slots.lock().expect("the slots are not poisoned");
         if slots
             .get(&slot.key)
-            .is_some_and(|there| Arc::ptr_eq(there, OwnedMutexGuard::mutex(slot)))
+            .is_some_and(|(_, there)| Arc::ptr_eq(there, OwnedMutexGuard::mutex(slot)))
         {
             slots.remove(&slot.key);
         }
@@ -453,7 +493,26 @@ impl Collab {
                         return Err(refusals::unavailable().into());
                     }
                 }
+                Err(CallError::Refused(refused)) if refused.refusal == Refusal::Closed => {
+                    tracing::error!(
+                        card_id,
+                        reason = %refused.message,
+                        "a collab worker closed a document after a failed rollback"
+                    );
+                    self.lost(slot);
+                    self.tell(app, card_id, DocChange::Reopened);
+                    return Err(refusals::unavailable().into());
+                }
                 Err(CallError::Refused(refused)) => {
+                    if refused.rolled_back
+                        && let AskedFor::Sender(user_id) = asked_for
+                    {
+                        self.inner.senders.rolled_back(
+                            app.store().tenant(),
+                            user_id,
+                            Instant::now(),
+                        );
+                    }
                     let error = refusals::refused(&refused, &self.inner.limits);
                     return Err(match refused.refusal {
                         Refusal::TooManySteps => Unanswered::TooManySteps(error),

@@ -10,12 +10,11 @@ pub const PASSWORD_RESET_LIFETIME_MILLIS: i64 = 60 * 60 * 1_000;
 /// The condition on a user row whose password may be reset: it has one, and somebody
 /// can sign in to the account (in use, or waiting to be deleted). Not one being erased,
 /// nor one put out of use otherwise.
-fn resettable() -> String {
-    format!(
-        "password_hash <> '' AND (deleted_at IS NULL OR ({}))",
-        users::WAITS
-    )
-}
+const RESETTABLE: [&str; 3] = [
+    "password_hash <> '' AND (deleted_at IS NULL OR (",
+    users::WAITS,
+    "))",
+];
 
 impl Store {
     /// Stores a reset credential for an account that has a password and that somebody can
@@ -69,11 +68,8 @@ impl Store {
             let user_id = row.id(0)?;
             // The user is held before changing credentials or sessions, in the same
             // order as login. A login with the old hash must finish before this reset.
-            let mut hold = scope.sql(&format!(
-                "SELECT id FROM users WHERE {} AND id = ",
-                resettable()
-            ));
-            hold.bind(Id(&user_id));
+            let mut hold = scope.sql("SELECT id FROM users WHERE ");
+            hold.push(RESETTABLE).push_bind(" AND id = ", Id(&user_id));
             if scope.dialect() == Dialect::Postgres {
                 hold.push(" FOR UPDATE");
             }
@@ -150,7 +146,7 @@ pub(crate) async fn insert_password_reset(
         .push_bind(", ", now.saturating_add(PASSWORD_RESET_LIFETIME_MILLIS))
         .push_bind(" FROM users WHERE id = ", Id(user_id))
         .push(" AND ")
-        .push(&resettable());
+        .push(RESETTABLE);
     if let Some(email) = email {
         sql.push_bind(" AND lower(email) = lower(", email).push(")");
     }

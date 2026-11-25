@@ -12,7 +12,7 @@ use fvoci_model::{
 };
 use serde_json::Value;
 
-use crate::db::{Id, Param, Scope, now_millis};
+use crate::db::{Dialect, Id, Scope};
 use crate::{Store, StoreError, blocks, comment_places, containers, page_places};
 
 /// What a write of the tree changed: the page it was about, and the siblings whose
@@ -230,24 +230,63 @@ pub(crate) async fn write_place(
     Ok(renumbered)
 }
 
+/// Columns read and returned by [`write_order`], without the potentially multi-megabyte
+/// `body` column.
+const ORDER_READ_COLUMNS: &str = "id, parent_id, created_by, modified_by, type, title, fields, \
+                                  created_at, updated_at, container_id, number";
+
 /// Stores a new order of a page and nothing else of it: who changed it last stays, and
 /// nothing that follows from a block (its files, what a search holds of it) reads its
-/// order. Its `updatedAt` moves on, so that whoever holds it takes the change. Returns
-/// the page as stored.
+/// order. Its `updatedAt` moves on, so that whoever holds it takes the change. Updates
+/// `fields.order` in SQL via `json_set` / `jsonb_set` and returns the page without
+/// loading its `body`.
 async fn write_order(
     scope: &mut Scope<'_>,
     page_id: &str,
     order: String,
 ) -> Result<Block, StoreError> {
-    let mut page = blocks::get_block(scope, page_id).await?;
-    page.fields
-        .insert(PAGE_ORDER_FIELD.to_owned(), Value::from(order));
-    page.updated_at = now_millis().max(page.updated_at.saturating_add(1));
-    let mut sql = scope.sql("UPDATE blocks SET fields = ");
-    sql.bind(Param::json(&page.fields)?)
-        .push_bind(", updated_at = ", page.updated_at)
-        .push_bind(" WHERE id = ", Id(page_id))
-        .push_bind(" AND container_id = ", Id(&page.container_id));
-    scope.execute(sql).await?;
-    Ok(page)
+    let now = scope.now_millis();
+    let mut sql = match scope.dialect() {
+        Dialect::Sqlite => scope.sql(
+            "UPDATE blocks SET fields = json_set(COALESCE(fields, '{}'), '$.order', ",
+        ),
+        Dialect::Postgres => scope.sql(
+            "UPDATE blocks SET fields = jsonb_set(COALESCE(fields::jsonb, '{}'::jsonb), '{order}', to_jsonb(",
+        ),
+    };
+    sql.bind(order);
+    match scope.dialect() {
+        Dialect::Sqlite => {
+            sql.push("), updated_at = MAX(")
+                .bind(now)
+                .push(", updated_at + 1)");
+        }
+        Dialect::Postgres => {
+            sql.push("::text), true)::json, updated_at = GREATEST(")
+                .bind(now)
+                .push(", updated_at + 1)");
+        }
+    }
+    sql.push_bind(" WHERE id = ", Id(page_id))
+        .push([" RETURNING ", ORDER_READ_COLUMNS]);
+    let row = scope
+        .fetch_optional(sql)
+        .await?
+        .ok_or_else(|| StoreError::not_found(format_args!("page ID={page_id}")))?;
+    Ok(Block {
+        id: row.id(0)?,
+        parent_id: row.id(1)?,
+        created_by: row.id(2)?,
+        modified_by: row.id(3)?,
+        block_type: blocks::block_type_column(&row, 4, "type")?,
+        title: row.text(5)?,
+        fields: row.json_map(6, "fields")?,
+        created_at: row.int(7)?,
+        updated_at: row.int(8)?,
+        deleted_at: None,
+        container_id: row.id(9)?,
+        number: crate::card_numbers::number_from_row(&row, 10)?,
+        body: None,
+        edited_at: 0,
+    })
 }

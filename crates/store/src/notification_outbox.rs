@@ -11,7 +11,7 @@
 use fvoci_model::{NotificationKind, new_id};
 
 use crate::Store;
-use crate::db::{Id, OptId, Row, Scope, Sql};
+use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::notifications::kind_from_row;
 
@@ -95,9 +95,11 @@ impl Store {
         limit: i64,
     ) -> Result<Vec<NotificationEvent>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {EVENT_COLUMNS} FROM notification_outbox WHERE due_at <= "
-            ));
+            let mut sql = scope.sql([
+                "SELECT ",
+                EVENT_COLUMNS,
+                " FROM notification_outbox WHERE due_at <= ",
+            ]);
             sql.bind(now).push_bind(
                 " ORDER BY due_at, org_id, recipient_id, kind, source_id LIMIT ",
                 limit,
@@ -161,7 +163,7 @@ impl Store {
                     " AND created_at > ",
                     now.saturating_sub(limits.same_within_millis),
                 )
-                .push(" ORDER BY created_at DESC LIMIT 1");
+                .push(" ORDER BY created_at DESC, id DESC LIMIT 1");
             if let Some(row) = scope.fetch_optional(sql).await? {
                 let (org_id, id) = (row.id(0)?, row.id(1)?);
                 let Some(counted) = with_counted(&row.text(3)?, &event.source_id, &event.actor_id)
@@ -169,9 +171,14 @@ impl Store {
                     return Ok(Told::Counted(id));
                 };
                 let doers = with_doer(&row.text(2)?, &event.actor_id);
-                let mut sql = scope.sql("UPDATE notifications SET updated_at = ");
+                let mut sql = match scope.dialect() {
+                    Dialect::Postgres => {
+                        scope.sql("UPDATE notifications SET updated_at = GREATEST(")
+                    }
+                    Dialect::Sqlite => scope.sql("UPDATE notifications SET updated_at = MAX("),
+                };
                 sql.bind(now)
-                    .push(", times = times + 1, read_at = 0, actor_id = ")
+                    .push(", updated_at + 1), times = times + 1, read_at = 0, actor_id = ")
                     .bind(OptId(&event.actor_id))
                     .push_bind(", source_id = ", Id(&event.source_id))
                     .push_bind(", container_id = ", Id(&event.container_id))

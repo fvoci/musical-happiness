@@ -3,7 +3,9 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use tokio::time::Instant;
 
 use crate::auth::limiter::RetryAfter;
 
@@ -77,6 +79,44 @@ impl HourlyQuota {
             .push_back((now, messages));
         Ok(placed)
     }
+
+    /// Checks each key in `keys` against `per_hour` at `now` under one lock, recording
+    /// one message for each key that fits within its hourly window and returning `true`
+    /// at its index, or `false` without recording anything for keys already at `per_hour`.
+    pub(super) fn take_each<S: AsRef<str>>(
+        &self,
+        keys: &[S],
+        per_hour: u32,
+        now: Instant,
+    ) -> Vec<bool> {
+        let mut admitted = self.admitted.lock().expect("mail quota lock poisoned");
+        admitted.retain(|_, entries| {
+            while entries
+                .front()
+                .is_some_and(|(at, _)| now.saturating_duration_since(*at) >= WINDOW)
+            {
+                entries.pop_front();
+            }
+            !entries.is_empty()
+        });
+        keys.iter()
+            .map(|key| {
+                let key = key.as_ref();
+                let used: u32 = admitted
+                    .get(key)
+                    .map_or(0, |entries| entries.iter().map(|(_, n)| n).sum());
+                if used.saturating_add(1) > per_hour {
+                    false
+                } else {
+                    admitted
+                        .entry(key.to_owned())
+                        .or_default()
+                        .push_back((now, 1));
+                    true
+                }
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -91,8 +131,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_key_waits_until_its_oldest_messages_leave_the_hour() {
+    #[tokio::test(start_paused = true)]
+    async fn a_key_waits_until_its_oldest_messages_leave_the_hour() {
         let quota = HourlyQuota::default();
         let start = Instant::now();
         assert_eq!(take(&quota, "w1", 3, start), None);
@@ -119,8 +159,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn messages_without_a_place_take_nothing_of_the_hour() {
+    #[tokio::test(start_paused = true)]
+    async fn messages_without_a_place_take_nothing_of_the_hour() {
         let quota = HourlyQuota::default();
         let start = Instant::now();
         assert_eq!(

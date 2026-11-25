@@ -1,33 +1,25 @@
 //! The comments on a unit of a course: listing, writing, changing, deleting and
 //! restoring them, and what one said before.
-//!
-//! A comment on a unit is a block of the type `comment` below the unit, as a comment on
-//! a card or a page is. Chapters take no comments and answer 404 here. Who may do what
-//! to a comment is what a card's and a page's comments let (`api/access.rs`), and what
-//! is stored and told is what theirs are (`App`'s blocks); only the routes are a
-//! course's, under the handle that reaches courses (`InCourse`), so that no operation
-//! of a board's or a wiki's blocks reaches a unit's comment.
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{
-    Block, BlockPatch, BlockType, Body, BodyChange, CommentVersion, RefusalReason, Refusals, new_id,
-};
+use fvoci_model::{Block, Body, BodyChange, CommentVersion};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::comments::{
+    create_comment_on, created_comment, delete_comment_on, existing_comment_on,
+    find_live_comment_on, get_comment_versions_on, list_comments_on, patch_comment_on,
+    restore_comment_on,
+};
 use super::contract::params::{CourseId, MemberWorkspaceId, UnitCommentId, UnitId};
 use super::contract::tag;
 use super::courses::{READ_DENIED, content_unit_with_permission};
-use super::workspace::{InCourse, InWorkspace};
-use super::{
-    ApiResult, BlockAction, created, decode_with_document, json_response, no_content,
-    require_block_permission, require_delete_permission, require_deletion_permission,
-};
-use crate::app::{App, ChangeNotification};
-use crate::error::AppError;
+use super::workspace::InCourse;
+use super::{ApiResult, json_response};
+use crate::app::App;
 use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -44,16 +36,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_restore_unit_comment))
 }
 
-/// What a comment is changed by, and what a comment is refused with that a request does
-/// not change.
 const CHANGES_DENIED: &str = "access denied to change the comments of the unit";
-
-/// What a comment is refused with that has no text.
-const TEXT_MISSING: &str = "a comment has a text";
-
-/// What a change of a comment is refused with that does not say what it was read at.
-const READ_AT_MISSING: &str =
-    "a comment is changed with readAt, the updatedAt of the comment as it was read";
 
 /// A comment to write on a unit.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -62,6 +45,7 @@ pub(crate) struct NewUnitComment {
     /// The comment's text, as a unit's body is written; neither empty nor `null`.
     #[serde(default)]
     #[schema(value_type = Body)]
+    #[allow(dead_code)]
     body: BodyChange,
 }
 
@@ -73,68 +57,12 @@ pub(crate) struct UnitCommentPatch {
     /// The comment's new text, as a unit's body is written; neither empty nor `null`.
     #[serde(default)]
     #[schema(value_type = Body)]
+    #[allow(dead_code)]
     body: BodyChange,
     /// The `updatedAt` of the comment as the client read it: if the comment has changed
     /// since, the patch is refused with 409 and changes nothing.
     #[schema(value_type = i64)]
     read_at: Option<i64>,
-}
-
-/// The comment a route of `…/comments/{commentId}` names, and the unit and the course it
-/// is named under.
-#[derive(Debug, Clone, Copy)]
-struct CommentPath<'a> {
-    course: &'a str,
-    unit: &'a str,
-    comment: &'a str,
-}
-
-/// The text of a comment as a request sends it: refused at `/body` unless it is one.
-fn text_of(change: BodyChange) -> Result<Body, AppError> {
-    match change {
-        BodyChange::Set(body) => Ok(body),
-        BodyChange::Keep | BodyChange::Clear => {
-            let mut refused = Refusals::new();
-            refused.refuse("body", RefusalReason::Required, TEXT_MISSING);
-            Err(refused.into())
-        }
-    }
-}
-
-/// Returns the comment of the unit for a handler of `…/comments/{commentId}`, if the
-/// user has the permission on the course, with the unit: their blocks, read once each.
-/// Chapters are answered 404. `None` is no comment there now.
-async fn comment_with_permission(
-    ws: &InWorkspace,
-    named: CommentPath<'_>,
-    permission: ContainerPermission,
-    denial: &str,
-) -> Result<(Block, Option<Block>), AppError> {
-    let unit =
-        content_unit_with_permission(ws, named.course, named.unit, permission, denial).await?;
-    match ws.app.block(named.comment).await {
-        Ok(block) if is_comment_on(&block, &unit) => Ok((unit, Some(block))),
-        Ok(_) => Ok((unit, None)),
-        Err(error) if error.is_not_found() => Ok((unit, None)),
-        Err(error) => Err(error),
-    }
-}
-
-/// The comment of [`comment_with_permission`], which is to be there: 404 for none.
-async fn existing_comment(
-    ws: &InWorkspace,
-    named: CommentPath<'_>,
-    permission: ContainerPermission,
-) -> Result<Block, AppError> {
-    let (_, comment) = comment_with_permission(ws, named, permission, CHANGES_DENIED).await?;
-    comment.ok_or_else(|| AppError::not_found("comment"))
-}
-
-/// Whether the block is a comment on the unit.
-fn is_comment_on(block: &Block, unit: &Block) -> bool {
-    block.block_type == BlockType::Comment
-        && block.container_id == unit.container_id
-        && block.parent_id == unit.id
 }
 
 /// The comments on a unit
@@ -164,12 +92,7 @@ async fn handle_get_unit_comments(
         READ_DENIED,
     )
     .await?;
-    let mut comments = ws
-        .app
-        .blocks(&course_id, Some(&unit.id), Some(&BlockType::Comment))
-        .await?;
-    comments.sort_by(|one, other| (one.created_at, &one.id).cmp(&(other.created_at, &other.id)));
-    Ok(json_response(&comments))
+    list_comments_on(&ws, &course_id, &unit.id).await
 }
 
 /// Write a comment on a unit
@@ -202,31 +125,9 @@ async fn handle_create_unit_comment(
         "access denied to comment on the unit",
     )
     .await?;
-    let (mut new, document): (NewUnitComment, _) = decode_with_document(&body)?;
-    new.body = document;
-    let text = text_of(new.body)?;
-    ws.app.check_body_files(&course_id, Some(&text)).await?;
-    let mut comment = Block {
-        id: new_id(),
-        container_id: course_id.clone(),
-        parent_id: unit.id,
-        block_type: BlockType::Comment,
-        body: Some(text),
-        ..Block::default()
-    };
-    let stored = ws
-        .app
-        .insert_block(&mut comment, user_id, ChangeNotification::Send)
-        .await;
-    if let Err(error) = stored {
-        // The unit went to the trash since it was read: the comment has nowhere to go.
-        return Err(match ws.app.block(&comment.parent_id).await {
-            Err(gone) if gone.is_not_found() => AppError::not_found("unit"),
-            _ => error,
-        });
-    }
+    let comment = create_comment_on::<NewUnitComment>(&ws, &course_id, unit, "unit", &body).await?;
     tracing::debug!(course_id, unit_id, comment_id = %comment.id, user_id, "CreateUnitComment");
-    Ok(created(&comment))
+    created_comment(&comment)
 }
 
 /// Change a comment on a unit
@@ -251,39 +152,24 @@ async fn handle_patch_unit_comment(
     body: Bytes,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let named = CommentPath {
-        course: &course_id,
-        unit: &unit_id,
-        comment: &comment_id,
-    };
-    // Who cannot even comment changes nothing, whatever the comment.
-    let comment = existing_comment(&ws, named, ContainerPermission::CommentCards).await?;
-    require_block_permission(
-        &ws.app,
-        user_id,
-        &comment,
-        BlockAction::Change,
+    let unit = content_unit_with_permission(
+        &ws,
+        &course_id,
+        &unit_id,
+        ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let (mut change, document): (UnitCommentPatch, _) = decode_with_document(&body)?;
-    change.body = document;
-    let Some(read_at) = change.read_at else {
-        let mut refused = Refusals::new();
-        refused.refuse("readAt", RefusalReason::Required, READ_AT_MISSING);
-        return Err(refused.into());
-    };
-    let text = text_of(change.body)?;
-    ws.app.check_body_files(&course_id, Some(&text)).await?;
-    let patch = BlockPatch {
-        body: BodyChange::Set(text),
-        read_at: Some(read_at),
-        ..BlockPatch::default()
-    };
-    let patched = ws
-        .app
-        .patch_block(&comment.id, &patch, user_id, ChangeNotification::Send)
-        .await?;
+    let comment = existing_comment_on(&ws, &unit, &comment_id).await?;
+    let patched = patch_comment_on::<UnitCommentPatch>(
+        &ws,
+        &course_id,
+        &comment,
+        CHANGES_DENIED,
+        &body,
+        |patch| patch.read_at,
+    )
+    .await?;
     tracing::debug!(course_id, unit_id, comment_id, user_id, "PatchUnitComment");
     Ok(json_response(&patched))
 }
@@ -307,18 +193,18 @@ async fn handle_delete_unit_comment(
     Path((_, course_id, unit_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let named = CommentPath {
-        course: &course_id,
-        unit: &unit_id,
-        comment: &comment_id,
-    };
-    let comment = existing_comment(&ws, named, ContainerPermission::CommentCards).await?;
-    require_delete_permission(&ws.app, user_id, &comment, CHANGES_DENIED).await?;
-    ws.app
-        .delete_block(&comment.id, user_id, ChangeNotification::Send)
-        .await?;
+    let unit = content_unit_with_permission(
+        &ws,
+        &course_id,
+        &unit_id,
+        ContainerPermission::CommentCards,
+        CHANGES_DENIED,
+    )
+    .await?;
+    let comment = existing_comment_on(&ws, &unit, &comment_id).await?;
+    let response = delete_comment_on(&ws, &comment, CHANGES_DENIED).await?;
     tracing::debug!(course_id, unit_id, comment_id, user_id, "DeleteUnitComment");
-    Ok(no_content())
+    Ok(response)
 }
 
 /// Bring a deleted comment on a unit back
@@ -345,7 +231,6 @@ async fn handle_restore_unit_comment(
     Path((_, course_id, unit_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    // Nobody below the commenter's role brings anything back, whatever the comment.
     let unit = content_unit_with_permission(
         &ws,
         &course_id,
@@ -354,28 +239,7 @@ async fn handle_restore_unit_comment(
         CHANGES_DENIED,
     )
     .await?;
-    // What the trash has of this unit: a comment deleted on its own, at the top of its
-    // deletion.
-    let deletion = ws.app.deletion(&comment_id).await?;
-    let Some((top, below)) = deletion
-        .split_first()
-        .filter(|(top, _)| top.id == comment_id && is_comment_on(top, &unit))
-    else {
-        return Err(AppError::not_found("comment"));
-    };
-    let deleted_by = ws.app.deleted_by(&top.id).await?;
-    require_deletion_permission(
-        &ws.app,
-        user_id,
-        top,
-        below,
-        BlockAction::Undelete {
-            deleted_by: &deleted_by,
-        },
-        CHANGES_DENIED,
-    )
-    .await?;
-    let comment = ws.app.undelete_block(&comment_id, user_id).await?;
+    let comment = restore_comment_on(&ws, &unit, &comment_id, CHANGES_DENIED).await?;
     tracing::debug!(
         course_id,
         unit_id,
@@ -405,26 +269,14 @@ async fn handle_get_unit_comment_versions(
     InCourse(ws): InCourse,
     Path((_, course_id, unit_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
-    let named = CommentPath {
-        course: &course_id,
-        unit: &unit_id,
-        comment: &comment_id,
-    };
-    let (unit, live) =
-        comment_with_permission(&ws, named, ContainerPermission::View, READ_DENIED).await?;
-    let comment = match live {
-        Some(comment) => comment.id,
-        // A comment that was deleted on its own is in the trash below a unit that is not.
-        None => {
-            ws.app
-                .deleted_block(&comment_id)
-                .await?
-                .map(|deleted| deleted.block)
-                .filter(|block| is_comment_on(block, &unit))
-                .ok_or_else(|| AppError::not_found("comment"))?
-                .id
-        }
-    };
-    let versions = ws.app.comment_versions(&comment).await?;
-    Ok(json_response(&versions))
+    let unit = content_unit_with_permission(
+        &ws,
+        &course_id,
+        &unit_id,
+        ContainerPermission::View,
+        READ_DENIED,
+    )
+    .await?;
+    let live = find_live_comment_on(&ws, &unit, &comment_id).await?;
+    get_comment_versions_on(&ws, &unit, live, &comment_id).await
 }

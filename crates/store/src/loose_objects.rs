@@ -178,9 +178,11 @@ impl Store {
         limit: i64,
     ) -> Result<Vec<LooseObject>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {LOOSE_COLUMNS} FROM loose_objects WHERE state = "
-            ));
+            let mut sql = scope.sql([
+                "SELECT ",
+                LOOSE_COLUMNS,
+                " FROM loose_objects WHERE state = ",
+            ]);
             sql.bind(LooseState::Doomed.as_str())
                 .push_bind(" AND retry_at <= ", now)
                 .push_bind(" ORDER BY retry_at, path LIMIT ", limit);
@@ -201,9 +203,11 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn loose_objects(&self) -> Result<Vec<LooseObject>, StoreError> {
         self.with_conn(async |scope| {
-            let sql = scope.sql(&format!(
-                "SELECT {LOOSE_COLUMNS} FROM loose_objects ORDER BY path"
-            ));
+            let sql = scope.sql([
+                "SELECT ",
+                LOOSE_COLUMNS,
+                " FROM loose_objects ORDER BY path",
+            ]);
             scope
                 .fetch_all(sql)
                 .await?
@@ -289,7 +293,7 @@ impl Store {
                 Dialect::Sqlite => "path",
                 Dialect::Postgres => "org_id, path",
             };
-            let now = now_millis();
+            let now = scope.now_millis();
             let mut listed = 0;
             for path in paths {
                 let mut sql =
@@ -306,7 +310,7 @@ impl Store {
                         .push(")");
                 }
                 // SQLite reads an upsert after a SELECT only behind a WHERE.
-                sql.push(&format!(" WHERE true ON CONFLICT ({key}) DO NOTHING"));
+                sql.push([" WHERE true ON CONFLICT (", key, ") DO NOTHING"]);
                 listed += scope.execute(sql).await?;
             }
             Ok(listed)
@@ -375,7 +379,7 @@ pub(crate) async fn doom(
     scope: &mut Scope<'_>,
     objects: &[(String, Option<String>)],
 ) -> Result<(), StoreError> {
-    let now = now_millis();
+    let now = scope.now_millis();
     let names_org = scope.dialect() == Dialect::Postgres && !scope.has_org();
     // A statement takes a row once: two records of one place (which only a wrong call
     // of the store makes) are one object to doom.
@@ -410,7 +414,7 @@ pub(crate) async fn doom(
             Dialect::Postgres => "org_id, path",
         };
         sql.push_bind(
-            &format!(" ON CONFLICT ({key}) DO UPDATE SET state = "),
+            [" ON CONFLICT (", key, ") DO UPDATE SET state = "],
             LooseState::Doomed.as_str(),
         )
         .push(", retry_at = excluded.retry_at");

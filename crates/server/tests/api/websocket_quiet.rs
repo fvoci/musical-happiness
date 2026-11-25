@@ -190,3 +190,101 @@ async fn a_member_held_by_a_check_is_answered_and_kept() {
     assert!(pong(&mut member).await < PATIENCE, "still open");
     th.teardown().await;
 }
+
+/// `subscribeBlocks` acknowledges accepted subscriptions with deduplicated `blockIds`
+/// (`M2`), while silently ignoring unauthorized tokens or batches exceeding 200 distinct
+/// block identifiers (`gapfill H-2`).
+#[tokio::test]
+async fn subscribe_blocks_acknowledges_deduplicates_and_caps_batch_size() {
+    let th = server().await;
+    let board = th
+        .create_board(
+            crate::common::TEST_WORKSPACE_ID,
+            fvoci_model::ContainerVisibility::Open,
+        )
+        .await;
+    let card_id = fvoci_model::new_id();
+    let card_resp = th
+        .client
+        .post(
+            &format!(
+                "/w/{}/boards/{}/cards",
+                crate::common::TEST_WORKSPACE_ID,
+                board.id
+            ),
+            &json!({"id": card_id, "title": "Shared card"}),
+        )
+        .await;
+    assert_eq!(card_resp.status(), 200);
+    let link_resp = th
+        .client
+        .post(
+            &format!(
+                "/w/{}/containers/{}/public-link",
+                crate::common::TEST_WORKSPACE_ID,
+                board.id
+            ),
+            &json!({"enabled": true}),
+        )
+        .await;
+    assert_eq!(link_resp.status(), 200);
+    let token = link_resp.json::<Value>().await["token"]
+        .as_str()
+        .expect("public read token")
+        .to_owned();
+
+    let mut reader = Socket::connect(&th).await;
+    // 1. Unauthorized token is silently ignored (no `blocksSubscribed` oracle).
+    reader
+        .send(json!({
+            "type": "subscribeBlocks",
+            "workspaceId": crate::common::TEST_WORKSPACE_ID,
+            "readToken": "invalid-token",
+            "blockIds": [&card_id]
+        }))
+        .await;
+    reader.send(json!({"type": "ping"})).await;
+    assert_eq!(
+        reader.next_json(PATIENCE).await,
+        Some(json!({"type": "pong"})),
+        "unauthorized subscribeBlocks emits no ACK"
+    );
+
+    // 2. > 200 distinct blockIds is silently refused before DB fan-out (`gapfill H-2`).
+    let excessive: Vec<String> = (0..201).map(|_| fvoci_model::new_id()).collect();
+    reader
+        .send(json!({
+            "type": "subscribeBlocks",
+            "workspaceId": crate::common::TEST_WORKSPACE_ID,
+            "readToken": &token,
+            "blockIds": excessive
+        }))
+        .await;
+    reader.send(json!({"type": "ping"})).await;
+    assert_eq!(
+        reader.next_json(PATIENCE).await,
+        Some(json!({"type": "pong"})),
+        ">200 distinct blockIds emits no ACK"
+    );
+
+    // 3. 1,000 duplicates of one valid blockId deduplicate to 1 and emit `blocksSubscribed`.
+    let repeated: Vec<&str> = vec![card_id.as_str(); 1_000];
+    reader
+        .send(json!({
+            "type": "subscribeBlocks",
+            "workspaceId": crate::common::TEST_WORKSPACE_ID,
+            "readToken": &token,
+            "blockIds": repeated
+        }))
+        .await;
+    assert_eq!(
+        reader.next_json(PATIENCE).await,
+        Some(json!({
+            "type": "blocksSubscribed",
+            "workspaceId": crate::common::TEST_WORKSPACE_ID,
+            "blockIds": [&card_id]
+        })),
+        "accepted subscribeBlocks acknowledges deduplicated blockIds"
+    );
+    th.teardown().await;
+}

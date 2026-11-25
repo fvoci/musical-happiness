@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{PersonName, User};
 
-use crate::accounts::{self, Founding};
+use crate::accounts::{self, Founding, FoundingPolicy};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::directory::{self, OpenedWall};
 use crate::error::{StoreError, Taken};
@@ -207,7 +207,7 @@ impl Store {
         now: i64,
     ) -> Result<Option<Signup>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!("SELECT {COLUMNS} FROM signups WHERE "));
+            let mut sql = scope.sql(["SELECT ", COLUMNS, " FROM signups WHERE "]);
             match lookup {
                 SignupLookup::Username(name) => sql.push_bind("lower(username) = lower(", name),
                 SignupLookup::Email(email) => sql.push_bind("lower(email) = lower(", email),
@@ -283,6 +283,7 @@ impl Store {
                     return Ok(None);
                 }
                 let mut user = signup.to_account();
+                user.email_verified_at = now.max(1);
                 let workspace_id = accounts::found(scope, &mut user, name, founding, place).await?;
                 Ok(Some(Confirmed {
                     user,
@@ -293,6 +294,102 @@ impl Store {
                 }))
             })
             .await
+    }
+
+    /// Confirms the registration `proof` names at `now` under `policy` in a single
+    /// transaction on fresh and already-bootstrapped instances (`M3`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFirstUser`] when `policy` is
+    /// [`FoundingPolicy::FirstOnly`] and the instance already has its first user, and
+    /// otherwise the same errors as [`Store::confirm_signup`].
+    pub async fn confirm_signup_with_policy(
+        &self,
+        signup: &Signup,
+        proof: Proof<'_>,
+        policy: FoundingPolicy,
+        now: i64,
+    ) -> Result<Option<Confirmed>, StoreError> {
+        let SignupStart::Organization(name) = &signup.start else {
+            return Err(StoreError::not_found("registration of its own"));
+        };
+        let existing = self.unclaimed_instance_organization().await?;
+        match policy {
+            FoundingPolicy::FirstOnly => {
+                let place = accounts::OrgPlace::of(existing.as_deref());
+                let org_id = existing.unwrap_or_else(fvoci_model::new_id);
+                self.for_org(&org_id)?
+                    .transaction(async |scope| {
+                        if !take(scope, &signup.id, proof, now).await? {
+                            return Ok(None);
+                        }
+                        let mut user = signup.to_account();
+                        user.email_verified_at = now.max(1);
+                        let workspace_id =
+                            accounts::found(scope, &mut user, name, Founding::First, place).await?;
+                        Ok(Some(Confirmed {
+                            user,
+                            org_id: org_id.clone(),
+                            workspace_id,
+                            container_id: None,
+                            start: Started::Organization,
+                        }))
+                    })
+                    .await
+            }
+            FoundingPolicy::FirstOrNew => {
+                if let Some(existing_org_id) = existing {
+                    let result = self
+                        .for_org(&existing_org_id)?
+                        .transaction(async |scope| {
+                            if !take(scope, &signup.id, proof, now).await? {
+                                return Ok(None);
+                            }
+                            let mut user = signup.to_account();
+                            user.email_verified_at = now.max(1);
+                            let workspace_id = accounts::found(
+                                scope,
+                                &mut user,
+                                name,
+                                Founding::First,
+                                accounts::OrgPlace::Existing,
+                            )
+                            .await?;
+                            Ok(Some(Confirmed {
+                                user,
+                                org_id: existing_org_id.clone(),
+                                workspace_id,
+                                container_id: None,
+                                start: Started::Organization,
+                            }))
+                        })
+                        .await;
+                    if !matches!(result, Err(StoreError::NotFirstUser)) {
+                        return result;
+                    }
+                }
+                let org_id = fvoci_model::new_id();
+                self.for_org(&org_id)?
+                    .transaction(async |scope| {
+                        if !take(scope, &signup.id, proof, now).await? {
+                            return Ok(None);
+                        }
+                        let mut user = signup.to_account();
+                        user.email_verified_at = now.max(1);
+                        let workspace_id =
+                            accounts::found_first_or_new(scope, &mut user, name).await?;
+                        Ok(Some(Confirmed {
+                            user,
+                            org_id: org_id.clone(),
+                            workspace_id,
+                            container_id: None,
+                            start: Started::Organization,
+                        }))
+                    })
+                    .await
+            }
+        }
     }
 
     /// Confirms the registration `proof` names at `now`, which starts no
@@ -320,6 +417,7 @@ impl Store {
                     return Ok(None);
                 }
                 let mut user = signup.to_account();
+                user.email_verified_at = now.max(1);
                 let own = accounts::alone(scope, &mut user).await?;
                 Ok(Some(Confirmed {
                     user,
@@ -483,13 +581,13 @@ async fn holder_of_names(
     username: &str,
     email: &str,
 ) -> Result<Option<Taken>, StoreError> {
-    let table = match holders {
-        Holders::Accounts => "users",
-        Holders::Signups { .. } => "signups",
+    let from_where = match holders {
+        Holders::Accounts => ") FROM users WHERE (lower(username) = lower(",
+        Holders::Signups { .. } => ") FROM signups WHERE (lower(username) = lower(",
     };
     let mut sql = scope.sql("SELECT lower(username) = lower(");
     sql.bind(username)
-        .push(&format!(") FROM {table} WHERE (lower(username) = lower("))
+        .push(from_where)
         .bind(username)
         .push(") OR lower(email) = lower(")
         .bind(email)
@@ -533,7 +631,7 @@ async fn insert(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError
         SignupStart::Alone => (Some(String::new()), "", ""),
         SignupStart::Invitation { id, org_id } => (None, id.as_str(), org_id.as_str()),
     };
-    let mut sql = scope.sql(&format!("INSERT INTO signups ({COLUMNS}) VALUES ("));
+    let mut sql = scope.sql(["INSERT INTO signups (", COLUMNS, ") VALUES ("]);
     sql.bind(Id(&signup.id))
         .push_bind(", ", &signup.username)
         .push_bind(", ", &signup.email)
@@ -560,7 +658,7 @@ async fn find(
     proof: Proof<'_>,
     now: i64,
 ) -> Result<Option<Signup>, StoreError> {
-    let mut sql = scope.sql(&format!("SELECT {COLUMNS} FROM signups WHERE "));
+    let mut sql = scope.sql(["SELECT ", COLUMNS, " FROM signups WHERE "]);
     push_proof(&mut sql, proof, now);
     sql.push_bind(" AND expires_at > ", now);
     scope
@@ -609,9 +707,7 @@ pub(crate) async fn discard_of_browser(
     browser: &str,
     turn: Turn,
 ) -> Result<bool, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {COLUMNS} FROM signups WHERE browser_hash = "
-    ));
+    let mut sql = scope.sql(["SELECT ", COLUMNS, " FROM signups WHERE browser_hash = "]);
     sql.bind(browser);
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(false);
@@ -630,9 +726,11 @@ pub(crate) async fn discard_at_address(
     scope: &mut Scope<'_>,
     email: &str,
 ) -> Result<Option<String>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {COLUMNS} FROM signups WHERE lower(email) = lower("
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        COLUMNS,
+        " FROM signups WHERE lower(email) = lower(",
+    ]);
     sql.bind(email)
         .push_bind(") AND invitation_org_id = ", scope.org()?);
     let Some(row) = scope.fetch_optional(sql).await? else {
@@ -705,9 +803,7 @@ async fn remove_ended(
     // Those made by a link one by one, each link held before its registration goes, as
     // a registration by it is made and confirmed: a use goes back only with the
     // registration that took it, one confirmed meanwhile keeping it.
-    let mut sql = scope.sql(&format!(
-        "SELECT {COLUMNS} FROM signups WHERE expires_at <= "
-    ));
+    let mut sql = scope.sql(["SELECT ", COLUMNS, " FROM signups WHERE expires_at <= "]);
     sql.bind(now)
         .push(" AND invitation_id IS NOT NULL ORDER BY invitation_org_id, invitation_id, id");
     let held = scope

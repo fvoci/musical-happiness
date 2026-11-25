@@ -94,6 +94,12 @@ impl App {
         role: InstanceRole,
         actor_id: &str,
     ) -> Result<User, AppError> {
+        if role != InstanceRole::Administrator
+            && let Ok(Some(org)) = self.instance_org().await
+        {
+            org.collab()
+                .narrowing_access(&org, &AccessScope::organization().of_user(user_id));
+        }
         match self.store().set_user_admin(user_id, role, actor_id).await? {
             AdminChange::Done(user) => {
                 if role != InstanceRole::Administrator {

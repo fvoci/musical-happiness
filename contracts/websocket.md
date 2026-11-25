@@ -27,13 +27,13 @@
 
 ## 2. 클라이언트가 보내는 명령
 
-명령은 텍스트 프레임의 JSON 객체 하나다. 멤버는 camelCase이고 없는 멤버는 빈 값으로 읽는다. **구독 명령에는 답이 없다.** 받아들였는지, 거절했는지, 모르는 명령인지 알리는 메시지가 없다(서버의 로그에만 남는다). 그래서 구독이 됐는지는 그 뒤에 오는 변경으로만 안다. 서버가 구독을 끝낼 때는 알린다(`workspaceUnsubscribed`·`blocksUnsubscribed`, 3절). 구독의 권한을 저장소에서 읽지 못하면 연결을 코드 1013으로 닫는다(3절): 다시 연결해 다시 구독한다. 답이 있는 것은 `joinDoc`(6절)과 `ping`(3절의 "죽은 연결")뿐이다.
+명령은 텍스트 프레임의 JSON 객체 하나다. 멤버는 camelCase이고 없는 멤버는 빈 값으로 읽는다. **수락된 구독 명령(`subscribeWorkspace`, `subscribeBlocks`)에는 각각 `workspaceSubscribed`·`blocksSubscribed`로 답한다.** 거절했거나 무시한 구독, 모르는 명령에는 오라클을 남기지 않도록 알리는 메시지가 없다(디버그 로그에만 남는다). 서버가 구독을 끝낼 때는 알린다(`workspaceUnsubscribed`·`blocksUnsubscribed`, 3절). 구독의 권한을 저장소에서 읽지 못하면 연결을 코드 1013으로 닫는다(3절): 다시 연결해 다시 구독한다. 그 밖에 답이 있는 것은 `joinDoc`(6절)과 `ping`(3절의 "죽은 연결")이다.
 
 | `type` | 세션 | 멤버 | 하는 일 |
 |---|---|---|---|
-| `subscribeWorkspace` | 필요 | `workspaceId` | 그 워크스페이스의 변경을 받는다(3절). 같은 워크스페이스를 다시 구독해도 한 번이다 |
+| `subscribeWorkspace` | 필요 | `workspaceId` | 그 워크스페이스의 변경을 받는다(3절). 수락되면 `workspaceSubscribed`를 보내며 같은 워크스페이스를 다시 구독해도 한 번이다 |
 | `unsubscribeWorkspace` | 필요 | `workspaceId` | 그만 받는다 |
-| `subscribeBlocks` | 없어도 된다 | `workspaceId`, `readToken`, `blockIds` | 공유 보드의 블록들을 읽기 토큰으로 따라간다. `blockIds`가 모두 한 보드의 것이고 `readToken`이 그 보드의 공유 토큰이며 `workspaceId`가 그 보드의 워크스페이스여야 한다. 하나라도 어긋나면 명령 전체를 무시한다 |
+| `subscribeBlocks` | 없어도 된다 | `workspaceId`, `readToken`, `blockIds` | 공유 보드의 블록들을 읽기 토큰으로 따라간다(명령당 중복 제거 후 최대 200개). `blockIds`가 모두 한 보드의 것이고 `readToken`이 그 보드의 공유 토큰이며 `workspaceId`가 그 보드의 워크스페이스여야 한다. 수락되면 중복 제거된 `blockIds`와 함께 `blocksSubscribed`를 보내고, 하나라도 어긋나면 명령 전체를 무시한다 |
 | `unsubscribeBlocks` | 없어도 된다 | 같다 | 그 블록들을 그만 따라간다. 같은 검사를 한다(저장소에서 읽지 못하면 검사 없이 그만 따라간다) |
 | `joinDoc` | 필요 | `workspaceId`, `cardId`, 문서를 쥔 채 다시 들 때만 `epoch`, `stateVector` | 카드·위키 페이지·학습 단원의 본문을 함께 고치는 방에 들어간다(6절). `cardId`는 카드·페이지·단원의 ID다(장의 블록은 방이 없다). 답은 `docJoined`나 `docRefused` |
 | `leaveDoc` | 필요 | `doc` | `docJoined`가 알려 준 번호의 방에서 나온다. 답이 없다 |
@@ -64,6 +64,8 @@
 | `categoriesReordered` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `categoryContainersReordered` | `workspaceId`, `categoryId`, `containerOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `clientConfigChanged` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
+| `workspaceSubscribed` | `workspaceId` | `subscribeWorkspace`가 수락된 그 연결 |
+| `blocksSubscribed` | `workspaceId`, `blockIds`(중복 제거·정렬된 수락 블록 ID 목록) | `subscribeBlocks`가 수락된 그 연결 |
 | `workspaceUnsubscribed` | `workspaceId`, `reason`(`workspace access ended`, `sso required`) | 서버가 그 워크스페이스의 구독을 끝낸 연결(아래 "서버가 구독을 끝낼 때"). 연결과 다른 구독은 그대로다(방은 아래 "서버가 구독을 끝낼 때") |
 | `pong` | 없음 | `ping`을 보낸 연결. 곧바로 간다: 그 연결이 앞서 보낸 것의 답(`docJoined` 같은 것)보다 먼저 올 수 있다. 연결의 보낼 줄(512개)이 차 있으면 가지 않는다 |
 | `notificationsChanged` | 없음. 무엇이 바뀌었는지 싣지 않는다: 받은 클라이언트가 알림을 다시 읽는다(`getUnreadNotifications`, `getNotifications`) | 그 사용자의 세션이 있는 연결 모두(구독과 상관없이). 알림 작업이 알림을 만들거나 늘리면 그 알림의 조직을 그 연결의 세션이 여는 것만(`getNotifications`와 같은 거름: 프로바이더 세션만 받는 조직의 알림은 다른 세션의 연결에 아무것도 내지 않는다). 사용자가 읽음으로 바꿀 때도 같다: 읽은 알림의 조직을 여는 세션의 연결만 |

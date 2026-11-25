@@ -81,7 +81,7 @@ impl App {
     ) -> Result<Unit, AppError> {
         let course = self.store().get_container(course_id).await?;
         let written = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, course_id).await;
             self.store()
                 .create_unit(course_id, new, CourseLimits::DEFAULT, user_id)
                 .await?
@@ -112,7 +112,7 @@ impl App {
     ) -> Result<Unit, AppError> {
         let course = self.store().get_container(course_id).await?;
         let written = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, course_id).await;
             self.store()
                 .move_unit(course_id, unit_id, to, user_id)
                 .await?
@@ -154,7 +154,7 @@ impl App {
     ) -> Result<Unit, AppError> {
         let course = self.store().get_container(course_id).await?;
         let restored = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, course_id).await;
             self.store()
                 .undelete_unit(course_id, unit_id, CourseLimits::DEFAULT, user_id)
                 .await

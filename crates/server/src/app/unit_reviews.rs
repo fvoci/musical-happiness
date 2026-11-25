@@ -58,10 +58,11 @@ impl App {
         unit_id: &str,
         user_id: &str,
         new: &NewUnitReview,
+        now: Option<i64>,
     ) -> Result<UnitReview, AppError> {
         Ok(self
             .store()
-            .schedule_unit_review(course_id, unit_id, user_id, new)
+            .schedule_unit_review(course_id, unit_id, user_id, new, now)
             .await?)
     }
 
@@ -79,10 +80,11 @@ impl App {
         user_id: &str,
         intervals: &[u32],
         next: Option<&NewUnitReview>,
+        now: Option<i64>,
     ) -> Result<CompletedUnitReview, AppError> {
         Ok(self
             .store()
-            .complete_unit_review(course_id, review_id, user_id, intervals, next)
+            .complete_unit_review(course_id, review_id, user_id, intervals, next, now)
             .await?)
     }
 

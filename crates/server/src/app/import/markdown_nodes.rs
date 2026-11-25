@@ -1,12 +1,46 @@
 //! `ProseMirror` JSON node builders and allowlist-aligned helper functions for Markdown conversion.
 
+pub(crate) use fvoci_model::is_allowed_href;
 use fvoci_model::{BODY_MAX_BYTES, Body, BodyError};
 use pulldown_cmark::HeadingLevel;
 use serde_json::{Map, Value, json};
 
 use super::bundle::has_url_scheme;
 use super::summary::ImportWarningCode;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
+
+/// Cumulative maximum ProseMirror nodes across all converted bodies of one external
+/// import (`Trello` or `Notion`) to bound peak `StagedArchive` heap usage (`P1-1`).
+pub(crate) const IMPORT_BODY_NODES: usize = 1_000_000;
+
+/// Tracks cumulative ProseMirror node count across all bodies built during a single
+/// external import.
+#[derive(Debug, Default)]
+pub(crate) struct BodyBudget {
+    used: usize,
+}
+
+impl BodyBudget {
+    /// Charges `body`'s total node count against [`IMPORT_BODY_NODES`], refusing with
+    /// `413` (`Reason::ArchiveTooLarge`) immediately once exceeded.
+    pub(crate) fn charge(&mut self, body: Option<&Body>) -> Result<(), AppError> {
+        let Some(body) = body else {
+            return Ok(());
+        };
+        self.used = self.used.saturating_add(body.node_count());
+        if self.used > IMPORT_BODY_NODES {
+            let limit = u64::try_from(IMPORT_BODY_NODES).unwrap_or(u64::MAX);
+            return Err(AppError::too_large(
+                format_args!(
+                    "imported bodies exceed cumulative maximum of {IMPORT_BODY_NODES} nodes"
+                ),
+                limit,
+            )
+            .with_reason(Reason::ArchiveTooLarge));
+        }
+        Ok(())
+    }
+}
 
 /// Whether the converted body belongs to a document (card/page) or a comment.
 ///
@@ -82,12 +116,6 @@ pub(crate) struct MarkdownBlocks {
 /// Maximum UTF-16 code units allowed in an `image` node's `alt` attribute (`allowlist.rs`).
 const IMAGE_ALT_MAX_UTF16: usize = 1000;
 
-/// Maximum UTF-16 code units allowed in a `link` mark's `href` attribute (`allowlist.rs`).
-const HREF_MAX_UTF16: usize = 2048;
-
-/// Allowed URL schemes for links (`allowlist.rs`).
-const ALLOWED_SCHEMES: [&str; 3] = ["http", "https", "mailto"];
-
 /// An inline element collected inside a paragraph, heading, link, or table cell.
 #[derive(Debug, Clone)]
 pub(crate) enum InlineItem {
@@ -159,38 +187,6 @@ pub(crate) fn linked_text_node(label: &str, href: &str) -> (Value, bool) {
     } else {
         (json!({"type": "text", "text": shown}), false)
     }
-}
-
-/// Whether `href` is permitted by `fvoci_model::allowlist` (`http`, `https`, `mailto`,
-/// or a safe relative path without `//` or `\`, at most 2048 UTF-16 code units).
-#[must_use]
-pub(crate) fn is_allowed_href(href: &str) -> bool {
-    let utf16 = href.encode_utf16().count();
-    if utf16 == 0 || utf16 > HREF_MAX_UTF16 {
-        return false;
-    }
-    let compact: String = href
-        .chars()
-        .filter(|ch| !matches!(ch, '\u{0}'..=' ' | '\u{7f}'))
-        .collect();
-    if compact.is_empty() {
-        return false;
-    }
-    match compact.split_once(':') {
-        Some((scheme, _)) if is_valid_scheme(scheme) => ALLOWED_SCHEMES
-            .iter()
-            .any(|allowed| scheme.eq_ignore_ascii_case(allowed)),
-        _ => !compact.starts_with("//") && !compact.contains('\\'),
-    }
-}
-
-fn is_valid_scheme(scheme: &str) -> bool {
-    let mut chars = scheme.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    first.is_ascii_alphabetic()
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '.' | '-'))
 }
 
 pub(crate) fn is_valid_language(text: &str) -> bool {

@@ -3703,11 +3703,14 @@ export interface paths {
          * Exams of a course
          * @description Returns every exam of the course ordered by `examDate` ascending (exams without a date
          *     last), then by `createdAt` and `id`. Enrolled members receive `scoreCount` across active
-         *     enrolled course members, `averageScore` when at least two other active members have
-         *     submitted a score (`scoreCount >= 3` if the caller submitted, `scoreCount >= 2` if not;
-         *     `null` otherwise), and `myScore` containing only the caller's own score. Unjoined readers
-         *     receive `myScore: null`, `averageScore: null`, and `scoreCount: 0`. Another member's
-         *     individual score or note is never returned under any role.
+         *     enrolled course members, `myScore` containing only the caller's own score, and — once a
+         *     course manager publishes a result snapshot (`publishCourseExamResults`) — the frozen
+         *     coarse snapshot (`averageScore` rounded to one decimal place, `resultsPublishedAt`, and
+         *     `publishedScoreBucket` rounded down to a multiple of 5). Before publication,
+         *     `averageScore` is `null` for every role (including admins) so individual scores cannot be
+         *     recovered by differencing (`P2-2`). Unjoined readers receive `myScore: null`,
+         *     `averageScore: null`, and `scoreCount: 0`. Another member's individual score or note is
+         *     never returned under any role.
          */
         get: operations["listCourseExams"];
         put?: never;
@@ -3784,6 +3787,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}/results-publication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a course exam's aggregate result snapshot
+         * @description Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and
+         *     `publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course
+         *     role management (`ManageRoles`), at least 5 active enrolled scorers, and — when
+         *     republishing an already-published exam — a net scorer count change of at least 3 since
+         *     the previous snapshot (`409` otherwise).
+         */
+        post: operations["publishCourseExamResults"];
+        /**
+         * Unpublish a course exam's aggregate result snapshot
+         * @description Clears the published result snapshot on the exam so `averageScore`,
+         *     `resultsPublishedAt`, and `publishedScoreBucket` return to `null`. Requires course role
+         *     management (`ManageRoles`).
+         */
+        delete: operations["unpublishCourseExamResults"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/courses/{courseId}/meetings": {
         parameters: {
             query?: never;
@@ -3793,11 +3826,12 @@ export interface paths {
         };
         /**
          * Study meetings of a course
-         * @description Returns every study meeting of the course together with its attendance records
-         *     (`attendance`, ordered by `userId`), ordered by `startsAt` ascending, then by `id`.
-         *     Readable by anyone who can view the course (including unjoined workspace members on an
-         *     open course and personal-space owners). Non-course containers and unreadable private
-         *     courses answer 404.
+         * @description Returns every study meeting of the course ordered by `startsAt` ascending, then by `id`.
+         *     Enrolled course members and course role managers (`ManageRoles`) receive per-member
+         *     `attendance` records (ordered by `userId`), with `updatedAt` populated only for
+         *     `ManageRoles` managers (`0` for non-manager members); unjoined open-course readers and
+         *     non-enrolled guests receive `attendance: []` (`P2-1`). Non-course containers and
+         *     unreadable private courses answer 404.
          */
         get: operations["listCourseMeetings"];
         put?: never;
@@ -3963,12 +3997,13 @@ export interface paths {
         /**
          * Progress summary of a course
          * @description Returns the total number of live units in the course (excluding chapters and trashed
-         *     units) and the completed live-unit count for each active course member, ordered by
-         *     `userId`. Accounts that have been deleted, are pending deletion, or are no longer
-         *     active members of the workspace or course are excluded. Never discloses which units a
-         *     member completed, completion timestamps, planned dates, or last positions. Readable
-         *     by anyone who can view the course (and the owner of a personal-space course);
-         *     unreadable private courses and non-course containers answer 404.
+         *     units) and, for enrolled course members and course role managers (`ManageRoles`), the
+         *     completed live-unit count for each active course member ordered by `userId`. Unjoined
+         *     readers of an open course and non-enrolled guests receive `members: []` (`P2-1`).
+         *     Accounts that have been deleted, are pending deletion, or are no longer active members
+         *     of the workspace or course are excluded. Never discloses which units a member
+         *     completed, completion timestamps, planned dates, or last positions. Unreadable private
+         *     courses and non-course containers answer 404.
          */
         get: operations["getCourseProgressSummary"];
         put?: never;
@@ -6368,7 +6403,10 @@ export interface components {
              */
             updatedAt: number;
         };
-        /** @description A partial update of a `Block`. Absent members leave the block unchanged. */
+        /**
+         * @description A partial update of a `Block`. Absent members leave the block unchanged. A block's
+         *     `BlockType` is fixed when the block is created and cannot be patched.
+         */
         BlockPatch: {
             body?: components["schemas"]["Body"] | null;
             /** @description Keys of fields to remove. */
@@ -6383,7 +6421,6 @@ export interface components {
             readAt?: number | null;
             /** @description The new title. */
             title?: string | null;
-            type?: components["schemas"]["BlockType"] | null;
             /** @description Fields to set, replacing any existing value under the same key. */
             updatedFields?: {
                 [key: string]: unknown;
@@ -6978,9 +7015,9 @@ export interface components {
         CourseExam: {
             /**
              * Format: double
-             * @description Mean score across active enrolled course members who recorded a score when at least
-             *     two other active members have scored (`scoreCount >= 3` when the caller scored,
-             *     `scoreCount >= 2` when the caller has not); `null` otherwise or for unjoined readers.
+             * @description Published snapshot mean score (rounded to 0.1) across active enrolled course members
+             *     once a course administrator publishes exam results (requiring at least 5 active
+             *     scorers); `null` before publication or for unjoined readers.
              */
             averageScore: number | null;
             /** @description Identifier of the course container. */
@@ -7002,6 +7039,18 @@ export interface components {
              */
             maxScore: number;
             myScore: components["schemas"]["MyExamScore"] | null;
+            /**
+             * Format: int32
+             * @description Published active-scorer count rounded down to a multiple of 5 (`count / 5 * 5`), or
+             *     `null` while unpublished or for unjoined readers.
+             */
+            publishedScoreBucket: number | null;
+            /**
+             * Format: int64
+             * @description When the exam result snapshot was published by a course administrator, in
+             *     milliseconds since the Unix epoch; `null` while unpublished or for unjoined readers.
+             */
+            resultsPublishedAt: number | null;
             /**
              * Format: int32
              * @description Number of active enrolled course members who recorded a score (`0` for unjoined
@@ -7900,7 +7949,8 @@ export interface components {
             status: components["schemas"]["AttendanceStatus"];
             /**
              * Format: int64
-             * @description Last modification time in milliseconds since the Unix epoch.
+             * @description Last modification time in milliseconds since the Unix epoch (`0` when hidden from
+             *     non-administrators).
              */
             updatedAt: number;
             /** @description Identifier of the course member (retained as a tombstone if the account is erased). */
@@ -15857,6 +15907,78 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    publishCourseExamResults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exam with its published result snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseExam"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unpublishCourseExamResults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the exam: an exam of the course of the path. 404 for one of another course. */
+                examId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exam with its result snapshot unpublished. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CourseExam"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

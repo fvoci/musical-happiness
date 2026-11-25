@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use tokio::time::Instant;
 
 /// What one search costs, in the thousandths of a search the limit counts in.
 const COST: u64 = 1000;

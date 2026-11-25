@@ -14,7 +14,7 @@ use axum::http::header::{
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
-use futures_util::StreamExt as _;
+use futures_util::stream;
 use fvoci_model::{FileRecord, Problem};
 use serde::Serialize;
 use tokio_util::io::StreamReader;
@@ -298,9 +298,9 @@ async fn handle_upload_file(
     }
 
     let stored = loop {
-        let field = multipart
-            .next_field()
+        let field = tokio::time::timeout(crate::app::PART_IDLE_TIMEOUT, multipart.next_field())
             .await
+            .map_err(|_| AppError::bad_request("the upload timed out waiting for data"))?
             .map_err(|error| AppError::bad_request(error.to_string()))?;
         let Some(field) = field else {
             break Err(AppError::bad_request(NO_FILE_PART).with_parameter(UPLOAD_FIELD));
@@ -420,19 +420,40 @@ async fn store_field(
     limit: SingleUploadLimit,
     user_id: &str,
 ) -> Result<String, AppError> {
-    let state = AtomicU8::new(Reading::Fine.value());
-    let mut received: u64 = 0;
-    let bytes = field.map(|chunk| {
-        let chunk = chunk.map_err(|error| {
-            Reading::Unreadable.store(&state);
-            io::Error::other(error)
-        })?;
-        received = received.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
-        if received > limit.bytes {
-            Reading::TooLarge.store(&state);
-            return Err(io::Error::other("the file is larger than the limit"));
+    let state = std::sync::Arc::new(AtomicU8::new(Reading::Fine.value()));
+    let state_in_stream = std::sync::Arc::clone(&state);
+    let bytes = stream::unfold((field, 0_u64), move |(mut field, mut received)| {
+        let state = std::sync::Arc::clone(&state_in_stream);
+        async move {
+            let next =
+                match tokio::time::timeout(crate::app::PART_IDLE_TIMEOUT, field.chunk()).await {
+                    Ok(Ok(Some(chunk))) => chunk,
+                    Ok(Ok(None)) => return None,
+                    Ok(Err(error)) => {
+                        Reading::Unreadable.store(&state);
+                        return Some((Err(io::Error::other(error)), (field, received)));
+                    }
+                    Err(_) => {
+                        Reading::Unreadable.store(&state);
+                        return Some((
+                            Err(io::Error::new(
+                                io::ErrorKind::TimedOut,
+                                "the upload timed out waiting for data",
+                            )),
+                            (field, received),
+                        ));
+                    }
+                };
+            received = received.saturating_add(u64::try_from(next.len()).unwrap_or(u64::MAX));
+            if received > limit.bytes {
+                Reading::TooLarge.store(&state);
+                return Some((
+                    Err(io::Error::other("the file is larger than the limit")),
+                    (field, received),
+                ));
+            }
+            Some((Ok(next), (field, received)))
         }
-        Ok(chunk)
     });
     let mut reader = StreamReader::new(Box::pin(bytes));
     // What fails is not kept: the storage writes a file whole or not at all.

@@ -85,6 +85,23 @@ impl App {
         Ok(blocks)
     }
 
+    /// Loads every block in `ids` in a single store query, returning `Ok(None)` when any
+    /// requested identifier is missing in this handle's reach.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the query fails.
+    pub async fn blocks_by_ids(&self, ids: &[String]) -> Result<Option<Vec<Block>>, AppError> {
+        match self.store().get_blocks_by_ids(ids).await {
+            Ok(mut blocks) => {
+                hide_inactive_numbers(&mut blocks);
+                Ok(Some(blocks))
+            }
+            Err(error) if error.is_not_found() => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// Returns all blocks of a board, in no particular order.
     ///
     /// # Errors
@@ -152,7 +169,10 @@ impl App {
                 })
                 .await?;
         } else {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self
+                .collab()
+                .changing_structure(self, &block.container_id)
+                .await;
             self.store_telling(notification)
                 .insert_block(block, modified_by)
                 .await?;
@@ -209,7 +229,7 @@ impl App {
             .map(|block| block.id.clone())
             .collect();
         if card_ids.is_empty() {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, &container_id).await;
             self.store_telling(notification)
                 .insert_blocks(blocks, modified_by)
                 .await?;
@@ -256,11 +276,14 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let container = self.store().get_container(&old_block.container_id).await?;
-        if patch.body.is_keep() || !old_block.block_type.has_room() {
-            let _structure = self.collab().changing_structure(self).await;
+        let mut block = if patch.body.is_keep() || !old_block.block_type.has_room() {
+            let _structure = self
+                .collab()
+                .changing_structure(self, &old_block.container_id)
+                .await;
             self.store_telling(notification)
                 .patch_block(block_id, patch, modified_by)
-                .await?;
+                .await?
         } else {
             // A whole body is written around the document of a body edited together.
             let (block_id, patch, modified_by) =
@@ -273,9 +296,8 @@ impl App {
                         .patch_block(&block_id, &patch, &modified_by)
                         .await?)
                 })
-                .await?;
-        }
-        let mut block = self.store().get_block(block_id).await?;
+                .await?
+        };
         block.hide_inactive_number();
         self.tell_of_update(&container.workspace_id, &block, notification);
         Ok(block)
@@ -325,7 +347,10 @@ impl App {
         let card_ids =
             crate::collab::cards_written_whole(&blocks, &batch.block_ids, &batch.block_patches);
         if card_ids.is_empty() {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self
+                .collab()
+                .changing_structures(self, blocks.iter().map(|block| block.container_id.as_str()))
+                .await;
             self.store_telling(notification)
                 .patch_blocks(batch, modified_by)
                 .await?;
@@ -494,8 +519,11 @@ impl App {
         block_id: &str,
         modified_by: &str,
     ) -> Result<Block, AppError> {
+        let Some(container_id) = self.store().find_any_block_container_id(block_id).await? else {
+            return Err(AppError::not_found("block"));
+        };
         let restored = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, &container_id).await;
             self.store()
                 .undelete_block_family(block_id, modified_by)
                 .await
@@ -604,18 +632,14 @@ impl App {
         }
     }
 
-    /// Posts the blocks to the webhooks, one after the other, in the background.
+    /// Queues the blocks for the bounded webhook worker without spawning per-call tasks.
     fn notify_webhooks(&self, blocks: &[Block]) {
         if self.config().block_change_webhooks.is_empty() {
             return;
         }
-        let app = self.clone();
-        let blocks = blocks.to_vec();
-        self.spawn_background(async move {
-            for block in &blocks {
-                app.tell_webhooks(block).await;
-            }
-        });
+        for block in blocks {
+            self.enqueue_webhook(block);
+        }
     }
 }
 

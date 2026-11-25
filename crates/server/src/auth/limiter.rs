@@ -334,6 +334,7 @@ impl LoginLimiter {
                             .back()
                             .is_none_or(|last| now.duration_since(*last) >= ADDRESS_WINDOW)
                 },
+                |record| !record.busy,
                 // An address with an attempt in progress is as young as can be.
                 |record| match record.attempts.back() {
                     Some(last) if !record.busy => *last,
@@ -428,8 +429,12 @@ fn count_pair_failure(
                 record.blocked_until <= now
                     && now.duration_since(record.last_failure) >= limits.pair_max_delay
             },
+            |record| record.blocked_until <= now,
             |record| record.last_failure,
         );
+        if pairs.len() >= MAX_RECORDS {
+            return;
+        }
     }
     let record = pairs.entry(pair).or_insert(PairRecord {
         failures: 0,
@@ -465,8 +470,13 @@ fn count_account_failure(
                 record.locked_until.is_none_or(|until| until <= now)
                     && now.duration_since(record.last_failure) >= limits.account_lock
             },
+            // Never evict an actively locked account when dummy names flood the table (`H-4`).
+            |record| record.locked_until.is_none_or(|until| until <= now),
             |record| record.last_failure,
         );
+        if accounts.len() >= MAX_RECORDS {
+            return;
+        }
     }
     let record = accounts.entry(account).or_insert(AccountRecord {
         failures: 0,
@@ -495,11 +505,13 @@ impl Drop for Attempt {
 }
 
 /// Makes room for one more record where there are [`MAX_RECORDS`]: the records that say
-/// nothing any more go, and if all still say something, the tenth of them that was
-/// touched longest ago, by `last_touched`.
+/// nothing any more go, and if all still say something, up to the tenth of the
+/// `evictable` ones that were touched longest ago, by `last_touched`. Active locks
+/// (`!evictable(record)`) are never evicted (`H-4`).
 fn make_room<K: std::hash::Hash + Eq + Copy, V>(
     records: &mut HashMap<K, V>,
     says_nothing: impl Fn(&V) -> bool,
+    evictable: impl Fn(&V) -> bool,
     last_touched: impl Fn(&V) -> Instant,
 ) {
     if records.len() < MAX_RECORDS {
@@ -507,20 +519,22 @@ fn make_room<K: std::hash::Hash + Eq + Copy, V>(
     }
     records.retain(|_, record| !says_nothing(record));
     if records.len() >= MAX_RECORDS {
-        for key in oldest(records, MAX_RECORDS / 10, last_touched) {
+        for key in oldest(records, MAX_RECORDS / 10, evictable, last_touched) {
             records.remove(&key);
         }
     }
 }
 
-/// The keys of the `count` records that were touched longest ago.
+/// The keys of up to `count` evictable records that were touched longest ago.
 fn oldest<K: Copy, V>(
     records: &HashMap<K, V>,
     count: usize,
+    evictable: impl Fn(&V) -> bool,
     last_touched: impl Fn(&V) -> Instant,
 ) -> Vec<K> {
     let mut by_age: Vec<(Instant, K)> = records
         .iter()
+        .filter(|(_, record)| evictable(record))
         .map(|(key, record)| (last_touched(record), *key))
         .collect();
     if count < by_age.len() {
@@ -843,24 +857,35 @@ mod tests {
         let mut records: HashMap<u32, (bool, Instant)> = (0..count)
             .map(|key| (key, (key % 2 == 0, touched(key))))
             .collect();
-        make_room(&mut records, |record| record.0, |record| record.1);
+        make_room(&mut records, |record| record.0, |_| true, |record| record.1);
         assert_eq!(records.len(), MAX_RECORDS / 2, "half said nothing");
         assert!(records.values().all(|record| !record.0));
 
         // The records were touched in the order of their keys, the highest key last.
-        let mut full: HashMap<u32, (bool, Instant)> = (0..count)
-            .map(|key| (key, (false, touched(count - key))))
+        // Key `count - 1` is the oldest, but actively locked (`!evictable`), so it must survive (`H-4`).
+        let locked_oldest = count - 1;
+        let mut full: HashMap<u32, (bool, bool, Instant)> = (0..count)
+            .map(|key| (key, (false, key != locked_oldest, touched(count - key))))
             .collect();
-        make_room(&mut full, |record| record.0, |record| record.1);
+        make_room(
+            &mut full,
+            |record| record.0,
+            |record| record.1,
+            |record| record.2,
+        );
         let tenth = u32::try_from(MAX_RECORDS / 10).expect("fits");
         assert_eq!(
             full.len(),
             MAX_RECORDS - MAX_RECORDS / 10,
-            "all say something: a tenth goes"
+            "all say something: a tenth of evictable records goes"
         );
         assert!(
-            (count - tenth..count).all(|key| !full.contains_key(&key)),
-            "the tenth that was touched longest ago is the one that went"
+            full.contains_key(&locked_oldest),
+            "locked record is never evicted even when oldest"
+        );
+        assert!(
+            (count - tenth - 1..count - 1).all(|key| !full.contains_key(&key)),
+            "the oldest evictable tenth is the one that went"
         );
         assert!(full.contains_key(&0), "the youngest stays");
     }
@@ -986,6 +1011,44 @@ mod tests {
         assert!(
             wait_of(&limiter, "bob", "203.0.113.200", now).is_some(),
             "another account keeps what was counted"
+        );
+    }
+
+    #[test]
+    fn dummy_account_flood_does_not_evict_an_actively_locked_account() {
+        let limiter = LoginLimiter::new(Limits {
+            account_max_failures: 2,
+            account_lock: Duration::from_secs(3600),
+            ..LIMITS
+        });
+        let start = Instant::now();
+        fail(&limiter, "victim", "198.51.100.1", start);
+        fail(&limiter, "victim", "198.51.100.2", start);
+        assert_eq!(wait_of(&limiter, "victim", "192.0.2.1", start), Some(3600));
+
+        let later = start + secs(10);
+        {
+            let mut records = limiter.records();
+            for index in 0..(MAX_RECORDS + 5_000) {
+                let mut key = [0_u8; 32];
+                key[..8].copy_from_slice(&(index as u64).to_le_bytes());
+                count_account_failure(
+                    &mut records.accounts,
+                    key,
+                    Limits {
+                        account_max_failures: 100,
+                        account_lock: Duration::from_secs(3600),
+                        ..LIMITS
+                    },
+                    later,
+                );
+            }
+        }
+
+        assert_eq!(
+            wait_of(&limiter, "victim", "192.0.2.1", later),
+            Some(3590),
+            "locked account must never be evicted by unlocked dummy traffic"
         );
     }
 }

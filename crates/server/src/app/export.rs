@@ -16,7 +16,7 @@ use std::io::{BufWriter, Write as _};
 use std::path::Path;
 
 use futures_util::StreamExt as _;
-use fvoci_model::{ArchiveHeader, ArchiveLine, Container, ContainerKind};
+use fvoci_model::{ArchiveHeader, Container, ContainerKind};
 use serde::Serialize;
 use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
@@ -248,16 +248,21 @@ impl App {
     }
 
     /// The name each of `files` of the board was uploaded with, by its stored name; a file
-    /// without a record is left out.
+    /// without a record is left out. Loaded in a single query (`1.2.5`).
     async fn file_names(
         &self,
         container_id: &str,
         files: &[String],
     ) -> Result<BTreeMap<String, String>, AppError> {
+        if files.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        let wanted: HashSet<&str> = files.iter().map(String::as_str).collect();
+        let records = self.store().get_files_of_container(container_id).await?;
         let mut names = BTreeMap::new();
-        for stored_name in files {
-            if let Some(record) = self.file_record(container_id, stored_name).await? {
-                names.insert(stored_name.clone(), record.name);
+        for record in records {
+            if wanted.contains(record.stored_name.as_str()) {
+                names.insert(record.stored_name, record.name);
             }
         }
         Ok(names)
@@ -334,19 +339,22 @@ impl ArchiveWriter {
         Ok(())
     }
 
-    /// Writes one JSONL line: an [`ArchiveLine`] wrapping `value` under `line_type`,
-    /// followed by a newline.
+    /// Writes one JSONL line wrapping `value` under `line_type`, serialized in a single
+    /// pass without materializing an intermediate `serde_json::Value`.
     async fn write_line(
         &mut self,
         line_type: &str,
         value: &impl Serialize,
     ) -> Result<(), AppError> {
-        let data = serde_json::to_value(value).map_err(|error| {
-            AppError::internal(format_args!("cannot encode archive line: {error}"))
-        })?;
-        let line = ArchiveLine {
-            line_type: line_type.to_owned(),
-            data,
+        #[derive(Serialize)]
+        struct BorrowedArchiveLine<'a, T: Serialize + ?Sized> {
+            #[serde(rename = "type")]
+            line_type: &'a str,
+            data: &'a T,
+        }
+        let line = BorrowedArchiveLine {
+            line_type,
+            data: value,
         };
         let mut bytes = serde_json::to_vec(&line).map_err(|error| {
             AppError::internal(format_args!("cannot encode archive line: {error}"))

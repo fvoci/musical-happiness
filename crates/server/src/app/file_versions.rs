@@ -190,6 +190,8 @@ impl App {
         if source.is_current {
             return Ok(described(source.clone()));
         }
+        self.check_org_storage_room(u64::try_from(source.size).unwrap_or(0))
+            .await?;
         // The mark, the bytes, then the row that says where they are and takes the
         // mark away, as a copied file is written.
         let path = self.new_version_place(container_id).await?;

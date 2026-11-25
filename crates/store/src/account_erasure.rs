@@ -387,14 +387,14 @@ impl Store {
                     .push_bind(" OR subject_id = ", Id(user_id))
                     .push(")");
                 scope.execute(sql).await?;
-                for (table, column) in PERSONAL {
-                    let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE {column} = "));
+                for delete in PERSONAL_DELETES {
+                    let mut sql = scope.sql(delete);
                     sql.bind(Id(user_id));
                     scope.execute(sql).await?;
                 }
                 let mut sql = scope.sql(
-                    "UPDATE users SET username = '', email = '', display_name = '', \
-                     custom_name = '', first_name = '', last_name = '', \
+                    "UPDATE users SET username = '', email = '', email_verified_at = 0, \
+                     display_name = '', custom_name = '', first_name = '', last_name = '', \
                      latin_first_name = '', latin_last_name = '', title = '', \
                      credentials = '', name_shown = 'name', password_hash = '', \
                      delete_after = 0, is_admin = ",
@@ -417,24 +417,24 @@ impl Store {
 ///
 /// `meeting_attendance` and `course_meetings` (`presenter_id`, `host_id`) are intentionally
 /// excluded: shared study meeting history stays under the erased user's tombstone identifier.
-const PERSONAL: [(&str, &str); 17] = [
-    ("notifications", "recipient_id"),
-    ("notification_outbox", "recipient_id"),
-    ("time_entries", "user_id"),
-    ("user_identities", "user_id"),
-    ("email_changes", "user_id"),
-    ("email_reverts", "user_id"),
-    ("sessions", "user_id"),
-    ("user_settings", "user_id"),
-    ("user_client_state", "user_id"),
-    ("password_resets", "user_id"),
-    ("subscriptions", "user_id"),
-    ("category_containers", "user_id"),
-    ("categories", "user_id"),
-    ("unit_progress", "user_id"),
-    ("exam_scores", "user_id"),
-    ("unit_reviews", "user_id"),
-    ("unit_notes", "user_id"),
+const PERSONAL_DELETES: [&str; 17] = [
+    "DELETE FROM notifications WHERE recipient_id = ",
+    "DELETE FROM notification_outbox WHERE recipient_id = ",
+    "DELETE FROM time_entries WHERE user_id = ",
+    "DELETE FROM user_identities WHERE user_id = ",
+    "DELETE FROM email_changes WHERE user_id = ",
+    "DELETE FROM email_reverts WHERE user_id = ",
+    "DELETE FROM sessions WHERE user_id = ",
+    "DELETE FROM user_settings WHERE user_id = ",
+    "DELETE FROM user_client_state WHERE user_id = ",
+    "DELETE FROM password_resets WHERE user_id = ",
+    "DELETE FROM subscriptions WHERE user_id = ",
+    "DELETE FROM category_containers WHERE user_id = ",
+    "DELETE FROM categories WHERE user_id = ",
+    "DELETE FROM unit_progress WHERE user_id = ",
+    "DELETE FROM exam_scores WHERE user_id = ",
+    "DELETE FROM unit_reviews WHERE user_id = ",
+    "DELETE FROM unit_notes WHERE user_id = ",
 ];
 
 /// Marks the account as being erased from `now`, puts it out of use if it was in use,
@@ -477,8 +477,11 @@ async fn wait_for_who_comes_in(scope: &mut Scope<'_>, org_id: &str) -> Result<()
     if scope.dialect() != Dialect::Postgres {
         return Ok(());
     }
-    for table in ["oidc_providers", "invitations"] {
-        let mut sql = scope.sql(&format!("SELECT id FROM {table} WHERE org_id = "));
+    for select in [
+        "SELECT id FROM oidc_providers WHERE org_id = ",
+        "SELECT id FROM invitations WHERE org_id = ",
+    ] {
+        let mut sql = scope.sql(select);
         sql.bind(Id(org_id)).push(" ORDER BY id FOR UPDATE");
         scope.fetch_all(sql).await?;
     }
@@ -830,12 +833,12 @@ async fn remove_organization(scope: &mut Scope<'_>) -> Result<Purged, StoreError
 
 /// Whether the account still has a place in an organization, whichever.
 async fn has_a_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
-    for (table, column) in [
-        ("organization_members", "user_id"),
-        ("workspace_members", "user_id"),
-        ("container_members", "user_id"),
+    for select in [
+        "SELECT 1 FROM organization_members WHERE user_id = ",
+        "SELECT 1 FROM workspace_members WHERE user_id = ",
+        "SELECT 1 FROM container_members WHERE user_id = ",
     ] {
-        let mut sql = scope.sql(&format!("SELECT 1 FROM {table} WHERE {column} = "));
+        let mut sql = scope.sql(select);
         sql.bind(Id(user_id)).push(" LIMIT 1");
         if scope.fetch_optional(sql).await?.is_some() {
             return Ok(true);

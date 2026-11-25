@@ -80,7 +80,7 @@ pub(crate) fn check_batch_cycles(blocks: &[Block]) -> Result<(), StoreError> {
 ///
 /// Ordinary cards on a board may sit at depth 1 (no parent), depth 2, or depth 3, always
 /// below another live, non-template card of the same board. Template cards cannot have a
-/// parent or child cards, and a card with child cards cannot change to another block type.
+/// parent or child cards.
 pub(crate) async fn check_write(
     scope: &mut Scope<'_>,
     block: &Block,
@@ -88,24 +88,13 @@ pub(crate) async fn check_write(
     parent: Option<&ParentInfo>,
     existing: Option<&Block>,
 ) -> Result<(), StoreError> {
-    if kind != ContainerKind::Board {
+    if kind != ContainerKind::Board || block.block_type != BlockType::Card {
         return Ok(());
     }
     let invalid = |source| StoreError::InvalidBlock {
         id: block.id.clone(),
         source,
     };
-    if existing.is_some_and(|before| before.block_type == BlockType::Card)
-        && block.block_type != BlockType::Card
-    {
-        if has_child_cards(scope, &block.id).await? {
-            return Err(invalid(BlockError::TypeStrandsCards));
-        }
-        return Ok(());
-    }
-    if block.block_type != BlockType::Card {
-        return Ok(());
-    }
     if block.is_template() {
         if !block.parent_id.is_empty() {
             return Err(invalid(BlockError::TemplateCardBelowBlock));

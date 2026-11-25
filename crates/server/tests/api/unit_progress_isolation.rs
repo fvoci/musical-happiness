@@ -674,6 +674,11 @@ async fn check_open_course_isolation(th: &TestServer) {
         .get(&format!("{TEST_WS}/courses/{open}/progress/summary"))
         .await;
     open_summary.check_ok();
+    assert_eq!(
+        open_summary.value()["members"],
+        json!([]),
+        "unjoined open-course reader must receive redacted empty members list (`P2-1`)"
+    );
     assert_summary_has_no_personal_fields(&open_summary.text(), &[&open_u.id]);
     th.client2
         .post(&format!("{TEST_WS}/containers/{open}/join"), &json!({}))
@@ -755,6 +760,12 @@ async fn check_org_admin_joining_isolation(th: &TestServer, org_id: &str, user2_
         .get(&format!("{lab_ws}/courses/{lab_open}/progress/summary"))
         .await;
     oa_summary.check_ok();
+    assert!(
+        oa_summary.value()["members"]
+            .as_array()
+            .is_some_and(|m| !m.is_empty()),
+        "org admin joined to workspace has ManageRoles and sees course progress summary (`P2-1`)"
+    );
     assert_summary_has_no_personal_fields(&oa_summary.text(), &[&open_unit.id]);
 }
 

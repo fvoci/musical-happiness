@@ -13,9 +13,7 @@ use utoipa_axum::routes;
 use super::contract::params::{CourseId, MemberWorkspaceId, UnitId};
 use super::contract::tag;
 use super::workspace::InCourse;
-use super::{
-    ApiResult, decode_object, json_response, require_container_permission, require_granted,
-};
+use super::{ApiResult, decode_object, json_response, require_granted};
 use crate::app::{App, ContainerAccess};
 use crate::error::AppError;
 use crate::permissions::{ContainerPermission, Grant};
@@ -136,12 +134,13 @@ async fn handle_put_unit_progress(
 /// Progress summary of a course
 ///
 /// Returns the total number of live units in the course (excluding chapters and trashed
-/// units) and the completed live-unit count for each active course member, ordered by
-/// `userId`. Accounts that have been deleted, are pending deletion, or are no longer
-/// active members of the workspace or course are excluded. Never discloses which units a
-/// member completed, completion timestamps, planned dates, or last positions. Readable
-/// by anyone who can view the course (and the owner of a personal-space course);
-/// unreadable private courses and non-course containers answer 404.
+/// units) and, for enrolled course members and course role managers (`ManageRoles`), the
+/// completed live-unit count for each active course member ordered by `userId`. Unjoined
+/// readers of an open course and non-enrolled guests receive `members: []` (`P2-1`).
+/// Accounts that have been deleted, are pending deletion, or are no longer active members
+/// of the workspace or course are excluded. Never discloses which units a member
+/// completed, completion timestamps, planned dates, or last positions. Unreadable private
+/// courses and non-course containers answer 404.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/courses/{courseId}/progress/summary",
@@ -154,14 +153,16 @@ async fn handle_get_course_progress_summary(
     InCourse(ws): InCourse,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
-    require_container_permission(
+    let access = course_view_access(
         &ws.app,
         &ws.session.user_id,
         &course_id,
-        ContainerPermission::View,
         "access denied to course progress summary",
     )
     .await?;
-    let summary = ws.app.course_progress_summary(&course_id).await?;
+    let mut summary = ws.app.course_progress_summary(&course_id).await?;
+    if !access.has_membership() && !access.grant.allows(ContainerPermission::ManageRoles) {
+        summary.members.clear();
+    }
     Ok(json_response(&summary))
 }

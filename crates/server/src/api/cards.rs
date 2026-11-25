@@ -19,6 +19,9 @@ use super::contract::tag;
 use super::workspace::InWorkspace;
 
 use super::blocks::BLOCK_FIELDS;
+use super::body_versions::{
+    get_body_version, keep_body_version, list_body_versions, restore_body_version,
+};
 use super::change_notification;
 use super::paging::paging_params;
 use super::{ApiResult, TRUE, created, json_response, query_param};
@@ -346,8 +349,7 @@ async fn handle_get_card_body_versions(
         "access denied to fetch card",
     )
     .await?;
-    let versions = ws.app.body_versions(&card.id).await?;
-    Ok(json_response(&versions))
+    list_body_versions(&ws.app, &card.id).await
 }
 
 /// Keep a card's body as a version now
@@ -388,7 +390,7 @@ async fn handle_keep_card_body_version(
         "access denied to keep a version of the card's body",
     )
     .await?;
-    let kept = ws.app.keep_body_version_now(&card.id).await?;
+    let kept = keep_body_version(&ws.app, &card.id).await?;
     tracing::debug!(card_id = %card.id, user_id, outcome = ?kept.outcome, "KeepCardBodyVersion");
     Ok(json_response(&kept))
 }
@@ -419,11 +421,7 @@ async fn handle_get_card_body_version(
         "access denied to fetch card",
     )
     .await?;
-    let version = ws
-        .app
-        .body_version(&card.id, version_number(&version)?)
-        .await?;
-    Ok(json_response(&version))
+    get_body_version(&ws.app, &card.id, &version).await
 }
 
 /// Go back to a version of a card's body
@@ -458,10 +456,7 @@ async fn handle_restore_card_body_version(
         "access denied to restore a version of the card's body",
     )
     .await?;
-    let block = ws
-        .app
-        .restore_body_version(&card, version_number(&version)?, user_id)
-        .await?;
+    let block = restore_body_version(&ws.app, &card, &version, user_id).await?;
     let restored = ws.app.card_of_block(&block).await?;
     tracing::debug!(
         board_id = %restored.board_id,
@@ -470,9 +465,4 @@ async fn handle_restore_card_body_version(
         "RestoreCardBodyVersion"
     );
     Ok(json_response(&restored))
-}
-
-/// The number of a version, as a path names it: what is no number names no version.
-pub(super) fn version_number(text: &str) -> Result<i64, AppError> {
-    text.parse().map_err(|_| AppError::not_found("version"))
 }

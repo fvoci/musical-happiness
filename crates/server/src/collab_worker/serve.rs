@@ -395,11 +395,33 @@ impl Worker {
                 return Ok(Err(refuse(&error)));
             }
             Err(BodyTakeError::Dirty(error)) => {
-                self.restore_after_dirty(doc, checkpoint)?;
-                return Ok(Err(refuse(&error)));
+                let mut refusal = refuse(&error);
+                refusal.rolled_back = true;
+                return self.restore_or_close(doc, checkpoint, refusal);
             }
         };
         self.commit_taken(doc, update, mode, checkpoint, changed)
+    }
+
+    /// Restores `doc` after a post-mutation refusal, or, if restoration fails, closes `doc`
+    /// alone in production builds so the server reopens it from what is stored while the
+    /// worker keeps serving its other documents (`test-util` builds still fail loudly).
+    fn restore_or_close(
+        &mut self,
+        doc: DocNumber,
+        checkpoint: Checkpoint,
+        refusal: Refused,
+    ) -> Result<Response, FrameError> {
+        match self.restore_after_dirty(doc, checkpoint) {
+            Ok(()) => Ok(Err(refusal)),
+            Err(error) => {
+                debug_assert!(!self.docs.contains_key(&doc));
+                #[cfg(feature = "test-util")]
+                return Err(error);
+                #[cfg(not(feature = "test-util"))]
+                return Ok(Err(refused(Refusal::Closed, &error.to_string())));
+            }
+        }
     }
 
     /// Commits a successful in-place `TakenInPlace` into `self.docs`, checking `since` and
@@ -442,13 +464,16 @@ impl Worker {
         }
         if since_over || budget_over {
             drop(changed);
-            self.restore_after_dirty(doc, checkpoint)?;
             let message = if since_over {
                 "the document holds as many un-folded updates as it may"
             } else {
                 "the worker holds as many bytes of documents as it may"
             };
-            return Ok(Err(refused(Refusal::TooManyDocuments, message)));
+            return self.restore_or_close(
+                doc,
+                checkpoint,
+                refused(Refusal::TooManyDocuments, message),
+            );
         }
         let (clients, files) = doc_meta(&changed);
         let repair = changed.repair.update;
@@ -510,8 +535,7 @@ impl Worker {
     ) -> Result<Response, FrameError> {
         if base_held.saturating_add(state_bytes) > self.limits.held_bytes {
             drop(changed);
-            self.restore_after_dirty(doc, checkpoint)?;
-            return Ok(Err(too_many_bytes()));
+            return self.restore_or_close(doc, checkpoint, too_many_bytes());
         }
         let (clients, files) = doc_meta(&changed);
         let repair = changed.repair.update;
@@ -552,8 +576,7 @@ impl Worker {
         let state_bytes = count(changed.state_bytes);
         if base_held.saturating_add(state_bytes) > self.limits.held_bytes {
             drop(changed);
-            self.restore_after_dirty(doc, checkpoint)?;
-            return Ok(Err(too_many_bytes()));
+            return self.restore_or_close(doc, checkpoint, too_many_bytes());
         }
         let (clients, files) = doc_meta(&changed);
         self.held_bytes = base_held.saturating_add(state_bytes);

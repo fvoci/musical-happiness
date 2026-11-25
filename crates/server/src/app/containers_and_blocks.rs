@@ -77,24 +77,21 @@ impl App {
             self.require_makes(container)
                 .map_err(|error| error.under(&format!("/containers/{index}")))?;
         }
-        let members = {
-            let _structure = self.collab().changing_structure(self).await;
-            match membership {
-                CreatorMembership::Admin => {
-                    self.store()
-                        .create_containers_and_blocks_with_admin(&mut created, user_id)
-                        .await?
-                }
-                CreatorMembership::None => {
-                    self.store()
-                        .create_containers_and_blocks(
-                            &mut created,
-                            user_id,
-                            NewBodyFiles::Unchecked,
-                        )
-                        .await?;
-                    Vec::new()
-                }
+        let members = match membership {
+            CreatorMembership::Admin => {
+                let _structure = self
+                    .collab()
+                    .changing_structures(self, created.containers.iter().map(|c| c.id.as_str()))
+                    .await;
+                self.store()
+                    .create_containers_and_blocks_with_admin(&mut created, user_id)
+                    .await?
+            }
+            CreatorMembership::None => {
+                self.store()
+                    .create_containers_and_blocks(&mut created, user_id, NewBodyFiles::Unchecked)
+                    .await?;
+                Vec::new()
             }
         };
 
@@ -168,11 +165,30 @@ impl App {
             self.store().get_blocks_by_ids(&patches.block_ids).await?
         };
 
+        let access_changed: Vec<&String> = patches
+            .container_ids
+            .iter()
+            .zip(&patches.container_patches)
+            .filter(|(_, patch)| super::containers::changes_access(patch))
+            .map(|(container_id, _)| container_id)
+            .collect();
+        if !access_changed.is_empty() {
+            self.collab().narrowing_access(
+                self,
+                &AccessScope::containers(access_changed.iter().copied()),
+            );
+        }
+
         // Whole bodies are written around the documents of bodies edited together.
         let card_ids =
             crate::collab::cards_written_whole(&blocks, &patches.block_ids, &patches.block_patches);
         let mut result = if card_ids.is_empty() {
-            let _structure = self.collab().changing_structure(self).await;
+            let touched = patches
+                .container_ids
+                .iter()
+                .map(String::as_str)
+                .chain(blocks.iter().map(|block| block.container_id.as_str()));
+            let _structure = self.collab().changing_structures(self, touched).await;
             self.store()
                 .patch_containers_and_blocks(patches, user_id)
                 .await?
@@ -189,13 +205,6 @@ impl App {
         };
         super::blocks::hide_inactive_numbers(&mut result.blocks);
 
-        let access_changed: Vec<&String> = patches
-            .container_ids
-            .iter()
-            .zip(&patches.container_patches)
-            .filter(|(_, patch)| super::containers::changes_access(patch))
-            .map(|(container_id, _)| container_id)
-            .collect();
         if !access_changed.is_empty() {
             self.collab()
                 .recheck_access(self, AccessScope::containers(access_changed))

@@ -159,6 +159,46 @@ impl App {
         Ok(self.store().delete_course_exam(course_id, exam_id).await?)
     }
 
+    /// Publishes or republishes a coarse exam result snapshot on `course_id` (`P2-2`).
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 if the course or exam does not exist, 409 if fewer than 5 active
+    /// enrolled members have scored or fewer than 3 net scorers changed since the previous
+    /// publication, and the store's error on failure.
+    pub async fn publish_course_exam_results(
+        &self,
+        course_id: &str,
+        exam_id: &str,
+        caller_user_id: Option<&str>,
+    ) -> Result<CourseExam, AppError> {
+        match self
+            .store()
+            .publish_course_exam_results(course_id, exam_id, caller_user_id)
+            .await?
+        {
+            Ok(exam) => Ok(exam),
+            Err(refused) => Err(AppError::conflict(refused)),
+        }
+    }
+
+    /// Unpublishes the exam result snapshot on `course_id` (`P2-2`).
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 if the course or exam does not exist, and the store's error on failure.
+    pub async fn unpublish_course_exam_results(
+        &self,
+        course_id: &str,
+        exam_id: &str,
+        caller_user_id: Option<&str>,
+    ) -> Result<CourseExam, AppError> {
+        Ok(self
+            .store()
+            .unpublish_course_exam_results(course_id, exam_id, caller_user_id)
+            .await?)
+    }
+
     /// Creates or updates the calling learner's own personal exam score.
     ///
     /// Emits no websocket broadcasts, search index updates, webhooks, notifications, or

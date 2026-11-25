@@ -70,13 +70,21 @@ pub struct CourseExam {
     pub updated_at: i64,
     /// The caller's own score row, or `null` if none (never another member's score).
     pub my_score: Option<MyExamScore>,
-    /// Mean score across active enrolled course members who recorded a score when at least
-    /// two other active members have scored (`scoreCount >= 3` when the caller scored,
-    /// `scoreCount >= 2` when the caller has not); `null` otherwise or for unjoined readers.
+    /// Published snapshot mean score (rounded to 0.1) across active enrolled course members
+    /// once a course administrator publishes exam results (requiring at least 5 active
+    /// scorers); `null` before publication or for unjoined readers.
     pub average_score: Option<f64>,
     /// Number of active enrolled course members who recorded a score (`0` for unjoined
     /// readers).
     pub score_count: u32,
+    /// When the exam result snapshot was published by a course administrator, in
+    /// milliseconds since the Unix epoch; `null` while unpublished or for unjoined readers.
+    #[serde(default)]
+    pub results_published_at: Option<i64>,
+    /// Published active-scorer count rounded down to a multiple of 5 (`count / 5 * 5`), or
+    /// `null` while unpublished or for unjoined readers.
+    #[serde(default)]
+    pub published_score_bucket: Option<u32>,
 }
 
 /// How a patch changes [`CourseExam::exam_date`].

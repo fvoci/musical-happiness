@@ -570,7 +570,7 @@ async fn a_commenter_changes_no_card_and_makes_none() {
             &json!({"blockIds": [own.id], "blockPatches": [{"type": "card"}]}),
         )
         .await
-        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+        .check_bad_request();
     // A viewer changes nothing.
     boards
         .viewer
@@ -719,43 +719,31 @@ async fn an_editor_moves_their_own_comment_and_an_admin_anybodys() {
     );
 }
 
-/// A block of somebody else is made a comment by the board's admins only: a comment
-/// says who wrote it, and an editor makes nobody else say anything. The author of a
-/// block makes it a comment with the editor's role.
+/// Block types are fixed at creation: neither an editor nor an admin can mutate an
+/// existing attachment or card into a comment via `patchBlock` or `patchBlocks`.
 #[tokio::test]
-async fn a_block_of_somebody_else_is_made_a_comment_by_an_admin() {
+async fn a_block_type_cannot_be_mutated_to_comment_even_by_an_admin() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = boards_with_roles(&th).await;
     let content = card_with_content(&th, &boards).await;
     let board_id = &boards.board.id;
     let into_comment = json!({"type": "comment", "title": "I approve"});
-    let refused = "access denied to change other users' comments";
 
-    boards
-        .editor
-        .patch(&block_path(board_id, &content.text.id), &into_comment)
-        .await
-        .check_error(StatusCode::FORBIDDEN, refused);
-    boards
-        .editor
-        .patch(
-            &format!("{TEST_WS}/boards/{board_id}/blocks"),
-            &json!({"blockIds": [content.text.id], "blockPatches": [into_comment]}),
-        )
-        .await
-        .check_error(StatusCode::FORBIDDEN, refused);
-    let own = insert_one(
-        &boards.editor,
-        &child_of(&content.card, BlockType::Attachment, "the editor's"),
-    )
-    .await;
-    boards
-        .editor
-        .patch(&block_path(board_id, &own.id), &into_comment)
-        .await
-        .check_no_content();
-    th.client
-        .patch(&block_path(board_id, &content.text.id), &into_comment)
-        .await
-        .check_no_content();
+    for client in [&boards.editor, &th.client] {
+        let single = client
+            .patch(&block_path(board_id, &content.text.id), &into_comment)
+            .await;
+        single.check_bad_request();
+        assert_eq!(single.refused_at(), "/type");
+
+        let batch = client
+            .patch(
+                &format!("{TEST_WS}/boards/{board_id}/blocks"),
+                &json!({"blockIds": [content.text.id], "blockPatches": [into_comment]}),
+            )
+            .await;
+        batch.check_bad_request();
+        assert_eq!(batch.refused_at(), "/blockPatches/0/type");
+    }
+    th.teardown().await;
 }

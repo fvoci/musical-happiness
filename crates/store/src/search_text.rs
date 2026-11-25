@@ -67,12 +67,14 @@ fn needle(word: &str) -> String {
 /// Adds the condition that the column `column` of `b`, with its ASCII letters in lower
 /// case and no other letter changed, holds `word`. SQLite's `lower` changes ASCII
 /// letters alone; PostgreSQL's does under the collation `C`.
-fn push_holds(sql: &mut Sql, dialect: Dialect, column: &str, word: &str) {
-    let position = match dialect {
-        Dialect::Sqlite => format!("instr(lower({column}), "),
-        Dialect::Postgres => format!("strpos(lower({column} COLLATE \"C\"), "),
+fn push_holds(sql: &mut Sql, dialect: Dialect, column: &'static str, word: &str) {
+    match dialect {
+        Dialect::Sqlite => sql.push_bind(["instr(lower(", column, "), "], needle(word)),
+        Dialect::Postgres => {
+            sql.push_bind(["strpos(lower(", column, " COLLATE \"C\"), "], needle(word))
+        }
     };
-    sql.push_bind(&position, needle(word)).push(") > 0");
+    sql.push(") > 0");
 }
 
 /// The body of `b`, empty where it has none.

@@ -21,8 +21,8 @@ use super::workspace::InWorkspace;
 
 use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
-    BlockAction, require_block_patch_permission, require_block_permission,
-    require_delete_permission, require_deletion_permission,
+    BlockAction, require_block_patch_permission_with_grant, require_block_permission_with_grant,
+    require_delete_permission, require_deletion_permission, require_granted,
 };
 use super::{change_notification, duplicate_as, query_option, require_container_permission};
 use super::{
@@ -393,20 +393,16 @@ pub(super) fn take_new_block_types<'a>(
         .collect()
 }
 
-/// Refuses a block patch whose `type` is a string outside [`BlockType`], naming `type`
-/// at the patch's JSON Pointer and stripping the unknown value so `decode_object_with`
-/// surfaces this pointer-bearing error rather than a flat serde error.
+/// Refuses any block patch that attempts to change `type` (blocks keep their creation
+/// type for life), naming `type` at the patch's JSON Pointer.
 pub(super) fn check_patch_block_types<'a>(
     patches: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
     list: Option<&str>,
 ) -> Result<(), AppError> {
     for (index, patch) in patches.into_iter().enumerate() {
         let Some(patch) = patch else { continue };
-        if let Some(Value::String(raw)) = patch.get("type")
-            && raw.parse::<BlockType>().is_err()
-        {
-            patch.remove("type");
-            return Err(AppError::bad_request(BlockError::TypeNotCurrent)
+        if patch.remove("type").is_some() {
+            return Err(AppError::bad_request(BlockError::TypeChanges)
                 .with_field("type")
                 .under(&element_pointer(list, index)));
         }
@@ -655,29 +651,22 @@ async fn handle_patch_block(
     let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     // Who cannot even comment changes nothing, whatever the block.
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::CommentCards,
-        CHANGES_DENIED,
-    )
-    .await?;
+    let grant = ws.app.container_grant(user_id, &board_id).await?;
+    require_granted(grant, ContainerPermission::CommentCards, CHANGES_DENIED)?;
     let block = block_on_container(&ws.app, &block_id, &board_id).await?;
-    require_block_permission(
-        &ws.app,
+    require_block_permission_with_grant(
+        grant,
         user_id,
         &block,
         BlockAction::Change,
         CHANGES_DENIED,
-    )
-    .await?;
+    )?;
     let (mut patch, changes): (BlockPatch, _) = decode_object_with(&body, |patch| {
         check_patch_block_types([Some(&mut *patch)], None)?;
         take_patch_bodies([Some(patch)], None)
     })?;
     put_patch_bodies([&mut patch], changes?, None)?;
-    require_block_patch_permission(&ws.app, user_id, &block, &patch, CHANGES_DENIED).await?;
+    require_block_patch_permission_with_grant(grant, &block, &patch, CHANGES_DENIED)?;
     ws.app
         .check_body_files(&board_id, patch.body.new_body())
         .await?;
@@ -716,14 +705,8 @@ async fn handle_patch_blocks(
     let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     // Who cannot even comment changes nothing, whatever the blocks.
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::CommentCards,
-        CHANGES_DENIED,
-    )
-    .await?;
+    let grant = ws.app.container_grant(user_id, &board_id).await?;
+    require_granted(grant, ContainerPermission::CommentCards, CHANGES_DENIED)?;
     let board = ws.app.container(&board_id).await?;
     let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
         check_patch_block_types(objects_mut(batch, "blockPatches"), Some(PATCHES))?;
@@ -743,17 +726,30 @@ async fn handle_patch_blocks(
                 .with_pointer(format!("/blockIds/{index}")));
         }
     }
-    for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
-        let block = block_on_container(&ws.app, block_id, &board_id).await?;
-        require_block_permission(
-            &ws.app,
-            user_id,
-            &block,
-            BlockAction::Change,
-            CHANGES_DENIED,
-        )
-        .await?;
-        require_block_patch_permission(&ws.app, user_id, &block, patch, CHANGES_DENIED).await?;
+    if !batch.block_ids.is_empty() {
+        let Some(fetched) = ws.app.blocks_by_ids(&batch.block_ids).await? else {
+            return Err(AppError::not_found("block"));
+        };
+        let by_id: std::collections::HashMap<&str, &Block> = fetched
+            .iter()
+            .map(|block| (block.id.as_str(), block))
+            .collect();
+        for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
+            let Some(&block) = by_id
+                .get(block_id.as_str())
+                .filter(|block| block.container_id == board_id)
+            else {
+                return Err(AppError::not_found("block"));
+            };
+            require_block_permission_with_grant(
+                grant,
+                user_id,
+                block,
+                BlockAction::Change,
+                CHANGES_DENIED,
+            )?;
+            require_block_patch_permission_with_grant(grant, block, patch, CHANGES_DENIED)?;
+        }
     }
     for (index, patch) in batch.block_patches.iter().enumerate() {
         ws.app

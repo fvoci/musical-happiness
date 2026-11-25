@@ -144,7 +144,8 @@ async fn depths_1_2_3_allowed_and_depth_4_rejected_on_create_and_move() {
     assert_block_error(
         store
             .patch_block(&leaf.id, &reparent_patch(&d3_id), &user_id)
-            .await,
+            .await
+            .map(|_| ()),
         &too_deep,
     );
 
@@ -160,7 +161,8 @@ async fn depths_1_2_3_allowed_and_depth_4_rejected_on_create_and_move() {
     assert_block_error(
         store
             .patch_block(&sub_root.id, &reparent_patch(&d2_id), &user_id)
-            .await,
+            .await
+            .map(|_| ()),
         &too_deep,
     );
     assert_eq!(
@@ -177,7 +179,8 @@ async fn depths_1_2_3_allowed_and_depth_4_rejected_on_create_and_move() {
     assert_block_error(
         store
             .patch_block(&d1_id, &reparent_patch(&other_root.id), &user_id)
-            .await,
+            .await
+            .map(|_| ()),
         &too_deep,
     );
     store
@@ -211,7 +214,8 @@ async fn self_reference_and_cycles_are_rejected() {
         assert_block_error(
             store
                 .patch_block(&root.id, &reparent_patch(target), &user_id)
-                .await,
+                .await
+                .map(|_| ()),
             &BlockError::ParentBelowBlock,
         );
     }
@@ -316,26 +320,22 @@ async fn invalid_parents_and_template_constraints_are_rejected() {
         ..BlockPatch::default()
     };
     assert_block_error(
-        store.patch_block(&child.id, &make_template, &user_id).await,
+        store
+            .patch_block(&child.id, &make_template, &user_id)
+            .await
+            .map(|_| ()),
         &BlockError::TemplateCardBelowBlock,
     );
 
-    // Card with sub-cards cannot become a template or change type away from card.
+    // Card with sub-cards cannot become a template.
     let parent_only = save(store, card(&board_id, "", "parent-only"), &user_id).await;
     let _sub = save(store, card(&board_id, &parent_only.id, "sub"), &user_id).await;
     assert_block_error(
         store
             .patch_block(&parent_only.id, &make_template, &user_id)
-            .await,
+            .await
+            .map(|_| ()),
         &BlockError::TemplateCardHasChildren,
-    );
-    let to_view = BlockPatch {
-        block_type: Some(BlockType::View),
-        ..BlockPatch::default()
-    };
-    assert_block_error(
-        store.patch_block(&parent_only.id, &to_view, &user_id).await,
-        &BlockError::TypeStrandsCards,
     );
 
     test.teardown().await;

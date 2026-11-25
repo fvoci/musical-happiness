@@ -11,7 +11,7 @@ use fvoci_model::{
 };
 
 use crate::blocks::Paging;
-use crate::db::{Dialect, Id, Scope, now_millis};
+use crate::db::{Id, Scope};
 use crate::pages::{page_tree, write_place};
 use crate::trash::{block_from_json, block_not_in_trash, push_paging, take_blocks_out_of_trash};
 use crate::{Store, StoreError, containers};
@@ -42,19 +42,18 @@ impl Store {
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedPage>, StoreError> {
         self.with_conn(async |scope| {
-            // The type is in the stored block. The comments on the pages went with them
-            // and come back with them, and are no pages below.
-            let dialect = scope.dialect();
+            // The comments on the pages went with them and come back with them, and are
+            // no pages below.
             let mut sql = scope.sql(
                 "SELECT top.block, top.deleted_by, top.deleted_at, \
                  (SELECT COUNT(*) FROM deleted_blocks went \
                  WHERE went.deletion_id = top.deletion_id AND ",
             );
-            push_block_types_in_json(&mut sql, dialect, "went", &[BlockType::Page]);
+            push_block_types_in_trash(&mut sql, "went.block_type", &[BlockType::Page]);
             sql.push(") FROM deleted_blocks top WHERE top.container_id = ")
                 .bind(Id(wiki_id))
                 .push(" AND ");
-            push_block_types_in_json(&mut sql, dialect, "top", &[BlockType::Page]);
+            push_block_types_in_trash(&mut sql, "top.block_type", &[BlockType::Page]);
             sql.push(
                 " AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
                  WHERE above.deletion_id = top.deletion_id AND above.id = top.parent_id) \
@@ -63,7 +62,19 @@ impl Store {
             push_paging(&mut sql, paging);
             let mut pages = Vec::new();
             for row in &scope.fetch_all(sql).await? {
-                let block = block_from_json(row, 0)?;
+                let block = match block_from_json(row, 0) {
+                    Ok(block) => block,
+                    Err(StoreError::Corrupt { column, reason }) => {
+                        tracing::error!(
+                            wiki_id,
+                            column,
+                            %reason,
+                            "skipping corrupt deleted page in trash listing"
+                        );
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 let went = u32::try_from(row.int(3)?).unwrap_or(u32::MAX);
                 let node = PageNode::from(block);
                 pages.push(DeletedPage {
@@ -111,23 +122,19 @@ impl Store {
     }
 }
 
-/// Appends a parameterized SQL predicate checking that the JSON `block` column of alias
-/// `row` has one of `types`.
-pub(crate) fn push_block_types_in_json(
+/// Appends a parameterized SQL predicate checking that `column` (`block_type` of
+/// `deleted_blocks`) matches one of `types`.
+pub(crate) fn push_block_types_in_trash(
     sql: &mut crate::db::Sql,
-    dialect: Dialect,
-    row: &str,
+    column: &'static str,
     types: &[BlockType],
 ) {
     if types.is_empty() {
         sql.push("1 = 0");
         return;
     }
-    match dialect {
-        Dialect::Sqlite => sql.push(&format!("json_extract({row}.block, '$.type') IN (")),
-        Dialect::Postgres => sql.push(&format!("{row}.block->>'type' IN (")),
-    };
-    sql.bind_list(types.iter().copied().map(BlockType::as_str))
+    sql.push([column, " IN ("])
+        .bind_list(types.iter().copied().map(BlockType::as_str))
         .push(")");
 }
 
@@ -222,7 +229,8 @@ async fn undelete(
             renumbered.extend(write_place(scope, top, place).await?);
         }
     }
-    let mut pages = take_blocks_out_of_trash(scope, &deletion.id, user_id, now_millis(), |block| {
+    let now = scope.now_millis();
+    let mut pages = take_blocks_out_of_trash(scope, &deletion.id, user_id, now, |block| {
         if let Some(top) = tops.iter().find(|top| top.id == block.id) {
             block.parent_id.clone_from(&top.parent_id);
             block.fields.clone_from(&top.fields);

@@ -6,7 +6,7 @@ use std::time::Instant;
 use fvoci_model::{
     MAXIMUM_PASSWORD_BYTES, NewAccount, PersonName, RegisterRequest, Session, User, new_id,
 };
-use fvoci_store::{ConfirmedPassword, Founding, SignupLookup, StoreError, Taken};
+use fvoci_store::{ConfirmedPassword, SignupLookup, StoreError, Taken};
 
 use super::App;
 use super::oidc_pending::require_fresh_sign_in;
@@ -377,21 +377,16 @@ impl App {
             return self.sign_up_alone(request).await;
         };
         let mut user = self.new_account(&request.account(), None).await?;
-        let mut stored = if self.store().is_bootstrapped().await? {
-            Err(StoreError::NotFirstUser)
+        let policy = if self.config().takes_several_organizations() {
+            fvoci_store::FoundingPolicy::FirstOrNew
         } else {
-            #[cfg(feature = "test-util")]
-            self.signups_meet().await;
-            self.store().sign_up(&mut user, name, Founding::First).await
+            fvoci_store::FoundingPolicy::FirstOnly
         };
-        // Another registration was first after all, or one was long ago: an
-        // organization of its own, where the server takes several.
-        if matches!(stored, Err(StoreError::NotFirstUser))
-            && self.config().takes_several_organizations()
+        match self
+            .store()
+            .sign_up_with_policy(&mut user, name, policy)
+            .await
         {
-            stored = self.store().sign_up(&mut user, name, Founding::New).await;
-        }
-        match stored {
             Ok(workspace_id) => {
                 self.metrics().registered();
                 tracing::info!(
@@ -422,40 +417,6 @@ impl App {
         self.metrics().registered();
         tracing::info!(user_id = %user.id, "a user signed up and started no organization");
         Ok(user)
-    }
-
-    /// Holds the next `count` sign-ups that find the instance without its first user
-    /// until all of them have, and lets them on to the store together: so that two
-    /// first sign-ups are under way at once, for the tests of who is first.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    pub fn meet_next_signups(&self, count: usize) {
-        *self
-            .inner
-            .signups_meet
-            .lock()
-            .expect("the sign-ups' meeting lock") =
-            Some(std::sync::Arc::new(tokio::sync::Barrier::new(count)));
-    }
-
-    #[cfg(feature = "test-util")]
-    async fn signups_meet(&self) {
-        let meeting = self
-            .inner
-            .signups_meet
-            .lock()
-            .expect("the sign-ups' meeting lock")
-            .clone();
-        if let Some(meeting) = meeting
-            && meeting.wait().await.is_leader()
-        {
-            // Met: the sign-ups after these are not held.
-            self.inner
-                .signups_meet
-                .lock()
-                .expect("the sign-ups' meeting lock")
-                .take();
-        }
     }
 
     /// Asks whether a registration from `address` may go ahead now, and holds its

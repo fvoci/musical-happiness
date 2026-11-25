@@ -25,7 +25,6 @@ use super::{
     ApiResult, created, decode_object, json_response, no_content, query_option, require_granted,
 };
 use crate::app::{App, ContainerAccess};
-use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::{ContainerPermission, Grant};
 
@@ -157,11 +156,12 @@ async fn handle_schedule_unit_review(
     .await?;
     require_enrolled_member(&access, "join the course before scheduling reviews")?;
     let request: ScheduleUnitReview = decode_object(&body)?;
-    let today = ws.app.user_today(user_id, now_millis()).await?;
+    let now = ws.app.schedule_now_millis();
+    let today = ws.app.user_today(user_id, now).await?;
     let new = request.check_request(&today)?;
     let review = ws
         .app
-        .schedule_unit_review(&course_id, &unit_id, user_id, &new)
+        .schedule_unit_review(&course_id, &unit_id, user_id, &new, Some(now))
         .await?;
     Ok(created(&review))
 }
@@ -202,8 +202,9 @@ async fn handle_complete_unit_review(
     } else {
         decode_object(&body)?
     };
+    let now = ws.app.schedule_now_millis();
     let next = if request.schedule_next_interval_days.is_some() {
-        let today = ws.app.user_today(user_id, now_millis()).await?;
+        let today = ws.app.user_today(user_id, now).await?;
         request.check_request(&today)?
     } else {
         None
@@ -211,7 +212,14 @@ async fn handle_complete_unit_review(
     let intervals = course_review_intervals(&access.container.properties);
     let completed = ws
         .app
-        .complete_unit_review(&course_id, &review_id, user_id, &intervals, next.as_ref())
+        .complete_unit_review(
+            &course_id,
+            &review_id,
+            user_id,
+            &intervals,
+            next.as_ref(),
+            Some(now),
+        )
         .await?;
     Ok(json_response(&completed))
 }
@@ -406,7 +414,8 @@ async fn handle_delete_unit_note(
 )]
 async fn handle_get_workspace_today_reviews(InCourse(ws): InCourse) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let today = ws.app.user_today(user_id, now_millis()).await?;
+    let now = ws.app.schedule_now_millis();
+    let today = ws.app.user_today(user_id, now).await?;
     let items = ws
         .app
         .workspace_today_reviews(&ws.workspace_id, user_id, &today)

@@ -727,6 +727,7 @@ async fn unjoined_workspace_member_is_refused_inside_unit_and_schedule_transacti
                 scheduled_date: "2026-11-25".to_owned(),
                 interval_days: 1,
             },
+            None,
         )
         .await
         .is_err_and(|error| error.is_not_found()),

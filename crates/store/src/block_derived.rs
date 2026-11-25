@@ -7,7 +7,7 @@
 
 use fvoci_model::{Block, SearchKind};
 
-use crate::db::Scope;
+use crate::db::{Id, Scope};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 use crate::search_outbox;
@@ -105,6 +105,62 @@ pub(crate) async fn container_trashed(
     container_id: &str,
 ) -> Result<(), StoreError> {
     search_outbox::note_container(scope, container_id).await
+}
+
+/// Forgets what a single block `block_id` on `container_id` that was removed for good
+/// (without entering the trash) leaves behind, using direct indexed deletes instead of
+/// scanning every derived table across the organization.
+pub(crate) async fn forget_block(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+    container_id: &str,
+) -> Result<(), StoreError> {
+    for prefix in [
+        "DELETE FROM comment_versions WHERE block_id = ",
+        "DELETE FROM body_updates WHERE block_id = ",
+        "DELETE FROM body_docs WHERE block_id = ",
+        "DELETE FROM body_versions WHERE block_id = ",
+        "DELETE FROM body_version_editors WHERE block_id = ",
+    ] {
+        let mut sql = scope.sql(prefix);
+        sql.bind(Id(block_id));
+        scope.execute(sql).await?;
+    }
+
+    let mut links = scope.sql("DELETE FROM body_links WHERE source_id = ");
+    links
+        .bind(Id(block_id))
+        .push_bind(" OR target_id = ", Id(block_id));
+    scope.execute(links).await?;
+
+    let org = scope.has_org().then(|| scope.org()).transpose()?;
+    for prefix in [
+        "DELETE FROM unit_progress WHERE unit_id = ",
+        "DELETE FROM unit_reviews WHERE unit_id = ",
+        "DELETE FROM unit_notes WHERE unit_id = ",
+    ] {
+        let mut sql = scope.sql(prefix);
+        sql.changing_no_access().bind(Id(block_id));
+        if let Some(org) = org.clone() {
+            sql.push_bind(" AND org_id = ", org);
+        }
+        scope.execute(sql).await?;
+    }
+
+    let mut refs = scope.sql("DELETE FROM file_refs WHERE block_id = ");
+    refs.bind(Id(block_id)).push(" RETURNING name");
+    let mut names = scope
+        .fetch_all(refs)
+        .await?
+        .iter()
+        .map(|row| row.text(0))
+        .collect::<Result<Vec<_>, _>>()?;
+    if !names.is_empty() {
+        names.sort_unstable();
+        names.dedup();
+        file_refs::mark(scope, Some((container_id, &names))).await?;
+    }
+    Ok(())
 }
 
 /// Forgets what blocks that are gone for good, neither on a board nor in the trash,

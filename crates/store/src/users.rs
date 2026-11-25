@@ -13,7 +13,7 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::audit::AuditActor;
-use crate::db::{Dialect, Id, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::password_reset;
 use crate::person_names;
@@ -23,7 +23,7 @@ use crate::{directory, members, users_by_id};
 /// The columns of a user, in the order [`user_from_row`] reads them.
 pub(crate) const USER_COLUMNS: &str = concat!(
     "id, username, email, password_hash, password_locked_at, created_at, updated_at, deleted_at, \
-     is_admin, display_name, ",
+     is_admin, display_name, email_verified_at, ",
     person_names::name_columns!()
 );
 
@@ -300,9 +300,10 @@ impl Store {
                     if follows {
                         crate::org_admin::lock_organization(scope).await?;
                     }
+                    let now = scope.now_millis();
                     let mut sql = scope.sql("UPDATE users SET is_admin = ");
                     sql.bind(is_admin)
-                        .push_bind(", updated_at = ", now_millis())
+                        .push_bind(", updated_at = ", now)
                         .push_bind(" WHERE id = ", Id(user_id));
                     scope.execute(sql).await?;
                     if follows {
@@ -347,9 +348,10 @@ impl Store {
             None
         };
         self.transaction(async |scope| {
+            let now = scope.now_millis();
             let mut sql = scope.sql("UPDATE users SET ");
             sql.push_bind("password_hash = ", password_hash)
-                .push_bind(", updated_at = ", now_millis())
+                .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(user_id))
                 .push_bind(" AND password_hash = ", seen_password_hash)
                 .push_bind(" AND password_locked_at = ", 0_i64);
@@ -473,9 +475,11 @@ impl Store {
 
 /// Starts the query for the users that are not deleted; conditions follow with `AND`.
 fn select_users(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!(
-        "SELECT {USER_COLUMNS} FROM users WHERE deleted_at IS NULL"
-    ))
+    scope.sql([
+        "SELECT ",
+        USER_COLUMNS,
+        " FROM users WHERE deleted_at IS NULL",
+    ])
 }
 
 /// The ten oldest users among those `narrow` keeps, oldest first, whose login name or
@@ -552,7 +556,8 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         deleted_at: row.opt_int(7)?,
         is_admin: row.bool(8)?,
         display_name: row.text(9)?,
-        name: person_names::name_from_row(row, 10)?,
+        email_verified_at: row.int(10)?,
+        name: person_names::name_from_row(row, 11)?,
     })
 }
 
@@ -611,9 +616,13 @@ pub(crate) async fn account_by_id(
 /// Returns the account `lookup` selects that somebody can sign in to: in use, or
 /// waiting to be deleted ([`WAITS`]).
 async fn find_account(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {USER_COLUMNS} FROM users WHERE (deleted_at IS NULL OR ({WAITS})) AND "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        USER_COLUMNS,
+        " FROM users WHERE (deleted_at IS NULL OR (",
+        WAITS,
+        ")) AND ",
+    ]);
     lookup.push_condition(&mut sql);
     fetch_users(scope, sql)
         .await?
@@ -623,13 +632,18 @@ async fn find_account(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User,
 }
 
 /// Whether an account in use, one that waits to be deleted, or one that is being
-/// erased (its row has the address until the erasing ends) has the address `email` as
-/// its own, in any letter case.
+/// erased (its row has the address until the erasing ends) has the verified address
+/// `email` as its own, in any letter case. Unverified addresses entered while mail is
+/// disabled (`email_verified_at = 0`) do not reserve the address against verified OIDC
+/// sign-in (`H-3`).
 pub(crate) async fn has_address(scope: &mut Scope<'_>, email: &str) -> Result<bool, StoreError> {
-    let mut sql = scope.sql(&format!(
+    let mut sql = scope.sql([
         "SELECT 1 FROM users \
-         WHERE (deleted_at IS NULL OR ({WAITS}) OR (erase_started_at > 0 AND erased_at = 0)) AND "
-    ));
+         WHERE email_verified_at > 0 \
+         AND (deleted_at IS NULL OR (",
+        WAITS,
+        ") OR (erase_started_at > 0 AND erased_at = 0)) AND ",
+    ]);
     Lookup::Email(email).push_condition(&mut sql);
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
@@ -656,7 +670,7 @@ pub(crate) async fn get_user_by_id(
 /// (`PersonName::shown`) whatever its `display_name` says; a name or an address that is
 /// taken is a conflict.
 pub(crate) async fn insert_user_row(scope: &mut Scope<'_>, user: &User) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!("INSERT INTO users ({USER_COLUMNS}) VALUES ("));
+    let mut sql = scope.sql(["INSERT INTO users (", USER_COLUMNS, ") VALUES ("]);
     sql.bind(Id(&user.id))
         .push_bind(", ", &user.username)
         .push_bind(", ", &user.email)
@@ -666,7 +680,8 @@ pub(crate) async fn insert_user_row(scope: &mut Scope<'_>, user: &User) -> Resul
         .push_bind(", ", user.updated_at)
         .push_bind(", ", Param::OptInt(user.deleted_at))
         .push_bind(", ", user.is_admin)
-        .push_bind(", ", user.name.shown());
+        .push_bind(", ", user.name.shown())
+        .push_bind(", ", user.email_verified_at);
     person_names::push_name_values(&mut sql, &user.name);
     sql.push(")");
     match scope.execute(sql).await {
@@ -706,10 +721,11 @@ async fn update_password(
     lookup: Lookup<'_>,
     password_hash: &str,
 ) -> Result<(), StoreError> {
+    let now = scope.now_millis();
     let mut sql = scope.sql("UPDATE users SET ");
     sql.push_bind("password_hash = ", password_hash)
         .push_bind(", password_locked_at = ", 0_i64)
-        .push_bind(", updated_at = ", now_millis())
+        .push_bind(", updated_at = ", now)
         .push(" WHERE ");
     lookup.push_condition(&mut sql);
     if scope.execute(sql).await? == 0 {
@@ -720,9 +736,11 @@ async fn update_password(
 }
 
 async fn stored_settings(scope: &mut Scope<'_>, user_id: &str) -> Result<UserSettings, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {USER_SETTINGS_COLUMNS} FROM user_settings WHERE user_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        USER_SETTINGS_COLUMNS,
+        " FROM user_settings WHERE user_id = ",
+    ]);
     sql.bind(Id(user_id));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(UserSettings::default());
@@ -783,12 +801,12 @@ async fn upsert_user_settings(
     if columns.is_empty() {
         return Ok(());
     }
-    let names: Vec<&str> = columns.iter().map(|(col, _)| *col).collect();
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO user_settings (user_id, {}) VALUES (",
-        names.join(", ")
-    ));
-    sql.bind(Id(user_id));
+    let names: Vec<&'static str> = columns.iter().map(|(col, _)| *col).collect();
+    let mut sql = scope.sql("INSERT INTO user_settings (user_id");
+    for col in &names {
+        sql.push(", ").push(*col);
+    }
+    sql.push(") VALUES (").bind(Id(user_id));
     for (_, param) in columns {
         sql.push_bind(", ", param);
     }
@@ -797,7 +815,7 @@ async fn upsert_user_settings(
         if index > 0 {
             sql.push(", ");
         }
-        sql.push(col).push(" = EXCLUDED.").push(col);
+        sql.push(*col).push(" = EXCLUDED.").push(*col);
     }
     scope.execute(sql).await?;
     Ok(())
@@ -961,9 +979,10 @@ pub(crate) async fn follow_org_role(
             return Ok(false);
         }
     }
+    let now = scope.now_millis();
     let mut sql = scope.sql("UPDATE users SET is_admin = ");
     sql.bind(is_admin)
-        .push_bind(", updated_at = ", now_millis())
+        .push_bind(", updated_at = ", now)
         .push_bind(" WHERE id = ", Id(user_id))
         .push_bind(" AND is_admin <> ", is_admin);
     scope.execute(sql).await?;

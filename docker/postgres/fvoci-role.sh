@@ -34,8 +34,14 @@ SELECT NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'role') AS missing \gse
 CREATE ROLE :"role";
 \endif
 \set password `tr -d '\r' < :'file'`
+SET log_statement = 'none';
+SET log_min_duration_statement = -1;
+SET log_min_error_statement = panic;
 ALTER ROLE :"role" LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION
     PASSWORD :'password';
+RESET log_min_error_statement;
+RESET log_min_duration_statement;
+RESET log_statement;
 \unset password
 REVOKE ALL ON DATABASE :"DBNAME" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"DBNAME" TO :"role";

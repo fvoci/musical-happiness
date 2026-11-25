@@ -256,11 +256,21 @@ impl Client {
     ///
     /// Returns an error if the TLS of the client cannot be set up.
     pub(crate) fn new(server: &SearchServer) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .build()?;
+            .connect_timeout(CONNECT_TIMEOUT);
+        if let Some(ca_path) = &server.ca_file {
+            let pem = std::fs::read(ca_path).map_err(|error| {
+                anyhow::anyhow!("unable to read search_ca_file {ca_path:?}: {error}")
+            })?;
+            for cert in reqwest::Certificate::from_pem_bundle(&pem).map_err(|error| {
+                anyhow::anyhow!("invalid PEM certificate in search_ca_file {ca_path:?}: {error}")
+            })? {
+                builder = builder.add_root_certificate(cert);
+            }
+        }
+        let http = builder.build()?;
         Ok(Self {
             http,
             base: server.url.clone(),

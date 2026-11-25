@@ -11,7 +11,7 @@ use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::db::{Dialect, Id, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
 use crate::oidc::{
     self, Identity, Newcomers, OidcAccount, OidcRefusal, StoredProvider,
@@ -172,13 +172,16 @@ impl Store {
             }
             // Later than the settings before, also within one millisecond or when the
             // clock went back: a trial names one state of them.
+            let base_now = scope.now_millis();
             let now = match read_pending(scope).await? {
-                Some(before) => now_millis().max(before.created_at.saturating_add(1)),
-                None => now_millis(),
+                Some(before) => base_now.max(before.created_at.saturating_add(1)),
+                None => base_now,
             };
-            let mut sql = scope.sql(&format!(
-                "INSERT INTO oidc_pending_providers (org_id, {PENDING_COLUMNS}) VALUES ("
-            ));
+            let mut sql = scope.sql([
+                "INSERT INTO oidc_pending_providers (org_id, ",
+                PENDING_COLUMNS,
+                ") VALUES (",
+            ]);
             sql.bind(scope.org()?)
                 .push_bind(", ", Id(&provider.id))
                 .push_bind(", ", &settings.issuer)
@@ -190,7 +193,7 @@ impl Store {
                      issuer = excluded.issuer, client_id = excluded.client_id, \
                      client_secret = excluded.client_secret, created_at = excluded.created_at",
                 )
-                .push(&format!(" RETURNING {PENDING_COLUMNS}"));
+                .push([" RETURNING ", PENDING_COLUMNS]);
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             let stored = pending_from_row(&row)?;
             let entry = AuditEntry::new(
@@ -512,9 +515,11 @@ async fn is_made_just_now(
 
 /// The pending settings of the transaction's organization's provider, if there are.
 async fn read_pending(scope: &mut Scope<'_>) -> Result<Option<PendingProvider>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {PENDING_COLUMNS} FROM oidc_pending_providers WHERE org_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        PENDING_COLUMNS,
+        " FROM oidc_pending_providers WHERE org_id = ",
+    ]);
     sql.bind(scope.org()?);
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");

@@ -1,6 +1,6 @@
 //! Boards and blocks created, patched and deleted together in one request.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use axum::body::Bytes;
 use fvoci_model::{
@@ -22,14 +22,11 @@ use super::containers::{BoardObject, check_listed_boards};
 use super::{ApiResult, json_response, no_content};
 use super::{BlockAction, require_block_patch_permission, require_block_permission};
 use super::{decode_json, json_object};
-use super::{decode_object, require_container_permission};
-use super::{
-    element_pointer, objects_mut, put_patch_bodies, require_delete_permission, take_block_bodies,
-    take_patch_bodies,
-};
-use crate::app::App;
+use super::{decode_object, require_granted};
+use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
+use crate::app::{App, ContainerAccess};
 use crate::error::AppError;
-use crate::permissions::ContainerPermission;
+use crate::permissions::{ContainerPermission, Grant};
 
 /// The JSON Pointers to the blocks of a `ContainersAndBlocks` and to the block patches of a
 /// `PatchContainersAndBlocks`.
@@ -184,6 +181,7 @@ async fn handle_patch_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Api
 
     let mut workspace_id = String::new();
     let mut container_ids = HashSet::new();
+    let mut access_by_container: HashMap<&str, ContainerAccess> = HashMap::new();
     for (index, (container_id, patch)) in patches
         .container_ids
         .iter()
@@ -193,44 +191,57 @@ async fn handle_patch_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Api
         container_ids.insert(container_id.as_str());
 
         let names_a_kind = names_a_kind.get(index).copied().unwrap_or_default();
-        require_container_permission(
-            &ws.app,
-            user_id,
-            container_id,
+        let access = match access_by_container.get(container_id.as_str()) {
+            Some(found) => found,
+            None => {
+                let loaded = ws.app.container_access(user_id, container_id).await?;
+                let grant = loaded.as_ref().map_or(Grant::NONE, |found| found.grant);
+                require_granted(
+                    grant,
+                    ContainerPermission::ManageProperties,
+                    "access denied to modifying board properties",
+                )?;
+                let found = loaded.ok_or_else(|| AppError::not_found("board"))?;
+                access_by_container
+                    .entry(container_id.as_str())
+                    .or_insert(found)
+            }
+        };
+        require_granted(
+            access.grant,
             ContainerPermission::ManageProperties,
             "access denied to modifying board properties",
-        )
-        .await?;
+        )?;
         // As `patchContainer`: the kind of a board never changes.
         if names_a_kind {
             return Err(AppError::bad_request("the kind of a board never changes")
                 .with_pointer(format!("/containerPatches/{index}/kind")));
         }
         if patch.visibility.is_some() || patch.minimum_role.is_some() {
-            require_container_permission(
-                &ws.app,
-                user_id,
-                container_id,
+            require_granted(
+                access.grant,
                 ContainerPermission::ManageType,
                 "access denied to modifying board type",
-            )
-            .await?;
+            )?;
         }
 
-        let container = ws.app.container(container_id).await?;
         if workspace_id.is_empty() {
-            workspace_id.clone_from(&container.workspace_id);
+            workspace_id.clone_from(&access.container.workspace_id);
         }
-        if workspace_id != container.workspace_id {
+        if workspace_id != access.container.workspace_id {
             return Err(AppError::bad_request("mismatched workspace ID"));
         }
     }
 
-    require_block_patches(&ws.app, user_id, &patches, &container_ids).await?;
+    let blocks_by_id =
+        load_blocks_of_containers(&ws.app, &patches.block_ids, &container_ids).await?;
+    require_block_patches(&ws.app, user_id, &patches, &blocks_by_id).await?;
     let block_patches = patches.block_ids.iter().zip(&patches.block_patches);
     for (index, (block_id, patch)) in block_patches.enumerate() {
         if let Some(body) = patch.body.new_body() {
-            let block = ws.app.block(block_id).await?;
+            let block = blocks_by_id
+                .get(block_id.as_str())
+                .ok_or_else(not_a_block_of_the_containers)?;
             ws.app
                 .check_body_files(&block.container_id, Some(body))
                 .await
@@ -256,6 +267,36 @@ fn not_a_block_of_the_containers() -> AppError {
     AppError::bad_request("the request names a block that is not on its boards")
 }
 
+/// Loads every block in `block_ids` in a single store query and verifies that each belongs
+/// to `container_ids`. Missing, non-identifier, or off-container IDs all return the same
+/// [`not_a_block_of_the_containers`] refusal so nothing leaks about other boards (`1.2.2`).
+async fn load_blocks_of_containers(
+    app: &App,
+    block_ids: &[String],
+    container_ids: &HashSet<&str>,
+) -> Result<HashMap<String, Block>, AppError> {
+    if block_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    if !block_ids.iter().all(|id| fvoci_model::is_id(id)) {
+        return Err(not_a_block_of_the_containers());
+    }
+    let Some(blocks) = app.blocks_by_ids(block_ids).await? else {
+        return Err(not_a_block_of_the_containers());
+    };
+    let mut by_id = HashMap::with_capacity(blocks.len());
+    for block in blocks {
+        if !container_ids.contains(block.container_id.as_str()) {
+            return Err(not_a_block_of_the_containers());
+        }
+        by_id.insert(block.id.clone(), block);
+    }
+    if block_ids.iter().any(|id| !by_id.contains_key(id.as_str())) {
+        return Err(not_a_block_of_the_containers());
+    }
+    Ok(by_id)
+}
+
 /// Checks that every block is on one of the boards, and that the user may delete it as
 /// `deleteBlock` would. The same answer for a block that does not exist and for one on
 /// a board the request does not list, so that nothing is said about blocks of other
@@ -266,9 +307,12 @@ async fn require_blocks_to_delete(
     block_ids: &[String],
     container_ids: &HashSet<&str>,
 ) -> Result<(), AppError> {
+    let blocks_by_id = load_blocks_of_containers(app, block_ids, container_ids).await?;
     for block_id in block_ids {
-        let block = block_of_containers(app, block_id, container_ids).await?;
-        require_delete_permission(app, user_id, &block, MODIFYING_CARDS_DENIED).await?;
+        let block = blocks_by_id
+            .get(block_id.as_str())
+            .ok_or_else(not_a_block_of_the_containers)?;
+        super::require_delete_permission(app, user_id, block, MODIFYING_CARDS_DENIED).await?;
     }
     Ok(())
 }
@@ -279,36 +323,23 @@ async fn require_block_patches(
     app: &App,
     user_id: &str,
     patches: &PatchContainersAndBlocks,
-    container_ids: &HashSet<&str>,
+    blocks_by_id: &HashMap<String, Block>,
 ) -> Result<(), AppError> {
     for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
-        let block = block_of_containers(app, block_id, container_ids).await?;
+        let block = blocks_by_id
+            .get(block_id.as_str())
+            .ok_or_else(not_a_block_of_the_containers)?;
         require_block_permission(
             app,
             user_id,
-            &block,
+            block,
             BlockAction::Change,
             MODIFYING_CARDS_DENIED,
         )
         .await?;
-        require_block_patch_permission(app, user_id, &block, patch, MODIFYING_CARDS_DENIED).await?;
+        require_block_patch_permission(app, user_id, block, patch, MODIFYING_CARDS_DENIED).await?;
     }
     Ok(())
-}
-
-/// The block, if it is on one of the boards; [`not_a_block_of_the_containers`] if it does
-/// not exist or is on another board.
-async fn block_of_containers(
-    app: &App,
-    block_id: &str,
-    container_ids: &HashSet<&str>,
-) -> Result<Block, AppError> {
-    match app.block(block_id).await {
-        Ok(block) if container_ids.contains(block.container_id.as_str()) => Ok(block),
-        Ok(_) => Err(not_a_block_of_the_containers()),
-        Err(error) if error.is_not_found() => Err(not_a_block_of_the_containers()),
-        Err(error) => Err(error),
-    }
 }
 
 /// Delete boards and blocks together
@@ -337,19 +368,18 @@ async fn handle_delete_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Ap
     let mut container_ids = HashSet::new();
     for container_id in &request.containers {
         container_ids.insert(container_id.as_str());
-        require_container_permission(
-            &ws.app,
-            user_id,
-            container_id,
+        let loaded = ws.app.container_access(user_id, container_id).await?;
+        let grant = loaded.as_ref().map_or(Grant::NONE, |found| found.grant);
+        require_granted(
+            grant,
             ContainerPermission::Delete,
             "access denied to delete board",
-        )
-        .await?;
-        let container = ws.app.container(container_id).await?;
+        )?;
+        let access = loaded.ok_or_else(|| AppError::not_found("board"))?;
         if workspace_id.is_empty() {
-            workspace_id.clone_from(&container.workspace_id);
+            workspace_id.clone_from(&access.container.workspace_id);
         }
-        if workspace_id != container.workspace_id {
+        if workspace_id != access.container.workspace_id {
             return Err(AppError::bad_request(
                 "all boards should belong to the same workspace",
             ));

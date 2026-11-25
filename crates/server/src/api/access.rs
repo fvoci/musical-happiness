@@ -123,8 +123,19 @@ pub(crate) async fn require_block_permission(
     action: BlockAction<'_>,
     denial: &str,
 ) -> Result<(), AppError> {
-    let (permission, denial) = block_permission(user_id, block, action, denial);
     let grant = app.container_grant(user_id, &block.container_id).await?;
+    require_block_permission_with_grant(grant, user_id, block, action, denial)
+}
+
+/// Checks `action` on `block` using an already-resolved [`Grant`] on `block.container_id`.
+pub(crate) fn require_block_permission_with_grant(
+    grant: Grant,
+    user_id: &str,
+    block: &Block,
+    action: BlockAction<'_>,
+    denial: &str,
+) -> Result<(), AppError> {
+    let (permission, denial) = block_permission(user_id, block, action, denial);
     require_granted(grant, permission, denial)
 }
 
@@ -142,11 +153,8 @@ fn block_permission<'a>(
 }
 
 /// Checks what a patch does beyond changing a block's text. Changing a comment is its
-/// text (its body and the files that go with it): moving it to another card
-/// (`parentId`) or making it a block of another type is for editors (the commenter's
-/// role makes no card and moves none), and making a block a comment is for who may
-/// change that comment, so that nobody makes a comment that says somebody else wrote
-/// it. A refusal says what [`require_block_permission`]'s says.
+/// text (its body and the files that go with it): moving it to another card (`parentId`)
+/// is for editors (the commenter's role makes no card and moves none).
 pub(crate) async fn require_block_patch_permission(
     app: &App,
     user_id: &str,
@@ -158,27 +166,28 @@ pub(crate) async fn require_block_patch_permission(
         .parent_id
         .as_ref()
         .is_some_and(|parent_id| *parent_id != block.parent_id);
-    let changes_type = patch.block_type.as_ref().is_some_and(|new_type| {
-        (block.block_type == BlockType::Comment) != (*new_type == BlockType::Comment)
-    });
-    let moves_comment = block.block_type == BlockType::Comment && moves;
-    if !(changes_type || moves_comment) {
-        return Ok(());
-    }
-    let grant = app.container_grant(user_id, &block.container_id).await?;
-    if moves_comment {
+    if block.block_type == BlockType::Comment && moves {
+        let grant = app.container_grant(user_id, &block.container_id).await?;
         require_granted(grant, ContainerPermission::ManageCards, denial)?;
     }
-    let Some(new_type) = patch.block_type.as_ref() else {
-        return Ok(());
-    };
-    let (permission, denial) = match (&block.block_type, new_type) {
-        (BlockType::Comment, BlockType::Comment) => return Ok(()),
-        (BlockType::Comment, _) => (ContainerPermission::ManageCards, denial),
-        (_, BlockType::Comment) => comment_permission(user_id, block, BlockAction::Change, denial),
-        _ => return Ok(()),
-    };
-    require_granted(grant, permission, denial)
+    Ok(())
+}
+
+/// Checks [`require_block_patch_permission`] using an already-resolved [`Grant`].
+pub(crate) fn require_block_patch_permission_with_grant(
+    grant: Grant,
+    block: &Block,
+    patch: &BlockPatch,
+    denial: &str,
+) -> Result<(), AppError> {
+    let moves = patch
+        .parent_id
+        .as_ref()
+        .is_some_and(|parent_id| *parent_id != block.parent_id);
+    if block.block_type == BlockType::Comment && moves {
+        require_granted(grant, ContainerPermission::ManageCards, denial)?;
+    }
+    Ok(())
 }
 
 /// Checks that the user may delete the block, of a board the request names, with what

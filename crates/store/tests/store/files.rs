@@ -745,21 +745,18 @@ async fn a_changed_comment_keeps_what_it_said_before() {
     test.teardown().await;
 }
 
-/// A patch that makes the block of the given type with a body that says the text and
-/// shows the files.
-fn typed_body(block_type: BlockType, words: &str, names: &[&str]) -> fvoci_model::BlockPatch {
+/// A patch that writes a body saying `words` and showing `names`.
+fn body_patch(words: &str, names: &[&str]) -> fvoci_model::BlockPatch {
     fvoci_model::BlockPatch {
-        block_type: Some(block_type),
         body: fvoci_model::BodyChange::Set(body_showing(words, names).expect("a body")),
         ..fvoci_model::BlockPatch::default()
     }
 }
 
-/// A comment made a card keeps its versions and their files, and has no `editedAt`;
-/// made a comment again, the body it had as a card is a version of its own. With one
-/// version kept, only the first stays, and the file of a version that goes is collected.
+/// With one comment version kept, only the first stays, and the file of a version that
+/// goes is collected once its grace window passes.
 #[tokio::test]
-async fn a_comment_made_a_card_and_back_keeps_its_versions() {
+async fn pruning_comment_versions_releases_files_shown_only_in_dropped_versions() {
     let test = common::setup().await;
     let store = &test.store;
     let author = common::user(store, "jan.levinson").await;
@@ -768,44 +765,24 @@ async fn a_comment_made_a_card_and_back_keeps_its_versions() {
     let later = now_millis() + 3_600_000;
 
     store
-        .patch_block(
-            id,
-            &typed_body(BlockType::Comment, "v2", &["7second.png"]),
-            &author,
-        )
+        .patch_block(id, &body_patch("v2", &["7second.png"]), &author)
         .await
         .expect("the comment is changed");
     store
-        .patch_block(id, &typed_body(BlockType::Card, "as a card", &[]), &author)
+        .patch_block(id, &body_patch("v3", &[]), &author)
         .await
-        .expect("the comment is made a card");
-    let card = store.get_block(id).await.expect("the card");
-    assert_eq!(card.edited_at, 0, "a card has no editedAt");
+        .expect("the comment is changed again");
     assert_eq!(
         collected(store, later).await,
         Vec::<String>::new(),
-        "the versions' files stay"
-    );
-
-    store
-        .patch_block(id, &typed_body(BlockType::Comment, "v4", &[]), &author)
-        .await
-        .expect("a comment again");
-    assert_eq!(
-        version_texts(store, id).await,
-        [
-            (1, "v1".to_owned()),
-            (2, "v2".to_owned()),
-            (3, "as a card".to_owned())
-        ],
-        "the body it had as a card is a version"
+        "the versions' files stay while kept"
     );
 
     store.set_comment_versions_kept(1);
     store
-        .patch_block(id, &typed_body(BlockType::Comment, "v5", &[]), &author)
+        .patch_block(id, &body_patch("v4", &[]), &author)
         .await
-        .expect("the comment is changed");
+        .expect("the comment is changed with one version kept");
     assert_eq!(
         version_texts(store, id).await,
         [(1, "v1".to_owned())],

@@ -47,26 +47,31 @@ const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.container_id,
 /// their boards `bo` and workspaces `w`: the cards and the pages of the boards and
 /// wikis that are no templates, but no block whose `isTemplate` is `true` (for a card,
 /// a template of its board's cards). What is in the trash is no block, and has none. More `AND` conditions on `b` may follow.
-pub(crate) fn select_documents(scope: &Scope<'_>, columns: &str) -> Sql {
+pub(crate) fn select_documents(scope: &Scope<'_>, columns: &'static str) -> Sql {
     // Only the JSON `true`, as `block_derived` reads it: not `1`, nor `"true"`.
     let no_template = match scope.dialect() {
         Dialect::Sqlite => "json_type(b.fields, '$.isTemplate') IS NOT 'true'",
         Dialect::Postgres => "(b.fields->'isTemplate')::text IS DISTINCT FROM 'true'",
     };
-    let mut sql = scope.sql(&format!(
-        "SELECT {columns} FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id{} \
-         JOIN workspaces AS w ON w.id = bo.workspace_id{} \
-         WHERE bo.is_template = false AND bo.is_builtin = false AND {no_template} \
-         AND b.type IN (",
-        scope.same_organization(&[("bo", "b")]),
-        scope.same_organization(&[("w", "bo")]),
-    ));
-    sql.bind_list(
-        SearchKind::ALL
-            .iter()
-            .map(|kind| kind.block_type().as_str().to_owned()),
-    )
-    .push(")");
+    let mut sql = scope.sql([
+        "SELECT ",
+        columns,
+        " FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id",
+    ]);
+    sql.push(&scope.same_organization(&[("bo", "b")]))
+        .push(" JOIN workspaces AS w ON w.id = bo.workspace_id")
+        .push(&scope.same_organization(&[("w", "bo")]))
+        .push([
+            " WHERE bo.is_template = false AND bo.is_builtin = false AND ",
+            no_template,
+            " AND b.type IN (",
+        ])
+        .bind_list(
+            SearchKind::ALL
+                .iter()
+                .map(|kind| kind.block_type().as_str().to_owned()),
+        )
+        .push(")");
     sql
 }
 

@@ -71,6 +71,16 @@ impl App {
                 };
                 return Err(AppError::bad_request(how).with_field("role"));
             }
+            if matches!(
+                (member.role, role),
+                (
+                    WorkspaceRole::Admin,
+                    WorkspaceRole::Member | WorkspaceRole::Guest
+                ) | (WorkspaceRole::Member, WorkspaceRole::Guest)
+            ) {
+                self.collab()
+                    .narrowing_access(self, &AccessScope::workspace(workspace_id).of_user(user_id));
+            }
             let change = self
                 .store()
                 .change_workspace_role(workspace_id, user_id, (member.role, role), by)
@@ -118,6 +128,8 @@ impl App {
                 "another administrator takes an administrator out of the workspace",
             ));
         }
+        self.collab()
+            .narrowing_access(self, &AccessScope::workspace(workspace_id).of_user(user_id));
         let change = self
             .store()
             .remove_workspace_member(workspace_id, user_id, by)

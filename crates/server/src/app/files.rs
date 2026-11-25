@@ -21,7 +21,7 @@ use super::App;
 use super::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 use crate::storage::StorageError;
 
 /// What a request misses that asks for a file that is not there.
@@ -98,6 +98,25 @@ impl App {
         self.save_file_by(reader, container_id, filename, "").await
     }
 
+    /// Verifies that storing `added_bytes` more in this handle's organization stays
+    /// within `max_org_storage_bytes` (`Track4 P2-2`).
+    pub(crate) async fn check_org_storage_room(&self, added_bytes: u64) -> Result<(), AppError> {
+        let max_bytes = self.limits().max_storage_bytes;
+        let current = self.store().organization_storage_bytes().await?;
+        let added = i64::try_from(added_bytes).unwrap_or(i64::MAX);
+        if current.saturating_add(added) > max_bytes {
+            let limit_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+            return Err(AppError::too_large(
+                format_args!(
+                    "storing the file would exceed the organization's storage limit of {max_bytes} bytes"
+                ),
+                limit_u64,
+            )
+            .with_reason(Reason::StorageFull));
+        }
+        Ok(())
+    }
+
     /// [`App::save_file`], with who uploads the file: who its first version is by.
     /// Empty where nobody is known to.
     ///
@@ -111,6 +130,7 @@ impl App {
         filename: &str,
         user_id: &str,
     ) -> Result<String, AppError> {
+        self.check_org_storage_room(0).await?;
         let place = self.new_file_place(container_id, filename).await?;
         self.mark_writing(&place.path).await?;
         let write = self.files().write(&place.path, reader);
@@ -128,6 +148,10 @@ impl App {
                 )));
             }
         };
+        if let Err(error) = self.check_org_storage_room(size).await {
+            self.give_up_writing(&place.path, Written::Settled).await;
+            return Err(error);
+        }
         let record = file_record(container_id, place, size, user_id);
         self.record_written(&record).await?;
         Ok(record.stored_name)

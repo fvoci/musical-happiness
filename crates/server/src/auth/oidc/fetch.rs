@@ -190,7 +190,7 @@ impl Fetcher {
 }
 
 /// Whether a failed request failed because the resolver refused the host's addresses.
-fn is_refused_address(error: &reqwest::Error) -> bool {
+pub(crate) fn is_refused_address(error: &reqwest::Error) -> bool {
     let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
     while let Some(current) = source {
         if current.downcast_ref::<RefusedAddress>().is_some() {
@@ -202,8 +202,8 @@ fn is_refused_address(error: &reqwest::Error) -> bool {
 }
 
 impl Addresses {
-    /// Whether a provider may be at `address`.
-    fn allows(self, address: IpAddr) -> bool {
+    /// Whether an outbound target may be at `address`.
+    pub(crate) fn allows(self, address: IpAddr) -> bool {
         match self {
             Self::Any => true,
             Self::PublicOnly => is_public(address),
@@ -211,17 +211,25 @@ impl Addresses {
     }
 }
 
-/// The resolver of the client: the system's, whose answer is refused whole if one of
-/// its addresses is not allowed.
+/// The resolver of outbound clients: the system's, whose answer is refused whole if one
+/// of its addresses is not allowed.
 #[derive(Debug)]
-struct CheckedResolver {
+pub(crate) struct CheckedResolver {
     addresses: Addresses,
+}
+
+impl CheckedResolver {
+    /// Creates a DNS resolver enforcing `addresses`.
+    #[must_use]
+    pub(crate) const fn new(addresses: Addresses) -> Self {
+        Self { addresses }
+    }
 }
 
 /// The resolver refused a host for its addresses.
 #[derive(Debug, Error)]
 #[error("the host resolves to an address that is not allowed")]
-struct RefusedAddress;
+pub(crate) struct RefusedAddress;
 
 impl Resolve for CheckedResolver {
     fn resolve(&self, name: Name) -> Resolving {

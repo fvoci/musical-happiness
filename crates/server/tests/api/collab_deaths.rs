@@ -365,6 +365,7 @@ async fn two_workers() -> TestServer {
     Setup::native()
         .configure(|config| {
             config.collab.collab_workers = 2;
+            config.collab.collab_documents_per_worker = 1;
             config.collab.collab_worker_timeout_ms = 3_000;
         })
         .start()
@@ -475,6 +476,12 @@ async fn others_are_taken_while_an_update_of_a_sender_ends_a_worker() {
     let th = Setup::native()
         .configure(|config| {
             config.collab.collab_workers = 2;
+            config.collab.collab_documents_per_worker =
+                if fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres {
+                    2
+                } else {
+                    1
+                };
             config.collab.collab_worker_timeout_ms = 120_000;
         })
         .start()
@@ -485,9 +492,8 @@ async fn others_are_taken_while_an_update_of_a_sender_ends_a_worker() {
     let other = editing(&th, &paragraphs(&["y"])).await;
     let collab = ending.app.collab().clone();
     let (on_ending, ending_epoch) = joined(&collab, &ending.app, &ending.card_id, 201).await;
-    let (on_other, other_epoch) = joined(&collab, &other.app, &other.card_id, 202).await;
-    // SQLite holds one organization. Another card on the first worker, so that theirs
-    // is opened on the second.
+    // SQLite holds one organization. On PostgreSQL, fill the second slot on the first
+    // worker so `other` spills to the second worker alongside the second organization.
     let theirs = if fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres {
         let filler = editing(&th, &paragraphs(&["z"])).await;
         joined(&collab, &filler.app, &filler.card_id, 203).await;
@@ -495,6 +501,7 @@ async fn others_are_taken_while_an_update_of_a_sender_ends_a_worker() {
     } else {
         None
     };
+    let (on_other, other_epoch) = joined(&collab, &other.app, &other.card_id, 202).await;
     let pids = collab.worker_pids().await;
     assert!(pids.iter().all(Option::is_some), "{pids:?}");
 

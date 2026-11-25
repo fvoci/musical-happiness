@@ -41,6 +41,11 @@ use crate::{Store, Tenant};
 /// or local commit (a synchronous standby that stalls can hold it longer).
 const SETTLE: Duration = Duration::from_secs(60);
 
+/// Maximum time [`Visibility::version`] waits for an active authorization writer to
+/// finish before falling back to an uncached snapshot (`cacheable: false`), preventing a
+/// long-running write transaction from stalling reads across the organization.
+const VERSION_WAIT: Duration = Duration::from_millis(250);
+
 /// How long after an abandoned authorization write reads are not cached, for a store
 /// whose statements may wait up to `longest_wait` for another writer (SQLite's busy
 /// timeout): by then the write has landed or never will. A commit later than that
@@ -269,8 +274,13 @@ impl Visibility {
     }
 
     pub(crate) async fn version(&self, tenant: Tenant) -> VisibilityVersion {
+        self.version_within(tenant, VERSION_WAIT).await
+    }
+
+    async fn version_within(&self, tenant: Tenant, max_wait: Duration) -> VisibilityVersion {
         let reach = Reach::of_reader(tenant);
         let mut changes = self.changed.subscribe();
+        let deadline = tokio::time::Instant::now() + max_wait;
         loop {
             let settled =
                 self.under_locks(reach, |writers, version| (writers == 0).then_some(version));
@@ -278,10 +288,15 @@ impl Visibility {
                 return version;
             }
             // Subscribed before the counts were read, so a commit cannot be missed.
-            changes
-                .changed()
+            if tokio::time::timeout_at(deadline, changes.changed())
                 .await
-                .expect("the store owns the revision sender");
+                .is_err()
+            {
+                return self.under_locks(reach, |_, mut version| {
+                    version.cacheable = false;
+                    version
+                });
+            }
         }
     }
 }
@@ -437,6 +452,18 @@ impl Drop for Writing<'_> {
     }
 }
 
+/// Unqualified table identifier of a SQL token, stripping any `schema.` prefix.
+fn bare_table(token: &str) -> &str {
+    token.rsplit('.').next().unwrap_or(token)
+}
+
+/// Tokenizes SQL text preserving `.` inside schema-qualified table names (`public.users`).
+fn sql_tokens(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '.')
+        .map(|token| token.trim_matches('.'))
+        .filter(|token| !token.is_empty())
+}
+
 /// Whether a statement writes a table of who may see what, by the tables it writes and
 /// not those it only reads: not the trash (`deleted_containers`, `deleted_blocks`), nor
 /// blocks, whose going changes nobody's access, as the purge of the trash writes them;
@@ -455,23 +482,34 @@ fn writes_access(text: &str) -> bool {
         "containers",
         "oidc_providers",
     ];
-    let words: Vec<&str> = text
-        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .filter(|word| !word.is_empty())
-        .collect();
-    words.windows(2).enumerate().any(|(at, pair)| {
-        let [verb, table] = pair else {
-            return false;
-        };
+    let words: Vec<&str> = sql_tokens(text).collect();
+    for (at, &verb) in words.iter().enumerate() {
         let deletes = verb.eq_ignore_ascii_case("from")
             && at > 0
             && words[at - 1].eq_ignore_ascii_case("delete");
         let written =
             verb.eq_ignore_ascii_case("update") || verb.eq_ignore_ascii_case("into") || deletes;
-        written
-            && (TABLES.iter().any(|name| table.eq_ignore_ascii_case(name))
-                || (deletes && table.eq_ignore_ascii_case("users")))
-    })
+        if !written {
+            continue;
+        }
+        let mut target_at = at + 1;
+        if words
+            .get(target_at)
+            .is_some_and(|w| w.eq_ignore_ascii_case("only"))
+        {
+            target_at += 1;
+        }
+        let Some(&raw_table) = words.get(target_at) else {
+            continue;
+        };
+        let table = bare_table(raw_table);
+        if TABLES.iter().any(|name| table.eq_ignore_ascii_case(name))
+            || (deletes && table.eq_ignore_ascii_case("users"))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Every statement is built by the store. Treat any write mentioning these tables
@@ -505,7 +543,8 @@ fn affects_visibility(text: &str) -> bool {
     }
     let mut deletes = false;
     let mut cascading = false;
-    for word in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+    for token in sql_tokens(text) {
+        let word = bare_table(token);
         if TABLES.iter().any(|table| word.eq_ignore_ascii_case(table)) {
             return true;
         }
@@ -522,15 +561,18 @@ const NOTED_FOR_LATER: [&str; 3] = ["notification_outbox", "search_outbox", "sub
 
 /// Whether `text` only inserts rows into one of [`NOTED_FOR_LATER`].
 fn notes_for_later(text: &str) -> bool {
-    let mut words = text
-        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .filter(|word| !word.is_empty());
+    if text.contains(';') {
+        return false;
+    }
+    let mut words = sql_tokens(text);
     matches!(
         (words.next(), words.next(), words.next()),
         (Some(insert), Some(into), Some(table))
             if insert.eq_ignore_ascii_case("insert")
                 && into.eq_ignore_ascii_case("into")
-                && NOTED_FOR_LATER.iter().any(|list| table.eq_ignore_ascii_case(list))
+                && NOTED_FOR_LATER
+                    .iter()
+                    .any(|list| bare_table(table).eq_ignore_ascii_case(list))
     )
 }
 

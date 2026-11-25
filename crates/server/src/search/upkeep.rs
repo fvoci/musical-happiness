@@ -9,10 +9,11 @@
 //! Such an index is made again, and every board listed to be sent, before anything
 //! else is. The command of the operator ([`reindex`]) does the same on purpose.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Context as _;
 use fvoci_store::{SearchIndexMark, Store};
+use tokio::time::Instant;
 
 use super::client::{ClientError, IndexFound};
 use super::find::index_refused;

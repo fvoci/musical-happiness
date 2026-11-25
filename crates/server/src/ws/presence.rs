@@ -275,10 +275,10 @@ impl Hub {
         {
             return;
         }
-        let asker = Asker {
+        let asker = identity.1.as_ref().map(|making| Asker {
             user_id: &identity.0,
-            making: identity.1.making(),
-        };
+            making: making.making(),
+        });
         // Changes made while the lookup runs may not be in what it read: access changes
         // of the rooms, and links taken back (`end_readers_of_container`).
         let mut meanwhile = app.collab().access_changes();
@@ -320,7 +320,7 @@ impl Hub {
 
     /// The connection's user and the making of its session, if the rate of its
     /// commands takes one more.
-    fn rated_identity(&self, app: &App, id: ListenerId) -> Option<(String, SessionMade)> {
+    fn rated_identity(&self, app: &App, id: ListenerId) -> Option<(String, Option<SessionMade>)> {
         let mut listeners = self.listeners();
         let listener = listeners.by_id.get_mut(&id)?;
         let per_second = app.config().collab.collab_frames_per_second;

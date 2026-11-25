@@ -152,6 +152,9 @@ services:
     restart: unless-stopped
     # An init as PID 1: a stop ends a server that is still starting.
     init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     stop_grace_period: 40s
     ports:
       - "${FVOCI_BIND:-127.0.0.1}:${FVOCI_HOST_PORT:-8080}:8000"
@@ -178,10 +181,9 @@ services:
       FVOCI_SEARCH_URL: https://search:9200
       FVOCI_SEARCH_USERNAME: fvoci
       FVOCI_SEARCH_PASSWORD_FILE: /run/secrets/fvoci_search_password
-      # The search server's authority beside the system's: setting either variable
-      # replaces the system's list, so both are given.
-      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-      SSL_CERT_DIR: /opt/fvoci/search-ca
+      # Trusted for the search server alone, leaving OIDC, webhooks, S3 and mail on
+      # the system's roots.
+      FVOCI_SEARCH_CA_FILE: /opt/fvoci/search-ca/ca.pem
       # Metrics on every network fvoci is on, published nowhere, behind the token.
       FVOCI_METRICS_ADDRESS: "0.0.0.0:9092"
       FVOCI_METRICS_TOKEN_FILE: /run/secrets/fvoci_metrics_token
@@ -260,6 +262,9 @@ services:
         condition: service_completed_successfully
     restart: "no"
     init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     networks: [backend]
     secrets: [postgres_password]
     environment:

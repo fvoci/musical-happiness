@@ -1,6 +1,6 @@
 //! Sending an existing invitation under the same permissions as making its link.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use fvoci_model::{Invitation, InvitationMail, WorkspaceRole};
 
@@ -40,7 +40,7 @@ impl App {
             .with_reason(Reason::TooManyRecipients)
             .with_limit(u64::from(limit)));
         }
-        let mut recipients = BTreeSet::new();
+        let mut recipients = BTreeMap::new();
         for recipient in &request.recipients {
             let normalized = recipient.trim().to_owned();
             if recipient.contains(['\r', '\n'])
@@ -52,7 +52,9 @@ impl App {
                 )
                 .with_field("recipients"));
             }
-            recipients.insert(with_lowercase_domain(&normalized));
+            recipients
+                .entry(normalized.to_lowercase())
+                .or_insert_with(|| with_lowercase_domain(&normalized));
         }
         if recipients.is_empty() {
             return Err(AppError::bad_request("at least one recipient is required")
@@ -100,7 +102,11 @@ impl App {
                         .with_reason(Reason::MailQueueFull)
                 }
             })?;
-        request.recipients = recipients.into_iter().collect();
+        request.recipients = recipients.into_values().collect();
+        let admitted = self
+            .inner
+            .mail
+            .admit_invitation_addresses(&request.recipients);
         let app = self.clone();
         let workspace_id = workspace_id.to_owned();
         let sender = sender.to_owned();
@@ -108,7 +114,7 @@ impl App {
             // The cause is the store's or a refusal: what became of each message is told
             // where it is sent.
             if let Err(error) = app
-                .deliver_invitation(&workspace_id, &sender, request, queued)
+                .deliver_invitation(&workspace_id, &sender, request, queued, admitted)
                 .await
             {
                 tracing::warn!(%error, "invitation mail delivery failed");
@@ -181,12 +187,19 @@ impl App {
         sender: &str,
         request: InvitationMail,
         queued: Vec<Queued>,
+        admitted: Vec<bool>,
     ) -> Result<(), AppError> {
         let sender_language =
             Language::written_in(self.user_settings(sender).await?.language.as_str());
         let requested = Language::written_in(&request.language);
         let root = self.config().server_url.trim_end_matches('/');
-        for (recipient, place) in request.recipients.into_iter().zip(queued) {
+        for ((recipient, place), allowed) in
+            request.recipients.into_iter().zip(queued).zip(admitted)
+        {
+            if !allowed {
+                place.pass(&self.inner.mail).await;
+                continue;
+            }
             // The guest link made for this recipient, if one was: its identifier and
             // its token.
             let made: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::default();

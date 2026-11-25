@@ -12,8 +12,8 @@ use std::time::Instant;
 
 use fvoci_model::{ContainerKind, RegisterRequest, Session, User, new_id};
 use fvoci_store::{
-    Accepted, Confirmed, Founding, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup,
-    SignupStart, Started, StoreError,
+    Accepted, Confirmed, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup, SignupStart,
+    Started, StoreError,
 };
 
 use super::App;
@@ -416,28 +416,29 @@ impl App {
         now: i64,
     ) -> Result<Option<Confirmed>, AppError> {
         let store = self.store();
-        let mut confirmed = if store.is_bootstrapped().await? {
-            Err(StoreError::NotFirstUser)
-        } else {
-            store
-                .confirm_signup(signup, proof, Founding::First, now)
-                .await
-        };
         let one_organization = !self.config().takes_several_organizations();
-        if matches!(confirmed, Err(StoreError::NotFirstUser)) {
-            if one_organization {
-                // Nobody else gets in without an invitation now: the registration is of
-                // no use, and its name and address are free again. A link of none
-                // confirms nothing, as anywhere.
-                if !store.discard_signup(proof, now).await? {
-                    return Ok(None);
-                }
-                return Err(AppError::invitation_required());
+        let policy = if one_organization {
+            fvoci_store::FoundingPolicy::FirstOnly
+        } else {
+            fvoci_store::FoundingPolicy::FirstOrNew
+        };
+        let confirmed = store
+            .confirm_signup_with_policy(signup, proof, policy, now)
+            .await;
+        if matches!(confirmed, Err(StoreError::NotFirstUser)) && one_organization {
+            // Nobody else gets in without an invitation now: the registration is of
+            // no use, and its name and address are free again. A link of none
+            // confirms nothing, as anywhere.
+            if !store.discard_signup(proof, now).await? {
+                return Ok(None);
             }
-            confirmed = store
-                .confirm_signup(signup, proof, Founding::New, now)
-                .await;
-        } else if one_organization && confirmed.as_ref().is_ok_and(Option::is_some) {
+            return Err(AppError::invitation_required());
+        }
+        if one_organization
+            && confirmed
+                .as_ref()
+                .is_ok_and(|found| found.as_ref().is_some_and(|c| c.user.is_admin))
+        {
             // The first user is in: no other registration of its own can start anything
             // on this server, and their names and addresses are free for invitations.
             let removed = store.remove_founding_signups().await?;

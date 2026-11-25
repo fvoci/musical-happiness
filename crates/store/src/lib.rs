@@ -22,6 +22,7 @@ mod card_numbers;
 mod card_values;
 mod categories;
 mod category_containers;
+mod clock;
 mod comment_places;
 mod comment_versions;
 mod connect;
@@ -34,6 +35,7 @@ mod container_team_trash;
 mod container_teams;
 mod containers;
 mod containers_and_blocks;
+mod course_cleanup;
 mod course_copies;
 mod course_exams;
 mod course_meetings;
@@ -110,7 +112,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub use account_deletion::{DeletionAsking, DeletionStanding};
 pub use account_erasure::{Erasing, ErasureEnd, ErasureStart, HandedOver, LeftFrom};
-pub use accounts::{Founding, OwnSpace, StartedOrganization};
+pub use accounts::{Founding, FoundingPolicy, OwnSpace, StartedOrganization};
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
     BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
@@ -121,12 +123,16 @@ pub use body_versions::{
     BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES, KeptVersion,
 };
 pub use category_containers::ContainerPlace;
+pub use clock::Clock;
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
+pub use container_team_access::ContainerAccessFacts;
 pub use containers::{Joined, MemberChange, PublicContainers};
 pub use containers_and_blocks::{StreamBatch, StreamCreateError};
-pub use course_exams::ExamScoreOutcome;
+pub use course_exams::{
+    ExamPublishError, ExamScoreOutcome, MIN_SCORER_DELTA_TO_REPUBLISH, MIN_SCORERS_TO_PUBLISH,
+};
 pub use course_meetings::{MeetingNotificationPlace, MeetingNotified};
 pub use courses::{UnitRestore, UnitWrite};
 pub use db::Dialect;
@@ -190,8 +196,8 @@ use db::{ConnRef, Scope};
 use observe::Watch;
 use sqlx::types::Uuid;
 
-/// How many connections a store keeps to a file or server database.
-const MAX_CONNECTIONS: u32 = 10;
+/// Default maximum number of connections a store keeps to a file or server database.
+pub const DEFAULT_MAX_CONNECTIONS: u32 = 20;
 
 /// How long the read of [`Store::check_ready`] may run on PostgreSQL: less than the two
 /// seconds the server's readiness check waits, so that the read ends by itself soon
@@ -328,6 +334,8 @@ struct Inner {
     /// Whether rows name places of the file storage otherwise than the one way, once
     /// asked ([`Store::other_spellings_stored`]).
     other_spellings: tokio::sync::OnceCell<bool>,
+    /// Monotonic clock shared across operations on this store.
+    clock: clock::Clock,
     /// The file of the lock of the server of an SQLite database in a file
     /// ([`Store::try_lock_server`]).
     lock_file: Option<std::path::PathBuf>,
@@ -365,11 +373,25 @@ impl Store {
     /// schema is to be changed and the role does not own the tables, and
     /// [`StoreError::Database`] if the database cannot be reached.
     pub async fn connect(db_type: DbType, connection: &str) -> Result<Self, StoreError> {
+        Self::connect_with_max_connections(db_type, connection, DEFAULT_MAX_CONNECTIONS).await
+    }
+
+    /// Connects to the database with an explicit pool size limit (`max_connections`) and
+    /// brings its schema up to date.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::connect`].
+    pub async fn connect_with_max_connections(
+        db_type: DbType,
+        connection: &str,
+        max_connections: u32,
+    ) -> Result<Self, StoreError> {
         #[cfg(any(test, feature = "test-util"))]
         if db_type == DbType::Sqlite {
             sqlite_seed::seed_if_fresh(connection).await;
         }
-        let store = Self::open(db_type, connection).await?;
+        let store = Self::open_with_max_connections(db_type, connection, max_connections).await?;
         store.migrate().await?;
         Ok(store)
     }
@@ -435,6 +457,21 @@ impl Store {
     /// Returns [`StoreError::Config`] if `database_connection` cannot be used, and
     /// [`StoreError::Database`] if the database cannot be reached.
     pub async fn open(db_type: DbType, connection: &str) -> Result<Self, StoreError> {
+        Self::open_with_max_connections(db_type, connection, DEFAULT_MAX_CONNECTIONS).await
+    }
+
+    /// Connects to the database with an explicit pool size limit (`max_connections`) and
+    /// leaves its schema as it is.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::open`].
+    pub async fn open_with_max_connections(
+        db_type: DbType,
+        connection: &str,
+        max_connections: u32,
+    ) -> Result<Self, StoreError> {
+        let max_connections = max_connections.max(1);
         let mut lock_file = None;
         // What an abandoned write may still take to land (`visibility::settle_after`).
         let longest_wait = match db_type {
@@ -455,7 +492,7 @@ impl Store {
                         .idle_timeout(None)
                         .max_lifetime(None)
                 } else {
-                    SqlitePoolOptions::new().max_connections(MAX_CONNECTIONS)
+                    SqlitePoolOptions::new().max_connections(max_connections)
                 };
                 let pool = options.connect_with(settings.options).await?;
                 // Once connected, the file of the database is there to be followed to.
@@ -464,7 +501,7 @@ impl Store {
             }
             DbType::Postgres => {
                 let settings = connect::postgres_settings(connection)?;
-                let mut options = PgPoolOptions::new().max_connections(MAX_CONNECTIONS);
+                let mut options = PgPoolOptions::new().max_connections(max_connections);
                 if let Some(timeout) = settings.connect_timeout {
                     options = options.acquire_timeout(timeout.max(Duration::from_secs(1)));
                 }
@@ -497,9 +534,22 @@ impl Store {
                     longest_wait,
                 )),
                 other_spellings: tokio::sync::OnceCell::new(),
+                clock: clock::Clock::new(),
                 lock_file,
             }),
         })
+    }
+
+    /// Returns the store's shared monotonic [`Clock`].
+    #[must_use]
+    pub fn clock(&self) -> &clock::Clock {
+        &self.inner.clock
+    }
+
+    /// Returns the current monotonic timestamp in milliseconds since the Unix epoch.
+    #[must_use]
+    pub fn now_millis(&self) -> i64 {
+        self.inner.clock.now_millis()
     }
 
     /// Tells `observer` about every call of this store and of every handle to the same
@@ -650,10 +700,9 @@ impl Store {
         self.with_conn(async |scope| {
             if scope.dialect() == Dialect::Postgres {
                 // For this transaction only; a plain SELECT, so the call stays a read.
-                let sql = scope.sql(&format!(
-                    "SELECT set_config('statement_timeout', '{}ms', true)",
-                    READY_STATEMENT_TIMEOUT.as_millis()
-                ));
+                let mut sql = scope.sql("SELECT set_config('statement_timeout', ");
+                sql.bind(format!("{}ms", READY_STATEMENT_TIMEOUT.as_millis()))
+                    .push(", true)");
                 scope.fetch_optional(sql).await?;
             }
             let sql = scope.sql("SELECT 1 FROM sessions LIMIT 1");
@@ -774,6 +823,7 @@ impl Store {
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
                 let mut scope = Scope::new(ConnRef::Sqlite(&mut conn), self.tenant, kept)
+                    .with_clock(&self.inner.clock)
                     .noting_for_search(&self.inner.search_outbox)
                     .reporting_writes_to(watch.map(Watch::writes))
                     .tracking_visibility(visibility);
@@ -791,6 +841,7 @@ impl Store {
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
                 let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
+                    .with_clock(&self.inner.clock)
                     .noting_for_search(&self.inner.search_outbox)
                     .reporting_writes_to(watch.map(Watch::writes))
                     .tracking_visibility(visibility);
@@ -824,7 +875,8 @@ impl Store {
             Pool::Sqlite(pool) => match Watch::acquire(watch.as_ref(), pool).await {
                 Ok(mut conn) => match conn.begin_with("BEGIN DEFERRED").await {
                     Ok(mut tx) => {
-                        let mut scope = Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept);
+                        let mut scope = Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
+                            .with_clock(&self.inner.clock);
                         let res = operation(&mut scope).await;
                         drop(tx);
                         res
@@ -839,7 +891,8 @@ impl Store {
                     .await
                 {
                     Ok(mut tx) => {
-                        let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept);
+                        let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
+                            .with_clock(&self.inner.clock);
                         let res = operation(&mut scope).await;
                         drop(tx);
                         res
@@ -897,6 +950,7 @@ impl Store {
                 let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
                 let result = operation(
                     &mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
+                        .with_clock(&self.inner.clock)
                         .noting_for_search(&self.inner.search_outbox)
                         .noting(self.noting)
                         .tracking_visibility(visibility),
@@ -909,6 +963,7 @@ impl Store {
                 let mut tx = conn.begin_with(self.tenant.begin_on_postgres()).await?;
                 let result = operation(
                     &mut Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
+                        .with_clock(&self.inner.clock)
                         .noting_for_search(&self.inner.search_outbox)
                         .noting(self.noting)
                         .tracking_visibility(visibility),

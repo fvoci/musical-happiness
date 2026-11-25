@@ -10,9 +10,9 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-mail-parser = "1.0.1"
+mail-parser = "1.0.2"
 mail-builder = { version = "2.0.1", default-features = false }
-lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
+lettre = { version = "0.11.24", default-features = false, features = ["smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 fvoci-collab = { path = "crates/collab" }
 fvoci-model = { path = "crates/model" }
 fvoci-store = { path = "crates/store" }
@@ -43,7 +43,7 @@ httpdate = "1"
 # The names of the IANA time zones, compiled in (`tzdb-bundle-always`): what a user may
 # set as their time zone is the same on every installation, whatever the host has in
 # /usr/share/zoneinfo. License: Unlicense OR MIT.
-jiff = { version = "1.0.1", default-features = false, features = ["std", "tzdb-bundle-always"] }
+jiff = { version = "1.0.3", default-features = false, features = ["std", "tzdb-bundle-always"] }
 # The limits of the worker processes of editing together (setrlimit, prctl), on Unix.
 # License: MIT OR Apache-2.0.
 libc = "0.2"
@@ -65,7 +65,7 @@ object_store = { version = "0.14", default-features = false, features = ["aws"] 
 rcgen = "0.14"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 # The digest under which session tokens are stored. License: MIT OR Apache-2.0.
 sha2 = "0.11"
 sqlx = { version = "0.9", default-features = false, features = [
@@ -111,7 +111,7 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 # `ItemContent::decode`, `Any::decode`, the delete set, the variable-length numbers),
 # and run the tests of bytes from anybody again
 # (`cargo test -p fvoci-collab --test untrusted`: random and damaged updates).
-yrs = "=0.28.1"
+yrs = "=0.28.2"
 # Zstandard, to read compressed answers in the tests (the server's compression has it
 # already). License: MIT.
 zstd = "0.14"

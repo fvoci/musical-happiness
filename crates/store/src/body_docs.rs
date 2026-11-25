@@ -14,10 +14,13 @@ use crate::Store;
 use crate::block_derived::{self, Before};
 use crate::blocks;
 use crate::body_versions::{self, BodyBefore, BodyWrite};
-use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Id, OptId, Param, Row, Scope, Sql, SqlFragment};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 use crate::notification_noting::Telling;
+
+/// Maximum updates inserted per multi-row `INSERT INTO body_updates` statement.
+const UPDATE_INSERT_BATCH: usize = 300;
 
 /// A stored document and the updates it took after its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,7 +185,7 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
             blocks::get_block(scope, block_id).await?;
-            let now = now_millis();
+            let now = scope.now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO body_docs (block_id, state, state_seq, log_end, projected_seq, \
                  body_digest, epoch, created_at, updated_at) VALUES (",
@@ -239,36 +242,49 @@ impl Store {
                 file_refs::show_body_files(scope, block_id, files).await?;
             }
             body_versions::note_editors(scope, block_id, new_editors).await?;
-            let now = now_millis();
-            let mut seqs = Vec::with_capacity(updates.len());
-            // The first holds the row to what was read; the row is this transaction's
-            // from then on, and each one after is numbered after the one before.
-            let mut log_end = as_read.log_end;
-            for (bytes, written_by) in updates {
-                let mut sql = scope.sql("UPDATE body_docs SET log_end = log_end + 1");
-                if !written_by.is_empty() {
-                    sql.push_bind(", last_writer = ", OptId(written_by));
-                }
-                sql.push_bind(", updated_at = ", now);
-                where_as_read(&mut sql, block_id, DocAsRead { log_end, ..as_read });
-                sql.push(" RETURNING log_end");
-                let Some(row) = scope.fetch_optional(sql).await? else {
-                    return Err(not_as_read(scope, block_id).await);
-                };
-                let seq = row.int(0)?;
-                log_end = seq;
-                let mut sql = scope.sql(
+            if updates.is_empty() {
+                return Ok(Vec::new());
+            }
+            let now = scope.now_millis();
+            let count = i64::try_from(updates.len()).unwrap_or(i64::MAX);
+            let last_writer = updates
+                .iter()
+                .rev()
+                .map(|(_, written_by)| *written_by)
+                .find(|written_by| !written_by.is_empty());
+            let mut sql = scope.sql("UPDATE body_docs SET log_end = log_end + ");
+            sql.bind(count);
+            if let Some(written_by) = last_writer {
+                sql.push_bind(", last_writer = ", OptId(written_by));
+            }
+            sql.push_bind(", updated_at = ", now);
+            where_as_read(&mut sql, block_id, as_read);
+            sql.push(" RETURNING log_end");
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Err(not_as_read(scope, block_id).await);
+            };
+            let new_end = row.int(0)?;
+            let first_seq = new_end - count + 1;
+            let seqs: Vec<i64> = (first_seq..=new_end).collect();
+            for (chunk_idx, chunk) in updates.chunks(UPDATE_INSERT_BATCH).enumerate() {
+                let base_seq =
+                    first_seq + i64::try_from(chunk_idx * UPDATE_INSERT_BATCH).unwrap_or(0);
+                let mut insert = scope.sql(
                     "INSERT INTO body_updates (block_id, seq, bytes, written_by, written_at) \
-                     VALUES (",
+                     VALUES ",
                 );
-                sql.bind(Id(block_id))
-                    .push_bind(", ", seq)
-                    .push_bind(", ", Param::Bytes(bytes.to_vec()))
-                    .push_bind(", ", OptId(written_by))
-                    .push_bind(", ", now)
-                    .push(")");
-                scope.execute(sql).await?;
-                seqs.push(seq);
+                for (offset, (bytes, written_by)) in chunk.iter().enumerate() {
+                    let seq = base_seq + i64::try_from(offset).unwrap_or(0);
+                    insert
+                        .push(if offset == 0 { "(" } else { ", (" })
+                        .bind(Id(block_id))
+                        .push_bind(", ", seq)
+                        .push_bind(", ", Param::Bytes(bytes.to_vec()))
+                        .push_bind(", ", OptId(written_by))
+                        .push_bind(", ", now)
+                        .push(")");
+                }
+                scope.execute(insert).await?;
             }
             Ok(seqs)
         })
@@ -299,7 +315,7 @@ impl Store {
             let mut sql = scope.sql("UPDATE body_docs SET state = ");
             sql.bind(Param::Bytes(state.to_vec()))
                 .push_bind(", state_seq = ", through_seq)
-                .push_bind(", updated_at = ", now_millis());
+                .push_bind(", updated_at = ", scope.now_millis());
             where_as_read(&mut sql, block_id, as_read);
             if scope.execute(sql).await? == 0 {
                 return Err(not_as_read(scope, block_id).await);
@@ -335,7 +351,7 @@ impl Store {
             sql.bind(Param::Bytes(state.to_vec()))
                 .push(", state_seq = log_end, projected_seq = log_end, epoch = epoch + 1")
                 .push_bind(", body_digest = ", Param::Bytes(body_digest.to_vec()))
-                .push_bind(", updated_at = ", now_millis());
+                .push_bind(", updated_at = ", scope.now_millis());
             where_as_read(&mut sql, block_id, as_read);
             sql.push(" RETURNING epoch");
             let Some(row) = scope.fetch_optional(sql).await? else {
@@ -490,18 +506,16 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn unfinished_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
-        self.body_docs_where(|scope| {
-            [
-                // Only the body of a card or a page is kept: of a block that is one no
-                // more, the names stay put down, and nothing is to see to.
-                " WHERE d.projected_seq < d.log_end OR (",
-                &body_versions::with_room_sql("b.type"),
-                " AND EXISTS (SELECT 1 FROM body_version_editors e WHERE e.block_id = d.block_id",
-                &format!(" AND e.version = {}", body_versions::PENDING),
-                &scope.same_organization(&[("e", "d")]),
-                "))",
-            ]
-            .concat()
+        self.body_docs_where(|scope, sql| {
+            sql.push(" WHERE d.projected_seq < d.log_end OR (")
+                .push(&body_versions::with_room_sql("b.type"))
+                .push_bind(
+                    " AND EXISTS (SELECT 1 FROM body_version_editors e \
+                     WHERE e.block_id = d.block_id AND e.version = ",
+                    body_versions::PENDING,
+                )
+                .push(&scope.same_organization(&[("e", "d")]))
+                .push("))");
         })
         .await
     }
@@ -534,38 +548,32 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn unfolded_body_docs(&self) -> Result<Vec<(String, String)>, StoreError> {
-        self.body_docs_where(|_| {
+        self.body_docs_where(|_, sql| {
             // Of a block that is a card or a page no more, nothing is opened.
-            [
-                " WHERE d.state_seq < d.log_end AND ",
-                &body_versions::with_room_sql("b.type"),
-            ]
-            .concat()
+            sql.push(" WHERE d.state_seq < d.log_end AND ")
+                .push(&body_versions::with_room_sql("b.type"));
         })
         .await
     }
 
     /// The documents of the blocks that are not in the trash, of the condition
-    /// `condition` makes for a scope (on `d`, the document, and `b`, its block), with
+    /// `condition` appends for a scope (on `d`, the document, and `b`, its block), with
     /// the organization of each, by block.
     async fn body_docs_where(
         &self,
-        condition: impl Fn(&Scope<'_>) -> String + Send + Sync,
+        condition: impl Fn(&Scope<'_>, &mut Sql) + Send + Sync,
     ) -> Result<Vec<(String, String)>, StoreError> {
         self.with_conn(async |scope| {
-            let statement = [
-                "SELECT d.block_id, w.org_id FROM body_docs d \
-                 JOIN blocks b ON b.id = d.block_id",
-                &scope.same_organization(&[("b", "d")]),
-                " JOIN containers o ON o.id = b.container_id",
-                &scope.same_organization(&[("o", "b")]),
-                " JOIN workspaces w ON w.id = o.workspace_id",
-                &scope.same_organization(&[("w", "o")]),
-                &condition(scope),
-                " ORDER BY d.block_id",
-            ]
-            .concat();
-            let sql = scope.sql(&statement);
+            let mut sql = scope.sql(
+                "SELECT d.block_id, w.org_id FROM body_docs d JOIN blocks b ON b.id = d.block_id",
+            );
+            sql.push(&scope.same_organization(&[("b", "d")]))
+                .push(" JOIN containers o ON o.id = b.container_id")
+                .push(&scope.same_organization(&[("o", "b")]))
+                .push(" JOIN workspaces w ON w.id = o.workspace_id")
+                .push(&scope.same_organization(&[("w", "o")]));
+            condition(scope, &mut sql);
+            sql.push(" ORDER BY d.block_id");
             scope
                 .fetch_all(sql)
                 .await?
@@ -639,23 +647,26 @@ pub(crate) async fn updates_since(
 /// Removes the documents whose blocks are gone for good: neither there nor in the
 /// trash of their organization. Their logs go with them.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let gone = [
+    let mut gone = SqlFragment::of(&[
         " WHERE NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = body_docs.block_id",
-        &scope.same_organization(&[("b", "body_docs")]),
-        ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = body_docs.block_id",
-        &scope.same_organization(&[("d", "body_docs")]),
-        ")",
-    ]
-    .concat();
-    let updates = format!(
-        "DELETE FROM body_updates WHERE EXISTS (SELECT 1 FROM body_docs{gone} \
-         AND body_docs.block_id = body_updates.block_id{})",
-        scope.same_organization(&[("body_docs", "body_updates")])
-    );
-    let sql = scope.sql(&updates);
-    scope.execute(sql).await?;
-    let sql = scope.sql(&format!("DELETE FROM body_docs{gone}"));
-    scope.execute(sql).await?;
+    ]);
+    gone.push_fragment(&scope.same_organization(&[("b", "body_docs")]))
+        .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = body_docs.block_id")
+        .push_fragment(&scope.same_organization(&[("d", "body_docs")]))
+        .push(")");
+
+    let mut updates =
+        SqlFragment::of(&["DELETE FROM body_updates WHERE EXISTS (SELECT 1 FROM body_docs"]);
+    updates
+        .push_fragment(&gone)
+        .push(" AND body_docs.block_id = body_updates.block_id")
+        .push_fragment(&scope.same_organization(&[("body_docs", "body_updates")]))
+        .push(")");
+    scope.execute(scope.sql(updates)).await?;
+
+    let mut docs = SqlFragment::of(&["DELETE FROM body_docs"]);
+    docs.push_fragment(&gone);
+    scope.execute(scope.sql(docs)).await?;
     Ok(())
 }
 

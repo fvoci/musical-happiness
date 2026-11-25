@@ -16,7 +16,9 @@ use crate::error::StoreError;
 
 /// What the reach of a transaction was before its wall was opened.
 #[must_use = "the wall is closed again with `close_wall`"]
-pub(crate) struct OpenedWall(String);
+pub(crate) struct OpenedWall {
+    was_open: bool,
+}
 
 /// Opens the wall of the transaction of `scope`, on PostgreSQL: the rows of every
 /// organization are in its reach until [`close_wall`] puts the reach back as it was,
@@ -25,15 +27,14 @@ pub(crate) struct OpenedWall(String);
 ///
 /// # Errors
 ///
-/// Returns [`StoreError::Database`] if the reach cannot be read or changed.
+/// Returns [`StoreError::Database`] if the reach cannot be changed.
 pub(crate) async fn open_wall(scope: &mut Scope<'_>) -> Result<OpenedWall, StoreError> {
-    let sql = scope.sql("SELECT COALESCE(current_setting('fvoci.system', true), 'off')");
-    let before = match scope.fetch_optional(sql).await? {
-        Some(row) => row.text(0)?,
-        None => "off".to_owned(),
-    };
+    if scope.is_wall_open() {
+        return Ok(OpenedWall { was_open: true });
+    }
     set_reach(scope, "on").await?;
-    Ok(OpenedWall(before))
+    scope.set_wall_open(true);
+    Ok(OpenedWall { was_open: false })
 }
 
 /// Puts the reach of the transaction back as it was before [`open_wall`].
@@ -42,7 +43,12 @@ pub(crate) async fn open_wall(scope: &mut Scope<'_>) -> Result<OpenedWall, Store
 ///
 /// Returns [`StoreError::Database`] if the reach cannot be changed.
 pub(crate) async fn close_wall(scope: &mut Scope<'_>, wall: OpenedWall) -> Result<(), StoreError> {
-    set_reach(scope, &wall.0).await
+    if wall.was_open {
+        return Ok(());
+    }
+    set_reach(scope, "off").await?;
+    scope.set_wall_open(false);
+    Ok(())
 }
 
 async fn set_reach(scope: &mut Scope<'_>, reach: &str) -> Result<(), StoreError> {
@@ -161,7 +167,7 @@ pub(super) async fn organizations_of_user(
 /// of those organizations by age (0051) holds no account's own space, and a database
 /// reads it only for a statement that says the kind itself. For the reads that look
 /// for the oldest of them among however many spaces the accounts have.
-pub(crate) fn of_people(sql: &mut Sql, kind: &str) {
+pub(crate) fn of_people(sql: &mut Sql, kind: &'static str) {
     sql.push(" AND ")
         .push(kind)
         .push(" = '")

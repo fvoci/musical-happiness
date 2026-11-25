@@ -177,6 +177,7 @@ async fn migration_0066_to_0067_creates_tables_widens_notifications_and_enables_
                 scheduled_date: "2026-11-24".to_owned(),
                 interval_days: 1,
             },
+            None,
         )
         .await
         .expect("review created after 0067");
@@ -291,6 +292,7 @@ async fn reviews_crud_completion_suggestion_and_today_list() {
                 scheduled_date: "2026-11-24".to_owned(),
                 interval_days: 1,
             },
+            None,
         )
         .await
         .expect_err("chapter rejected");
@@ -305,6 +307,7 @@ async fn reviews_crud_completion_suggestion_and_today_list() {
                 scheduled_date: "2026-11-22".to_owned(),
                 interval_days: 1,
             },
+            None,
         )
         .await
         .expect("overdue review");
@@ -317,6 +320,7 @@ async fn reviews_crud_completion_suggestion_and_today_list() {
                 scheduled_date: "2026-12-01".to_owned(),
                 interval_days: 7,
             },
+            None,
         )
         .await
         .expect("future review");
@@ -329,6 +333,7 @@ async fn reviews_crud_completion_suggestion_and_today_list() {
                 scheduled_date: "2026-11-24".to_owned(),
                 interval_days: 3,
             },
+            None,
         )
         .await
         .expect("today review");
@@ -382,8 +387,15 @@ async fn assert_other_user_cannot_touch_reviews(
     );
     assert!(
         matches!(
-            test.complete_unit_review(course_id, review_id, bob, &DEFAULT_REVIEW_INTERVALS, None)
-                .await,
+            test.complete_unit_review(
+                course_id,
+                review_id,
+                bob,
+                &DEFAULT_REVIEW_INTERVALS,
+                None,
+                None,
+            )
+            .await,
             Err(StoreError::NotFound(_))
         ),
         "other member cannot complete review"
@@ -415,6 +427,7 @@ async fn assert_complete_filter_and_delete_reviews(
                 scheduled_date: "2026-11-27".to_owned(),
                 interval_days: 3,
             }),
+            None,
         )
         .await
         .expect("completed");
@@ -438,6 +451,7 @@ async fn assert_complete_filter_and_delete_reviews(
                 scheduled_date: "2026-12-01".to_owned(),
                 interval_days: 7,
             }),
+            None,
         )
         .await
         .expect("re-completed");
@@ -619,6 +633,7 @@ async fn trash_preserves_and_permanent_purge_cleans_reviews_and_notes() {
                 scheduled_date: "2026-11-24".to_owned(),
                 interval_days: 1,
             },
+            None,
         )
         .await
         .expect("review");
@@ -712,6 +727,7 @@ async fn notify_due_review_is_atomic_and_deduplicated() {
             scheduled_date: "2026-11-24".to_owned(),
             interval_days: 1,
         },
+        None,
     )
     .await
     .expect("review");
@@ -726,6 +742,7 @@ async fn notify_due_review_is_atomic_and_deduplicated() {
             scheduled_date: "2026-11-20".to_owned(),
             interval_days: 1,
         },
+        None,
     )
     .await
     .expect("bob review");
@@ -830,6 +847,7 @@ async fn cross_org_rls_and_workspace_removal_cleanup() {
                 scheduled_date: "2026-11-24".to_owned(),
                 interval_days: 1,
             },
+            None,
         )
         .await
         .expect("review");

@@ -750,7 +750,10 @@ impl Collab {
     async fn write_when_due(&self, app: &App, card_id: &str) {
         loop {
             let due = {
-                let _gate = self.reading(app.store().tenant()).await;
+                let Some(container_id) = self.existing_slot_container_id(app, card_id) else {
+                    return;
+                };
+                let _gate = self.reading(app.store().tenant(), &container_id).await;
                 let Some(mut slot) = self.existing_slot(app, card_id).await else {
                     return;
                 };
@@ -764,7 +767,10 @@ impl Collab {
                 due
             };
             sleep_until(due).await;
-            let _gate = self.reading(app.store().tenant()).await;
+            let Some(container_id) = self.existing_slot_container_id(app, card_id) else {
+                return;
+            };
+            let _gate = self.reading(app.store().tenant(), &container_id).await;
             let Some(mut slot) = self.existing_slot(app, card_id).await else {
                 return;
             };

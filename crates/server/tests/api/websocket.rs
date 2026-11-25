@@ -140,24 +140,21 @@ pub(crate) fn category(workspace_id: &str, user_id: &str, name: &str) -> Categor
     }
 }
 
-/// Subscribes an authenticated socket to a workspace and waits until the server has done it.
-/// Commands have no acknowledgement, so the wait is for a broadcast to come through.
+/// Subscribes an authenticated socket to a workspace and waits for its `workspaceSubscribed`
+/// acknowledgement (`M2`).
 pub(crate) async fn subscribe_to_workspace(
-    th: &TestServer,
+    _th: &TestServer,
     socket: &mut Socket,
     workspace_id: &str,
-    user_id: &str,
+    _user_id: &str,
 ) {
     socket
         .send(json!({"type": "subscribeWorkspace", "workspaceId": workspace_id}))
         .await;
-    let probe = category(workspace_id, user_id, "subscription probe");
-    for _ in 0..50 {
-        th.app.ws().broadcast_category_change(&probe).await;
-        if let Some(message) = socket.next_json(Duration::from_millis(100)).await {
-            assert_eq!(message["type"], json!("categoryChanged"), "{message}");
-            // Later probes may still be queued; let them drain.
-            while socket.next_json(Duration::from_millis(150)).await.is_some() {}
+    while let Some(message) = socket.next_json(PATIENCE).await {
+        if message["type"] == json!("workspaceSubscribed")
+            && message["workspaceId"] == json!(workspace_id)
+        {
             return;
         }
     }

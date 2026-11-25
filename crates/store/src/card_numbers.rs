@@ -112,11 +112,12 @@ pub(crate) async fn bring_back(
     container_id: &str,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE containers SET next_card_number = ");
-    sql.push_bind(
-        "(SELECT next_card_number FROM deleted_containers WHERE id = ",
-        Id(container_id),
-    )
-    .push_bind(") WHERE id = ", Id(container_id));
+    sql.changing_no_access()
+        .push_bind(
+            "(SELECT next_card_number FROM deleted_containers WHERE id = ",
+            Id(container_id),
+        )
+        .push_bind(") WHERE id = ", Id(container_id));
     scope.execute(sql).await?;
     Ok(())
 }

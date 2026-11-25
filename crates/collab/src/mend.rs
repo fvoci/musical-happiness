@@ -482,7 +482,7 @@ pub(crate) fn mend_grid(
     debug_assert_eq!(grid.rows().len(), rows.len(), "a row surveyed for each row");
     debug_assert_eq!(grid.rows().len(), nodes.len(), "a node for each row");
     for ((fit, surveyed), node) in grid.rows().iter().zip(rows).zip(nodes) {
-        let cells = content_mut(node);
+        let cells = content_mut(node)?;
         debug_assert_eq!(
             fit.cells.len(),
             surveyed.cells.len(),
@@ -535,17 +535,15 @@ pub(crate) fn mend_grid(
 }
 
 /// The children of a node, made a list if it has none.
-fn content_mut(node: &mut Value) -> &mut Vec<Value> {
-    let members = node
-        .as_object_mut()
-        .expect("a row read from shared content is an object");
+fn content_mut(node: &mut Value) -> Result<&mut Vec<Value>, BodyError> {
+    let members = node.as_object_mut().ok_or_else(unmendable)?;
     let content = members
         .entry("content")
         .or_insert_with(|| Value::Array(Vec::new()));
     if !content.is_array() {
         *content = Value::Array(Vec::new());
     }
-    content.as_array_mut().expect("made a list just now")
+    content.as_array_mut().ok_or_else(unmendable)
 }
 
 /// Writes into the JSON of a cell the spans that changed, in the stored form: a span of

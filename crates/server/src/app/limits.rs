@@ -24,6 +24,9 @@ pub struct OrgLimits {
     /// The largest archive an import takes, in bytes: `max_import_bytes`, kept
     /// positive and within what the parts hold as well.
     pub largest_import: i64,
+    /// The most cumulative file bytes stored across the organization:
+    /// `max_org_storage_bytes`, kept positive.
+    pub max_storage_bytes: i64,
     /// The most invitation messages the organization's workspaces queue in an hour,
     /// all of them together: `invitation_mail_per_org_hour`, which the configuration
     /// keeps at least one request's recipients.
@@ -79,6 +82,7 @@ impl App {
         OrgLimits {
             largest_file: config.max_file_bytes,
             largest_import: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
+            max_storage_bytes: i64::try_from(config.max_org_storage_bytes).unwrap_or(i64::MAX),
             invitation_mail_per_hour: config.smtp.invitation_mail_per_org_hour,
             former_provider_kept: config.oidc_former_provider_kept(),
             pages: config.wiki.page_limits(),
@@ -99,6 +103,7 @@ mod tests {
         let limits = |largest_file, largest_import| OrgLimits {
             largest_file,
             largest_import,
+            max_storage_bytes: i64::MAX,
             invitation_mail_per_hour: 1,
             former_provider_kept: Duration::ZERO,
             pages: PageLimits::default(),

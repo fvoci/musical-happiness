@@ -32,8 +32,8 @@ struct Batch {
     /// The store is asked anew what the reader may see.
     due: bool,
     user_id: String,
-    /// How the connection's session was made, and what it had confirmed.
-    making: SessionMade,
+    /// How the connection's session was made, and what it had confirmed; `None` without a session.
+    making: Option<SessionMade>,
     /// The board's roster before the reader's sight, and the number of its board's
     /// latest change.
     raw: Snapshot,
@@ -315,10 +315,10 @@ impl Hub {
 
 /// Asks the store anew what the reader may see.
 async fn read_anew(app: &App, batch: &Batch, reader: &mut Reader) -> Result<Looked, AppError> {
-    let asker = Asker {
+    let asker = batch.making.as_ref().map(|making| Asker {
         user_id: &batch.user_id,
-        making: batch.making.making(),
-    };
+        making: making.making(),
+    });
     let visit = &batch.visit;
     let access = app
         .presence_access(

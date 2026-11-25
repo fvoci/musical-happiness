@@ -79,10 +79,11 @@ impl Store {
             scope.execute(later).await?;
             let restored =
                 if email_change::is_held(scope, &link.email, Some(&link.user_id), now).await? {
-                    email_change::set_address(scope, &link.user_id, "", now).await?;
+                    email_change::set_address(scope, &link.user_id, "", 0, now).await?;
                     None
                 } else {
-                    email_change::set_address(scope, &link.user_id, &link.email, now).await?;
+                    email_change::set_address(scope, &link.user_id, &link.email, now.max(1), now)
+                        .await?;
                     Some(link.email)
                 };
             let unlinked_identities =
@@ -148,10 +149,11 @@ async fn hold_account(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<Option<(String, String)>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT username, email FROM users WHERE (deleted_at IS NULL OR ({})) AND id = ",
-        users::WAITS
-    ));
+    let mut sql = scope.sql([
+        "SELECT username, email FROM users WHERE (deleted_at IS NULL OR (",
+        users::WAITS,
+        ")) AND id = ",
+    ]);
     sql.bind(Id(user_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");

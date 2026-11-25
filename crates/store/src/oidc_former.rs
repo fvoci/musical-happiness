@@ -10,7 +10,7 @@ use std::time::Duration;
 use fvoci_model::AuditAction;
 
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Row, Scope, now_millis};
+use crate::db::{Row, Scope};
 use crate::error::StoreError;
 use crate::oidc::{StoredProvider, hold_provider_of_organization};
 use crate::{Store, Tenant};
@@ -164,9 +164,11 @@ pub(crate) async fn read_former(
     scope: &mut Scope<'_>,
     now: i64,
 ) -> Result<Option<FormerProvider>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {FORMER_COLUMNS} FROM oidc_former_providers WHERE org_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        FORMER_COLUMNS,
+        " FROM oidc_former_providers WHERE org_id = ",
+    ]);
     sql.bind(scope.org()?).push_bind(" AND expires_at > ", now);
     scope
         .fetch_optional(sql)
@@ -188,11 +190,13 @@ pub(crate) async fn keep_after_move(
     if keeping.time.is_zero() {
         return Ok(());
     }
-    let now = now_millis();
+    let now = scope.now_millis();
     let kept_for = i64::try_from(keeping.time.as_millis()).unwrap_or(i64::MAX);
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO oidc_former_providers ({FORMER_COLUMNS}) VALUES ("
-    ));
+    let mut sql = scope.sql([
+        "INSERT INTO oidc_former_providers (",
+        FORMER_COLUMNS,
+        ") VALUES (",
+    ]);
     sql.bind(scope.org()?)
         .push_bind(", ", &before.issuer)
         .push_bind(", ", &before.client_id)
@@ -222,15 +226,17 @@ pub(crate) async fn give_way(
     scope: &mut Scope<'_>,
     actor_id: Option<&str>,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {FORMER_COLUMNS} FROM oidc_former_providers WHERE org_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        FORMER_COLUMNS,
+        " FROM oidc_former_providers WHERE org_id = ",
+    ]);
     sql.bind(scope.org()?);
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(());
     };
     let former = former_from_row(&row)?;
-    let ended = if former.expires_at <= now_millis() {
+    let ended = if former.expires_at <= scope.now_millis() {
         Ended::Lapsed
     } else {
         actor_id.map_or(Ended::Unrecorded, Ended::By)

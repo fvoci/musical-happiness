@@ -962,7 +962,8 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
 }
 
 /// A change whose check is overtaken by a permission write of its organization every
-/// time is given up after a bound, and its recipients are told to read anew (1013).
+/// time ends only the affected workspace subscription (`workspaceUnsubscribed`) so the
+/// page re-subscribes and reads anew without dropping the WebSocket connection (`H-3`).
 #[tokio::test]
 async fn a_change_checked_too_often_is_given_up_as_retryable() {
     let ts = Setup::local_mode().start().await.init_basic().await;
@@ -1007,27 +1008,10 @@ async fn a_change_checked_too_often_is_given_up_as_retryable() {
         .await
         .expect("the change ends")
         .expect("the change does not panic");
-    // Nothing of the change comes before the close.
-    let first = tokio::time::timeout(WAIT, async {
-        loop {
-            match socket
-                .next()
-                .await
-                .expect("a frame")
-                .expect("a protocol frame")
-            {
-                Message::Ping(_) | Message::Pong(_) => {}
-                other => return other,
-            }
-        }
-    })
-    .await
-    .expect("the connection is told");
-    let Message::Close(Some(frame)) = first else {
-        panic!("the change came before the close: {first:?}");
-    };
+    let told = ended(&mut socket).await;
     assert_eq!(
-        (u16::from(frame.code), frame.reason.as_str()),
-        (1013, "try again")
+        (told["type"].as_str(), told["workspaceId"].as_str()),
+        (Some("workspaceUnsubscribed"), Some(ROOT_WORKSPACE_ID)),
+        "the overtaken workspace subscription ends while keeping the socket alive: {told}"
     );
 }

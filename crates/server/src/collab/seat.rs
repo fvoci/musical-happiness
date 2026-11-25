@@ -2,10 +2,11 @@
 //! text commands and binary frames to, and takes what is to be sent from.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bytes::Bytes;
 use serde::Deserialize;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::frame::{self, Carried, Received, Sync};
