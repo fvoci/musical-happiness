@@ -6,24 +6,27 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{JsonMap, check_date_value, new_id};
-use serde_json::{Map, Value, json};
+use fvoci_model::{
+    CardPropertyDefinition, JsonMap, PropertyColor, PropertyOption, PropertyType, check_date_value,
+    new_id,
+};
+use serde_json::{Map, Value};
 
 use super::markdown::is_allowed_href;
 use super::summary::BundleLimits;
 use crate::error::{AppError, Reason};
 
 /// Rotating option colors assigned to inferred `select` / `multiSelect` columns.
-const OPTION_COLORS: [&str; 9] = [
-    "propColorBlue",
-    "propColorGreen",
-    "propColorOrange",
-    "propColorPurple",
-    "propColorYellow",
-    "propColorPink",
-    "propColorGray",
-    "propColorBrown",
-    "propColorRed",
+const OPTION_COLORS: [PropertyColor; 9] = [
+    PropertyColor::Blue,
+    PropertyColor::Green,
+    PropertyColor::Orange,
+    PropertyColor::Purple,
+    PropertyColor::Yellow,
+    PropertyColor::Pink,
+    PropertyColor::Gray,
+    PropertyColor::Brown,
+    PropertyColor::Red,
 ];
 
 /// Inferred property kind for one non-title column of a Notion CSV database.
@@ -39,15 +42,15 @@ pub(crate) enum InferredKind {
 }
 
 impl InferredKind {
-    pub(crate) const fn wire_type(self) -> &'static str {
+    pub(crate) const fn property_type(self) -> PropertyType {
         match self {
-            Self::Checkbox => "checkbox",
-            Self::Number => "number",
-            Self::Date => "date",
-            Self::Url => "url",
-            Self::MultiSelect => "multiSelect",
-            Self::Select => "select",
-            Self::Text => "text",
+            Self::Checkbox => PropertyType::Checkbox,
+            Self::Number => PropertyType::Number,
+            Self::Date => PropertyType::Date,
+            Self::Url => PropertyType::Url,
+            Self::MultiSelect => PropertyType::MultiSelect,
+            Self::Select => PropertyType::Select,
+            Self::Text => PropertyType::Text,
         }
     }
 }
@@ -62,7 +65,7 @@ pub(crate) struct ParsedCsvRow {
 /// Complete parsed CSV database ready to turn into a fvoci Board.
 #[derive(Debug)]
 pub(crate) struct ParsedCsvDatabase {
-    pub(crate) card_properties: Vec<JsonMap>,
+    pub(crate) card_properties: Vec<CardPropertyDefinition>,
     pub(crate) all_property_ids: Vec<String>,
     pub(crate) first_select: Option<(String, Vec<String>)>,
     pub(crate) rows: Vec<ParsedCsvRow>,
@@ -160,7 +163,7 @@ struct ColumnPlan {
     kind: InferredKind,
     options: HashMap<String, String>,
     option_ids: Vec<String>,
-    definition: JsonMap,
+    definition: CardPropertyDefinition,
 }
 
 fn build_database(headers: &[String], raw_rows: &[Vec<String>]) -> ParsedCsvDatabase {
@@ -219,7 +222,7 @@ fn build_column_plan(name: &str, kind: InferredKind, values: &[&str]) -> ColumnP
     let prop_id = new_id();
     let mut options_map = HashMap::new();
     let mut option_ids = Vec::new();
-    let mut options_json = Vec::new();
+    let mut options_list = Vec::new();
 
     if matches!(kind, InferredKind::Select | InferredKind::MultiSelect) {
         let tokens: Vec<&str> = match kind {
@@ -234,22 +237,19 @@ fn build_column_plan(name: &str, kind: InferredKind, values: &[&str]) -> ColumnP
         for token in tokens {
             if !options_map.contains_key(token) {
                 let opt_id = new_id();
-                let color = OPTION_COLORS[options_json.len() % OPTION_COLORS.len()];
+                let color = OPTION_COLORS[options_list.len() % OPTION_COLORS.len()];
                 options_map.insert(token.to_owned(), opt_id.clone());
                 option_ids.push(opt_id.clone());
-                options_json.push(json!({"id": opt_id, "value": token, "color": color}));
+                options_list.push(PropertyOption::new(opt_id, token, color));
             }
         }
     }
 
-    let definition = match json!({
-        "id": prop_id,
-        "name": name,
-        "type": kind.wire_type(),
-        "options": options_json,
-    }) {
-        Value::Object(map) => map,
-        _ => JsonMap::new(),
+    let definition = CardPropertyDefinition {
+        id: prop_id.clone(),
+        name: name.to_owned(),
+        property_type: kind.property_type(),
+        options: options_list,
     };
     ColumnPlan {
         prop_id,

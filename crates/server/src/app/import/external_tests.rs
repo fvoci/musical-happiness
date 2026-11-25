@@ -562,27 +562,25 @@ Task B,No,85%,\"May 14, 2026\",https://example.com/b,Beta,Done,Second detailed s
     let types: Vec<&str> = parsed
         .card_properties
         .iter()
-        .filter_map(|prop| prop.get("type").and_then(Value::as_str))
+        .map(|prop| prop.property_type.as_str())
         .collect();
     assert_eq!(
         types,
         vec![
-            InferredKind::Checkbox.wire_type(),
-            InferredKind::Number.wire_type(),
-            InferredKind::Date.wire_type(),
-            InferredKind::Url.wire_type(),
-            InferredKind::MultiSelect.wire_type(),
-            InferredKind::Select.wire_type(),
-            InferredKind::Text.wire_type(),
+            InferredKind::Checkbox.property_type().as_str(),
+            InferredKind::Number.property_type().as_str(),
+            InferredKind::Date.property_type().as_str(),
+            InferredKind::Url.property_type().as_str(),
+            InferredKind::MultiSelect.property_type().as_str(),
+            InferredKind::Select.property_type().as_str(),
+            InferredKind::Text.property_type().as_str(),
         ],
         "all 7 property types inferred in order"
     );
     assert_eq!(parsed.rows.len(), 2, "two rows parsed");
-    let checkbox_id = parsed.card_properties[0]["id"]
-        .as_str()
-        .expect("checkbox id");
-    let number_id = parsed.card_properties[1]["id"].as_str().expect("number id");
-    let date_id = parsed.card_properties[2]["id"].as_str().expect("date id");
+    let checkbox_id = parsed.card_properties[0].id.as_str();
+    let number_id = parsed.card_properties[1].id.as_str();
+    let date_id = parsed.card_properties[2].id.as_str();
     assert_eq!(
         parsed.rows[0].properties.get(checkbox_id),
         Some(&Value::String("true".to_owned())),
@@ -642,7 +640,8 @@ Task B,No,85%,\"May 14, 2026\",https://example.com/b,Beta,Done,Second detailed s
     let comma_csv = "Name,Ratio\nA,\"1,5\"\nB,\"2,5\"\n";
     let comma_parsed = parse_notion_csv(comma_csv, &BundleLimits::default()).expect("CSV parses");
     assert_ne!(
-        comma_parsed.card_properties[0]["type"], "number",
+        comma_parsed.card_properties[0].property_type,
+        fvoci_model::PropertyType::Number,
         "non-thousands comma values like 1,5 are not inferred as number"
     );
 }

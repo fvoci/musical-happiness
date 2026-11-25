@@ -250,7 +250,7 @@
 
   $effect(() => {
     if (!renaming) return;
-    draft = option.value;
+    draft = option.label;
     void tick().then(() => {
       field?.focus();
       field?.select();
@@ -261,8 +261,8 @@
     if (!renaming) return;
     const text = draft.trim();
     onRenaming(undefined);
-    if (save && text !== '' && text !== option.value) {
-      void changeOption(board, groupBy.id, option.id, { value: text });
+    if (save && text !== '' && text !== option.label) {
+      void changeOption(board, groupBy.id, option.id, { label: text });
     }
     await tick();
     heading?.focus();
@@ -272,7 +272,7 @@
 {#snippet label()}
   <h3 id="{panelId}-name" class="flex min-w-0 items-center text-sm font-medium">
     {#if named}
-      <OptionChip name={option.value} color={option.color} />
+      <OptionChip name={option.label} color={option.color} />
     {:else}
       <span class="truncate" title={name}>{name}</span>
     {/if}

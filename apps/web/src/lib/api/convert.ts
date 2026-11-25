@@ -22,7 +22,6 @@ import {
   type ContainerMember,
   type ContainerPatch,
   type BoardView,
-  type PropertyTemplate,
 } from '../logic/wire.ts';
 import {
   BackendError,
@@ -117,7 +116,7 @@ export function containerOf(board: Schemas['Container']): Container {
     isBuiltin: board.isBuiltin,
     templateVersion: board.templateVersion,
     properties: board.properties as Container['properties'],
-    cardProperties: board.cardProperties as unknown as PropertyTemplate[],
+    cardProperties: board.cardProperties,
     createAt: board.createAt,
     updateAt: board.updateAt,
     ...(board.deletedAt === undefined ? {} : { deletedAt: board.deletedAt }),
@@ -359,7 +358,7 @@ export function newBoardAndViewOf(
         title: draft.title,
         description: draft.description ?? '',
         icon: draft.icon ?? '',
-        cardProperties: (draft.cardProperties ?? []) as unknown as Record<string, unknown>[],
+        cardProperties: draft.cardProperties ?? [],
       },
     ],
     blocks: [
@@ -392,8 +391,6 @@ export function containerPatchOf(patch: ContainerPatch): Schemas['ContainerPatch
   return {
     ...rest,
     ...(minimumRole === undefined ? {} : { minimumRole }),
-    ...(updatedCardProperties === undefined
-      ? {}
-      : { updatedCardProperties: updatedCardProperties as unknown as Record<string, unknown>[] }),
+    ...(updatedCardProperties === undefined ? {} : { updatedCardProperties }),
   };
 }

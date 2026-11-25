@@ -701,13 +701,11 @@ async fn duplicate_block_remaps_subcard_gantt_relations_and_keeps_external_cards
     let store = &test.store;
 
     let prop_id = "dep_rel";
-    let def: fvoci_model::JsonMap = serde_json::from_value(json!({
-        "id": prop_id,
-        "name": "Depends On",
-        "type": "relation",
-        "options": []
-    }))
-    .expect("relation definition");
+    let def = fvoci_model::CardPropertyDefinition::new(
+        prop_id,
+        "Depends On",
+        fvoci_model::PropertyType::Relation,
+    );
     store
         .patch_container(
             &board_id,

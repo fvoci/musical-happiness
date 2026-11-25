@@ -17,28 +17,28 @@
         "options": [
           {
             "id": "2ce17139-dab0-56d4-af61-78b09a7b3586",
-            "value": "새로 옴",
-            "color": "propColorGray"
+            "label": "새로 옴",
+            "color": "gray"
           },
           {
             "id": "7ed17f61-04fa-59ec-b47a-bc83c17463d0",
-            "value": "확인됨",
-            "color": "propColorYellow"
+            "label": "확인됨",
+            "color": "yellow"
           },
           {
             "id": "16f381d8-7af4-50a9-af83-f722169249ea",
-            "value": "고치는 중",
-            "color": "propColorBlue"
+            "label": "고치는 중",
+            "color": "blue"
           },
           {
             "id": "41e2d65c-a5b7-5f21-83a1-cde59a83c25d",
-            "value": "닫힘",
-            "color": "propColorGreen"
+            "label": "닫힘",
+            "color": "green"
           },
           {
             "id": "0dc0879a-7d99-594d-ba6b-cf906869740a",
-            "value": "안 고침",
-            "color": "propColorBrown"
+            "label": "안 고침",
+            "color": "brown"
           }
         ]
       },
@@ -49,18 +49,18 @@
         "options": [
           {
             "id": "6b41afa1-3697-5dd5-b3d3-0a91ca03bb4c",
-            "value": "버그",
-            "color": "propColorRed"
+            "label": "버그",
+            "color": "red"
           },
           {
             "id": "a9a1d66a-412f-5e36-b63e-f4a8bba38654",
-            "value": "요청",
-            "color": "propColorPurple"
+            "label": "요청",
+            "color": "purple"
           },
           {
             "id": "28939bf7-286a-58b9-b78b-42cfeff3155f",
-            "value": "정리",
-            "color": "propColorGray"
+            "label": "정리",
+            "color": "gray"
           }
         ]
       },
@@ -71,18 +71,18 @@
         "options": [
           {
             "id": "31be07e5-e6a5-5f75-a98c-e2fd505bf4f1",
-            "value": "높음",
-            "color": "propColorRed"
+            "label": "높음",
+            "color": "red"
           },
           {
             "id": "0c3a80e9-0da4-526e-9eb3-8b3994a5584e",
-            "value": "보통",
-            "color": "propColorOrange"
+            "label": "보통",
+            "color": "orange"
           },
           {
             "id": "bb942f44-0169-5f70-959c-e845bc3abfd0",
-            "value": "낮음",
-            "color": "propColorGray"
+            "label": "낮음",
+            "color": "gray"
           }
         ]
       },
@@ -93,23 +93,23 @@
         "options": [
           {
             "id": "b6af3143-d64b-5425-863b-bc776cc46409",
-            "value": "가입",
-            "color": "propColorBlue"
+            "label": "가입",
+            "color": "blue"
           },
           {
             "id": "633c044a-7e58-5e08-9f63-86101a98359e",
-            "value": "결제",
-            "color": "propColorGreen"
+            "label": "결제",
+            "color": "green"
           },
           {
             "id": "a0b743ca-edd6-50a6-8551-983a195ff002",
-            "value": "검색",
-            "color": "propColorYellow"
+            "label": "검색",
+            "color": "yellow"
           },
           {
             "id": "304d6fa0-f4dd-56bc-98f9-0660b6beb50d",
-            "value": "모바일",
-            "color": "propColorPink"
+            "label": "모바일",
+            "color": "pink"
           }
         ]
       },
@@ -224,9 +224,7 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenGroups": [
-          ""
-        ],
+        "hiddenGroups": [""],
         "groupCalculations": {},
         "sort": [],
         "viewType": "board",
@@ -266,9 +264,7 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenGroups": [
-          ""
-        ],
+        "hiddenGroups": [""],
         "groupCalculations": {},
         "sort": [
           {
@@ -319,9 +315,7 @@
             {
               "propertyId": "d1dc2175-04b7-5afe-9ee0-c1e806659aaa",
               "condition": "includes",
-              "values": [
-                "6b41afa1-3697-5dd5-b3d3-0a91ca03bb4c"
-              ]
+              "values": ["6b41afa1-3697-5dd5-b3d3-0a91ca03bb4c"]
             }
           ]
         },
@@ -356,9 +350,7 @@
           "41fb4307-4d35-515d-8f28-ee0bd207e0fd": "16f381d8-7af4-50a9-af83-f722169249ea",
           "d1dc2175-04b7-5afe-9ee0-c1e806659aaa": "6b41afa1-3697-5dd5-b3d3-0a91ca03bb4c",
           "9c1adb28-489c-5bb0-b0da-56ff86b55106": "31be07e5-e6a5-5f75-a98c-e2fd505bf4f1",
-          "f7664802-8fcb-57c9-a358-3c839dbaa8d5": [
-            "b6af3143-d64b-5425-863b-bc776cc46409"
-          ]
+          "f7664802-8fcb-57c9-a358-3c839dbaa8d5": ["b6af3143-d64b-5425-863b-bc776cc46409"]
         }
       },
       "body": {
@@ -510,9 +502,7 @@
           "41fb4307-4d35-515d-8f28-ee0bd207e0fd": "7ed17f61-04fa-59ec-b47a-bc83c17463d0",
           "d1dc2175-04b7-5afe-9ee0-c1e806659aaa": "6b41afa1-3697-5dd5-b3d3-0a91ca03bb4c",
           "9c1adb28-489c-5bb0-b0da-56ff86b55106": "0c3a80e9-0da4-526e-9eb3-8b3994a5584e",
-          "f7664802-8fcb-57c9-a358-3c839dbaa8d5": [
-            "633c044a-7e58-5e08-9f63-86101a98359e"
-          ]
+          "f7664802-8fcb-57c9-a358-3c839dbaa8d5": ["633c044a-7e58-5e08-9f63-86101a98359e"]
         }
       },
       "body": {
@@ -555,9 +545,7 @@
           "41fb4307-4d35-515d-8f28-ee0bd207e0fd": "2ce17139-dab0-56d4-af61-78b09a7b3586",
           "d1dc2175-04b7-5afe-9ee0-c1e806659aaa": "6b41afa1-3697-5dd5-b3d3-0a91ca03bb4c",
           "9c1adb28-489c-5bb0-b0da-56ff86b55106": "0c3a80e9-0da4-526e-9eb3-8b3994a5584e",
-          "f7664802-8fcb-57c9-a358-3c839dbaa8d5": [
-            "a0b743ca-edd6-50a6-8551-983a195ff002"
-          ]
+          "f7664802-8fcb-57c9-a358-3c839dbaa8d5": ["a0b743ca-edd6-50a6-8551-983a195ff002"]
         }
       },
       "body": {
@@ -612,9 +600,7 @@
           "41fb4307-4d35-515d-8f28-ee0bd207e0fd": "2ce17139-dab0-56d4-af61-78b09a7b3586",
           "d1dc2175-04b7-5afe-9ee0-c1e806659aaa": "a9a1d66a-412f-5e36-b63e-f4a8bba38654",
           "9c1adb28-489c-5bb0-b0da-56ff86b55106": "bb942f44-0169-5f70-959c-e845bc3abfd0",
-          "f7664802-8fcb-57c9-a358-3c839dbaa8d5": [
-            "304d6fa0-f4dd-56bc-98f9-0660b6beb50d"
-          ],
+          "f7664802-8fcb-57c9-a358-3c839dbaa8d5": ["304d6fa0-f4dd-56bc-98f9-0660b6beb50d"],
           "4e7f4a57-e008-5681-a3c3-4ea0ee5d6fa6": [
             {
               "card": "c9b1987c-c654-52d4-87ae-db49caa3d4b8",

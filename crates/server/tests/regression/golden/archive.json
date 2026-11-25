@@ -383,19 +383,19 @@
             "name": "Progress",
             "options": [
               {
-                "color": "propColorGray",
+                "color": "gray",
                 "id": "<id:10>",
-                "value": "To read"
+                "label": "To read"
               },
               {
-                "color": "propColorBlue",
+                "color": "blue",
                 "id": "<id:11>",
-                "value": "Trying it"
+                "label": "Trying it"
               },
               {
-                "color": "propColorGreen",
+                "color": "green",
                 "id": "<id:12>",
-                "value": "Done it"
+                "label": "Done it"
               }
             ],
             "type": "select"
@@ -405,29 +405,29 @@
             "name": "Topic",
             "options": [
               {
-                "color": "propColorBlue",
+                "color": "blue",
                 "id": "<id:14>",
-                "value": "Boards"
+                "label": "Boards"
               },
               {
-                "color": "propColorPurple",
+                "color": "purple",
                 "id": "<id:15>",
-                "value": "Writing"
+                "label": "Writing"
               },
               {
-                "color": "propColorOrange",
+                "color": "orange",
                 "id": "<id:16>",
-                "value": "Files"
+                "label": "Files"
               },
               {
-                "color": "propColorGreen",
+                "color": "green",
                 "id": "<id:17>",
-                "value": "Wiki"
+                "label": "Wiki"
               },
               {
-                "color": "propColorPink",
+                "color": "pink",
                 "id": "<id:18>",
-                "value": "Together"
+                "label": "Together"
               }
             ],
             "type": "select"
@@ -463,7 +463,7 @@
         "modifiedBy": "<id:22>",
         "properties": {},
         "showDescription": true,
-        "templateVersion": 11,
+        "templateVersion": 12,
         "title": "Getting started with fvoci",
         "updateAt": "<ts>",
         "visibility": "private",

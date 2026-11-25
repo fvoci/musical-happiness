@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{BlockType, date_property_ids, rewrite_previous_date_values};
+use fvoci_model::{BlockType, DATE_PROPERTY_TYPE, rewrite_previous_date_values};
 
 use crate::db::{Dialect, Row};
 use crate::db::{Id, Param, Scope};
@@ -250,15 +250,12 @@ async fn date_values(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     let sql = scope.sql("SELECT id, card_properties FROM containers");
     for row in scope.fetch_all(sql).await? {
         let properties = row.json(1, "card_properties")?;
-        dates.insert(row.id(0)?, date_property_ids(definitions(&properties)));
+        dates.insert(row.id(0)?, date_ids(&properties));
     }
     let sql = scope.sql("SELECT id, container FROM deleted_containers");
     for row in scope.fetch_all(sql).await? {
         let container = row.json(1, "container")?;
-        dates.insert(
-            row.id(0)?,
-            date_property_ids(definitions(&container["cardProperties"])),
-        );
+        dates.insert(row.id(0)?, date_ids(&container["cardProperties"]));
     }
 
     let mut changed = 0;
@@ -295,12 +292,19 @@ async fn date_values(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     Ok(changed)
 }
 
-/// The property definitions in a stored list of them.
-fn definitions(list: &serde_json::Value) -> impl Iterator<Item = &fvoci_model::JsonMap> {
+/// The identifiers of the date properties in a stored JSON list of definitions.
+fn date_ids(list: &serde_json::Value) -> HashSet<String> {
     list.as_array()
         .into_iter()
         .flatten()
         .filter_map(serde_json::Value::as_object)
+        .filter(|definition| {
+            definition.get("type").and_then(serde_json::Value::as_str) == Some(DATE_PROPERTY_TYPE)
+        })
+        .filter_map(|definition| definition.get("id").and_then(serde_json::Value::as_str))
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]

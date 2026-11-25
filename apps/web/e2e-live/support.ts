@@ -281,8 +281,8 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
             type: 'select',
             options: statuses.map((name) => ({
               id: options[name],
-              value: name,
-              color: 'propColorBlue',
+              label: name,
+              color: 'blue',
             })),
           },
           { id: 'note', name: 'Note', type: 'text', options: [] },

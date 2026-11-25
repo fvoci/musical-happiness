@@ -6624,6 +6624,17 @@ export interface components {
              */
             text: string;
         };
+        /** @description A property definition of a board's cards (`Container::card_properties`). */
+        CardPropertyDefinition: {
+            /** @description The property's identifier on its board; non-empty and unique on the board. */
+            id: string;
+            /** @description The property's display name. Left out in a request, empty. */
+            name: string;
+            /** @description Selectable options when `type` is `select` or `multiSelect`. Left out, empty. */
+            options: components["schemas"]["PropertyOption"][];
+            /** @description The kind of values cards hold for this property. Left out in a request, `text`. */
+            type: components["schemas"]["PropertyType"];
+        };
         /** @description A sidebar category of one user in one workspace. */
         Category: {
             /** @description Whether the category is collapsed in the sidebar. */
@@ -6803,9 +6814,7 @@ export interface components {
         /** @description A board: a set of blocks and the property definitions of its cards. */
         Container: {
             /** @description The property definitions of the board's cards, in display order. */
-            cardProperties: {
-                [key: string]: unknown;
-            }[];
+            cardProperties: components["schemas"]["CardPropertyDefinition"][];
             /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
@@ -6920,9 +6929,7 @@ export interface components {
             /** @description The new title. */
             title?: string | null;
             /** @description Card property definitions to add or replace, matched by their `id`. */
-            updatedCardProperties?: {
-                [key: string]: unknown;
-            }[];
+            updatedCardProperties?: components["schemas"]["CardPropertyDefinition"][];
             /** @description Board properties to set. */
             updatedProperties?: {
                 [key: string]: unknown;
@@ -8039,9 +8046,7 @@ export interface components {
              * @description The property definitions of the board's cards, in display order. Each needs a
              *     non-empty `id` that no other has.
              */
-            cardProperties?: {
-                [key: string]: unknown;
-            }[];
+            cardProperties?: components["schemas"]["CardPropertyDefinition"][];
             /** @description The board's description. */
             description?: string;
             /** @description The board's icon, usually one emoji. */
@@ -8891,6 +8896,25 @@ export interface components {
              */
             type: string;
         };
+        /**
+         * @description Chip color shown for a `PropertyOption`.
+         * @enum {string}
+         */
+        PropertyColor: "default" | "gray" | "brown" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink" | "red";
+        /** @description A selectable option of a `select` or `multiSelect` `CardPropertyDefinition`. */
+        PropertyOption: {
+            /** @description The chip color shown for this option. Left out in a request, `default`. */
+            color: components["schemas"]["PropertyColor"];
+            /** @description The option's identifier within the property. */
+            id: string;
+            /** @description The option's display text. */
+            label: string;
+        };
+        /**
+         * @description The kind of values cards hold for a `CardPropertyDefinition`.
+         * @enum {string}
+         */
+        PropertyType: "text" | "number" | "select" | "multiSelect" | "date" | "person" | "multiPerson" | "file" | "checkbox" | "url" | "email" | "phone" | "createdTime" | "createdBy" | "updatedTime" | "updatedBy" | "relation";
         /**
          * @description The public link state of a board.
          *

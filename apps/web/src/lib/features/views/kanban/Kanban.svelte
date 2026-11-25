@@ -105,7 +105,7 @@
 
   /** The name a column shows: of its option, or of the person it stands for. */
   function nameOf(group: BoardGroup): string {
-    if (isOption || group.option.id === '') return group.option.value;
+    if (isOption || group.option.id === '') return group.option.label;
     return board.workspace.userName(group.option.id) ?? m['centerPanel.unknown-user']();
   }
   const names = $derived(

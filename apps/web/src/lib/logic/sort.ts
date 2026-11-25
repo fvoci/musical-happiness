@@ -113,7 +113,7 @@ function sortKey(card: Card, template: PropertyTemplate, context: SortContext): 
     case 'select':
     case 'multiSelect': {
       const id = Array.isArray(stored) ? stored[0] : stored;
-      return text(template.options.find((option) => option.id === id)?.value);
+      return text(template.options.find((option) => option.id === id)?.label);
     }
     case 'person':
     case 'multiPerson': {

@@ -37,7 +37,12 @@
   import PropertyValue from '$lib/components/properties/PropertyValue.svelte';
   import type { PropertyUser } from '$lib/components/properties/types.ts';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
-  import { createCard, createId, type PropertyOption } from '$lib/logic/wire.ts';
+  import {
+    createCard,
+    createId,
+    type PropertyColor,
+    type PropertyOption,
+  } from '$lib/logic/wire.ts';
 
   let {
     type,
@@ -83,7 +88,7 @@
   let options = $state<PropertyOption[]>(
     Array.from({ length: optionCount }, (_, index) => ({
       id: `option-${index + 1}`,
-      value: BASE_OPTIONS[index] ?? `선택지 ${index + 1}`,
+      label: BASE_OPTIONS[index] ?? `선택지 ${index + 1}`,
       color: OPTION_COLORS[index % OPTION_COLORS.length] ?? DEFAULT_OPTION_COLOR,
     })),
   );
@@ -138,22 +143,22 @@
           report('onChange', next);
         }}
         onCreateOption={(name: string) => {
-          const option = { id: createId('block'), value: name, color: DEFAULT_OPTION_COLOR };
+          const option = { id: createId('block'), label: name, color: DEFAULT_OPTION_COLOR };
           options = [...options, option];
           report('onCreateOption', name);
           return option;
         }}
         onRenameOption={(option: PropertyOption, name: string) => {
-          replaceOption(option.id, { value: name });
-          report('onRenameOption', [option.value, name]);
+          replaceOption(option.id, { label: name });
+          report('onRenameOption', [option.label, name]);
         }}
-        onRecolorOption={(option: PropertyOption, color: string) => {
+        onRecolorOption={(option: PropertyOption, color: PropertyColor) => {
           replaceOption(option.id, { color });
-          report('onRecolorOption', [option.value, color]);
+          report('onRecolorOption', [option.label, color]);
         }}
         onDeleteOption={(option: PropertyOption) => {
           options = options.filter((other) => other.id !== option.id);
-          report('onDeleteOption', option.value);
+          report('onDeleteOption', option.label);
         }}
       />
     </div>

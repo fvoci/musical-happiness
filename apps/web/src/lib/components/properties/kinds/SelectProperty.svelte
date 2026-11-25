@@ -126,7 +126,7 @@
 
   function editOption(option: PropertyOption): void {
     editingId = option.id;
-    nameDraft = option.value;
+    nameDraft = option.label;
   }
 
   async function backToList(): Promise<void> {
@@ -140,8 +140,8 @@
   function rename(): void {
     const text = nameDraft.trim();
     if (!editing) return;
-    if (text === '' || text === editing.value) {
-      nameDraft = editing.value;
+    if (text === '' || text === editing.label) {
+      nameDraft = editing.label;
       return;
     }
     onRenameOption?.(editing, text);
@@ -150,7 +150,7 @@
 
 {#snippet labels()}
   {#each chosen as option (option.id)}
-    <OptionChip name={option.value} color={option.color} />
+    <OptionChip name={option.label} color={option.color} />
   {/each}
   {#if chosen.length === 0 && placeholder !== ''}
     <span data-slot="property-empty" class="text-muted-foreground">{placeholder}</span>
@@ -206,11 +206,11 @@
               if (event.key === 'Enter') {
                 event.preventDefault();
                 rename();
-              } else if (event.key === 'Escape' && nameDraft !== editing.value) {
+              } else if (event.key === 'Escape' && nameDraft !== editing.label) {
                 // The first Escape puts the name back; the next one closes.
                 event.preventDefault();
                 event.stopPropagation();
-                nameDraft = editing.value;
+                nameDraft = editing.label;
               }
             }}
           />
@@ -271,7 +271,7 @@
             {#each chosen as option (option.id)}
               <li class="flex min-w-0">
                 <OptionChip
-                  name={option.value}
+                  name={option.label}
                   color={option.color}
                   onRemove={() => {
                     remove(option.id);
@@ -284,7 +284,7 @@
         <PickList
           bind:search
           items={options}
-          textOf={(option: PropertyOption) => option.value}
+          textOf={(option: PropertyOption) => option.label}
           selected={chosenIds}
           {multiple}
           label={m['ValueSelector.valueSelector']()}
@@ -301,7 +301,7 @@
           }}
         >
           {#snippet row(option: PropertyOption)}
-            <OptionChip name={option.value} color={option.color} />
+            <OptionChip name={option.label} color={option.color} />
           {/snippet}
           {#snippet trailing(option: PropertyOption)}
             {#if canEditOptions}
@@ -310,7 +310,7 @@
                 variant="ghost"
                 size="icon-sm"
                 class="shrink-0 group-data-[presentation=sheet]/surface:size-touch"
-                aria-label={m.property_option_edit({ name: option.value })}
+                aria-label={m.property_option_edit({ name: option.label })}
                 title={m['ValueSelectorLabel.openMenu']()}
                 onclick={() => {
                   editOption(option);

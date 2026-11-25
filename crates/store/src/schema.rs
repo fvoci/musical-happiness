@@ -103,6 +103,10 @@ pub(crate) const BEFORE_NULLABLE_DELETED_AT_VERSION: i64 = 71;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION: i64 = 72;
 
+/// The migration before native property definitions and lowercase colors (0074).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION: i64 = 73;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -517,5 +521,27 @@ mod tests {
             .expect("migration 72 is in the list");
         assert_eq!(step.version, 72);
         assert_eq!(step.description, "nullable deleted at");
+    }
+
+    /// Migration 73 is container member role enum, immediately following `BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION` (72).
+    #[test]
+    fn migration_73_is_container_member_role_enum() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION + 1)
+            .expect("migration 73 is in the list");
+        assert_eq!(step.version, 73);
+        assert_eq!(step.description, "container member role enum");
+    }
+
+    /// Migration 74 is native property definitions and colors, immediately following `BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION` (73).
+    #[test]
+    fn migration_74_is_native_property_definitions_and_colors() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION + 1)
+            .expect("migration 74 is in the list");
+        assert_eq!(step.version, 74);
+        assert_eq!(step.description, "native property definitions and colors");
     }
 }

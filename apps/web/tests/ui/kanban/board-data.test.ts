@@ -27,7 +27,7 @@ describe('the options a board is grouped by', () => {
     const id = await addGroup(board, view, STATUS, 'Review', ['todo', 'doing', 'done', '']);
 
     const options = board.board?.cardProperties.find((template) => template.id === STATUS)?.options;
-    expect(options?.at(-1)).toEqual({ id, value: 'Review', color: 'propColorDefault' });
+    expect(options?.at(-1)).toEqual({ id, label: 'Review', color: 'default' });
     expect(board.view(view.id)?.fields.visibleGroups).toEqual(['todo', 'doing', 'done', '', id]);
 
     await workspace.undoLast();
@@ -39,12 +39,12 @@ describe('the options a board is grouped by', () => {
 
   it('are renamed and given another colour', async () => {
     const { board } = await openFirstBoard();
-    await changeOption(board, STATUS, 'doing', { value: 'Under way' });
-    await changeOption(board, STATUS, 'doing', { color: 'propColorPink' });
+    await changeOption(board, STATUS, 'doing', { label: 'Under way' });
+    await changeOption(board, STATUS, 'doing', { color: 'pink' });
     const option = board.board?.cardProperties
       .find((template) => template.id === STATUS)
       ?.options.find((candidate) => candidate.id === 'doing');
-    expect(option).toEqual({ id: 'doing', value: 'Under way', color: 'propColorPink' });
+    expect(option).toEqual({ id: 'doing', label: 'Under way', color: 'pink' });
   });
 
   it('lose a deleted one, whose cards then show without a value, until undo', async () => {
@@ -53,7 +53,7 @@ describe('the options a board is grouped by', () => {
     if (!view) throw new Error('no view');
     await deleteOption(board, STATUS, 'todo');
     const groups = board.groupsOf(view, board.cardsOf(view), NO_STATUS);
-    expect(groups.visible.map((group) => [group.option.value, group.cards.length])).toEqual([
+    expect(groups.visible.map((group) => [group.option.label, group.cards.length])).toEqual([
       ['Doing', 1],
       ['Done', 0],
       ['No Status', 2],

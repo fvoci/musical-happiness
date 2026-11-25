@@ -1,30 +1,336 @@
-//! The shapes that card property definitions and card property values must have.
+//! Card property definitions and card property values.
 //!
-//! A board defines the properties of its cards (`cardProperties`), and every card holds a
-//! value per property (`fields.properties` of its block). Both are free-form JSON, and
-//! clients render them as they are: a value is text or a list of texts, and a definition
-//! names itself and its options with strings, and the value of a date property is a
-//! date value (`docs/s6-design.md` 5.7). Anything else is refused before it is stored,
-//! so that one member cannot break the board for the others.
+//! A board defines the properties of its cards (`cardProperties` as
+//! [`CardPropertyDefinition`]s), and every card holds a value per property
+//! (`fields.properties` of its block): a value is text, a list of texts, a date value
+//! (`docs/s6-design.md` 5.7), a list of relation links, or `null`. Anything else is
+//! refused before it is stored, so that one member cannot break the board for the others.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
 use crate::date_value::{DateValueError, check_date_value};
 use crate::refusal::{RefusalReason, Refusals};
-use crate::relation::{RELATION_PROPERTY_TYPE, RelationLinkError, parse_relation_link};
+use crate::relation::{RelationLinkError, parse_relation_link};
 
 /// The `type` of a property definition whose values are date values.
 pub const DATE_PROPERTY_TYPE: &str = "date";
 
-/// The members of a property definition that must be strings when present.
-const DEFINITION_STRING_MEMBERS: [&str; 2] = ["name", "type"];
+/// Chip color shown for a [`PropertyOption`].
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum PropertyColor {
+    /// Neutral chip color when none was chosen.
+    #[default]
+    Default,
+    /// Muted gray chip color.
+    Gray,
+    /// Warm brown chip color.
+    Brown,
+    /// Orange chip color.
+    Orange,
+    /// Yellow chip color.
+    Yellow,
+    /// Green chip color.
+    Green,
+    /// Blue chip color.
+    Blue,
+    /// Purple chip color.
+    Purple,
+    /// Pink chip color.
+    Pink,
+    /// Red chip color.
+    Red,
+}
 
-/// The members of a property option that must be strings when present.
-const OPTION_STRING_MEMBERS: [&str; 3] = ["id", "value", "color"];
+impl PropertyColor {
+    /// Every option color in canonical order.
+    pub const ALL: [Self; 10] = [
+        Self::Default,
+        Self::Gray,
+        Self::Brown,
+        Self::Orange,
+        Self::Yellow,
+        Self::Green,
+        Self::Blue,
+        Self::Purple,
+        Self::Pink,
+        Self::Red,
+    ];
+
+    /// The wire words in the order of [`Self::ALL`].
+    pub const WORDS: &[&str] = &[
+        "default", "gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink", "red",
+    ];
+
+    /// Returns the wire and database form.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Gray => "gray",
+            Self::Brown => "brown",
+            Self::Orange => "orange",
+            Self::Yellow => "yellow",
+            Self::Green => "green",
+            Self::Blue => "blue",
+            Self::Purple => "purple",
+            Self::Pink => "pink",
+            Self::Red => "red",
+        }
+    }
+}
+
+impl std::fmt::Display for PropertyColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned when a string names no [`PropertyColor`].
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("the text names no property color")]
+pub struct ParsePropertyColorError;
+
+impl FromStr for PropertyColor {
+    type Err = ParsePropertyColorError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|color| color.as_str() == text)
+            .ok_or(ParsePropertyColorError)
+    }
+}
+
+/// The kind of values cards hold for a [`CardPropertyDefinition`].
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertyType {
+    /// Free-form plain text.
+    #[default]
+    Text,
+    /// Numeric value stored as text.
+    Number,
+    /// Single choice from [`CardPropertyDefinition::options`].
+    Select,
+    /// Zero or more choices from [`CardPropertyDefinition::options`].
+    MultiSelect,
+    /// Calendar date, date range, or millisecond timestamp (`docs/s6-design.md` 5.7).
+    Date,
+    /// Single assigned workspace user ID.
+    Person,
+    /// Multiple assigned workspace user IDs.
+    MultiPerson,
+    /// Uploaded file attachment reference.
+    File,
+    /// Boolean flag stored as `"true"` or empty.
+    Checkbox,
+    /// Web address.
+    Url,
+    /// Email address.
+    Email,
+    /// Telephone number.
+    Phone,
+    /// Automatic card creation timestamp (`createAt`).
+    CreatedTime,
+    /// Automatic card creator (`createdBy`).
+    CreatedBy,
+    /// Automatic card modification timestamp (`updateAt`).
+    UpdatedTime,
+    /// Automatic card last modifier (`modifiedBy`).
+    UpdatedBy,
+    /// Dependency links to other cards on the same board.
+    Relation,
+}
+
+impl PropertyType {
+    /// Every property kind in canonical order.
+    pub const ALL: [Self; 17] = [
+        Self::Text,
+        Self::Number,
+        Self::Select,
+        Self::MultiSelect,
+        Self::Date,
+        Self::Person,
+        Self::MultiPerson,
+        Self::File,
+        Self::Checkbox,
+        Self::Url,
+        Self::Email,
+        Self::Phone,
+        Self::CreatedTime,
+        Self::CreatedBy,
+        Self::UpdatedTime,
+        Self::UpdatedBy,
+        Self::Relation,
+    ];
+
+    /// The wire words in the order of [`Self::ALL`].
+    pub const WORDS: &[&str] = &[
+        "text",
+        "number",
+        "select",
+        "multiSelect",
+        "date",
+        "person",
+        "multiPerson",
+        "file",
+        "checkbox",
+        "url",
+        "email",
+        "phone",
+        "createdTime",
+        "createdBy",
+        "updatedTime",
+        "updatedBy",
+        "relation",
+    ];
+
+    /// Returns the wire and database form.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Number => "number",
+            Self::Select => "select",
+            Self::MultiSelect => "multiSelect",
+            Self::Date => "date",
+            Self::Person => "person",
+            Self::MultiPerson => "multiPerson",
+            Self::File => "file",
+            Self::Checkbox => "checkbox",
+            Self::Url => "url",
+            Self::Email => "email",
+            Self::Phone => "phone",
+            Self::CreatedTime => "createdTime",
+            Self::CreatedBy => "createdBy",
+            Self::UpdatedTime => "updatedTime",
+            Self::UpdatedBy => "updatedBy",
+            Self::Relation => "relation",
+        }
+    }
+
+    /// Whether values or filters on this property name workspace users.
+    #[must_use]
+    pub const fn names_people(self) -> bool {
+        matches!(
+            self,
+            Self::Person | Self::MultiPerson | Self::CreatedBy | Self::UpdatedBy
+        )
+    }
+
+    /// Whether values on this property record whom a card is assigned to.
+    #[must_use]
+    pub const fn is_assigned_person(self) -> bool {
+        matches!(self, Self::Person | Self::MultiPerson)
+    }
+}
+
+impl std::fmt::Display for PropertyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned when a string names no [`PropertyType`].
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("the text names no property type")]
+pub struct ParsePropertyTypeError;
+
+impl FromStr for PropertyType {
+    type Err = ParsePropertyTypeError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == text)
+            .ok_or(ParsePropertyTypeError)
+    }
+}
+
+/// A selectable option of a `select` or `multiSelect` [`CardPropertyDefinition`].
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PropertyOption {
+    /// The option's identifier within the property.
+    pub id: String,
+    /// The option's display text.
+    pub label: String,
+    /// The chip color shown for this option. Left out in a request, `default`.
+    #[serde(default)]
+    pub color: PropertyColor,
+}
+
+impl PropertyOption {
+    /// Constructs a [`PropertyOption`] with `id`, `label`, and `color`.
+    #[must_use]
+    pub fn new(id: impl Into<String>, label: impl Into<String>, color: PropertyColor) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            color,
+        }
+    }
+
+    /// Whether any string of the option contains `U+0000`.
+    #[must_use]
+    pub(crate) fn holds_nul(&self) -> bool {
+        self.id.contains('\0') || self.label.contains('\0')
+    }
+}
+
+/// A property definition of a board's cards (`Container::card_properties`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CardPropertyDefinition {
+    /// The property's identifier on its board; non-empty and unique on the board.
+    #[serde(default)]
+    pub id: String,
+    /// The property's display name. Left out in a request, empty.
+    #[serde(default)]
+    pub name: String,
+    /// The kind of values cards hold for this property. Left out in a request, `text`.
+    #[serde(default, rename = "type")]
+    pub property_type: PropertyType,
+    /// Selectable options when `type` is `select` or `multiSelect`. Left out, empty.
+    #[serde(default)]
+    pub options: Vec<PropertyOption>,
+}
+
+impl CardPropertyDefinition {
+    /// Constructs a [`CardPropertyDefinition`] with no options.
+    #[must_use]
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        property_type: PropertyType,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            property_type,
+            options: Vec::new(),
+        }
+    }
+
+    /// Whether any string of the definition or its options contains `U+0000`.
+    #[must_use]
+    pub(crate) fn holds_nul(&self) -> bool {
+        self.id.contains('\0')
+            || self.name.contains('\0')
+            || self.options.iter().any(PropertyOption::holds_nul)
+    }
+}
 
 /// Reasons card property data is rejected before it is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -77,7 +383,7 @@ pub enum CardPropertyError {
         /// The identifier of the property.
         id: String,
     },
-    /// A property definition has no `id`, or one that is not a non-empty string.
+    /// A property definition has no `id`, or one that is empty.
     #[error("card property definition {position} needs a non-empty string as id")]
     MissingId {
         /// Which definition of the list it is, counted from 1.
@@ -89,33 +395,34 @@ pub enum CardPropertyError {
         /// The identifier that is there twice.
         id: String,
     },
-    /// A member of a property definition that must be a string is something else.
-    #[error("{member} of card property {id:?} must be a string")]
-    MemberNotString {
-        /// The identifier of the property.
+    /// An option of a property definition has an empty `id`.
+    #[error("option {position} of card property {id:?} needs a non-empty string as id")]
+    MissingOptionId {
+        /// The identifier of the property definition.
         id: String,
-        /// The name of the member.
-        member: &'static str,
+        /// Which option of the definition it is, counted from 1.
+        position: usize,
     },
-    /// The options of a property definition are not a list of objects whose `id`,
-    /// `value` and `color` are strings.
-    #[error(
-        "the options of card property {id:?} must be a list of objects with strings as id, value and color"
-    )]
-    InvalidOptions {
-        /// The identifier of the property.
+    /// Two options of a property definition share the same `id`.
+    #[error("two options of card property {id:?} have the id {option_id:?}")]
+    DuplicateOptionId {
+        /// The identifier of the property definition.
         id: String,
+        /// The option identifier that is there twice.
+        option_id: String,
     },
 }
 
 /// Checks the property values of a card: each is a string, a list of strings, a date
-/// value, or `null`. Whether a date value belongs to a date property is for
-/// [`validate_card_property_kinds`], which needs the board's definitions.
+/// value, a list of relation links, or `null`. Whether a date or relation value belongs
+/// to a property of that kind is for [`validate_card_property_kinds`], which needs the
+/// board's definitions.
 ///
 /// # Errors
 ///
 /// Returns [`CardPropertyError::InvalidValue`] for the first value of another shape,
-/// and [`CardPropertyError::InvalidDateValue`] for an object that is no date value.
+/// [`CardPropertyError::InvalidDateValue`] for an object that is no date value, and
+/// [`CardPropertyError::InvalidRelationLink`] for an invalid relation link object.
 pub fn validate_card_property_values(values: &JsonMap) -> Result<(), CardPropertyError> {
     values
         .iter()
@@ -188,10 +495,10 @@ pub(crate) fn check_card_property_values<'v>(
 /// place.
 pub fn validate_card_property_kinds(
     values: &JsonMap,
-    definitions: &[JsonMap],
+    definitions: &[CardPropertyDefinition],
 ) -> Result<(), CardPropertyError> {
     for (id, value) in values {
-        if is_date_property(id, definitions) {
+        if is_property_of_type(id, PropertyType::Date, definitions) {
             if !matches!(value, Value::Null | Value::Object(_)) {
                 return Err(CardPropertyError::NotADateValue { id: id.clone() });
             }
@@ -200,28 +507,23 @@ pub fn validate_card_property_kinds(
         if value.is_object() {
             return Err(CardPropertyError::DateValueOfOtherProperty { id: id.clone() });
         }
-        if is_relation_links_array(value) && !is_relation_property(id, definitions) {
+        if is_relation_links_array(value)
+            && !is_property_of_type(id, PropertyType::Relation, definitions)
+        {
             return Err(CardPropertyError::RelationValueOfOtherProperty { id: id.clone() });
         }
     }
     Ok(())
 }
 
-/// Whether a property is one of the board's date properties.
-fn is_date_property(id: &str, definitions: &[JsonMap]) -> bool {
-    is_property_of_type(id, DATE_PROPERTY_TYPE, definitions)
-}
-
-/// Whether a property is one of the board's relation properties.
-fn is_relation_property(id: &str, definitions: &[JsonMap]) -> bool {
-    is_property_of_type(id, RELATION_PROPERTY_TYPE, definitions)
-}
-
-fn is_property_of_type(id: &str, property_type: &str, definitions: &[JsonMap]) -> bool {
-    definitions.iter().any(|definition| {
-        definition.get("id").and_then(Value::as_str) == Some(id)
-            && definition.get("type").and_then(Value::as_str) == Some(property_type)
-    })
+fn is_property_of_type(
+    id: &str,
+    property_type: PropertyType,
+    definitions: &[CardPropertyDefinition],
+) -> bool {
+    definitions
+        .iter()
+        .any(|definition| definition.id == id && definition.property_type == property_type)
 }
 
 /// Whether a value is a non-empty list of relation link objects.
@@ -236,16 +538,21 @@ fn is_relation_links_array(value: &Value) -> bool {
 /// board no longer defines while holding a date or relation link value. For what is
 /// copied from stored cards, which may be older than a change of the definitions.
 /// Returns how many were cleared.
-pub fn clear_values_of_another_kind(values: &mut JsonMap, definitions: &[JsonMap]) -> usize {
+pub fn clear_values_of_another_kind(
+    values: &mut JsonMap,
+    definitions: &[CardPropertyDefinition],
+) -> usize {
     let mut cleared = 0;
     for (id, value) in values.iter_mut() {
+        let is_date = is_property_of_type(id, PropertyType::Date, definitions);
         // A value of another kind; a malformed one is left to be refused.
         let other_kind = match value {
-            Value::Object(_) => !is_date_property(id, definitions),
-            Value::String(_) => is_date_property(id, definitions),
+            Value::Object(_) => !is_date,
+            Value::String(_) => is_date,
             Value::Array(_) => {
-                is_date_property(id, definitions)
-                    || (is_relation_links_array(value) && !is_relation_property(id, definitions))
+                is_date
+                    || (is_relation_links_array(value)
+                        && !is_property_of_type(id, PropertyType::Relation, definitions))
             }
             Value::Null | Value::Bool(_) | Value::Number(_) => false,
         };
@@ -272,91 +579,63 @@ pub fn validate_block_properties(fields: &JsonMap) -> Result<(), CardPropertyErr
     }
 }
 
-/// Checks the card property definitions of a board: each has a non-empty string `id`,
-/// strings as `name` and `type` if it has them, and as `options`, if it has them, a list
-/// of objects whose `id`, `value` and `color` are strings.
+/// Checks the card property definitions of a board: each has a non-empty `id` that no
+/// earlier definition of the board has, and each option within a definition has a
+/// non-empty `id` unique within that definition.
 ///
 /// # Errors
 ///
-/// Returns the [`CardPropertyError`] of the first definition that is malformed or has
-/// the identifier of an earlier one: a card's value could not say which of the two it
-/// belongs to.
+/// Returns [`CardPropertyError::MissingId`], [`CardPropertyError::DuplicateId`],
+/// [`CardPropertyError::MissingOptionId`], or [`CardPropertyError::DuplicateOptionId`]
+/// for the first offending definition or option.
 pub fn validate_card_property_definitions(
-    definitions: &[JsonMap],
+    definitions: &[CardPropertyDefinition],
 ) -> Result<(), CardPropertyError> {
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::with_capacity(definitions.len());
     for (index, definition) in definitions.iter().enumerate() {
-        let id = validate_definition(definition, index + 1)?;
-        if !seen.insert(id) {
-            return Err(CardPropertyError::DuplicateId { id: id.to_owned() });
+        if definition.id.is_empty() {
+            return Err(CardPropertyError::MissingId {
+                position: index + 1,
+            });
+        }
+        if !seen.insert(definition.id.as_str()) {
+            return Err(CardPropertyError::DuplicateId {
+                id: definition.id.clone(),
+            });
+        }
+        let mut seen_options = std::collections::HashSet::with_capacity(definition.options.len());
+        for (opt_idx, option) in definition.options.iter().enumerate() {
+            if option.id.is_empty() {
+                return Err(CardPropertyError::MissingOptionId {
+                    id: definition.id.clone(),
+                    position: opt_idx + 1,
+                });
+            }
+            if !seen_options.insert(option.id.as_str()) {
+                return Err(CardPropertyError::DuplicateOptionId {
+                    id: definition.id.clone(),
+                    option_id: option.id.clone(),
+                });
+            }
         }
     }
     Ok(())
 }
 
-/// Checks one definition, the `position`th of its list, and returns its identifier.
-fn validate_definition(definition: &JsonMap, position: usize) -> Result<&str, CardPropertyError> {
-    let id = match definition.get("id") {
-        Some(Value::String(id)) if !id.is_empty() => id,
-        _ => return Err(CardPropertyError::MissingId { position }),
-    };
-    for member in DEFINITION_STRING_MEMBERS {
-        if definition
-            .get(member)
-            .is_some_and(|value| !value.is_string())
-        {
-            return Err(CardPropertyError::MemberNotString {
-                id: id.clone(),
-                member,
-            });
-        }
-    }
-    let options_are_valid = match definition.get("options") {
-        None | Some(Value::Null) => true,
-        Some(Value::Array(options)) => options.iter().all(is_valid_option),
-        Some(_) => false,
-    };
-    if options_are_valid {
-        Ok(id)
-    } else {
-        Err(CardPropertyError::InvalidOptions { id: id.clone() })
-    }
-}
-
-fn is_valid_option(option: &Value) -> bool {
-    option.as_object().is_some_and(|option| {
-        OPTION_STRING_MEMBERS
-            .iter()
-            .all(|member| option.get(*member).is_none_or(Value::is_string))
-    })
-}
-
-/// The `type`s of the property definitions whose values name users: a person, several
-/// people, and who made or last changed a card. The last two hold no value of their own,
-/// but a view may filter by them.
-const PERSON_PROPERTY_TYPES: [&str; 4] = ["person", "multiPerson", "createdBy", "updatedBy"];
-
-/// The `type`s of the property definitions whose values are the people a card is given
-/// to: who made or last changed it is nobody's doing.
-const ASSIGNED_PROPERTY_TYPES: [&str; 2] = ["person", "multiPerson"];
-
 /// The users that the values of a card name in the properties of its board that hold
 /// whom the card is given to (`person`, `multiPerson`), each once, in the order of the
 /// definitions. A value is a user, or a list of users; anything else names nobody.
 #[must_use]
-pub fn assigned_users<'v>(values: &'v JsonMap, definitions: &[JsonMap]) -> Vec<&'v str> {
+pub fn assigned_users<'v>(
+    values: &'v JsonMap,
+    definitions: &[CardPropertyDefinition],
+) -> Vec<&'v str> {
     let mut users: Vec<&str> = Vec::new();
     for definition in definitions {
-        let holds_people = definition
-            .get("type")
-            .and_then(Value::as_str)
-            .is_some_and(|kind| ASSIGNED_PROPERTY_TYPES.contains(&kind));
-        let value = definition
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|_| holds_people)
-            .and_then(|id| values.get(id));
-        let named: Vec<&str> = match value {
+        if definition.id.is_empty() || !definition.property_type.is_assigned_person() {
+            continue;
+        }
+        let named: Vec<&str> = match values.get(&definition.id) {
             Some(Value::String(user)) => vec![user.as_str()],
             Some(Value::Array(items)) => items.iter().filter_map(Value::as_str).collect(),
             _ => Vec::new(),
@@ -398,28 +677,24 @@ pub struct PersonProperties {
 impl PersonProperties {
     /// The properties among a board's definitions.
     #[must_use]
-    pub fn of(definitions: &[JsonMap]) -> Self {
+    pub fn of(definitions: &[CardPropertyDefinition]) -> Self {
         let mut properties = Self::default();
         for definition in definitions {
-            let Some(id) = definition.get("id").and_then(Value::as_str) else {
+            if definition.id.is_empty() {
                 continue;
-            };
-            properties.defined.insert(id.to_owned());
-            let names_users = definition
-                .get("type")
-                .and_then(Value::as_str)
-                .is_some_and(|kind| PERSON_PROPERTY_TYPES.contains(&kind));
-            if names_users {
-                properties.people.insert(id.to_owned());
             }
-            if definition.get("type").and_then(Value::as_str) == Some("select") {
-                let options = definition.get("options").and_then(Value::as_array);
-                let ids = options
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|option| option.get("id"));
-                let ids = ids.filter_map(Value::as_str).map(str::to_owned).collect();
-                properties.options.insert(id.to_owned(), ids);
+            properties.defined.insert(definition.id.clone());
+            if definition.property_type.names_people() {
+                properties.people.insert(definition.id.clone());
+            }
+            if definition.property_type == PropertyType::Select {
+                let ids = definition
+                    .options
+                    .iter()
+                    .filter(|option| !option.id.is_empty())
+                    .map(|option| option.id.clone())
+                    .collect();
+                properties.options.insert(definition.id.clone(), ids);
             }
         }
         properties
@@ -514,418 +789,4 @@ fn hide_users(value: &mut Value) {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-    use crate::date_value::DateValueError;
-
-    fn object(value: Value) -> JsonMap {
-        match value {
-            Value::Object(object) => object,
-            other => panic!("not an object: {other}"),
-        }
-    }
-
-    #[test]
-    fn a_view_of_a_property_no_longer_defined_names_nobody_but_the_title_stays() {
-        let people = PersonProperties::of(&[
-            object(json!({"id": "stage", "type": "select", "options": [{"id": "s1"}]})),
-            object(json!({"id": "note", "type": "text"})),
-        ]);
-        let mut fields = object(json!({
-            "groupBy": "owner",
-            "hiddenGroups": ["u1", ""],
-            "groupCalculations": {"u1": {"calculation": "count"}},
-            "filter": {"operation": "and", "filters": [
-                {"propertyId": "owner", "condition": "includes", "values": ["u1"]},
-                {"propertyId": "title", "condition": "contains", "values": ["beans"]},
-                {"propertyId": "stage", "condition": "includes", "values": ["s1"]},
-            ]},
-        }));
-        people.hide_view_fields(&mut fields);
-        assert_eq!(
-            Value::Object(fields),
-            json!({
-                "groupBy": "owner",
-                "hiddenGroups": [""],
-                "groupCalculations": {},
-                "filter": {"operation": "and", "filters": [
-                    {"propertyId": "owner", "condition": "includes", "values": [""]},
-                    {"propertyId": "title", "condition": "contains", "values": ["beans"]},
-                    {"propertyId": "stage", "condition": "includes", "values": ["s1"]},
-                ]},
-            }),
-            "a deleted property may have named users; the title and a select do not"
-        );
-        let mut by_stage = object(json!({"groupBy": "stage", "hiddenGroups": ["s1", "u1"]}));
-        people.hide_view_fields(&mut by_stage);
-        let kept = &by_stage["hiddenGroups"];
-        assert_eq!(
-            kept,
-            &json!(["s1"]),
-            "a select's options stay, anything else goes"
-        );
-        // Grouped by a text, the app groups by a property of its choosing.
-        let mut by_note = object(json!({"groupBy": "note", "collapsedGroups": ["u1", ""]}));
-        people.hide_view_fields(&mut by_note);
-        assert_eq!(
-            by_note["collapsedGroups"],
-            json!([""]),
-            "only the empty group stays"
-        );
-    }
-
-    #[test]
-    fn the_users_of_person_properties_are_emptied_one_by_one() {
-        let people = PersonProperties::of(&[
-            object(json!({"id": "owner", "type": "person"})),
-            object(json!({"id": "people", "type": "multiPerson"})),
-            object(json!({"id": "by", "type": "createdBy"})),
-            object(json!({"id": "note", "type": "text"})),
-            object(json!({"type": "person"})),
-        ]);
-        let mut values = object(json!({
-            "owner": "u1", "people": ["u1", "u2"], "note": "u1", "deleted": "u1", "by": null,
-        }));
-        people.hide_values(&mut values);
-        assert_eq!(
-            Value::Object(values),
-            json!({"owner": "", "people": ["", ""], "note": "u1", "by": null}),
-            "the count of people stays, who they are goes, and so do undefined values"
-        );
-
-        let mut fields = object(json!({
-            "groupBy": "owner",
-            "hiddenGroups": ["u1", ""],
-            "visibleGroups": ["u2"],
-            "collapsedGroups": [""],
-            "groupCalculations": {"u1": {"calculation": "count"}, "": {"calculation": "sum"}},
-            "cardOrder": ["c1"],
-            "filter": {"operation": "and", "filters": [
-                {"propertyId": "owner", "condition": "includes", "values": ["u1"]},
-                {"operation": "or", "filters": [
-                    {"propertyId": "by", "condition": "includes", "values": ["u1", "u2"]},
-                    {"propertyId": "note", "condition": "includes", "values": ["u1"]},
-                ]},
-            ]},
-        }));
-        people.hide_view_fields(&mut fields);
-        assert_eq!(
-            Value::Object(fields),
-            json!({
-                "groupBy": "owner",
-                "hiddenGroups": [""],
-                "visibleGroups": [],
-                "collapsedGroups": [""],
-                "groupCalculations": {"": {"calculation": "sum"}},
-                "cardOrder": ["c1"],
-                "filter": {"operation": "and", "filters": [
-                    {"propertyId": "owner", "condition": "includes", "values": [""]},
-                    {"operation": "or", "filters": [
-                        {"propertyId": "by", "condition": "includes", "values": ["", ""]},
-                        {"propertyId": "note", "condition": "includes", "values": ["u1"]},
-                    ]},
-                ]},
-            }),
-            "in nested groups too, and the groups of users go"
-        );
-
-        let stages = PersonProperties::of(&[object(
-            json!({"id": "stage", "type": "select", "options": [{"id": "o1"}]}),
-        )]);
-        let mut by_select = object(json!({"groupBy": "stage", "hiddenGroups": ["o1"]}));
-        stages.hide_view_fields(&mut by_select);
-        assert_eq!(
-            Value::Object(by_select),
-            json!({"groupBy": "stage", "hiddenGroups": ["o1"]}),
-            "groups of options stay"
-        );
-    }
-
-    #[test]
-    fn strings_lists_of_strings_and_null_are_property_values() {
-        let values = object(json!({
-            "text": "hello", "empty": "", "many": ["a", "b"], "none": [], "unset": null,
-        }));
-        assert_eq!(validate_card_property_values(&values), Ok(()), "{values:?}");
-        assert_eq!(
-            validate_card_property_values(&JsonMap::new()),
-            Ok(()),
-            "no values at all"
-        );
-    }
-
-    #[test]
-    fn an_object_is_a_date_value_or_refused_as_one() {
-        let values = object(json!({"d": {"from": "2026-03-05"}, "t": {"from": 1}}));
-        assert_eq!(validate_card_property_values(&values), Ok(()));
-        let values = object(json!({"p1": {"nested": "x"}}));
-        assert_eq!(
-            validate_card_property_values(&values),
-            Err(CardPropertyError::InvalidDateValue {
-                id: "p1".to_owned(),
-                reason: DateValueError::UnknownMember,
-            })
-        );
-    }
-
-    #[test]
-    fn date_values_are_the_values_of_date_properties_only() {
-        let definitions = [
-            object(json!({"id": "due", "name": "Due", "type": "date"})),
-            object(json!({"id": "note", "name": "Note", "type": "text"})),
-        ];
-        let accepted = object(json!({
-            "due": {"from": "2026-03-05"}, "note": "x", "other": ["a"],
-        }));
-        assert_eq!(
-            validate_card_property_kinds(&accepted, &definitions),
-            Ok(())
-        );
-        let unset = object(json!({"due": null}));
-        assert_eq!(validate_card_property_kinds(&unset, &definitions), Ok(()));
-        for (values, error) in [
-            (
-                json!({"due": "{\"from\":1}"}),
-                CardPropertyError::NotADateValue {
-                    id: "due".to_owned(),
-                },
-            ),
-            (
-                json!({"due": ["2026-03-05"]}),
-                CardPropertyError::NotADateValue {
-                    id: "due".to_owned(),
-                },
-            ),
-            (
-                json!({"note": {"from": "2026-03-05"}}),
-                CardPropertyError::DateValueOfOtherProperty {
-                    id: "note".to_owned(),
-                },
-            ),
-            (
-                json!({"undefined": {"from": "2026-03-05"}}),
-                CardPropertyError::DateValueOfOtherProperty {
-                    id: "undefined".to_owned(),
-                },
-            ),
-        ] {
-            assert_eq!(
-                validate_card_property_kinds(&object(values.clone()), &definitions),
-                Err(error),
-                "{values}"
-            );
-        }
-    }
-
-    #[test]
-    fn relation_links_validate_shape_and_belong_to_relation_properties_only() {
-        let valid = object(json!({
-            "rel": [{"card": "c1"}, {"card": "c2", "kind": "ss", "lagDays": -3}],
-        }));
-        assert_eq!(validate_card_property_values(&valid), Ok(()));
-        assert_eq!(
-            validate_card_property_values(&object(json!({"rel": [{"card": "c1", "kind": "bad"}]}))),
-            Err(CardPropertyError::InvalidRelationLink {
-                id: "rel".to_owned(),
-                reason: RelationLinkError::InvalidKind,
-            })
-        );
-        assert_eq!(
-            validate_card_property_values(&object(json!({"rel": ["a", {"card": "c1"}]}))),
-            Err(CardPropertyError::InvalidValue {
-                id: "rel".to_owned(),
-            })
-        );
-        let definitions = [
-            object(json!({"id": "rel", "type": "relation"})),
-            object(json!({"id": "note", "type": "text"})),
-        ];
-        assert_eq!(validate_card_property_kinds(&valid, &definitions), Ok(()));
-        assert_eq!(
-            validate_card_property_kinds(
-                &object(json!({"note": [{"card": "c1", "kind": "fs", "lagDays": 0}]})),
-                &definitions,
-            ),
-            Err(CardPropertyError::RelationValueOfOtherProperty {
-                id: "note".to_owned(),
-            })
-        );
-        let mut stale = object(json!({
-            "note": [{"card": "c1", "kind": "ss", "lagDays": 2}],
-            "rel": [{"card": "c2", "kind": "ff", "lagDays": -1}],
-        }));
-        assert_eq!(clear_values_of_another_kind(&mut stale, &definitions), 1);
-        assert_eq!(stale["note"], Value::Null);
-        assert_eq!(
-            stale["rel"],
-            json!([{"card": "c2", "kind": "ff", "lagDays": -1}])
-        );
-    }
-
-    #[test]
-    fn other_shapes_are_no_property_values() {
-        for value in [
-            json!(3),
-            json!(1.5),
-            json!(true),
-            json!(["a", 1]),
-            json!([["a"]]),
-            json!([null]),
-        ] {
-            let values = object(json!({"p1": value}));
-            assert_eq!(
-                validate_card_property_values(&values),
-                Err(CardPropertyError::InvalidValue {
-                    id: "p1".to_owned()
-                }),
-                "value {value}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_properties_of_a_block_are_an_object_of_values_or_absent() {
-        assert_eq!(
-            validate_block_properties(&object(json!({"icon": "x"}))),
-            Ok(()),
-            "no properties"
-        );
-        assert_eq!(
-            validate_block_properties(&object(json!({"properties": {"p1": "v"}}))),
-            Ok(()),
-            "an object of values"
-        );
-        for properties in [json!("text"), json!(["a"]), json!(7), json!(null)] {
-            assert_eq!(
-                validate_block_properties(&object(json!({"properties": properties}))),
-                Err(CardPropertyError::ValuesNotObject),
-                "properties {properties}"
-            );
-        }
-        assert_eq!(
-            validate_block_properties(&object(json!({"properties": {"p1": 1}}))),
-            Err(CardPropertyError::InvalidValue {
-                id: "p1".to_owned()
-            }),
-            "an object with a malformed value"
-        );
-    }
-
-    #[test]
-    fn well_formed_definitions_pass() {
-        let definitions = [
-            object(json!({"id": "p1"})),
-            object(json!({"id": "p2", "name": "Status", "type": "select", "options": []})),
-            object(json!({"id": "p3", "options": null})),
-            object(json!({
-                "id": "p4", "name": "", "type": "multiSelect",
-                "options": [{"id": "o1", "value": "Open", "color": "propColorRed"}, {}],
-                "anythingElse": {"is": ["kept", 1]},
-            })),
-        ];
-        assert_eq!(
-            validate_card_property_definitions(&definitions),
-            Ok(()),
-            "{definitions:?}"
-        );
-        assert_eq!(validate_card_property_definitions(&[]), Ok(()), "none");
-    }
-
-    #[test]
-    fn malformed_definitions_are_named_by_what_is_wrong() {
-        let p1 = || "p1".to_owned();
-        let cases = [
-            (
-                json!({"name": "x"}),
-                CardPropertyError::MissingId { position: 1 },
-            ),
-            (
-                json!({"id": ""}),
-                CardPropertyError::MissingId { position: 1 },
-            ),
-            (
-                json!({"id": 7}),
-                CardPropertyError::MissingId { position: 1 },
-            ),
-            (
-                json!({"id": null}),
-                CardPropertyError::MissingId { position: 1 },
-            ),
-            (
-                json!({"id": "p1", "name": 7}),
-                CardPropertyError::MemberNotString {
-                    id: p1(),
-                    member: "name",
-                },
-            ),
-            (
-                json!({"id": "p1", "type": ["select"]}),
-                CardPropertyError::MemberNotString {
-                    id: p1(),
-                    member: "type",
-                },
-            ),
-            (
-                json!({"id": "p1", "name": null}),
-                CardPropertyError::MemberNotString {
-                    id: p1(),
-                    member: "name",
-                },
-            ),
-            (
-                json!({"id": "p1", "options": "none"}),
-                CardPropertyError::InvalidOptions { id: p1() },
-            ),
-            (
-                json!({"id": "p1", "options": ["a"]}),
-                CardPropertyError::InvalidOptions { id: p1() },
-            ),
-            (
-                json!({"id": "p1", "options": [{"id": "o1", "value": 1}]}),
-                CardPropertyError::InvalidOptions { id: p1() },
-            ),
-            (
-                json!({"id": "p1", "options": [{"color": false}]}),
-                CardPropertyError::InvalidOptions { id: p1() },
-            ),
-        ];
-        for (definition, expected) in cases {
-            assert_eq!(
-                validate_card_property_definitions(&[object(definition.clone())]),
-                Err(expected),
-                "definition {definition}"
-            );
-        }
-    }
-
-    #[test]
-    fn one_malformed_definition_among_good_ones_fails_the_list() {
-        let definitions = [
-            object(json!({"id": "p1"})),
-            object(json!({"name": "no id"})),
-        ];
-        assert_eq!(
-            validate_card_property_definitions(&definitions),
-            Err(CardPropertyError::MissingId { position: 2 }),
-            "the second definition, named by its place"
-        );
-    }
-
-    #[test]
-    fn two_definitions_with_one_id_are_refused() {
-        let definitions = [
-            object(json!({"id": "p1", "name": "first"})),
-            object(json!({"id": "p2"})),
-            object(json!({"id": "p1", "name": "again"})),
-        ];
-        assert_eq!(
-            validate_card_property_definitions(&definitions),
-            Err(CardPropertyError::DuplicateId {
-                id: "p1".to_owned()
-            }),
-            "a value could not say which of the two it belongs to"
-        );
-    }
-}
+mod tests;

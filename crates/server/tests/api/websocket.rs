@@ -1387,10 +1387,7 @@ async fn hear_the_endings(
 /// order, and `admin` as its admin.
 async fn board_with_three_properties(th: &TestServer, admin: &str) -> Container {
     let property = |id: &str| {
-        json!({"id": id, "name": id, "type": "text", "options": []})
-            .as_object()
-            .expect("an object")
-            .clone()
+        fvoci_model::CardPropertyDefinition::new(id, id, fvoci_model::PropertyType::Text)
     };
     let mut board = Container {
         id: new_id(),

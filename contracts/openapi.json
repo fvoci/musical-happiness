@@ -940,6 +940,38 @@
         ],
         "type": "object"
       },
+      "CardPropertyDefinition": {
+        "additionalProperties": false,
+        "description": "A property definition of a board's cards (`Container::card_properties`).",
+        "properties": {
+          "id": {
+            "description": "The property's identifier on its board; non-empty and unique on the board.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The property's display name. Left out in a request, empty.",
+            "type": "string"
+          },
+          "options": {
+            "description": "Selectable options when `type` is `select` or `multiSelect`. Left out, empty.",
+            "items": {
+              "$ref": "#/components/schemas/PropertyOption"
+            },
+            "type": "array"
+          },
+          "type": {
+            "$ref": "#/components/schemas/PropertyType",
+            "description": "The kind of values cards hold for this property. Left out in a request, `text`."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "options",
+          "type"
+        ],
+        "type": "object"
+      },
       "Category": {
         "description": "A sidebar category of one user in one workspace.",
         "properties": {
@@ -1277,8 +1309,7 @@
           "cardProperties": {
             "description": "The property definitions of the board's cards, in display order.",
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/CardPropertyDefinition"
             },
             "type": "array"
           },
@@ -1495,8 +1526,7 @@
           "updatedCardProperties": {
             "description": "Card property definitions to add or replace, matched by their `id`.",
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/CardPropertyDefinition"
             },
             "type": "array"
           },
@@ -3675,8 +3705,7 @@
           "cardProperties": {
             "description": "The property definitions of the board's cards, in display order. Each needs a\nnon-empty `id` that no other has.",
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/CardPropertyDefinition"
             },
             "type": "array"
           },
@@ -5716,6 +5745,69 @@
             "type": "/problems/too-many-organizations"
           }
         ]
+      },
+      "PropertyColor": {
+        "description": "Chip color shown for a `PropertyOption`.",
+        "enum": [
+          "default",
+          "gray",
+          "brown",
+          "orange",
+          "yellow",
+          "green",
+          "blue",
+          "purple",
+          "pink",
+          "red"
+        ],
+        "type": "string"
+      },
+      "PropertyOption": {
+        "additionalProperties": false,
+        "description": "A selectable option of a `select` or `multiSelect` `CardPropertyDefinition`.",
+        "properties": {
+          "color": {
+            "$ref": "#/components/schemas/PropertyColor",
+            "description": "The chip color shown for this option. Left out in a request, `default`."
+          },
+          "id": {
+            "description": "The option's identifier within the property.",
+            "type": "string"
+          },
+          "label": {
+            "description": "The option's display text.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "color",
+          "id",
+          "label"
+        ],
+        "type": "object"
+      },
+      "PropertyType": {
+        "description": "The kind of values cards hold for a `CardPropertyDefinition`.",
+        "enum": [
+          "text",
+          "number",
+          "select",
+          "multiSelect",
+          "date",
+          "person",
+          "multiPerson",
+          "file",
+          "checkbox",
+          "url",
+          "email",
+          "phone",
+          "createdTime",
+          "createdBy",
+          "updatedTime",
+          "updatedBy",
+          "relation"
+        ],
+        "type": "string"
       },
       "PublicLink": {
         "description": "The public link state of a board.\n\nThe JSON form is what is answered to those who may manage the board's public link:\nwhether it is enabled, the read token while it is, and when the state last changed.\nA board that never had a public link is `{\"enabled\": false}`.",

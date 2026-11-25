@@ -2,8 +2,8 @@
 
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Body,
-    CARD_FIELDS_MAX_CHARS, ChangePasswordRequest, Container, ContainerError, ContainerSearchField,
-    RegisterRequest, is_email_valid,
+    CARD_FIELDS_MAX_CHARS, CardPropertyDefinition, ChangePasswordRequest, Container,
+    ContainerError, ContainerSearchField, PropertyType, RegisterRequest, is_email_valid,
 };
 use serde_json::json;
 
@@ -413,17 +413,12 @@ fn email_validation_matches_expected_pattern() {
 /// order.
 #[test]
 fn card_properties_are_reordered_only_by_a_whole_order() {
-    let property = |id: &str| {
-        json!({"id": id, "name": id, "type": "text"})
-            .as_object()
-            .expect("an object")
-            .clone()
-    };
+    let property = |id: &str| CardPropertyDefinition::new(id, id, PropertyType::Text);
     let ids = |board: &Container| -> Vec<String> {
         board
             .card_properties
             .iter()
-            .map(|property| property["id"].as_str().expect("an id").to_owned())
+            .map(|property| property.id.clone())
             .collect()
     };
     let order = |ids: &[&str]| -> Vec<String> { ids.iter().map(|&id| id.to_owned()).collect() };

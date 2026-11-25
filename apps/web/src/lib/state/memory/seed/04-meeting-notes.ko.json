@@ -23,18 +23,18 @@
         "options": [
           {
             "id": "8d8c49d8-5af2-5e17-98f6-ef47e28bfc86",
-            "value": "주간",
-            "color": "propColorBlue"
+            "label": "주간",
+            "color": "blue"
           },
           {
             "id": "60f8c38a-eb64-5e69-aa71-7123eec67916",
-            "value": "검토",
-            "color": "propColorPurple"
+            "label": "검토",
+            "color": "purple"
           },
           {
             "id": "2621fbac-f4ab-5533-803b-008e30a3fb04",
-            "value": "일대일",
-            "color": "propColorGreen"
+            "label": "일대일",
+            "color": "green"
           }
         ]
       },

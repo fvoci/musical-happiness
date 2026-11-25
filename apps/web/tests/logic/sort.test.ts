@@ -48,8 +48,8 @@ const templates: PropertyTemplate[] = [
     name: 'Select',
     type: 'select',
     options: [
-      { id: 'o1', value: 'zeta', color: '' },
-      { id: 'o2', value: 'alpha', color: '' },
+      { id: 'o1', label: 'zeta', color: 'default' },
+      { id: 'o2', label: 'alpha', color: 'default' },
     ],
   },
   { id: 'who', name: 'Owner', type: 'person', options: [] },

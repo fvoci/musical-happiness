@@ -4,13 +4,12 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
 use crate::allowlist::holds_nul;
 use crate::card_property::{
-    CardPropertyError, PersonProperties, validate_card_property_definitions,
+    CardPropertyDefinition, CardPropertyError, PersonProperties, validate_card_property_definitions,
 };
 
 /// Who may see and join a board.
@@ -463,8 +462,7 @@ pub struct Container {
     pub properties: JsonMap,
     /// The property definitions of the board's cards, in display order.
     #[serde(default)]
-    #[schema(value_type = Vec<Object>)]
-    pub card_properties: Vec<JsonMap>,
+    pub card_properties: Vec<CardPropertyDefinition>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(default)]
     pub create_at: i64,
@@ -491,14 +489,14 @@ impl Container {
     /// [`ContainerError::PropertiesLeftOut`], and changes nothing, if `order` names one twice,
     /// names one the board does not have, or leaves one out.
     pub fn reorder_card_properties(&mut self, order: &[String]) -> Result<(), ContainerError> {
-        let known: HashSet<String> = self
+        let known: HashSet<&str> = self
             .card_properties
             .iter()
-            .filter_map(property_id)
+            .map(|property| property.id.as_str())
             .collect();
         let mut rank = HashMap::with_capacity(order.len());
         for (at, id) in order.iter().enumerate() {
-            if !known.contains(id) {
+            if !known.contains(id.as_str()) {
                 return Err(ContainerError::PropertyUnknown { id: id.clone() });
             }
             if rank.insert(id.as_str(), at).is_some() {
@@ -513,9 +511,8 @@ impl Container {
                 total: self.card_properties.len(),
             });
         }
-        self.card_properties.sort_by_key(|property| {
-            property_id(property).and_then(|id| rank.get(id.as_str()).copied())
-        });
+        self.card_properties
+            .sort_by_key(|property| rank.get(property.id.as_str()).copied());
         Ok(())
     }
 
@@ -596,11 +593,9 @@ impl Container {
             ),
             (
                 "cardProperties",
-                self.card_properties.iter().any(|definition| {
-                    definition
-                        .iter()
-                        .any(|(name, value)| name.contains('\0') || holds_nul(value))
-                }),
+                self.card_properties
+                    .iter()
+                    .any(CardPropertyDefinition::holds_nul),
             ),
         ];
         match texts.into_iter().find(|(_, holds)| *holds) {
@@ -648,8 +643,7 @@ pub struct ContainerPatch {
     /// Keys of board properties to remove.
     pub deleted_properties: Vec<String>,
     /// Card property definitions to add or replace, matched by their `id`.
-    #[schema(value_type = Vec<Object>)]
-    pub updated_card_properties: Vec<JsonMap>,
+    pub updated_card_properties: Vec<CardPropertyDefinition>,
     /// Identifiers of card property definitions to remove.
     pub deleted_card_properties: Vec<String>,
 }
@@ -671,7 +665,7 @@ impl ContainerPatch {
     /// new ones are appended. Deletions are applied before updates, so a definition listed
     /// in both is kept with its updated value, and then appears twice: once at its old
     /// position and once at the end. Whenever the patch touches card properties, existing
-    /// definitions without a string `id` are dropped.
+    /// definitions with an empty `id` are dropped.
     pub fn apply(&self, container: &mut Container) {
         if let Some(visibility) = self.visibility {
             container.visibility = visibility;
@@ -704,22 +698,22 @@ impl ContainerPatch {
 
     fn apply_card_properties(&self, container: &mut Container) {
         let mut order: Vec<String> = Vec::new();
-        let mut by_id: HashMap<String, JsonMap> = HashMap::new();
+        let mut by_id: HashMap<String, CardPropertyDefinition> = HashMap::new();
         for property in std::mem::take(&mut container.card_properties) {
-            if let Some(id) = property_id(&property) {
-                order.push(id.clone());
-                by_id.insert(id, property);
+            if !property.id.is_empty() {
+                order.push(property.id.clone());
+                by_id.insert(property.id.clone(), property);
             }
         }
         for id in &self.deleted_card_properties {
             by_id.remove(id);
         }
         for property in &self.updated_card_properties {
-            if let Some(id) = property_id(property) {
-                if !by_id.contains_key(&id) {
-                    order.push(id.clone());
+            if !property.id.is_empty() {
+                if !by_id.contains_key(&property.id) {
+                    order.push(property.id.clone());
                 }
-                by_id.insert(id, property.clone());
+                by_id.insert(property.id.clone(), property.clone());
             }
         }
         // An identifier can be in `order` twice if the patch deletes it and adds it back.
@@ -730,14 +724,6 @@ impl ContainerPatch {
             .filter(|id| emitted.insert(id.as_str()))
             .filter_map(|id| by_id.get(id).cloned())
             .collect();
-    }
-}
-
-/// Returns the string `id` of a card property definition, if it has one.
-fn property_id(property: &JsonMap) -> Option<String> {
-    match property.get("id") {
-        Some(Value::String(id)) => Some(id.clone()),
-        _ => None,
     }
 }
 

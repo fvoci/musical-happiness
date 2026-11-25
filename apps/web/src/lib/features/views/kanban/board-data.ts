@@ -125,7 +125,7 @@ export async function changeOption(
   board: BoardStore,
   propertyId: string,
   optionId: string,
-  change: Partial<Pick<PropertyOption, 'value' | 'color'>>,
+  change: Partial<Pick<PropertyOption, 'label' | 'color'>>,
 ): Promise<void> {
   await board.changeBoard(
     (current) =>
@@ -169,7 +169,7 @@ export async function addGroup(
 ): Promise<string> {
   const option: PropertyOption = {
     id: createId('block'),
-    value: name,
+    label: name,
     color: DEFAULT_OPTION_COLOR,
   };
   await board.inOneStep(async (groupId) => {

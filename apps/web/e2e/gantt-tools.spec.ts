@@ -28,7 +28,7 @@ test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
 
 interface Option {
   id: string;
-  value: string;
+  label: string;
 }
 interface Select {
   id: string;
@@ -88,7 +88,7 @@ test('grouped as a table is: a heading before the cards of each group, the arrow
     'Write in the body',
     'Keep your documents in a wiki',
   ];
-  const groups = [{ id: '', value: `No ${select.name}` }, ...select.options];
+  const groups = [{ id: '', label: `No ${select.name}` }, ...select.options];
   // In the order of a table: the cards without a value first, then the options as the board has them.
   expect(
     await headings.evaluateAll((all) => all.map((each) => each.getAttribute('data-group'))),
@@ -96,7 +96,7 @@ test('grouped as a table is: a heading before the cards of each group, the arrow
   for (const option of groups) {
     const heading = gantt(page).locator(`[data-group="${option.id}"]`);
     const count = dated.filter((title) => (optionOf[title] ?? '') === option.id).length;
-    await expect(heading.locator('[data-slot="group-name"]')).toHaveText(option.value);
+    await expect(heading.locator('[data-slot="group-name"]')).toHaveText(option.label);
     await expect(heading.locator('[data-slot="group-count"] [aria-hidden]')).toHaveText(
       String(count),
     );

@@ -21,8 +21,8 @@ const STATUS: PropertyTemplate = {
   name: 'Status',
   type: 'select',
   options: [
-    { id: 'todo', value: 'To do', color: 'propColorBlue' },
-    { id: 'done', value: 'Done', color: 'propColorGreen' },
+    { id: 'todo', label: 'To do', color: 'blue' },
+    { id: 'done', label: 'Done', color: 'green' },
   ],
 };
 const HOURS: PropertyTemplate = { id: 'hours', name: 'Hours', type: 'number', options: [] };
@@ -111,7 +111,7 @@ describe('the face of a card', () => {
     expect(rows[0]).toHaveTextContent('Status: Done');
     expect(rows[0]?.querySelector('[data-slot="option-chip"]')).toHaveAttribute(
       'data-color',
-      'propColorGreen',
+      'green',
     );
   });
 

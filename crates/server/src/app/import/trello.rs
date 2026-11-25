@@ -15,8 +15,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use fvoci_model::{
-    BLOCK_TITLE_MAX_CHARS, BODY_MAX_NODES, Block, BlockType, Container, ContainerKind,
-    ContainerVisibility, JsonMap, check_date_value, new_id,
+    BLOCK_TITLE_MAX_CHARS, BODY_MAX_NODES, Block, BlockType, CardPropertyDefinition, Container,
+    ContainerKind, ContainerVisibility, JsonMap, PropertyColor, PropertyOption, PropertyType,
+    check_date_value, new_id,
 };
 use serde_json::{Map, Value, json};
 
@@ -36,16 +37,16 @@ use super::trello_wire::{
 use crate::error::{AppError, Reason};
 
 /// Rotating option colors assigned to Trello lists.
-const LIST_COLORS: [&str; 9] = [
-    "propColorGray",
-    "propColorBlue",
-    "propColorGreen",
-    "propColorOrange",
-    "propColorPurple",
-    "propColorYellow",
-    "propColorPink",
-    "propColorBrown",
-    "propColorRed",
+const LIST_COLORS: [PropertyColor; 9] = [
+    PropertyColor::Gray,
+    PropertyColor::Blue,
+    PropertyColor::Green,
+    PropertyColor::Orange,
+    PropertyColor::Purple,
+    PropertyColor::Yellow,
+    PropertyColor::Pink,
+    PropertyColor::Brown,
+    PropertyColor::Red,
 ];
 
 /// Reads and converts a Trello JSON export file at `path` into a [`StagedArchive`].
@@ -177,7 +178,7 @@ fn build_trello_container(
     board_id: String,
     raw_name: &str,
     raw_desc: &str,
-    card_properties: Vec<JsonMap>,
+    card_properties: Vec<CardPropertyDefinition>,
     summary: &mut ImportSummary,
 ) -> Container {
     let title = normalize_title(raw_name, "Trello Board", summary);
@@ -254,7 +255,7 @@ fn too_many(what: &str, limit: usize) -> AppError {
 struct SelectProperty {
     id: String,
     option_ids: Vec<String>,
-    definition: JsonMap,
+    definition: CardPropertyDefinition,
 }
 
 fn build_list_property(
@@ -294,15 +295,15 @@ fn build_list_property(
         rank.insert(list.id.clone(), options.len());
         by_trello_id.insert(list.id, opt_id.clone());
         option_ids.push(opt_id.clone());
-        options.push(json!({"id": opt_id, "value": label, "color": color}));
+        options.push(PropertyOption::new(opt_id, label, color));
     }
 
-    let definition = json_object(json!({
-        "id": prop_id,
-        "name": "Status",
-        "type": "select",
-        "options": options,
-    }));
+    let definition = CardPropertyDefinition {
+        id: prop_id.clone(),
+        name: "Status".to_owned(),
+        property_type: PropertyType::Select,
+        options,
+    };
     (
         SelectProperty {
             id: prop_id,
@@ -320,7 +321,10 @@ struct LabelPropertyMap {
     by_trello_id: HashMap<String, String>,
 }
 
-type LabelPropertyBuild = (Option<(String, JsonMap)>, Option<LabelPropertyMap>);
+type LabelPropertyBuild = (
+    Option<(String, CardPropertyDefinition)>,
+    Option<LabelPropertyMap>,
+);
 
 fn build_label_property(
     board_labels: &[TrelloLabel],
@@ -362,14 +366,14 @@ fn build_label_property(
         };
         let color = trello_color_to_fvoci(label.color.as_deref());
         by_trello_id.insert(label.id, opt_id.clone());
-        options.push(json!({"id": opt_id, "value": display, "color": color}));
+        options.push(PropertyOption::new(opt_id, display, color));
     }
-    let definition = json_object(json!({
-        "id": prop_id,
-        "name": "Labels",
-        "type": "multiSelect",
-        "options": options,
-    }));
+    let definition = CardPropertyDefinition {
+        id: prop_id.clone(),
+        name: "Labels".to_owned(),
+        property_type: PropertyType::MultiSelect,
+        options,
+    };
     Ok((
         Some((prop_id.clone(), definition)),
         Some(LabelPropertyMap {
@@ -379,32 +383,27 @@ fn build_label_property(
     ))
 }
 
-fn trello_color_to_fvoci(color: Option<&str>) -> &'static str {
+fn trello_color_to_fvoci(color: Option<&str>) -> PropertyColor {
     let base = color
         .unwrap_or_default()
         .split('_')
         .next()
         .unwrap_or_default();
     match base {
-        "green" | "lime" => "propColorGreen",
-        "yellow" => "propColorYellow",
-        "orange" => "propColorOrange",
-        "red" => "propColorRed",
-        "purple" => "propColorPurple",
-        "blue" | "sky" => "propColorBlue",
-        "pink" => "propColorPink",
-        "black" => "propColorGray",
-        _ => "propColorDefault",
+        "green" | "lime" => PropertyColor::Green,
+        "yellow" => PropertyColor::Yellow,
+        "orange" => PropertyColor::Orange,
+        "red" => PropertyColor::Red,
+        "purple" => PropertyColor::Purple,
+        "blue" | "sky" => PropertyColor::Blue,
+        "pink" => PropertyColor::Pink,
+        "black" => PropertyColor::Gray,
+        _ => PropertyColor::Default,
     }
 }
 
-fn date_property_definition(prop_id: &str, name: &str) -> JsonMap {
-    json_object(json!({
-        "id": prop_id,
-        "name": name,
-        "type": "date",
-        "options": [],
-    }))
+fn date_property_definition(prop_id: &str, name: &str) -> CardPropertyDefinition {
+    CardPropertyDefinition::new(prop_id, name, PropertyType::Date)
 }
 
 struct ChecklistIndex<'a> {

@@ -350,17 +350,12 @@ fn card_patch_rejects_an_icon_of_two_graphemes() {
 /// values of properties the board does not define go, and the others stay.
 #[test]
 fn a_card_hides_its_people() {
-    let definitions: Vec<JsonMap> = [
-        json!({"id": "owner", "type": "person"}),
-        json!({"id": "people", "type": "multiPerson"}),
-        json!({"id": "status", "type": "select"}),
-    ]
-    .into_iter()
-    .map(|definition| match definition {
-        Value::Object(map) => map,
-        _ => unreachable!("an object"),
-    })
-    .collect();
+    use fvoci_model::{CardPropertyDefinition, PropertyType};
+    let definitions = [
+        CardPropertyDefinition::new("owner", "Owner", PropertyType::Person),
+        CardPropertyDefinition::new("people", "People", PropertyType::MultiPerson),
+        CardPropertyDefinition::new("status", "Status", PropertyType::Select),
+    ];
     let people = fvoci_model::PersonProperties::of(&definitions);
     let mut card = Card {
         created_by: "u1".to_owned(),

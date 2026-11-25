@@ -20,6 +20,7 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use crate::JsonMap;
+use crate::card_property::{CardPropertyDefinition, PropertyType};
 use crate::settings::TimeZone;
 
 /// The last millisecond a time may be: 9999-12-31 23:59:59.999 UTC.
@@ -300,15 +301,14 @@ fn calendar_date(text: &str) -> Option<jiff::civil::Date> {
 /// The identifiers of the date properties among a board's definitions.
 #[must_use]
 pub fn date_property_ids<'d>(
-    definitions: impl IntoIterator<Item = &'d JsonMap>,
+    definitions: impl IntoIterator<Item = &'d CardPropertyDefinition>,
 ) -> HashSet<String> {
     definitions
         .into_iter()
         .filter(|definition| {
-            definition.get("type").and_then(Value::as_str) == Some(crate::DATE_PROPERTY_TYPE)
+            !definition.id.is_empty() && definition.property_type == PropertyType::Date
         })
-        .filter_map(|definition| definition.get("id").and_then(Value::as_str))
-        .map(str::to_owned)
+        .map(|definition| definition.id.clone())
         .collect()
 }
 

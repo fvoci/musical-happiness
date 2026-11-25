@@ -23,18 +23,18 @@
         "options": [
           {
             "id": "8d8c49d8-5af2-5e17-98f6-ef47e28bfc86",
-            "value": "Weekly",
-            "color": "propColorBlue"
+            "label": "Weekly",
+            "color": "blue"
           },
           {
             "id": "60f8c38a-eb64-5e69-aa71-7123eec67916",
-            "value": "Review",
-            "color": "propColorPurple"
+            "label": "Review",
+            "color": "purple"
           },
           {
             "id": "2621fbac-f4ab-5533-803b-008e30a3fb04",
-            "value": "One to one",
-            "color": "propColorGreen"
+            "label": "One to one",
+            "color": "green"
           }
         ]
       },
@@ -124,10 +124,7 @@
         "sort": [],
         "viewType": "calendar",
         "visibleGroups": [],
-        "shownProperties": [
-          "__title",
-          "341ba636-1ed2-5b6b-8bf5-ddb7aeb46fee"
-        ],
+        "shownProperties": ["__title", "341ba636-1ed2-5b6b-8bf5-ddb7aeb46fee"],
         "dateProperty": "b905062a-b93a-5a21-ade3-c4a20972b7a7"
       }
     },
@@ -150,9 +147,7 @@
           "operation": "and",
           "filters": []
         },
-        "hiddenGroups": [
-          ""
-        ],
+        "hiddenGroups": [""],
         "groupCalculations": {},
         "sort": [
           {

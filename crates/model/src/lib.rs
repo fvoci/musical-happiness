@@ -92,9 +92,11 @@ pub use body_version::{
 };
 pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, MAX_CARD_DEPTH};
 pub use card_property::{
-    CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, assigned_users,
-    clear_values_of_another_kind, validate_block_properties, validate_card_property_definitions,
-    validate_card_property_kinds, validate_card_property_values,
+    CardPropertyDefinition, CardPropertyError, DATE_PROPERTY_TYPE, ParsePropertyColorError,
+    ParsePropertyTypeError, PersonProperties, PropertyColor, PropertyOption, PropertyType,
+    assigned_users, clear_values_of_another_kind, validate_block_properties,
+    validate_card_property_definitions, validate_card_property_kinds,
+    validate_card_property_values,
 };
 pub use category::{
     CATEGORY_CONTAINERS_SORT_ORDER_GAP, Category, CategoryContainerMetadata, CategoryContainers,
@@ -193,10 +195,10 @@ pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, point
 pub use public_link::{PublicLink, PublicLinkChange};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
-    ParseRelationKindError, RELATION_LAG_MAX, RELATION_LAG_MIN, RELATION_LIMIT,
-    RELATION_PROPERTY_TYPE, RelationError, RelationKind, RelationLink, RelationLinkError,
-    RelationProblem, RelationProperties, check_relation_value, parse_relation_link,
-    relation_link_card, relation_links_to_value, relation_property_ids, tidy_copied_relations,
+    ParseRelationKindError, RELATION_LAG_MAX, RELATION_LAG_MIN, RELATION_LIMIT, RelationError,
+    RelationKind, RelationLink, RelationLinkError, RelationProblem, RelationProperties,
+    check_relation_value, parse_relation_link, relation_link_card, relation_links_to_value,
+    relation_property_ids, tidy_copied_relations,
 };
 pub use search::{SearchHit, SearchKind, SnippetPart, UnknownSearchKind};
 pub use settings::{

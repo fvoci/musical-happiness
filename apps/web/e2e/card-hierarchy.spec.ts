@@ -35,7 +35,7 @@ interface DevBackend {
       id: string;
       name: string;
       type: string;
-      options: { id: string; value: string }[];
+      options: { id: string; label: string }[];
     }[];
   }>;
   patchCard(boardId: string, cardId: string, patch: Record<string, unknown>): Promise<unknown>;
@@ -99,7 +99,7 @@ test('creates, links, detaches sub-cards, enforces depth 3, updates progress and
       const { backend } = (window as unknown as { fvociDev: { backend: DevBackend } }).fvociDev;
       const board = await backend.container(boardId);
       const status = board.cardProperties.find((p) => p.name === 'Progress');
-      const done = status?.options.find((o) => o.value === 'Done it');
+      const done = status?.options.find((o) => o.label === 'Done it');
       if (status && done) {
         await backend.patchCard(boardId, cardId, { updatedProperties: { [status.id]: done.id } });
       }

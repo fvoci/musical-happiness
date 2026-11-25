@@ -29,11 +29,13 @@
 import { propertyBehavior } from '$lib/logic/properties.ts';
 import {
   createId,
+  DEFAULT_PROPERTY_COLOR,
   isFilterGroup,
   plainPropertyValue,
   type BoardView,
   type Card,
   type FilterGroup,
+  type PropertyColor,
   type PropertyOption,
   type PropertyTemplate,
   type PropertyType,
@@ -50,7 +52,6 @@ const SHAPES: Record<PropertyType, Shape> = {
   email: 'text',
   phone: 'text',
   url: 'text',
-  unknown: 'text',
   select: 'option',
   multiSelect: 'options',
   person: 'person',
@@ -69,11 +70,11 @@ const shapeOf = (type: PropertyType): Shape =>
   (SHAPES as Record<string, Shape | undefined>)[type] ?? 'text';
 
 /** The colour a new option starts with. */
-export const NEW_OPTION_COLOR = 'propColorDefault';
+export const NEW_OPTION_COLOR: PropertyColor = DEFAULT_PROPERTY_COLOR;
 
 /** A new option of a select property. Its identifier is made here, as the original made it. */
 export function newOption(name: string): PropertyOption {
-  return { id: createId('none'), value: name, color: NEW_OPTION_COLOR };
+  return { id: createId('none'), label: name, color: NEW_OPTION_COLOR };
 }
 
 /**
@@ -145,7 +146,7 @@ export function planTypeChange(
   const options: PropertyOption[] =
     selects(from) && selects(to) ? template.options.map((option) => ({ ...option })) : [];
   const optionNamed = (name: string): PropertyOption => {
-    let option = options.find((existing) => existing.value === name);
+    let option = options.find((existing) => existing.label === name);
     if (!option) {
       option = newOption(name);
       options.push(option);
@@ -168,7 +169,7 @@ export function planTypeChange(
     if (people(from) && people(to)) return one(idsOf(value), to === 'people');
     if (selects(from) && to === 'text') {
       const names = idsOf(value)
-        .map((id) => template.options.find((option) => option.id === id)?.value)
+        .map((id) => template.options.find((option) => option.id === id)?.label)
         .filter((name): name is string => name !== undefined && name !== '');
       return names.length === 0 ? undefined : names.join(', ');
     }

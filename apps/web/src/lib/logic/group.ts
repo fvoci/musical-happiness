@@ -1,5 +1,11 @@
 /** The columns of a board view: cards grouped by the value of one property. */
-import { cardProperty, type Card, type PropertyOption, type PropertyTemplate } from './wire.ts';
+import {
+  cardProperty,
+  DEFAULT_PROPERTY_COLOR,
+  type Card,
+  type PropertyOption,
+  type PropertyTemplate,
+} from './wire.ts';
 
 export interface BoardGroup {
   option: PropertyOption;
@@ -35,7 +41,7 @@ function groupCardsByOptions(
     }
     // The empty identifier stands for the cards without a value, or with one that no longer exists.
     groups.push({
-      option: { id: '', value: noValueLabel(groupBy?.name ?? ''), color: '' },
+      option: { id: '', label: noValueLabel(groupBy?.name ?? ''), color: DEFAULT_PROPERTY_COLOR },
       cards: cards.filter((card) => {
         const value = cardProperty(card, groupBy?.id ?? '');
         return !value || !groupBy?.options.some((option) => option.id === value);
@@ -93,7 +99,10 @@ function getPersonGroups(
     // Without cards there is no "nobody" group, unlike the columns of a select property.
     if (person === '' && groupCards.length === 0) continue;
     const label = person === '' ? noValueLabel(groupBy.name) : person;
-    const group = { option: { id: person, value: label, color: '' }, cards: groupCards };
+    const group: BoardGroup = {
+      option: { id: person, label, color: DEFAULT_PROPERTY_COLOR },
+      cards: groupCards,
+    };
     if (hiddenGroups.includes(person)) groups.hidden.push(group);
     else groups.visible.push(group);
   }

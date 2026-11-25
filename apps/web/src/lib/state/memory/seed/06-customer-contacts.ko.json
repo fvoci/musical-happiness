@@ -17,28 +17,28 @@
         "options": [
           {
             "id": "a1c05e25-1bbc-5252-a408-e83f31a73fd2",
-            "value": "문의",
-            "color": "propColorGray"
+            "label": "문의",
+            "color": "gray"
           },
           {
             "id": "edfd6766-e5a3-5595-afdf-964f6ef8da9d",
-            "value": "상담 중",
-            "color": "propColorBlue"
+            "label": "상담 중",
+            "color": "blue"
           },
           {
             "id": "cffc2417-ac86-5815-acdb-5ed0b74bf624",
-            "value": "제안함",
-            "color": "propColorPurple"
+            "label": "제안함",
+            "color": "purple"
           },
           {
             "id": "1b78a142-f648-5a60-8a86-16933769f012",
-            "value": "계약",
-            "color": "propColorGreen"
+            "label": "계약",
+            "color": "green"
           },
           {
             "id": "4d19697b-67b2-59c3-beb5-9b0385393563",
-            "value": "무산",
-            "color": "propColorBrown"
+            "label": "무산",
+            "color": "brown"
           }
         ]
       },

@@ -14,6 +14,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import OptionChip from '$lib/components/option-chip/OptionChip.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { PropertyColor } from '$lib/logic/wire.ts';
 
   import { CELL_FOCUS, ROW_HEIGHT } from './host.ts';
 
@@ -23,7 +24,7 @@
     /** What the group is called: the option, the person, or "No Status". */
     name: string;
     /** The colour name of the option; undefined draws the name without a chip. */
-    color: string | undefined;
+    color: PropertyColor | undefined;
     count: number;
     collapsed: boolean;
     /** The reader may add a card with the group's value. */

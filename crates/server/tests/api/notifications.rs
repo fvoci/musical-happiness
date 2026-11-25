@@ -42,10 +42,13 @@ pub(crate) async fn board_with_owner(
     th: &TestServer,
     board_type: ContainerVisibility,
 ) -> Container {
-    let definition = json!({"id": OWNER, "name": "Owner", "type": "person", "options": []});
     th.client
         .create_board(&Container {
-            card_properties: vec![definition.as_object().expect("an object").clone()],
+            card_properties: vec![fvoci_model::CardPropertyDefinition::new(
+                OWNER,
+                "Owner",
+                fvoci_model::PropertyType::Person,
+            )],
             ..new_board(TEST_WORKSPACE_ID, board_type, "Told")
         })
         .await

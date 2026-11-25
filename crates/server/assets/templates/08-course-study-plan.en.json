@@ -56,8 +56,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Kickoff Checklist" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Kickoff Checklist"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -73,31 +80,52 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Write down three concrete outcomes for this course" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Write down three concrete outcomes for this course"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Review the full syllabus or textbook table of contents" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Review the full syllabus or textbook table of contents"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Check that the shared study days fit your weekly routine" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Check that the shared study days fit your weekly routine"
+                      }
+                    ]
                   }
                 ]
               }
@@ -122,8 +150,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Concept Comparison Table" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Concept Comparison Table"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -142,15 +177,45 @@
                 "content": [
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Concept" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Concept"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Key Summary" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Key Summary"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Common Pitfalls" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Common Pitfalls"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               },
@@ -159,15 +224,45 @@
                 "content": [
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Core Principle" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Core Principle"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "State the definition and conditions in one sentence" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "State the definition and conditions in one sentence"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Flag edge cases that are easy to miss" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Flag edge cases that are easy to miss"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               },
@@ -176,15 +271,45 @@
                 "content": [
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Applied Pattern" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Applied Pattern"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "List the step-by-step order used in problems" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "List the step-by-step order used in problems"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Note how to tell it apart from similar patterns" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Note how to tell it apart from similar patterns"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               }
@@ -209,8 +334,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Solution Walkthrough Notes" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Solution Walkthrough Notes"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -229,7 +361,12 @@
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Separate the given constraints from the target quantity first." }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Separate the given constraints from the target quantity first."
+                      }
+                    ]
                   }
                 ]
               },
@@ -238,7 +375,12 @@
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Write out intermediate reasoning without skipping steps." }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Write out intermediate reasoning without skipping steps."
+                      }
+                    ]
                   }
                 ]
               },
@@ -247,7 +389,12 @@
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Compare with one alternative approach in a single line." }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Compare with one alternative approach in a single line."
+                      }
+                    ]
                   }
                 ]
               }
@@ -272,15 +419,33 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Practice Session Routine" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Practice Session Routine"
+              }
+            ]
           },
           {
             "type": "paragraph",
             "content": [
-              { "type": "text", "text": "When a concept feels fuzzy, revisit " },
-              { "type": "reference", "attrs": { "id": "c8000002-0000-4000-8000-000000000002" } },
-              { "type": "text", "text": " and track any missed items in the checklist below." }
+              {
+                "type": "text",
+                "text": "When a concept feels fuzzy, revisit "
+              },
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "c8000002-0000-4000-8000-000000000002"
+                }
+              },
+              {
+                "type": "text",
+                "text": " and track any missed items in the checklist below."
+              }
             ]
           },
           {
@@ -288,21 +453,35 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Complete 5 warm-up problems with a timer" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Complete 5 warm-up problems with a timer"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Solve 10 applied problems and grade your answers" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Solve 10 applied problems and grade your answers"
+                      }
+                    ]
                   }
                 ]
               }
@@ -327,8 +506,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Mistake Log Table" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Mistake Log Table"
+              }
+            ]
           },
           {
             "type": "table",
@@ -338,15 +524,45 @@
                 "content": [
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Item" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Item"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Root Cause" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Root Cause"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Retry Criterion" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Retry Criterion"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               },
@@ -355,15 +571,45 @@
                 "content": [
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Sample item" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Sample item"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Missed one constraint during calculation" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Missed one constraint during calculation"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Explain the full solution without peeking at notes" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Explain the full solution without peeking at notes"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               }
@@ -374,21 +620,35 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Retry missed problems one day later" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Retry missed problems one day later"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Summarize the hardest concept in three sentences in your own words" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Summarize the hardest concept in three sentences in your own words"
+                      }
+                    ]
                   }
                 ]
               }

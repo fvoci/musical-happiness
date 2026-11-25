@@ -62,8 +62,8 @@ function hierarchySeed(
           name: 'Status',
           type: 'select',
           options: [
-            { id: 'todo', value: 'To Do', color: 'propColorBlue' },
-            { id: 'done', value: 'Done', color: 'propColorGreen' },
+            { id: 'todo', label: 'To Do', color: 'blue' },
+            { id: 'done', label: 'Done', color: 'green' },
           ],
         },
         { id: 'due', name: 'Due Date', type: 'date', options: [] },

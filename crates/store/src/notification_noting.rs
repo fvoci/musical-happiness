@@ -12,7 +12,9 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{Block, BlockType, JsonMap, NotificationKind, OrgKind, assigned_users};
+use fvoci_model::{
+    Block, BlockType, CardPropertyDefinition, NotificationKind, OrgKind, assigned_users,
+};
 use serde_json::Value;
 
 use crate::Store;
@@ -74,7 +76,10 @@ impl Telling {
 
 /// The users a property value of a card held before a write: none for a block that is
 /// new.
-fn assigned_before<'b>(before: Option<&'b Block>, definitions: &[JsonMap]) -> BTreeSet<&'b str> {
+fn assigned_before<'b>(
+    before: Option<&'b Block>,
+    definitions: &[CardPropertyDefinition],
+) -> BTreeSet<&'b str> {
     before
         .and_then(|before| before.fields.get("properties"))
         .and_then(Value::as_object)

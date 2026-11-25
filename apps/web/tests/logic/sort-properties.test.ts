@@ -38,8 +38,8 @@ const templates: PropertyTemplate[] = [
     name: 'Select',
     type: 'select',
     options: [
-      { id: 'o1', value: 'beta', color: '' },
-      { id: 'o2', value: 'alpha', color: '' },
+      { id: 'o1', label: 'beta', color: 'default' },
+      { id: 'o2', label: 'alpha', color: 'default' },
     ],
   },
   { id: 'created', name: 'Created', type: 'createdTime', options: [] },

@@ -774,8 +774,8 @@ describe('src/cardFilter', () => {
         options: [
           {
             id: 'idOption',
-            value: '',
-            color: '',
+            label: '',
+            color: 'default',
           },
         ],
       };

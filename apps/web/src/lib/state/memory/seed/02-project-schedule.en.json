@@ -17,23 +17,23 @@
         "options": [
           {
             "id": "1079060a-4dfb-5467-b0aa-08f872513261",
-            "value": "Planned",
-            "color": "propColorGray"
+            "label": "Planned",
+            "color": "gray"
           },
           {
             "id": "db5cce69-a125-51fa-afd0-8467f3dfb917",
-            "value": "In progress",
-            "color": "propColorBlue"
+            "label": "In progress",
+            "color": "blue"
           },
           {
             "id": "6f77cd0e-fcf4-5fc2-be6e-051ba96d553f",
-            "value": "Blocked",
-            "color": "propColorRed"
+            "label": "Blocked",
+            "color": "red"
           },
           {
             "id": "f4b6ca92-4a4b-511b-bce0-0b0bf93235af",
-            "value": "Done",
-            "color": "propColorGreen"
+            "label": "Done",
+            "color": "green"
           }
         ]
       },
@@ -44,18 +44,18 @@
         "options": [
           {
             "id": "d3ad562c-78a0-56f9-9305-1f22a5de35b9",
-            "value": "Planning",
-            "color": "propColorPurple"
+            "label": "Planning",
+            "color": "purple"
           },
           {
             "id": "5ba0164d-fee6-5595-adf6-841b4bfbf46b",
-            "value": "Building",
-            "color": "propColorBlue"
+            "label": "Building",
+            "color": "blue"
           },
           {
             "id": "e909c936-4c44-598d-ab01-ff914f9a4b9a",
-            "value": "Launch",
-            "color": "propColorOrange"
+            "label": "Launch",
+            "color": "orange"
           }
         ]
       },

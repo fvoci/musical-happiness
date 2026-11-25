@@ -109,7 +109,7 @@ function texts(template: BuiltinTemplate): [where: string, text: string][] {
       [`the property ${property.id}`, property.name],
       ...property.options.map((option): [string, string] => [
         `the option ${option.id}`,
-        option.value,
+        option.label,
       ]),
     ]),
     ...template.views.map((view): [string, string] => [`the view ${view.id}`, view.title]),
@@ -441,7 +441,6 @@ describe('the built-in templates', () => {
 const NOT_SHOWN: Record<'views' | 'properties' | 'nodes' | 'marks', Record<string, string>> = {
   views: {},
   properties: {
-    unknown: 'what a property of a kind this app does not know is read as, not a kind to choose',
     file: 'has no editor and no value of its own yet: it is shown as an unknown kind',
     // A person property is there, without a value: see the test of the people.
   },

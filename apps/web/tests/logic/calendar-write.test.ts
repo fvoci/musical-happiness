@@ -339,8 +339,8 @@ describe('a card made on a day', () => {
     name: 'Status',
     type: 'select',
     options: [
-      { id: 'todo', value: 'To do', color: 'propColorDefault' },
-      { id: 'done', value: 'Done', color: 'propColorGreen' },
+      { id: 'todo', label: 'To do', color: 'default' },
+      { id: 'done', label: 'Done', color: 'green' },
     ],
   };
   const templates = [status, due];

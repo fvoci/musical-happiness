@@ -13,8 +13,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fvoci_model::{
-    ArchiveHeader, ContainerKind, ContainerMember, ContainersAndBlocks, JsonMap, PageLimits,
-    WorkspaceRole,
+    ArchiveHeader, CardPropertyDefinition, ContainerKind, ContainerMember, ContainersAndBlocks,
+    PageLimits, WorkspaceRole,
 };
 use serde_json::Value;
 
@@ -417,7 +417,7 @@ fn trim(line: &[u8]) -> &[u8] {
 /// Clears the card values that do not fit the kind of their property, and of relation
 /// values what a write refuses, as a copy of stored cards does.
 fn clear_values_of_another_kind(containers_and_blocks: &mut ContainersAndBlocks) {
-    let definitions: HashMap<&str, &[JsonMap]> = containers_and_blocks
+    let definitions: HashMap<&str, &[CardPropertyDefinition]> = containers_and_blocks
         .containers
         .iter()
         .map(|container| (container.id.as_str(), container.card_properties.as_slice()))

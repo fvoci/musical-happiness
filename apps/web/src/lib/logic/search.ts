@@ -34,7 +34,7 @@ export function searchFilterCards(
       const items = Array.isArray(plain) ? plain : [plain];
       const isOption = template.type === 'select' || template.type === 'multiSelect';
       const texts = isOption
-        ? items.map((id) => template.options.find((option) => option.id === id)?.value)
+        ? items.map((id) => template.options.find((option) => option.id === id)?.label)
         : items;
       if (texts.some(mentions)) return true;
     }

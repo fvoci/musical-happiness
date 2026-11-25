@@ -20,9 +20,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
-
-/// The `type` of a property definition whose values name cards of the board.
-pub const RELATION_PROPERTY_TYPE: &str = "relation";
+use crate::card_property::{CardPropertyDefinition, PropertyType};
 
 /// The most cards one relation value names.
 pub const RELATION_LIMIT: usize = 50;
@@ -273,13 +271,13 @@ impl RelationError {
 
 /// The identifiers of the relation properties among a board's definitions.
 #[must_use]
-pub fn relation_property_ids(definitions: &[JsonMap]) -> HashSet<&str> {
+pub fn relation_property_ids(definitions: &[CardPropertyDefinition]) -> HashSet<&str> {
     definitions
         .iter()
         .filter(|definition| {
-            definition.get("type").and_then(Value::as_str) == Some(RELATION_PROPERTY_TYPE)
+            !definition.id.is_empty() && definition.property_type == PropertyType::Relation
         })
-        .filter_map(|definition| definition.get("id").and_then(Value::as_str))
+        .map(|definition| definition.id.as_str())
         .collect()
 }
 
@@ -334,7 +332,11 @@ pub fn check_relation_value<S: BuildHasher>(
 /// preserving `kind` and `lagDays`. For copies of stored cards, whose values may be
 /// older than the rules or than a change of the definitions. Which of the cards named
 /// are there, and so what is left of [`RELATION_LIMIT`], is for the copy to settle.
-pub fn tidy_copied_relations(values: &mut JsonMap, card_id: &str, definitions: &[JsonMap]) {
+pub fn tidy_copied_relations(
+    values: &mut JsonMap,
+    card_id: &str,
+    definitions: &[CardPropertyDefinition],
+) {
     let relations = relation_property_ids(definitions);
     for (id, value) in values.iter_mut() {
         if !relations.contains(id.as_str()) {
@@ -376,14 +378,14 @@ impl RelationProperties {
 
     /// The relation properties among one board's definitions.
     #[must_use]
-    pub fn of_board(board_id: &str, definitions: &[JsonMap]) -> Self {
+    pub fn of_board(board_id: &str, definitions: &[CardPropertyDefinition]) -> Self {
         let mut properties = Self::new();
         properties.add_board(board_id, definitions);
         properties
     }
 
     /// Adds the relation properties among a board's definitions.
-    pub fn add_board(&mut self, board_id: &str, definitions: &[JsonMap]) {
+    pub fn add_board(&mut self, board_id: &str, definitions: &[CardPropertyDefinition]) {
         let ids: HashSet<String> = relation_property_ids(definitions)
             .into_iter()
             .map(str::to_owned)
@@ -613,9 +615,9 @@ mod tests {
     #[test]
     fn relation_properties_are_those_of_the_type() {
         let definitions = [
-            object(json!({"id": "rel", "type": "relation"})),
-            object(json!({"id": "text", "type": "text"})),
-            object(json!({"id": "untyped"})),
+            CardPropertyDefinition::new("rel", "Rel", PropertyType::Relation),
+            CardPropertyDefinition::new("text", "Text", PropertyType::Text),
+            CardPropertyDefinition::new("untyped", "", PropertyType::default()),
         ];
         assert_eq!(relation_property_ids(&definitions), HashSet::from(["rel"]));
         let properties = RelationProperties::of_board("b", &definitions);
@@ -632,9 +634,9 @@ mod tests {
     #[test]
     fn copied_relations_are_normalized_and_preserve_kind_and_lag() {
         let definitions = [
-            object(json!({"id": "rel", "type": "relation"})),
-            object(json!({"id": "gone", "type": "relation"})),
-            object(json!({"id": "text", "type": "text"})),
+            CardPropertyDefinition::new("rel", "Rel", PropertyType::Relation),
+            CardPropertyDefinition::new("gone", "Gone", PropertyType::Relation),
+            CardPropertyDefinition::new("text", "Text", PropertyType::Text),
         ];
         let many: Vec<Value> = (0..60)
             .map(|index| json!({"card": format!("c{index}"), "kind": "ff", "lagDays": 2}))

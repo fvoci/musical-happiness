@@ -48,9 +48,9 @@ export const USERS: PropertyUser[] = [
 ];
 
 export const OPTIONS: PropertyOption[] = [
-  { id: 'option-1', value: 'To do', color: 'propColorDefault' },
-  { id: 'option-2', value: 'In progress', color: 'propColorBlue' },
-  { id: 'option-3', value: 'Done', color: 'propColorGreen' },
+  { id: 'option-1', label: 'To do', color: 'default' },
+  { id: 'option-2', label: 'In progress', color: 'blue' },
+  { id: 'option-3', label: 'Done', color: 'green' },
 ];
 
 export function templateOf(

@@ -65,9 +65,9 @@ const STATUS_PROP: PropertyTemplate = {
   name: 'Status',
   type: 'select',
   options: [
-    { id: 'todo', value: 'To Do', color: 'propColorBlue' },
-    { id: 'doing', value: 'In Progress', color: 'propColorYellow' },
-    { id: 'done', value: 'Completed 🙌', color: 'propColorGreen' },
+    { id: 'todo', label: 'To Do', color: 'blue' },
+    { id: 'doing', label: 'In Progress', color: 'yellow' },
+    { id: 'done', label: 'Completed 🙌', color: 'green' },
   ],
 };
 
@@ -218,7 +218,7 @@ describe('sub-card completion progress', () => {
 
     expect(isCardCompleted(c1, props)).toBe(true);
     expect(isCardCompleted(c2, props)).toBe(false);
-    expect(statusOptionOf(c1, STATUS_PROP)?.value).toBe('Completed 🙌');
+    expect(statusOptionOf(c1, STATUS_PROP)?.label).toBe('Completed 🙌');
     expect(subcardProgress('p', childrenMap, props)).toEqual({ done: 1, total: 3, percent: 33 });
     expect(subcardProgress('c1', childrenMap, props)).toEqual({ done: 0, total: 0, percent: 0 });
   });
@@ -229,8 +229,8 @@ describe('sub-card completion progress', () => {
       name: '상태',
       type: 'select',
       options: [
-        { id: 'a', value: '미완료', color: 'propColorGray' },
-        { id: 'b', value: '완료', color: 'propColorGreen' },
+        { id: 'a', label: '미완료', color: 'gray' },
+        { id: 'b', label: '완료', color: 'green' },
       ],
     };
     const negatedEnglish: PropertyTemplate = {
@@ -238,9 +238,9 @@ describe('sub-card completion progress', () => {
       name: 'Status',
       type: 'select',
       options: [
-        { id: 'nd', value: 'Not done', color: 'propColorGray' },
-        { id: 'nc', value: 'Not completed', color: 'propColorGray' },
-        { id: 'ok', value: 'Done', color: 'propColorGreen' },
+        { id: 'nd', label: 'Not done', color: 'gray' },
+        { id: 'nc', label: 'Not completed', color: 'gray' },
+        { id: 'ok', label: 'Done', color: 'green' },
       ],
     };
     const greenOnlyStatus: PropertyTemplate = {
@@ -248,8 +248,8 @@ describe('sub-card completion progress', () => {
       name: 'Stage',
       type: 'select',
       options: [
-        { id: 'a', value: 'Alpha', color: 'propColorBlue' },
-        { id: 'b', value: 'Launch', color: 'propColorGreen' },
+        { id: 'a', label: 'Alpha', color: 'blue' },
+        { id: 'b', label: 'Launch', color: 'green' },
       ],
     };
 

@@ -47,7 +47,7 @@ interface Dev {
         id: string;
         name: string;
         type: string;
-        options: { id: string; value: string }[];
+        options: { id: string; label: string }[];
       }[];
     }>;
     views: (boardId: string) => Promise<StoredView[]>;
@@ -144,7 +144,7 @@ function properties(
         {
           id: property.id,
           type: property.type,
-          options: Object.fromEntries(property.options.map((option) => [option.value, option.id])),
+          options: Object.fromEntries(property.options.map((option) => [option.label, option.id])),
         },
       ]),
     );
