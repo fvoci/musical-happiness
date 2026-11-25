@@ -238,7 +238,12 @@ impl App {
         let app = self.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_delete(&container.workspace_id, &entry.id, &entry.container_id)
+                .broadcast_block_delete(
+                    &container.workspace_id,
+                    &entry.id,
+                    &entry.container_id,
+                    BlockType::Entry,
+                )
                 .await;
         });
         Ok(())

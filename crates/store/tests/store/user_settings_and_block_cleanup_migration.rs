@@ -192,7 +192,7 @@ async fn seed_blocks_and_trash(
             "schema": "nested-must-stay",
             "properties": { "schema": "prop-must-stay" }
         },
-        "watchedBy": [{"userId": alice, "blockType": "card", "notifiedAt": 50, "createdAt": 3021}],
+        "watchedBy": [{"userId": alice, "blockType": "Card", "notifiedAt": 50, "createdAt": 3021}],
         "createdAt": 3020,
         "updatedAt": 4020,
         "deletedAt": 5020,
@@ -236,8 +236,9 @@ async fn seed_blocks_and_trash(
              VALUES ('{comment_id}', 1, '{{\"type\":\"doc\",\"content\":[]}}', '[]', '{alice}', 2025)"
         ),
         format!(
-            "INSERT INTO subscriptions (block_type, block_id, user_id, notified_at, created_at) \
-             VALUES ('card', '{card_id}', '{alice}', 900, 1015)"
+            "INSERT INTO subscriptions (block_type, block_id, user_id, notified_at, created_at) VALUES \
+             ('card', '{card_id}', '{alice}', 900, 1015), \
+             ('board', '{comment_id}', '{alice}', 905, 1025)"
         ),
         format!(
             "INSERT INTO body_docs \
@@ -474,12 +475,12 @@ async fn assert_sqlite_catalog(database: &fvoci_store::testing::TestDatabase, sy
 async fn assert_postgres_catalog(sys: &Store) {
     let retired = sys
         .texts_unchecked(
-            "SELECT table_name::text FROM information_schema.tables \
-             WHERE table_schema = current_schema() AND table_name = 'preferences' \
+            "SELECT relname::text FROM pg_class \
+             WHERE relnamespace = current_schema()::regnamespace AND relname = 'preferences' \
              UNION ALL \
-             SELECT column_name::text FROM information_schema.columns \
-             WHERE table_schema = current_schema() AND table_name = 'blocks' \
-               AND column_name = 'schema'",
+             SELECT attname::text FROM pg_attribute \
+             WHERE attrelid = 'blocks'::regclass AND attnum > 0 AND NOT attisdropped \
+               AND attname = 'schema'",
         )
         .await
         .expect("pg retired check");
@@ -487,8 +488,8 @@ async fn assert_postgres_catalog(sys: &Store) {
 
     let mut cols = sys
         .texts_unchecked(
-            "SELECT column_name::text FROM information_schema.columns \
-             WHERE table_schema = current_schema() AND table_name = 'user_settings'",
+            "SELECT attname::text FROM pg_attribute \
+             WHERE attrelid = 'user_settings'::regclass AND attnum > 0 AND NOT attisdropped",
         )
         .await
         .expect("pg user_settings cols");
@@ -512,14 +513,21 @@ async fn assert_postgres_catalog(sys: &Store) {
 
     let retired_defs = sys
         .texts_unchecked(&format!(
-            "SELECT conname::text FROM pg_constraint \
-             WHERE connamespace = current_schema()::regnamespace \
-               AND conrelid = 'organizations'::regclass \
-               AND pg_get_constraintdef(oid) LIKE '%{RETIRED_ORG_KIND}%' \
+            "WITH org_con AS MATERIALIZED ( \
+                 SELECT oid, conname FROM pg_constraint \
+                 WHERE conrelid = 'organizations'::regclass \
+             ), \
+             org_idx AS MATERIALIZED ( \
+                 SELECT ix.indexrelid, ic.relname \
+                 FROM pg_index AS ix \
+                 JOIN pg_class AS ic ON ic.oid = ix.indexrelid \
+                 WHERE ix.indrelid = 'organizations'::regclass \
+             ) \
+             SELECT conname::text FROM org_con \
+             WHERE pg_get_constraintdef(oid) LIKE '%{RETIRED_ORG_KIND}%' \
              UNION ALL \
-             SELECT indexname::text FROM pg_indexes \
-             WHERE schemaname = current_schema() AND tablename = 'organizations' \
-               AND indexdef LIKE '%{RETIRED_ORG_KIND}%'"
+             SELECT relname::text FROM org_idx \
+             WHERE pg_get_indexdef(indexrelid) LIKE '%{RETIRED_ORG_KIND}%'"
         ))
         .await
         .expect("pg org constraint/index check");
@@ -798,21 +806,34 @@ async fn assert_live_blocks(scoped_a: &Store, fx: &Pre0076Fixture) {
         .await
         .expect("live comment");
     assert_eq!(comment.edited_at, 2025, "comment_versions FK intact");
+    let sub = |block_type, block_id: &String, notified_at, created_at| Subscription {
+        block_type,
+        block_id: block_id.clone(),
+        user_id: fx.alice.clone(),
+        notified_at,
+        created_at,
+        deleted_at: None,
+    };
     assert_eq!(
-        scoped_a
-            .get_subscriptions(&fx.alice)
-            .await
-            .expect("subscriptions"),
-        [Subscription {
-            block_type: BlockType::Card,
-            block_id: fx.card_id.clone(),
-            user_id: fx.alice.clone(),
-            notified_at: 900,
-            created_at: 1015,
-            deleted_at: None,
-        }],
-        "live card subscription preserved"
+        scoped_a.get_subscriptions(&fx.alice).await.expect("subs"),
+        [
+            sub(BlockType::Card, &fx.card_id, 900, 1015),
+            sub(BlockType::Comment, &fx.comment_id, 905, 1025),
+        ],
+        "live subscriptions preserved and pre-0076 non-standard block_type normalized"
     );
+    if db_type() == DbType::Postgres {
+        assert!(
+            scoped_a
+                .execute_unchecked(&format!(
+                    "UPDATE blocks SET type = 'text' WHERE id = '{}'",
+                    fx.card_id
+                ))
+                .await
+                .is_err(),
+            "PostgreSQL blocks_type_check rejects non-standard block types"
+        );
+    }
     assert!(
         scoped_a
             .get_body_doc(&fx.card_id)
@@ -877,14 +898,14 @@ async fn assert_blocks_and_trash(store: &Store, sys: &Store, fx: &Pre0076Fixture
         "restored pre-0076 card title"
     );
     assert_eq!(restored.number, Some(2), "restored pre-0076 card number");
+    let restored_sub = scoped_a
+        .get_subscription(&fx.trashed_card_id, &fx.alice)
+        .await
+        .expect("restored watcher");
     assert_eq!(
-        scoped_a
-            .get_subscription(&fx.trashed_card_id, &fx.alice)
-            .await
-            .expect("restored watcher")
-            .created_at,
-        3021,
-        "restored watcher timestamp preserved"
+        (restored_sub.block_type, restored_sub.created_at),
+        (BlockType::Card, 3021),
+        "restored watcher normalizes pre-0076 blockType and preserves timestamp"
     );
 
     if let Some(org_b) = &fx.org_b {

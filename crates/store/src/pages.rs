@@ -183,6 +183,7 @@ pub(crate) async fn page_nodes(
         pages.push(PageNode::from(Block {
             id: row.id(0)?,
             parent_id: row.id(1)?,
+            block_type: BlockType::Page,
             title: row.text(2)?,
             fields: row.json_map(3, "fields")?,
             created_at: row.int(4)?,
@@ -207,6 +208,7 @@ pub(crate) async fn page_tree(
         nodes.push(PageNode::from(Block {
             id: row.id(0)?,
             parent_id: row.id(1)?,
+            block_type: BlockType::Page,
             fields: row.json_map(2, "fields")?,
             ..Block::default()
         }));

@@ -604,7 +604,7 @@
         "type": "object"
       },
       "BlockType": {
-        "description": "The type of a block.\n\nA block of a board has one of four types (`BlockType::is_current`), a wiki has\npages (`crate::Page`) and comments, a diary has entries (`crate::DiaryEntry`),\nand a course has chapters, units (`crate::Unit`) and comments on units.",
+        "description": "The type of a block.\n\nA block of a board is `card`, `view`, `comment` or `attachment`, a wiki has `page`\nand `comment`, a diary has `entry`, and a course has `chapter`, `unit` and `comment`.",
         "enum": [
           "card",
           "view",
@@ -21328,7 +21328,7 @@
     },
     "/api/v1/w/{workspaceId}/subscriptions": {
       "post": {
-        "description": "Subscribes the user of the session to a block of a board, a page of a wiki, or a unit\nof a course they may read: whoever writes a card, a page or a unit watches it, and\nmay stop and start again. A chapter of a course takes no subscriptions (404). A\n`userId` that is not the user of the session is 403. The `blockType` is stored as it\nis sent, and not compared with the block. Subscribing again is no error: the\nsubscription stays as it was made, with its `blockType` and `createdAt`, and only its\n`notifiedAt` is set anew.",
+        "description": "Subscribes the user of the session to a block of a board, a page of a wiki, or a unit\nof a course they may read: whoever writes a card, a page or a unit watches it, and\nmay stop and start again. A chapter of a course takes no subscriptions (404). A\n`userId` that is not the user of the session is 403. The `blockType` must be a known\n`BlockType` (400 otherwise), and is stored without comparing it with the block's own\ntype. Subscribing again is no error: the\nsubscription stays as it was made, with its `blockType` and `createdAt`, and only its\n`notifiedAt` is set anew.",
         "operationId": "createSubscription",
         "parameters": [
           {

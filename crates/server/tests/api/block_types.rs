@@ -69,6 +69,75 @@ async fn a_new_block_of_another_type_is_refused() {
     th.teardown().await;
 }
 
+/// A page, a diary entry, a unit or a chapter sent to the board block creation routes is
+/// refused with the message naming its own container's operations.
+#[tokio::test]
+async fn a_new_block_of_another_containers_type_names_its_operations() {
+    let th = Setup::one_user().start().await;
+    let board = create_board_in_store(&th, ContainerVisibility::Open).await;
+    let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
+    for (name, expected) in [
+        (
+            "page",
+            "a page is made and changed by the operations of pages",
+        ),
+        (
+            "entry",
+            "an entry is made and changed by the operations of diaries",
+        ),
+        (
+            "unit",
+            "a unit or a chapter is made and changed by the operations of courses",
+        ),
+        (
+            "chapter",
+            "a unit or a chapter is made and changed by the operations of courses",
+        ),
+    ] {
+        let mut block =
+            serde_json::to_value(child_of(&card, BlockType::Card, name)).expect("a block is JSON");
+        block["type"] = json!(name);
+        let response = th
+            .client
+            .post(&blocks_path(&board.id), &json!([block]))
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.refused_at(), "/0/type", "{name} on createBlocks");
+        assert_eq!(
+            response.value()["detail"],
+            json!(expected),
+            "{name} detail on createBlocks: {}",
+            response.value()
+        );
+
+        let response = th
+            .client
+            .post(
+                &format!("{TEST_WS}/containers-and-blocks"),
+                &json!({
+                    "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}],
+                    "blocks": [{
+                        "id": "x1", "containerId": "b1", "type": name, "createdAt": 1, "updatedAt": 1,
+                    }],
+                }),
+            )
+            .await;
+        response.check_bad_request();
+        assert_eq!(
+            response.refused_at(),
+            "/blocks/0/type",
+            "{name} on createContainersAndBlocks"
+        );
+        assert_eq!(
+            response.value()["detail"],
+            json!(expected),
+            "{name} detail on createContainersAndBlocks: {}",
+            response.value()
+        );
+    }
+    th.teardown().await;
+}
+
 /// A patch, alone or in a batch, may not give a block one of those types.
 #[tokio::test]
 async fn a_patch_does_not_make_a_block_of_another_type() {

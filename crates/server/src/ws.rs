@@ -32,8 +32,8 @@ use std::time::Duration;
 
 use axum::extract::ws::Utf8Bytes;
 use fvoci_model::{
-    Block, Category, ClientConfig, Container, ContainerCategoryWebsocketData, ContainerMember,
-    LoginOrigin, Session,
+    Block, BlockType, Category, ClientConfig, Container, ContainerCategoryWebsocketData,
+    ContainerMember, LoginOrigin, Session,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -551,17 +551,19 @@ impl Hub {
     }
 
     /// Tells the same listeners that a block was deleted. The message is a block change
-    /// whose block has only its identifiers and the deletion time.
+    /// whose block has its identifiers, its type, and the deletion time.
     pub async fn broadcast_block_delete(
         &self,
         workspace_id: &str,
         block_id: &str,
         container_id: &str,
+        block_type: BlockType,
     ) {
         let now = now_millis();
         let block = Block {
             id: block_id.to_owned(),
             container_id: container_id.to_owned(),
+            block_type,
             updated_at: now,
             deleted_at: Some(now),
             ..Block::default()
@@ -578,12 +580,14 @@ impl Hub {
         workspace_id: &str,
         block_id: &str,
         container_id: &str,
+        block_type: BlockType,
         former: Former<'_>,
     ) {
         let now = now_millis();
         let block = Block {
             id: block_id.to_owned(),
             container_id: container_id.to_owned(),
+            block_type,
             updated_at: now,
             deleted_at: Some(now),
             ..Block::default()

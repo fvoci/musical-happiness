@@ -634,15 +634,15 @@ impl UserSettingsPatch {
         self.set.is_empty() && self.reset.is_empty()
     }
 
-    /// The settings to store, as `(name, value)`, and the names of the settings whose
-    /// stored value is to be removed, each in the order the settings are listed in.
-    pub fn changes(&self) -> (Vec<(&'static str, &str)>, Vec<&'static str>) {
+    /// The settings to store, as `(name, value)`, and the settings whose stored value is
+    /// to be put back to its default, each in the order the settings are listed in.
+    pub fn changes(&self) -> (Vec<(SettingName, &str)>, Vec<SettingName>) {
         let set = self
             .set
             .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .map(|(&name, value)| (name, value.as_str()))
             .collect();
-        let reset = self.reset.iter().map(|name| name.as_str()).collect();
+        let reset = self.reset.iter().copied().collect();
         (set, reset)
     }
 }

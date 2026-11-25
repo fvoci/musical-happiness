@@ -760,25 +760,28 @@ async fn stored_settings(scope: &mut Scope<'_>, user_id: &str) -> Result<UserSet
     })
 }
 
-/// Maps a wire setting name and optional stored value (`None` resets to the default) to
-/// its `user_settings` column and typed SQL parameter.
-fn setting_column_param(name: &str, value: Option<&str>) -> Option<(&'static str, Param)> {
+/// Maps a setting and optional stored value (`None` resets to the default) to its
+/// `user_settings` column and typed SQL parameter.
+fn setting_column_param(
+    name: fvoci_model::SettingName,
+    value: Option<&str>,
+) -> (&'static str, Param) {
+    use fvoci_model::SettingName;
     let text = |default: &'static str| Param::Text(value.unwrap_or(default).to_owned());
     let flag = |default: bool| Param::Bool(value.map_or(default, |stored| stored == "true"));
-    Some(match name {
-        "language" => ("language", text("auto")),
-        "theme" => ("theme", text("auto")),
-        "density" => ("density", text("auto")),
-        "cardOpen" => ("card_open", text("center")),
-        "haptics" => ("haptics", flag(true)),
-        "weekStart" => ("week_start", text("auto")),
-        "hourCycle" => ("hour_cycle", text("auto")),
-        "timeZone" => ("time_zone", text("auto")),
-        "notifyMentions" => ("notify_mentions", flag(true)),
-        "notifyAssignments" => ("notify_assignments", flag(true)),
-        "notifyComments" => ("notify_comments", flag(true)),
-        _ => return None,
-    })
+    match name {
+        SettingName::Language => ("language", text("auto")),
+        SettingName::Theme => ("theme", text("auto")),
+        SettingName::Density => ("density", text("auto")),
+        SettingName::CardOpen => ("card_open", text("center")),
+        SettingName::Haptics => ("haptics", flag(true)),
+        SettingName::WeekStart => ("week_start", text("auto")),
+        SettingName::HourCycle => ("hour_cycle", text("auto")),
+        SettingName::TimeZone => ("time_zone", text("auto")),
+        SettingName::NotifyMentions => ("notify_mentions", flag(true)),
+        SettingName::NotifyAssignments => ("notify_assignments", flag(true)),
+        SettingName::NotifyComments => ("notify_comments", flag(true)),
+    }
 }
 
 async fn upsert_user_settings(
@@ -789,14 +792,10 @@ async fn upsert_user_settings(
     let (set, reset) = patch.changes();
     let mut columns: Vec<(&'static str, Param)> = Vec::with_capacity(set.len() + reset.len());
     for (name, value) in set {
-        if let Some(entry) = setting_column_param(name, Some(value)) {
-            columns.push(entry);
-        }
+        columns.push(setting_column_param(name, Some(value)));
     }
     for name in reset {
-        if let Some(entry) = setting_column_param(name, None) {
-            columns.push(entry);
-        }
+        columns.push(setting_column_param(name, None));
     }
     if columns.is_empty() {
         return Ok(());
