@@ -264,7 +264,7 @@ describe('date calculations', () => {
   it('works on the moments cards were created, on the days of the reader', () => {
     const born = (instant: number): Card => {
       const card = createCard();
-      card.createAt = instant;
+      card.createdAt = instant;
       return card;
     };
     const seoul = { locale: 'en', now: Date.UTC(2026, 5, 1), timeZone: 'Asia/Seoul' };

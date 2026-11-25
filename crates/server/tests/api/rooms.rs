@@ -594,7 +594,7 @@ pub(crate) async fn write_whole(client: &Client, card_id: &str, body: &Value) {
         let patched = client
             .patch(
                 &format!("/w/{TEST_WORKSPACE_ID}/cards/{card_id}"),
-                &json!({"body": body, "readAt": read.update_at}),
+                &json!({"body": body, "readAt": read.updated_at}),
             )
             .await;
         if patched.status != reqwest::StatusCode::CONFLICT {
@@ -884,8 +884,8 @@ async fn who_may_not_read_is_refused_as_for_no_card() {
         parent_id: t.card_id.clone(),
         block_type: fvoci_model::BlockType::Comment,
         title: "no card".to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..fvoci_model::Block::default()
     };
     let stored: Vec<fvoci_model::Block> = th

@@ -221,7 +221,7 @@ async fn a_body_written_over_http_is_told_as_its_summary() {
     subscribe_to_workspace(&th, &mut listener, TEST_WORKSPACE_ID, &me).await;
 
     let path = format!("{TEST_WS}/cards/{}", t.card_id);
-    let read_at = th.client2.get(&path).await.value()["updateAt"].clone();
+    let read_at = th.client2.get(&path).await.value()["updatedAt"].clone();
     let tasks = [
         task(Task::Done, "one"),
         task(Task::Done, "two"),
@@ -250,7 +250,7 @@ async fn a_body_written_over_http_is_told_as_its_summary() {
         "the summary is what the card list says"
     );
 
-    let read_at = th.client2.get(&path).await.value()["updateAt"].clone();
+    let read_at = th.client2.get(&path).await.value()["updatedAt"].clone();
     th.client2
         .patch(&path, &json!({"readAt": read_at, "body": null}))
         .await
@@ -349,7 +349,7 @@ async fn a_diary_entry_body_is_told_as_its_summary() {
         .patch(
             &path,
             &json!({
-                "readAt": made["updateAt"],
+                "readAt": made["updatedAt"],
                 "body": with_tasks(&[task(Task::Done, "walk"), task(Task::Open, "journal")]),
             }),
         )

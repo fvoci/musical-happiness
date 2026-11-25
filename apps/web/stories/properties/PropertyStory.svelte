@@ -101,8 +101,8 @@
   card.createdBy = 'example-member-1';
   card.modifiedBy = 'example-member-2';
   // Half past nine in the evening of 9 November 2026 in Seoul, and 01:05 the next night.
-  card.createAt = Date.UTC(2026, 10, 9, 12, 30);
-  card.updateAt = Date.UTC(2026, 10, 10, 16, 5);
+  card.createdAt = Date.UTC(2026, 10, 9, 12, 30);
+  card.updatedAt = Date.UTC(2026, 10, 10, 16, 5);
 
   const template = $derived({ id: 'property', name: NAMES[type] ?? type, type, options });
   const regional = $derived({ timeZone, weekStart, hourCycle });

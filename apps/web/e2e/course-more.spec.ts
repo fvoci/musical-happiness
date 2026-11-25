@@ -30,13 +30,13 @@ function coursePlaceOf(address: string): { workspaceId: string; courseId: string
 interface Elsewhere {
   userId: string;
   course: {
-    unit(courseId: string, unitId: string): Promise<{ updateAt: number }>;
+    unit(courseId: string, unitId: string): Promise<{ updatedAt: number }>;
     patchUnit(courseId: string, unitId: string, patch: object): Promise<unknown>;
     createComment(
       courseId: string,
       unitId: string,
       body: object,
-    ): Promise<{ id: string; updateAt: number }>;
+    ): Promise<{ id: string; updatedAt: number }>;
     deleteComment(courseId: string, unitId: string, commentId: string): Promise<void>;
   };
 }
@@ -189,7 +189,7 @@ test('unit body versions: ⌘S manual keep, diff compare, and restore', async ({
         type: 'doc',
         content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
       };
-      await other.course.patchUnit(at.courseId, at.unitId, { body: doc, readAt: detail.updateAt });
+      await other.course.patchUnit(at.courseId, at.unitId, { body: doc, readAt: detail.updatedAt });
     },
     { at: place, text: 'Second revised paragraph' },
   );
@@ -286,8 +286,8 @@ test('public link dialog works on a course and SharedCourse reads a shared cours
           properties: {},
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;
@@ -301,8 +301,8 @@ test('public link dialog works on a course and SharedCourse reads a shared cours
             parentId: '',
             title: 'Part 1',
             order: 'a',
-            createAt: 1,
-            updateAt: 1,
+            createdAt: 1,
+            updatedAt: 1,
           },
           {
             id: unitA,
@@ -310,8 +310,8 @@ test('public link dialog works on a course and SharedCourse reads a shared cours
             parentId: chapterId,
             title: 'First Lesson',
             order: 'a',
-            createAt: 2,
-            updateAt: 2,
+            createdAt: 2,
+            updatedAt: 2,
           },
           {
             id: unitB,
@@ -319,8 +319,8 @@ test('public link dialog works on a course and SharedCourse reads a shared cours
             parentId: chapterId,
             title: 'Second Lesson',
             order: 'b',
-            createAt: 3,
-            updateAt: 3,
+            createdAt: 3,
+            updatedAt: 3,
           },
         ],
       });
@@ -351,8 +351,8 @@ test('public link dialog works on a course and SharedCourse reads a shared cours
           },
           createdBy: '',
           modifiedBy: '',
-          createAt: 2,
-          updateAt: 2,
+          createdAt: 2,
+          updatedAt: 2,
         },
       });
       return;
@@ -369,8 +369,8 @@ test('public link dialog works on a course and SharedCourse reads a shared cours
           body: paragraph('Welcome to the second lesson.'),
           createdBy: '',
           modifiedBy: '',
-          createAt: 3,
-          updateAt: 3,
+          createdAt: 3,
+          updatedAt: 3,
         },
       });
       return;

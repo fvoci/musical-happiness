@@ -13,7 +13,9 @@ use fvoci_store::{DbType, Store};
 use sqlx::Connection as _;
 
 use crate::boards::new_board;
-use crate::common::{self, db_type};
+use crate::common::{
+    self, PRE0075_CREATE_COL, PRE0075_CREATE_KEY, PRE0075_UPDATE_COL, PRE0075_UPDATE_KEY, db_type,
+};
 use crate::workspace_rename::{Dump, dump};
 
 /// The rows of every table, each as its values by column name (column order is not part
@@ -53,7 +55,7 @@ async fn database_before_courses() -> PreMigration {
     let store = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("the database opens");
-    let (people_org, people_ws) = common::organization(&store, "people").await;
+    let (people_org, people_ws) = common::pre0075_organization(&store, "people").await;
     let scoped = store.for_org(&people_org).expect("an identifier");
     let user_id = common::pre0072_user(&scoped, &people_org, &people_ws, "member").await;
 
@@ -74,7 +76,8 @@ async fn database_before_courses() -> PreMigration {
             .execute_unchecked(&format!(
                 "INSERT INTO containers \
                  (id, workspace_id, created_by, modified_by, type, kind, title, description, \
-                  icon, show_description, is_template, properties, card_properties, create_at, update_at) \
+                  icon, show_description, is_template, properties, card_properties, \
+                  {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
                  VALUES ('{}', '{people_ws}', '{user_id}', '{user_id}', 'P', '{}', '{}', '', '', \
                   false, {is_template}, '{{}}', '[]', 1, 1)",
                 container.id,
@@ -109,11 +112,7 @@ async fn database_before_courses() -> PreMigration {
                 title: title.to_owned(),
                 ..Block::default()
             };
-            scoped
-                .telling_nobody()
-                .insert_block(&mut block, &user_id)
-                .await
-                .expect("stored");
+            common::pre0075_insert_block(&scoped, &mut block, &user_id).await;
             blocks.push(block);
         }
         if trashed {
@@ -122,7 +121,7 @@ async fn database_before_courses() -> PreMigration {
             let old_links = ["shar", "ing"].concat();
             scoped
                 .execute_unchecked(&format!(
-                    "INSERT INTO {old_links} (container_id, enabled, token, modified_by, update_at) \
+                    "INSERT INTO {old_links} (container_id, enabled, token, modified_by, {PRE0075_UPDATE_COL}) \
                      VALUES ('{}', true, '{}', '{user_id}', 1)",
                     container.id,
                     new_id()
@@ -165,6 +164,8 @@ async fn trash_container_before_courses(
         trashed.deleted_at = Some(now);
         let json = serde_json::to_string(&trashed)
             .expect("block json")
+            .replace(r#""createdAt""#, &format!(r#""{PRE0075_CREATE_KEY}""#))
+            .replace(r#""updatedAt""#, &format!(r#""{PRE0075_UPDATE_KEY}""#))
             .replace('\'', "''");
         scoped
             .execute_unchecked(&format!(
@@ -181,6 +182,8 @@ async fn trash_container_before_courses(
     let json = serde_json::to_string(&in_trash)
         .expect("container json")
         .replace(r#""visibility":"private""#, r#""type":"P""#)
+        .replace(r#""createdAt""#, &format!(r#""{PRE0075_CREATE_KEY}""#))
+        .replace(r#""updatedAt""#, &format!(r#""{PRE0075_UPDATE_KEY}""#))
         .replace('\'', "''");
     scoped
         .execute_unchecked(&format!(
@@ -218,7 +221,8 @@ async fn seed_diary_in_own_space(store: &Store, user_id: &str) -> (String, Strin
     own.execute_unchecked(&format!(
         "INSERT INTO containers \
          (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-          show_description, is_template, properties, card_properties, create_at, update_at) \
+          show_description, is_template, properties, card_properties, \
+          {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
          VALUES ('{diary_id}', '{own_ws}', '{user_id}', '{user_id}', 'P', 'diary', 'my diary', \
           '', '', false, false, '{{}}', '[]', 1, 1)"
     ))
@@ -236,20 +240,29 @@ async fn seed_diary_in_own_space(store: &Store, user_id: &str) -> (String, Strin
     .await
     .expect("diary member stored");
     let date: DiaryDate = "2026-11-22".parse().expect("a date");
-    own.create_diary_entry(
-        &diary_id,
-        date,
-        NewDiaryEntry {
+    let mut entry = Block {
+        id: new_id(),
+        container_id: diary_id.clone(),
+        block_type: BlockType::Entry,
+        title: date.to_string(),
+        fields: NewDiaryEntry {
             date: date.to_string(),
             mood: None,
             weather: "clear".to_owned(),
             place: String::new(),
-        },
-        100,
-        user_id,
-    )
+        }
+        .into_fields(date),
+        ..Block::default()
+    };
+    common::pre0075_insert_block(&own, &mut entry, user_id).await;
+    own.execute_unchecked(&format!(
+        "INSERT INTO diary_days (container_id, day, month_day, entry_id, mood) \
+         VALUES ('{diary_id}', '{date}', '{}', '{}', NULL)",
+        date.month_day(),
+        entry.id
+    ))
     .await
-    .expect("entry stored");
+    .expect("diary_days row stored");
     (own_org, own_ws, diary_id)
 }
 
@@ -413,14 +426,14 @@ async fn assert_triggers_and_checks_hold(store: &Store, pre: &PreMigration) {
     let insert_diary_sql = match db_type() {
         DbType::Sqlite => format!(
             "INSERT INTO containers (id, workspace_id, visibility, kind, title, description, icon, \
-             show_description, is_template, properties, card_properties, create_at, update_at) \
+             show_description, is_template, properties, card_properties, created_at, updated_at) \
              VALUES ('{}', '{}', 'private', 'diary', 'forbidden', '', '', 0, 0, '{{}}', '[]', 0, 0)",
             new_id(),
             pre.people_ws
         ),
         DbType::Postgres => format!(
             "INSERT INTO containers (id, org_id, workspace_id, visibility, kind, title, description, icon, \
-             show_description, is_template, properties, card_properties, create_at, update_at) \
+             show_description, is_template, properties, card_properties, created_at, updated_at) \
              VALUES ('{}', '{}', '{}', 'private', 'diary', 'forbidden', '', '', false, false, '{{}}', '[]', 0, 0)",
             new_id(),
             pre.people_org,
@@ -448,12 +461,12 @@ async fn assert_triggers_and_checks_hold(store: &Store, pre: &PreMigration) {
     // 3) public_links_of_no_diary (BEFORE INSERT on public_links)
     let insert_share_sql = match db_type() {
         DbType::Sqlite => format!(
-            "INSERT INTO public_links (container_id, enabled, token, update_at) \
+            "INSERT INTO public_links (container_id, enabled, token, updated_at) \
              VALUES ('{}', 1, 'tok-diary', 0)",
             pre.diary_id
         ),
         DbType::Postgres => format!(
-            "INSERT INTO public_links (container_id, org_id, enabled, token, update_at) \
+            "INSERT INTO public_links (container_id, org_id, enabled, token, updated_at) \
              VALUES ('{}', '{}', TRUE, 'tok-diary', 0)",
             pre.diary_id, pre.own_org
         ),

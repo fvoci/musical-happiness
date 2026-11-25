@@ -28,7 +28,7 @@ async fn write(client: &Client, wiki: &str, page: &str, bodies: &[&str]) {
         client
             .patch(
                 &at,
-                &json!({"readAt": read["updateAt"], "body": text(body)}),
+                &json!({"readAt": read["updatedAt"], "body": text(body)}),
             )
             .await
             .check_ok();

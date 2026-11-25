@@ -181,7 +181,7 @@ export function memoryUndeleteUnit(host: UndeleteUnitHost): CourseUnitDetail {
   world.deletedBlocks.delete(unitId);
   const now = world.now();
   for (const block of deleted.blocks) {
-    [block.updateAt, block.modifiedBy] = [now, userId];
+    [block.updatedAt, block.modifiedBy] = [now, userId];
     world.blocks.set(block.id, block);
   }
   host.tellUnits([...renumbered, ...nodes]);

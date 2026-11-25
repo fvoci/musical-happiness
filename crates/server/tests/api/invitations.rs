@@ -400,7 +400,10 @@ async fn a_workspace_administrator_invites_members_by_a_link() {
     assert_eq!(link.workspace_id, ROOT_WORKSPACE_ID);
     assert_eq!(link.role, fvoci_model::WorkspaceRole::Member);
     assert_eq!(link.created_by, admin.id);
-    assert_eq!(link.expires_at - link.create_at, INVITATION_LIFETIME_MILLIS);
+    assert_eq!(
+        link.expires_at - link.created_at,
+        INVITATION_LIFETIME_MILLIS
+    );
     assert_eq!(
         (link.max_uses, link.uses),
         (None, 0),
@@ -534,7 +537,7 @@ async fn a_link_that_lets_nobody_in_answers_as_no_link_at_all() {
     th.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE invitations SET expires_at = create_at WHERE CAST(id AS TEXT) = '{}'",
+            "UPDATE invitations SET expires_at = created_at WHERE CAST(id AS TEXT) = '{}'",
             ended.id
         ))
         .await
@@ -746,7 +749,10 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
         "unless said"
     );
     assert_eq!((link.max_uses, link.uses), (Some(1), 0), "for one person");
-    assert_eq!(link.expires_at - link.create_at, INVITATION_LIFETIME_MILLIS);
+    assert_eq!(
+        link.expires_at - link.created_at,
+        INVITATION_LIFETIME_MILLIS
+    );
     assert_eq!(link.token.as_ref().map(String::len), Some(43));
     let by_the_administrator: Invitation =
         ask_for_a_guest_link(&th.client, &board.id, Some("viewer"))

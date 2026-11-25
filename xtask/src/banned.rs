@@ -84,6 +84,16 @@ const BANNED_PHRASES: [&str; 8] = [
     concat!("원본", "에서 옮"),
 ];
 
+/// Retired pre-0075 timestamp identifiers refused in tracked project files (matched on
+/// ASCII identifier boundaries so words such as `createAttachment` or `updateAttributes`
+/// are not flagged).
+const RETIRED_TOKENS: [&str; 4] = [
+    concat!("create", "At"),
+    concat!("update", "At"),
+    concat!("create", "_at"),
+    concat!("update", "_at"),
+];
+
 /// Path prefixes exempt from [`BANNED_PHRASES`] (never from [`BANNED`]):
 /// - `crates/store/schema/`: immutable applied SQL migrations checked by checksum.
 /// - `vendor/`: third-party vendored sources.
@@ -248,19 +258,40 @@ fn finds_phrase(line: &str, phrases: &[&str]) -> bool {
     phrases.iter().any(|phrase| lower.contains(phrase))
 }
 
+const fn is_ident_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+/// Whether `line` contains any identifier token from `tokens` on ASCII identifier
+/// boundaries (`[^A-Za-z0-9_]` or start/end of line).
+fn finds_token(line: &str, tokens: &[&str]) -> bool {
+    let bytes = line.as_bytes();
+    tokens.iter().any(|token| {
+        line.match_indices(token).any(|(start, _)| {
+            let end = start + token.len();
+            let before_ok = start == 0 || !is_ident_byte(bytes[start - 1]);
+            let after_ok = end == bytes.len() || !is_ident_byte(bytes[end]);
+            before_ok && after_ok
+        })
+    })
+}
+
 /// The hits of one file: `path: in its name`, then `path:line` for each line.
 fn check_file(file: &str, text: &str, reading: &mut Reading<'_>, phrases: &[&str]) -> Vec<String> {
     let mut hits = Vec::new();
     if reading.finds_in(file) {
         hits.push(format!("{file}: in its name"));
     }
-    let active_phrases = if is_phrase_exempt(file) {
-        &[][..]
+    let (active_phrases, active_tokens) = if is_phrase_exempt(file) {
+        (&[][..], &[][..])
     } else {
-        phrases
+        (phrases, &RETIRED_TOKENS[..])
     };
     for (index, line) in text.lines().enumerate() {
-        if reading.finds_in(line) || finds_phrase(line, active_phrases) {
+        if reading.finds_in(line)
+            || finds_phrase(line, active_phrases)
+            || finds_token(line, active_tokens)
+        {
             hits.push(format!("{file}:{}", index + 1));
         }
     }
@@ -519,5 +550,49 @@ mod tests {
             check_file("docs/notes.md", phrase_line, &mut reading, &BANNED_PHRASES),
             ["docs/notes.md:1"]
         );
+    }
+
+    #[test]
+    fn retired_timestamp_tokens_match_identifier_boundaries_and_exempt_schemas() {
+        let words = banning(&[]);
+        let mut reading = Reading::new(&words);
+        for hit_line in [
+            concat!("pub ", "create", "_at: i64,"),
+            concat!("SELECT b.", "update", "_at FROM blocks b"),
+            concat!(r#"{"id":"1",""#, "create", "At", r#"":10}"#),
+            concat!("card.", "update", "At"),
+        ] {
+            assert!(
+                finds_token(hit_line, &RETIRED_TOKENS),
+                "{hit_line:?} must match a retired timestamp token"
+            );
+            assert_eq!(
+                check_file("crates/model/src/lib.rs", hit_line, &mut reading, &[]),
+                ["crates/model/src/lib.rs:1"]
+            );
+            assert_eq!(
+                check_file(
+                    "crates/store/schema/sqlite/0075_unified_created_updated_timestamps.sql",
+                    hit_line,
+                    &mut reading,
+                    &[]
+                ),
+                Vec::<String>::new()
+            );
+        }
+
+        for clean_line in [
+            "pub created_at: i64,",
+            "pub updated_at: i64,",
+            r#"{"createdAt":10,"updatedAt":20}"#,
+            "backend.createAttachment(boardId, cardId, file)",
+            "editor.commands.updateAttributes('codeBlock', {})",
+            "const NO_CREATED_AT: &str = \"missing\";",
+        ] {
+            assert!(
+                !finds_token(clean_line, &RETIRED_TOKENS),
+                "{clean_line:?} must not match any retired timestamp token"
+            );
+        }
     }
 }

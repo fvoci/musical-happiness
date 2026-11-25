@@ -586,9 +586,9 @@ pub struct Block {
     /// block.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
     #[serde(
         default,
@@ -882,7 +882,7 @@ pub struct BlockPatch {
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]
     pub body: BodyChange,
-    /// The `updateAt` of the block as the client read it. If the block has changed
+    /// The `updatedAt` of the block as the client read it. If the block has changed
     /// since, the patch is refused.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_at: Option<i64>,
@@ -986,6 +986,6 @@ pub struct BlockPatchBatch {
 pub fn stamp_modification_metadata(user_id: &str, blocks: &mut [Block], now: i64) {
     for block in blocks {
         user_id.clone_into(&mut block.modified_by);
-        block.update_at = now;
+        block.updated_at = now;
     }
 }

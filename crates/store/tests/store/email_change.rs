@@ -277,7 +277,7 @@ async fn an_address_that_is_somebodys_is_not_taken_by_a_link() {
         language: String::new(),
         start: SignupStart::Organization("Ours".to_owned()),
         browser_hash: String::new(),
-        create_at: T0,
+        created_at: T0,
         expires_at: T0 + SIGNUP_LIFETIME_MILLIS,
     };
     store

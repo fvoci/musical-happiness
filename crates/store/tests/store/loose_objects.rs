@@ -14,7 +14,7 @@ fn file_at(board_id: &str, path: &str) -> FileRecord {
         stored_name: path.rsplit('/').next().unwrap_or(path).to_owned(),
         path: path.to_owned(),
         size: 3,
-        create_at: 1,
+        created_at: 1,
         ..FileRecord::default()
     }
 }
@@ -383,7 +383,7 @@ async fn what_holds_an_object() {
         name: "a.bin".to_owned(),
         size: 1,
         part_size: 1,
-        create_at: 1,
+        created_at: 1,
         expires_at: i64::MAX,
         path: "boards/uploading".to_owned(),
         ..Upload::default()

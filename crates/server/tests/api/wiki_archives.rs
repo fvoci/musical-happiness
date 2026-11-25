@@ -231,14 +231,14 @@ fn archive_of(boards: &[&[Value]]) -> Vec<u8> {
 fn board_line(id: &str, kind: &str, title: &str) -> Value {
     json!({"type": "container", "data": {
         "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": kind,
-        "title": title, "createAt": 1, "updateAt": 1,
+        "title": title, "createdAt": 1, "updatedAt": 1,
     }})
 }
 
 fn block_line(id: &str, board: &str, parent: &str, block_type: &str) -> Value {
     json!({"type": "block", "data": {
         "id": id, "containerId": board, "parentId": parent, "type": block_type,
-        "title": id, "createAt": 1, "updateAt": 1,
+        "title": id, "createdAt": 1, "updatedAt": 1,
     }})
 }
 

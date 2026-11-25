@@ -42,8 +42,8 @@ export function exampleWorkspace({
       username: id,
       displayName: `Example member ${index + 1} · 예시 구성원`,
       email: `${id}@example.test`,
-      createAt: STORY_NOW,
-      updateAt: STORY_NOW,
+      createdAt: STORY_NOW,
+      updatedAt: STORY_NOW,
     })),
   );
   world.settings.set('example-reader', {
@@ -78,8 +78,8 @@ export function exampleWorkspace({
         ],
       },
     ],
-    createAt: STORY_NOW,
-    updateAt: STORY_NOW,
+    createdAt: STORY_NOW,
+    updatedAt: STORY_NOW,
   };
   world.containers.set(board.id, board);
   world.members.set(board.id, [

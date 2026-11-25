@@ -151,7 +151,7 @@ async fn the_administrators_of_a_workspace_list_its_members() {
     );
     assert_eq!(listed[0].user_id, th.client.me().await.id);
     assert!(
-        listed.iter().all(|member| member.create_at > 0),
+        listed.iter().all(|member| member.created_at > 0),
         "{listed:?}"
     );
     let raw = th.client.get(&members_path()).await.value();
@@ -165,7 +165,7 @@ async fn the_administrators_of_a_workspace_list_its_members() {
     assert_eq!(
         keys,
         [
-            "createAt",
+            "createdAt",
             "credentials",
             "customName",
             "displayName",

@@ -100,7 +100,7 @@ export class NotificationInbox {
    */
   async readAll(): Promise<void> {
     const through = this.items.reduce<number | undefined>(
-      (newest, one) => Math.max(newest ?? 0, one.updateAt),
+      (newest, one) => Math.max(newest ?? 0, one.updatedAt),
       undefined,
     );
     this.#forgetReadings();

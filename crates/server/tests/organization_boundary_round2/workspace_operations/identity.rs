@@ -220,7 +220,7 @@ async fn pending(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
         "deleteOidcFormerProvider",
         newcomer
             .request(Method::DELETE, &former)
-            .json(&json!({"createAt": 1})),
+            .json(&json!({"createdAt": 1})),
     )
     .await;
     let released = Client::send(

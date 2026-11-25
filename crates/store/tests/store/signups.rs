@@ -9,7 +9,7 @@ use fvoci_store::{
 };
 use tokio::sync::Barrier;
 
-use crate::common;
+use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL};
 
 fn signup(username: &str, email: &str, now: i64) -> Signup {
     Signup {
@@ -21,7 +21,7 @@ fn signup(username: &str, email: &str, now: i64) -> Signup {
         language: String::new(),
         start: SignupStart::Organization("Ours".to_owned()),
         browser_hash: String::new(),
-        create_at: now,
+        created_at: now,
         expires_at: now + SIGNUP_LIFETIME_MILLIS,
     }
 }
@@ -181,13 +181,13 @@ async fn the_migration_of_the_registrations_keeps_every_record_of_the_audit_log(
     common::execute_raw(
         &common::raw_connection(&database),
         &format!(
-            "INSERT INTO organizations (id, name, settings, create_at, update_at) \
+            "INSERT INTO organizations (id, name, settings, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
              VALUES ('{org}', 'Org', '{{}}', 1, 1); \
-             INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, create_at, detail) \
+             INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, {PRE0075_CREATE_COL}, detail) \
              VALUES ('{lapsed}', '{org}', 'server', 'oidc_former_provider_lapsed', '{org}', 7, \
              'https://old.example.test'); \
              INSERT INTO audit_log (id, org_id, actor_id, action, target_id, subject_id, \
-             create_at, detail, identity) VALUES ('{carried}', '{org}', '{actor}', \
+             {PRE0075_CREATE_COL}, detail, identity) VALUES ('{carried}', '{org}', '{actor}', \
              'oidc_identity_carried_over', '{org}', '{actor}', 8, 'https://new.example.test', \
              'who@example.test');"
         ),
@@ -231,14 +231,14 @@ async fn the_migration_of_the_registrations_keeps_every_record_of_the_audit_log(
     );
     assert_eq!(carried.detail.as_deref(), Some("https://new.example.test"));
     assert_eq!(carried.identity.as_deref(), Some("who@example.test"));
-    assert_eq!(carried.create_at, 8, "{carried:?}");
+    assert_eq!(carried.created_at, 8, "{carried:?}");
 
     // The operator's confirmation is a record the log takes now.
     common::execute_raw(
         &common::raw_connection(&database),
         &format!(
             "INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, subject_id, \
-             create_at) VALUES ('{}', '{org}', 'server_operator', 'email_verified_by_operator', \
+             created_at) VALUES ('{}', '{org}', 'server_operator', 'email_verified_by_operator', \
              '{org}', '{actor}', 9);",
             new_id()
         ),

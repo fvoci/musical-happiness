@@ -29,7 +29,7 @@ async function revise(api: APIRequestContext, path: string, text: string): Promi
   expect(read.ok(), await read.text()).toBe(true);
   const [current] = (await read.json()) as Schemas['Block'][];
   if (!current) throw new Error('the comment was not returned');
-  const response = await api.patch(path, { data: { body: body(text), readAt: current.updateAt } });
+  const response = await api.patch(path, { data: { body: body(text), readAt: current.updatedAt } });
   expect(response.ok(), await response.text()).toBe(true);
 }
 
@@ -61,8 +61,8 @@ test('a departed writer of an earlier revision is named when the comment history
         type: 'comment',
         title: '',
         fields: {},
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
         body: body('Original words'),
       },
     ],
@@ -123,8 +123,8 @@ test('a departed comment author is named without opening the comment history', a
           type: 'comment',
           title: '',
           fields: {},
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
           body: body('Words that remain after leaving'),
         },
       ],
@@ -179,7 +179,7 @@ test('a departed editor of a card is named under the card’s “Last updated by
   expect(patched.ok(), await patched.text()).toBe(true);
   const card = (await (await writer.get(`${workspace}/cards/${cardId}`)).json()) as Schemas['Card'];
   const changed = await writer.patch(`${workspace}/cards/${cardId}`, {
-    data: { readAt: card.updateAt, title: 'After the change' },
+    data: { readAt: card.updatedAt, title: 'After the change' },
   });
   expect(changed.ok(), await changed.text()).toBe(true);
   const writerId = ((await (await writer.get('/api/v1/users/me')).json()) as Schemas['User']).id;

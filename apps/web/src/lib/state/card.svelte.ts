@@ -148,7 +148,7 @@ export class CardStore {
 
   #takeDetail(detail: CardDetail): void {
     const { body, ...summary } = detail;
-    this.#readAt = detail.updateAt;
+    this.#readAt = detail.updatedAt;
     this.missing = false;
     this.board.receiveCard(summary);
     if (!sameDoc(body, this.body)) this.body = body;
@@ -266,7 +266,7 @@ export class CardStore {
   cardChanged(card: CardSummary): void {
     // A card that was deleted and is back (restored) is read again whatever its time.
     const back = this.missing;
-    if (card.id !== this.cardId || (!back && card.updateAt <= this.#readAt)) return;
+    if (card.id !== this.cardId || (!back && card.updatedAt <= this.#readAt)) return;
     // A card back from the trash is read whatever the room holds: it was missing.
     if (this.#busy() && !back) {
       this.#news = card;
@@ -279,7 +279,7 @@ export class CardStore {
           this.#news = card;
           return;
         }
-        if (!back && detail.updateAt <= this.#readAt) return;
+        if (!back && detail.updatedAt <= this.#readAt) return;
         this.#takeDetail(detail);
       })
       .catch(() => {

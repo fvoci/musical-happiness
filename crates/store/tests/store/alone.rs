@@ -385,11 +385,11 @@ async fn the_schema_lets_nobody_but_its_owner_into_a_space() {
     };
     let statements = [
         format!(
-            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+            "INSERT INTO organization_members (org_id, user_id, role, created_at) \
              VALUES ('{org_id}', '{other}', 'member', 1)"
         ),
         format!(
-            "INSERT INTO workspace_members (workspace_id, {}user_id, role, create_at) \
+            "INSERT INTO workspace_members (workspace_id, {}user_id, role, created_at) \
              VALUES ('{workspace_id}', {}'{other}', 'guest', 1)",
             workspace_org.0, workspace_org.1
         ),
@@ -400,7 +400,7 @@ async fn the_schema_lets_nobody_but_its_owner_into_a_space() {
         ),
         format!(
             "INSERT INTO invitations (id, org_id, workspace_id, role, token_hash, created_by, \
-             create_at, expires_at) VALUES ('{}', '{org_id}', '{workspace_id}', 'member', \
+             created_at, expires_at) VALUES ('{}', '{org_id}', '{workspace_id}', 'member', \
              'hash', '{owner}', 1, 2)",
             new_id()
         ),
@@ -460,7 +460,7 @@ async fn no_invitation_names_a_space_by_any_of_its_keys() {
         .await
         .expect("a board of the space");
     let columns = "id, org_id, workspace_id, role, container_id, container_role, token_hash, \
-                   created_by, create_at, expires_at";
+                   created_by, created_at, expires_at";
     let insert = |org: &str, workspace: &str, guest_of: Option<&str>, hash: &str| {
         let (role, container) = match guest_of {
             Some(board) => ("guest", format!("'{board}', 'viewer'")),
@@ -614,7 +614,7 @@ fn signup(username: &str, start: SignupStart, now: i64) -> Signup {
         language: String::new(),
         start,
         browser_hash: String::new(),
-        create_at: now,
+        created_at: now,
         expires_at: now + SIGNUP_LIFETIME_MILLIS,
     }
 }

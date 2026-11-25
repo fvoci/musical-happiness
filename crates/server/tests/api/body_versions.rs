@@ -78,7 +78,7 @@ async fn a_body_is_kept_as_a_version_when_its_editors_leave() {
     assert_eq!(kept.len(), 2, "{kept:?}");
     assert_eq!(
         kept[1],
-        json!({"version": 1, "keptAt": made.update_at, "editors": [], "isCurrent": false, "cause": "auto"}),
+        json!({"version": 1, "keptAt": made.updated_at, "editors": [], "isCurrent": false, "cause": "auto"}),
         "the body before the editors came, as of the card's last change"
     );
     assert_eq!(lines(&th.client, &e.card_id, &kept[1]).await, ["first"]);
@@ -86,7 +86,7 @@ async fn a_body_is_kept_as_a_version_when_its_editors_leave() {
     assert_eq!(kept[0]["editors"], json!([e.user1]));
     assert_eq!(kept[0]["isCurrent"], true);
     assert!(
-        kept[0]["keptAt"].as_i64() > Some(made.update_at),
+        kept[0]["keptAt"].as_i64() > Some(made.updated_at),
         "{kept:?}"
     );
     assert_eq!(
@@ -344,7 +344,7 @@ async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
         [(2, vec![user2.as_str()], true), (1, nobody.clone(), false)]
     );
     assert_eq!(
-        kept[1]["keptAt"], made.update_at,
+        kept[1]["keptAt"], made.updated_at,
         "the body before, as of the card's last change"
     );
     assert_eq!(lines(&th.client, &t.card_id, &kept[1]).await, ["first"]);
@@ -364,7 +364,7 @@ async fn a_body_written_whole_is_a_version_and_so_is_the_one_before() {
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", t.card_id),
-            &json!({"body": null, "readAt": read.update_at}),
+            &json!({"body": null, "readAt": read.updated_at}),
         )
         .await
         .check_ok();
@@ -436,7 +436,7 @@ async fn a_body_written_whole_over_what_editors_typed_keeps_both() {
     th.client
         .patch(
             &path,
-            &json!({"body": paragraphs(&["whole"]), "readAt": read_before.update_at}),
+            &json!({"body": paragraphs(&["whole"]), "readAt": read_before.updated_at}),
         )
         .await
         .check_status(StatusCode::CONFLICT);
@@ -477,8 +477,8 @@ async fn a_body_written_whole_over_what_editors_typed_keeps_both() {
             &json!({
                 "blockIds": [t.card_id, other_id],
                 "blockPatches": [
-                    {"body": paragraphs(&["batched"]), "readAt": first.update_at},
-                    {"body": paragraphs(&["other"]), "readAt": second.update_at},
+                    {"body": paragraphs(&["batched"]), "readAt": first.updated_at},
+                    {"body": paragraphs(&["other"]), "readAt": second.updated_at},
                 ],
             }),
         )

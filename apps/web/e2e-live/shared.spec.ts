@@ -94,7 +94,7 @@ test('a board is read by its public link without signing in, and not when the li
   expect(
     (
       await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
-        data: { readAt: card.updateAt, body },
+        data: { readAt: card.updatedAt, body },
       })
     ).ok(),
   ).toBe(true);
@@ -108,8 +108,8 @@ test('a board is read by its public link without signing in, and not when the li
           containerId: board.boardId,
           title: '',
           body: { type: 'doc', content: [paragraph('The broad beans did well last year.')] },
-          createAt: Date.now(),
-          updateAt: Date.now(),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
         },
       ],
     },
@@ -122,8 +122,8 @@ test('a board is read by its public link without signing in, and not when the li
         containerId: board.boardId,
         title: 'Table of it all',
         fields: { viewType: 'table', shownProperties: ['status', 'note'] },
-        createAt: Date.now(),
-        updateAt: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ],
   });
@@ -292,7 +292,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
   };
   expect(
     (
-      await api.patch(`${pages}/${planting.id}`, { data: { readAt: planting.updateAt, body } })
+      await api.patch(`${pages}/${planting.id}`, { data: { readAt: planting.updatedAt, body } })
     ).ok(),
   ).toBe(true);
   const shared = (await (

@@ -116,7 +116,7 @@ export class TimeTracker {
       if (seq !== this.#refreshSeq) return this.active;
       const prev = this.active;
       this.#setActive(entry);
-      if (entry?.id !== prev?.id || entry?.updateAt !== prev?.updateAt) {
+      if (entry?.id !== prev?.id || entry?.updatedAt !== prev?.updatedAt) {
         this.version += 1;
       }
       return entry;

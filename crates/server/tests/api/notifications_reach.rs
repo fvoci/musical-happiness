@@ -187,7 +187,7 @@ async fn nobody_watches_or_is_listed_what_they_do_not_read() {
                 block_id: card.id.clone(),
                 user_id: user_id.clone(),
                 notified_at: 0,
-                create_at: 0,
+                created_at: 0,
                 deleted_at: None,
             })
             .await
@@ -206,7 +206,7 @@ async fn nobody_watches_or_is_listed_what_they_do_not_read() {
     th.teardown().await;
 }
 
-/// Creates an open course with one chapter and one unit, returning `(course_id, unit_id, update_at)`.
+/// Creates an open course with one chapter and one unit, returning `(course_id, unit_id, updated_at)`.
 async fn open_course_unit(client: &Client) -> (String, String, i64) {
     let course = client
         .post(
@@ -239,7 +239,7 @@ async fn open_course_unit(client: &Client) -> (String, String, i64) {
     (
         course_id,
         v["id"].as_str().expect("unit id").to_owned(),
-        v["updateAt"].as_i64().expect("updateAt"),
+        v["updatedAt"].as_i64().expect("updatedAt"),
     )
 }
 
@@ -294,7 +294,7 @@ async fn open_course_unit_respects_worker_guest_and_private_isolation() {
             block_id: unit_id.clone(),
             user_id: guest_id,
             notified_at: 0,
-            create_at: 0,
+            created_at: 0,
             deleted_at: None,
         })
         .await

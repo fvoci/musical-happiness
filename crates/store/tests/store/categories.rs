@@ -86,8 +86,8 @@ async fn get_create_category() {
             name: "Category".to_owned(),
             user_id: user_id.clone(),
             workspace_id: workspace_id.clone(),
-            create_at: now,
-            update_at: now,
+            created_at: now,
+            updated_at: now,
             deleted_at: None,
             collapsed: false,
             ..Category::default()
@@ -116,8 +116,8 @@ async fn get_create_category() {
             name: "Category".to_owned(),
             user_id: user_id.clone(),
             workspace_id: workspace_id.clone(),
-            create_at: now,
-            update_at: now,
+            created_at: now,
+            updated_at: now,
             deleted_at: None,
             collapsed: true,
             ..Category::default()
@@ -184,8 +184,8 @@ async fn update_category() {
         name: "Category 1".to_owned(),
         user_id: user_id.clone(),
         workspace_id: workspace_id.clone(),
-        create_at: now,
-        update_at: now,
+        created_at: now,
+        updated_at: now,
         deleted_at: None,
         collapsed: false,
         ..Category::default()
@@ -202,8 +202,8 @@ async fn update_category() {
         name: "Category 1 New".to_owned(),
         user_id,
         workspace_id,
-        create_at: now,
-        update_at: update_now,
+        created_at: now,
+        updated_at: update_now,
         deleted_at: None,
         collapsed: true,
         ..Category::default()
@@ -254,8 +254,8 @@ async fn delete_category() {
         name: "Category 1".to_owned(),
         user_id: user_id.clone(),
         workspace_id: workspace_id.clone(),
-        create_at: now,
-        update_at: now,
+        created_at: now,
+        updated_at: now,
         deleted_at: None,
         collapsed: false,
         ..Category::default()
@@ -295,8 +295,8 @@ async fn get_user_categories() {
         name: "Category 1".to_owned(),
         user_id: user_id.clone(),
         workspace_id: workspace_id.clone(),
-        create_at: now,
-        update_at: now,
+        created_at: now,
+        updated_at: now,
         deleted_at: None,
         collapsed: false,
         ..Category::default()
@@ -311,8 +311,8 @@ async fn get_user_categories() {
         name: "Category 2".to_owned(),
         user_id: user_id.clone(),
         workspace_id: workspace_id.clone(),
-        create_at: now,
-        update_at: now,
+        created_at: now,
+        updated_at: now,
         deleted_at: None,
         collapsed: false,
         ..Category::default()
@@ -328,8 +328,8 @@ async fn get_user_categories() {
         name: "Category 2".to_owned(),
         user_id: user_id.clone(),
         workspace_id: workspace_id.clone(),
-        create_at: now,
-        update_at: now,
+        created_at: now,
+        updated_at: now,
         deleted_at: None,
         collapsed: false,
         ..Category::default()
@@ -680,8 +680,8 @@ fn boards_category(user_id: &str, workspace_id: &str) -> Category {
         name: "Boards".to_owned(),
         user_id: user_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
-        create_at: 1000,
-        update_at: 1000,
+        created_at: 1000,
+        updated_at: 1000,
         category_type: CategoryType::System,
         ..Category::default()
     }
@@ -709,8 +709,8 @@ async fn update_category_leaves_other_members_and_rows_alone() {
             name: "Renamed".to_owned(),
             user_id: someone_else,
             workspace_id: another_workspace,
-            create_at: 5,
-            update_at: 2000,
+            created_at: 5,
+            updated_at: 2000,
             deleted_at: Some(3000),
             collapsed: true,
             sort_order: 500,
@@ -727,7 +727,7 @@ async fn update_category_leaves_other_members_and_rows_alone() {
         stored,
         Category {
             name: "Renamed".to_owned(),
-            update_at: 2000,
+            updated_at: 2000,
             collapsed: true,
             sort_order: 10,
             ..category.clone()
@@ -904,7 +904,7 @@ async fn categories_written_by_others() {
     execute_raw(
         &test,
         &format!(
-            "INSERT INTO categories (id, name, user_id, workspace_id, create_at, update_at, type) \
+            "INSERT INTO categories (id, name, user_id, workspace_id, created_at, updated_at, type) \
              VALUES \
              ('{custom_type}', 'A', '{user_id}', '{workspace_id}', 1, 1, 'custom'), \
              ('{system_type}', 'B', '{user_id}', '{workspace_id}', 1, 1, 'system')"
@@ -914,8 +914,8 @@ async fn categories_written_by_others() {
     execute_raw(
         &test,
         &format!(
-            "INSERT INTO category_containers (id, user_id, category_id, container_id, create_at, \
-             update_at) VALUES ('{}', '{user_id}', '{custom_type}', '{board_id}', 1, 1)",
+            "INSERT INTO category_containers (id, user_id, category_id, container_id, created_at, \
+             updated_at) VALUES ('{}', '{user_id}', '{custom_type}', '{board_id}', 1, 1)",
             new_id()
         ),
     )

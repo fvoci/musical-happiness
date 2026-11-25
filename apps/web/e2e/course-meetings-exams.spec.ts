@@ -322,8 +322,8 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
           properties: {},
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;
@@ -337,8 +337,8 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
             parentId: '',
             title: 'Public Unit',
             order: 'a',
-            createAt: 1,
-            updateAt: 1,
+            createdAt: 1,
+            updatedAt: 1,
           },
         ],
       });
@@ -356,8 +356,8 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
           body: null,
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;

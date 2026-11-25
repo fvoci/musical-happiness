@@ -398,8 +398,8 @@ async fn pass15_rechecks_attachment_field_expansion_before_staging() {
             "workspaceId": "ws1",
             "visibility": "private",
             "title": "Attachment Bounds",
-            "createAt": 1,
-            "updateAt": 1
+            "createdAt": 1,
+            "updatedAt": 1
         }
     });
     let card_line = serde_json::json!({
@@ -411,8 +411,8 @@ async fn pass15_rechecks_attachment_field_expansion_before_staging() {
             "type": "card",
             "title": "Card",
             "fields": {},
-            "createAt": 1,
-            "updateAt": 1
+            "createdAt": 1,
+            "updatedAt": 1
         }
     });
     let att_line = serde_json::json!({
@@ -424,8 +424,8 @@ async fn pass15_rechecks_attachment_field_expansion_before_staging() {
             "type": "attachment",
             "title": "a.png",
             "fields": { "fileId": "a.png", "pad": pad },
-            "createAt": 1,
-            "updateAt": 1
+            "createdAt": 1,
+            "updatedAt": 1
         }
     });
     let jsonl = format!("{board_line}\n{card_line}\n{att_line}\n");

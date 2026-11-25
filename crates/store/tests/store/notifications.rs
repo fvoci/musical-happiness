@@ -180,7 +180,7 @@ async fn a_write_notes_whom_it_names_with_itself_and_a_row_noted_again_is_not_ta
     assert_eq!(
         (
             theirs[0].id.as_str(),
-            theirs[0].create_at,
+            theirs[0].created_at,
             theirs[0].read_at
         ),
         (id.as_str(), 1000, 0)
@@ -248,7 +248,7 @@ async fn what_happens_to_one_card_within_the_hour_is_one_line_that_counts_it() {
         (
             line.len(),
             line[0].times,
-            line[0].update_at,
+            line[0].updated_at,
             line[0].read_at
         ),
         (1, 1, start, start + 1),
@@ -271,8 +271,8 @@ async fn what_happens_to_one_card_within_the_hour_is_one_line_that_counts_it() {
             line[0].times,
             line[0].people,
             line[0].actor_id.as_str(),
-            line[0].create_at,
-            line[0].update_at,
+            line[0].created_at,
+            line[0].updated_at,
             line[0].read_at,
         ),
         (2, 2, third.as_str(), start, start + hour - 1, 0),

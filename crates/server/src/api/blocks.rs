@@ -359,10 +359,16 @@ pub(super) fn new_block_problem(
             "type",
             BlockError::type_not_current(&block.block_type).to_string(),
         ))
-    } else if block.create_at < 1 {
-        Some(("createAt", "a new block's createAt is 1 or more".to_owned()))
-    } else if block.update_at < 1 {
-        Some(("updateAt", "a new block's updateAt is 1 or more".to_owned()))
+    } else if block.created_at < 1 {
+        Some((
+            "createdAt",
+            "a new block's createdAt is 1 or more".to_owned(),
+        ))
+    } else if block.updated_at < 1 {
+        Some((
+            "updatedAt",
+            "a new block's updatedAt is 1 or more".to_owned(),
+        ))
     } else {
         None
     }
@@ -558,7 +564,7 @@ async fn handle_get_comment_versions(
 /// A comment goes only on a card of the board, no block goes below a comment (400 at
 /// `parentId`), and a card with comments stays a card (400 at `type`). A comment's body
 /// has no file block, nor does a block made a comment (400 at `body`). The block's
-/// `modifiedBy` and `updateAt` say who changed it and when.
+/// `modifiedBy` and `updatedAt` say who changed it and when.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}",

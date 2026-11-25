@@ -73,7 +73,7 @@ impl App {
             email_unverified: claims.email_verified == Some(false),
             name: claims.name.clone().unwrap_or_default(),
             preferred_username: claims.preferred_username.clone().unwrap_or_default(),
-            create_at: now,
+            created_at: now,
             expires_at: now.saturating_add(HELD_SIGN_IN_LIFETIME_MILLIS),
         };
         let is_held = self

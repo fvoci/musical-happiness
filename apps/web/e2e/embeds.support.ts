@@ -12,7 +12,7 @@ export interface DevBackend {
   boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   views(boardId: string): Promise<{ id: string; title: string }[]>;
   cards(boardId: string): Promise<{ id: string; title: string }[]>;
-  card(boardId: string, cardId: string): Promise<{ updateAt: number }>;
+  card(boardId: string, cardId: string): Promise<{ updatedAt: number }>;
   writeCardBody(boardId: string, cardId: string, write: object): Promise<unknown>;
   patchSettings(patch: object): Promise<unknown>;
 }
@@ -56,10 +56,10 @@ export async function openCardWithBody(page: Page, board: string, doc: object): 
   await page.evaluate(
     async ([at, written]) => {
       const handle = (window as unknown as { fvociDev: Dev }).fvociDev;
-      const { updateAt } = await handle.backend.card(at.boardId, at.cardId);
+      const { updatedAt } = await handle.backend.card(at.boardId, at.cardId);
       await handle
         .someoneElse()
-        .writeCardBody(at.boardId, at.cardId, { body: written, readAt: updateAt });
+        .writeCardBody(at.boardId, at.cardId, { body: written, readAt: updatedAt });
     },
     [place, doc] as const,
   );

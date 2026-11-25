@@ -20,7 +20,7 @@ fn file_of(board_id: &str) -> FileRecord {
         extension: ".png".to_owned(),
         size: 2048,
         path: format!("boards/{board_id}/stored.png"),
-        create_at: 1,
+        created_at: 1,
         version: 1,
         created_by: String::new(),
     }
@@ -210,7 +210,7 @@ async fn fill(alone_store: &Store, alone: &str, alone_workspace: &str, leaver: &
     alone_store
         .execute_unchecked(&format!(
             "INSERT INTO oidc_providers (id, org_id, issuer, client_id, client_secret, \
-             auto_join, enabled, create_at, update_at) VALUES ('{}', '{alone}', \
+             auto_join, enabled, created_at, updated_at) VALUES ('{}', '{alone}', \
              'https://provider.example', 'client', '', true, true, {T0}, {T0})",
             new_id()
         ))
@@ -219,7 +219,7 @@ async fn fill(alone_store: &Store, alone: &str, alone_workspace: &str, leaver: &
     alone_store
         .execute_unchecked(&format!(
             "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
-             create_at) VALUES ('{}', '{alone}', '{leaver}', 'person', \
+             created_at) VALUES ('{}', '{alone}', '{leaver}', 'person', \
              'oidc_provider_configured', '{alone}', {T0})",
             new_id()
         ))
@@ -493,7 +493,7 @@ async fn an_organization_somebody_came_into_past_the_mark_is_in_use_again() {
     let newcomer = common::user(&system, "newcomer").await;
     system
         .execute_unchecked(&format!(
-            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+            "INSERT INTO organization_members (org_id, user_id, role, created_at) \
              VALUES ('{org}', '{newcomer}', 'member', {T0}) ON CONFLICT DO NOTHING"
         ))
         .await
@@ -576,7 +576,7 @@ async fn the_instances_own_organization_does_not_go_with_an_account() {
         .texts_unchecked(
             "SELECT CAST(id AS TEXT) FROM organizations \
              WHERE deleted_at IS NULL AND is_system = false AND owner_id IS NULL \
-             ORDER BY create_at, id",
+             ORDER BY created_at, id",
         )
         .await
         .expect("read");

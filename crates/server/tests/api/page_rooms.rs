@@ -62,7 +62,7 @@ async fn written(client: &Client, pages: &str, page: Value, body: &Value) -> Pag
     client
         .patch(
             &format!("{pages}/{}", made.id),
-            &json!({"body": body, "readAt": made.update_at}),
+            &json!({"body": body, "readAt": made.updated_at}),
         )
         .await
         .ok_json()
@@ -209,7 +209,7 @@ async fn a_page_body_written_whole_goes_around_its_room() {
         .client
         .patch(
             &d.page(),
-            &json!({"body": whole, "readAt": before.update_at}),
+            &json!({"body": whole, "readAt": before.updated_at}),
         )
         .await;
     assert_eq!(stale.status, StatusCode::CONFLICT, "{}", stale.text());
@@ -223,7 +223,7 @@ async fn a_page_body_written_whole_goes_around_its_room() {
         .client
         .patch(
             &d.page(),
-            &json!({"body": whole, "readAt": typed.update_at}),
+            &json!({"body": whole, "readAt": typed.updated_at}),
         )
         .await
         .ok_json();

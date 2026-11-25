@@ -322,7 +322,7 @@ pub struct AuditRecord {
     /// they see, the name of a workspace. `null` otherwise.
     pub target_name: Option<String>,
     /// When, in milliseconds since the epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// The issuer a record of a provider's move names (`oidc_former_provider_…`,
     /// `oidc_identity_…`); `null` for the others.
     pub detail: Option<String>,
@@ -344,7 +344,7 @@ impl std::fmt::Debug for AuditRecord {
             .field("subject", &self.subject)
             .field("target_id", &self.target_id)
             .field("target_name", &self.target_name)
-            .field("create_at", &self.create_at)
+            .field("created_at", &self.created_at)
             .field("detail", &self.detail)
             .finish_non_exhaustive()
     }

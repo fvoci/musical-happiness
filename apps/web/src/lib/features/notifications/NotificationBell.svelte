@@ -233,7 +233,7 @@
       <span>{notificationText(notification.subject, nameOf(notification))}</span>
     </span>
     <span class="text-xs text-muted-foreground">
-      {relativeTime(notification.updateAt, locale, Math.max(now, notification.updateAt))}
+      {relativeTime(notification.updatedAt, locale, Math.max(now, notification.updatedAt))}
       {#if unread}<span class="sr-only">· {m.notifications_unread()}</span>{/if}
     </span>
   </span>

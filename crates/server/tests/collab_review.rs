@@ -69,7 +69,7 @@ async fn an_update_from_an_empty_replaced_document_is_out_of_step() {
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", card.id),
-            &json!({"body": paragraph("replacement"), "readAt": card.update_at}),
+            &json!({"body": paragraph("replacement"), "readAt": card.updated_at}),
         )
         .await
         .check_ok();
@@ -243,7 +243,7 @@ async fn a_logged_image_keeps_its_file_before_projection() {
         id: new_id(),
         container_id: card.board_id.clone(),
         stored_name: "7review.png".to_owned(),
-        create_at: 1,
+        created_at: 1,
         path: format!("boards/{}/7review.png", card.board_id),
         name: "review.png".to_owned(),
         extension: ".png".to_owned(),
@@ -276,7 +276,7 @@ async fn a_logged_image_keeps_its_file_before_projection() {
         .client
         .patch(
             &format!("{TEST_WS}/cards/{}", card.id),
-            &json!({"body": paragraph("replacement"), "readAt": card.update_at}),
+            &json!({"body": paragraph("replacement"), "readAt": card.updated_at}),
         )
         .await;
     th.teardown().await;
@@ -360,7 +360,7 @@ async fn multi_client_body_open_and_remake_record_actual_client_count() {
         .client
         .patch(
             &format!("{TEST_WS}/cards/{}", card.id),
-            &json!({"body": paragraph("single-client"), "readAt": card.update_at}),
+            &json!({"body": paragraph("single-client"), "readAt": card.updated_at}),
         )
         .await
         .ok_json();
@@ -382,7 +382,7 @@ async fn multi_client_body_open_and_remake_record_actual_client_count() {
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", card.id),
-            &json!({"body": replacement, "readAt": updated.update_at}),
+            &json!({"body": replacement, "readAt": updated.updated_at}),
         )
         .await
         .check_ok();

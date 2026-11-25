@@ -419,7 +419,7 @@ async fn a_deleted_comment_is_brought_back_only_by_who_may_delete_it() {
 /// A comment is changed by its author with the commenter's role, and the comment of
 /// somebody else by the board's admins only, as it is deleted; an editor may not change
 /// it. `patchBlock`, `patchBlocks` and `patchBoardsAndBlocks` alike. Who changed it and
-/// when is what its `modifiedBy` and `updateAt` say to the members.
+/// when is what its `modifiedBy` and `updatedAt` say to the members.
 #[tokio::test]
 async fn a_comment_is_changed_by_its_author_or_an_admin() {
     let th = Setup::native().start().await.init_basic().await;
@@ -457,9 +457,9 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
     let read = stored(&blocks_of(&th.client, board_id).await);
     assert_eq!(read.title, "by its author");
     assert_eq!(read.modified_by, commenter.id, "who changed it");
-    assert!(read.update_at > comment.update_at, "and when: later");
+    assert!(read.updated_at > comment.updated_at, "and when: later");
     assert_eq!(told["modifiedBy"], json!(commenter.id), "{told}");
-    assert_eq!(told["updateAt"], json!(read.update_at), "{told}");
+    assert_eq!(told["updatedAt"], json!(read.updated_at), "{told}");
     boards
         .commenter
         .patch(&many, &batch(&[(comment, "again by its author")]))
@@ -610,7 +610,7 @@ async fn a_commenter_changes_the_text_of_their_comment_but_does_not_move_it() {
         .commenter
         .patch(
             &path,
-            &json!({"body": doc("changed"), "readAt": own.update_at, "parentId": own.parent_id}),
+            &json!({"body": doc("changed"), "readAt": own.updated_at, "parentId": own.parent_id}),
         )
         .await
         .check_no_content();

@@ -10,7 +10,7 @@ use fvoci_model::{
 };
 use fvoci_store::{DbType, Store};
 
-use crate::common::{self, db_type};
+use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL, db_type};
 
 fn day(text: &str) -> DiaryDate {
     text.parse().expect("valid date")
@@ -88,18 +88,13 @@ async fn save_role(store: &Store, course_id: &str, user_id: &str, role: Option<C
     }
 }
 
-/// Upgrading a database seeded before migration 0066 applies 0066 cleanly without
-/// altering existing course rows, creates `course_schedules` behind PostgreSQL forced
-/// RLS (`org_wall`), and supports saving/reading schedules immediately.
-#[tokio::test]
-async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
-    let database = common::empty_database().await;
-    fvoci_store::testing::migrate_to_before_course_schedules(&database).await;
-    common::execute_raw(&common::raw_connection(&database), "DELETE FROM data_steps").await;
+async fn seed_pre0066_course(
+    database: &fvoci_store::testing::TestDatabase,
+) -> (String, String, Container, Block) {
     let pre = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("open before 0066");
-    let (org_id, workspace_id) = common::organization(&pre, "academy").await;
+    let (org_id, workspace_id) = common::pre0075_organization(&pre, "academy").await;
     let scoped = pre.for_org(&org_id).expect("org handle");
     let owner = common::pre0072_user(&scoped, &org_id, &workspace_id, "teacher").await;
     let course_id = new_id();
@@ -107,7 +102,8 @@ async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-              show_description, is_template, properties, card_properties, create_at, update_at) \
+              show_description, is_template, properties, card_properties, \
+              {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
              VALUES ('{course_id}', '{workspace_id}', '{owner}', '{owner}', 'P', 'course', \
               'Math', '', '', false, false, '{{}}', '[]', 1, 1)"
         ))
@@ -129,17 +125,37 @@ async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
         id: course_id,
         ..Container::default()
     };
-    let unit = create_unit(
-        &scoped.telling_nobody(),
-        &course.id,
-        "",
-        "Lesson 1",
-        Some(30),
-        None,
-        &owner,
-    )
-    .await;
+    let mut unit = Block {
+        id: new_id(),
+        container_id: course.id.clone(),
+        block_type: UnitKind::Unit.block_type(),
+        title: "Lesson 1".to_owned(),
+        fields: NewUnit {
+            kind: UnitKind::Unit,
+            title: "Lesson 1".to_owned(),
+            amount: Some(30),
+            amount_unit: Some(AmountUnit::Minutes),
+            ..NewUnit::default()
+        }
+        .to_fields(),
+        ..Block::default()
+    };
+    unit.fields
+        .insert("order".to_owned(), serde_json::json!("V"));
+    common::pre0075_insert_block(&scoped, &mut unit, &owner).await;
     pre.close().await;
+    (org_id, owner, course, unit)
+}
+
+/// Upgrading a database seeded before migration 0066 applies 0066 cleanly without
+/// altering existing course rows, creates `course_schedules` behind PostgreSQL forced
+/// RLS (`org_wall`), and supports saving/reading schedules immediately.
+#[tokio::test]
+async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
+    let database = common::empty_database().await;
+    fvoci_store::testing::migrate_to_before_course_schedules(&database).await;
+    common::execute_raw(&common::raw_connection(&database), "DELETE FROM data_steps").await;
+    let (org_id, owner, course, unit) = seed_pre0066_course(&database).await;
 
     let migrated = Store::connect(database.db_type(), database.database_connection())
         .await

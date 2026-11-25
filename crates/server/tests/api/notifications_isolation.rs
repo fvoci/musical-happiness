@@ -109,7 +109,7 @@ async fn open_wiki_page(th: &TestServer, body: &Value) -> String {
     th.client
         .patch(
             &format!("{TEST_WS}/wikis/{wiki}/pages/{}", page.id),
-            &json!({"body": body, "readAt": page.update_at}),
+            &json!({"body": body, "readAt": page.updated_at}),
         )
         .await
         .check_ok();
@@ -330,7 +330,7 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
     th.client
         .patch(
             &format!("{TEST_WS}/wikis/{wiki}/pages/{}", page.id),
-            &json!({"body": body, "readAt": page.update_at}),
+            &json!({"body": body, "readAt": page.updated_at}),
         )
         .await
         .check_ok();

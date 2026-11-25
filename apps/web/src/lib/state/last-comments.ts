@@ -7,7 +7,7 @@
  * Such a reading, and a reading of the whole board again (`begin` and
  * `settle`), may lower a card's time. Any other answer or reading may
  * have been made before a comment that was heard since (a comment does not
- * change a card's `updateAt`, by which readings are otherwise told apart),
+ * change a card's `updatedAt`, by which readings are otherwise told apart),
  * so it is taken at the later of the two times. A card in a change message
  * has no time, and keeps the one it had.
  *
@@ -55,13 +55,13 @@ export class LastComments {
     this.#cardOf.set(comment.id, comment.parentId);
     const cards = this.#host.cards();
     const card = cards.find((each) => each.id === comment.parentId);
-    if (!card || (card.lastCommentAt ?? 0) > comment.createAt) return;
+    if (!card || (card.lastCommentAt ?? 0) > comment.createdAt) return;
     // Counted also when it is the time the card has (brought back while the card is read again).
     this.#count += 1;
-    this.#raised.set(card.id, { at: comment.createAt, count: this.#count });
-    if (card.lastCommentAt === comment.createAt) return;
+    this.#raised.set(card.id, { at: comment.createdAt, count: this.#count });
+    if (card.lastCommentAt === comment.createdAt) return;
     this.#host.setCards(
-      cards.map((each) => (each === card ? { ...card, lastCommentAt: comment.createAt } : each)),
+      cards.map((each) => (each === card ? { ...card, lastCommentAt: comment.createdAt } : each)),
     );
   }
 

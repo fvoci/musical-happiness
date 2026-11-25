@@ -69,7 +69,7 @@ struct ArchiveCourseSchedule {
     study_days: i32,
     #[serde(default)]
     #[expect(dead_code, reason = "optional wire timestamp ignored on import")]
-    update_at: Option<i64>,
+    updated_at: Option<i64>,
 }
 
 /// Output of Pass 1 for a single `container.jsonl` entry, holding only structural metadata.
@@ -347,7 +347,7 @@ impl ScanAccum {
             ))
         })?;
         modified_by.clone_into(&mut container.modified_by);
-        container.update_at = self.now;
+        container.updated_at = self.now;
         container.deleted_at = None;
         workspace_id.clone_into(&mut container.workspace_id);
         container
@@ -384,7 +384,7 @@ impl ScanAccum {
             ))
         })?;
         modified_by.clone_into(&mut block.modified_by);
-        block.update_at = self.now;
+        block.updated_at = self.now;
         block.deleted_at = None;
         let container_idx = self.current_container_idx;
         let container_state = if let Some(idx) = container_idx {

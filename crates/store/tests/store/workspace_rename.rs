@@ -210,10 +210,11 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
             "UPDATE deleted_boards SET board = '{{\"id\": \"{deleted_board}\", \"teamId\": \
              \"{workspace}\", \"title\": \"gone\"}}' WHERE id = '{deleted_board}'; \
              INSERT INTO uploads (id, user_id, board_id, name, size, content_type, part_size, \
-             create_at, expires_at, closed_at, multipart_id, purpose) VALUES \
+             {}, expires_at, closed_at, multipart_id, purpose) VALUES \
              ('an-import', '{admin}', '{workspace}', 'archive.zip', 1, '', 1, 1, 9000000000000, 0, \
              '', 'import'); \
-             DELETE FROM data_steps;"
+             DELETE FROM data_steps;",
+            common::PRE0075_CREATE_COL,
         ),
     )
     .await;
@@ -333,7 +334,7 @@ async fn the_keys_and_the_check_of_an_upload_find_the_workspaces(
                 name: "archive.zip".to_owned(),
                 size: 1,
                 part_size: 1,
-                create_at: 1,
+                created_at: 1,
                 expires_at: i64::MAX,
                 ..Upload::default()
             };

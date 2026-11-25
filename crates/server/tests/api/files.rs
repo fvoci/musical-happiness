@@ -77,8 +77,8 @@ async fn board_with_attachment(ts: &TestServer) -> (Container, String) {
         parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Card,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     }];
     // The server gives the card an identifier of its own.
@@ -93,8 +93,8 @@ async fn board_with_attachment(ts: &TestServer) -> (Container, String) {
         parent_id: card_id,
         container_id: board.id.clone(),
         fields: image_fields,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         block_type: BlockType::Attachment,
         ..Block::default()
     }];
@@ -391,7 +391,7 @@ async fn file_record_has_the_members_of_the_record() {
     members.sort_unstable();
     assert_eq!(
         members,
-        ["createAt", "extension", "id", "name", "size"],
+        ["createdAt", "extension", "id", "name", "size"],
         "{info}"
     );
     assert!(
@@ -801,8 +801,8 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
         container_id: intruder_board.id.clone(),
         block_type,
         fields,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let blocks = vec![
@@ -1108,8 +1108,8 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
         container_id: board.id.clone(),
         block_type,
         fields,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let blocks = vec![
@@ -1191,8 +1191,8 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
         container_id: board.id.clone(),
         block_type,
         fields,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let blocks = vec![
@@ -1278,8 +1278,8 @@ async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
             id: card_id.clone(),
             container_id: target.id.clone(),
             block_type: BlockType::Card,
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Block::default()
         },
         Block {
@@ -1288,8 +1288,8 @@ async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
             parent_id: card_id,
             block_type: BlockType::Attachment,
             fields: image_fields,
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Block::default()
         },
     ];

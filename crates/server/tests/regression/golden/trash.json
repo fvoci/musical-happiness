@@ -6,7 +6,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -20,7 +20,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Trash",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -56,7 +56,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:6>",
@@ -66,12 +66,12 @@
         "schema": 1,
         "title": "Card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -82,7 +82,7 @@
         "schema": 1,
         "title": "View",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -95,7 +95,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:8>",
@@ -104,12 +104,12 @@
         "schema": 1,
         "title": "Comment",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:9>",
@@ -118,7 +118,7 @@
         "schema": 1,
         "title": "Text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -131,7 +131,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:10>",
@@ -140,7 +140,7 @@
         "schema": 1,
         "title": "Below the text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -152,7 +152,7 @@
     "body": {
       "blockId": "<id:6>",
       "blockType": "card",
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "notifiedAt": "<ts>",
       "userId": "<id:2>"
     }
@@ -172,7 +172,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -183,7 +183,7 @@
         "schema": 1,
         "title": "View",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -258,7 +258,7 @@
     "body": {
       "body": null,
       "containerId": "<id:3>",
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "fields": {},
       "id": "<id:10>",
@@ -267,7 +267,7 @@
       "schema": 1,
       "title": "Below the text",
       "type": "attachment",
-      "updateAt": "<ts>"
+      "updatedAt": "<ts>"
     }
   },
   {
@@ -279,7 +279,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:6>",
@@ -289,12 +289,12 @@
         "schema": 1,
         "title": "Card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -305,12 +305,12 @@
         "schema": 1,
         "title": "View",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:8>",
@@ -319,12 +319,12 @@
         "schema": 1,
         "title": "Comment",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:9>",
@@ -333,12 +333,12 @@
         "schema": 1,
         "title": "Text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:10>",
@@ -347,7 +347,7 @@
         "schema": 1,
         "title": "Below the text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -374,7 +374,7 @@
       {
         "blockId": "<id:6>",
         "blockType": "card",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "notifiedAt": "<ts>",
         "userId": "<id:2>"
       }
@@ -414,7 +414,7 @@
     "body": {
       "body": null,
       "containerId": "<id:3>",
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "fields": {},
       "id": "<id:6>",
@@ -424,7 +424,7 @@
       "schema": 1,
       "title": "Card",
       "type": "card",
-      "updateAt": "<ts>"
+      "updatedAt": "<ts>"
     }
   },
   {
@@ -436,7 +436,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:8>",
@@ -445,7 +445,7 @@
         "schema": 1,
         "title": "Comment",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -457,7 +457,7 @@
     "body": {
       "body": null,
       "containerId": "<id:3>",
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "fields": {},
       "id": "<id:9>",
@@ -466,7 +466,7 @@
       "schema": 1,
       "title": "Text",
       "type": "attachment",
-      "updateAt": "<ts>"
+      "updatedAt": "<ts>"
     }
   },
   {
@@ -478,7 +478,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:8>",
@@ -487,12 +487,12 @@
         "schema": 1,
         "title": "Comment",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:9>",
@@ -501,7 +501,7 @@
         "schema": 1,
         "title": "Text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -639,7 +639,7 @@
             "type": "relation"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
         "icon": "👋",
@@ -653,7 +653,7 @@
         "showDescription": true,
         "templateVersion": 12,
         "title": "Getting started with fvoci",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       }
@@ -736,7 +736,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -750,7 +750,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Trash",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -762,7 +762,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -776,7 +776,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Trash",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -813,7 +813,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:6>",
@@ -823,12 +823,12 @@
         "schema": 1,
         "title": "Card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:8>",
@@ -837,12 +837,12 @@
         "schema": 1,
         "title": "Comment",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:9>",
@@ -851,12 +851,12 @@
         "schema": 1,
         "title": "Text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:10>",
@@ -865,7 +865,7 @@
         "schema": 1,
         "title": "Below the text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },

@@ -111,7 +111,7 @@ const ALLOWED_SCHEDULE_KEYS = new Set([
   'startDate',
   'targetDate',
   'studyDays',
-  'updateAt',
+  'updatedAt',
 ]);
 
 /** Parses a strict `YYYY-MM-DD` calendar date to UTC day number, or `undefined` if invalid. */
@@ -354,8 +354,8 @@ async function readTrelloImport(
       createdBy: '',
       modifiedBy: '',
       schema: 1,
-      createAt: 0,
-      updateAt: 0,
+      createdAt: 0,
+      updatedAt: 0,
     });
   }
   return { containers: [board], blocks, skipped };

@@ -5,7 +5,7 @@
 use fvoci_model::{OrgKind, User, new_id};
 use fvoci_store::{DbType, Founding, StoreError, Tenant};
 
-use crate::common;
+use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL};
 
 /// Whatever handle stores an account, the account has its own space afterwards: an
 /// organization of its own with one workspace, both without a name, the account the
@@ -108,7 +108,7 @@ async fn one_account_owns_one_space_which_stays_what_it_is() {
     let (own, shared) = (OrgKind::Personal.as_str(), OrgKind::Team.as_str());
     let insert = |kind: &str, owner: &str| {
         format!(
-            "INSERT INTO organizations (id, name, kind, owner_id, settings, create_at, update_at) \
+            "INSERT INTO organizations (id, name, kind, owner_id, settings, created_at, updated_at) \
              VALUES ('{}', '', '{kind}', {owner}, '{{}}', 1, 1)",
             new_id()
         )
@@ -220,7 +220,7 @@ async fn an_own_space_is_not_counted_among_the_organizations() {
     // The space is older than every organization there is.
     let aged = system
         .execute_unchecked(&format!(
-            "UPDATE organizations SET create_at = 1 WHERE id = '{own_org}'"
+            "UPDATE organizations SET created_at = 1 WHERE id = '{own_org}'"
         ))
         .await
         .expect("aged");
@@ -314,15 +314,19 @@ async fn migration_0050_gives_spaces_to_active_and_waiting_accounts_only() {
 
     let legacy_col = concat!("delete", "_at");
     let (active, waiting, mid_erasure, erased) = (new_id(), new_id(), new_id(), new_id());
-    let insert =
-        |id: &str, name: &str, legacy_del: i64, delete_after: i64, started: i64, done: i64| {
-            format!(
-                "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+    let insert = |id: &str,
+                  name: &str,
+                  legacy_del: i64,
+                  delete_after: i64,
+                  started: i64,
+                  done: i64| {
+        format!(
+            "INSERT INTO users (id, username, email, password_hash, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, \
              {legacy_col}, delete_after, erase_started_at, erased_at) \
              VALUES ('{id}', '{name}', '{name}@example.com', '', 1, 1, {legacy_del}, \
              {delete_after}, {started}, {done});"
-            )
-        };
+        )
+    };
     common::execute_raw(
         &connection,
         &[

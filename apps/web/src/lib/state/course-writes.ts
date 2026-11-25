@@ -47,9 +47,9 @@ export class CourseWrites {
     const gone = unitIds.flatMap((unitId) => [...withDescendants(this.#host.units(), unitId)]);
     this.#forgettings += 1;
     for (const unitId of [...unitIds, ...gone]) {
-      const shownAt = this.#unit(unitId)?.updateAt ?? -Infinity;
-      const updateAt = Math.max(shownAt, this.#forgottenAt.get(unitId)?.updateAt ?? -Infinity);
-      this.#forgottenAt.set(unitId, { at: this.#forgettings, updateAt });
+      const shownAt = this.#unit(unitId)?.updatedAt ?? -Infinity;
+      const updatedAt = Math.max(shownAt, this.#forgottenAt.get(unitId)?.updatedAt ?? -Infinity);
+      this.#forgottenAt.set(unitId, { at: this.#forgettings, updatedAt });
     }
     const shown = this.#host.openUnit();
     const own = unitIds.find((unitId) => this.#deleting.has(unitId));
@@ -66,7 +66,7 @@ export class CourseWrites {
   }
 
   #forgettings = 0;
-  readonly #forgottenAt = new Map<string, { at: number; updateAt: number }>();
+  readonly #forgottenAt = new Map<string, { at: number; updatedAt: number }>();
 
   get forgettings(): number {
     return this.#forgettings;
@@ -78,13 +78,13 @@ export class CourseWrites {
 
   admits(unit: CourseUnit): boolean {
     const forgotten = this.#forgottenAt.get(unit.id);
-    if (forgotten && unit.updateAt <= forgotten.updateAt) return false;
+    if (forgotten && unit.updatedAt <= forgotten.updatedAt) return false;
     if (unit.parentId !== '' && this.#forgottenAt.has(unit.parentId)) {
       if (this.#unit(unit.id)) this.forget([unit.id], 'others');
-      const kept = this.#forgottenAt.get(unit.id)?.updateAt ?? -Infinity;
+      const kept = this.#forgottenAt.get(unit.id)?.updatedAt ?? -Infinity;
       this.#forgottenAt.set(unit.id, {
         at: this.#forgettings,
-        updateAt: Math.max(kept, unit.updateAt),
+        updatedAt: Math.max(kept, unit.updatedAt),
       });
       return false;
     }

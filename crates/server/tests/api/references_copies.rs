@@ -332,9 +332,9 @@ async fn blocks_made_together_name_each_other_by_their_new_identifiers() {
             &format!("{TEST_WS}/boards/{}/blocks", source.board),
             &json!([
                 {"id": first, "containerId": source.board, "type": "card", "title": "first",
-                    "body": body, "createAt": 1, "updateAt": 1},
+                    "body": body, "createdAt": 1, "updatedAt": 1},
                 {"id": second, "containerId": source.board, "type": "card", "title": "second",
-                    "createAt": 1, "updateAt": 1},
+                    "createdAt": 1, "updatedAt": 1},
             ]),
         )
         .await

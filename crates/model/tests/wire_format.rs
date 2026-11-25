@@ -27,8 +27,8 @@ fn block_json_members() {
         title: "hello".to_owned(),
         fields: serde_json::from_value(json!({ "z": 1, "a": [true] })).expect("object"),
         body: None,
-        create_at: 10,
-        update_at: 20,
+        created_at: 10,
+        updated_at: 20,
         deleted_at: None,
         container_id: "b1".to_owned(),
         number: None,
@@ -37,7 +37,7 @@ fn block_json_members() {
     let want = json!({
         "id": "a1", "parentId": "c1", "createdBy": "u1", "modifiedBy": "u2", "schema": 1,
         "type": "comment", "title": "hello", "fields": { "a": [true], "z": 1 }, "body": null,
-        "createAt": 10, "updateAt": 20, "containerId": "b1"
+        "createdAt": 10, "updatedAt": 20, "containerId": "b1"
     });
     assert_eq!(
         to_json(&block),
@@ -236,8 +236,8 @@ fn container_json_members() {
             property_type: PropertyType::Select,
             options: vec![PropertyOption::new("o1", "Open", PropertyColor::Blue)],
         }],
-        create_at: 1,
-        update_at: 2,
+        created_at: 1,
+        updated_at: 2,
         deleted_at: None,
     };
     let want = json!({
@@ -251,7 +251,7 @@ fn container_json_members() {
             "type": "select",
             "options": [{ "id": "o1", "label": "Open", "color": "blue" }]
         }],
-        "createAt": 1, "updateAt": 2
+        "createdAt": 1, "updatedAt": 2
     });
     assert_eq!(to_json(&board), want);
     assert_eq!(
@@ -468,8 +468,8 @@ fn category_json_members() {
         name: "Boards".to_owned(),
         user_id: "u".to_owned(),
         workspace_id: "0".to_owned(),
-        create_at: 1,
-        update_at: 2,
+        created_at: 1,
+        updated_at: 2,
         deleted_at: None,
         collapsed: true,
         sort_order: 20,
@@ -478,8 +478,8 @@ fn category_json_members() {
     };
     // The sorting method has no place in the storage and is not sent.
     let want = json!({
-        "id": "7c", "name": "Boards", "userId": "u", "workspaceId": "0", "createAt": 1,
-        "updateAt": 2, "collapsed": true, "sortOrder": 20,
+        "id": "7c", "name": "Boards", "userId": "u", "workspaceId": "0", "createdAt": 1,
+        "updatedAt": 2, "collapsed": true, "sortOrder": 20,
         "type": "system"
     });
     assert_eq!(to_json(&category), want);
@@ -512,8 +512,8 @@ fn category_containers_json_flattens_the_category() {
     assert_eq!(
         to_json(&category_boards),
         json!({
-            "id": "7c", "name": "Boards", "userId": "", "workspaceId": "", "createAt": 0,
-            "updateAt": 0, "collapsed": false, "sortOrder": 30,
+            "id": "7c", "name": "Boards", "userId": "", "workspaceId": "", "createdAt": 0,
+            "updatedAt": 0, "collapsed": false, "sortOrder": 30,
             "type": "custom", "containerMetadata": [{ "containerId": "b1", "hidden": true }]
         })
     );
@@ -540,7 +540,7 @@ fn category_hydrate_and_validate() {
         "category id {}",
         category.id
     );
-    assert_eq!((category.create_at, category.update_at), (77, 77));
+    assert_eq!((category.created_at, category.updated_at), (77, 77));
     assert_eq!(category.sort_order, 0);
     assert_eq!(category.validate(), Ok(()));
 
@@ -591,8 +591,8 @@ fn user_json_hides_credentials_and_carries_the_name() {
         email: "alice@example.com".to_owned(),
         password_hash: "hash".to_owned(),
         password_locked_at: 7,
-        create_at: 0,
-        update_at: 5,
+        created_at: 0,
+        updated_at: 5,
         deleted_at: None,
         is_admin: true,
         is_bot: false,
@@ -606,7 +606,7 @@ fn user_json_hides_credentials_and_carries_the_name() {
             "id": "u1", "username": "alice", "displayName": "Alice A.", "firstName": "Alice",
             "lastName": "A", "latinFirstName": "", "latinLastName": "",
             "customName": "Alice A.", "nameShown": "custom_name", "title": "dr",
-            "credentials": ["phd", "kr_attorney"], "createAt": 0, "updateAt": 5,
+            "credentials": ["phd", "kr_attorney"], "createdAt": 0, "updatedAt": 5,
             "isAdmin": true
         })
     );
@@ -631,14 +631,14 @@ fn workspace_and_public_link_json_members() {
         title: "t".to_owned(),
         settings: serde_json::from_value(json!({ "a": 1 })).expect("object"),
         modified_by: "u".to_owned(),
-        update_at: 3,
+        updated_at: 3,
         guest_invitations: false,
     };
     assert_eq!(
         to_json(&workspace),
         json!({
             "id": "0", "title": "t", "settings": { "a": 1 },
-            "modifiedBy": "u", "updateAt": 3, "guestInvitations": false
+            "modifiedBy": "u", "updatedAt": 3, "guestInvitations": false
         })
     );
 
@@ -649,11 +649,11 @@ fn workspace_and_public_link_json_members() {
         enabled: true,
         token: "tok".to_owned(),
         modified_by: "u".to_owned(),
-        update_at: 9,
+        updated_at: 9,
     };
     assert_eq!(
         to_json(&link),
-        json!({ "enabled": true, "token": "tok", "updateAt": 9 })
+        json!({ "enabled": true, "token": "tok", "updatedAt": 9 })
     );
     assert_eq!(
         to_json(&PublicLink {
@@ -672,12 +672,12 @@ fn subscription_json_members() {
         block_id: "c".to_owned(),
         user_id: "u".to_owned(),
         notified_at: 0,
-        create_at: 1,
+        created_at: 1,
         deleted_at: None,
     };
     let want = json!({
         "blockType": "card", "blockId": "c", "userId": "u",
-        "notifiedAt": 0, "createAt": 1
+        "notifiedAt": 0, "createdAt": 1
     });
     assert_eq!(to_json(&subscription), want);
     assert_eq!(
@@ -808,7 +808,7 @@ fn subscription_validate() {
         block_id: "c".to_owned(),
         user_id: "u".to_owned(),
         notified_at: 0,
-        create_at: 0,
+        created_at: 0,
         deleted_at: None,
     };
     assert_eq!(valid.validate(), Ok(()));
@@ -884,7 +884,7 @@ fn null_is_refused_for_members_that_are_not_nullable() {
     refuses_null_members::<Block>(
         &json!({
             "id": "a1", "parentId": "", "createdBy": "u1", "modifiedBy": "u1", "schema": 1,
-            "type": "card", "title": "t", "fields": {}, "createAt": 1, "updateAt": 1,
+            "type": "card", "title": "t", "fields": {}, "createdAt": 1, "updatedAt": 1,
             "deletedAt": 2, "containerId": "b1",
         }),
         &[],
@@ -895,7 +895,7 @@ fn null_is_refused_for_members_that_are_not_nullable() {
             "id": "b1", "workspaceId": "w1", "createdBy": "u1", "modifiedBy": "u1",
             "visibility": "private", "minimumRole": "editor", "title": "t", "description": "", "icon": "",
             "showDescription": false, "isTemplate": false, "templateVersion": 0,
-            "properties": {}, "cardProperties": [], "createAt": 1, "updateAt": 1,
+            "properties": {}, "cardProperties": [], "createdAt": 1, "updatedAt": 1,
             "deletedAt": 2,
         }),
         &["visibility"],
@@ -911,8 +911,8 @@ fn null_is_refused_for_members_that_are_not_nullable() {
     );
     refuses_null_members::<Category>(
         &json!({
-            "id": "c1", "name": "n", "userId": "u1", "workspaceId": "w1", "createAt": 1,
-            "updateAt": 1, "deletedAt": 2, "collapsed": false, "sortOrder": 0,
+            "id": "c1", "name": "n", "userId": "u1", "workspaceId": "w1", "createdAt": 1,
+            "updatedAt": 1, "deletedAt": 2, "collapsed": false, "sortOrder": 0,
         }),
         &[],
         "a category",
@@ -922,7 +922,7 @@ fn null_is_refused_for_members_that_are_not_nullable() {
             "id": "c1", "boardId": "b1", "createdBy": "u1",
             "modifiedBy": "u1", "title": "t", "icon": "", "isTemplate": false,
             "properties": {}, "hasBody": false, "tasksTotal": 0, "tasksDone": 0,
-            "createAt": 1, "updateAt": 1, "deletedAt": 2, "lastCommentAt": 0,
+            "createdAt": 1, "updatedAt": 1, "deletedAt": 2, "lastCommentAt": 0,
         }),
         &[],
         "a card",
@@ -930,7 +930,7 @@ fn null_is_refused_for_members_that_are_not_nullable() {
     refuses_null_members::<Subscription>(
         &json!({
             "blockType": "card", "blockId": "c1", "userId": "u1",
-            "notifiedAt": 0, "createAt": 1, "deletedAt": 2,
+            "notifiedAt": 0, "createdAt": 1, "deletedAt": 2,
         }),
         &[],
         "a subscription",
@@ -946,7 +946,7 @@ fn null_is_refused_for_members_that_are_not_nullable() {
     refuses_null_members::<User>(
         &json!({
             "id": "u1", "username": "ada", "displayName": "Ada",
-            "createAt": 1, "updateAt": 1, "deletedAt": 2, "isAdmin": false,
+            "createdAt": 1, "updatedAt": 1, "deletedAt": 2, "isAdmin": false,
         }),
         &[],
         "a user",

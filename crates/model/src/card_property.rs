@@ -141,11 +141,11 @@ pub enum PropertyType {
     Email,
     /// Telephone number.
     Phone,
-    /// Automatic card creation timestamp (`createAt`).
+    /// Automatic card creation timestamp (`createdAt`).
     CreatedTime,
     /// Automatic card creator (`createdBy`).
     CreatedBy,
-    /// Automatic card modification timestamp (`updateAt`).
+    /// Automatic card modification timestamp (`updatedAt`).
     UpdatedTime,
     /// Automatic card last modifier (`modifiedBy`).
     UpdatedBy,

@@ -19,11 +19,11 @@ use fvoci_store::{Looking, Paging, PublicContainers, Reach, Sight, Store};
 use crate::common::{self, TestStore};
 
 /// Sets the time each of the rows was made at.
-async fn set_create_at(test: &TestStore, table: &str, times: &[(&str, i64)]) {
-    for (id, create_at) in times {
+async fn set_created_at(test: &TestStore, table: &str, times: &[(&str, i64)]) {
+    for (id, created_at) in times {
         common::execute_raw(
             &test.database_connection(),
-            &format!("UPDATE {table} SET create_at = {create_at} WHERE id = '{id}'"),
+            &format!("UPDATE {table} SET created_at = {created_at} WHERE id = '{id}'"),
         )
         .await;
     }
@@ -72,7 +72,7 @@ async fn boards_come_oldest_first() {
     let second = stored_board(store, &workspace_id, &user_id, open("board a")).await;
     let third = stored_board(store, &workspace_id, &user_id, open("board c")).await;
     let fourth = stored_board(store, &workspace_id, &user_id, open("board b")).await;
-    set_create_at(
+    set_created_at(
         &test,
         "containers",
         &[(&fourth, 100), (&first, 200), (&second, 200), (&third, 300)],
@@ -161,7 +161,7 @@ async fn templates_come_oldest_first() {
         builtin.push(stored_board(store, &workspace_id, "", template()).await);
     }
     for ids in [&own, &builtin] {
-        set_create_at(
+        set_created_at(
             &test,
             "containers",
             &[(&ids[2], 100), (&ids[0], 200), (&ids[1], 200)],
@@ -268,7 +268,7 @@ async fn users_come_oldest_first() {
     let first = common::user(store, "order-c").await;
     let second = common::user(store, "order-a").await;
     let third = common::user(store, "order-b").await;
-    set_create_at(
+    set_created_at(
         &test,
         "users",
         &[(&third, 100), (&first, 200), (&second, 200)],
@@ -317,7 +317,7 @@ async fn users_come_oldest_first() {
         many.push(user_id);
     }
     // The two made last are the oldest.
-    set_create_at(&test, "users", &[(&many[11], 10), (&many[10], 20)]).await;
+    set_created_at(&test, "users", &[(&many[11], 10), (&many[10], 20)]).await;
     let found = store
         .search_users_in_sight(sight, "many-")
         .await
@@ -348,8 +348,8 @@ async fn sidebar_ties_fall_back_to_age() {
             name: name.to_owned(),
             user_id: user_id.clone(),
             workspace_id: workspace_id.clone(),
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Category::default()
         };
         store
@@ -363,7 +363,7 @@ async fn sidebar_ties_fall_back_to_age() {
         "UPDATE categories SET sort_order = 0",
     )
     .await;
-    set_create_at(
+    set_created_at(
         &test,
         "categories",
         &[
@@ -470,8 +470,8 @@ async fn subscription_ties_fall_back_to_identifiers() {
             id: new_id(),
             container_id: board_id.clone(),
             block_type: BlockType::Card,
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Block::default()
         })
         .collect();
@@ -482,7 +482,7 @@ async fn subscription_ties_fall_back_to_identifiers() {
             block_id: block.id.clone(),
             user_id: user_id.to_owned(),
             notified_at: 0,
-            create_at: 0,
+            created_at: 0,
             deleted_at: None,
         };
         store
@@ -495,7 +495,7 @@ async fn subscription_ties_fall_back_to_identifiers() {
     subscribe(&cards[0], &users[1]).await;
     common::execute_raw(
         &test.database_connection(),
-        "UPDATE subscriptions SET notified_at = 5, create_at = 5",
+        "UPDATE subscriptions SET notified_at = 5, created_at = 5",
     )
     .await;
 

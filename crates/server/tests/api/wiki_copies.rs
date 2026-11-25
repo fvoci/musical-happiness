@@ -44,7 +44,7 @@ pub(crate) async fn page(client: &Client, wiki: &str, parent_id: &str, title: &s
 /// Writes the body to the page.
 pub(crate) async fn write(client: &Client, wiki: &str, page: &str, body: &Value) {
     let path = format!("{TEST_WS}/wikis/{wiki}/pages/{page}");
-    let read_at = client.get(&path).await.value()["updateAt"].clone();
+    let read_at = client.get(&path).await.value()["updatedAt"].clone();
     client
         .patch(&path, &json!({"readAt": read_at, "body": body}))
         .await

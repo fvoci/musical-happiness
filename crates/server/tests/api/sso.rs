@@ -713,7 +713,7 @@ async fn course_fixtures(client: &Client) -> CourseFixtures {
     client
         .patch(
             &format!("{units}/{unit_id}"),
-            &json!({"readAt": unit["updateAt"], "body": body}),
+            &json!({"readAt": unit["updatedAt"], "body": body}),
         )
         .await
         .check_ok();
@@ -1094,8 +1094,8 @@ pub(crate) async fn two_organizations(fake: &FakeProvider) -> Two {
             ),
             auto_join: true,
             enabled: true,
-            create_at: 0,
-            update_at: 0,
+            created_at: 0,
+            updated_at: 0,
             sso_required: false,
             revision: 0,
         })

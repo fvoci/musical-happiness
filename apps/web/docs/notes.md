@@ -306,7 +306,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 
 `tests/logic/wire-boundary.test.ts`가 이 규칙을 검사한다: `wire.ts`가 아닌 로직 모듈에 `.fields`나 `JSON.parse`·`JSON.stringify`가 나오면 실패하고, `wire*` 테스트와 픽스처(`support/factory.ts`)가 아닌 테스트가 `.fields`를 읽어도 실패한다.
 
-경계 밖에 남은 것은 모든 블록이 최상위에 갖는 멤버다. 다른 모듈이 직접 읽는다: `id`, `title`, `type`, `containerId`, `parentId`, `createdBy`, `modifiedBy`, `createAt`, `updateAt`, `deletedAt`, `limited`. 보드에서는 속성 정의 목록(`PropertyTemplate[]`)을 인자로 받을 뿐 보드 객체를 받지 않는다. 이 이름들이 바뀌면 타입 정의가 `wire.ts`에 있으므로 컴파일러가 쓰는 곳을 전부 짚어 준다.
+경계 밖에 남은 것은 모든 블록이 최상위에 갖는 멤버다. 다른 모듈이 직접 읽는다: `id`, `title`, `type`, `containerId`, `parentId`, `createdBy`, `modifiedBy`, `createdAt`, `updatedAt`, `deletedAt`, `limited`. 보드에서는 속성 정의 목록(`PropertyTemplate[]`)을 인자로 받을 뿐 보드 객체를 받지 않는다. 이 이름들이 바뀌면 타입 정의가 `wire.ts`에 있으므로 컴파일러가 쓰는 곳을 전부 짚어 준다.
 
 와이어가 바뀌면 사라지거나 달라질 것으로 보이는 부분: `createId`(ID를 서버가 만들게 되면 필요 없다), 날짜 값의 두 형식, `createAttachmentBlock`의 옛 이름 `attachmentId`, `Board.channelId`.
 
@@ -531,7 +531,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 - 선택지 색 10종의 토큰(`--option-*`)을 `app.css`에 더했고 대비 검사에 넣었다.
 - 이메일과 숫자의 검증은 저장된 값이 아니라 입력한 값에 한다. 체크박스는 `'true'`만 체크로 읽는다. 모르는 사용자 ID는 "알 수 없는 사용자"로 보인다. 선택지의 이름을 바꿀 수 있다.
 - 처음에는 `src/lib/features/properties/`에 두었다. 기능 폴더끼리는 서로 가져올 수 없어서, 화면 조립 때 `components/properties`로 내렸다.
-- 남은 것: 수정 시각은 받은 카드의 `updateAt`만 본다(`docs/contract-assumptions.md`의 A8). 보드 밖 사용자의 검색·추가는 API가 있어야 한다.
+- 남은 것: 수정 시각은 받은 카드의 `updatedAt`만 본다(`docs/contract-assumptions.md`의 A8). 보드 밖 사용자의 검색·추가는 API가 있어야 한다.
 
 ### 드래그
 

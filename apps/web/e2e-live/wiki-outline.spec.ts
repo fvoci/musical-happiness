@@ -142,7 +142,7 @@ test('the outline follows the headings another browser writes, writes nothing it
     await api.post(`${at}/wikis/${wiki.id}/pages`, { data: { title: 'Guide' } })
   ).json()) as Schemas['Page'];
   const pageAt = `${at}/wikis/${wiki.id}/pages/${made.id}`;
-  expect((await api.patch(pageAt, { data: { readAt: made.updateAt, body: GUIDE } })).ok()).toBe(
+  expect((await api.patch(pageAt, { data: { readAt: made.updatedAt, body: GUIDE } })).ok()).toBe(
     true,
   );
   const stored = async (): Promise<string> =>
@@ -245,7 +245,7 @@ test('a reader by the public link has the same outline, wide, beside a narrowed 
       await api.post(`${at}/wikis/${wiki.id}/pages`, { data: { title } })
     ).json()) as Schemas['Page'];
     const written = await api.patch(`${at}/wikis/${wiki.id}/pages/${page.id}`, {
-      data: { readAt: page.updateAt, body },
+      data: { readAt: page.updatedAt, body },
     });
     expect(written.ok()).toBe(true);
     return page;

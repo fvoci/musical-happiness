@@ -72,8 +72,8 @@ async fn every_way_a_card_is_made_gives_it_the_next_number_and_every_read_says_i
         block_type: BlockType::Card,
         title: "by blocks".to_owned(),
         number: Some(1),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let stored: Vec<Block> = ts
@@ -227,7 +227,7 @@ async fn a_number_a_request_sends_is_never_refused_nor_taken() {
     let card = create_card(&ts.client, TEST_WS, &board.id, sent).await;
     assert_eq!(card.number, Some(1));
     let block = json!([{"id": "a", "containerId": board.id, "type": "card", "number": -1,
-        "createAt": 1, "updateAt": 1}]);
+        "createdAt": 1, "updatedAt": 1}]);
     let stored: Vec<Block> = ts
         .client
         .post(&format!("{TEST_WS}/boards/{}/blocks", board.id), &block)

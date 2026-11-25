@@ -222,7 +222,7 @@ async fn told_of_the_card(socket: &mut Socket, owner: &Client, shared: &Shared) 
     // No acknowledgement: the card is written until the subscription shows.
     let path = format!("{TEST_WS}/cards/{}", shared.source);
     for round in 0..50 {
-        let read_at = owner.get(&path).await.value()["updateAt"].clone();
+        let read_at = owner.get(&path).await.value()["updatedAt"].clone();
         let body = body_naming(&format!("round {round}"), &named);
         owner
             .patch(&path, &json!({"readAt": read_at, "body": body}))

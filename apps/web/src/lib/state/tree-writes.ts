@@ -60,9 +60,9 @@ export class TreeWrites {
     this.#forgettings += 1;
     for (const pageId of [...pageIds, ...gone]) {
       // The version it was shown at, or, gone already (its echo), the one kept then.
-      const shownAt = this.#page(pageId)?.updateAt ?? -Infinity;
-      const updateAt = Math.max(shownAt, this.#forgottenAt.get(pageId)?.updateAt ?? -Infinity);
-      this.#forgottenAt.set(pageId, { at: this.#forgettings, updateAt });
+      const shownAt = this.#page(pageId)?.updatedAt ?? -Infinity;
+      const updatedAt = Math.max(shownAt, this.#forgottenAt.get(pageId)?.updatedAt ?? -Infinity);
+      this.#forgottenAt.set(pageId, { at: this.#forgettings, updatedAt });
     }
     const shown = this.#host.openPage();
     // The reader's own deletion, heard back before its answer: the reader's still.
@@ -87,7 +87,7 @@ export class TreeWrites {
   /** Deletions taken off the tree so far (`forget`), counted. */
   #forgettings = 0;
   /** Each page taken off, with the count of deletions taken off then and its version then. */
-  readonly #forgottenAt = new Map<string, { at: number; updateAt: number }>();
+  readonly #forgottenAt = new Map<string, { at: number; updatedAt: number }>();
 
   /** A mark of the deletions taken off so far: a reading begun now is told what went since. */
   get forgettings(): number {
@@ -109,14 +109,14 @@ export class TreeWrites {
    */
   admits(page: WikiPage): boolean {
     const forgotten = this.#forgottenAt.get(page.id);
-    if (forgotten && page.updateAt <= forgotten.updateAt) return false;
+    if (forgotten && page.updatedAt <= forgotten.updatedAt) return false;
     if (page.parentId !== '' && this.#forgottenAt.has(page.parentId)) {
       // Shown (a move of it under way, say), it goes now with the page it is below.
       if (this.#page(page.id)) this.forget([page.id], 'others');
-      const kept = this.#forgottenAt.get(page.id)?.updateAt ?? -Infinity;
+      const kept = this.#forgottenAt.get(page.id)?.updatedAt ?? -Infinity;
       this.#forgottenAt.set(page.id, {
         at: this.#forgettings,
-        updateAt: Math.max(kept, page.updateAt),
+        updatedAt: Math.max(kept, page.updatedAt),
       });
       return false;
     }

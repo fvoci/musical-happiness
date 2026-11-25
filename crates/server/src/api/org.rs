@@ -227,7 +227,7 @@ async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
 /// but somebody the new provider vouches for who has no account yet may sign in
 /// through it once to carry their account over. This ends that before its time: from
 /// then on nobody carries an account over from it. The body names the former
-/// provider as it was read (`createAt`): if the organization moved again since, and
+/// provider as it was read (`createdAt`): if the organization moved again since, and
 /// another one is kept, the request is 409, to be read and sent again. An organization
 /// that keeps none answers 204 as well. Recorded in the organization's audit log
 /// (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
@@ -252,7 +252,7 @@ async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
 async fn handle_delete_oidc_former(org: OrgAdmin, body: Bytes) -> ApiResult {
     let read: OidcFormerProviderEnd = decode_object(&body)?;
     org.app
-        .end_oidc_former_provider(&org.session.user_id, read.create_at)
+        .end_oidc_former_provider(&org.session.user_id, read.created_at)
         .await?;
     Ok(no_content())
 }

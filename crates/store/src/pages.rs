@@ -172,7 +172,7 @@ pub(crate) async fn page_nodes(
     wiki_id: &str,
 ) -> Result<Vec<PageNode>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT id, parent_id, title, fields, create_at, update_at FROM blocks \
+        "SELECT id, parent_id, title, fields, created_at, updated_at FROM blocks \
          WHERE container_id = ",
     );
     sql.bind(Id(wiki_id))
@@ -185,8 +185,8 @@ pub(crate) async fn page_nodes(
             parent_id: row.id(1)?,
             title: row.text(2)?,
             fields: row.json_map(3, "fields")?,
-            create_at: row.int(4)?,
-            update_at: row.int(5)?,
+            created_at: row.int(4)?,
+            updated_at: row.int(5)?,
             ..Block::default()
         }));
     }
@@ -232,7 +232,7 @@ pub(crate) async fn write_place(
 
 /// Stores a new order of a page and nothing else of it: who changed it last stays, and
 /// nothing that follows from a block (its files, what a search holds of it) reads its
-/// order. Its `updateAt` moves on, so that whoever holds it takes the change. Returns
+/// order. Its `updatedAt` moves on, so that whoever holds it takes the change. Returns
 /// the page as stored.
 async fn write_order(
     scope: &mut Scope<'_>,
@@ -242,10 +242,10 @@ async fn write_order(
     let mut page = blocks::get_block(scope, page_id).await?;
     page.fields
         .insert(PAGE_ORDER_FIELD.to_owned(), Value::from(order));
-    page.update_at = now_millis().max(page.update_at.saturating_add(1));
+    page.updated_at = now_millis().max(page.updated_at.saturating_add(1));
     let mut sql = scope.sql("UPDATE blocks SET fields = ");
     sql.bind(Param::json(&page.fields)?)
-        .push_bind(", update_at = ", page.update_at)
+        .push_bind(", updated_at = ", page.updated_at)
         .push_bind(" WHERE id = ", Id(page_id))
         .push_bind(" AND container_id = ", Id(&page.container_id));
     scope.execute(sql).await?;

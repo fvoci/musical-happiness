@@ -99,8 +99,8 @@ export interface CourseUnit {
   amountUnit?: AmountUnit | null;
   /** Optional shared scheduled date (`YYYY-MM-DD`; units only). */
   scheduledDate?: string | null;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** A unit or chapter read on its own: with its body (`null` for a chapter) and authors. */
@@ -153,7 +153,7 @@ export interface UnitPatch {
   amountUnit?: AmountUnit | null;
   /** Tri-state shared scheduled date (`YYYY-MM-DD`): omitted = keep, `null` = clear, date = set. */
   scheduledDate?: string | null;
-  /** The `updateAt` the unit was read at: 409 if the unit changed since. */
+  /** The `updatedAt` the unit was read at: 409 if the unit changed since. */
   readAt?: number;
 }
 
@@ -181,7 +181,7 @@ export interface UnitProgress {
   /** Suggested next spaced-repetition review interval in days when completed. */
   suggestedNextIntervalDays?: number;
   /** Last modification time in milliseconds since Unix epoch. */
-  updateAt: number;
+  updatedAt: number;
 }
 
 /**
@@ -211,7 +211,7 @@ export interface CourseSchedule {
   targetDate: string;
   /** Weekday bitmask (`1..=127`; bit 0 = Monday .. bit 6 = Sunday). */
   studyDays: number;
-  updateAt: number;
+  updatedAt: number;
 }
 
 /** Payload for saving a course's shared schedule (`putCourseSchedule`). */

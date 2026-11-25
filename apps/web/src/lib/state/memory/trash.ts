@@ -281,7 +281,7 @@ export function takeBlockBack(
   world.deletedBlocks.delete(blockId);
   if (reroot && top) top.parentId = '';
   for (const block of deleted.blocks) {
-    block.updateAt = world.now();
+    block.updatedAt = world.now();
     block.modifiedBy = userId;
     world.blocks.set(block.id, block);
   }

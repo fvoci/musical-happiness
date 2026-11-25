@@ -17,7 +17,7 @@ import { serverBackend, text } from './support.ts';
 
 const NOW = Date.UTC(2026, 10, 15, 3);
 
-function block(id: string, boardId: string, title: string, updateAt = NOW): Block {
+function block(id: string, boardId: string, title: string, updatedAt = NOW): Block {
   return {
     id,
     type: 'card',
@@ -28,8 +28,8 @@ function block(id: string, boardId: string, title: string, updateAt = NOW): Bloc
     schema: 1,
     title,
     fields: {},
-    createAt: NOW,
-    updateAt,
+    createdAt: NOW,
+    updatedAt,
   };
 }
 

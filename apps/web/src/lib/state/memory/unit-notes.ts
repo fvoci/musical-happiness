@@ -65,7 +65,7 @@ function checkNoteContent(raw: unknown): string {
 }
 
 function compareNotesDesc(a: UnitNote, b: UnitNote): number {
-  if (a.createAt !== b.createAt) return b.createAt - a.createAt;
+  if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
   return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }
 
@@ -108,8 +108,8 @@ export function memoryCreateUnitNote(
     containerId: courseId,
     kind,
     content,
-    createAt: now,
-    updateAt: now,
+    createdAt: now,
+    updatedAt: now,
   };
   const theirs = world.unitNotes.get(userId) ?? [];
   theirs.push(created);
@@ -143,7 +143,7 @@ export function memoryPatchUnitNote(
   requireLiveUnit(world, courseId, note.unitId);
   if (kind !== undefined) note.kind = kind;
   if (content !== undefined) note.content = content;
-  note.updateAt = world.now();
+  note.updatedAt = world.now();
   return copy(note);
 }
 

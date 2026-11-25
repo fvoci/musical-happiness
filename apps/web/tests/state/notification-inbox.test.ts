@@ -77,7 +77,7 @@ describe('the inbox', () => {
 });
 
 /** A notification of the stand-in below, unread. */
-const ONE: Notification = { id: 'n1', createAt: 1, updateAt: 2, readAt: 0, subject: null };
+const ONE: Notification = { id: 'n1', createdAt: 1, updatedAt: 2, readAt: 0, subject: null };
 
 /** Notifications whose answers the test gives, one by one, in the order asked. */
 function standIn() {

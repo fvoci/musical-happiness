@@ -98,7 +98,7 @@ function keep(
     version: (newest?.version ?? 0) + 1,
     // Nobody is known to have written it: it is as old as the card's last change at the
     // latest. One asked for is as old as the asking.
-    keptAt: editors.size === 0 && cause !== 'manual' ? card.updateAt : world.now(),
+    keptAt: editors.size === 0 && cause !== 'manual' ? card.updatedAt : world.now(),
     editors: [...editors].sort(),
     body: copy(body),
     cause,
@@ -239,7 +239,7 @@ export class MemoryBodyVersions implements BodyVersions {
       this.#userId,
       () => {
         card.body = body;
-        card.updateAt = card.bodyUpdatedAt = world.now();
+        card.updatedAt = card.bodyUpdatedAt = world.now();
         card.modifiedBy = this.#userId;
       },
       'restored',

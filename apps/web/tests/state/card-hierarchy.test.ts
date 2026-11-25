@@ -205,8 +205,8 @@ describe('card hierarchy in the memory backend', () => {
       hasBody: false,
       tasksTotal: 0,
       tasksDone: 0,
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
       lastCommentAt: 0,
     } satisfies Schemas['Card'];
     const summary = cardOf(wire);

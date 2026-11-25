@@ -107,7 +107,7 @@ async fn new_board(client: &Client, card_properties: Value) -> ApiResponse {
 fn card_block(board_id: &str, properties: Value) -> Value {
     let mut block = json!({
         "id": "c1", "containerId": board_id, "type": "card", "title": "Card",
-        "schema": 1, "createAt": 1, "updateAt": 1, "fields": {},
+        "schema": 1, "createdAt": 1, "updatedAt": 1, "fields": {},
     });
     block["fields"]["properties"] = properties;
     block
@@ -556,7 +556,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
 fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
     let board = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Imported",
-        "cardProperties": card_properties, "createAt": 1, "updateAt": 1,
+        "cardProperties": card_properties, "createdAt": 1, "updatedAt": 1,
     }});
     let data = card_block("b1", values);
     let block = json!({"type": "block", "data": data});

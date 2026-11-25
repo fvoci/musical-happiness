@@ -956,7 +956,7 @@ pub(crate) async fn oldest_organization(
     let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
     sql.bind(false).push(" AND deleted_at IS NULL");
     of_people(&mut sql, "kind");
-    sql.push(" ORDER BY create_at, id LIMIT 1");
+    sql.push(" ORDER BY created_at, id LIMIT 1");
     scope
         .fetch_optional(sql)
         .await?

@@ -21,9 +21,9 @@ const byId = (first: { id: string }, second: { id: string }): number =>
   first.id < second.id ? -1 : first.id > second.id ? 1 : 0;
 
 /** Oldest first; the identifier settles a tie. */
-export function byCreation<T extends Pick<Block, 'id' | 'createAt'>>(items: readonly T[]): T[] {
+export function byCreation<T extends Pick<Block, 'id' | 'createdAt'>>(items: readonly T[]): T[] {
   return [...items].sort(
-    (first, second) => first.createAt - second.createAt || byId(first, second),
+    (first, second) => first.createdAt - second.createdAt || byId(first, second),
   );
 }
 
@@ -33,7 +33,7 @@ function textOrder(locale: string): (first: string, second: string) => number {
 }
 
 /** By title in the reader's language, untitled ones last, then oldest first. */
-export function byTitle<T extends Pick<Block, 'id' | 'createAt' | 'title'>>(
+export function byTitle<T extends Pick<Block, 'id' | 'createdAt' | 'title'>>(
   items: readonly T[],
   locale: string,
 ): T[] {
@@ -41,7 +41,9 @@ export function byTitle<T extends Pick<Block, 'id' | 'createAt' | 'title'>>(
   return [...items].sort((first, second) => {
     if ((first.title === '') !== (second.title === '')) return first.title === '' ? 1 : -1;
     return (
-      compare(first.title, second.title) || first.createAt - second.createAt || byId(first, second)
+      compare(first.title, second.title) ||
+      first.createdAt - second.createdAt ||
+      byId(first, second)
     );
   });
 }

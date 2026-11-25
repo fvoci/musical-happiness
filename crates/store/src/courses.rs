@@ -126,7 +126,7 @@ impl Store {
     pub async fn get_unit_tree(&self, course_id: &str) -> Result<Vec<UnitNode>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT id, parent_id, type, title, fields, create_at, update_at FROM blocks \
+                "SELECT id, parent_id, type, title, fields, created_at, updated_at FROM blocks \
                  WHERE container_id = ",
             );
             sql.bind(Id(course_id))
@@ -142,8 +142,8 @@ impl Store {
                     block_type: BlockType::from(row.text(2)?),
                     title: row.text(3)?,
                     fields: row.json_map(4, "fields")?,
-                    create_at: row.int(5)?,
-                    update_at: row.int(6)?,
+                    created_at: row.int(5)?,
+                    updated_at: row.int(6)?,
                     ..Block::default()
                 }));
             }

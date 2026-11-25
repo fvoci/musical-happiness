@@ -4,7 +4,7 @@
  * and `crates/server/src/app/course_events.rs`.
  *
  * Invariants:
- * - Exams sorted by `examDate ASC NULLS LAST, createAt ASC, id ASC`.
+ * - Exams sorted by `examDate ASC NULLS LAST, createdAt ASC, id ASC`.
  * - Personal exam scores are strictly isolated per caller, excluded for unjoined
  *   readers and erased/removed users, and emit zero WebSocket broadcasts.
  */
@@ -137,8 +137,8 @@ export function memoryCreateCourseExam(
     examDate,
     maxScore,
     description,
-    createAt: now,
-    updateAt: now,
+    createdAt: now,
+    updatedAt: now,
   };
   const existing = world.courseExams.get(courseId) ?? [];
   existing.push(exam);
@@ -170,7 +170,7 @@ export function memoryPatchCourseExam(
   if (hasExamDate) exam.examDate = nextExamDate ?? null;
   if (nextMaxScore !== undefined) exam.maxScore = nextMaxScore;
   if (nextDescription !== undefined) exam.description = nextDescription;
-  exam.updateAt = world.now();
+  exam.updatedAt = world.now();
   return buildExamView(world, userId, courseId, exam);
 }
 
@@ -215,7 +215,7 @@ export function memoryPutMyExamScore(
     byExam = new Map();
     world.examScores.set(userId, byExam);
   }
-  const saved: MyExamScore = { score: update.score, note, updateAt: world.now() };
+  const saved: MyExamScore = { score: update.score, note, updatedAt: world.now() };
   byExam.set(examId, saved);
   return copy(saved);
 }

@@ -106,7 +106,7 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.with_write_conn(async |scope| {
             let mut sql = scope.sql(
-                "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT id, ",
+                "INSERT INTO workspace_members (workspace_id, user_id, role, created_at) SELECT id, ",
             );
             sql.bind(Id(user_id))
                 .push_bind(", ", role.as_str())
@@ -129,7 +129,7 @@ async fn add_organization_member(
     role: OrgRole,
 ) -> Result<(), StoreError> {
     let mut sql =
-        scope.sql("INSERT INTO organization_members (org_id, user_id, role, create_at) VALUES (");
+        scope.sql("INSERT INTO organization_members (org_id, user_id, role, created_at) VALUES (");
     sql.bind(scope.org()?)
         .push_bind(", ", Id(user_id))
         .push_bind(", ", role.as_str())

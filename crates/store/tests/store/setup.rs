@@ -355,8 +355,8 @@ async fn the_schema_refuses_a_board_visibility_that_is_none() {
     let new_board = |vis: &str| {
         format!(
             "INSERT INTO containers (id, workspace_id, visibility, title, description, icon, \
-             show_description, is_template, properties, card_properties, create_at, \
-             update_at) VALUES ('{}', '{workspace_id}', '{vis}', '', '', '', FALSE, FALSE, \
+             show_description, is_template, properties, card_properties, created_at, \
+             updated_at) VALUES ('{}', '{workspace_id}', '{vis}', '', '', '', FALSE, FALSE, \
              '{{}}', '[]', 1, 1)",
             new_id()
         )
@@ -432,7 +432,7 @@ async fn the_schema_refuses_a_category_type_that_is_none() {
     // a type that is one, and refused with one that is none.
     let new_category = |category_type: &str| {
         format!(
-            "INSERT INTO categories (id, name, user_id, workspace_id, create_at, update_at, type) \
+            "INSERT INTO categories (id, name, user_id, workspace_id, created_at, updated_at, type) \
              VALUES ('{}', 'New', '{user_id}', '{workspace_id}', 1, 1, '{category_type}')",
             new_id()
         )
@@ -800,7 +800,7 @@ async fn seed_files_for_reference_migration(store: &Store, board_id: &str) {
             id: new_id(),
             container_id: board_id.to_owned(),
             stored_name: name.to_owned(),
-            create_at: 1,
+            created_at: 1,
             path: format!("{board_id}/{name}"),
             ..fvoci_model::FileRecord::default()
         };
@@ -919,7 +919,7 @@ pub(crate) async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
             id: new_id(),
             container_id: board_id.to_owned(),
             stored_name: (*name).to_owned(),
-            create_at: 1,
+            created_at: 1,
             path: format!("{board_id}/{name}"),
             ..fvoci_model::FileRecord::default()
         };

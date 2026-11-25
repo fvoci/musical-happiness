@@ -376,8 +376,8 @@ async fn the_tree_has_every_page_that_is_not_in_the_trash_and_no_body() {
             title: "Welcome".to_owned(),
             icon: "👋".to_owned(),
             order: tree[0].order.clone(),
-            create_at: made.create_at,
-            update_at: made.update_at,
+            created_at: made.created_at,
+            updated_at: made.updated_at,
         }
     );
     assert!(!tree[0].order.is_empty() && made.created_by == user_id);

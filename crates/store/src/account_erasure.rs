@@ -401,7 +401,7 @@ impl Store {
                 );
                 sql.bind(false)
                     .push_bind(", erased_at = ", now)
-                    .push_bind(", update_at = ", now)
+                    .push_bind(", updated_at = ", now)
                     .push_bind(" WHERE id = ", Id(user_id));
                 scope.execute(sql).await?;
                 Ok(ErasureEnd::Erased)
@@ -449,7 +449,7 @@ async fn mark(
     let mut sql = scope.sql("UPDATE users SET erase_started_at = ");
     sql.bind(now)
         .push_bind(", deleted_at = COALESCE(deleted_at, ", now)
-        .push_bind("), update_at = ", now)
+        .push_bind("), updated_at = ", now)
         .push_bind(
             " WHERE erase_started_at = 0 AND erased_at = 0 AND id = ",
             Id(user_id),
@@ -489,7 +489,7 @@ async fn wait_for_who_comes_in(scope: &mut Scope<'_>, org_id: &str) -> Result<()
 async fn put_out_of_use(scope: &mut Scope<'_>, org_id: &str, now: i64) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE organizations SET deleted_at = ");
     sql.bind(now)
-        .push_bind(", update_at = ", now)
+        .push_bind(", updated_at = ", now)
         .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(org_id));
     scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
@@ -716,7 +716,7 @@ async fn heir_in(
         .push_bind(" AND wm.user_id <> ", Id(user_id))
         .push_bind(" AND wm.role = ", WorkspaceRole::Admin.as_str())
         .push_bind(" AND wm.via_org_admin = ", false)
-        .push(" ORDER BY wm.create_at, wm.user_id LIMIT 1");
+        .push(" ORDER BY wm.created_at, wm.user_id LIMIT 1");
     scope
         .fetch_optional(sql)
         .await?

@@ -403,14 +403,14 @@ async fn create_user_stamps_times_and_reads_back_the_stored_members() {
         username: "leia".to_owned(),
         email: "leia@example.com".to_owned(),
         password_hash: "hash".to_owned(),
-        create_at: 1,
-        update_at: 2,
+        created_at: 1,
+        updated_at: 2,
         deleted_at: Some(3),
         ..User::default()
     };
     store.create_user(&mut user).await.unwrap();
-    assert!(user.create_at >= before, "create_at is the current time");
-    assert_eq!(user.update_at, user.create_at);
+    assert!(user.created_at >= before, "created_at is the current time");
+    assert_eq!(user.updated_at, user.created_at);
     assert_eq!(user.deleted_at, None, "a new user is never deleted");
 
     let got = store.get_user_by_id(&user.id).await.unwrap();

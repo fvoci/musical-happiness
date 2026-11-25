@@ -24,7 +24,7 @@ use crate::org_admin;
 use crate::sessions;
 
 /// The columns of pending settings, in the order [`pending_from_row`] reads them.
-const PENDING_COLUMNS: &str = "provider_id, issuer, client_id, client_secret, create_at";
+const PENDING_COLUMNS: &str = "provider_id, issuer, client_id, client_secret, created_at";
 
 /// The pending settings of the provider of an organization, as they are stored.
 #[derive(Clone, PartialEq, Eq)]
@@ -40,7 +40,7 @@ pub struct PendingProvider {
     pub sealed_client_secret: String,
     /// When they were saved, in milliseconds since the Unix epoch: later than the
     /// settings saved before, so that it names this state of them. The store's.
-    pub create_at: i64,
+    pub created_at: i64,
 }
 
 impl std::fmt::Debug for PendingProvider {
@@ -50,7 +50,7 @@ impl std::fmt::Debug for PendingProvider {
             .field("provider_id", &self.provider_id)
             .field("issuer", &self.issuer)
             .field("client_id", &self.client_id)
-            .field("create_at", &self.create_at)
+            .field("created_at", &self.created_at)
             .finish_non_exhaustive()
     }
 }
@@ -154,7 +154,7 @@ impl Store {
             let Some(mut provider) = read_provider(scope).await? else {
                 return Ok(None);
             };
-            if (&provider.id, provider.update_at) != (&read.id, read.update_at)
+            if (&provider.id, provider.updated_at) != (&read.id, read.updated_at)
                 || !provider.sso_required
             {
                 return Ok(None);
@@ -173,7 +173,7 @@ impl Store {
             // Later than the settings before, also within one millisecond or when the
             // clock went back: a trial names one state of them.
             let now = match read_pending(scope).await? {
-                Some(before) => now_millis().max(before.create_at.saturating_add(1)),
+                Some(before) => now_millis().max(before.created_at.saturating_add(1)),
                 None => now_millis(),
             };
             let mut sql = scope.sql(&format!(
@@ -188,7 +188,7 @@ impl Store {
                 .push(
                     ") ON CONFLICT (org_id) DO UPDATE SET provider_id = excluded.provider_id, \
                      issuer = excluded.issuer, client_id = excluded.client_id, \
-                     client_secret = excluded.client_secret, create_at = excluded.create_at",
+                     client_secret = excluded.client_secret, created_at = excluded.created_at",
                 )
                 .push(&format!(" RETURNING {PENDING_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
@@ -283,7 +283,7 @@ impl Store {
             if before.id != provider_id
                 || !before.enabled
                 || pending.provider_id != provider_id
-                || pending.create_at != pending_at
+                || pending.created_at != pending_at
             {
                 return Ok(Err(OidcRefusal::ProviderGone));
             }
@@ -533,7 +533,7 @@ fn pending_from_row(row: &Row) -> Result<PendingProvider, StoreError> {
         issuer: row.text(1)?,
         client_id: row.text(2)?,
         sealed_client_secret: row.text(3)?,
-        create_at: row.int(4)?,
+        created_at: row.int(4)?,
     })
 }
 

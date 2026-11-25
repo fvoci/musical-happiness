@@ -38,7 +38,7 @@ pub enum CardError {
     #[error("the card names another board than the path")]
     BoardIdMismatch,
     /// A new body is sent without the time the card was read at.
-    #[error("a new body is sent with readAt, the updateAt of the card as it was read")]
+    #[error("a new body is sent with readAt, the updatedAt of the card as it was read")]
     ReadAtMissing,
 }
 
@@ -94,9 +94,9 @@ pub struct Card {
     /// How many task items of the body are checked.
     pub tasks_done: u32,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
     #[serde(
         default,
@@ -105,11 +105,11 @@ pub struct Card {
     )]
     #[schema(nullable = false)]
     pub deleted_at: Option<i64>,
-    /// When the card's last comment was posted (the `createAt` of the newest of its
+    /// When the card's last comment was posted (the `createdAt` of the newest of its
     /// comments, the blocks of the type `comment` directly on it), in milliseconds since
     /// the Unix epoch; zero if it has none. Changing a comment does not change it; a
     /// deleted comment does not count, and counts again with its time if restored. A
-    /// comment does not change the card's `updateAt`. A new comment comes as
+    /// comment does not change the card's `updatedAt`. A new comment comes as
     /// `blockChanged`, so a client can keep the newer time; after a deletion the card is
     /// read again for it. A number sent here in a request is ignored.
     pub last_comment_at: i64,
@@ -198,11 +198,11 @@ impl Card {
         if self.id.is_empty() {
             self.id = new_id();
         }
-        if self.create_at == 0 {
-            self.create_at = now;
+        if self.created_at == 0 {
+            self.created_at = now;
         }
-        if self.update_at == 0 {
-            self.update_at = now;
+        if self.updated_at == 0 {
+            self.updated_at = now;
         }
     }
 
@@ -237,11 +237,11 @@ impl Card {
             return Err(CardError::Invalid(NO_BOARD));
         }
         check_icon(&self.icon)?;
-        if self.create_at == 0 {
-            return Err(CardError::Invalid(NO_CREATE_AT));
+        if self.created_at == 0 {
+            return Err(CardError::Invalid(NO_CREATED_AT));
         }
-        if self.update_at == 0 {
-            return Err(CardError::Invalid(NO_UPDATE_AT));
+        if self.updated_at == 0 {
+            return Err(CardError::Invalid(NO_UPDATED_AT));
         }
         Ok(())
     }
@@ -305,8 +305,8 @@ impl Card {
             has_body: summary.has_body,
             tasks_total: summary.tasks.total,
             tasks_done: summary.tasks.done,
-            create_at: block.create_at,
-            update_at: block.update_at,
+            created_at: block.created_at,
+            updated_at: block.updated_at,
             deleted_at: block.deleted_at,
             // A block does not know its comments.
             last_comment_at: 0,
@@ -336,8 +336,8 @@ impl From<Card> for Block {
             title: card.title,
             fields,
             body: card.body,
-            create_at: card.create_at,
-            update_at: card.update_at,
+            created_at: card.created_at,
+            updated_at: card.updated_at,
             deleted_at: card.deleted_at,
             container_id: card.board_id,
             number: card.number,
@@ -378,7 +378,7 @@ pub struct CardPatch {
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]
     pub body: BodyChange,
-    /// The `updateAt` of the card as the client read it: if the card has changed since,
+    /// The `updatedAt` of the card as the client read it: if the card has changed since,
     /// the patch is refused with 409 and changes nothing. Needed with `body`, and
     /// checked whenever it is sent.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -511,9 +511,9 @@ const NO_ID: &str = "the card has no identifier";
 /// The words of [`CardError::Invalid`] for a card without a board.
 const NO_BOARD: &str = "the card is on no board";
 /// The words of [`CardError::Invalid`] for a card without the time it was made.
-const NO_CREATE_AT: &str = "the card has no createAt";
+const NO_CREATED_AT: &str = "the card has no createdAt";
 /// The words of [`CardError::Invalid`] for a card without the time it was changed.
-const NO_UPDATE_AT: &str = "the card has no updateAt";
+const NO_UPDATED_AT: &str = "the card has no updatedAt";
 
 /// Whether the text may be an icon, of a card or of a page: at most one grapheme
 /// cluster.

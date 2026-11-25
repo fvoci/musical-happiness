@@ -59,8 +59,8 @@ describe('SharedCourse public reader', () => {
       parentId: '',
       title: 'Chapter 1',
       order: 'a',
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
     };
     const unit1: CourseUnit = {
       id: U1,
@@ -69,8 +69,8 @@ describe('SharedCourse public reader', () => {
       parentId: CHAPTER,
       title: 'Lesson 1',
       order: 'a',
-      createAt: 2,
-      updateAt: 2,
+      createdAt: 2,
+      updatedAt: 2,
     };
     const unit2: CourseUnit = {
       id: U2,
@@ -79,8 +79,8 @@ describe('SharedCourse public reader', () => {
       parentId: CHAPTER,
       title: 'Lesson 2',
       order: 'b',
-      createAt: 3,
-      updateAt: 3,
+      createdAt: 3,
+      updatedAt: 3,
     };
     const units: CourseUnit[] = [chapter, unit1, unit2];
     const details: Record<string, CourseUnitDetail> = {

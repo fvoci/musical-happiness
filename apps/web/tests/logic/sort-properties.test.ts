@@ -51,7 +51,7 @@ const optional = <T>(arbitrary: fc.Arbitrary<T>): fc.Arbitrary<T | undefined> =>
 
 const cardFields = fc.record({
   title: fc.constantFrom('', 'apple', 'Apple', 'banana', '가나', '다라'),
-  createAt: fc.integer({ min: 1, max: 4 }),
+  createdAt: fc.integer({ min: 1, max: 4 }),
   n: optional(fc.constantFrom('1', '2', '10', '-3', 'abc', '')),
   t: optional(fc.constantFrom('x', 'y', 'Y', '')),
   d: optional(
@@ -74,7 +74,7 @@ const cards = fc.array(cardFields, { minLength: 0, maxLength: 12 }).map((fields)
     const card = createCard();
     card.id = `card-${index}`;
     card.title = field.title;
-    card.createAt = field.createAt;
+    card.createdAt = field.createdAt;
     for (const propertyId of ['n', 't', 'd', 's'] as const) {
       const value = field[propertyId];
       if (value !== undefined) setCardProperty(card, propertyId, value);
@@ -246,7 +246,7 @@ describe('the check itself', () => {
       const a = order.indexOf(first.id);
       const b = order.indexOf(second.id);
       if (a < 0 && b < 0)
-        return first.title.localeCompare(second.title) || first.createAt - second.createAt;
+        return first.title.localeCompare(second.title) || first.createdAt - second.createdAt;
       if (a < 0 && b >= 0) return 1;
       return a - b;
     };

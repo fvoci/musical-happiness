@@ -27,11 +27,11 @@ use crate::users::InstanceRole;
 use crate::{Standing, Store, signups};
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
-const COLUMNS: &str = "id, workspace_id, role, container_id, container_role, created_by, create_at, \
+const COLUMNS: &str = "id, workspace_id, role, container_id, container_role, created_by, created_at, \
                        expires_at, max_uses, uses, parent_id, recipient";
 /// [`COLUMNS`] of the table as `i`.
 pub(crate) const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.container_id, i.container_role, \
-                            i.created_by, i.create_at, i.expires_at, i.max_uses, i.uses, \
+                            i.created_by, i.created_at, i.expires_at, i.max_uses, i.uses, \
                             i.parent_id, i.recipient";
 
 /// A link to store.
@@ -176,7 +176,7 @@ impl Store {
             };
             let mut sql = scope.sql(
                 "INSERT INTO invitations (id, org_id, workspace_id, role, container_id, container_role, \
-                 token_hash, created_by, create_at, expires_at, max_uses, parent_id, \
+                 token_hash, created_by, created_at, expires_at, max_uses, parent_id, \
                  recipient) VALUES (",
             );
             sql.bind(Id(&new_id()))
@@ -253,7 +253,7 @@ impl Store {
             if let Some(user_id) = created_by {
                 sql.push_bind(" AND i.created_by = ", Id(user_id));
             }
-            sql.push(" ORDER BY i.create_at DESC, i.id DESC");
+            sql.push(" ORDER BY i.created_at DESC, i.id DESC");
             scope
                 .fetch_all(sql)
                 .await?
@@ -787,7 +787,7 @@ pub(crate) fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
             Some(container_role.parse().map_err(corrupt("container_role"))?)
         },
         created_by: row.id(5)?,
-        create_at: row.int(6)?,
+        created_at: row.int(6)?,
         expires_at: row.int(7)?,
         // No link may be used zero times: a column without a number is one without
         // such an end.

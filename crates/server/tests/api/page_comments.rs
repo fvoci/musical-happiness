@@ -44,7 +44,7 @@ type OnTheirs = [u16; 5];
 async fn on_theirs(client: &Client, at: &str, wiki: &str, page: &str, theirs: &Value) -> OnTheirs {
     let comments = comments_of(at, wiki, page);
     let comment = format!("{comments}/{}", id(theirs));
-    let change = json!({"body": text("changed"), "readAt": theirs["updateAt"]});
+    let change = json!({"body": text("changed"), "readAt": theirs["updatedAt"]});
     [
         client.get(&comments).await,
         client.post(&comments, &json!({"body": text("mine")})).await,
@@ -61,7 +61,7 @@ async fn on_theirs(client: &Client, at: &str, wiki: &str, page: &str, theirs: &V
 async fn on_their_own(client: &Client, wiki: &str, page: &str) -> ([u16; 3], bool) {
     let mine = written(client, wiki, page, "first").await;
     let comment = format!("{}/{}", comments_of(TEST_WS, wiki, page), id(&mine));
-    let change = json!({"body": text("second"), "readAt": mine["updateAt"]});
+    let change = json!({"body": text("second"), "readAt": mine["updatedAt"]});
     let changed = client.patch(&comment, &change).await;
     if changed.status.is_success() {
         assert!(
@@ -94,7 +94,7 @@ async fn each_role_of_the_wiki_does_to_the_comments_of_a_page_what_it_does_to_a_
         .client
         .patch(
             &at,
-            &json!({"body": text("again"), "readAt": theirs["updateAt"]}),
+            &json!({"body": text("again"), "readAt": theirs["updatedAt"]}),
         )
         .await;
     changed.check_ok();
@@ -129,7 +129,7 @@ async fn each_role_of_the_wiki_does_to_the_comments_of_a_page_what_it_does_to_a_
     th.client
         .patch(
             &at,
-            &json!({"body": text("moderated"), "readAt": mine["updateAt"]}),
+            &json!({"body": text("moderated"), "readAt": mine["updatedAt"]}),
         )
         .await
         .check_ok();
@@ -144,7 +144,7 @@ async fn who_may_not_read_the_wiki_is_answered_of_its_comments_as_of_none() {
     let th = Setup::native().start().await.init_basic().await;
     let (wiki, page) = wiki_of(&th.client, "private").await;
     let theirs = written(&th.client, &wiki, &page, "hidden").await;
-    let nothing = json!({"id": UNKNOWN_ID, "updateAt": 1});
+    let nothing = json!({"id": UNKNOWN_ID, "updatedAt": 1});
     let none = on_theirs(&th.client2, TEST_WS, UNKNOWN_ID, UNKNOWN_ID, &nothing).await;
     assert_eq!(none, [404; 5]);
     for (client, at) in [(&th.client2, TEST_WS), (&th.client, ROOT_WS)] {
@@ -202,7 +202,7 @@ async fn an_open_wiki_not_joined_has_its_comments_read_as_a_viewer_does() {
         .check_no_content();
 
     let own = format!("{comments}/{}", id(&kept));
-    let change = json!({"body": text("changed"), "readAt": kept["updateAt"]});
+    let change = json!({"body": text("changed"), "readAt": kept["updatedAt"]});
     let answers = [
         th.client2.patch(&own, &change).await,
         th.client2.delete(&own).await,
@@ -239,7 +239,7 @@ async fn a_comment_is_reached_through_its_own_page_only() {
         )
         .await;
     child.check_created();
-    let child = json!({"id": id(&child.value()), "updateAt": 1});
+    let child = json!({"id": id(&child.value()), "updatedAt": 1});
     let comment = written(client, &wiki, &page, "here").await;
     let board = client
         .post(
@@ -261,13 +261,13 @@ async fn a_comment_is_reached_through_its_own_page_only() {
         .post(
             &format!("{TEST_WS}/boards/{board}/blocks"),
             &json!([{"containerId": board, "parentId": card, "type": "comment",
-                     "body": text("on a card"), "createAt": 1, "updateAt": 1}]),
+                     "body": text("on a card"), "createdAt": 1, "updatedAt": 1}]),
         )
         .await;
     on_card.check_created();
     let on_card = on_card.value()[0].clone();
 
-    let nothing = json!({"id": UNKNOWN_ID, "updateAt": 1});
+    let nothing = json!({"id": UNKNOWN_ID, "updatedAt": 1});
     let none = on_theirs(client, TEST_WS, &wiki, &page, &nothing).await;
     assert_eq!(none, [200, 201, 404, 404, 404]);
     for (wiki, page, comment, what) in [
@@ -345,7 +345,7 @@ async fn a_comment_is_a_text_written_over_what_was_read() {
     }
     let comment = written(client, &wiki, &page, "first").await;
     let at = format!("{comments}/{}", id(&comment));
-    let stale = comment["updateAt"].as_i64().expect("a time") - 1;
+    let stale = comment["updatedAt"].as_i64().expect("a time") - 1;
     let conflict = client
         .patch(&at, &json!({"body": text("late"), "readAt": stale}))
         .await;
@@ -353,11 +353,11 @@ async fn a_comment_is_a_text_written_over_what_was_read() {
     for (refused, place) in [
         (json!({"body": text("x")}), Some("/readAt")),
         (
-            json!({"body": null, "readAt": comment["updateAt"]}),
+            json!({"body": null, "readAt": comment["updatedAt"]}),
             Some("/body"),
         ),
         (
-            json!({"body": text("x"), "readAt": comment["updateAt"], "parentId": page}),
+            json!({"body": text("x"), "readAt": comment["updatedAt"], "parentId": page}),
             None,
         ),
     ] {
@@ -426,7 +426,7 @@ async fn the_comments_of_a_page_in_the_trash_are_not_there() {
     client
         .patch(
             &at,
-            &json!({"body": text("second"), "readAt": comment["updateAt"]}),
+            &json!({"body": text("second"), "readAt": comment["updatedAt"]}),
         )
         .await
         .check_ok();
@@ -441,7 +441,7 @@ async fn the_comments_of_a_page_in_the_trash_are_not_there() {
         .delete(&format!("{TEST_WS}/wikis/{wiki}/pages/{page}"))
         .await
         .check_no_content();
-    let nothing = json!({"id": UNKNOWN_ID, "updateAt": 1});
+    let nothing = json!({"id": UNKNOWN_ID, "updatedAt": 1});
     let none = on_theirs(client, TEST_WS, &wiki, UNKNOWN_ID, &nothing).await;
     assert_eq!(none, [404; 5]);
     assert_eq!(

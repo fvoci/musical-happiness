@@ -148,7 +148,7 @@ test('a body another person writes is followed by the card: its preview and its 
         if (!found) throw new Error('no card');
         await dev
           .someoneElse()
-          .writeCardBody(boardId, found.id, { body: written, readAt: found.updateAt });
+          .writeCardBody(boardId, found.id, { body: written, readAt: found.updatedAt });
       },
       [placeOf(page.url()).boardId, body] as const,
     );
@@ -165,7 +165,7 @@ test('a body another person writes is followed by the card: its preview and its 
 
 /** What the test asks of a backend in the page. */
 interface DevBackend {
-  cards(boardId: string): Promise<{ id: string; title: string; updateAt: number }[]>;
+  cards(boardId: string): Promise<{ id: string; title: string; updatedAt: number }[]>;
   writeCardBody(
     boardId: string,
     cardId: string,

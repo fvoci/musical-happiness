@@ -53,7 +53,7 @@ const TEXT_MISSING: &str = "a comment has a text";
 
 /// What a change of a comment is refused with that does not say what it was read at.
 const READ_AT_MISSING: &str =
-    "a comment is changed with readAt, the updateAt of the comment as it was read";
+    "a comment is changed with readAt, the updatedAt of the comment as it was read";
 
 /// A comment to write on a unit.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -74,7 +74,7 @@ pub(crate) struct UnitCommentPatch {
     #[serde(default)]
     #[schema(value_type = Body)]
     body: BodyChange,
-    /// The `updateAt` of the comment as the client read it: if the comment has changed
+    /// The `updatedAt` of the comment as the client read it: if the comment has changed
     /// since, the patch is refused with 409 and changes nothing.
     #[schema(value_type = i64)]
     read_at: Option<i64>,
@@ -168,7 +168,7 @@ async fn handle_get_unit_comments(
         .app
         .blocks(&course_id, Some(&unit.id), Some(&BlockType::Comment))
         .await?;
-    comments.sort_by(|one, other| (one.create_at, &one.id).cmp(&(other.create_at, &other.id)));
+    comments.sort_by(|one, other| (one.created_at, &one.id).cmp(&(other.created_at, &other.id)));
     Ok(json_response(&comments))
 }
 

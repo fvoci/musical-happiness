@@ -290,7 +290,7 @@ describe('property behaviour', () => {
 
   it('shows the times of the card itself', () => {
     const created = card('x', 'x');
-    created.createAt = at('Asia/Seoul', 2026, 3, 5, 15, 20);
+    created.createdAt = at('Asia/Seoul', 2026, 3, 5, 15, 20);
     expect(PROPERTY_BEHAVIORS.createdTime.displayValue(undefined, created, due, context)).toBe(
       'March 05 at 3:20 PM',
     );
@@ -307,7 +307,7 @@ describe('property behaviour', () => {
 
     // A card made at 18:00 UTC on the 6th is on the 7th for a reader in Seoul.
     const created = card('x', 'x');
-    created.createAt = Date.UTC(2023, 11, 6, 18, 0);
+    created.createdAt = Date.UTC(2023, 11, 6, 18, 0);
     expect(PROPERTY_BEHAVIORS.createdTime.days?.(undefined, created, 'Asia/Seoul')?.first).toBe(
       '2023-12-07',
     );

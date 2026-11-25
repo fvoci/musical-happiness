@@ -5,7 +5,7 @@
  * Each view keeps its place in its own `fields.order` (`logic/list-places.ts`),
  * not the board one list of them: a move writes the view moved, so that two
  * people moving two views at once both keep their moves. Every place write
- * carries the `updateAt` of the view as it was read when the place was
+ * carries the `updatedAt` of the view as it was read when the place was
  * computed (`readAt`), so a stale write is refused (409) instead of
  * overwriting another editor's move. On 409, a move re-reads the board's views
  * and tries the gesture once from the stored order; on a second 409 it stops
@@ -53,7 +53,7 @@ function sayKept(board: BoardStore, refused: unknown): void {
 
 /**
  * Writes places that keep views where they show (`Placing.keep`): no step of
- * undo. Each write carries the `updateAt` of the view when the places were
+ * undo. Each write carries the `updatedAt` of the view when the places were
  * computed (`before`), separating 409 conflicts from other refusals.
  */
 async function keepViewPlaces(
@@ -64,7 +64,7 @@ async function keepViewPlaces(
   const sent: { write: PlaceWrite; running: Promise<void> }[] = [];
   for (const write of keep) {
     const current = board.view(write.id);
-    const readAt = before.get(write.id)?.updateAt;
+    const readAt = before.get(write.id)?.updatedAt;
     if (!current || readAt === undefined) continue;
     const placed = { ...current, fields: { ...current.fields, order: write.place } };
     const [forward, backward] = viewPatches(placed, current);
@@ -117,7 +117,7 @@ async function retryStaleKeep(
 
 /**
  * Writes a view's moved place as one step of undo, carrying `readAt` from when
- * the place was computed. Undo and redo carry the view's `updateAt` as it is
+ * the place was computed. Undo and redo carry the view's `updatedAt` as it is
  * when they run; on 409 they re-read the board's views and refuse so another
  * editor's concurrent move is not overwritten.
  */
@@ -136,7 +136,7 @@ async function placeView(
   try {
     await board.workspace.undo.perform(
       async () => {
-        const at = first ? readAt : board.view(viewId)?.updateAt;
+        const at = first ? readAt : board.view(viewId)?.updatedAt;
         const initial = first;
         first = false;
         const patch = at === undefined ? forward : { ...forward, readAt: at };
@@ -148,7 +148,7 @@ async function placeView(
         }
       },
       async () => {
-        const at = board.view(viewId)?.updateAt;
+        const at = board.view(viewId)?.updatedAt;
         const patch = at === undefined ? backward : { ...backward, readAt: at };
         try {
           await board.writeView(viewId, patch, forward);
@@ -203,7 +203,7 @@ async function moveOnce(
   const own = !unplaced && placed[from]?.place === was ? [] : [{ id: viewId, place: was }];
   const [kept, moved] = await Promise.all([
     keepViewPlaces(board, [...keep, ...own], before),
-    placeView(board, viewId, place, real.updateAt),
+    placeView(board, viewId, place, real.updatedAt),
   ]);
   if (!moved.ok) {
     if (isConflict(moved.error)) {

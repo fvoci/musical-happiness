@@ -17,7 +17,7 @@ function link(id: string, extra: Partial<Invitation> = {}): Invitation {
     role: 'guest',
     containerId: 'b1',
     createdBy: 'u1',
-    createAt: 0,
+    createdAt: 0,
     expiresAt: 7 * 86_400_000,
     uses: 0,
     ...extra,

@@ -98,7 +98,7 @@ async fn an_org_cannot_forge_membership_in_another_orgs_workspace() {
     // No System handle, session SET, or RLS bypass is involved in the forged row.
     let inserted = test
         .execute_unchecked(&format!(
-            "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) \
+            "INSERT INTO workspace_members (workspace_id, user_id, role, created_at) \
          VALUES ('{other_workspace}', '{user_id}', 'member', 0)"
         ))
         .await;

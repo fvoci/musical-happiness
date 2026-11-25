@@ -177,9 +177,11 @@ async fn the_migration_keeps_the_name_every_account_is_shown_by() {
     let (named, unnamed) = (new_id(), new_id());
     let insert = |id: &str, username: &str, shown: &str| {
         format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+            "INSERT INTO users (id, username, email, password_hash, {}, {}, \
              display_name) VALUES ('{id}', '{username}', '{username}@example.com', '', 1, 1, \
-             '{shown}');"
+             '{shown}');",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         )
     };
     common::execute_raw(
@@ -228,9 +230,11 @@ async fn the_nameless_are_shown_by_name_but_not_those_that_gave_a_part() {
     let (nameless, part_given) = (new_id(), new_id());
     let insert = |id: &str, username: &str, first_name: &str| {
         format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+            "INSERT INTO users (id, username, email, password_hash, {}, {}, \
              display_name, first_name, last_name, name_shown) VALUES ('{id}', '{username}', \
-             '{username}@example.com', '', 1, 1, '', '{first_name}', '김', 'custom_name');"
+             '{username}@example.com', '', 1, 1, '', '{first_name}', '김', 'custom_name');",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         )
     };
     common::execute_raw(

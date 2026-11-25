@@ -38,7 +38,7 @@ pub struct Invitation {
     /// The identifier of the user who made the link.
     pub created_by: String,
     /// When the link was made, in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// When the link stops letting anybody in, in milliseconds since the Unix epoch.
     pub expires_at: i64,
     /// How often the link may be used; left out for one that is used as often as it is

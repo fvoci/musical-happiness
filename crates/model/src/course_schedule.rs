@@ -276,7 +276,7 @@ pub struct CourseSchedule {
     #[schema(minimum = 1, maximum = 127)]
     pub study_days: u8,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 /// Request body for creating or updating a course's shared schedule.
@@ -594,7 +594,7 @@ pub struct WorkspaceLearningToday {
     /// set to `auto`).
     pub today: String,
     /// Incomplete units with `effectiveDate == today`, ordered by course creation order
-    /// (`createAt`, `courseId`) and then outline order within each course.
+    /// (`createdAt`, `courseId`) and then outline order within each course.
     pub today_units: Vec<LearningTodayItem>,
     /// Incomplete units with `effectiveDate < today`, ordered by `effectiveDate` ascending
     /// (oldest first), then course creation order, then outline order within each course.

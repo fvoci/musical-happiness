@@ -25,7 +25,7 @@ describe('the previews of a gallery', () => {
     const now = await other.card(board.boardId, alpha.id);
     await other.writeCardBody(board.boardId, alpha.id, {
       body: text('written elsewhere'),
-      readAt: now.updateAt,
+      readAt: now.updatedAt,
     });
     await settle();
     expect(previews.of(alpha.id)?.text).toBe('written elsewhere');
@@ -34,7 +34,7 @@ describe('the previews of a gallery', () => {
     const later = await other.card(board.boardId, alpha.id);
     await other.writeCardBody(board.boardId, alpha.id, {
       body: text('not followed'),
-      readAt: later.updateAt,
+      readAt: later.updatedAt,
     });
     await settle();
     expect(previews.of(alpha.id)?.text).toBe('written elsewhere');
@@ -61,7 +61,7 @@ describe('the previews of a gallery', () => {
     const now = await other.card(board.boardId, alpha.id);
     await other.writeCardBody(board.boardId, alpha.id, {
       body: text('newer'),
-      readAt: now.updateAt,
+      readAt: now.updatedAt,
     });
     await settle();
     release();
@@ -121,8 +121,8 @@ describe('the server backend', () => {
         type: 'card',
         title: 'With a picture',
         fields: { properties: {} },
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
         body: null,
       },
       summary,
@@ -153,7 +153,7 @@ describe('a card’s change message', () => {
       ],
     };
     const now = await other.card(board.boardId, alpha.id);
-    await other.writeCardBody(board.boardId, alpha.id, { body, readAt: now.updateAt });
+    await other.writeCardBody(board.boardId, alpha.id, { body, readAt: now.updatedAt });
     await settle();
     stop();
 
@@ -173,8 +173,8 @@ describe('a card’s change message', () => {
         type: 'card',
         title: 'Alpha',
         fields: { properties: {} },
-        createAt: 1,
-        updateAt: 2,
+        createdAt: 1,
+        updatedAt: 2,
         body: null,
         number: alpha.number,
       },

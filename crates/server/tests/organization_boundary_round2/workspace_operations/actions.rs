@@ -319,7 +319,7 @@ async fn unit_versions(case: &mut Case, course: &str, unit: &str) {
         case.run(
             "patchUnit",
             of_unit,
-            json!({"readAt": read["updateAt"], "body": body}),
+            json!({"readAt": read["updatedAt"], "body": body}),
         )
         .await;
     }
@@ -363,7 +363,7 @@ async fn unit_comments(case: &mut Case, course: &str, unit: &str) {
         ("commentId", comment.as_str()),
     ];
     let change =
-        json!({"body": said("changed unit comment".to_owned()), "readAt": made["updateAt"]});
+        json!({"body": said("changed unit comment".to_owned()), "readAt": made["updatedAt"]});
     case.run("patchUnitComment", of_comment, change).await;
     case.run("getUnitCommentVersions", of_comment, json!({}))
         .await;
@@ -443,7 +443,7 @@ async fn page_versions(case: &mut Case, wiki: &str, page: &str) {
         case.run(
             "patchPage",
             of_page,
-            json!({"readAt": read["updateAt"], "body": body}),
+            json!({"readAt": read["updatedAt"], "body": body}),
         )
         .await;
     }
@@ -486,7 +486,7 @@ async fn page_comments(case: &mut Case, wiki: &str, page: &str) {
         ("pageId", page),
         ("commentId", comment.as_str()),
     ];
-    let change = json!({"body": said("changed comment".to_owned()), "readAt": made["updateAt"]});
+    let change = json!({"body": said("changed comment".to_owned()), "readAt": made["updatedAt"]});
     case.run("patchPageComment", of_comment, change).await;
     case.run("getPageCommentVersions", of_comment, json!({}))
         .await;
@@ -523,7 +523,7 @@ async fn cards(case: &mut Case, board: &str) -> String {
     case.run(
         "patchCard",
         &[("cardId", &card)],
-        json!({"readAt": read["updateAt"], "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "a kept body"}]}]}}),
+        json!({"readAt": read["updatedAt"], "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "a kept body"}]}]}}),
     )
     .await;
     case.present("getCardBodyVersions", &[("cardId", &card)], "\"version\":1")
@@ -542,7 +542,7 @@ async fn cards(case: &mut Case, board: &str) -> String {
     case.run(
         "patchCard",
         &[("cardId", &card)],
-        json!({"readAt": read["updateAt"], "body": null}),
+        json!({"readAt": read["updatedAt"], "body": null}),
     )
     .await;
     case.run(
@@ -559,7 +559,7 @@ async fn cards(case: &mut Case, board: &str) -> String {
             at,
             json!([{
                 "id": "comment-reference", "containerId": board, "parentId": card,
-                "type": "comment", "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "first comment"}]}]}, "createAt": 1, "updateAt": 1
+                "type": "comment", "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "first comment"}]}]}, "createdAt": 1, "updatedAt": 1
             }]),
         )
         .await
@@ -567,7 +567,7 @@ async fn cards(case: &mut Case, board: &str) -> String {
     let comment = case.remember(&created[0], "id");
     let comment_at = &[("boardId", board), ("blockId", comment.as_str())];
     case.present("getBlocks", at, &comment).await;
-    case.run("patchBlock", comment_at, json!({"readAt": created[0]["updateAt"], "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "edited comment"}]}]}}))
+    case.run("patchBlock", comment_at, json!({"readAt": created[0]["updatedAt"], "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "edited comment"}]}]}}))
         .await;
     case.present("getCommentVersions", comment_at, "first comment")
         .await;
@@ -811,7 +811,7 @@ async fn subscriptions(case: &mut Case, card: &str) {
 async fn bulk(case: &mut Case) {
     let made = case.run("createBoardsAndBlocks", &[], json!({
         "containers": [{"id": "board-reference", "title": "Bulk board", "visibility": "private", "workspaceId": case.workspace}],
-        "blocks": [{"id": "card-reference", "containerId": "board-reference", "title": "Bulk card", "type": "card", "createAt": 1, "updateAt": 1}]
+        "blocks": [{"id": "card-reference", "containerId": "board-reference", "title": "Bulk card", "type": "card", "createdAt": 1, "updatedAt": 1}]
     })).await.value();
     let board = case.remember(&made["containers"][0], "id");
     let card = case.remember(&made["blocks"][0], "id");

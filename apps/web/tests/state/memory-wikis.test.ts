@@ -253,11 +253,11 @@ describe('the pages of a wiki in memory', () => {
     const page = await wiki.createPage(made.wiki.id, { title: 'Page' });
     const written = await wiki.patchPage(made.wiki.id, page.id, {
       body: text('first'),
-      readAt: page.updateAt,
+      readAt: page.updatedAt,
     });
     expect(written.body).toEqual(text('first'));
     const stale = await rejection(
-      wiki.patchPage(made.wiki.id, page.id, { body: text('second'), readAt: page.updateAt }),
+      wiki.patchPage(made.wiki.id, page.id, { body: text('second'), readAt: page.updatedAt }),
     );
     expect(stale.status).toBe(409);
     expect((await wiki.page(made.wiki.id, page.id)).body).toEqual(text('first'));

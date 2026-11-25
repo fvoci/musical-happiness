@@ -121,7 +121,7 @@ export class MemoryContentSearch implements ContentSearch {
     const cardNumber =
       ask.kind === undefined || ask.kind === 'card' ? hashCardNumberOf(query) : undefined;
     if (cardNumber !== undefined) {
-      const hits: { hit: SearchHit; updateAt: number }[] = [];
+      const hits: { hit: SearchHit; updatedAt: number }[] = [];
       for (const board of world.containers.values()) {
         if (board.workspaceId !== workspaceId || board.isTemplate) continue;
         if (!reads(world, this.#userId, board.id)) continue;
@@ -138,14 +138,14 @@ export class MemoryContentSearch implements ContentSearch {
               number: cardNumber,
               snippet: [],
             },
-            updateAt: block.updateAt,
+            updatedAt: block.updatedAt,
           });
         }
       }
       return hits
         .sort(
           (first, second) =>
-            second.updateAt - first.updateAt || first.hit.id.localeCompare(second.hit.id),
+            second.updatedAt - first.updatedAt || first.hit.id.localeCompare(second.hit.id),
         )
         .slice(0, limit)
         .map(({ hit }) => hit);
@@ -156,7 +156,7 @@ export class MemoryContentSearch implements ContentSearch {
     const holds = (text: string, word: string): boolean =>
       new RegExp(escaped(word), 'iu').test(text);
 
-    const hits: { hit: SearchHit; inTitle: number; updateAt: number }[] = [];
+    const hits: { hit: SearchHit; inTitle: number; updatedAt: number }[] = [];
     for (const board of world.containers.values()) {
       if (board.workspaceId !== workspaceId || board.isTemplate) continue;
       if (!reads(world, this.#userId, board.id)) continue;
@@ -178,12 +178,12 @@ export class MemoryContentSearch implements ContentSearch {
             snippet: snippetOf(text, words),
           },
           inTitle: words.filter((word) => holds(block.title, word)).length,
-          updateAt: block.updateAt,
+          updatedAt: block.updatedAt,
         });
       }
     }
     return hits
-      .sort((first, second) => second.inTitle - first.inTitle || second.updateAt - first.updateAt)
+      .sort((first, second) => second.inTitle - first.inTitle || second.updatedAt - first.updatedAt)
       .slice(0, limit)
       .map(({ hit }) => hit);
   }

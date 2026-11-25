@@ -252,7 +252,7 @@ async fn handle_get_page(
 /// Change a page
 ///
 /// Its title, its icon, or its whole body, for editors of the wiki. A new body is sent
-/// with `readAt`, the `updateAt` of the page as it was read: 409 if the page has
+/// with `readAt`, the `updatedAt` of the page as it was read: 409 if the page has
 /// changed since, and nothing is changed. Where the body is being edited together, what
 /// the editors typed is written to the page first, so a writer who read it before is
 /// refused and reads it again. Where the page is in the tree does not change here.

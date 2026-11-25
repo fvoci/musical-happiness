@@ -45,8 +45,8 @@ describe('somebody whose account was deleted', () => {
       username: '',
       displayName: '',
       email: '',
-      createAt: 0,
-      updateAt: 0,
+      createdAt: 0,
+      updatedAt: 0,
     });
     expect(workspace.user(otherId)?.deletedAt).toBeUndefined();
     expect(workspace.userName(otherId)).toBe('Deleted user');

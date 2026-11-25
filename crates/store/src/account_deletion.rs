@@ -174,7 +174,7 @@ impl Store {
                 let mut sql = scope.sql("UPDATE users SET deleted_at = ");
                 sql.bind(now)
                     .push_bind(", delete_after = ", delete_after)
-                    .push_bind(", update_at = ", now)
+                    .push_bind(", updated_at = ", now)
                     .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(user_id))
                     .push_bind(" AND password_hash = ", seen_password_hash)
                     .push_bind(" AND password_locked_at = ", 0_i64);
@@ -224,8 +224,8 @@ impl Store {
         // whose links open again is found by its owner.
         self.system()
             .transaction(async |scope| {
-                let mut sql =
-                    scope.sql("UPDATE users SET deleted_at = NULL, delete_after = 0, update_at = ");
+                let mut sql = scope
+                    .sql("UPDATE users SET deleted_at = NULL, delete_after = 0, updated_at = ");
                 sql.bind(now)
                     .push_bind(" WHERE id = ", Id(user_id))
                     .push(" AND ")

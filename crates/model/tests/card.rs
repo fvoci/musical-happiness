@@ -53,8 +53,8 @@ fn sample_block() -> Block {
         title: "My card title".to_owned(),
         fields: sample_fields(),
         body: None,
-        create_at: NOW,
-        update_at: NOW,
+        created_at: NOW,
+        updated_at: NOW,
         deleted_at: None,
         container_id: board_id,
         number: Some(7),
@@ -108,7 +108,7 @@ fn card_from_block_fills_missing_fields_and_times() {
     assert_eq!(card.icon, "");
     assert!(!card.is_template, "isTemplate defaults to false");
     assert!(card.properties.is_empty(), "properties default to empty");
-    assert_eq!((card.create_at, card.update_at), (NOW, NOW));
+    assert_eq!((card.created_at, card.updated_at), (NOW, NOW));
 }
 
 /// A `contentOrder` that a card stored before has, of any shape, is not read: a card's
@@ -167,8 +167,8 @@ fn card_validate_reports_the_first_problem() {
         id: "card-id".to_owned(),
         board_id: "board-id".to_owned(),
         icon: "🎨".to_owned(),
-        create_at: NOW,
-        update_at: NOW,
+        created_at: NOW,
+        updated_at: NOW,
         ..Card::default()
     };
     assert_eq!(valid.validate(), Ok(()));
@@ -197,17 +197,17 @@ fn card_validate_reports_the_first_problem() {
         ),
         (
             Card {
-                create_at: 0,
+                created_at: 0,
                 ..valid.clone()
             },
-            "the card has no createAt",
+            "the card has no createdAt",
         ),
         (
             Card {
-                update_at: 0,
+                updated_at: 0,
                 ..valid
             },
-            "the card has no updateAt",
+            "the card has no updatedAt",
         ),
     ];
     for (card, message) in cases {
@@ -226,8 +226,8 @@ fn card_icon_may_be_one_multi_scalar_grapheme() {
         id: "card-id".to_owned(),
         board_id: "board-id".to_owned(),
         icon: "👨‍👩‍👧‍👦".to_owned(),
-        create_at: NOW,
-        update_at: NOW,
+        created_at: NOW,
+        updated_at: NOW,
         ..Card::default()
     };
     assert_eq!(card.validate(), Ok(()));
@@ -237,14 +237,14 @@ fn card_icon_may_be_one_multi_scalar_grapheme() {
 fn card_populate_keeps_existing_values() {
     let mut card = Card {
         id: "card-id".to_owned(),
-        create_at: 5,
+        created_at: 5,
         ..Card::default()
     };
 
     card.populate(NOW);
 
     assert_eq!(card.id, "card-id");
-    assert_eq!((card.create_at, card.update_at), (5, NOW));
+    assert_eq!((card.created_at, card.updated_at), (5, NOW));
 
     let mut blank = Card::default();
     blank.populate(NOW);

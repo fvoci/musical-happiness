@@ -6,7 +6,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -20,7 +20,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Filed board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -32,7 +32,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -46,7 +46,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Other board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -73,12 +73,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 10,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }
@@ -98,12 +98,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:8>",
         "name": "Boards",
         "sortOrder": 10,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:9>",
         "workspaceId": "<id:1>"
       }
@@ -116,12 +116,12 @@
     "content_type": "application/json",
     "body": {
       "collapsed": false,
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "id": "<id:10>",
       "name": "Projects",
       "sortOrder": 10,
       "type": "custom",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "userId": "<id:2>",
       "workspaceId": "<id:1>"
     }
@@ -133,12 +133,12 @@
     "content_type": "application/json",
     "body": {
       "collapsed": true,
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "id": "<id:11>",
       "name": "Archive",
       "sortOrder": 10,
       "type": "custom",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "userId": "<id:2>",
       "workspaceId": "<id:1>"
     }
@@ -250,24 +250,24 @@
       {
         "collapsed": true,
         "containerMetadata": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:11>",
         "name": "Archive",
         "sortOrder": 10,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
       {
         "collapsed": false,
         "containerMetadata": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:10>",
         "name": "Projects",
         "sortOrder": 20,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -287,12 +287,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 30,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }
@@ -305,12 +305,12 @@
     "content_type": "application/json",
     "body": {
       "collapsed": true,
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "id": "<id:10>",
       "name": "Projects 2",
       "sortOrder": 20,
       "type": "custom",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "userId": "<id:2>",
       "workspaceId": "<id:1>"
     }
@@ -371,12 +371,12 @@
     "content_type": "application/json",
     "body": {
       "collapsed": false,
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "id": "<id:6>",
       "name": "Boards",
       "sortOrder": 30,
       "type": "system",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "userId": "<id:2>",
       "workspaceId": "<id:1>"
     }
@@ -402,12 +402,12 @@
       {
         "collapsed": true,
         "containerMetadata": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:11>",
         "name": "Archive",
         "sortOrder": 10,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -423,12 +423,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:10>",
         "name": "Projects 2",
         "sortOrder": 20,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -440,12 +440,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 30,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }
@@ -480,12 +480,12 @@
       {
         "collapsed": true,
         "containerMetadata": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:11>",
         "name": "Archive",
         "sortOrder": 10,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -501,12 +501,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:10>",
         "name": "Projects 2",
         "sortOrder": 20,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -518,12 +518,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 30,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }
@@ -663,12 +663,12 @@
       {
         "collapsed": true,
         "containerMetadata": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:11>",
         "name": "Archive",
         "sortOrder": 10,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -684,12 +684,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:10>",
         "name": "Projects 2",
         "sortOrder": 20,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -701,12 +701,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 30,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }
@@ -797,12 +797,12 @@
       {
         "collapsed": true,
         "containerMetadata": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:11>",
         "name": "Archive",
         "sortOrder": 10,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -822,12 +822,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 30,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }
@@ -856,12 +856,12 @@
       {
         "collapsed": true,
         "containerMetadata": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:11>",
         "name": "Archive",
         "sortOrder": 10,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -881,12 +881,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 30,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }
@@ -915,12 +915,12 @@
       {
         "collapsed": true,
         "containerMetadata": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:11>",
         "name": "Archive",
         "sortOrder": 10,
         "type": "custom",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       },
@@ -940,12 +940,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 30,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }

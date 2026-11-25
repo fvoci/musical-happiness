@@ -166,7 +166,7 @@ describe('a diary reached by another way than its own routes, in memory', () => 
     const made = await anArchive();
     await made.diaries.patchEntry(made.diary.id, made.entry.id, {
       body: text('바다에 간 날'),
-      readAt: made.entry.updateAt,
+      readAt: made.entry.updatedAt,
     });
     const hits = await made.backend.search.find(made.ownId, { query: '바다에' });
     expect(hits).toEqual([

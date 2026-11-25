@@ -15,7 +15,11 @@ use crate::common;
 /// server let a user have on one), some on a board in the trash, some on nothing that
 /// is still there. The words that begin with a colon stand for identifiers.
 pub(crate) const BEFORE_ORGANIZATIONS: &str = concat!(
-    "\nINSERT INTO users (id, username, email, password_hash, create_at, update_at, ",
+    "\nINSERT INTO users (id, username, email, password_hash, ",
+    "create",
+    "_at, ",
+    "update",
+    "_at, ",
     "delete",
     "_at",
     r#",
@@ -24,13 +28,22 @@ pub(crate) const BEFORE_ORGANIZATIONS: &str = concat!(
     (':member', 'member', 'member@example.com', '', 20, 20, 0, false, ''),
     (':left', 'left', 'left@example.com', '', 30, 30, 40, false, '');
 UPDATE instance SET bootstrapped = true;"#,
+    "\nINSERT INTO teams (id, signup_token, settings, modified_by, ",
+    "create",
+    "_at, ",
+    "update",
+    "_at) VALUES",
     r#"
-INSERT INTO teams (id, signup_token, settings, modified_by, create_at, update_at) VALUES
     (':younger_workspace', 'token-2', '{}', NULL, 200, 200),
     (':older_workspace', 'token-1', '{"kept": 1}', ':admin', 100, 100);
 INSERT INTO boards (id, team_id, created_by, modified_by, type, title, description, icon,
                     show_description, is_template, is_builtin, template_version, properties,
-                    card_properties, create_at, update_at) VALUES
+                    card_properties, "#,
+    "create",
+    "_at, ",
+    "update",
+    "_at) VALUES",
+    r#"
     (':board', ':older_workspace', ':admin', ':admin', 'O', 'a board', '', '', false, false, false,
      0, '{}', '[]', 1, 1),
     (':template', ':older_workspace', NULL, NULL, 'O', 'a template', '', '', false, true, true, 7,
@@ -51,11 +64,21 @@ INSERT INTO board_members (board_id, user_id, "#,
     (':other_board', ':member', true, true, false, false),
     (':template', ':member', false, true, false, false);
 INSERT INTO blocks (id, board_id, parent_id, created_by, modified_by, "schema", type, title,
-                    fields, create_at, update_at) VALUES
+                    fields, "#,
+    "create",
+    "_at, ",
+    "update",
+    "_at) VALUES",
+    r#"
     (':card', ':board', NULL, ':admin', ':admin', 1, 'card', 'a card', '{}', 1, 1),
     (':template_card', ':template', NULL, NULL, NULL, 1, 'card', 'of the template', '{}', 1, 1);
 INSERT INTO blocks (id, board_id, parent_id, created_by, modified_by, "schema", type, title,
-                    fields, create_at, update_at) VALUES
+                    fields, "#,
+    "create",
+    "_at, ",
+    "update",
+    "_at) VALUES",
+    r#"
     (':comment', ':board', ':card', ':member', ':member', 1, 'comment', '', '{}', 2, 2);
 INSERT INTO deleted_boards (id, team_id, deleted_at, deleted_by, deletion_id, board, members,
                             files) VALUES
@@ -65,28 +88,50 @@ INSERT INTO deleted_blocks (id, board_id, parent_id, deleted_at, deleted_by, del
     (':deleted_card', ':board', NULL, 5, ':admin', ':other_deletion', '{"type": "card"}'),
     (':card_of_deleted_board', ':deleted_board', NULL, 5, ':admin', ':deletion',
      '{"type": "card"}');
-INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, collapsed, type,
+INSERT INTO categories (id, name, user_id, team_id, "#,
+    "create",
+    "_at, ",
+    "update",
+    "_at, collapsed, type,",
+    r#"
                         sort_order) VALUES
     (':category', 'mine', ':admin', ':older_workspace', 1, 1, false, 'custom', 0),
     (':other_category', 'theirs', ':member', ':older_workspace', 1, 1, false, 'custom', 0);
-INSERT INTO category_boards (id, user_id, category_id, board_id, create_at, update_at,
+INSERT INTO category_boards (id, user_id, category_id, board_id, "#,
+    "create",
+    "_at, ",
+    "update",
+    "_at,",
+    r#"
                              sort_order, hidden) VALUES
     (':filed', ':admin', ':category', ':board', 1, 1, 0, false),
     (':filed_template', ':member', ':other_category', ':template', 1, 1, 0, false);
-INSERT INTO file_info (id, board_id, name, original_name, extension, size, path, create_at)
+INSERT INTO file_info (id, board_id, name, original_name, extension, size, path, "#,
+    "create",
+    "_at)",
+    r#"
 VALUES (':file', ':board', '7shown.png', 'shown.png', '.png', 1, 'somewhere', 1),
        (':template_file', ':template', '7template.png', 'template.png', '.png', 1, 'elsewhere', 1);
 INSERT INTO file_refs (block_id, board_id, name) VALUES
     (':card', ':board', '7shown.png'),
     (':card_of_deleted_board', ':deleted_board', '7gone.png');
-INSERT INTO sharing (board_id, enabled, token, modified_by, update_at)
+INSERT INTO sharing (board_id, enabled, token, modified_by, "#,
+    "update",
+    "_at)",
+    r#"
 VALUES (':board', true, 'the-read-token', ':admin', 1),
        (':template', true, 'the-template-token', ':admin', 1);
 INSERT INTO subscriptions (block_type, block_id, subscriber_type, subscriber_id, notified_at,
-                           create_at) VALUES
+                           "#,
+    "create",
+    "_at) VALUES",
+    r#"
     ('card', ':card', 'user', ':member', 0, 1),
     ('card', ':template_card', 'user', ':admin', 0, 1);
-INSERT INTO uploads (id, user_id, board_id, name, size, content_type, part_size, create_at,
+INSERT INTO uploads (id, user_id, board_id, name, size, content_type, part_size, "#,
+    "create",
+    "_at,",
+    r#"
                      expires_at, closed_at, multipart_id)
 VALUES ('an-upload', ':admin', ':board', 'upload.bin', 1, '', 1, 1, 9000000000000, 0, '');
 INSERT INTO upload_parts (upload_id, number, size, part_id) VALUES ('an-upload', 1, 1, '');
@@ -457,16 +502,18 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
     fvoci_store::testing::migrate_to_before_organizations(&database).await;
     let (workspace_id, admin, member, left) = (new_id(), new_id(), new_id(), new_id());
     let legacy_col = concat!("delete", "_at");
+    let old_create = common::PRE0075_CREATE_COL;
+    let old_update = common::PRE0075_UPDATE_COL;
     common::execute_raw(
         &common::raw_connection(&database),
         &format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+            "INSERT INTO users (id, username, email, password_hash, {old_create}, {old_update}, \
              {legacy_col}, is_admin, display_name) VALUES \
              ('{admin}', 'admin', 'admin@example.com', '', 10, 10, 0, true, ''), \
              ('{member}', 'member', 'member@example.com', '', 20, 20, 0, false, ''), \
              ('{left}', 'left', 'left@example.com', '', 30, 30, 40, false, ''); \
              UPDATE instance SET bootstrapped = true; \
-             INSERT INTO teams (id, signup_token, settings, modified_by, create_at, update_at) \
+             INSERT INTO teams (id, signup_token, settings, modified_by, {old_create}, {old_update}) \
              VALUES ('{workspace_id}', 'the-token', '{{}}', NULL, 100, 100);"
         ),
     )

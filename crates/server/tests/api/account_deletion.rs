@@ -467,7 +467,7 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
     ts.app
         .store()
         .system()
-        .execute_unchecked("UPDATE organizations SET create_at = 1 WHERE name = 'another'")
+        .execute_unchecked("UPDATE organizations SET created_at = 1 WHERE name = 'another'")
         .await
         .expect("the other organization is the older");
     set_provider(&ts, &org_id, &fake).await;

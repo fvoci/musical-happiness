@@ -13,7 +13,7 @@
           "type": "select"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "to export",
       "icon": "",
@@ -27,7 +27,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Exported board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -41,7 +41,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "icon": "x"
@@ -53,12 +53,12 @@
         "schema": 1,
         "title": "Exported card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -67,12 +67,12 @@
         "schema": 1,
         "title": "Exported text",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "fileId": "<secret:1>.png"
@@ -83,12 +83,12 @@
         "schema": 1,
         "title": "",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "table"
@@ -99,7 +99,7 @@
         "schema": 1,
         "title": "Exported view",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -128,7 +128,7 @@
                 "type": "select"
               }
             ],
-            "createAt": "<ts>",
+            "createdAt": "<ts>",
             "createdBy": "<id:2>",
             "description": "to export",
             "fileNames": {
@@ -145,7 +145,7 @@
             "showDescription": false,
             "templateVersion": 0,
             "title": "Exported board",
-            "updateAt": "<ts>",
+            "updatedAt": "<ts>",
             "visibility": "private",
             "workspaceId": "<id:1>"
           },
@@ -155,7 +155,7 @@
           "data": {
             "body": null,
             "containerId": "<id:3>",
-            "createAt": "<ts>",
+            "createdAt": "<ts>",
             "createdBy": "<id:2>",
             "fields": {
               "icon": "x"
@@ -167,7 +167,7 @@
             "schema": 1,
             "title": "Exported card",
             "type": "card",
-            "updateAt": "<ts>"
+            "updatedAt": "<ts>"
           },
           "type": "block"
         },
@@ -175,7 +175,7 @@
           "data": {
             "body": null,
             "containerId": "<id:3>",
-            "createAt": "<ts>",
+            "createdAt": "<ts>",
             "createdBy": "<id:2>",
             "fields": {},
             "id": "<id:5>",
@@ -184,7 +184,7 @@
             "schema": 1,
             "title": "Exported text",
             "type": "comment",
-            "updateAt": "<ts>"
+            "updatedAt": "<ts>"
           },
           "type": "block"
         },
@@ -192,7 +192,7 @@
           "data": {
             "body": null,
             "containerId": "<id:3>",
-            "createAt": "<ts>",
+            "createdAt": "<ts>",
             "createdBy": "<id:2>",
             "fields": {
               "fileId": "<secret:1>.png"
@@ -203,7 +203,7 @@
             "schema": 1,
             "title": "",
             "type": "attachment",
-            "updateAt": "<ts>"
+            "updatedAt": "<ts>"
           },
           "type": "block"
         },
@@ -211,7 +211,7 @@
           "data": {
             "body": null,
             "containerId": "<id:3>",
-            "createAt": "<ts>",
+            "createdAt": "<ts>",
             "createdBy": "<id:2>",
             "fields": {
               "viewType": "table"
@@ -222,7 +222,7 @@
             "schema": 1,
             "title": "Exported view",
             "type": "view",
-            "updateAt": "<ts>"
+            "updatedAt": "<ts>"
           },
           "type": "block"
         },
@@ -451,7 +451,7 @@
             "type": "relation"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:22>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
         "icon": "👋",
@@ -465,7 +465,7 @@
         "showDescription": true,
         "templateVersion": 12,
         "title": "Getting started with fvoci",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       },
@@ -478,7 +478,7 @@
             "type": "select"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:22>",
         "description": "to export",
         "icon": "",
@@ -492,7 +492,7 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Exported board",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       }
@@ -507,7 +507,7 @@
       {
         "body": null,
         "containerId": "<id:8>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:22>",
         "fields": {
           "icon": "x"
@@ -519,12 +519,12 @@
         "schema": 1,
         "title": "Exported card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:8>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:22>",
         "fields": {},
         "id": "<id:25>",
@@ -533,12 +533,12 @@
         "schema": 1,
         "title": "Exported text",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:8>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:22>",
         "fields": {
           "fileId": "<secret:2>.png"
@@ -549,12 +549,12 @@
         "schema": 1,
         "title": "",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:8>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:22>",
         "fields": {
           "viewType": "table"
@@ -565,7 +565,7 @@
         "schema": 1,
         "title": "Exported view",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },

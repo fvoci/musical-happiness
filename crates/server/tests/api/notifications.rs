@@ -243,7 +243,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
             .into_iter()
             .find(|block| block.id == comment.id)
             .expect("the comment")
-            .update_at;
+            .updated_at;
         th.client
             .patch(
                 &block_path(&board.id, &comment.id),
@@ -302,8 +302,8 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
             *now,
             json!({
                 "id": before.id,
-                "createAt": before.create_at,
-                "updateAt": before.update_at,
+                "createdAt": before.created_at,
+                "updatedAt": before.updated_at,
                 "readAt": 0,
                 "subject": null,
             }),
@@ -334,7 +334,7 @@ async fn notifications_are_read_one_by_one_and_all_at_once_by_their_reader_alone
     assert!(
         theirs
             .windows(2)
-            .all(|pair| pair[0].update_at > pair[1].update_at),
+            .all(|pair| pair[0].updated_at > pair[1].updated_at),
         "the newest first: {theirs:?}"
     );
     let second_page: Vec<Notification> = th
@@ -390,7 +390,7 @@ async fn notifications_are_read_one_by_one_and_all_at_once_by_their_reader_alone
     th.client2
         .post_empty(&format!(
             "/notifications/read?through={}",
-            theirs[1].create_at
+            theirs[1].created_at
         ))
         .await
         .check_no_content();
@@ -597,7 +597,7 @@ async fn copies_restores_and_quiet_writes_tell_nobody_and_a_body_only_whom_it_ne
         .client
         .patch(
             &format!("{}?disableNotify=true", block_path(&board.id, &quiet.id)),
-            &json!({"body": mentioning(&[&b.id]), "readAt": quiet.update_at,
+            &json!({"body": mentioning(&[&b.id]), "readAt": quiet.updated_at,
                     "updatedFields": {"properties": {OWNER: b.id}}}),
         )
         .await;

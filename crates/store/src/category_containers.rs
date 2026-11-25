@@ -196,7 +196,7 @@ pub(crate) async fn add_update_category_container(
     }
 
     let now = now_millis();
-    let mut sql = scope.sql("INSERT INTO category_containers (id, user_id, category_id, container_id, create_at, update_at, sort_order, \
+    let mut sql = scope.sql("INSERT INTO category_containers (id, user_id, category_id, container_id, created_at, updated_at, sort_order, \
          hidden) VALUES ");
     for (index, container_id) in container_ids.into_iter().enumerate() {
         sql.push(if index == 0 { "(" } else { ", (" })
@@ -209,9 +209,9 @@ pub(crate) async fn add_update_category_container(
             .push(", 0, false)");
     }
     // Moving a board to another category keeps its previous sort order and hidden flag.
-    sql.push(" ON CONFLICT ")
-        .push(filed_once(scope))
-        .push(" DO UPDATE SET category_id = EXCLUDED.category_id, update_at = EXCLUDED.update_at");
+    sql.push(" ON CONFLICT ").push(filed_once(scope)).push(
+        " DO UPDATE SET category_id = EXCLUDED.category_id, updated_at = EXCLUDED.updated_at",
+    );
     scope
         .execute(sql)
         .await
@@ -301,7 +301,7 @@ pub(crate) async fn put_back(
         sql.bind(DEFAULT_CATEGORY_NAME)
             .push_bind(" AND user_id = ", Id(&place.user_id))
             .push_bind(" AND workspace_id = ", Id(workspace_id))
-            .push(" ORDER BY sort_order, create_at, id LIMIT 1");
+            .push(" ORDER BY sort_order, created_at, id LIMIT 1");
         match scope.fetch_optional(sql).await? {
             Some(row) => (row.id(0)?, 0),
             None => return Ok(()),
@@ -310,7 +310,7 @@ pub(crate) async fn put_back(
     let now = now_millis();
     let mut sql = scope.sql(
         "INSERT INTO category_containers \
-         (id, user_id, category_id, container_id, create_at, update_at, sort_order, hidden) VALUES (",
+         (id, user_id, category_id, container_id, created_at, updated_at, sort_order, hidden) VALUES (",
     );
     sql.bind(Id(&new_id()))
         .push_bind(", ", Id(&place.user_id))

@@ -348,7 +348,7 @@ fn board_ops() -> Vec<Op> {
             "/boards/{c}/blocks",
             Json(|things, _| {
                 json!([{"containerId": things.container, "parentId": things.block, "type": "comment",
-                        "title": "said", "createAt": 1, "updateAt": 1}])
+                        "title": "said", "createdAt": 1, "updatedAt": 1}])
             }),
         ),
         op(
@@ -730,7 +730,7 @@ async fn make_kind_content(
             let at = format!("{units}/{block}");
             for body in ["first", "second"] {
                 let read = owner.get(&at).await.value();
-                let change = json!({"readAt": read["updateAt"], "body": said(body)});
+                let change = json!({"readAt": read["updatedAt"], "body": said(body)});
                 done(&owner.patch(&at, &change).await);
             }
             let comment = owner
@@ -745,7 +745,7 @@ async fn make_kind_content(
                 second: text(&second.value(), "id"),
                 file,
                 comment: text(&comment, "id"),
-                comment_at: comment["updateAt"].clone(),
+                comment_at: comment["updatedAt"].clone(),
                 version: "1".to_owned(),
             }
         }
@@ -759,7 +759,7 @@ async fn make_kind_content(
             let at = format!("{pages}/{block}");
             for body in ["first", "second"] {
                 let read = owner.get(&at).await.value();
-                let change = json!({"readAt": read["updateAt"], "body": said(body)});
+                let change = json!({"readAt": read["updatedAt"], "body": said(body)});
                 done(&owner.patch(&at, &change).await);
             }
             let versions = owner.get(&format!("{at}/body-versions")).await.value();
@@ -775,7 +775,7 @@ async fn make_kind_content(
                 second: text(&second.value(), "id"),
                 file,
                 comment: text(&comment, "id"),
-                comment_at: comment["updateAt"].clone(),
+                comment_at: comment["updatedAt"].clone(),
                 version: versions[0]["version"].to_string(),
             }
         }

@@ -208,7 +208,7 @@ function applySharedDates(
     const prev = (block.fields as { scheduledDate?: unknown }).scheduledDate;
     if (prev === date) continue;
     block.fields = { ...block.fields, scheduledDate: date };
-    block.updateAt = world.now();
+    block.updatedAt = world.now();
     block.modifiedBy = userId;
     changed.push(block);
   }
@@ -245,7 +245,7 @@ export function memoryPutCourseSchedule(
     startDate: start,
     targetDate: target,
     studyDays,
-    updateAt: world.now(),
+    updatedAt: world.now(),
   };
   world.courseSchedules.set(courseId, saved);
   if (update.autoAssign) applySharedDates(world, userId, courseId, start, target, studyDays);
@@ -300,7 +300,7 @@ export function memoryRedistributeMyCourseSchedule(
         completedAt: existing?.completedAt ?? null,
         plannedDate: date,
         lastPosition: existing?.lastPosition ?? null,
-        updateAt: world.now(),
+        updatedAt: world.now(),
       });
     }
   }
@@ -335,7 +335,7 @@ export function memoryPutUnitSchedule(
     completedAt: existing?.completedAt ?? null,
     plannedDate,
     lastPosition: existing?.lastPosition ?? null,
-    updateAt: world.now(),
+    updatedAt: world.now(),
   };
   byUnit.set(unitId, next);
   return copy(next);
@@ -356,7 +356,7 @@ export function memoryGetWorkspaceLearningToday(
         !container.isTemplate &&
         hasMembership(world, userId, container.id),
     )
-    .sort((a, b) => a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   const progressByUnit = world.unitProgress.get(userId);
   const todayUnits: LearningTodayItem[] = [];

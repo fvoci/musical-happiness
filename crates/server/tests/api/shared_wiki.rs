@@ -82,7 +82,7 @@ async fn shared_wiki(th: &TestServer) -> SharedWiki {
         .expect("a line")
         .extend([mention(&owner_id), mention(&other_id)]);
     let path = format!("{at}/{}", mine.page);
-    let read_at = owner.get(&path).await.value()["updateAt"].clone();
+    let read_at = owner.get(&path).await.value()["updatedAt"].clone();
     owner
         .patch(&path, &json!({"readAt": read_at, "body": body}))
         .await
@@ -301,7 +301,7 @@ async fn a_wiki_link_follows_no_blocks_over_the_websocket() {
         }))
         .await;
     let path = format!("{TEST_WS}/wikis/{}/pages/{}", shared.wiki, shared.page);
-    let read_at = th.client.get(&path).await.value()["updateAt"].clone();
+    let read_at = th.client.get(&path).await.value()["updatedAt"].clone();
     th.client
         .patch(&path, &json!({"readAt": read_at, "title": "renamed"}))
         .await

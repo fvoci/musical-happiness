@@ -220,8 +220,8 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     filterValueType: 'date',
     isReadOnly: true,
     calculationOptions: TIME_CALCULATIONS,
-    displayValue: (_value, card, _template, context) => displayDateTime(card.createAt, context),
-    days: (_value, card, timeZone) => dayOfMoment(card.createAt, timeZone),
+    displayValue: (_value, card, _template, context) => displayDateTime(card.createdAt, context),
+    days: (_value, card, timeZone) => dayOfMoment(card.createdAt, timeZone),
   }),
   updatedTime: behavior({
     canFilter: true,

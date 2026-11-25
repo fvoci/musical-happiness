@@ -69,7 +69,7 @@ async fn a_new_image_survives_a_purge_that_saw_no_reference() {
         container_id: board.clone(),
         stored_name: "7shown.png".to_owned(),
         path: format!("boards/{board}/7shown.png"),
-        create_at: 1,
+        created_at: 1,
         ..FileRecord::default()
     };
     test.save_file_record(&file)

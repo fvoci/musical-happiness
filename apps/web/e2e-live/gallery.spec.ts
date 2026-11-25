@@ -56,7 +56,7 @@ test('a gallery shows each card’s first picture and the start of its text, rea
       await api.get(`/api/v1/w/${board.workspaceId}/cards/${sunset}`)
     ).json()) as Schemas['Card'];
     const written = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${sunset}`, {
-      data: { readAt: now.updateAt, body: { type: 'doc', content } },
+      data: { readAt: now.updatedAt, body: { type: 'doc', content } },
     });
     expect(written.ok()).toBe(true);
   };
@@ -72,8 +72,8 @@ test('a gallery shows each card’s first picture and the start of its text, rea
           containerId: board.boardId,
           type: 'view',
           title: 'Gallery',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
           fields: {
             viewType: 'gallery',
             sort: [],

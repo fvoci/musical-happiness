@@ -77,7 +77,7 @@ async fn the_largest_body_is_written_copied_and_restored_and_a_byte_more_is_refu
         .client
         .patch(
             &format!("{TEST_WS}/cards/{}", made.id),
-            &json!({"body": more, "readAt": read.update_at}),
+            &json!({"body": more, "readAt": read.updated_at}),
         )
         .await;
     check_too_large(&refused);
@@ -231,11 +231,11 @@ async fn the_deepest_body_is_read_back_from_every_place_it_is_written_in() {
 fn archive_of(body: &Value) -> Vec<u8> {
     let board = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Limits",
-        "createAt": 1, "updateAt": 1,
+        "createdAt": 1, "updatedAt": 1,
     }});
     let card = json!({"type": "block", "data": {
         "id": "c1", "containerId": "b1", "parentId": "", "type": "card", "title": "Most",
-        "createAt": 1, "updateAt": 1, "body": body,
+        "createdAt": 1, "updatedAt": 1, "body": body,
     }});
     let options = zip::write::SimpleFileOptions::default();
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));

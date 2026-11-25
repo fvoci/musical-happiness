@@ -42,7 +42,7 @@
   let lastSavedStamp = '';
 
   $effect(() => {
-    const stamp = `${exam.id}:${exam.myScore?.updateAt ?? 'none'}:${exam.myScore?.score ?? ''}:${exam.myScore?.note ?? ''}`;
+    const stamp = `${exam.id}:${exam.myScore?.updatedAt ?? 'none'}:${exam.myScore?.score ?? ''}:${exam.myScore?.note ?? ''}`;
     if (stamp === lastSavedStamp) return;
     lastSavedStamp = stamp;
     untrack(() => {

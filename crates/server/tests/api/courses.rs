@@ -91,19 +91,19 @@ async fn course_outline_crud_move_trash_and_problem_pages() {
 
     // Patch unit title and body; stale readAt returns 409; chapter refuses body.
     let u1_path = format!("{TEST_WS}/courses/{course}/units/{}", u1.id);
-    let updated = write_unit_body(client, &u1_path, u1.update_at, &paragraphs(&["hello"])).await;
+    let updated = write_unit_body(client, &u1_path, u1.updated_at, &paragraphs(&["hello"])).await;
     assert_eq!(body_of(&updated), Some(paragraphs(&["hello"])));
     let stale = client
         .patch(
             &u1_path,
-            &json!({"readAt": u1.update_at, "body": paragraphs(&["stale"])}),
+            &json!({"readAt": u1.updated_at, "body": paragraphs(&["stale"])}),
         )
         .await;
     assert_eq!(stale.status, StatusCode::CONFLICT, "{}", stale.text());
 
     for bad_body in [
         json!({"body": paragraphs(&["nope"])}),
-        json!({"body": null, "readAt": ch1.update_at}),
+        json!({"body": null, "readAt": ch1.updated_at}),
     ] {
         let ch_body = client
             .patch(
@@ -212,7 +212,7 @@ async fn open_course_and_workspace_roles_control_access_search_and_rooms() {
     write_unit_body(
         &th.client,
         &open_unit_path,
-        open_unit.update_at,
+        open_unit.updated_at,
         &paragraphs(&["open lesson body"]),
     )
     .await;
@@ -286,7 +286,7 @@ async fn course_roles_and_guest_isolation_control_rooms_and_lists() {
     write_unit_body(
         &th.client,
         &p_path,
-        p_unit.update_at,
+        p_unit.updated_at,
         &paragraphs(&["start"]),
     )
     .await;
@@ -364,7 +364,7 @@ async fn two_connections_coedit_a_unit_in_workspace_and_in_own_space() {
     write_unit_body(
         &th.client,
         &unit_path,
-        unit.update_at,
+        unit.updated_at,
         &paragraphs(&["seed"]),
     )
     .await;
@@ -410,7 +410,7 @@ async fn two_connections_coedit_a_unit_in_workspace_and_in_own_space() {
     write_unit_body(
         &th.client,
         &own_unit_path,
-        own_unit.update_at,
+        own_unit.updated_at,
         &paragraphs(&["solo seed"]),
     )
     .await;
@@ -460,7 +460,7 @@ fn archive_of(lines: &[Value]) -> Vec<u8> {
 fn course_line(id: &str, title: &str) -> Value {
     json!({"type": "container", "data": {
         "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "course",
-        "title": title, "createAt": 1, "updateAt": 1,
+        "title": title, "createdAt": 1, "updatedAt": 1,
     }})
 }
 
@@ -473,7 +473,7 @@ fn block_line(
 ) -> Value {
     let mut data = json!({
         "id": id, "containerId": course, "parentId": parent, "type": block_type,
-        "title": id, "createAt": 1, "updateAt": 1,
+        "title": id, "createdAt": 1, "updatedAt": 1,
     });
     if let Some(body) = body {
         data["body"] = body;
@@ -508,7 +508,7 @@ async fn course_export_and_import_roundtrip_and_invalid_archives_refused() {
     write_unit_body(
         client,
         &format!("{TEST_WS}/courses/{course}/units/{}", u1.id),
-        u1.update_at,
+        u1.updated_at,
         &body,
     )
     .await;
@@ -678,7 +678,7 @@ async fn deleting_chapter_and_privatizing_open_course_evict_unit_rooms() {
     let ch = create_item(&th.client, TEST_WS, &course, "chapter", "", "Ch 1").await;
     let u = create_item(&th.client, TEST_WS, &course, "unit", &ch.id, "U 1").await;
     let u_path = format!("{TEST_WS}/courses/{course}/units/{}", u.id);
-    write_unit_body(&th.client, &u_path, u.update_at, &paragraphs(&["seed"])).await;
+    write_unit_body(&th.client, &u_path, u.updated_at, &paragraphs(&["seed"])).await;
     let mut writer = Peer::connect(&th.client, 701).await;
     writer.joined(TEST_WORKSPACE_ID, &u.id).await;
     writer.write_acked("unflushed edit").await;

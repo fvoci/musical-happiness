@@ -37,8 +37,8 @@ const BOARD = {
   visibility: 'private',
   cardProperties: [],
   properties: {},
-  createAt: 1,
-  updateAt: 1,
+  createdAt: 1,
+  updatedAt: 1,
 };
 
 describe('the backend of a public link', () => {
@@ -110,8 +110,8 @@ describe('the backend of a wiki’s public link', () => {
       body: null,
       createdBy: '',
       modifiedBy: '',
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
     });
     const page = await wikis.page('w1', 'p1');
     expect([page.title, page.createdBy]).toEqual(['Planting', '']);
@@ -170,8 +170,8 @@ describe('the backend of a course’s public link', () => {
       body: null,
       createdBy: '',
       modifiedBy: '',
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
     });
     const unit = await courses.unit('c1', 'u1');
     expect([unit.title, unit.createdBy, unit.kind]).toEqual(['Lesson 1', '', 'unit']);

@@ -247,7 +247,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
   // ------------------------------------------------------------ changes
 
   #takeCourse(course: Container): void {
-    if (!this.course || this.course.updateAt <= course.updateAt) this.course = course;
+    if (!this.course || this.course.updatedAt <= course.updatedAt) this.course = course;
   }
 
   #apply(change: Change): void {

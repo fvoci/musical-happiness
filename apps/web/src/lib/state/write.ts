@@ -12,13 +12,13 @@
 
 interface Versioned {
   id: string;
-  updateAt: number;
+  updatedAt: number;
 }
 
 function newer<T extends Versioned>(first: T | undefined, second: T | undefined): T | undefined {
   if (!first) return second;
   if (!second) return first;
-  return second.updateAt >= first.updateAt ? second : first;
+  return second.updatedAt >= first.updatedAt ? second : first;
 }
 
 export class PendingWrites<T extends Versioned> {
@@ -84,7 +84,7 @@ export function put<T extends { id: string }>(items: readonly T[], item: T): T[]
 /** `items` with a version from the backend taken in, unless what is there is newer. */
 export function take<T extends Versioned>(items: readonly T[], version: T): T[] {
   const existing = items.find((item) => item.id === version.id);
-  if (existing && existing.updateAt > version.updateAt) return items as T[];
+  if (existing && existing.updatedAt > version.updatedAt) return items as T[];
   return put(items, version);
 }
 
@@ -110,7 +110,7 @@ export function reread<T extends Versioned>(
     const current = shown.find((other) => other.id === item.id);
     if (!current && wasShown.has(item.id)) continue;
     if (!hold(item)) next.push(current ?? item);
-    else next.push(current && current.updateAt > item.updateAt ? current : item);
+    else next.push(current && current.updatedAt > item.updatedAt ? current : item);
   }
   for (const item of shown) {
     if (!wasRead.has(item.id) && !wasShown.has(item.id)) next.push(item);
@@ -121,7 +121,7 @@ export function reread<T extends Versioned>(
 /**
  * Runs writes of one block in turn so two quick ones do not pass each other,
  * and advances `readAt` along queued view writes from each succeeded write's
- * returned `updateAt` so a write does not get 409 from the client's own
+ * returned `updatedAt` so a write does not get 409 from the client's own
  * earlier write in the queue.
  */
 export class BlockTurns {
@@ -149,12 +149,12 @@ export class BlockTurns {
   /**
    * Runs a view patch in turn for `viewId`, forwarding `patch.readAt` along
    * this queue's succeeded writes when it matches an earlier write's base
-   * `updateAt`. A failed write, or one whose returned `order` differs from
+   * `updatedAt`. A failed write, or one whose returned `order` differs from
    * what this write expects (an external order change intervened), does not
    * advance the chain.
    */
   patchView<
-    T extends { updateAt: number; fields: { order?: string } },
+    T extends { updatedAt: number; fields: { order?: string } },
     P extends {
       readAt?: number;
       updatedFields?: Record<string, unknown>;
@@ -165,20 +165,20 @@ export class BlockTurns {
       const readAt = patch.readAt === undefined ? undefined : this.#resolve(viewId, patch.readAt);
       const sent = readAt === patch.readAt ? patch : { ...patch, readAt };
       const { before, after } = await send(sent);
-      const from = sent.readAt ?? before.updateAt;
+      const from = sent.readAt ?? before.updatedAt;
       const expectedOrder =
         sent.updatedFields && 'order' in sent.updatedFields
           ? sent.updatedFields.order
           : sent.deletedFields?.includes('order')
             ? undefined
             : before.fields.order;
-      if (after.fields.order === expectedOrder && after.updateAt > from) {
+      if (after.fields.order === expectedOrder && after.updatedAt > from) {
         let map = this.#advanced.get(viewId);
         if (!map) {
           map = new Map();
           this.#advanced.set(viewId, map);
         }
-        map.set(from, after.updateAt);
+        map.set(from, after.updatedAt);
       }
       return after;
     });

@@ -45,7 +45,7 @@ describe('who changes and deletes a comment', () => {
     const { world, backend, other, boardId, cardId } = await onAlpha();
     const mine = await backend.createComment(boardId, cardId, text('mine'));
     const write = async (who: MemoryBackend, words: string) => {
-      const now = world.blocks.get(mine.id)?.updateAt ?? 0;
+      const now = world.blocks.get(mine.id)?.updatedAt ?? 0;
       return statusOf(who.patchComment(boardId, mine.id, { body: text(words), readAt: now }));
     };
 
@@ -122,7 +122,7 @@ describe('a comment brought back', () => {
     await other.restoreBlock(boardId, posted.id);
     const back = (await backend.comments(boardId, cardId)).find((one) => one.id === posted.id);
     expect(back?.modifiedBy).toBe(other.userId);
-    expect(back?.updateAt).toBeGreaterThan(posted.updateAt);
+    expect(back?.updatedAt).toBeGreaterThan(posted.updatedAt);
     expect(back?.editedAt).toBeUndefined();
   });
 
@@ -142,7 +142,7 @@ describe('a changed comment', () => {
 
     const same = await backend.patchComment(boardId, posted.id, {
       body: text('first'),
-      readAt: posted.updateAt,
+      readAt: posted.updatedAt,
     });
     expect(same.editedAt).toBeUndefined();
     expect(await backend.commentVersions(boardId, posted.id)).toEqual([]);
@@ -150,9 +150,9 @@ describe('a changed comment', () => {
     setRole(world, boardId, other, 'admin');
     const changed = await other.patchComment(boardId, posted.id, {
       body: text('second'),
-      readAt: same.updateAt,
+      readAt: same.updatedAt,
     });
-    expect(changed.editedAt).toBe(changed.updateAt);
+    expect(changed.editedAt).toBe(changed.updatedAt);
     expect(changed.modifiedBy).toBe(other.userId);
     expect((await backend.comments(boardId, cardId)).find((one) => one.id === posted.id)).toEqual(
       changed,
@@ -163,9 +163,10 @@ describe('a changed comment', () => {
     const { world, backend, other, boardId, cardId } = await onAlpha();
     const posted = await backend.createComment(boardId, cardId, text('v1'));
     setRole(world, boardId, other, 'admin');
-    let readAt = posted.updateAt;
+    let readAt = posted.updatedAt;
     const change = async (who: MemoryBackend, words: string) => {
-      readAt = (await who.patchComment(boardId, posted.id, { body: text(words), readAt })).updateAt;
+      readAt = (await who.patchComment(boardId, posted.id, { body: text(words), readAt }))
+        .updatedAt;
     };
     await change(other, 'v2');
     await change(backend, 'v3');
@@ -175,8 +176,8 @@ describe('a changed comment', () => {
       { version: 1, body: text('v1'), writtenBy: backend.userId },
       { version: 2, body: text('v2'), writtenBy: other.userId },
     ]);
-    expect(versions[0]?.writtenAt).toBe(posted.createAt);
-    expect(versions[1]?.writtenAt).toBeGreaterThan(posted.createAt);
+    expect(versions[0]?.writtenAt).toBe(posted.createdAt);
+    expect(versions[1]?.writtenAt).toBeGreaterThan(posted.createdAt);
 
     // Many changes later: the first and the newest, as many as the server keeps.
     for (let at = 4; at <= 61; at += 1) await change(backend, `v${at}`);
@@ -194,7 +195,7 @@ describe('a changed comment', () => {
     const posted = await backend.createComment(boardId, cardId, text('before'));
     await backend.patchComment(boardId, posted.id, {
       body: text('after'),
-      readAt: posted.updateAt,
+      readAt: posted.updatedAt,
     });
     setRole(world, boardId, other, 'viewer');
     expect(await other.commentVersions(boardId, posted.id)).toHaveLength(1);

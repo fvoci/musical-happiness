@@ -32,7 +32,7 @@ it('waits until the room editor becomes editable before placing the caret at the
   const made = await backend.diary.createEntry(diary.id, today);
   await backend.diary.patchEntry(diary.id, made.id, {
     body: text('Hello world'),
-    readAt: made.updateAt,
+    readAt: made.updatedAt,
   });
 
   // Hold the room read-only on first join, then release it to writable.
@@ -110,7 +110,7 @@ it('places the selection cleanly at the end of an entry ending with a horizontal
         { type: 'horizontalRule' },
       ],
     },
-    readAt: made.updateAt,
+    readAt: made.updatedAt,
   });
 
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

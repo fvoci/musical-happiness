@@ -58,7 +58,7 @@ async fn an_overlapping_worker_without_the_lock_of_the_server_does_not_run() {
         .expect("the replacement is written");
     let replacement = fvoci_model::FileRecord {
         id: new_id(),
-        create_at: now_millis(),
+        created_at: now_millis(),
         size: i64::try_from(size).expect("a small file"),
         ..file
     };

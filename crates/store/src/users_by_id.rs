@@ -11,8 +11,8 @@ use crate::users::{fetch_users, user_not_found};
 /// account read as zero (and its `deleted_at` as `NULL`).
 const ERASED_AS_NOBODY: &str = concat!(
     "id, username, email, password_hash, password_locked_at, \
-     CASE WHEN erased_at > 0 THEN 0 ELSE create_at END, \
-     CASE WHEN erased_at > 0 THEN 0 ELSE update_at END, \
+     CASE WHEN erased_at > 0 THEN 0 ELSE created_at END, \
+     CASE WHEN erased_at > 0 THEN 0 ELSE updated_at END, \
      CASE WHEN erased_at > 0 THEN NULL ELSE deleted_at END, is_admin, display_name, ",
     crate::person_names::name_columns!()
 );
@@ -72,7 +72,7 @@ pub(crate) async fn found_users_by_ids(
     );
     narrow(&mut sql, scope);
     // Oldest first by the times answered, so that the order tells no more than they do.
-    sql.push(")) ORDER BY CASE WHEN erased_at > 0 THEN 0 ELSE create_at END, id");
+    sql.push(")) ORDER BY CASE WHEN erased_at > 0 THEN 0 ELSE created_at END, id");
     fetch_users(scope, sql).await
 }
 

@@ -42,8 +42,8 @@ export interface UnitReview {
   completedAt: number | null;
   /** Review interval in days (`1..=3650`). */
   intervalDays: number;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** Query parameters for listing the caller's reviews in a course. */
@@ -81,8 +81,8 @@ export interface TodayReviewItem {
   intervalDays: number;
   /** `0` when due today, `> 0` when overdue. */
   overdueDays: number;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** One personal question, mistake, or review note on a course unit. */
@@ -92,8 +92,8 @@ export interface UnitNote {
   containerId: string;
   kind: UnitNoteKind;
   content: string;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** Request payload for creating a personal note on a unit. */

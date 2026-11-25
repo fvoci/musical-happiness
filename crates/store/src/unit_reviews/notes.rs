@@ -11,7 +11,7 @@ use crate::unit_progress::require_live_unit;
 
 impl Store {
     /// Lists the calling learner's personal notes on live unit `unit_id` of `course_id`,
-    /// ordered by `create_at DESC, id DESC`.
+    /// ordered by `created_at DESC, id DESC`.
     ///
     /// # Errors
     ///
@@ -29,7 +29,7 @@ impl Store {
             let org = scope.org()?;
             require_live_unit_exists(scope, course_id, unit_id, org.clone()).await?;
             let mut sql = scope.sql(
-                "SELECT id, unit_id, container_id, kind, content, create_at, update_at \
+                "SELECT id, unit_id, container_id, kind, content, created_at, updated_at \
                  FROM unit_notes \
                  WHERE container_id = ",
             );
@@ -42,7 +42,7 @@ impl Store {
             if let Some(kind) = kind {
                 sql.push_bind(" AND kind = ", kind.as_str());
             }
-            sql.push(" ORDER BY create_at DESC, id DESC");
+            sql.push(" ORDER BY created_at DESC, id DESC");
             scope
                 .fetch_all(sql)
                 .await?
@@ -79,8 +79,8 @@ impl Store {
             let now = now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO unit_notes \
-                 (id, org_id, unit_id, container_id, user_id, kind, content, create_at, \
-                  update_at) VALUES (",
+                 (id, org_id, unit_id, container_id, user_id, kind, content, created_at, \
+                  updated_at) VALUES (",
             );
             sql.changing_no_access()
                 .bind(Id(&id))
@@ -92,7 +92,9 @@ impl Store {
                 .push_bind(", ", new.content.as_str())
                 .push_bind(", ", now)
                 .push_bind(", ", now)
-                .push(") RETURNING id, unit_id, container_id, kind, content, create_at, update_at");
+                .push(
+                    ") RETURNING id, unit_id, container_id, kind, content, created_at, updated_at",
+                );
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             note_from_row(&row)
         })
@@ -136,14 +138,14 @@ impl Store {
             if let Some(content) = change.content.as_deref() {
                 sql.push_bind("content = ", content).push(", ");
             }
-            sql.push_bind("update_at = ", now)
+            sql.push_bind("updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(note_id))
                 .push_bind(" AND container_id = ", Id(course_id))
                 .push_bind(" AND user_id = ", Id(user_id));
             if scope.dialect() == Dialect::Postgres {
                 sql.push_bind(" AND org_id = ", org);
             }
-            sql.push(" RETURNING id, unit_id, container_id, kind, content, create_at, update_at");
+            sql.push(" RETURNING id, unit_id, container_id, kind, content, created_at, updated_at");
             let row = scope
                 .fetch_optional(sql)
                 .await?
@@ -255,8 +257,8 @@ fn note_from_row(row: &Row) -> Result<UnitNote, StoreError> {
         container_id: row.id(2)?,
         kind: note_kind_from_row(row, 3)?,
         content: row.text(4)?,
-        create_at: row.int(5)?,
-        update_at: row.int(6)?,
+        created_at: row.int(5)?,
+        updated_at: row.int(6)?,
     })
 }
 

@@ -178,7 +178,7 @@ async fn follow(store: &Store, block_id: &str, user_id: &str) {
         block_id: block_id.to_owned(),
         user_id: user_id.to_owned(),
         notified_at: 0,
-        create_at: 0,
+        created_at: 0,
         deleted_at: None,
     };
     store
@@ -1210,7 +1210,7 @@ async fn organizations_of_user_lists_shared_orgs_including_zero_workspace_orgs()
         test.for_org(&second_org)
             .expect("org")
             .execute_unchecked(&format!(
-                "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+                "INSERT INTO organization_members (org_id, user_id, role, created_at) \
                  VALUES ('{second_org}', '{founder}', 'member', 2)"
             ))
             .await
@@ -1226,7 +1226,7 @@ async fn organizations_of_user_lists_shared_orgs_including_zero_workspace_orgs()
         test.for_org(&deleted_org)
             .expect("org")
             .execute_unchecked(&format!(
-                "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+                "INSERT INTO organization_members (org_id, user_id, role, created_at) \
                  VALUES ('{deleted_org}', '{founder}', 'admin', 3)"
             ))
             .await
@@ -1268,22 +1268,23 @@ async fn migration_0065_keeps_audit_rows_and_erasure_guard_and_allows_org_member
     let pre = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("pre-65 database opens");
-    let (org, ws) = common::organization(&pre, "org").await;
+    let (org, ws) = common::pre0075_organization(&pre, "org").await;
     let pre_org = pre.for_org(&org).expect("org scope");
     let actor = common::pre0072_user(&pre_org, &org, &ws, "actor").await;
     let subject = common::pre0072_user(&pre_org, &org, &ws, "subject").await;
     let (ws_row, lapsed, carried) = (new_id(), new_id(), new_id());
+    let old_create = common::PRE0075_CREATE_COL;
     pre_org
         .execute_unchecked(&format!(
             "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, actor_kind, action, \
-             target_id, create_at) VALUES ('{ws_row}', '{org}', '{ws}', '{actor}', 'person', \
+             target_id, {old_create}) VALUES ('{ws_row}', '{org}', '{ws}', '{actor}', 'person', \
              'org_admin_joined', '{ws}', 6)"
         ))
         .await
         .expect("workspace audit row");
     pre_org
         .execute_unchecked(&format!(
-            "INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, create_at, \
+            "INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, {old_create}, \
              detail) VALUES ('{lapsed}', '{org}', 'server', 'oidc_former_provider_lapsed', \
              '{org}', 7, 'https://old.example.test')"
         ))
@@ -1292,7 +1293,7 @@ async fn migration_0065_keeps_audit_rows_and_erasure_guard_and_allows_org_member
     pre_org
         .execute_unchecked(&format!(
             "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
-             subject_id, create_at, detail, identity) VALUES ('{carried}', '{org}', '{actor}', \
+             subject_id, {old_create}, detail, identity) VALUES ('{carried}', '{org}', '{actor}', \
              'person', 'oidc_identity_carried_over', '{org}', '{actor}', 8, \
              'https://new.example.test', 'who@example.test')"
         ))
@@ -1370,7 +1371,7 @@ async fn assert_migration_0065_preserved_rows(
         Some("who@example.test"),
         "carried identity preserved"
     );
-    assert_eq!(carried.create_at, 8, "carried timestamp preserved");
+    assert_eq!(carried.created_at, 8, "carried timestamp preserved");
 }
 
 async fn assert_migration_0065_guards_hold(
@@ -1385,7 +1386,7 @@ async fn assert_migration_0065_guards_hold(
     let removed_id = new_id();
     ours.execute_unchecked(&format!(
         "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
-         subject_id, create_at) VALUES ('{removed_id}', '{org}', '{actor}', 'person', \
+         subject_id, created_at) VALUES ('{removed_id}', '{org}', '{actor}', 'person', \
          'org_member_removed', '{org}', '{subject}', 9)"
     ))
     .await
@@ -1405,7 +1406,7 @@ async fn assert_migration_0065_guards_hold(
     assert!(
         ours.execute_unchecked(&format!(
             "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
-             create_at) VALUES ('{}', '{org}', '{actor}', 'person', 'not_an_action', '{org}', 10)",
+             created_at) VALUES ('{}', '{org}', '{actor}', 'person', 'not_an_action', '{org}', 10)",
             new_id()
         ))
         .await
@@ -1415,7 +1416,7 @@ async fn assert_migration_0065_guards_hold(
     assert!(
         ours.execute_unchecked(&format!(
             "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
-             create_at) VALUES ('{}', '{org}', '{actor}', 'person', 'added_to_container', \
+             created_at) VALUES ('{}', '{org}', '{actor}', 'person', 'added_to_container', \
              '{org}', 11)",
             new_id()
         ))

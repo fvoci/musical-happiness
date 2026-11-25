@@ -567,7 +567,7 @@ export interface paths {
         /**
          * The notifications of the user
          * @description One page of what the user of the session was told, in every organization the
-         *     session opens, the newest first (by `updateAt`): that somebody mentioned them in a
+         *     session opens, the newest first (by `updatedAt`): that somebody mentioned them in a
          *     card, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or
          *     commented on a card, a page or a unit they watch (`comment`; one named in that comment
          *     is told of the mention alone). Nobody is told of their own doing, nor of anything in a
@@ -618,7 +618,7 @@ export interface paths {
         /**
          * Mark every notification as read
          * @description Marks as read every notification of the user of the session whose latest happened
-         *     up to `through`, or up to now where that is left out: a client gives the `updateAt`
+         *     up to `through`, or up to now where that is left out: a client gives the `updatedAt`
          *     of the newest it has shown, so that one that came or grew since stays unread. Those of an
          *     organization the session does not open (`getNotifications`) stay as they are.
          */
@@ -988,7 +988,7 @@ export interface paths {
          *     but somebody the new provider vouches for who has no account yet may sign in
          *     through it once to carry their account over. This ends that before its time: from
          *     then on nobody carries an account over from it. The body names the former
-         *     provider as it was read (`createAt`): if the organization moved again since, and
+         *     provider as it was read (`createdAt`): if the organization moved again since, and
          *     another one is kept, the request is 409, to be read and sent again. An organization
          *     that keeps none answers 204 as well. Recorded in the organization's audit log
          *     (`oidc_former_provider_ended`), as its keeping (`oidc_former_provider_kept`) and
@@ -2555,7 +2555,7 @@ export interface paths {
          *     A comment goes only on a card of the board, no block goes below a comment (400 at
          *     `parentId`), and a card with comments stays a card (400 at `type`). A comment's body
          *     has no file block, nor does a block made a comment (400 at `body`). The block's
-         *     `modifiedBy` and `updateAt` say who changed it and when.
+         *     `modifiedBy` and `updatedAt` say who changed it and when.
          */
         patch: operations["patchBlock"];
         trace?: never;
@@ -3702,7 +3702,7 @@ export interface paths {
         /**
          * Exams of a course
          * @description Returns every exam of the course ordered by `examDate` ascending (exams without a date
-         *     last), then by `createAt` and `id`. Enrolled members receive `scoreCount` across active
+         *     last), then by `createdAt` and `id`. Enrolled members receive `scoreCount` across active
          *     enrolled course members, `averageScore` when at least two other active members have
          *     submitted a score (`scoreCount >= 3` if the caller submitted, `scoreCount >= 2` if not;
          *     `null` otherwise), and `myScore` containing only the caller's own score. Unjoined readers
@@ -3989,7 +3989,7 @@ export interface paths {
         /**
          * My scheduled reviews in a course
          * @description Returns the caller's own spaced-repetition reviews for live units of the course.
-         *     Ordered by `scheduledDate` ascending, then `createAt` ascending, then `id` ascending.
+         *     Ordered by `scheduledDate` ascending, then `createdAt` ascending, then `id` ascending.
          *     Optional query filters: `status` (`pending`, `completed`, or `all`) and `unitId`.
          *     Unjoined readers of an open course receive an empty array `[]`. Other users' reviews
          *     are never returned. Non-course containers and unreadable private courses answer 404.
@@ -4221,7 +4221,7 @@ export interface paths {
          *     `amountUnit`, `scheduledDate`, each clearable with `null`), for editors of the course.
          *     A chapter has no body or schedule fields: sending `body`, `amount`, `amountUnit`, or
          *     `scheduledDate` on a chapter is 400. A new body is sent with
-         *     `readAt`, the `updateAt` of the unit as it was read: 409 if the unit has changed
+         *     `readAt`, the `updatedAt` of the unit as it was read: 409 if the unit has changed
          *     since, and nothing is changed. Where the body is being edited together, what the
          *     editors typed is written to the unit first, so a writer who read it before is refused
          *     and reads it again. Where the node stands in the course does not change here.
@@ -4465,7 +4465,7 @@ export interface paths {
         /**
          * My personal notes on a unit
          * @description Returns the caller's own question, mistake, and review notes on a live unit of the
-         *     course. Ordered by `createAt` descending, then `id` descending. Optional query filter
+         *     course. Ordered by `createdAt` descending, then `id` descending. Optional query filter
          *     `kind` (`question`, `mistake`, or `review`). Unjoined readers of an open course
          *     receive an empty array `[]` for live units. Chapters, trashed units, and non-course
          *     containers answer 404.
@@ -4742,7 +4742,7 @@ export interface paths {
          * Change an entry
          * @description Its mood, its weather, its place, its whole body (`body`), or blocks appended after
          *     its current body (`appendBody`). `body` and `appendBody` cannot be sent together.
-         *     A whole-body replacement (`body`) is sent with `readAt`, the `updateAt` of the entry
+         *     A whole-body replacement (`body`) is sent with `readAt`, the `updatedAt` of the entry
          *     as it was read: `readAt` is compared against when the entry's body last changed, so
          *     metadata-only patches (`mood`, `weather`, `place`) do not cause 409 conflicts while
          *     any change to the body does. `appendBody` appends inside one server transaction
@@ -5055,7 +5055,7 @@ export interface paths {
          * @description Returns the caller's own pending reviews whose `scheduledDate` is on or before today
          *     (in the caller's configured time zone, or UTC) across all live courses of the
          *     workspace in which the caller is an active member. Ordered by `scheduledDate`
-         *     ascending, then `createAt` ascending, then `id` ascending. Other users' reviews are
+         *     ascending, then `createdAt` ascending, then `id` ascending. Other users' reviews are
          *     never returned.
          */
         get: operations["getWorkspaceTodayReviews"];
@@ -5080,7 +5080,7 @@ export interface paths {
          *     overdue (`effectiveDate < today`) across all live courses in this workspace that the
          *     caller is enrolled in (direct membership or inherited group role), evaluated in the
          *     caller's configured `timeZone` (UTC when set to `auto`). `todayUnits` are ordered by
-         *     course creation order (`createAt`, `courseId`) and then outline order within each
+         *     course creation order (`createdAt`, `courseId`) and then outline order within each
          *     course; `overdueUnits` are ordered by `effectiveDate` ascending (oldest first), then
          *     course creation order, then outline order. Never includes private courses the caller
          *     is not enrolled in (even for workspace or organization admins) and never reads
@@ -5356,7 +5356,7 @@ export interface paths {
          *     may stop and start again. A chapter of a course takes no subscriptions (404). A
          *     `userId` that is not the user of the session is 403. The `blockType` is stored as it
          *     is sent, and not compared with the block. Subscribing again is no error: the
-         *     subscription stays as it was made, with its `blockType` and `createAt`, and only its
+         *     subscription stays as it was made, with its `blockType` and `createdAt`, and only its
          *     `notifiedAt` is set anew.
          */
         post: operations["createSubscription"];
@@ -5659,12 +5659,12 @@ export interface paths {
          *     tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
          *     last changed a card, block or comment of a board of the workspace they read, also
          *     after leaving the workspace. Oldest account first, not in the order of the request:
-         *     by `createAt`, then by identifier.
+         *     by `createdAt`, then by identifier.
          *
          *     An account that was deleted is answered to whoever asks by its identifier, seen
          *     before or not, as what is left of it: the identifier, an empty `username`, `email`
          *     and `displayName`, every part of the name empty, no title nor credentials,
-         *     `nameShown` `name`, `createAt` and `updateAt` both zero, and `deletedAt` absent: no
+         *     `nameShown` `name`, `createdAt` and `updatedAt` both zero, and `deletedAt` absent: no
          *     time of the account is answered, neither when it went nor when it was asked to (the
          *     identifier is kept as it was made). The empty `username` is what tells it, not a
          *     time: a page shows a deleted user where it wrote or is mentioned.
@@ -5798,7 +5798,7 @@ export interface paths {
         /**
          * Change a page
          * @description Its title, its icon, or its whole body, for editors of the wiki. A new body is sent
-         *     with `readAt`, the `updateAt` of the page as it was read: 409 if the page has
+         *     with `readAt`, the `updatedAt` of the page as it was read: 409 if the page has
          *     changed since, and nothing is changed. Where the body is being edited together, what
          *     the editors typed is written to the page first, so a writer who read it before is
          *     refused and reads it again. Where the page is in the tree does not change here.
@@ -6261,7 +6261,7 @@ export interface components {
              * Format: int64
              * @description When, in milliseconds since the epoch.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * @description The issuer a record of a provider's move names (`oidc_former_provider_…`,
              *     `oidc_identity_…`); `null` for the others.
@@ -6311,7 +6311,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The identifier of the user who created the block. */
             createdBy: string;
             /**
@@ -6372,7 +6372,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description A partial update of a `Block`. Absent members leave the block unchanged. */
         BlockPatch: {
@@ -6383,7 +6383,7 @@ export interface components {
             parentId?: string | null;
             /**
              * Format: int64
-             * @description The `updateAt` of the block as the client read it. If the block has changed
+             * @description The `updatedAt` of the block as the client read it. If the block has changed
              *     since, the patch is refused.
              */
             readAt?: number | null;
@@ -6491,7 +6491,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The identifier of the user who created the card. */
             createdBy: string;
             /**
@@ -6509,11 +6509,11 @@ export interface components {
             isTemplate: boolean;
             /**
              * Format: int64
-             * @description When the card's last comment was posted (the `createAt` of the newest of its
+             * @description When the card's last comment was posted (the `createdAt` of the newest of its
              *     comments, the blocks of the type `comment` directly on it), in milliseconds since
              *     the Unix epoch; zero if it has none. Changing a comment does not change it; a
              *     deleted comment does not count, and counts again with its time if restored. A
-             *     comment does not change the card's `updateAt`. A new comment comes as
+             *     comment does not change the card's `updatedAt`. A new comment comes as
              *     `blockChanged`, so a client can keep the newer time; after a deletion the card is
              *     read again for it. A number sent here in a request is ignored.
              */
@@ -6566,7 +6566,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /**
          * @description Where a card opens.
@@ -6590,7 +6590,7 @@ export interface components {
             parentId?: string | null;
             /**
              * Format: int64
-             * @description The `updateAt` of the card as the client read it: if the card has changed since,
+             * @description The `updatedAt` of the card as the client read it: if the card has changed since,
              *     the patch is refused with 409 and changes nothing. Needed with `body`, and
              *     checked whenever it is sent.
              */
@@ -6643,7 +6643,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * Format: int64
              * @description Deletion time in milliseconds since the Unix epoch; absent while not deleted.
@@ -6664,7 +6664,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
             /** @description The identifier of the user the category belongs to. */
             userId: string;
             /** @description The identifier of the workspace the category belongs to. */
@@ -6819,7 +6819,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * @description The identifier of the user who created the board; empty for a built-in template,
              *     which no user made.
@@ -6882,7 +6882,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
             /** @description Whether the board is open or private. */
             visibility: components["schemas"]["ContainerVisibility"];
             /** @description The identifier of the workspace the board belongs to. */
@@ -6983,7 +6983,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description Shared exam description, at most 5000 characters; empty if unset. */
             description: string;
             /** @description Optional calendar date of the exam (`YYYY-MM-DD`). */
@@ -7008,7 +7008,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description Request body for patching a course exam. */
         CourseExamPatch: {
@@ -7034,7 +7034,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description Optional identifier of the host. */
             hostId: string | null;
             /** @description Identifier of the meeting. */
@@ -7063,7 +7063,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /**
          * @description Request body for patching a course study meeting.
@@ -7116,7 +7116,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description Request body for creating or updating a course's shared schedule. */
         CourseScheduleUpdate: {
@@ -7333,7 +7333,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The identifier of the user who made the entry. */
             createdBy: string;
             /**
@@ -7355,7 +7355,7 @@ export interface components {
              * @description Last modification time in milliseconds since the Unix epoch: what `readAt` of a
              *     change of the entry names.
              */
-            updateAt: number;
+            updatedAt: number;
             /** @description The weather of the day as its writer put it; empty for none. */
             weather: string;
         };
@@ -7371,7 +7371,7 @@ export interface components {
             place?: string | null;
             /**
              * Format: int64
-             * @description The `updateAt` of the entry as the client read it: checked against when the
+             * @description The `updatedAt` of the entry as the client read it: checked against when the
              *     entry's body last changed, so metadata-only patches (`mood`, `weather`, `place`)
              *     do not cause 409 conflicts while any change to the body does. Needed with `body`,
              *     and checked whenever it is sent.
@@ -7443,7 +7443,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The lower-cased extension of the name, with its leading dot. */
             extension: string;
             /** @description The record's identifier. */
@@ -7466,7 +7466,7 @@ export interface components {
              * @description When the version was written, in milliseconds since the Unix epoch: for the
              *     first, when the file was uploaded.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * @description Who wrote the version; empty where nobody is known to have (the first version
              *     of a file from before versions were kept, and of a copy).
@@ -7632,7 +7632,7 @@ export interface components {
              * Format: int64
              * @description When the link was made, in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The identifier of the user who made the link. */
             createdBy: string;
             /**
@@ -7802,7 +7802,7 @@ export interface components {
              * Format: int64
              * @description When it was tied, in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * @description The email address the provider gave when the identity was tied: its word,
              *     checked by nobody. Empty if it gave none.
@@ -7896,7 +7896,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
             /** @description Identifier of the course member (retained as a tombstone if the account is erased). */
             userId: string;
         };
@@ -7952,7 +7952,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description Request body for recording or updating the caller's own exam score. */
         MyExamScoreUpdate: {
@@ -7999,7 +7999,7 @@ export interface components {
              * @description Must be 1 or more. The server does not keep it: the block is created when the
              *     server stores it.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card,
              *     a comment or an attachment and 800,000 for a view. The `properties` of a card
@@ -8038,7 +8038,7 @@ export interface components {
              * Format: int64
              * @description Must be 1 or more. The server does not keep it.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description A board to make. */
         NewBoard: {
@@ -8368,7 +8368,7 @@ export interface components {
              * Format: int64
              * @description When it was made: when the first of it happened.
              */
-            createAt: number;
+            createdAt: number;
             /** @description Its identifier. */
             id: string;
             /**
@@ -8382,7 +8382,7 @@ export interface components {
              * @description When the latest of it happened; the notifications are listed by it, the
              *     newest first.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /**
          * @description What a notification tells of.
@@ -8439,7 +8439,7 @@ export interface components {
              * Format: int64
              * @description When the organization moved away from it, in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * Format: int64
              * @description When it is kept no longer, in milliseconds since the Unix epoch.
@@ -8452,9 +8452,9 @@ export interface components {
         OidcFormerProviderEnd: {
             /**
              * Format: int64
-             * @description The `createAt` of the former provider as it was read.
+             * @description The `createdAt` of the former provider as it was read.
              */
-            createAt: number;
+            createdAt: number;
         };
         /**
          * @description The pending settings of an organization's provider, without the client secret:
@@ -8477,7 +8477,7 @@ export interface components {
              * Format: int64
              * @description When they were saved, in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description Whether a client secret is saved with them. */
             hasClientSecret: boolean;
             /** @description The issuer. */
@@ -8506,7 +8506,7 @@ export interface components {
              * Format: int64
              * @description When the provider was first set, in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description Whether signing in through the provider is on. */
             enabled: boolean;
             former: components["schemas"]["OidcFormerProvider"] | null;
@@ -8529,7 +8529,7 @@ export interface components {
              * Format: int64
              * @description When the provider was last changed, in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description What an administrator sets of the organization's provider. */
         OidcProviderSettings: {
@@ -8666,7 +8666,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The identifier of the user who made the page. */
             createdBy: string;
             /** @description The page's icon, at most one grapheme; empty for none. */
@@ -8689,7 +8689,7 @@ export interface components {
              * @description Last modification time in milliseconds since the Unix epoch: what `readAt` of a
              *     change of the page names.
              */
-            updateAt: number;
+            updatedAt: number;
             /** @description The identifier of the wiki the page is of. */
             wikiId: string;
         };
@@ -8702,7 +8702,7 @@ export interface components {
             body: components["schemas"]["Body"];
             /**
              * Format: int64
-             * @description The `updateAt` of the comment as the client read it: if the comment has changed
+             * @description The `updatedAt` of the comment as the client read it: if the comment has changed
              *     since, the patch is refused with 409 and changes nothing.
              */
             readAt: number;
@@ -8738,7 +8738,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The page's icon, at most one grapheme; empty for none. */
             icon: string;
             /** @description The page's identifier. */
@@ -8757,7 +8757,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /**
          * @description What a page is changed to. A member that is left out stays as it is. Where the page
@@ -8770,7 +8770,7 @@ export interface components {
             icon?: string | null;
             /**
              * Format: int64
-             * @description The `updateAt` of the page as the client read it: if the page has changed since,
+             * @description The `updatedAt` of the page as the client read it: if the page has changed since,
              *     the patch is refused with 409 and changes nothing. Needed with `body`, and
              *     checked whenever it is sent.
              */
@@ -8935,7 +8935,7 @@ export interface components {
              * @description When the state last changed, in milliseconds since the Unix epoch. Zero, and
              *     left out of the JSON form, for a board that never had a public link.
              */
-            updateAt?: number;
+            updatedAt?: number;
         };
         /** @description Whether a container's public link is to be enabled. */
         PublicLinkRequest: {
@@ -9257,7 +9257,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * Format: int64
              * @description Deletion time in milliseconds since the Unix epoch; absent while not deleted.
@@ -9319,7 +9319,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /**
              * Format: int64
              * @description When the entry ended, in milliseconds since the Unix epoch; `null` while running.
@@ -9346,7 +9346,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
             /** @description The workspace of the linked target, or `null` for a targetless entry. */
             workspaceId: string | null;
         };
@@ -9438,7 +9438,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description Unique identifier of this review. */
             id: string;
             /**
@@ -9461,7 +9461,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description A unit or chapter of a course. */
         Unit: {
@@ -9478,7 +9478,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The identifier of the user who made it. */
             createdBy: string;
             /** @description The unit's or chapter's identifier. */
@@ -9506,7 +9506,7 @@ export interface components {
              * @description Last modification time in milliseconds since the Unix epoch: what `readAt` of a
              *     change of the unit names.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /**
          * @description What a comment on a unit is changed to: its text, written over the comment as it was
@@ -9517,7 +9517,7 @@ export interface components {
             body: components["schemas"]["Body"];
             /**
              * Format: int64
-             * @description The `updateAt` of the comment as the client read it: if the comment has changed
+             * @description The `updatedAt` of the comment as the client read it: if the comment has changed
              *     since, the patch is refused with 409 and changes nothing.
              */
             readAt: number;
@@ -9557,7 +9557,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The unit's or chapter's identifier. */
             id: string;
             /** @description Whether this node is a `unit` or a `chapter`. */
@@ -9584,7 +9584,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description One personal question, mistake, or review note on a course unit. */
         UnitNote: {
@@ -9596,7 +9596,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description Unique identifier of this note. */
             id: string;
             /** @description Category of the note (`question`, `mistake`, or `review`). */
@@ -9607,7 +9607,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /**
          * @description Category of a learner's personal note on a unit.
@@ -9629,7 +9629,7 @@ export interface components {
             body?: components["schemas"]["Body"] | null;
             /**
              * Format: int64
-             * @description The `updateAt` of the unit as the client read it: if the unit has changed since,
+             * @description The `updatedAt` of the unit as the client read it: if the unit has changed since,
              *     the patch is refused with 409 and changes nothing. Needed with `body`, and
              *     checked whenever it is sent.
              */
@@ -9665,7 +9665,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /**
          * @description Request body for updating the caller's personal progress on a unit.
@@ -9699,7 +9699,7 @@ export interface components {
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description Unique identifier of this review. */
             id: string;
             /**
@@ -9715,7 +9715,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /**
          * @description Request body for setting or clearing the caller's personal planned date on a unit.
@@ -9827,7 +9827,7 @@ export interface components {
              * @description Creation time in milliseconds since the Unix epoch; zero for a deleted account
              *     (an empty `username`).
              */
-            createAt: number;
+            createdAt: number;
             /**
              * Format: int64
              * @description When the account was put out of use (deactivated, or its deletion asked), in
@@ -9854,7 +9854,7 @@ export interface components {
              * @description Last modification time in milliseconds since the Unix epoch; zero for a deleted
              *     account.
              */
-            updateAt: number;
+            updatedAt: number;
             /** @description The login name. */
             username: string;
         };
@@ -9981,7 +9981,7 @@ export interface components {
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
              */
-            updateAt: number;
+            updatedAt: number;
         };
         /** @description Caller's today and overdue incomplete units across enrolled courses in a workspace. */
         WorkspaceLearningToday: {
@@ -9997,7 +9997,7 @@ export interface components {
             today: string;
             /**
              * @description Incomplete units with `effectiveDate == today`, ordered by course creation order
-             *     (`createAt`, `courseId`) and then outline order within each course.
+             *     (`createdAt`, `courseId`) and then outline order within each course.
              */
             todayUnits: components["schemas"]["LearningTodayItem"][];
         };
@@ -10007,7 +10007,7 @@ export interface components {
              * Format: int64
              * @description When the user became a member, in milliseconds since the Unix epoch.
              */
-            createAt: number;
+            createdAt: number;
             /** @description The name the user is shown by; empty if they have none. */
             displayName: string;
             /** @description Whether this membership is a temporary joining as organization administrator. */
@@ -10732,7 +10732,7 @@ export interface operations {
     readNotifications: {
         parameters: {
             query?: {
-                /** @description The time, in milliseconds, up to which the notifications are read: those whose latest happened later (`updateAt`) stay unread. Left out, now. */
+                /** @description The time, in milliseconds, up to which the notifications are read: those whose latest happened later (`updatedAt`) stay unread. Left out, now. */
                 through?: number;
             };
             header?: never;

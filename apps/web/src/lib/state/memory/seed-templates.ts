@@ -131,7 +131,7 @@ export function visibleTemplates(world: World, userId: string, workspaceId: stri
             writtenIn(board.properties.templateLanguage) === language
           : board.workspaceId === workspaceId),
     )
-    .sort((first, second) => first.createAt - second.createAt);
+    .sort((first, second) => first.createdAt - second.createdAt);
   return [
     ...all.filter((board) => board.isBuiltin !== true),
     ...all.filter((board) => board.isBuiltin === true),
@@ -148,7 +148,7 @@ export function welcomeTemplate(world: World, userId: string): Container | undef
         board.isBuiltin === true &&
         isOnboardingMark(board.properties.onboarding),
     )
-    .sort((first, second) => first.createAt - second.createAt);
+    .sort((first, second) => first.createdAt - second.createdAt);
   return (
     candidates.find((board) => writtenIn(board.properties.templateLanguage) === language) ??
     candidates.find((board) => board.properties.templateLanguage === undefined)
@@ -261,8 +261,8 @@ function seedCardComments(
       type: 'comment',
       title: '',
       fields: {},
-      createAt: written,
-      updateAt: written,
+      createdAt: written,
+      updatedAt: written,
       body: paragraph(COMMENTS[(templateIndex + index) % COMMENTS.length] ?? ''),
     });
   }
@@ -295,8 +295,8 @@ function seedBoardViews(
       type: 'view',
       title: view.title,
       fields,
-      createAt: made,
-      updateAt: made,
+      createdAt: made,
+      updatedAt: made,
     });
   }
 }
@@ -348,8 +348,8 @@ export function seedBoardBlocks(
       type: 'card',
       title: card.title,
       fields: { icon: card.fields.icon, isTemplate: card.fields.isTemplate, properties },
-      createAt: made,
-      updateAt: made,
+      createdAt: made,
+      updatedAt: made,
       body: remapBody(card.body, cardIdOf, assetIdOf),
     });
     if (live && !card.fields.isTemplate) {
@@ -387,15 +387,15 @@ export function seedBuiltinTemplate(world: World, template: SeedTemplate, reader
     showDescription: template.board.showDescription,
     cardProperties: boardCardProperties(template.board.cardProperties),
     properties,
-    createAt: at,
-    updateAt: at,
+    createdAt: at,
+    updatedAt: at,
   };
   world.containers.set(id, container);
   const assetIdOf = placeSeedFiles(world, id, template.files);
 
   if (kind === 'course') {
     if (template.schedule) {
-      world.courseSchedules.set(id, { ...template.schedule, updateAt: at });
+      world.courseSchedules.set(id, { ...template.schedule, updatedAt: at });
     }
     seedCourseTemplateBlocks(world, id, template, reader, assetIdOf);
     return;
@@ -436,8 +436,8 @@ function seedCourseTemplateBlocks(
       title: chapter.title,
       fields: structuredClone(chapter.fields),
       body: null,
-      createAt: made,
-      updateAt: made,
+      createdAt: made,
+      updatedAt: made,
     });
   }
   for (const unit of units) {
@@ -454,8 +454,8 @@ function seedCourseTemplateBlocks(
       title: unit.title,
       fields: structuredClone(unit.fields),
       body: remapBody(unit.body, nodeIdOf, assetIdOf),
-      createAt: made,
-      updateAt: made,
+      createdAt: made,
+      updatedAt: made,
     });
   }
 }

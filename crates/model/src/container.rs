@@ -465,10 +465,10 @@ pub struct Container {
     pub card_properties: Vec<CardPropertyDefinition>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(default)]
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
     #[serde(default)]
-    pub update_at: i64,
+    pub updated_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
     #[serde(
         default,

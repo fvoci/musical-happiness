@@ -24,16 +24,16 @@ describe('the memory backend', () => {
     const first = await backend.createComment(board.boardId, betaId, text('one'));
     const second = await backend.createComment(board.boardId, betaId, text('two'));
     expect((await listed()).find((card) => card.id === betaId)?.lastCommentAt).toBe(
-      second.createAt,
+      second.createdAt,
     );
     // A changed comment does not move it; a deleted one does not count.
     await backend.patchComment(board.boardId, first.id, {
       body: text('one, changed'),
-      readAt: first.updateAt,
+      readAt: first.updatedAt,
     });
-    expect((await backend.card(board.boardId, betaId)).lastCommentAt).toBe(second.createAt);
+    expect((await backend.card(board.boardId, betaId)).lastCommentAt).toBe(second.createdAt);
     await backend.deleteBlock(board.boardId, second.id);
-    expect((await backend.card(board.boardId, betaId)).lastCommentAt).toBe(first.createAt);
+    expect((await backend.card(board.boardId, betaId)).lastCommentAt).toBe(first.createdAt);
 
     const heard: unknown[] = [];
     const stop = backend.watchContainer(board.boardId, (change) => {
@@ -52,14 +52,14 @@ describe('an open board', () => {
     const { board, other, betaId } = await onBeta();
     const posted = await other.createComment(board.boardId, betaId, text('hello'));
     await settle();
-    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createdAt);
 
     // The card comes in a change message, without the time: it keeps it.
     await other.patchCard(board.boardId, betaId, { title: 'Beta, renamed' });
     await settle();
     expect(board.card(betaId)).toMatchObject({
       title: 'Beta, renamed',
-      lastCommentAt: posted.createAt,
+      lastCommentAt: posted.createdAt,
     });
   });
 
@@ -68,18 +68,18 @@ describe('an open board', () => {
     const older = await other.createComment(board.boardId, betaId, text('older'));
     const newer = await other.createComment(board.boardId, betaId, text('newer'));
     await settle();
-    expect(board.card(betaId)?.lastCommentAt).toBe(newer.createAt);
+    expect(board.card(betaId)?.lastCommentAt).toBe(newer.createdAt);
 
     // The reader, the board's admin, deletes somebody else's comment.
     await backend.deleteBlock(board.boardId, newer.id);
     await settle();
     await vi.waitFor(() => {
-      expect(board.card(betaId)?.lastCommentAt).toBe(older.createAt);
+      expect(board.card(betaId)?.lastCommentAt).toBe(older.createdAt);
     });
     // Brought back, it counts again.
     await backend.restoreBlock(board.boardId, newer.id);
     await settle();
-    expect(board.card(betaId)?.lastCommentAt).toBe(newer.createAt);
+    expect(board.card(betaId)?.lastCommentAt).toBe(newer.createdAt);
   });
 
   it('reads the times of all cards again when a comment of no card it knows is deleted', async () => {
@@ -98,8 +98,8 @@ describe('an open board', () => {
         type: 'comment',
         title: '',
         fields: {},
-        createAt: at,
-        updateAt: at,
+        createdAt: at,
+        updatedAt: at,
         body: text(words),
       });
       return id;
@@ -110,7 +110,7 @@ describe('an open board', () => {
     await backend.deleteBlock(board.boardId, gone);
     await settle();
     await vi.waitFor(() => {
-      expect(board.card(betaId)?.lastCommentAt).toBe(world.blocks.get(kept)?.createAt);
+      expect(board.card(betaId)?.lastCommentAt).toBe(world.blocks.get(kept)?.createdAt);
     });
     expect(cards).toHaveBeenCalledOnce();
   });
@@ -133,11 +133,11 @@ describe('an open board', () => {
     await settle();
     const posted = await other.createComment(board.boardId, betaId, text('meanwhile'));
     await settle();
-    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createdAt);
     release();
     await opening;
     await settle();
-    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createdAt);
   });
 
   it('reads the card again after a deletion even when another comment of it is changed meanwhile', async () => {
@@ -161,12 +161,12 @@ describe('an open board', () => {
     // The older one is changed while the card is read again: it does not make the time newer.
     await other.patchComment(board.boardId, older.id, {
       body: text('older, changed'),
-      readAt: older.updateAt,
+      readAt: older.updatedAt,
     });
     await settle();
     release();
     await vi.waitFor(() => {
-      expect(board.card(betaId)?.lastCommentAt).toBe(older.createAt);
+      expect(board.card(betaId)?.lastCommentAt).toBe(older.createdAt);
     });
   });
 
@@ -188,7 +188,7 @@ describe('an open board', () => {
     const before = board.card(betaId)?.lastCommentAt ?? 0;
     const posted = await other.createComment(board.boardId, betaId, text('soon gone'));
     await settle();
-    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createdAt);
     // Deleted while the connection was down: nothing is heard of it, then the board is read again.
     world.blocks.delete(posted.id);
     world.tellContainer(board.boardId, { kind: 'resync' });
@@ -218,6 +218,6 @@ describe('an open board', () => {
     await settle();
     release();
     await settle();
-    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createdAt);
   });
 });

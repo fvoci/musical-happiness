@@ -157,7 +157,7 @@ describe('a version kept by hand, in memory', () => {
 
   it('keeps the body a version is gone back to as restored, and the body before on its own', async () => {
     const { world: stored, BOARD, backend, cardId } = world();
-    const readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
+    const readAt = stored.blocks.get(cardId)?.updatedAt ?? 0;
     await backend.writeCardBody(BOARD, cardId, { body: text('second'), readAt });
     await backend.bodyVersions.restore(BOARD, cardId, 1);
     expect(
@@ -171,7 +171,7 @@ describe('a version kept by hand, in memory', () => {
 
   it('is for who edits the board: who reads or comments is refused, who is not on it does not find the card', async () => {
     const { world: stored, BOARD, backend, other, cardId } = world();
-    const at = stored.blocks.get(cardId)?.updateAt;
+    const at = stored.blocks.get(cardId)?.updatedAt;
     for (const role of ['viewer', 'commenter'] as const) {
       await backend.setMemberRole(BOARD, other.userId, role);
       expect((await rejection(other.bodyVersions.keep(BOARD, cardId))).status).toBe(403);
@@ -179,7 +179,7 @@ describe('a version kept by hand, in memory', () => {
     expect((await rejection(backend.bodyVersions.keep(BOARD, 'nothing'))).status).toBe(404);
     await backend.removeMember(BOARD, other.userId);
     expect((await rejection(other.bodyVersions.keep(BOARD, cardId))).status).toBe(404);
-    expect(stored.blocks.get(cardId)?.updateAt).toBe(at);
+    expect(stored.blocks.get(cardId)?.updatedAt).toBe(at);
     expect(await backend.bodyVersions.list(BOARD, cardId)).toEqual([]);
   });
 });
@@ -230,7 +230,7 @@ describe('a version kept by hand, from the dialog', () => {
     const made = await openFirstBoard();
     const card = made.board.cards.find((one) => one.title === 'Alpha');
     if (!card) throw new Error('no card');
-    const readAt = made.world.blocks.get(card.id)?.updateAt ?? 0;
+    const readAt = made.world.blocks.get(card.id)?.updatedAt ?? 0;
     await made.other.writeCardBody(card.containerId, card.id, { body: text('second'), readAt });
     const open = await joined(made.board, card.id);
     const source = cardVersions(made.board, open);

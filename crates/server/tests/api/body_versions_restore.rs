@@ -132,7 +132,7 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", t.card_id),
-            &json!({"body": null, "readAt": read.update_at}),
+            &json!({"body": null, "readAt": read.updated_at}),
         )
         .await
         .check_ok();
@@ -183,8 +183,8 @@ async fn a_version_restored_is_the_cards_body_and_the_same_body_again_is_nothing
     }
     assert_eq!(versions(&th.client, &t.card_id).await, kept);
     assert_eq!(
-        card(&th.client, &t.card_id).await.update_at,
-        before.update_at,
+        card(&th.client, &t.card_id).await.updated_at,
+        before.updated_at,
         "the card is not written"
     );
     assert_eq!(reader.incoming(QUIET).await, Incoming::Nothing);

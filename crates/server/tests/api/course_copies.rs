@@ -65,7 +65,7 @@ async fn create_unit(client: &Client, ws: &str, course: &str, payload: &Value) -
 
 async fn write_unit_body(client: &Client, ws: &str, course: &str, unit: &str, body: &Value) {
     let path = format!("{ws}/courses/{course}/units/{unit}");
-    let read_at = client.get(&path).await.value()["updateAt"].clone();
+    let read_at = client.get(&path).await.value()["updatedAt"].clone();
     client
         .patch(&path, &json!({"readAt": read_at, "body": body}))
         .await

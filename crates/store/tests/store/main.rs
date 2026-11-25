@@ -88,6 +88,7 @@ mod tenancy_tables;
 mod time_entries;
 mod trash;
 mod trash_file_race;
+mod unified_timestamps_migration;
 mod unit_progress;
 mod unit_reviews;
 mod user_row_deletion;

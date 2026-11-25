@@ -85,7 +85,7 @@ describe('the versions of a body, in memory', () => {
     const { world: stored, BOARD, backend, other, cardId, me } = world();
     const versions = backend.bodyVersions;
     expect(await versions.list(BOARD, cardId)).toEqual([]);
-    const before = stored.blocks.get(cardId)?.updateAt;
+    const before = stored.blocks.get(cardId)?.updatedAt;
 
     const mine = backend.openDoc('w', BOARD, cardId, hears());
     const theirs = other.openDoc('w', BOARD, cardId, hears());
@@ -99,7 +99,7 @@ describe('the versions of a body, in memory', () => {
       { version: 1, keptAt: before, editors: [], isCurrent: false, cause: 'auto' },
     ]);
     expect((await versions.read(BOARD, cardId, 1)).isCurrent).toBe(false);
-    expect(stored.blocks.get(cardId)?.updateAt).toBe(before);
+    expect(stored.blocks.get(cardId)?.updatedAt).toBe(before);
 
     // The one who wrote leaves; another who may write stays, and wrote nothing: kept then.
     mine.close();
@@ -253,7 +253,7 @@ describe('the versions of a body, in memory', () => {
     const { world: stored, BOARD, backend, other, cardId, them } = world();
     const versions = backend.bodyVersions;
     const whole = async (value: string): Promise<void> => {
-      const readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
+      const readAt = stored.blocks.get(cardId)?.updatedAt ?? 0;
       await other.writeCardBody(BOARD, cardId, { body: text(value), readAt });
     };
     await whole('second');
@@ -265,7 +265,7 @@ describe('the versions of a body, in memory', () => {
     await whole('second');
     expect(await versions.list(BOARD, cardId)).toHaveLength(2);
     // No body is a version too, once there is one before it.
-    const readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
+    const readAt = stored.blocks.get(cardId)?.updatedAt ?? 0;
     await other.writeCardBody(BOARD, cardId, { body: null, readAt });
     expect((await versions.read(BOARD, cardId, 3)).body).toBeNull();
 
@@ -302,10 +302,10 @@ describe('the versions of a body, in memory', () => {
     expect(lines((await versions.read(BOARD, cardId, 2)).body)).toEqual(['first body', 'typed']);
 
     // The body the card has, by its newest version and by an older one: nothing is written.
-    const at = stored.blocks.get(cardId)?.updateAt;
+    const at = stored.blocks.get(cardId)?.updatedAt;
     await versions.restore(BOARD, cardId, 3);
     await versions.restore(BOARD, cardId, 1);
-    expect(stored.blocks.get(cardId)?.updateAt).toBe(at);
+    expect(stored.blocks.get(cardId)?.updatedAt).toBe(at);
     expect(await versions.list(BOARD, cardId)).toHaveLength(3);
     mine.close();
     theirs.close();
@@ -313,18 +313,18 @@ describe('the versions of a body, in memory', () => {
 
   it('lets members read the versions, and only who edits restore one', async () => {
     const { world: stored, BOARD, backend, other, cardId } = world();
-    const readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
+    const readAt = stored.blocks.get(cardId)?.updatedAt ?? 0;
     await backend.writeCardBody(BOARD, cardId, { body: text('second'), readAt });
     // What somebody typed is in the room, not in the card yet: a refused restore writes neither.
     const mine = backend.openDoc('w', BOARD, cardId, hears());
     await type(mine, 'typed');
-    const at = stored.blocks.get(cardId)?.updateAt;
+    const at = stored.blocks.get(cardId)?.updatedAt;
     for (const role of ['viewer', 'commenter'] as const) {
       await backend.setMemberRole(BOARD, other.userId, role);
       expect(await other.bodyVersions.list(BOARD, cardId)).toHaveLength(2);
       expect((await rejection(other.bodyVersions.restore(BOARD, cardId, 1))).status).toBe(403);
     }
-    expect(stored.blocks.get(cardId)?.updateAt).toBe(at);
+    expect(stored.blocks.get(cardId)?.updatedAt).toBe(at);
     mine.close();
     await vi.waitFor(() => {
       expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['second', 'typed']);
@@ -353,9 +353,9 @@ describe('the versions of a body, in memory', () => {
         type: 'doc',
         content: [{ type: kind, attrs: { fileId: 'f1' } }],
       };
-      let readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
+      let readAt = stored.blocks.get(cardId)?.updatedAt ?? 0;
       await backend.writeCardBody(BOARD, cardId, { body: pictured, readAt });
-      readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
+      readAt = stored.blocks.get(cardId)?.updatedAt ?? 0;
       await backend.writeCardBody(BOARD, cardId, { body: text('third'), readAt });
       stored.files.delete('f1');
       expect((await rejection(backend.bodyVersions.restore(BOARD, cardId, 2))).status).toBe(409);
@@ -411,7 +411,7 @@ describe('the reading of the versions of an open card', () => {
     const made = await openFirstBoard();
     const card = made.board.cards.find((one) => one.title === 'Alpha');
     if (!card) throw new Error('no card');
-    const readAt = made.world.blocks.get(card.id)?.updateAt ?? 0;
+    const readAt = made.world.blocks.get(card.id)?.updatedAt ?? 0;
     await made.other.writeCardBody(card.containerId, card.id, { body: text('second'), readAt });
     const open = await made.board.showCard(card.id);
     const learned = vi.spyOn(made.workspace, 'learnUsers');

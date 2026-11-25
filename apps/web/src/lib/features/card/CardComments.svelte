@@ -127,7 +127,7 @@
         if (open?.id === id) {
           // Shown now, theirs is what the next save knowingly writes over.
           open.theirs = true;
-          open.readAt = card.comment(id)?.updateAt ?? readAt;
+          open.readAt = card.comment(id)?.updatedAt ?? readAt;
         }
       }
       // Failed: the field stays, with what was written.
@@ -199,10 +199,10 @@
             <span class="font-medium">{author}</span>
             <time
               class="text-xs text-muted-foreground"
-              datetime={new Date(comment.createAt).toISOString()}
-              title={displayDateTime(comment.createAt, context)}
+              datetime={new Date(comment.createdAt).toISOString()}
+              title={displayDateTime(comment.createdAt, context)}
             >
-              {relativeTime(comment.createAt, workspace.locale, Math.max(now, comment.createAt))}
+              {relativeTime(comment.createdAt, workspace.locale, Math.max(now, comment.createdAt))}
             </time>
             {#if comment.editedAt}
               {@const when = relativeTime(
@@ -290,7 +290,7 @@
         </div>
         {#if comment.editedAt && board.canReadCommentHistory}
           <IconButton
-            label={m.card_comment_history({ when: displayDateTime(comment.createAt, context) })}
+            label={m.card_comment_history({ when: displayDateTime(comment.createdAt, context) })}
             class={['shrink-0 text-muted-foreground', historyOf === comment.id && 'bg-accent']}
             aria-expanded={historyOf === comment.id}
             aria-controls={historyOf === comment.id ? `${uid}-history-${comment.id}` : undefined}
@@ -305,12 +305,12 @@
         {#if text !== undefined && editing?.id !== comment.id && board.canEditComment(comment.createdBy)}
           <IconButton
             label={m.card_comment_edit_from({
-              when: displayDateTime(comment.createAt, context),
+              when: displayDateTime(comment.createdAt, context),
             })}
             class="shrink-0 text-muted-foreground"
             data-action="edit"
             onclick={() => {
-              editing = { id: comment.id, text, readAt: comment.updateAt, theirs: false };
+              editing = { id: comment.id, text, readAt: comment.updatedAt, theirs: false };
             }}
           >
             <PencilIcon aria-hidden="true" />
@@ -319,7 +319,7 @@
         {#if board.canDeleteComment(comment.createdBy)}
           <IconButton
             label={m.card_comment_delete_from({
-              when: displayDateTime(comment.createAt, context),
+              when: displayDateTime(comment.createdAt, context),
             })}
             class="shrink-0 text-muted-foreground"
             onclick={() => {

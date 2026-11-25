@@ -257,7 +257,7 @@ describe('the built-in templates', () => {
     for (const template of templates) {
       if (template.board.kind === 'course') continue;
       const views = template.views.map(
-        (view) => ({ ...view, createAt: 0 }) as unknown as BoardView,
+        (view) => ({ ...view, createdAt: 0 }) as unknown as BoardView,
       );
       const [opened] = orderViews(views, template.language);
       expect(opened?.fields.viewType, `${template.key} (${template.language})`).toBe(

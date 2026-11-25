@@ -59,7 +59,7 @@ export interface AuditRecord {
   targetId: string;
   /** The board's title where the reader sees the board, the workspace's name; null otherwise. */
   targetName: string | null;
-  createAt: number;
+  createdAt: number;
   /** The issuer a record of a provider's move names; null for the others. */
   detail: string | null;
   /**

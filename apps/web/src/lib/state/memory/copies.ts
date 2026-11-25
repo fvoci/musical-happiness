@@ -174,8 +174,8 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
     modifiedBy: userId,
     visibility: 'private',
     isBuiltin: false,
-    createAt: now,
-    updateAt: now,
+    createdAt: now,
+    updatedAt: now,
   };
   delete board.deletedAt;
   world.containers.set(board.id, board);
@@ -195,11 +195,11 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
         startDate,
         targetDate,
         studyDays: rawSchedule.studyDays,
-        updateAt: now,
+        updatedAt: now,
       });
     } else {
       dayShift = 0;
-      world.courseSchedules.set(board.id, { ...rawSchedule, updateAt: now });
+      world.courseSchedules.set(board.id, { ...rawSchedule, updatedAt: now });
     }
   }
   for (const block of blocks) {
@@ -219,8 +219,8 @@ export function insertCopy(world: World, userId: string, copied: Copied): Contai
       id: renamed(block.id),
       containerId: board.id,
       parentId: renamed(made.parentId),
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     delete stored.deletedAt;
     numberBlock(world, stored);

@@ -606,11 +606,11 @@ async fn after_the_keeping_ended_nothing_is_held_or_carried_over() {
         old.sign_in_as(Person::new(ADA, "ada@old.example.com"));
         if ending == "early" {
             let read: OidcProvider = ts.client.get(&path).await.ok_json();
-            let kept_since = read.former.expect("kept").create_at;
+            let kept_since = read.former.expect("kept").created_at;
             let ended = ts
                 .client
                 .request(reqwest::Method::DELETE, &format!("{path}/former"))
-                .json(&json!({ "createAt": kept_since }));
+                .json(&json!({ "createdAt": kept_since }));
             Client::send(ended).await.check_no_content();
         } else {
             let lapse = "UPDATE oidc_former_providers SET expires_at = 1";

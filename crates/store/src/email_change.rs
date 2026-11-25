@@ -56,7 +56,7 @@ impl Store {
             }
             discard_of_user(scope, user_id).await?;
             let mut sql = scope.sql(
-                "INSERT INTO email_changes (user_id, new_email, create_at, expires_at) VALUES (",
+                "INSERT INTO email_changes (user_id, new_email, created_at, expires_at) VALUES (",
             );
             sql.bind(Id(user_id))
                 .push_bind(", ", new_email)
@@ -382,7 +382,7 @@ pub(crate) async fn set_address(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE users SET email = ");
     sql.bind(new_email)
-        .push_bind(", update_at = ", now)
+        .push_bind(", updated_at = ", now)
         .push_bind(" WHERE id = ", Id(user_id));
     scope.execute(sql).await.map_err(|error| match error {
         // Asked above whether anybody has it, under the claim on the names: should

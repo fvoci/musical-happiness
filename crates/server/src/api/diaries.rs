@@ -370,7 +370,7 @@ async fn handle_get_diary_entry(
 ///
 /// Its mood, its weather, its place, its whole body (`body`), or blocks appended after
 /// its current body (`appendBody`). `body` and `appendBody` cannot be sent together.
-/// A whole-body replacement (`body`) is sent with `readAt`, the `updateAt` of the entry
+/// A whole-body replacement (`body`) is sent with `readAt`, the `updatedAt` of the entry
 /// as it was read: `readAt` is compared against when the entry's body last changed, so
 /// metadata-only patches (`mood`, `weather`, `place`) do not cause 409 conflicts while
 /// any change to the body does. `appendBody` appends inside one server transaction

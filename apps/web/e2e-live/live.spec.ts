@@ -154,7 +154,7 @@ test('a body one person writes in the room changes the card on the other’s boa
   const now = (await (await api.get(cardPath)).json()) as Schemas['Card'];
   const written = await api.patch(cardPath, {
     data: {
-      readAt: now.updateAt,
+      readAt: now.updatedAt,
       body: {
         type: 'doc',
         content: [

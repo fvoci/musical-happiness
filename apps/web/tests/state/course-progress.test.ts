@@ -48,7 +48,7 @@ describe('unit progress API client', () => {
       completedAt: 1000,
       plannedDate: null,
       lastPosition: '12:30',
-      updateAt: 1000,
+      updatedAt: 1000,
     };
     const request: WikiRequest = <T>(
       path: string,

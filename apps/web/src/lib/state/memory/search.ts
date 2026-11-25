@@ -32,6 +32,6 @@ export function searchBoardsOf(
         isMember(board.id) &&
         words.every((word) => board.title.toLowerCase().includes(word)),
     )
-    .sort((first, second) => first.createAt - second.createAt)
+    .sort((first, second) => first.createdAt - second.createdAt)
     .map(copy);
 }

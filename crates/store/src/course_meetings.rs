@@ -63,7 +63,7 @@ impl Store {
             let org = scope.org()?;
             let mut sql = scope.sql(
                 "SELECT m.id, m.container_id, m.title, m.starts_at, m.location, m.unit_ids, \
-                 m.presenter_id, m.host_id, m.notes, m.notified_at, m.create_at, m.update_at \
+                 m.presenter_id, m.host_id, m.notes, m.notified_at, m.created_at, m.updated_at \
                  FROM course_meetings AS m \
                  JOIN containers AS c ON c.id = m.container_id \
                  JOIN workspaces AS w ON w.id = c.workspace_id \
@@ -130,7 +130,7 @@ impl Store {
             let mut sql = scope.sql(
                 "INSERT INTO course_meetings \
                  (id, org_id, container_id, title, starts_at, location, unit_ids, \
-                  presenter_id, host_id, notes, notified_at, create_at, update_at) VALUES (",
+                  presenter_id, host_id, notes, notified_at, created_at, updated_at) VALUES (",
             );
             sql.changing_no_access()
                 .bind(Id(&id))
@@ -159,8 +159,8 @@ impl Store {
                 host_id: new.host_id.clone(),
                 notes: new.notes.clone(),
                 notified_at: None,
-                create_at: now,
-                update_at: now,
+                created_at: now,
+                updated_at: now,
                 attendance: Vec::new(),
             })
         })
@@ -225,7 +225,7 @@ impl Store {
                 .push_bind(", host_id = ", OptId(host_id.as_deref().unwrap_or("")))
                 .push_bind(", notes = ", notes)
                 .push_bind(", notified_at = ", Param::OptInt(notified_at))
-                .push_bind(", update_at = ", now)
+                .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(meeting_id))
                 .push_bind(" AND org_id = ", org.clone())
                 .push_bind(" AND container_id = ", Id(course_id));
@@ -245,8 +245,8 @@ impl Store {
                 host_id,
                 notes: notes.to_owned(),
                 notified_at,
-                create_at: existing.create_at,
-                update_at: now,
+                created_at: existing.created_at,
+                updated_at: now,
                 attendance,
             })
         })
@@ -330,7 +330,7 @@ impl Store {
             require_active_course_member(scope, course_id, user_id, org.clone()).await?;
             let now = now_millis();
             let mut sql = scope.sql(
-                "INSERT INTO meeting_attendance (meeting_id, org_id, user_id, status, update_at) \
+                "INSERT INTO meeting_attendance (meeting_id, org_id, user_id, status, updated_at) \
                  VALUES (",
             );
             sql.changing_no_access()
@@ -341,13 +341,13 @@ impl Store {
                 .push_bind(", ", now)
                 .push(
                     ") ON CONFLICT (meeting_id, org_id, user_id) \
-                     DO UPDATE SET status = excluded.status, update_at = excluded.update_at",
+                     DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at",
                 );
             scope.execute(sql).await?;
             Ok(MeetingAttendance {
                 user_id: user_id.to_owned(),
                 status,
-                update_at: now,
+                updated_at: now,
             })
         })
         .await
@@ -595,7 +595,7 @@ async fn insert_meeting_notification(
     let id = new_id();
     let mut sql = scope.sql(
         "INSERT INTO notifications (recipient_id, id, org_id, kind, source_id, \
-         block_id, container_id, actor_id, made_by, create_at, update_at, times, \
+         block_id, container_id, actor_id, made_by, created_at, updated_at, times, \
          doers, counted, read_at) VALUES (",
     );
     sql.changing_no_access()
@@ -623,7 +623,7 @@ async fn fetch_meeting_for_update(
 ) -> Result<CourseMeeting, StoreError> {
     let mut sql = scope.sql(
         "SELECT id, container_id, title, starts_at, location, unit_ids, presenter_id, \
-         host_id, notes, notified_at, create_at, update_at \
+         host_id, notes, notified_at, created_at, updated_at \
          FROM course_meetings WHERE id = ",
     );
     sql.bind(Id(meeting_id))
@@ -646,7 +646,7 @@ async fn fetch_attendance_map(
     let mut map: BTreeMap<String, Vec<MeetingAttendance>> = BTreeMap::new();
     for batch in meeting_ids.chunks(BATCH) {
         let mut sql = scope.sql(
-            "SELECT meeting_id, user_id, status, update_at \
+            "SELECT meeting_id, user_id, status, updated_at \
              FROM meeting_attendance WHERE org_id = ",
         );
         sql.bind(org.clone())
@@ -667,7 +667,7 @@ async fn fetch_attendance_map(
             map.entry(meeting_id).or_default().push(MeetingAttendance {
                 user_id: row.id(1)?,
                 status,
-                update_at: row.int(3)?,
+                updated_at: row.int(3)?,
             });
         }
     }
@@ -694,8 +694,8 @@ fn meeting_from_row(row: &Row) -> Result<CourseMeeting, StoreError> {
         host_id,
         notes: row.text(8)?,
         notified_at: row.opt_int(9)?,
-        create_at: row.int(10)?,
-        update_at: row.int(11)?,
+        created_at: row.int(10)?,
+        updated_at: row.int(11)?,
         attendance: Vec::new(),
     })
 }

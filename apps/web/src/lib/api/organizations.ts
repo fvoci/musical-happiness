@@ -91,8 +91,8 @@ export class ServerOrganizations implements Organizations {
     await this.#http.request('/api/v1/org/{orgId}/oidc/pending', { orgId }, { method: 'DELETE' });
   }
 
-  async endOidcFormer(orgId: string, createAt: number): Promise<void> {
-    const json: Schemas['OidcFormerProviderEnd'] = { createAt };
+  async endOidcFormer(orgId: string, createdAt: number): Promise<void> {
+    const json: Schemas['OidcFormerProviderEnd'] = { createdAt };
     await this.#http.request(
       '/api/v1/org/{orgId}/oidc/former',
       { orgId },

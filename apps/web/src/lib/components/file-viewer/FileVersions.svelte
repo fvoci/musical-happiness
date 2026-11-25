@@ -73,7 +73,7 @@
   });
   const busy = $derived(list.writing !== undefined);
 
-  const when = (version: FileVersion): string => displayDateTime(version.createAt, context);
+  const when = (version: FileVersion): string => displayDateTime(version.createdAt, context);
   const who = (version: FileVersion): string =>
     source.userName(version.createdBy) ?? m['centerPanel.unknown-user']();
 
@@ -218,9 +218,9 @@
               </span>
               <time
                 class="text-muted-foreground"
-                datetime={new Date(version.createAt).toISOString()}
+                datetime={new Date(version.createdAt).toISOString()}
               >
-                {relativeTime(version.createAt, context.locale)}
+                {relativeTime(version.createdAt, context.locale)}
               </time>
               {#if version.isCurrent}
                 <span

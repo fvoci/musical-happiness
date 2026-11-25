@@ -28,7 +28,7 @@ async fn replacing_the_built_in_templates_hands_back_the_old_files() {
         name: "picture.png".to_owned(),
         size: 1,
         path: format!("{}/picture.png", old.id),
-        create_at: 1,
+        created_at: 1,
         ..FileRecord::default()
     };
     test.save_file_record(&file)
@@ -132,7 +132,7 @@ async fn the_files_of_new_templates_are_recorded_with_them_or_nothing_is_stored(
         name: name.to_owned(),
         size: 1,
         path: format!("boards/{}/{name}", board.id),
-        create_at: 1,
+        created_at: 1,
         ..FileRecord::default()
     };
 

@@ -1019,7 +1019,7 @@ async fn recovering_after_projection_and_before_remake_dedups_mentions() {
         .project_body(
             &card_b.id,
             Some(projected_body),
-            held_card.update_at,
+            held_card.updated_at,
             *seqs.last().expect("seq"),
             &digest,
             &a.id,

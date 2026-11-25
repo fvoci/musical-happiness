@@ -37,7 +37,7 @@ function cardWith(properties: Card['fields']['properties'], title = 'Write the r
   card.title = title;
   card.fields.icon = '📝';
   card.fields.properties = properties;
-  card.createAt = Date.UTC(2026, 2, 5, 0, 0);
+  card.createdAt = Date.UTC(2026, 2, 5, 0, 0);
   return card;
 }
 

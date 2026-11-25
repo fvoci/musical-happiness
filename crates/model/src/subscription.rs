@@ -41,7 +41,7 @@ pub struct Subscription {
     pub notified_at: i64,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(default)]
-    pub create_at: i64,
+    pub created_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
     #[serde(
         default,

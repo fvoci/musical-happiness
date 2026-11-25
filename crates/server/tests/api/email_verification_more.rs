@@ -214,7 +214,7 @@ async fn the_hourly_clean_up_removes_the_registrations_that_ended() {
         language: String::new(),
         start: fvoci_store::SignupStart::Organization("Old".to_owned()),
         browser_hash: String::new(),
-        create_at: long_ago - 1,
+        created_at: long_ago - 1,
         expires_at: long_ago,
     };
     let store = th.app.store();

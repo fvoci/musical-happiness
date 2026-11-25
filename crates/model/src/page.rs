@@ -174,9 +174,9 @@ pub struct PageNode {
     /// same. The server makes it; a client reads it only to sort.
     pub order: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 /// What the tree lists of the page that the block is.
@@ -188,8 +188,8 @@ impl From<Block> for PageNode {
             id: block.id,
             parent_id: block.parent_id,
             title: block.title,
-            create_at: block.create_at,
-            update_at: block.update_at,
+            created_at: block.created_at,
+            updated_at: block.updated_at,
         }
     }
 }
@@ -224,10 +224,10 @@ pub struct Page {
     /// The identifier of the user who last changed the page.
     pub modified_by: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch: what `readAt` of a
     /// change of the page names.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 impl From<Block> for Page {
@@ -243,8 +243,8 @@ impl From<Block> for Page {
             body: block.body,
             created_by: block.created_by,
             modified_by: block.modified_by,
-            create_at: block.create_at,
-            update_at: block.update_at,
+            created_at: block.created_at,
+            updated_at: block.updated_at,
         }
     }
 }
@@ -347,7 +347,7 @@ const _: () = assert!(
 
 /// What a new body without `readAt` is refused with.
 const READ_AT_MISSING: &str =
-    "a new body is sent with readAt, the updateAt of the page as it was read";
+    "a new body is sent with readAt, the updatedAt of the page as it was read";
 
 /// What a page is changed to. A member that is left out stays as it is. Where the page
 /// is in the tree is none of them: a member the patch does not have is refused, so
@@ -365,7 +365,7 @@ pub struct PagePatch {
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]
     pub body: BodyChange,
-    /// The `updateAt` of the page as the client read it: if the page has changed since,
+    /// The `updatedAt` of the page as the client read it: if the page has changed since,
     /// the patch is refused with 409 and changes nothing. Needed with `body`, and
     /// checked whenever it is sent.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -612,8 +612,8 @@ mod tests {
             title: "Welcome".to_owned(),
             created_by: "maker".to_owned(),
             modified_by: "editor".to_owned(),
-            create_at: 1,
-            update_at: 2,
+            created_at: 1,
+            updated_at: 2,
             ..Block::default()
         };
         block.fields.insert(PAGE_ICON_FIELD.to_owned(), json!("👋"));
@@ -636,7 +636,7 @@ mod tests {
                 node.title,
                 node.icon,
                 node.order,
-                node.update_at
+                node.updated_at
             ),
             (
                 page.id,

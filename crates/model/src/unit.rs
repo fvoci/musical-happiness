@@ -148,9 +148,9 @@ pub struct UnitNode {
     /// chapter.
     pub scheduled_date: Option<String>,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 impl From<Block> for UnitNode {
@@ -174,8 +174,8 @@ impl From<Block> for UnitNode {
             id: block.id,
             parent_id: block.parent_id,
             title: block.title,
-            create_at: block.create_at,
-            update_at: block.update_at,
+            created_at: block.created_at,
+            updated_at: block.updated_at,
         }
     }
 }
@@ -219,10 +219,10 @@ pub struct Unit {
     /// The identifier of the user who last changed it.
     pub modified_by: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch: what `readAt` of a
     /// change of the unit names.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 impl From<Block> for Unit {
@@ -250,8 +250,8 @@ impl From<Block> for Unit {
             body: block.body,
             created_by: block.created_by,
             modified_by: block.modified_by,
-            create_at: block.create_at,
-            update_at: block.update_at,
+            created_at: block.created_at,
+            updated_at: block.updated_at,
         }
     }
 }
@@ -389,7 +389,7 @@ pub struct UnitMove {
 
 /// What a new body without `readAt` is refused with.
 const READ_AT_MISSING: &str =
-    "a new body is sent with readAt, the updateAt of the unit as it was read";
+    "a new body is sent with readAt, the updatedAt of the unit as it was read";
 
 /// What a unit or chapter is changed to. Absent members stay as they are. Where the
 /// node stands in the course does not change here (`moveUnit`).
@@ -404,7 +404,7 @@ pub struct UnitPatch {
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]
     pub body: BodyChange,
-    /// The `updateAt` of the unit as the client read it: if the unit has changed since,
+    /// The `updatedAt` of the unit as the client read it: if the unit has changed since,
     /// the patch is refused with 409 and changes nothing. Needed with `body`, and
     /// checked whenever it is sent.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -605,8 +605,8 @@ mod tests {
             title: "Lesson 1".to_owned(),
             created_by: "maker".to_owned(),
             modified_by: "editor".to_owned(),
-            create_at: 1,
-            update_at: 2,
+            created_at: 1,
+            updated_at: 2,
             ..Block::default()
         };
         block.fields.insert(PAGE_ORDER_FIELD.to_owned(), json!("V"));

@@ -305,7 +305,7 @@ impl<'a> BoardStreamer<'a> {
             ))
         })?;
         self.shared.modified_by.clone_into(&mut block.modified_by);
-        block.update_at = self.now;
+        block.updated_at = self.now;
         block.deleted_at = None;
         if let Some(defs) = self.plan.card_properties.get(new_cid) {
             clear_block_values_of_another_kind(&mut block, defs);

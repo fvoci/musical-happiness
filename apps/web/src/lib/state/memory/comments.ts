@@ -34,7 +34,7 @@ export function mayDeleteComment(role: Role, isAuthor: boolean): boolean {
  * deleted one is in the trash and does not count.
  */
 export function lastCommentAt(blocks: readonly StoredBlock[]): number {
-  return Math.max(0, ...blocks.filter((block) => block.type === 'comment').map((c) => c.createAt));
+  return Math.max(0, ...blocks.filter((block) => block.type === 'comment').map((c) => c.createdAt));
 }
 
 /**
@@ -91,7 +91,7 @@ export function recordChange(
 
 /**
  * Writes down a change of a stored comment's text from `before` by `userId`,
- * its time the comment's `updateAt`; the same text again is no change.
+ * its time the comment's `updatedAt`; the same text again is no change.
  */
 export function noteChange(
   world: World,
@@ -101,13 +101,13 @@ export function noteChange(
 ): void {
   const now = block.body ?? null;
   if (JSON.stringify(before) === JSON.stringify(now)) return;
-  block.editedAt = block.updateAt;
+  block.editedAt = block.updatedAt;
   world.commentVersions.set(
     block.id,
     recordChange(
       world.commentVersions.get(block.id) ?? [],
-      { body: before, by: block.createdBy, at: block.createAt },
-      { body: now, by: userId, at: block.updateAt },
+      { body: before, by: block.createdBy, at: block.createdAt },
+      { body: now, by: userId, at: block.updatedAt },
     ),
   );
 }

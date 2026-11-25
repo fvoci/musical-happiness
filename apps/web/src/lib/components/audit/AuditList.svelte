@@ -118,7 +118,7 @@
         {/if}
         <time
           class="text-xs text-muted-foreground"
-          datetime={new Date(record.createAt).toISOString()}>{when.format(record.createAt)}</time
+          datetime={new Date(record.createdAt).toISOString()}>{when.format(record.createdAt)}</time
         >
       </li>
     {/each}

@@ -260,7 +260,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -274,7 +274,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "limits-alice"
     }
   },

@@ -13,7 +13,9 @@ use fvoci_store::{DbType, Store};
 use sqlx::Connection as _;
 
 use crate::boards::new_board;
-use crate::common::{self, db_type};
+use crate::common::{
+    self, PRE0075_CREATE_COL, PRE0075_CREATE_KEY, PRE0075_UPDATE_COL, PRE0075_UPDATE_KEY, db_type,
+};
 use crate::workspace_rename::{Dump, dump};
 
 /// The rows of every table, each as its values by the names of their columns: the
@@ -56,7 +58,9 @@ async fn trash_before_diaries(
     let deletion_id = new_id();
     let container_json = serde_json::to_string(container)
         .expect("container json")
-        .replace(r#""visibility":"private""#, r#""type":"P""#);
+        .replace(r#""visibility":"private""#, r#""type":"P""#)
+        .replace(r#""createdAt""#, &format!(r#""{PRE0075_CREATE_KEY}""#))
+        .replace(r#""updatedAt""#, &format!(r#""{PRE0075_UPDATE_KEY}""#));
     store
         .execute_unchecked(&format!(
             "INSERT INTO deleted_containers (id, workspace_id, deleted_at, deleted_by, \
@@ -112,7 +116,7 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
     let store = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("the database opens");
-    let (org_id, workspace_id) = common::organization(&store, "people").await;
+    let (org_id, workspace_id) = common::pre0075_organization(&store, "people").await;
     let store = store.for_org(&org_id).expect("an identifier");
     // The account is written in the columns of then: the store of now also asks of an
     // address what later migrations keep (`email_reverts`).
@@ -120,7 +124,7 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
     common::execute_raw(
         &common::raw_connection(&database),
         &format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at) \
+            "INSERT INTO users (id, username, email, password_hash, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
              VALUES ('{user_id}', 'member', 'member@example.com', '', 1, 1);"
         ),
     )
@@ -143,7 +147,8 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
             .execute_unchecked(&format!(
                 "INSERT INTO containers \
                  (id, workspace_id, created_by, modified_by, type, kind, title, description, \
-                  icon, show_description, is_template, properties, card_properties, create_at, update_at) \
+                  icon, show_description, is_template, properties, card_properties, \
+                  {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
                  VALUES ('{}', '{workspace_id}', '{user_id}', '{user_id}', 'P', '{}', '{}', '', \
                   '', false, {is_template}, '{{}}', '[]', 1, 1)",
                 container.id,
@@ -175,8 +180,9 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
             store
                 .execute_unchecked(&format!(
                     "INSERT INTO blocks (id, container_id, parent_id, created_by, modified_by, \
-                     \"schema\", type, title, fields, create_at, update_at) VALUES ('{block_id}', \
-                     '{}', NULL, '{user_id}', '{user_id}', 1, '{}', '{title}', '{{}}', 1, 1)",
+                     \"schema\", type, title, fields, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
+                     VALUES ('{block_id}', '{}', NULL, '{user_id}', '{user_id}', 1, '{}', \
+                     '{title}', '{{}}', 1, 1)",
                     container.id,
                     block_type.as_str()
                 ))
@@ -190,7 +196,7 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
             let old_links = ["shar", "ing"].concat();
             store
                 .execute_unchecked(&format!(
-                    "INSERT INTO {old_links} (container_id, enabled, token, modified_by, update_at) \
+                    "INSERT INTO {old_links} (container_id, enabled, token, modified_by, {PRE0075_UPDATE_COL}) \
                      VALUES ('{}', true, '{}', '{user_id}', 1)",
                     container.id,
                     new_id()

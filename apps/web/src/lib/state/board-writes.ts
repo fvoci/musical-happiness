@@ -70,7 +70,7 @@ export class BoardWrites {
       if (shown) {
         // Restore even if a held server version is older than a board put on screen directly.
         const current = answer ? shown : this.#restore(shown, written, restore);
-        host.board = latest && latest.updateAt >= current.updateAt ? latest : current;
+        host.board = latest && latest.updatedAt >= current.updatedAt ? latest : current;
       }
     }
   }
@@ -109,7 +109,7 @@ interface BlockWays<T, P> {
 }
 
 /** The writes of a board's cards, or of its views: by identifier, as `BoardWrites` for the board. */
-export class BlockWrites<T extends { id: string; updateAt: number }, P extends object> {
+export class BlockWrites<T extends { id: string; updatedAt: number }, P extends object> {
   readonly #pending = new PendingWrites<T>();
   readonly #inverses: Inverses<P>;
   readonly #ways: BlockWays<T, P>;

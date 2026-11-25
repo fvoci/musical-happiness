@@ -78,7 +78,7 @@ function valueForClause(
     case 'date':
       return { value, dateValue: parseDateValue(value) };
     case 'createdTime':
-      return { value: String(card.createAt), dateValue: { from: { instant: card.createAt } } };
+      return { value: String(card.createdAt), dateValue: { from: { instant: card.createdAt } } };
     case 'updatedTime':
       return {
         value: String(cardUpdatedAt(card)),

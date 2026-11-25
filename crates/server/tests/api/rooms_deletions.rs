@@ -248,8 +248,8 @@ async fn a_card_below_the_deleted_block_keeps_its_rooms_last_body() {
         parent_id: table.card_id.clone(),
         block_type: BlockType::Card,
         title: "below".to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let stored: Vec<Block> = th

@@ -90,9 +90,9 @@ pub struct StoredNotification {
     /// Who did the latest of it; empty where nobody is known to have.
     pub actor_id: String,
     /// When it was made: when the first of it happened.
-    pub create_at: i64,
+    pub created_at: i64,
     /// When the latest of it happened.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// How many times it happened.
     pub times: i64,
     /// How many people did it, as far as they are counted.
@@ -119,7 +119,7 @@ pub struct NotificationPlace {
 }
 
 const NOTIFICATION_COLUMNS: &str = "id, org_id, kind, source_id, block_id, container_id, \
-     actor_id, create_at, update_at, times, doers, read_at";
+     actor_id, created_at, updated_at, times, doers, read_at";
 
 impl Store {
     /// A page of the notifications of a reader, of every organization their session
@@ -142,7 +142,7 @@ impl Store {
                 ));
                 reader.push_theirs(&closed, &mut sql);
                 sql.push_bind(
-                    " ORDER BY update_at DESC, id DESC LIMIT ",
+                    " ORDER BY updated_at DESC, id DESC LIMIT ",
                     i64::from(paging.per_page),
                 )
                 .push_bind(" OFFSET ", paging.offset());
@@ -276,7 +276,7 @@ impl Store {
                 let mut sql = scope.sql("UPDATE notifications SET read_at = ");
                 sql.bind(now).push(" WHERE read_at = 0 AND recipient_id = ");
                 reader.push_theirs(&closed, &mut sql);
-                sql.push_bind(" AND update_at <= ", through)
+                sql.push_bind(" AND updated_at <= ", through)
                     .push(" RETURNING org_id");
                 let mut read = BTreeMap::new();
                 for row in scope.fetch_all(sql).await? {
@@ -382,8 +382,8 @@ fn notification_from_row(row: &Row) -> Result<StoredNotification, StoreError> {
         block_id: row.id(4)?,
         container_id: row.id(5)?,
         actor_id: row.id(6)?,
-        create_at: row.int(7)?,
-        update_at: row.int(8)?,
+        created_at: row.int(7)?,
+        updated_at: row.int(8)?,
         times: row.int(9)?,
         people: people_of(&row.text(10)?),
         read_at: row.int(11)?,

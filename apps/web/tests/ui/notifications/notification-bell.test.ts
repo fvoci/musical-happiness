@@ -15,10 +15,10 @@ afterEach(() => {
   cleanup();
 });
 
-const told = (id: string, updateAt: number, readAt = 0): Notification => ({
+const told = (id: string, updatedAt: number, readAt = 0): Notification => ({
   id,
-  createAt: updateAt,
-  updateAt,
+  createdAt: updatedAt,
+  updatedAt,
   readAt,
   subject: {
     kind: 'mention',
@@ -58,7 +58,7 @@ function mount(initial: Notification[]) {
     readAll: vi.fn<Notifications['readAll']>((through?: number) => {
       const bound = through ?? Number.POSITIVE_INFINITY;
       items = items.map((one) =>
-        one.readAt === 0 && one.updateAt <= bound ? { ...one, readAt: bound } : one,
+        one.readAt === 0 && one.updatedAt <= bound ? { ...one, readAt: bound } : one,
       );
       return Promise.resolve();
     }),

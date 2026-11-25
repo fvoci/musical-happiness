@@ -137,9 +137,9 @@ pub(crate) struct NewBlock {
     fields: Option<JsonMap>,
     /// Must be 1 or more. The server does not keep it: the block is created when the
     /// server stores it.
-    create_at: i64,
+    created_at: i64,
     /// Must be 1 or more. The server does not keep it.
-    update_at: i64,
+    updated_at: i64,
 }
 
 /// Boards and their blocks, to make together.

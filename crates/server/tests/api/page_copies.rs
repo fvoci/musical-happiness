@@ -60,7 +60,7 @@ async fn copied_with_those_below_it_and_given_files(kind: &str) {
     client
         .patch(
             &format!("{wiki}/pages/{}", b.id),
-            &json!({"body": image, "readAt": b.update_at}),
+            &json!({"body": image, "readAt": b.updated_at}),
         )
         .await
         .check_ok();

@@ -622,7 +622,7 @@ impl TestServer {
             .store()
             .texts_unchecked(&format!(
                 "SELECT CAST(user_id AS TEXT) FROM workspace_members WHERE role = 'admin' \
-                 AND CAST(workspace_id AS TEXT) = '{}' ORDER BY create_at, user_id",
+                 AND CAST(workspace_id AS TEXT) = '{}' ORDER BY created_at, user_id",
                 workspace.id
             ))
             .await

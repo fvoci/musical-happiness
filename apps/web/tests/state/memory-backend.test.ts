@@ -83,19 +83,19 @@ describe('writing a body', () => {
     const card = await backend.card(boardId, byTitle('Beta').id);
     const stored = await backend.writeCardBody(boardId, card.id, {
       body: text('hello'),
-      readAt: card.updateAt,
+      readAt: card.updatedAt,
     });
     expect(stored.body).toEqual(text('hello'));
-    expect(stored.updateAt).toBeGreaterThan(card.updateAt);
+    expect(stored.updatedAt).toBeGreaterThan(card.updatedAt);
     expect(stored.hasBody).toBe(true);
   });
 
   it('refuses a write based on an older version with 409', async () => {
     const { backend, other, boardId, byTitle } = await firstBoard();
     const card = await backend.card(boardId, byTitle('Alpha').id);
-    await other.writeCardBody(boardId, card.id, { body: text('theirs'), readAt: card.updateAt });
+    await other.writeCardBody(boardId, card.id, { body: text('theirs'), readAt: card.updatedAt });
     const error = await rejection(
-      backend.writeCardBody(boardId, card.id, { body: text('mine'), readAt: card.updateAt }),
+      backend.writeCardBody(boardId, card.id, { body: text('mine'), readAt: card.updatedAt }),
     );
     expect(isConflict(error)).toBe(true);
     expect(error.status).toBe(409);
@@ -110,7 +110,7 @@ describe('writing a body', () => {
     const error = await rejection(
       backend.writeCardBody(boardId, card.id, {
         body: { type: 'doc', content: [{ type: 'script' }] },
-        readAt: card.updateAt,
+        readAt: card.updatedAt,
       }),
     );
     expect(error.status).toBe(400);
@@ -123,7 +123,7 @@ describe('writing a body', () => {
     const card = await backend.card(boardId, byTitle('Alpha').id);
     const image = { type: 'doc', content: [{ type: 'image', attrs: { fileId: 'nowhere' } }] };
     const error = await rejection(
-      backend.writeCardBody(boardId, card.id, { body: image, readAt: card.updateAt }),
+      backend.writeCardBody(boardId, card.id, { body: image, readAt: card.updatedAt }),
     );
     expect(error.status).toBe(400);
   });
@@ -135,7 +135,7 @@ describe('writing a body', () => {
       backend.writeCardBody(boardId, card.id, {
         // Three bytes a letter: a letter past the limit.
         body: text('가'.repeat(Math.floor(LIMITS.bodyBytes / 3) + 1)),
-        readAt: card.updateAt,
+        readAt: card.updatedAt,
       }),
     );
     expect(error).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
@@ -147,7 +147,7 @@ describe('writing a body', () => {
     const card = await backend.card(boardId, byTitle('Alpha').id);
     const stored = await backend.writeCardBody(boardId, card.id, {
       body: { type: 'doc', content: [{ type: 'paragraph' }] },
-      readAt: card.updateAt,
+      readAt: card.updatedAt,
     });
     expect(stored.body).toBeNull();
     expect(stored.hasBody).toBe(false);
@@ -313,13 +313,13 @@ describe('file blocks', () => {
     const card = await backend.card(boardId, byTitle('Alpha').id);
     const written = await backend.writeCardBody(boardId, card.id, {
       body: withFile(uploaded.fileId),
-      readAt: card.updateAt,
+      readAt: card.updatedAt,
     });
     expect(written.body).toEqual(withFile(uploaded.fileId));
     const error = await rejection(
       backend.writeCardBody(boardId, card.id, {
         body: withFile('nowhere'),
-        readAt: written.updateAt,
+        readAt: written.updatedAt,
       }),
     );
     expect(error).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
@@ -337,7 +337,7 @@ describe('file blocks', () => {
     const changed = await rejection(
       backend.patchComment(boardId, comment.id, {
         body: withFile(uploaded.fileId),
-        readAt: comment.updateAt,
+        readAt: comment.updatedAt,
       }),
     );
     expect(changed).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
@@ -355,8 +355,8 @@ describe('file blocks', () => {
         type: 'comment',
         title: '',
         fields: {},
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
         body: withFile('7x.pdf'),
       },
     };
@@ -406,7 +406,7 @@ describe('file blocks', () => {
     const card = await backend.card(boardId, byTitle('Alpha').id);
     await backend.writeCardBody(boardId, card.id, {
       body: withFile(uploaded.fileId),
-      readAt: card.updateAt,
+      readAt: card.updatedAt,
     });
     const [workspace] = await backend.workspaces();
     const copy = await backend.duplicateContainer(boardId, false, workspace?.id ?? '');
@@ -478,17 +478,17 @@ describe('a copy of a board', () => {
     const { backend, other, boardId } = await firstBoard();
     const [view] = await backend.views(boardId);
     if (!view) throw new Error('missing view');
-    // Matching readAt succeeds and advances updateAt.
+    // Matching readAt succeeds and advances updatedAt.
     const first = await backend.patchView(boardId, view.id, {
       updatedFields: { order: 'V' },
-      readAt: view.updateAt,
+      readAt: view.updatedAt,
     });
-    expect(first.updateAt).toBeGreaterThan(view.updateAt);
+    expect(first.updatedAt).toBeGreaterThan(view.updatedAt);
     // Stale readAt from another user is refused with 409, same shape as the server.
     const conflict = await rejection(
       other.patchView(boardId, view.id, {
         updatedFields: { order: 'W' },
-        readAt: view.updateAt,
+        readAt: view.updatedAt,
       }),
     );
     expect(conflict).toMatchObject({
@@ -503,11 +503,11 @@ describe('a copy of a board', () => {
     const [a, b] = await Promise.all([
       backend.patchView(boardId, view.id, {
         updatedFields: { order: 'W' },
-        readAt: renamed.updateAt,
+        readAt: renamed.updatedAt,
       }),
       backend.patchView(boardId, view.id, {
         updatedFields: { order: 'X' },
-        readAt: renamed.updateAt,
+        readAt: renamed.updatedAt,
       }),
     ]);
     expect(a.fields.order).toBe('W');

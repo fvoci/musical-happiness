@@ -295,7 +295,7 @@ async fn a_pages_body_is_kept_now_by_who_edits_the_wiki() {
     th.client
         .patch(
             &at,
-            &json!({"readAt": read["updateAt"], "body": paragraphs(&["paged"])}),
+            &json!({"readAt": read["updatedAt"], "body": paragraphs(&["paged"])}),
         )
         .await
         .check_ok();

@@ -86,7 +86,7 @@ async fn migration_0064_preserves_existing_rows_and_enforces_constraints() {
     let pre_store = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("open pre-0064 database");
-    let (org_id, ws_id) = common::organization(&pre_store, "pre64").await;
+    let (org_id, ws_id) = common::pre0075_organization(&pre_store, "pre64").await;
     let scoped = pre_store.for_org(&org_id).expect("org handle");
     let user_id = common::pre0072_user(&scoped, &org_id, &ws_id, "migrated_user").await;
     pre_store.close().await;
@@ -122,7 +122,7 @@ async fn assert_db_constraints(store: &Store, org_id: &str, user_id: &str) {
     let bad_kind = org_store
         .execute_unchecked(&format!(
             "INSERT INTO time_entries (id, org_id, user_id, kind, started_at, ended_at, note, \
-             create_at, update_at) VALUES ('{}', '{org_id}', '{user_id}', 'invalid', 100, 200, \
+             created_at, updated_at) VALUES ('{}', '{org_id}', '{user_id}', 'invalid', 100, 200, \
              '', 100, 200)",
             new_id()
         ))
@@ -132,7 +132,7 @@ async fn assert_db_constraints(store: &Store, org_id: &str, user_id: &str) {
     let bad_range = org_store
         .execute_unchecked(&format!(
             "INSERT INTO time_entries (id, org_id, user_id, kind, started_at, ended_at, note, \
-             create_at, update_at) VALUES ('{}', '{org_id}', '{user_id}', 'study', 500, 400, \
+             created_at, updated_at) VALUES ('{}', '{org_id}', '{user_id}', 'study', 500, 400, \
              '', 500, 500)",
             new_id()
         ))
@@ -153,7 +153,7 @@ async fn assert_db_constraints(store: &Store, org_id: &str, user_id: &str) {
     org_store
         .execute_unchecked(&format!(
             "INSERT INTO time_entries (id, org_id, user_id, kind, started_at, ended_at, note, \
-             create_at, update_at) VALUES ('{}', '{org_id}', '{user_id}', 'work', 100, NULL, \
+             created_at, updated_at) VALUES ('{}', '{org_id}', '{user_id}', 'work', 100, NULL, \
              '', 100, 100)",
             new_id()
         ))
@@ -162,7 +162,7 @@ async fn assert_db_constraints(store: &Store, org_id: &str, user_id: &str) {
     let duplicate_active = own_store
         .execute_unchecked(&format!(
             "INSERT INTO time_entries (id, user_id, kind, started_at, ended_at, note, \
-             create_at, update_at) VALUES ('{}', '{user_id}', 'study', 200, NULL, '', 200, 200)",
+             created_at, updated_at) VALUES ('{}', '{user_id}', 'study', 200, NULL, '', 200, 200)",
             new_id()
         ))
         .await;
@@ -330,7 +330,7 @@ async fn summary_saturates_at_i64_max_without_sqlite_overflow() {
     }
     test.execute_unchecked(&format!(
         "INSERT INTO time_entries (id, org_id, user_id, kind, started_at, ended_at, note, \
-         create_at, update_at) VALUES {values}"
+         created_at, updated_at) VALUES {values}"
     ))
     .await
     .expect("seed large durations");

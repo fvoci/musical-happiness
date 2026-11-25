@@ -36,7 +36,7 @@ impl Store {
             let org = scope.org()?;
             let mut sql = scope.sql(
                 "SELECT up.unit_id, up.completed_at, up.planned_date, up.last_position, \
-                 up.update_at \
+                 up.updated_at \
                  FROM unit_progress AS up \
                  JOIN blocks AS b ON b.id = up.unit_id \
                  JOIN containers AS c ON c.id = b.container_id \
@@ -248,7 +248,7 @@ async fn upsert_row(
     let mut sql = scope.sql(
         "INSERT INTO unit_progress \
          (unit_id, container_id, user_id, completed_at, planned_date, last_position, \
-          update_at, org_id) VALUES (",
+          updated_at, org_id) VALUES (",
     );
     sql.changing_no_access()
         .bind(Id(unit_id))
@@ -266,8 +266,8 @@ async fn upsert_row(
         .push(", ")
         .push(position_set)
         .push(
-            ", update_at = excluded.update_at \
-             RETURNING unit_id, completed_at, planned_date, last_position, update_at",
+            ", updated_at = excluded.updated_at \
+             RETURNING unit_id, completed_at, planned_date, last_position, updated_at",
         );
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     progress_from_row(&row)
@@ -390,7 +390,7 @@ pub(crate) fn progress_from_row(row: &Row) -> Result<UnitProgress, StoreError> {
         completed_at: row.opt_int(1)?,
         planned_date: row.opt_text(2)?,
         last_position: row.opt_text(3)?,
-        update_at: row.int(4)?,
+        updated_at: row.int(4)?,
         suggested_next_interval_days: None,
     })
 }

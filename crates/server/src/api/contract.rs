@@ -433,7 +433,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("SearchHit", Members::AllBut(&["number"])),
     ("SearchKind", Members::AsWritten),
     ("ServerMetadata", Members::AsWritten),
-    ("PublicLink", Members::AllBut(&["token", "updateAt"])),
+    ("PublicLink", Members::AllBut(&["token", "updatedAt"])),
     ("SnippetPart", Members::All),
     ("Subscription", Members::AllBut(&["deletedAt"])),
     ("WelcomeBoard", Members::All),

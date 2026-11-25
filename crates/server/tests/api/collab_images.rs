@@ -16,7 +16,7 @@ async fn old_file(e: &Editing, th: &TestServer) -> FileRecord {
         id: new_id(),
         container_id: board_id.clone(),
         stored_name: format!("7{}.png", new_id()),
-        create_at: 1,
+        created_at: 1,
         path: format!("boards/{board_id}/image.png"),
         name: "image.png".to_owned(),
         extension: ".png".to_owned(),

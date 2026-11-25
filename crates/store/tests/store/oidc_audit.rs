@@ -1,7 +1,7 @@
 //! Durable provider changes, operator attribution, and immutable records on both databases.
 use std::time::Duration;
 
-use crate::common;
+use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL};
 use fvoci_model::{AuditAction, AuditRecordActor, new_id};
 use fvoci_store::{AuditPlace, Paging, StoredProvider};
 
@@ -17,8 +17,8 @@ pub(crate) fn settings() -> StoredProvider {
         enabled: true,
         sso_required: true,
         revision: 0,
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
     }
 }
 
@@ -65,7 +65,7 @@ async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
     }
     for statement in [
         "UPDATE audit_log SET actor_kind = 'person' WHERE actor_kind = 'server_operator'",
-        "UPDATE audit_log SET create_at = 0",
+        "UPDATE audit_log SET created_at = 0",
         "DELETE FROM audit_log WHERE actor_kind = 'server_operator'",
     ] {
         assert!(
@@ -78,7 +78,7 @@ async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
         (format!("'{}'", new_id()), "server_operator"),
     ] {
         let statement = format!(
-            "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, create_at) \
+            "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, created_at) \
              SELECT '{}', org_id, {actor_id}, '{kind}', 'sso_released', target_id, 0 FROM audit_log LIMIT 1",
             new_id()
         );
@@ -130,9 +130,9 @@ async fn migration_keeps_existing_people_subjects_and_times() {
     common::execute_raw(
         &common::raw_connection(&database),
         &format!(
-            "INSERT INTO organizations (id, name, settings, create_at, update_at) \
+            "INSERT INTO organizations (id, name, settings, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
          VALUES ('{org}', 'Org', '{{}}', 1, 1); \
-         INSERT INTO audit_log (id, org_id, actor_id, action, target_id, subject_id, create_at) \
+         INSERT INTO audit_log (id, org_id, actor_id, action, target_id, subject_id, {PRE0075_CREATE_COL}) \
          VALUES ('{record}', '{org}', '{actor}', 'org_admin_granted', '{org}', '{subject}', 42);"
         ),
     )
@@ -163,7 +163,7 @@ async fn migration_keeps_existing_people_subjects_and_times() {
     assert_eq!(after.subject.as_ref().expect("subject").id, subject);
     assert_eq!(after.action, AuditAction::OrgAdminGranted);
     assert_eq!(after.target_id, org);
-    assert_eq!(after.create_at, 42);
+    assert_eq!(after.created_at, 42);
     store.close().await;
     database.remove().await;
 }
@@ -203,7 +203,7 @@ async fn an_operator_role_change_is_recorded_only_in_the_instances_organization(
         let other = test.for_org(&org).expect("organization");
         other
             .execute_unchecked(&format!(
-                "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+                "INSERT INTO organization_members (org_id, user_id, role, created_at) \
              VALUES ('{org}', '{user}', 'member', 1)"
             ))
             .await
@@ -307,7 +307,7 @@ async fn a_workspaces_records_tell_no_identity_whatever_is_stored() {
     ] {
         test.execute_unchecked(&format!(
             "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
-             create_at, actor_kind, detail, identity) VALUES ('{id}', '{}', {workspace}, \
+             created_at, actor_kind, detail, identity) VALUES ('{id}', '{}', {workspace}, \
              '{actor}', 'oidc_identity_bound', '{}', 1, 'person', \
              'https://issuer.example.test', 'someone@example.test')",
             test.org_id, test.org_id

@@ -305,12 +305,12 @@ fn generate_block_ids_leaves_fields_of_unexpected_type() {
 fn stamp_modification_metadata_base_case() {
     let mut blocks = vec![Block::default()];
     assert_eq!(blocks[0].modified_by, "");
-    assert_eq!(blocks[0].update_at, 0);
+    assert_eq!(blocks[0].updated_at, 0);
 
     stamp_modification_metadata("user_id_1", &mut blocks, 1_700_000_000_000);
 
     assert_eq!(blocks[0].modified_by, "user_id_1");
-    assert_eq!(blocks[0].update_at, 1_700_000_000_000);
+    assert_eq!(blocks[0].updated_at, 1_700_000_000_000);
 }
 
 /// The new identifiers come in the order of the blocks, whichever of them something

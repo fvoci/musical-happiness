@@ -267,7 +267,7 @@ test('a comment changed elsewhere while its field is open is not written over un
   const changed = await api.patch(
     `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${comment?.id ?? ''}`,
     {
-      data: { body: paragraph('Words from the other tab'), readAt: comment?.updateAt },
+      data: { body: paragraph('Words from the other tab'), readAt: comment?.updatedAt },
     },
   );
   expect(changed.status()).toBe(204);
@@ -324,8 +324,8 @@ test('a commenter deletes their own comment and brings it back with undo; somebo
         type: 'comment',
         title: '',
         fields: {},
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
         body: {
           type: 'doc',
           content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The owner says' }] }],

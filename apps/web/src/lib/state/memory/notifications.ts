@@ -37,8 +37,8 @@ export interface StoredNotification {
   /** Who did it, each once. */
   doers: string[];
   times: number;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
   readAt: number;
 }
 
@@ -65,8 +65,8 @@ export function noteUpcomingMeeting(world: World, courseId: string, meetingId: s
       actorId: '',
       doers: [],
       times: 1,
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
       readAt: 0,
     });
     world.notifications.set(member.userId, theirs);
@@ -91,20 +91,20 @@ export function noteComment(world: World, comment: StoredBlock): void {
   ) {
     return;
   }
-  const now = comment.createAt;
+  const now = comment.createdAt;
   const told: string[] = [];
   for (const recipientId of watchersOf(world, on)) {
     if (recipientId === comment.createdBy || !reads(world, recipientId, container.id)) continue;
     if (!notifies(settingsOf(world, recipientId), 'comment')) continue;
     const theirs = world.notifications.get(recipientId) ?? [];
-    const same = theirs.find((one) => one.blockId === on.id && one.createAt > now - HOUR);
+    const same = theirs.find((one) => one.blockId === on.id && one.createdAt > now - HOUR);
     if (same) {
       same.times += 1;
       same.actorId = comment.createdBy;
       same.commentId = comment.id;
       same.containerId = container.id;
       if (!same.doers.includes(comment.createdBy)) same.doers.push(comment.createdBy);
-      same.updateAt = now;
+      same.updatedAt = now;
       same.readAt = 0;
     } else {
       theirs.push({
@@ -116,8 +116,8 @@ export function noteComment(world: World, comment: StoredBlock): void {
         actorId: comment.createdBy,
         doers: [comment.createdBy],
         times: 1,
-        createAt: now,
-        updateAt: now,
+        createdAt: now,
+        updatedAt: now,
         readAt: 0,
       });
     }
@@ -177,8 +177,8 @@ export function noteReviewDue(
     actorId: '',
     doers: [],
     times: 1,
-    createAt: now,
-    updateAt: now,
+    createdAt: now,
+    updatedAt: now,
     readAt: 0,
   };
   theirs.push(created);
@@ -216,7 +216,7 @@ export class MemoryNotifications implements Notifications {
 
   async list(paging: Paging = { page: 0, perPage: 50 }): Promise<Notification[]> {
     await this.#enter();
-    const newest = [...this.#theirs].sort((a, b) => b.updateAt - a.updateAt);
+    const newest = [...this.#theirs].sort((a, b) => b.updatedAt - a.updatedAt);
     const start = paging.page * paging.perPage;
     return newest.slice(start, start + paging.perPage).map((one) => this.#shown(one));
   }
@@ -238,7 +238,9 @@ export class MemoryNotifications implements Notifications {
   async readAll(through?: number): Promise<void> {
     await this.#enter();
     const now = this.#world.now();
-    const read = this.#theirs.filter((one) => one.readAt === 0 && one.updateAt <= (through ?? now));
+    const read = this.#theirs.filter(
+      (one) => one.readAt === 0 && one.updatedAt <= (through ?? now),
+    );
     for (const one of read) one.readAt = now;
     if (read.length > 0) this.#world.tellUsers([this.#userId], { kind: 'notifications' });
   }
@@ -246,19 +248,19 @@ export class MemoryNotifications implements Notifications {
   /** A notification as its reader is told it now: nothing of what they do not read. */
   #shown(one: StoredNotification): Notification {
     const world = this.#world;
-    const { id, createAt, updateAt, readAt } = one;
+    const { id, createdAt, updatedAt, readAt } = one;
     if (one.kind === 'meeting_upcoming') {
       const container = world.containers.get(one.containerId);
       const meeting = (world.courseMeetings.get(one.containerId) ?? []).find(
         (each) => each.id === one.blockId,
       );
       if (!container || !meeting || !reads(world, this.#userId, container.id)) {
-        return { id, createAt, updateAt, readAt, subject: null };
+        return { id, createdAt, updatedAt, readAt, subject: null };
       }
       return {
         id,
-        createAt,
-        updateAt,
+        createdAt,
+        updatedAt,
         readAt,
         subject: {
           kind: 'meeting_upcoming',
@@ -278,7 +280,7 @@ export class MemoryNotifications implements Notifications {
     const block = world.blocks.get(one.blockId);
     const container = world.containers.get(block?.containerId ?? '');
     if (!block || !container || !reads(world, this.#userId, container.id)) {
-      return { id, createAt, updateAt, readAt, subject: null };
+      return { id, createdAt, updatedAt, readAt, subject: null };
     }
     const comment = one.commentId ? world.blocks.get(one.commentId) : undefined;
     const kind = one.kind ?? 'comment';
@@ -300,6 +302,6 @@ export class MemoryNotifications implements Notifications {
       title: block.title,
       commentId: kind === 'review_due' ? '' : comment?.parentId === block.id ? comment.id : '',
     };
-    return { id, createAt, updateAt, readAt, subject };
+    return { id, createdAt, updatedAt, readAt, subject };
   }
 }

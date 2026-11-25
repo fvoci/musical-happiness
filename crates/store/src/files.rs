@@ -11,7 +11,7 @@ use crate::db::{Dialect, Id, OptId, Row, Scope};
 use crate::error::StoreError;
 
 pub(crate) const FILE_COLUMNS: &str =
-    "id, container_id, name, original_name, extension, size, path, create_at, version, created_by";
+    "id, container_id, name, original_name, extension, size, path, created_at, version, created_by";
 
 /// How many columns [`FILE_COLUMNS`] names: the index of a column read after them.
 pub(crate) const FILE_COLUMN_COUNT: usize = 10;
@@ -202,10 +202,10 @@ pub(crate) async fn save_file_record(
         .push_bind(", ", &file.extension)
         .push_bind(", ", file.size)
         .push_bind(", ", &file.path)
-        .push_bind(", ", file.create_at)
+        .push_bind(", ", file.created_at)
         .push_bind(", ", file.version)
         .push_bind(", ", OptId(&file.created_by))
-        .push_bind(", ", file.create_at)
+        .push_bind(", ", file.created_at)
         .push(")");
     scope
         .execute(sql)
@@ -225,7 +225,7 @@ pub(crate) async fn files_of_container(
     let mut sql = scope.sql(&format!(
         "SELECT {FILE_COLUMNS} FROM files WHERE container_id = "
     ));
-    sql.bind(Id(container_id)).push(" ORDER BY create_at, id");
+    sql.bind(Id(container_id)).push(" ORDER BY created_at, id");
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
@@ -246,7 +246,7 @@ pub(crate) fn file_from_row(row: &Row) -> Result<FileRecord, StoreError> {
         extension: row.text(4)?,
         size: row.int(5)?,
         path: row.text(6)?,
-        create_at: row.int(7)?,
+        created_at: row.int(7)?,
         version: row.int(8)?,
         created_by: row.id(9)?,
     })

@@ -249,9 +249,9 @@ describe('dates out of order', () => {
   it('by the moment a card was made, for the kind that has no stored value', () => {
     const made: PropertyTemplate = { id: 'made', name: 'Made', type: 'createdTime', options: [] };
     const before = card('a');
-    before.createAt = Date.UTC(2026, 2, 10, 16);
+    before.createdAt = Date.UTC(2026, 2, 10, 16);
     const after = card('b', ['a']);
-    after.createAt = Date.UTC(2026, 2, 10, 12);
+    after.createdAt = Date.UTC(2026, 2, 10, 12);
     // Both on the 10th in UTC; in Seoul the first is on the 11th, the second on the 10th.
     expect(isOutOfOrder(before, after, made, 'UTC')).toBe(false);
     expect(isOutOfOrder(before, after, made, 'Asia/Seoul')).toBe(true);

@@ -74,8 +74,8 @@ export function unitOf(node: Schemas['UnitNode'], courseId: string): CourseUnit 
     amount: node.kind === 'unit' ? (node.amount ?? null) : null,
     amountUnit: node.kind === 'unit' ? (node.amountUnit ?? null) : null,
     scheduledDate: node.kind === 'unit' ? (node.scheduledDate ?? null) : null,
-    createAt: node.createAt,
-    updateAt: node.updateAt,
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
   };
 }
 
@@ -114,8 +114,8 @@ export function unitOfBlock(block: Schemas['Block']): CourseUnit {
       amount: typeof fields.amount === 'number' ? fields.amount : null,
       amountUnit: amountUnitOf(fields.amountUnit),
       scheduledDate: typeof fields.scheduledDate === 'string' ? fields.scheduledDate : null,
-      createAt: block.createAt,
-      updateAt: block.updateAt,
+      createdAt: block.createdAt,
+      updatedAt: block.updatedAt,
     },
     block.containerId,
   );

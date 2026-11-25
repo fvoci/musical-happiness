@@ -328,8 +328,8 @@ pub fn entry_mood(block: &Block) -> Option<Mood> {
 }
 
 /// When the body of the entry `block` last changed, in milliseconds since the Unix
-/// epoch. For an entry stored before this field was kept: `update_at` if it has a body
-/// (so stale writers are still refused), or `create_at` if it has none.
+/// epoch. For an entry stored before this field was kept: `updated_at` if it has a body
+/// (so stale writers are still refused), or `created_at` if it has none.
 #[must_use]
 pub fn entry_body_updated_at(block: &Block) -> i64 {
     block
@@ -337,9 +337,9 @@ pub fn entry_body_updated_at(block: &Block) -> i64 {
         .get(ENTRY_BODY_UPDATED_AT_FIELD)
         .and_then(Value::as_i64)
         .unwrap_or(if block.body.is_some() {
-            block.update_at
+            block.updated_at
         } else {
-            block.create_at
+            block.created_at
         })
 }
 
@@ -397,10 +397,10 @@ pub struct DiaryEntry {
     /// The identifier of the user who last changed the entry.
     pub modified_by: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch: what `readAt` of a
     /// change of the entry names.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 impl From<Block> for DiaryEntry {
@@ -416,8 +416,8 @@ impl From<Block> for DiaryEntry {
             body: block.body,
             created_by: block.created_by,
             modified_by: block.modified_by,
-            create_at: block.create_at,
-            update_at: block.update_at,
+            created_at: block.created_at,
+            updated_at: block.updated_at,
         }
     }
 }
@@ -498,7 +498,7 @@ const DATE_INVALID: &str = "a day is written as `2026-11-21`, and is a day of th
 const DATE_TOO_FAR: &str = "the day is more than two days past today";
 const NOTE_TOO_LONG: &str = "at most 100 characters";
 const NOTE_WITH_NUL: &str = "the text holds the character U+0000";
-const READ_AT_MISSING: &str = "a new body is sent with the `updateAt` the entry was read at";
+const READ_AT_MISSING: &str = "a new body is sent with the `updatedAt` the entry was read at";
 const BODY_AND_APPEND: &str = "`body` and `appendBody` cannot be sent in the same patch";
 
 /// Refuses a weather or a place that is too long or holds U+0000.
@@ -633,7 +633,7 @@ pub struct DiaryEntryPatch {
     /// `BODY_MAX_NODES`, `BODY_MAX_DEPTH`). Does not require `readAt`; if `readAt` is
     /// also sent, it is checked against the entry's body timestamp before appending.
     pub append_body: Option<Body>,
-    /// The `updateAt` of the entry as the client read it: checked against when the
+    /// The `updatedAt` of the entry as the client read it: checked against when the
     /// entry's body last changed, so metadata-only patches (`mood`, `weather`, `place`)
     /// do not cause 409 conflicts while any change to the body does. Needed with `body`,
     /// and checked whenever it is sent.
@@ -884,8 +884,8 @@ mod tests {
                 .as_object()
                 .expect("object")
                 .clone(),
-            create_at: 100,
-            update_at: 250,
+            created_at: 100,
+            updated_at: 250,
             ..Block::default()
         };
         assert!(is_empty_entry(&block));

@@ -236,7 +236,7 @@ describe('connecting a single sign-on to the account', () => {
       issuer: 'https://idp.example.com',
       subject: 'there',
       email: 'ada@example.com',
-      createAt: 5,
+      createdAt: 5,
       madeThisSession: false,
     };
     const read = serve([identity]);

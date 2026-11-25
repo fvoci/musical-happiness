@@ -48,8 +48,8 @@ const BLOCK = {
   containerId: 'b',
   body: null,
   parentId: 'c',
-  createAt: 1,
-  updateAt: 2,
+  createdAt: 1,
+  updatedAt: 2,
   createdBy: 'u',
   modifiedBy: 'u',
   schema: 1,
@@ -80,7 +80,7 @@ describe('the server backend', () => {
   });
 
   it("reads the reader's own address and the one the account waits for, and asks to change it with the password", async () => {
-    const user = { id: 'u', username: 'ada', displayName: 'Ada', createAt: 1, updateAt: 2 };
+    const user = { id: 'u', username: 'ada', displayName: 'Ada', createdAt: 1, updatedAt: 2 };
     serve({ ...user, hasPassword: true, email: 'a@old.example' });
     const backend = serverBackend('/base');
     const alone = await backend.me();
@@ -181,7 +181,7 @@ describe('the server backend', () => {
   });
 
   it('asks once for the people by their identifiers, each once, and not for none', async () => {
-    const sent = serve([{ id: 'u1', username: 'ann', email: '', createAt: 1, updateAt: 1 }]);
+    const sent = serve([{ id: 'u1', username: 'ann', email: '', createdAt: 1, updatedAt: 1 }]);
     const backend = serverBackend('');
     expect(await backend.usersById('w1', [])).toEqual([]);
     const found = await backend.usersById('w1', ['u1', 'u2', 'u1']);
@@ -248,7 +248,7 @@ describe('the server backend', () => {
       title: 'Plan',
       commentId: 'm',
     };
-    const listed = [{ id: 'n1', createAt: 1, updateAt: 5, readAt: 0, subject }];
+    const listed = [{ id: 'n1', createdAt: 1, updatedAt: 5, readAt: 0, subject }];
     const sent = serve(listed);
     const notifications = serverBackend('').notifications;
     expect(await notifications.list({ page: 1, perPage: 20 })).toEqual(listed);
@@ -286,7 +286,7 @@ describe('the server backend', () => {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New' }] }],
     };
-    const comment = { ...BLOCK, id: 'm', type: 'comment', title: '', updateAt: 9, body };
+    const comment = { ...BLOCK, id: 'm', type: 'comment', title: '', updatedAt: 9, body };
     const sent: Sent[] = [];
     vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
       sent.push({
@@ -308,7 +308,7 @@ describe('the server backend', () => {
       'GET /api/v1/w/w1/boards/b/blocks?blockId=m',
     ]);
     expect(sent[1]?.body).toEqual({ body, readAt: 7 });
-    expect(changed).toMatchObject({ id: 'm', body, updateAt: 9 });
+    expect(changed).toMatchObject({ id: 'm', body, updatedAt: 9 });
 
     // No text is no comment: refused before anything is sent.
     const none = serve([]);
@@ -681,8 +681,8 @@ describe('changing a view on the server', () => {
         type: 'view',
         title: 'Calendar view',
         fields: { viewType: 'calendar', dateProperty: 'due' },
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
       },
     ]);
     expect(view.id).toBe('v');
@@ -717,7 +717,7 @@ describe('changing a view on the server', () => {
   });
 
   it('sends readAt on patchView when given, forwards it along queued writes, and stops on failure', async () => {
-    let updateAt = 10;
+    let updatedAt = 10;
     const patches: Record<string, unknown>[] = [];
     vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
       if (init.method === 'PATCH') {
@@ -726,7 +726,7 @@ describe('changing a view on the server', () => {
           unknown
         >;
         patches.push(body);
-        if (body.readAt !== undefined && body.readAt !== updateAt) {
+        if (body.readAt !== undefined && body.readAt !== updatedAt) {
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -739,7 +739,7 @@ describe('changing a view on the server', () => {
             ),
           );
         }
-        updateAt += 1;
+        updatedAt += 1;
         return Promise.resolve(new Response(null, { status: 204 }));
       }
       return Promise.resolve(
@@ -747,7 +747,7 @@ describe('changing a view on the server', () => {
           JSON.stringify([
             {
               ...VIEW,
-              updateAt,
+              updatedAt,
               fields: {
                 ...VIEW.fields,
                 order: patches.at(-1)?.updatedFields
@@ -773,7 +773,7 @@ describe('changing a view on the server', () => {
 
     // When the first fails with 409, the second keeps its stale readAt and also gets 409.
     patches.length = 0;
-    updateAt = 20;
+    updatedAt = 20;
     const results = await Promise.allSettled([
       backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 12 }),
       backend.patchView('b', 'v', { updatedFields: { order: 'Y' }, readAt: 12 }),
@@ -786,7 +786,7 @@ describe('changing a view on the server', () => {
 
     // Unconditional write over a view somebody else already bumped does not advance a stale queued readAt.
     patches.length = 0;
-    updateAt = 30;
+    updatedAt = 30;
     const mixed = await Promise.allSettled([
       backend.patchView('b', 'v', { title: 'Renamed' }),
       backend.patchView('b', 'v', { updatedFields: { order: 'Z' }, readAt: 20 }),
@@ -824,8 +824,8 @@ describe('changing a view on the server', () => {
       // First GET sees order 'V' at 10; before read-back GET another editor moved it to 'Z' at 12.
       const view =
         getCount === 1
-          ? { ...VIEW, updateAt: 10, fields: { ...VIEW.fields, order: 'V' } }
-          : { ...VIEW, updateAt: 12, fields: { ...VIEW.fields, order: 'Z' } };
+          ? { ...VIEW, updatedAt: 10, fields: { ...VIEW.fields, order: 'V' } }
+          : { ...VIEW, updatedAt: 12, fields: { ...VIEW.fields, order: 'Z' } };
       return Promise.resolve(new Response(JSON.stringify([view]), { status: 200 }));
     });
     const concurrent = await Promise.allSettled([
@@ -917,8 +917,8 @@ describe('the sidebar on the server', () => {
     type: 'custom',
     collapsed: true,
     sortOrder: 10,
-    createAt: 1,
-    updateAt: 2,
+    createdAt: 1,
+    updatedAt: 2,
   };
   const FILED = [
     { containerId: 'b1', hidden: false },
@@ -929,7 +929,7 @@ describe('the sidebar on the server', () => {
 
   it('makes a category of the reader, under their identifier', async () => {
     const sent = serveRoutes([
-      ['GET /api/v1/users/me', { id: 'me', username: 'me', createAt: 1, updateAt: 1 }],
+      ['GET /api/v1/users/me', { id: 'me', username: 'me', createdAt: 1, updatedAt: 1 }],
       ['POST /api/v1/w/t/categories', CATEGORY, 201],
     ]);
     const made = await serverBackend('').createCategory('t', { name: 'Work' });
@@ -1062,8 +1062,8 @@ describe('boards on the server', () => {
     templateVersion: 0,
     properties: {},
     cardProperties: [],
-    createAt: 1,
-    updateAt: 2,
+    createdAt: 1,
+    updatedAt: 2,
   };
   const VIEW = {
     ...BLOCK,
@@ -1145,8 +1145,8 @@ describe('boards on the server', () => {
         type: 'view',
         title: 'Table view',
         fields: { viewType: 'table' },
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
       },
     ]);
     expect(view.id).toBe('v1');
@@ -1218,7 +1218,10 @@ describe('sharing a board on the server', () => {
   it('reads and sets the public link, asking for a new token only when told', async () => {
     const sent = serveRoutes([
       ['GET /api/v1/w/w1/containers/b1/public-link', { enabled: false }],
-      ['POST /api/v1/w/w1/containers/b1/public-link', { enabled: true, token: 'tok', updateAt: 3 }],
+      [
+        'POST /api/v1/w/w1/containers/b1/public-link',
+        { enabled: true, token: 'tok', updatedAt: 3 },
+      ],
     ]);
     const backend = serverBackend('');
     expect(await backend.publicLink('b1')).toEqual({ enabled: false, token: '' });
@@ -1279,8 +1282,8 @@ describe('templates on the server', () => {
     templateVersion: 0,
     properties: {},
     cardProperties: [],
-    createAt: 1,
-    updateAt: 2,
+    createdAt: 1,
+    updatedAt: 2,
   };
 
   it('reads the templates, copies a board either way, and makes the welcome board', async () => {
@@ -1346,7 +1349,7 @@ describe('session cookie rotation during password changes', () => {
       if (method === 'POST' && url === '/api/v1/w/w1/users') {
         return new Response(
           JSON.stringify([
-            { id: 'u1', username: 'ada', displayName: 'Ada', createAt: 1, updateAt: 2 },
+            { id: 'u1', username: 'ada', displayName: 'Ada', createdAt: 1, updatedAt: 2 },
           ]),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );

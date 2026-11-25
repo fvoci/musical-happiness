@@ -299,8 +299,8 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
           containerId: board.id,
           type: 'view',
           title: 'By status',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
           fields: {
             viewType: 'board',
             groupBy: 'status',
@@ -426,13 +426,13 @@ export function addWorkspace(baseURL: string, who: Person, name: string): string
     const now = Date.now();
     database
       .prepare(
-        'INSERT INTO workspaces (id, settings, modified_by, create_at, update_at, org_id, name) ' +
+        'INSERT INTO workspaces (id, settings, modified_by, created_at, updated_at, org_id, name) ' +
           'VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
       .run(id, home.settings, user.id, now, now, home.org_id, uniqueName(name));
     database
       .prepare(
-        'INSERT INTO workspace_members (workspace_id, user_id, role, create_at) VALUES (?, ?, ?, ?)',
+        'INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)',
       )
       .run(id, user.id, 'admin', now);
     return id;
@@ -450,7 +450,7 @@ export function joinWorkspace(baseURL: string, who: Person, workspaceId: string)
   try {
     database
       .prepare(
-        'INSERT INTO workspace_members (workspace_id, user_id, role, create_at) ' +
+        'INSERT INTO workspace_members (workspace_id, user_id, role, created_at) ' +
           'SELECT ?, id, ?, ? FROM users WHERE username = ?',
       )
       .run(workspaceId, 'member', Date.now(), who.username);

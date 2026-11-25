@@ -47,7 +47,7 @@ pub fn cards_written_whole(
 
 impl Collab {
     /// Runs `write`, a write of the whole bodies of the cards `card_ids` (with the
-    /// `updateAt` its writer read), around their documents, in a task of its own that
+    /// `updatedAt` its writer read), around their documents, in a task of its own that
     /// holds each card's place (taken in the order of their keys, so that two of them
     /// never wait on each other), so that a caller that stops waiting leaves no half
     /// of it:

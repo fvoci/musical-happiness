@@ -107,7 +107,7 @@ impl Store {
                     sql.push_bind(" AND o.id = ", Id(org_id));
                 }
                 // Two rows tell that the organization is not the only one.
-                sql.push(" ORDER BY o.create_at, o.id LIMIT 2");
+                sql.push(" ORDER BY o.created_at, o.id LIMIT 2");
                 let rows = scope.fetch_all(sql).await?;
                 let [row] = rows.as_slice() else {
                     return Ok(None);

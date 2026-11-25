@@ -56,14 +56,14 @@ fn read_all_jsonl(zip_bytes: &[u8]) -> String {
 fn board_line(id: &str, kind: &str, title: &str) -> Value {
     json!({"type": "container", "data": {
         "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": kind,
-        "title": title, "createAt": 1, "updateAt": 1,
+        "title": title, "createdAt": 1, "updatedAt": 1,
     }})
 }
 
 fn unit_line(id: &str, course: &str, parent: &str, fields: &Value) -> Value {
     json!({"type": "block", "data": {
         "id": id, "containerId": course, "parentId": parent, "type": "unit",
-        "title": id, "fields": fields, "createAt": 1, "updateAt": 1,
+        "title": id, "fields": fields, "createdAt": 1, "updatedAt": 1,
     }})
 }
 
@@ -139,7 +139,7 @@ async fn seed_course_for_archive(client: &Client, external_card: &str) -> Seeded
         ),
     ] {
         let path = format!("{TEST_WS}/courses/{}/units/{unit_id}", course.id);
-        let read_at = client.get(&path).await.value()["updateAt"].clone();
+        let read_at = client.get(&path).await.value()["updatedAt"].clone();
         client
             .patch(&path, &json!({"readAt": read_at, "body": body}))
             .await

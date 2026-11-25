@@ -28,8 +28,8 @@ test('every card of a board of more than a thousand is shown', async ({ page, ba
       containerId: board.boardId,
       type: 'card',
       title: `Card ${String(from + at + 1)}`,
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
       fields: { properties: { status: doing } },
     }));
     const made = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {

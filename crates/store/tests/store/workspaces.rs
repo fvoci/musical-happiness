@@ -84,14 +84,14 @@ async fn a_workspace_is_stored_whole_and_once() {
         title: "the name".to_owned(),
         settings: settings(json!({ "list": [1, 2], "nested": { "on": true } })),
         modified_by: creator.clone(),
-        update_at: 5,
+        updated_at: 5,
         guest_invitations: false,
     };
     store.create_workspace(&workspace).await.unwrap();
     let created = store.get_workspace(&workspace.id).await.unwrap();
     assert_eq!(created.settings, workspace.settings);
     assert_eq!(created.modified_by, creator);
-    assert!(created.update_at > 5, "the store stamps the time");
+    assert!(created.updated_at > 5, "the store stamps the time");
     assert_eq!(created.title, "the name", "the title is the stored name");
     assert!(!created.guest_invitations, "the switch is stored as given");
 

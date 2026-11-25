@@ -17,7 +17,7 @@ export interface FileVersion {
   /** Its place among the file's, counted from 1. */
   version: number;
   /** When it was written; for the first, when the file was uploaded. */
-  createAt: number;
+  createdAt: number;
   /** Who wrote it; empty where nobody is known to have. */
   createdBy: string;
   /** Its size in bytes. */

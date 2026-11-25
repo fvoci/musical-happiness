@@ -62,7 +62,7 @@ describe('the notes and days of diaries in memory', () => {
       weather: '맑음',
     });
     expect(marked).toMatchObject({ mood: 'good', weather: '맑음', place: '' });
-    expect(marked.updateAt).toBeGreaterThanOrEqual(made.updateAt);
+    expect(marked.updatedAt).toBeGreaterThanOrEqual(made.updatedAt);
     await vi.waitFor(() => {
       expect(told).toHaveBeenCalledWith(
         expect.objectContaining({

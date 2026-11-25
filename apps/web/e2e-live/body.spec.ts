@@ -314,7 +314,7 @@ test('a body written whole by another client of the API takes the place of the o
     .poll(async () => lines((await stored(api, board, cardId)).body), { timeout: 15_000 })
     .toEqual(['My plan']);
 
-  const readAt = (await stored(api, board, cardId)).updateAt;
+  const readAt = (await stored(api, board, cardId)).updatedAt;
   const written = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
     data: {
       body: {

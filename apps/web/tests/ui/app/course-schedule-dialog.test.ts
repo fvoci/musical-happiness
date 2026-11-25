@@ -47,7 +47,7 @@ describe('CourseScheduleDialog loading-open snapshot', () => {
         startDate: '2026-11-10',
         targetDate: '2026-11-28',
         studyDays: STUDY_DAYS_WEEKDAYS,
-        updateAt: 1,
+        updatedAt: 1,
       },
       today: '2026-11-24',
       todayCount: 1,

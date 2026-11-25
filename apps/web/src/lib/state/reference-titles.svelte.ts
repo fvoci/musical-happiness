@@ -430,7 +430,7 @@ function linkedOf(card: Card): LinkedBlock {
 /** The cards of the board that were changed last, as references show them; templates left out. */
 function recentOf(board: Pick<BoardStore, 'realCards'>): LinkedBlock[] {
   return [...board.realCards]
-    .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
     .slice(0, OFFERED_UNASKED)
     .map(linkedOf);
 }

@@ -39,8 +39,8 @@ function met(
     title?: string;
     notes?: PropertyValue;
     due?: PropertyValue;
-    createAt?: number;
-    updateAt?: number;
+    createdAt?: number;
+    updatedAt?: number;
     lastCommentAt?: number;
   },
   context: FilterContext = utc,
@@ -49,8 +49,8 @@ function met(
   created.title = card.title ?? '';
   if (card.notes !== undefined) setCardProperty(created, 'notes', card.notes);
   if (card.due !== undefined) setCardProperty(created, 'due', card.due);
-  if (card.createAt !== undefined) created.createAt = card.createAt;
-  if (card.updateAt !== undefined) created.updateAt = card.updateAt;
+  if (card.createdAt !== undefined) created.createdAt = card.createdAt;
+  if (card.updatedAt !== undefined) created.updatedAt = card.updatedAt;
   if (card.lastCommentAt !== undefined) created.lastCommentAt = card.lastCommentAt;
   const clause = createFilterClause({ propertyId, condition, values: [filterValue] });
   return isClauseMet(clause, templates, created, context);
@@ -180,20 +180,22 @@ describe("the day a card was created is the day on the reader's calendar", () =>
   const utc = { timeZone: 'UTC' };
 
   it('in Seoul, a card made at 03:00 on the 7th is of the 7th', () => {
-    expect(met('created', 'is', seventh, { createAt: earlyOnThe7thInSeoul }, seoul)).toBe(true);
-    expect(met('created', 'isBefore', seventh, { createAt: earlyOnThe7thInSeoul }, seoul)).toBe(
+    expect(met('created', 'is', seventh, { createdAt: earlyOnThe7thInSeoul }, seoul)).toBe(true);
+    expect(met('created', 'isBefore', seventh, { createdAt: earlyOnThe7thInSeoul }, seoul)).toBe(
       false,
     );
-    expect(met('created', 'is', seventh, { createAt: earlyOnThe8thInSeoul }, seoul)).toBe(false);
-    expect(met('created', 'isAfter', seventh, { createAt: earlyOnThe8thInSeoul }, seoul)).toBe(
+    expect(met('created', 'is', seventh, { createdAt: earlyOnThe8thInSeoul }, seoul)).toBe(false);
+    expect(met('created', 'isAfter', seventh, { createdAt: earlyOnThe8thInSeoul }, seoul)).toBe(
       true,
     );
   });
 
   it('for a reader in UTC the same two cards fall on the 6th and the 7th', () => {
-    expect(met('created', 'is', seventh, { createAt: earlyOnThe7thInSeoul }, utc)).toBe(false);
-    expect(met('created', 'isBefore', seventh, { createAt: earlyOnThe7thInSeoul }, utc)).toBe(true);
-    expect(met('created', 'is', seventh, { createAt: earlyOnThe8thInSeoul }, utc)).toBe(true);
+    expect(met('created', 'is', seventh, { createdAt: earlyOnThe7thInSeoul }, utc)).toBe(false);
+    expect(met('created', 'isBefore', seventh, { createdAt: earlyOnThe7thInSeoul }, utc)).toBe(
+      true,
+    );
+    expect(met('created', 'is', seventh, { createdAt: earlyOnThe8thInSeoul }, utc)).toBe(true);
   });
 
   it('holds at the far ends of the time zones', () => {
@@ -201,33 +203,33 @@ describe("the day a card was created is the day on the reader's calendar", () =>
     const kiritimati = Date.UTC(2023, 11, 6, 10, 30);
     const pagoPago = Date.UTC(2023, 11, 8, 10, 30);
     expect(
-      met('created', 'is', seventh, { createAt: kiritimati }, { timeZone: 'Pacific/Kiritimati' }),
+      met('created', 'is', seventh, { createdAt: kiritimati }, { timeZone: 'Pacific/Kiritimati' }),
     ).toBe(true);
     expect(
-      met('created', 'is', seventh, { createAt: pagoPago }, { timeZone: 'Pacific/Pago_Pago' }),
+      met('created', 'is', seventh, { createdAt: pagoPago }, { timeZone: 'Pacific/Pago_Pago' }),
     ).toBe(true);
-    expect(met('created', 'is', seventh, { createAt: kiritimati }, utc)).toBe(false);
+    expect(met('created', 'is', seventh, { createdAt: kiritimati }, utc)).toBe(false);
   });
 
   it('covers the whole day, from the first to the last millisecond', () => {
     const start = Date.UTC(2023, 11, 6, 15, 0); // 00:00 on the 7th in Seoul
-    expect(met('created', 'is', seventh, { createAt: start }, seoul)).toBe(true);
-    expect(met('created', 'is', seventh, { createAt: start - 1 }, seoul)).toBe(false);
-    expect(met('created', 'is', seventh, { createAt: start + 86_400_000 - 1 }, seoul)).toBe(true);
-    expect(met('created', 'is', seventh, { createAt: start + 86_400_000 }, seoul)).toBe(false);
+    expect(met('created', 'is', seventh, { createdAt: start }, seoul)).toBe(true);
+    expect(met('created', 'is', seventh, { createdAt: start - 1 }, seoul)).toBe(false);
+    expect(met('created', 'is', seventh, { createdAt: start + 86_400_000 - 1 }, seoul)).toBe(true);
+    expect(met('created', 'is', seventh, { createdAt: start + 86_400_000 }, seoul)).toBe(false);
   });
 
   it("gives the same answer wherever the code runs: only the reader's time zone counts", () => {
     // 23:59:59 on the 7th and 00:00:01 on the 7th, on a clock in Seoul.
     const lateInSeoul = Date.UTC(2023, 11, 7, 14, 59, 59);
     const earlyInSeoul = Date.UTC(2023, 11, 6, 15, 0, 1);
-    expect(met('created', 'is', seventh, { createAt: lateInSeoul }, seoul)).toBe(true);
-    expect(met('created', 'is', seventh, { createAt: earlyInSeoul }, seoul)).toBe(true);
-    expect(met('updated', 'is', seventh, { updateAt: earlyInSeoul }, seoul)).toBe(true);
+    expect(met('created', 'is', seventh, { createdAt: lateInSeoul }, seoul)).toBe(true);
+    expect(met('created', 'is', seventh, { createdAt: earlyInSeoul }, seoul)).toBe(true);
+    expect(met('updated', 'is', seventh, { updatedAt: earlyInSeoul }, seoul)).toBe(true);
     // A comment posted later is the card's last change.
-    const later = { updateAt: earlyInSeoul, lastCommentAt: lateInSeoul + 1000 };
+    const later = { updatedAt: earlyInSeoul, lastCommentAt: lateInSeoul + 1000 };
     expect(met('updated', 'is', seventh, later, seoul)).toBe(false);
     // For a reader in UTC the second of those is still the 6th.
-    expect(met('created', 'is', seventh, { createAt: earlyInSeoul }, utc)).toBe(false);
+    expect(met('created', 'is', seventh, { createdAt: earlyInSeoul }, utc)).toBe(false);
   });
 });

@@ -6,5 +6,5 @@ import type { Card } from './wire.ts';
 
 /** When a card last changed, a comment on it counting as a change: what "last updated time" shows. */
 export function cardUpdatedAt(card: Card): number {
-  return Math.max(card.updateAt, card.lastCommentAt ?? 0);
+  return Math.max(card.updatedAt, card.lastCommentAt ?? 0);
 }

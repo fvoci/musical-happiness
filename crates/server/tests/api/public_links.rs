@@ -147,11 +147,11 @@ async fn sharing_post_sharing_config_true() {
     let shared: PublicLink = response.ok_json();
     assert!(shared.enabled, "sharing is on");
     assert_eq!(shared.token.len(), SECRET_LENGTH, "a secret of the server");
-    assert!(shared.update_at > 0, "changed now");
+    assert!(shared.updated_at > 0, "changed now");
     // The exact wire format: these members and no others.
     assert_eq!(
         response.value(),
-        json!({"enabled": true, "token": shared.token, "updateAt": shared.update_at}),
+        json!({"enabled": true, "token": shared.token, "updatedAt": shared.updated_at}),
         "the sharing state"
     );
 
@@ -297,10 +297,10 @@ async fn turning_sharing_off_forgets_the_token() {
         assert!(!off.enabled, "sharing is off");
         assert_eq!(
             response.value(),
-            json!({"enabled": false, "updateAt": off.update_at}),
+            json!({"enabled": false, "updatedAt": off.updated_at}),
             "and there is no token"
         );
-        assert!(off.update_at >= shared.update_at, "changed now");
+        assert!(off.updated_at >= shared.updated_at, "changed now");
     }
     assert_eq!(
         th.client.get(&sharing_path(&board.id)).await.value()["token"],
@@ -421,13 +421,13 @@ async fn post_sharing_takes_the_board_and_the_modifier_from_the_request() {
             "containerId": other_board.id,
             "enabled": true,
             "modifiedBy": UNKNOWN_ID,
-            "updateAt": 1,
+            "updatedAt": 1,
         }),
     )
     .await
     .ok_json();
 
-    assert!(shared.update_at > 1, "the time of the server");
+    assert!(shared.updated_at > 1, "the time of the server");
     let stored = th
         .app
         .store()
@@ -540,7 +540,7 @@ async fn app_sharing_is_set_and_read() {
     assert_eq!(got, set, "what was stored");
     assert_eq!(got.container_id, board.id, "of the board");
     assert_eq!(got.modified_by, user_id, "by the user");
-    assert!(got.update_at > 0, "the store set the time");
+    assert!(got.updated_at > 0, "the store set the time");
 
     let off = th
         .app

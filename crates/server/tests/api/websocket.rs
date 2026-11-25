@@ -1473,7 +1473,7 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
         .value();
     assert_eq!(by_editor["modifiedBy"], json!(editor.id), "{by_editor}");
     assert!(
-        by_editor["updateAt"].as_i64() >= stored["updateAt"].as_i64(),
+        by_editor["updatedAt"].as_i64() >= stored["updatedAt"].as_i64(),
         "{by_editor}"
     );
     socket.next_json(PATIENCE).await.expect("told again");

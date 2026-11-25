@@ -141,15 +141,15 @@ async fn two_editors_converge_and_the_card_is_given_their_body() {
         Some(merged),
         "the card holds the merged body"
     );
-    assert!(after.update_at > before.update_at, "a change of the card");
+    assert!(after.updated_at > before.updated_at, "a change of the card");
     assert_eq!(after.modified_by, e.user2, "by the last writer");
     collab
         .write_body(&e.app, &e.card_id)
         .await
         .expect("nothing to write");
     assert_eq!(
-        card(&th.client, &e.card_id).await.update_at,
-        after.update_at,
+        card(&th.client, &e.card_id).await.updated_at,
+        after.updated_at,
         "a body that is written is not written again"
     );
     th.teardown().await;
@@ -263,7 +263,7 @@ async fn a_body_written_past_a_closed_document_makes_it_again() {
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", e.card_id),
-            &json!({"body": paragraphs(&["written whole"]), "readAt": read.update_at}),
+            &json!({"body": paragraphs(&["written whole"]), "readAt": read.updated_at}),
         )
         .await
         .check_ok();
@@ -375,7 +375,7 @@ async fn a_body_written_whole_makes_the_open_document_that_body() {
     th.client
         .patch(
             &path,
-            &json!({"body": whole, "readAt": read_before.update_at}),
+            &json!({"body": whole, "readAt": read_before.updated_at}),
         )
         .await
         .check_status(reqwest::StatusCode::CONFLICT);
@@ -386,7 +386,7 @@ async fn a_body_written_whole_makes_the_open_document_that_body() {
         "the editors' update was written first"
     );
     th.client
-        .patch(&path, &json!({"body": whole, "readAt": read.update_at}))
+        .patch(&path, &json!({"body": whole, "readAt": read.updated_at}))
         .await
         .check_ok();
     assert!(
@@ -478,7 +478,7 @@ async fn a_body_written_past_an_open_document_is_not_written_over() {
                         .expect("a body")
                         .expect("not empty"),
                 ),
-                read_at: Some(read.update_at),
+                read_at: Some(read.updated_at),
                 ..fvoci_model::BlockPatch::default()
             },
             &e.user2,

@@ -42,8 +42,8 @@ async fn board_with_a_card(client: &Client) -> (Container, Block) {
         container_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "a card".to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let stored: Vec<Block> = client
@@ -152,7 +152,7 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
         "nothing of the name, not even which of it was shown"
     );
     assert_eq!(
-        (gone[0].create_at, gone[0].update_at, gone[0].deleted_at),
+        (gone[0].created_at, gone[0].updated_at, gone[0].deleted_at),
         (0, 0, None),
         "nor when it came, or went"
     );
@@ -330,8 +330,8 @@ async fn an_erased_account_tells_nobody_when_it_came_or_went() {
                 (
                     user.id.as_str(),
                     user.username.as_str(),
-                    user.create_at,
-                    user.update_at,
+                    user.created_at,
+                    user.updated_at,
                     user.deleted_at,
                 )
             })

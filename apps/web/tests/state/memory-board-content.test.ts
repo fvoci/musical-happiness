@@ -22,8 +22,8 @@ function inviteOnlyBoard(): MemoryBackend {
     username: 'example-reader',
     displayName: 'Example reader',
     email: 'example-reader@example.test',
-    createAt: NOW,
-    updateAt: NOW,
+    createdAt: NOW,
+    updatedAt: NOW,
   });
   // Both work in the workspace: an open board of it asks the reader to join.
   world.workspaceMembers.add('reader').add('someone-else');
@@ -46,8 +46,8 @@ function inviteOnlyBoard(): MemoryBackend {
     schema: 1,
     title,
     fields: {},
-    createAt: NOW,
-    updateAt: NOW,
+    createdAt: NOW,
+    updatedAt: NOW,
   });
   const view = createBoardView(block('v', 'view', 'View'));
   const card = createCard(block('c', 'card', 'Secret title'));

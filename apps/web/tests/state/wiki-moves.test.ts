@@ -51,8 +51,8 @@ describe('the steps of a move', () => {
     title: id,
     icon: '',
     order,
-    createAt: 0,
-    updateAt: 0,
+    createdAt: 0,
+    updatedAt: 0,
   });
   // a (b, c), d
   const pages = [page('a', '', 'V'), page('b', 'a', 'V'), page('c', 'a', 'W'), page('d', '', 'W')];
@@ -173,11 +173,11 @@ describe('the rules of a move in memory, as the server’s', () => {
     const stop = made.backend.watchContainer(made.wikiId, (change) => {
       if (change.kind === 'pages') told.push(...change.pages.map((page) => page.id));
     });
-    const before = (await wikis.page(made.wikiId, c)).updateAt;
+    const before = (await wikis.page(made.wikiId, c)).updatedAt;
     await wikis.movePage(made.wikiId, c, { parentId: a });
     await settle();
     stop();
-    expect([(await wikis.page(made.wikiId, c)).updateAt, told]).toEqual([before, []]);
+    expect([(await wikis.page(made.wikiId, c)).updatedAt, told]).toEqual([before, []]);
   });
 });
 

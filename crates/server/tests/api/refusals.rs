@@ -416,7 +416,7 @@ async fn the_first_user_is_told_the_organizations_name_is_another_workspaces() {
         .store()
         .system()
         .execute_unchecked(&format!(
-            "INSERT INTO workspaces (id, settings, create_at, update_at, org_id, name) \
+            "INSERT INTO workspaces (id, settings, created_at, updated_at, org_id, name) \
              SELECT '{}', '{{}}', 1, 1, org_id, 'Design' FROM workspaces WHERE id = '{}'",
             fvoci_model::new_id(),
             crate::common::ROOT_WORKSPACE_ID

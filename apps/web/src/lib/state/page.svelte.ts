@@ -105,8 +105,8 @@ export class PageStore {
     try {
       const detail = await this.#read();
       if (this.#closed || reading !== this.#readings) return;
-      if (!first && detail.updateAt <= this.#readAt) return;
-      this.#readAt = detail.updateAt;
+      if (!first && detail.updatedAt <= this.#readAt) return;
+      this.#readAt = detail.updatedAt;
       this.meta = {
         id: detail.id,
         wikiId: detail.wikiId,
@@ -114,8 +114,8 @@ export class PageStore {
         title: detail.title,
         icon: detail.icon,
         order: detail.order,
-        createAt: detail.createAt,
-        updateAt: detail.updateAt,
+        createdAt: detail.createdAt,
+        updatedAt: detail.updatedAt,
       };
       if (!sameDoc(detail.body, this.body)) this.body = detail.body;
       // Somebody the page mentions may be no member any more: their name is asked for.
@@ -169,8 +169,8 @@ export class PageStore {
   /** The page changed in the wiki's list: its body is read again unless the room's is shown. */
   pageChanged(page: WikiPage): void {
     if (page.id !== this.pageId || this.missing) return;
-    if (!this.meta || page.updateAt >= this.meta.updateAt) this.meta = page;
-    if (page.updateAt <= this.#readAt) return;
+    if (!this.meta || page.updatedAt >= this.meta.updatedAt) this.meta = page;
+    if (page.updatedAt <= this.#readAt) return;
     if (this.#busy()) {
       this.#news = page;
       return;

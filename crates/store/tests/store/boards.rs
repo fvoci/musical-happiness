@@ -98,8 +98,8 @@ async fn get_container() {
         assert_eq!(user_id, r_board.created_by, "the creator");
         assert_eq!(user_id, r_board.modified_by, "the modifier");
         assert_eq!(board.visibility, r_board.visibility, "the type");
-        assert_ne!(r_board.create_at, 0, "the creation time is set");
-        assert_ne!(r_board.update_at, 0, "the modification time is set");
+        assert_ne!(r_board.created_at, 0, "the creation time is set");
+        assert_ne!(r_board.updated_at, 0, "the modification time is set");
     }
 
     // "nonexisting board": an identifier no board has, and text that is no identifier.
@@ -340,8 +340,8 @@ async fn insert_container() {
             .expect("the board is inserted");
         assert_eq!(board.id, id, "the identifier is kept");
         assert_eq!(board.visibility, visibility, "the visibility is kept");
-        assert_ne!(board.create_at, 0, "the creation time is set");
-        assert_ne!(board.update_at, 0, "the modification time is set");
+        assert_ne!(board.created_at, 0, "the creation time is set");
+        assert_ne!(board.updated_at, 0, "the modification time is set");
         assert_eq!(board.deleted_at, None, "the board is not deleted");
         assert_eq!(user_id, board.created_by, "the creator");
         assert_eq!(board.created_by, board.modified_by, "the modifier");
@@ -1212,13 +1212,13 @@ async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
     let claims = [
         (another_workspace_id.as_str(), "", 0),
         (another_workspace_id.as_str(), editor_id.as_str(), 12_345),
-        (workspace_id.as_str(), creator_id.as_str(), board.create_at),
+        (workspace_id.as_str(), creator_id.as_str(), board.created_at),
     ];
-    for (claimed_workspace, claimed_creator, claimed_create_at) in claims {
+    for (claimed_workspace, claimed_creator, claimed_created_at) in claims {
         let mut update = Container {
-            title: format!("Updated by a caller who claims {claimed_create_at}"),
+            title: format!("Updated by a caller who claims {claimed_created_at}"),
             created_by: claimed_creator.to_owned(),
-            create_at: claimed_create_at,
+            created_at: claimed_created_at,
             ..new_board(&board_id, claimed_workspace, ContainerVisibility::Private)
         };
         test.insert_container(&mut update, &editor_id)
@@ -1233,8 +1233,8 @@ async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
             "the stored creator comes back, not {claimed_creator:?}"
         );
         assert_eq!(
-            update.create_at, board.create_at,
-            "the stored creation time comes back, not {claimed_create_at}"
+            update.created_at, board.created_at,
+            "the stored creation time comes back, not {claimed_created_at}"
         );
         assert_eq!(update.modified_by, editor_id, "the modifier");
 
@@ -1244,7 +1244,10 @@ async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
             .expect("the board exists");
         assert_eq!(stored.workspace_id, workspace_id, "the workspace stays");
         assert_eq!(stored.created_by, creator_id, "the creator stays");
-        assert_eq!(stored.create_at, board.create_at, "the creation time stays");
+        assert_eq!(
+            stored.created_at, board.created_at,
+            "the creation time stays"
+        );
         assert_eq!(
             stored.visibility,
             ContainerVisibility::Private,
@@ -1324,9 +1327,9 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
     );
     let deleted_at = deleted.container.deleted_at.expect("deletion time");
     assert!(
-        deleted_at >= board.update_at,
+        deleted_at >= board.updated_at,
         "deleted at {deleted_at} after the last modification at {}",
-        board.update_at
+        board.updated_at
     );
     assert_eq!(
         sorted_user_ids(&deleted.members),
@@ -1344,7 +1347,7 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
     assert_eq!(restored.modified_by, restorer_id, "who restored the board");
     assert_eq!(restored.created_by, user_id, "the creator stays");
     assert_eq!(
-        restored.create_at, board.create_at,
+        restored.created_at, board.created_at,
         "the creation time stays"
     );
     assert_eq!(restored.deleted_at, None, "the board is not deleted");
@@ -1745,7 +1748,7 @@ async fn subscribe(store: &Store, card_id: &str, user_id: &str) {
         block_id: card_id.to_owned(),
         user_id: user_id.to_owned(),
         notified_at: 0,
-        create_at: 0,
+        created_at: 0,
         deleted_at: None,
     };
     store
@@ -1828,7 +1831,7 @@ impl FullBoard {
 
         let file = FileRecord {
             name: "diagram.png".to_owned(),
-            create_at: board.create_at,
+            created_at: board.created_at,
             ..file_of(&board.id, "7f3a9c.png")
         };
         store
@@ -1846,8 +1849,8 @@ impl FullBoard {
             name: "Plans".to_owned(),
             user_id: editor_id.clone(),
             workspace_id: workspace_id.clone(),
-            create_at: board.create_at,
-            update_at: board.create_at,
+            created_at: board.created_at,
+            updated_at: board.created_at,
             ..Category::default()
         };
         store
@@ -1951,9 +1954,9 @@ async fn delete_container_moves_the_board_and_what_is_its_own_to_the_trash() {
         .expect("the board is in the trash");
     let deleted_at = deleted.container.deleted_at.expect("deletion time");
     assert!(
-        deleted_at >= full.board.update_at,
+        deleted_at >= full.board.updated_at,
         "deleted at {deleted_at}, after the board was stored at {}",
-        full.board.update_at
+        full.board.updated_at
     );
     assert_eq!(
         deleted.container,
@@ -2058,16 +2061,16 @@ async fn undelete_container_brings_back_the_board_its_blocks_files_and_members()
         .expect("the board is back");
     assert_eq!(returned, restored, "what is returned is what is stored");
     assert!(
-        restored.update_at >= full.board.update_at,
+        restored.updated_at >= full.board.updated_at,
         "restoring is a modification: {} after {}",
-        restored.update_at,
-        full.board.update_at
+        restored.updated_at,
+        full.board.updated_at
     );
     assert_eq!(
         restored,
         Container {
             modified_by: restorer_id.clone(),
-            update_at: restored.update_at,
+            updated_at: restored.updated_at,
             ..full.board.clone()
         },
         "the board as it was, modified by whoever restored it"
@@ -2079,7 +2082,7 @@ async fn undelete_container_brings_back_the_board_its_blocks_files_and_members()
         .iter()
         .map(|block| Block {
             modified_by: restorer_id.clone(),
-            update_at: restored.update_at,
+            updated_at: restored.updated_at,
             ..block.clone()
         })
         .collect();
@@ -2274,7 +2277,7 @@ async fn undelete_container_restores_a_board_whose_creator_is_gone_as_made_by_no
         Container {
             created_by: String::new(),
             modified_by: editor_id.clone(),
-            update_at: restored.update_at,
+            updated_at: restored.updated_at,
             ..board.clone()
         },
         "the board as it was, but for its creator"
@@ -2352,7 +2355,7 @@ async fn undelete_block_restores_a_block_whose_creator_is_gone_as_made_by_nobody
         Block {
             created_by: String::new(),
             modified_by: owner_id.clone(),
-            update_at: restored.update_at,
+            updated_at: restored.updated_at,
             ..card.clone()
         },
         "the card as it was, but for its creator"
@@ -2759,7 +2762,7 @@ fn file_of(board_id: &str, stored_name: &str) -> FileRecord {
         extension: ".png".to_owned(),
         size: 2048,
         path: format!("boards/{board_id}/{stored_name}"),
-        create_at: 1,
+        created_at: 1,
         ..FileRecord::default()
     }
 }
@@ -3974,8 +3977,8 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
                 fvoci_model::PropertyColor::Green,
             )],
         }],
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
         deleted_at: None,
     };
     test.insert_container(&mut board, &author_id)
@@ -4014,8 +4017,8 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
             {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]},
         ]}))
         .expect("a body that may be stored"),
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
         deleted_at: None,
         container_id: board.id.clone(),
         // Only a comment whose body was changed has one.
@@ -4077,7 +4080,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         restored,
         Container {
             modified_by: restorer_id.clone(),
-            update_at: restored.update_at,
+            updated_at: restored.updated_at,
             ..board.clone()
         },
         "the board as it was"
@@ -4095,7 +4098,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .iter()
         .map(|block| Block {
             modified_by: restorer_id.clone(),
-            update_at: restored.update_at,
+            updated_at: restored.updated_at,
             ..block.clone()
         })
         .collect();

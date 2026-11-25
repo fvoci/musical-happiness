@@ -20,13 +20,13 @@ async fn null_is_refused_where_the_contract_does_not_allow_it() {
     let block = |member: &str, value: serde_json::Value| {
         let mut block = json!({
             "id": "x1", "containerId": board.id, "type": "card", "title": "t",
-            "createAt": 1, "updateAt": 1,
+            "createdAt": 1, "updatedAt": 1,
         });
         block[member] = value;
         json!([block])
     };
 
-    for member in ["title", "fields", "parentId", "createAt", "type"] {
+    for member in ["title", "fields", "parentId", "createdAt", "type"] {
         let response = th.client.post(&path, &block(member, json!(null))).await;
         response.check_bad_request();
         assert_eq!(
@@ -311,7 +311,7 @@ async fn the_board_is_no_parent_in_a_batch_or_with_new_boards() {
             &json!({
                 "containers": [{"id": "b", "workspaceId": crate::common::TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [{"id": "x", "containerId": "b", "parentId": "b", "type": "card",
-                            "createAt": 1, "updateAt": 1}],
+                            "createdAt": 1, "updatedAt": 1}],
             }),
         )
         .await;

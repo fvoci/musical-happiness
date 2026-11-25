@@ -34,8 +34,8 @@ export function seedCourse(
     description: 'A guided course for getting started with the workspace.',
     icon: '',
     cardProperties: [],
-    createAt: at,
-    updateAt: at,
+    createdAt: at,
+    updatedAt: at,
   };
   world.containers.set(courseId, course);
   world.members.set(
@@ -64,8 +64,8 @@ export function seedCourse(
       title,
       fields: { order },
       body: type === 'unit' && body ? paragraph(body) : null,
-      createAt: made,
-      updateAt: made,
+      createdAt: made,
+      updatedAt: made,
     });
     return id;
   };
@@ -211,15 +211,15 @@ function seedBuiltinCourseTemplate(world: World, reader: User): void {
       templateLanguage: 'en',
       templateBaseDate: '2026-12-01',
     },
-    createAt: at,
-    updateAt: at,
+    createdAt: at,
+    updatedAt: at,
   };
   world.containers.set(templateId, template);
   world.courseSchedules.set(templateId, {
     startDate: '2026-12-01',
     targetDate: '2026-12-14',
     studyDays: 31,
-    updateAt: at,
+    updatedAt: at,
   });
   const addNode = (
     type: 'chapter' | 'unit',
@@ -241,8 +241,8 @@ function seedBuiltinCourseTemplate(world: World, reader: User): void {
       title,
       fields,
       body: type === 'unit' ? (body ?? null) : null,
-      createAt: made,
-      updateAt: made,
+      createdAt: made,
+      updatedAt: made,
     });
     return id;
   };

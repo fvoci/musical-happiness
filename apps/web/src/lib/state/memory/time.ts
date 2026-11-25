@@ -239,7 +239,7 @@ export class MemoryTime implements TimeTracking {
     const previous = entries.find((entry) => entry.endedAt === null);
     if (previous) {
       previous.endedAt = Math.max(now, previous.startedAt);
-      previous.updateAt = now;
+      previous.updatedAt = now;
       if (isEntryVisible(world, userId, previous)) stopped = copy(previous);
     }
 
@@ -250,8 +250,8 @@ export class MemoryTime implements TimeTracking {
       startedAt: now,
       endedAt: null,
       note,
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     entries.push(created);
     return stopped ? { entry: copy(created), stopped } : { entry: copy(created) };
@@ -266,7 +266,7 @@ export class MemoryTime implements TimeTracking {
     if (!running) fail(404, 'no active timer');
     const now = world.now();
     running.endedAt = Math.max(now, running.startedAt);
-    running.updateAt = now;
+    running.updatedAt = now;
     return copy(running);
   }
 
@@ -330,8 +330,8 @@ export class MemoryTime implements TimeTracking {
       startedAt,
       endedAt,
       note,
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     this.#list().push(created);
     return copy(created);
@@ -377,7 +377,7 @@ export class MemoryTime implements TimeTracking {
     entry.note = nextNote;
     entry.startedAt = nextStartedAt;
     entry.endedAt = nextEndedAt;
-    entry.updateAt = world.now();
+    entry.updatedAt = world.now();
     return copy(entry);
   }
 

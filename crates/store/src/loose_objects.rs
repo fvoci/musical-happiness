@@ -55,7 +55,7 @@ pub struct LooseObject {
     /// What it is waiting for.
     pub state: LooseState,
     /// When it was listed, in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// When the housekeeping next looks at it.
     pub retry_at: i64,
     /// How many of its removals failed.
@@ -79,7 +79,7 @@ pub struct LooseCounts {
 }
 
 const LOOSE_COLUMNS: &str =
-    "path, state, create_at, retry_at, attempts, last_attempt_at, last_error";
+    "path, state, created_at, retry_at, attempts, last_attempt_at, last_error";
 
 impl Store {
     /// Lists the object about to be written at `path`, with its record not there yet.
@@ -98,7 +98,7 @@ impl Store {
         }
         self.with_write_conn(async |scope| {
             let mut sql =
-                scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at) VALUES (");
+                scope.sql("INSERT INTO loose_objects (path, state, created_at, retry_at) VALUES (");
             sql.bind(path)
                 .push_bind(", ", LooseState::Writing.as_str())
                 .push_bind(", ", now_millis())
@@ -293,7 +293,7 @@ impl Store {
             let mut listed = 0;
             for path in paths {
                 let mut sql =
-                    scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at");
+                    scope.sql("INSERT INTO loose_objects (path, state, created_at, retry_at");
                 sql.push(if names_org { ", org_id" } else { "" })
                     .push_bind(") SELECT ", *path)
                     .push_bind(", ", LooseState::Doomed.as_str())
@@ -385,7 +385,7 @@ pub(crate) async fn doom(
         .into_iter()
         .collect();
     for chunk in objects.chunks(DOOMED_PER_STATEMENT) {
-        let mut sql = scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at");
+        let mut sql = scope.sql("INSERT INTO loose_objects (path, state, created_at, retry_at");
         sql.push(if names_org {
             ", org_id) VALUES "
         } else {
@@ -429,7 +429,7 @@ fn loose_object_from_row(row: &Row) -> Result<LooseObject, StoreError> {
     Ok(LooseObject {
         path: row.text(0)?,
         state: LooseState::parse(&row.text(1)?)?,
-        create_at: row.int(2)?,
+        created_at: row.int(2)?,
         retry_at: row.int(3)?,
         attempts: row.int(4)?,
         last_attempt_at: row.int(5)?,

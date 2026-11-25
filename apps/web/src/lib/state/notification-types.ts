@@ -41,9 +41,9 @@ export interface NotificationSubject {
 export interface Notification {
   id: string;
   /** When the first of it happened. */
-  createAt: number;
+  createdAt: number;
   /** When the latest of it happened: the list is in this order, the newest first. */
-  updateAt: number;
+  updatedAt: number;
   /** When the reader read it; 0 until then, and again once more of it happens. */
   readAt: number;
   /** `null` where the reader does not read that now: nothing of it is said. */

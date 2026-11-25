@@ -160,8 +160,8 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
         parent_id: mine.card.clone(),
         block_type,
         title: "neither".to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     });
     let stored: Vec<Block> = th

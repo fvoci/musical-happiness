@@ -7,7 +7,7 @@ use std::time::Duration;
 use fvoci_model::{LoginOrigin, Session, User, new_id};
 use fvoci_store::{Identity, OidcAccount, OidcRefusal, Removal, Store, StoredProvider, Unlinked};
 
-use crate::common;
+use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL};
 
 /// The time the sessions are made at, in milliseconds.
 const T0: i64 = 1_800_000_000_000;
@@ -39,8 +39,8 @@ fn provider(issuer: &str) -> StoredProvider {
         enabled: true,
         sso_required: false,
         revision: 0,
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
     }
 }
 
@@ -318,16 +318,16 @@ async fn the_migration_fills_the_origin_or_ends_the_session() {
         &common::raw_connection(&database),
         &[
             format!(
-                "INSERT INTO organizations (id, name, settings, create_at, update_at) \
+                "INSERT INTO organizations (id, name, settings, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
                  VALUES ('{org}', 'Org', '{{}}', 1, 1);"
             ),
             format!(
-                "INSERT INTO users (id, username, email, password_hash, create_at, update_at) \
+                "INSERT INTO users (id, username, email, password_hash, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
                  VALUES ('{user}', 'someone', 'someone@example.com', '', 1, 1);"
             ),
             format!(
                 "INSERT INTO oidc_providers (id, org_id, issuer, client_id, client_secret, \
-                 create_at, update_at) \
+                 {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
                  VALUES ('{provider}', '{org}', 'https://one.example', 'client', '', 1, 1);"
             ),
             session(&present, "digest-present", &format!("'{provider}'")),

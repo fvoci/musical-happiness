@@ -33,7 +33,7 @@ async fn an_instance_role_change_through_another_organization_leaves_it_alone() 
     let other = test.for_org(&org).expect("organization");
     other
         .execute_unchecked(&format!(
-            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+            "INSERT INTO organization_members (org_id, user_id, role, created_at) \
              VALUES ('{org}', '{user}', 'member', 1)"
         ))
         .await

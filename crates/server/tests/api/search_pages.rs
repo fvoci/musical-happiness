@@ -54,7 +54,7 @@ pub(crate) async fn new_page(
     client
         .patch(
             &format!("{pages}/{}", made.id),
-            &json!({"body": body(text), "readAt": made.update_at}),
+            &json!({"body": body(text), "readAt": made.updated_at}),
         )
         .await
         .ok_json()

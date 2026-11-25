@@ -166,9 +166,9 @@ pub struct UnitReview {
     /// Review interval in days (`1..=3650`).
     pub interval_days: u32,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 /// Deserializes an explicit `u32` while refusing `null` (omitted fields remain `None`).
@@ -370,9 +370,9 @@ pub struct TodayReviewItem {
     /// Number of days overdue (`0` when due today).
     pub overdue_days: u32,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 /// Category of a learner's personal note on a unit.
@@ -450,9 +450,9 @@ pub struct UnitNote {
     /// Trimmed note content, 1..=10,000 characters.
     pub content: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 /// Request body for creating a personal note on a course unit.

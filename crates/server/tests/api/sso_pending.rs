@@ -183,7 +183,7 @@ async fn a_wrong_secret_waits_aside_and_locks_nobody_out() {
         "the provider as it was is still proved"
     );
     assert_eq!(
-        saved.update_at, before.update_at,
+        saved.updated_at, before.updated_at,
         "the provider itself unchanged"
     );
     let fresh = ts.client_with_token(meanwhile.token());
@@ -197,7 +197,7 @@ async fn a_wrong_secret_waits_aside_and_locks_nobody_out() {
     );
     assert_eq!(tried.token, None, "no session");
     assert_eq!(after.pending, saved.pending, "still aside");
-    assert_eq!(after.update_at, before.update_at);
+    assert_eq!(after.updated_at, before.updated_at);
     let answered = admin.get(&path).await;
     assert!(
         !answered.text().contains(WRONG_SECRET),

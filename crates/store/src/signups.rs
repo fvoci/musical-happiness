@@ -45,7 +45,7 @@ pub struct Signup {
     /// empty for one made before browsers were told apart.
     pub browser_hash: String,
     /// When it was made.
-    pub create_at: i64,
+    pub created_at: i64,
     /// When it ends unconfirmed, and is removed.
     pub expires_at: i64,
 }
@@ -144,7 +144,7 @@ pub enum Started {
 
 /// The columns of a registration, in the order [`signup_from_row`] reads them.
 const COLUMNS: &str = "id, username, email, display_name, password_hash, language, \
-    organization_name, create_at, expires_at, invitation_id, invitation_org_id, browser_hash";
+    organization_name, created_at, expires_at, invitation_id, invitation_org_id, browser_hash";
 
 impl Store {
     /// Stores a registration whose address is to be confirmed, holding its name and
@@ -519,7 +519,7 @@ pub(crate) async fn hold_names(scope: &mut Scope<'_>, signup: &Signup) -> Result
     {
         return Err(StoreError::Conflict(taken));
     }
-    if crate::email_revert::holds(scope, &signup.email, None, signup.create_at).await? {
+    if crate::email_revert::holds(scope, &signup.email, None, signup.created_at).await? {
         return Err(StoreError::Conflict(Taken::Email));
     }
     insert(scope, signup).await
@@ -541,7 +541,7 @@ async fn insert(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError
         .push_bind(", ", &signup.password_hash)
         .push_bind(", ", &signup.language)
         .push_bind(", ", Param::OptText(organization_name))
-        .push_bind(", ", signup.create_at)
+        .push_bind(", ", signup.created_at)
         .push_bind(", ", signup.expires_at)
         .push_bind(", ", OptId(invitation_id))
         .push_bind(", ", OptId(invitation_org_id))
@@ -818,7 +818,7 @@ fn signup_from_row(row: &Row) -> Result<Signup, StoreError> {
             },
         },
         browser_hash: row.opt_text(11)?.unwrap_or_default(),
-        create_at: row.int(7)?,
+        created_at: row.int(7)?,
         expires_at: row.int(8)?,
     })
 }

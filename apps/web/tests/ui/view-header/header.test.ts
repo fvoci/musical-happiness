@@ -476,7 +476,7 @@ describe('views', () => {
         bumped = true;
         // Another client changes Board synchronously before this write reaches the backend.
         const stored = backend.world.blocks.get(boardId);
-        if (stored) stored.updateAt = backend.world.now();
+        if (stored) stored.updatedAt = backend.world.now();
       }
       return send(bId, vId, patch);
     });

@@ -23,7 +23,7 @@ function invitationOf(link: Schemas['Invitation']): Invitation {
     role: link.role === 'guest' ? 'guest' : 'member',
     ...(link.containerId ? { containerId: link.containerId } : {}),
     createdBy: link.createdBy,
-    createAt: link.createAt,
+    createdAt: link.createdAt,
     expiresAt: link.expiresAt,
     uses: link.uses,
     ...(link.parentId ? { parentId: link.parentId } : {}),

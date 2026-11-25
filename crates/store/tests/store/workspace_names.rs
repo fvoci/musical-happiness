@@ -17,14 +17,18 @@ async fn names_stored_twice_are_told_apart_even_where_the_new_name_is_taken() {
     let (org, older, newer, other) = (new_id(), new_id(), new_id(), new_id());
     let workspace = |id: &str, name: &str, at: i64| {
         format!(
-            "INSERT INTO workspaces (id, settings, create_at, update_at, org_id, name) \
-             VALUES ('{id}', '{{}}', {at}, {at}, '{org}', '{name}');"
+            "INSERT INTO workspaces (id, settings, {}, {}, org_id, name) \
+             VALUES ('{id}', '{{}}', {at}, {at}, '{org}', '{name}');",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         )
     };
     let statements = [
         format!(
-            "INSERT INTO organizations (id, name, settings, create_at, update_at) \
-             VALUES ('{org}', 'Org', '{{}}', 1, 1);"
+            "INSERT INTO organizations (id, name, settings, {}, {}) \
+             VALUES ('{org}', 'Org', '{{}}', 1, 1);",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ),
         workspace(&older, "Design", 1),
         workspace(&newer, "Design", 2),
@@ -90,7 +94,7 @@ async fn the_first_user_names_the_organization_as_no_other_workspace_of_it_is_na
     // administrators' and so nobody's before the first user.
     test.system()
         .execute_unchecked(&format!(
-            "INSERT INTO workspaces (id, settings, create_at, update_at, org_id, name) \
+            "INSERT INTO workspaces (id, settings, created_at, updated_at, org_id, name) \
              SELECT '{}', '{{}}', 1, 1, org_id, 'Design' FROM workspaces WHERE id = '{}'",
             new_id(),
             test.workspace_id

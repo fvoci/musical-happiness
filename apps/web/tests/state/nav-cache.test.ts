@@ -249,12 +249,12 @@ describe('wiki fast first-page open and fallback', () => {
     const p1 = await made.backend.wiki.createPage(wiki.id, { title: 'First Page' });
     await made.backend.wiki.patchPage(wiki.id, p1.id, {
       body: text('First body'),
-      readAt: p1.updateAt,
+      readAt: p1.updatedAt,
     });
     const p2 = await made.backend.wiki.createPage(wiki.id, { title: 'Second Page' });
     await made.backend.wiki.patchPage(wiki.id, p2.id, {
       body: text('Second body'),
-      readAt: p2.updateAt,
+      readAt: p2.updatedAt,
     });
     return { ...made, wiki, p1, p2 };
   }
@@ -760,8 +760,8 @@ describe('strict security, isolation and cache invalidation', () => {
         title: 'Stale',
         visibility: 'open',
         module: 'boards',
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
       } as never,
     ]);
     catsGate.resolve([{ id: 'stale-cat', name: 'Stale', containerIds: [] } as never]);

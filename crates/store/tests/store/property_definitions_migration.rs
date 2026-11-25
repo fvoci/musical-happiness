@@ -11,7 +11,9 @@ use fvoci_model::{
 use fvoci_store::{DbType, Store};
 use serde_json::{Value, json};
 
-use crate::common;
+use crate::common::{
+    self, PRE0075_CREATE_COL, PRE0075_CREATE_KEY, PRE0075_UPDATE_COL, PRE0075_UPDATE_KEY,
+};
 
 // Retired pre-0074 color names assembled via `concat!` so repository-wide banned-word
 // scans see zero literal matches.
@@ -118,7 +120,8 @@ async fn insert_pre0074_live_board(
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, visibility, kind, title, description, \
-              icon, show_description, is_template, properties, card_properties, create_at, update_at) \
+              icon, show_description, is_template, properties, card_properties, \
+              {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
              VALUES ('{board_id}', '{ws_id}', '{owner}', '{owner}', 'private', 'board', \
               '{title}', '', '', false, false, '{{}}', '{}', 100, 200)",
             raw_card_properties.replace('\'', "''"),
@@ -136,9 +139,9 @@ async fn insert_pre0074_live_board(
 }
 
 async fn seed_org_a(pre: &Store) -> OrgAFixture {
-    let (org_id, ws_id) = common::organization(pre, "acme-0074").await;
+    let (org_id, ws_id) = common::pre0075_organization(pre, "acme-0074").await;
     let scoped = pre.for_org(&org_id).expect("org A handle");
-    let alice = common::user(&scoped, "alice-0074").await;
+    let alice = common::pre0072_user(&scoped, &org_id, &ws_id, "alice-0074").await;
     scoped
         .execute_unchecked(&format!(
             "UPDATE workspace_members SET role = '{}' \
@@ -184,7 +187,7 @@ async fn seed_org_a(pre: &Store) -> OrgAFixture {
     insert_pre0074_live_board(&scoped, &board_null_props, &ws_id, &alice, "Null", "null").await;
 
     let (trashed_nul_snapshot, trashed_restorable) =
-        seed_org_a_trash(&scoped, &ws_id, &alice).await;
+        seed_org_a_trash(&scoped, &org_id, &ws_id, &alice).await;
 
     OrgAFixture {
         org_id,
@@ -198,8 +201,13 @@ async fn seed_org_a(pre: &Store) -> OrgAFixture {
     }
 }
 
-async fn seed_org_a_trash(scoped: &Store, ws_id: &str, alice: &str) -> (String, String) {
-    let ws_nul = common::workspace(scoped).await;
+async fn seed_org_a_trash(
+    scoped: &Store,
+    org_id: &str,
+    ws_id: &str,
+    alice: &str,
+) -> (String, String) {
+    let ws_nul = common::pre0075_workspace(scoped, org_id).await;
     let (trashed_nul, trashed_restorable, trashed_unreadable) = (new_id(), new_id(), new_id());
     let (del_1, del_2, del_3) = (new_id(), new_id(), new_id());
     let desc = if scoped.db_type() == DbType::Postgres {
@@ -225,7 +233,7 @@ async fn seed_org_a_trash(scoped: &Store, ws_id: &str, alice: &str) -> (String, 
     }
     let props_str = nul_props.to_string().replace("__NUL__", r"\u0000");
     let nul_doc = format!(
-        r#"{{"id":"{trashed_nul}","workspaceId":"{ws_nul}","createdBy":"{alice}","modifiedBy":"{alice}","visibility":"private","kind":"board","title":"Trashed NUL","description":"{desc}","cardProperties":{props_str},"createAt":100,"updateAt":200,"deletedAt":300}}"#
+        r#"{{"id":"{trashed_nul}","workspaceId":"{ws_nul}","createdBy":"{alice}","modifiedBy":"{alice}","visibility":"private","kind":"board","title":"Trashed NUL","description":"{desc}","cardProperties":{props_str},"{PRE0075_CREATE_KEY}":100,"{PRE0075_UPDATE_KEY}":200,"deletedAt":300}}"#
     );
     let unreadable_doc = if scoped.db_type() == DbType::Postgres {
         format!(r#"{{"id":"{trashed_unreadable}","cardProperties":[],"bad":"\ud800"}}"#)
@@ -246,8 +254,8 @@ async fn seed_org_a_trash(scoped: &Store, ws_id: &str, alice: &str) -> (String, 
             "type": "select",
             "options": legacy_ten_color_options(),
         }],
-        "createAt": 100,
-        "updateAt": 200,
+        (PRE0075_CREATE_KEY): 100,
+        (PRE0075_UPDATE_KEY): 200,
         "deletedAt": 310,
     })
     .to_string();
@@ -286,9 +294,9 @@ async fn seed_org_b(pre: &Store) -> Option<OrgBFixture> {
     if pre.db_type() != DbType::Postgres {
         return None;
     }
-    let (org_id, ws_id) = common::organization(pre, "beta-0074").await;
+    let (org_id, ws_id) = common::pre0075_organization(pre, "beta-0074").await;
     let scoped = pre.for_org(&org_id).expect("org B handle");
-    let bob = common::user(&scoped, "bob-0074").await;
+    let bob = common::pre0072_user(&scoped, &org_id, &ws_id, "bob-0074").await;
     scoped
         .execute_unchecked(&format!(
             "UPDATE workspace_members SET role = '{}' \
@@ -324,8 +332,8 @@ async fn seed_org_b(pre: &Store) -> Option<OrgBFixture> {
             "type": "multiSelect",
             "options": [{"id": "obt", "value": "Ops", "color": concat!("prop", "ColorOrange")}],
         }],
-        "createAt": 100,
-        "updateAt": 200,
+        (PRE0075_CREATE_KEY): 100,
+        (PRE0075_UPDATE_KEY): 200,
         "deletedAt": 400,
     })
     .to_string();

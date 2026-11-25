@@ -6,7 +6,9 @@ use fvoci_model::{BlockType, ContainerKind, ContainerVisibility, new_id};
 use fvoci_store::{BlockFilter, DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Store};
 use serde_json::{Value, json};
 
-use crate::common::{self, db_type};
+use crate::common::{
+    self, PRE0075_CREATE_COL, PRE0075_CREATE_KEY, PRE0075_UPDATE_COL, PRE0075_UPDATE_KEY, db_type,
+};
 
 // Pre-0071 key names assembled via `concat!` so repository-wide searches outside
 // `crates/store/schema/` see zero literal occurrences of the retired key strings.
@@ -91,7 +93,8 @@ async fn insert_board(scoped: &Store, board_id: &str, workspace_id: &str, user_i
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, visibility, kind, title, description, icon, \
-              show_description, is_template, is_builtin, properties, card_properties, create_at, update_at) \
+              show_description, is_template, is_builtin, properties, card_properties, \
+              {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
              VALUES ('{board_id}', '{workspace_id}', {creator}, {creator}, '{}', '{}', \
               'Migration 0071 Board', '', '', false, {is_builtin}, {is_builtin}, '{{}}', '{}', 100, 200)",
             ContainerVisibility::Open.as_str(),
@@ -128,7 +131,7 @@ async fn insert_raw_block(scoped: &Store, row: RawBlock<'_>) {
         .execute_unchecked(&format!(
             "INSERT INTO blocks \
              (id, container_id, parent_id, created_by, modified_by, \"schema\", type, title, fields, \
-              create_at, update_at, number) \
+              {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, number) \
              VALUES ('{}', '{}', NULL, {creator}, {creator}, 1, '{}', '{}', '{escaped}', 110, 210, {num})",
             row.id, row.board_id, row.block_type, row.title,
         ))
@@ -346,8 +349,8 @@ async fn seed_trashed_board(scoped_a: &Store, ws_a: &str, alice: &str) -> (Strin
         "kind": "board",
         "title": "Trashed Board",
         "cardProperties": [{"id": "p-status", "name": "Status", "type": "select"}],
-        "createAt": 100,
-        "updateAt": 200,
+        (PRE0075_CREATE_KEY): 100,
+        (PRE0075_UPDATE_KEY): 200,
         (OLD_DEL_KEY): 310
     })
     .to_string();
@@ -372,7 +375,7 @@ async fn seed_trashed_board(scoped_a: &Store, ws_a: &str, alice: &str) -> (Strin
 
     let trashed_board_view_raw = if scoped_a.db_type() == DbType::Postgres {
         format!(
-            r#"{{"id":"{trashed_board_view_id}","containerId":"{trashed_board_id}","parentId":"","createdBy":"{alice}","modifiedBy":"{alice}","schema":1,"type":"view","title":"NUL Trashed View","fields":{{"viewType":"gantt","{OLD_GROUP_BY}":"p-status","{OLD_DATE_PROPERTY}":"p-due","{OLD_VISIBLE_GROUPS}":["opt-b","opt-a"],"note":"nul:\u0000 literal:\\u0000"}},"createAt":110,"updateAt":210,"{OLD_DEL_KEY}":310}}"#
+            r#"{{"id":"{trashed_board_view_id}","containerId":"{trashed_board_id}","parentId":"","createdBy":"{alice}","modifiedBy":"{alice}","schema":1,"type":"view","title":"NUL Trashed View","fields":{{"viewType":"gantt","{OLD_GROUP_BY}":"p-status","{OLD_DATE_PROPERTY}":"p-due","{OLD_VISIBLE_GROUPS}":["opt-b","opt-a"],"note":"nul:\u0000 literal:\\u0000"}},"{PRE0075_CREATE_KEY}":110,"{PRE0075_UPDATE_KEY}":210,"{OLD_DEL_KEY}":310}}"#
         )
     } else {
         json!({
@@ -390,8 +393,8 @@ async fn seed_trashed_board(scoped_a: &Store, ws_a: &str, alice: &str) -> (Strin
                 (OLD_DATE_PROPERTY): "p-due",
                 (OLD_VISIBLE_GROUPS): ["opt-b", "opt-a"],
             },
-            "createAt": 110,
-            "updateAt": 210,
+            (PRE0075_CREATE_KEY): 110,
+            (PRE0075_UPDATE_KEY): 210,
             (OLD_DEL_KEY): 310
         })
         .to_string()
@@ -445,8 +448,8 @@ async fn seed_trashed_and_decoys(
         "type": "view",
         "title": "Trashed All-8 View",
         "fields": pre0071_all_eight_fields(),
-        "createAt": 110,
-        "updateAt": 210,
+        (PRE0075_CREATE_KEY): 110,
+        (PRE0075_UPDATE_KEY): 210,
         (OLD_DEL_KEY): 300
     });
     insert_raw_deleted_block(
@@ -471,8 +474,8 @@ async fn seed_trashed_and_decoys(
         "type": "card",
         "title": "Trashed Card With \"type\":\"view\" In Text",
         "fields": {"properties": {(OLD_VISIBLE_GROUPS): "keep-card-as-is"}},
-        "createAt": 110,
-        "updateAt": 210,
+        (PRE0075_CREATE_KEY): 110,
+        (PRE0075_UPDATE_KEY): 210,
         (OLD_DEL_KEY): 300,
         "number": 2
     });
@@ -497,7 +500,7 @@ async fn seed_trashed_and_decoys(
 }
 
 async fn seed_second_org(pre: &Store) -> Pre0071SecondOrg {
-    let (org_id, ws_b) = common::organization(pre, "org-b").await;
+    let (org_id, ws_b) = common::pre0075_organization(pre, "org-b").await;
     let scoped_b = pre.for_org(&org_id).expect("org-b");
     let bob = common::pre0072_user(&scoped_b, &org_id, &ws_b, "bob").await;
     let board_id = new_id();
@@ -528,8 +531,8 @@ async fn seed_second_org(pre: &Store) -> Pre0071SecondOrg {
         "type": "view",
         "title": "Org B Trashed View",
         "fields": pre0071_all_eight_fields(),
-        "createAt": 110,
-        "updateAt": 210,
+        (PRE0075_CREATE_KEY): 110,
+        (PRE0075_UPDATE_KEY): 210,
         (OLD_DEL_KEY): 320
     });
     insert_raw_deleted_block(
@@ -569,7 +572,7 @@ async fn seed_pre0071(pre: &Store) -> Pre0071Fixture {
     )
     .await;
 
-    let (org_a, ws_a) = common::organization(pre, "org-a").await;
+    let (org_a, ws_a) = common::pre0075_organization(pre, "org-a").await;
     let scoped_a = pre.for_org(&org_a).expect("org-a");
     let alice = common::pre0072_user(&scoped_a, &org_a, &ws_a, "alice").await;
 

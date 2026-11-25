@@ -108,8 +108,8 @@ export function createComment(on: OnPage, body: DocNode): Comment {
     title: '',
     fields: {},
     body: text,
-    createAt: now,
-    updateAt: now,
+    createdAt: now,
+    updatedAt: now,
   };
   on.world.blocks.set(comment.id, comment);
   tell(on, comment);
@@ -126,10 +126,10 @@ export function patchComment(on: OnPage, commentId: string, write: BodyWrite): C
   }
   const text = checkedComment(on.world, on.wikiId, write.body);
   if (text === null) fail(400, 'a comment has a text', { field: 'body' });
-  if (comment.updateAt !== write.readAt) fail(409, 'the comment changed since it was read');
+  if (comment.updatedAt !== write.readAt) fail(409, 'the comment changed since it was read');
   const before = comment.body ?? null;
   comment.body = text;
-  comment.updateAt = Math.max(on.world.now(), comment.updateAt + 1);
+  comment.updatedAt = Math.max(on.world.now(), comment.updatedAt + 1);
   comment.modifiedBy = on.userId;
   noteChange(on.world, comment, before, on.userId);
   tell(on, comment);
@@ -177,7 +177,7 @@ export function restoreComment(on: OnPage, commentId: string): Comment {
   }
   on.world.deletedBlocks.delete(commentId);
   // As the server: whoever brings it back is the last to change it, now.
-  comment.updateAt = on.world.now();
+  comment.updatedAt = on.world.now();
   comment.modifiedBy = on.userId;
   on.world.blocks.set(comment.id, comment);
   tell(on, comment);

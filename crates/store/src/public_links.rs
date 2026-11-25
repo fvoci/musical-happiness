@@ -59,7 +59,7 @@ impl Store {
                 enabled: change != PublicLinkChange::Off,
                 token,
                 modified_by: user_id.to_owned(),
-                update_at: now_millis(),
+                updated_at: now_millis(),
             };
             upsert_public_link(scope, &public_link).await?;
             Ok(public_link)
@@ -118,7 +118,7 @@ async fn upsert_public_link(
     public_link: &PublicLink,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
-        "INSERT INTO public_links (container_id, enabled, token, modified_by, update_at) VALUES (",
+        "INSERT INTO public_links (container_id, enabled, token, modified_by, updated_at) VALUES (",
     );
     sql.bind(Id(&public_link.container_id))
         .push_bind(", ", public_link.enabled);
@@ -129,11 +129,11 @@ async fn upsert_public_link(
         sql.push_bind(", ", &public_link.token);
     }
     sql.push_bind(", ", OptId(&public_link.modified_by))
-        .push_bind(", ", public_link.update_at)
+        .push_bind(", ", public_link.updated_at)
         .push(
             ") ON CONFLICT (container_id) DO UPDATE SET enabled = EXCLUDED.enabled, \
              token = EXCLUDED.token, modified_by = EXCLUDED.modified_by, \
-             update_at = EXCLUDED.update_at",
+             updated_at = EXCLUDED.updated_at",
         );
     scope.execute(sql).await?;
     Ok(())
@@ -144,7 +144,7 @@ async fn find_public_link(
     container_id: &str,
 ) -> Result<Option<PublicLink>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT container_id, enabled, token, modified_by, update_at FROM public_links \
+        "SELECT container_id, enabled, token, modified_by, updated_at FROM public_links \
          WHERE container_id = ",
     );
     sql.bind(Id(container_id));
@@ -156,6 +156,6 @@ async fn find_public_link(
         enabled: row.bool(1)?,
         token: row.text(2)?,
         modified_by: row.id(3)?,
-        update_at: row.int(4)?,
+        updated_at: row.int(4)?,
     }))
 }

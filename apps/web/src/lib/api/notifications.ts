@@ -57,8 +57,8 @@ function notificationOf(notification: Schemas['Notification']): Notification {
   const { subject } = notification;
   return {
     id: notification.id,
-    createAt: notification.createAt,
-    updateAt: notification.updateAt,
+    createdAt: notification.createdAt,
+    updatedAt: notification.updatedAt,
     readAt: notification.readAt,
     subject: subject ? subjectOf(subject) : null,
   };

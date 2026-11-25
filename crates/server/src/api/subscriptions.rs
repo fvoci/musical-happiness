@@ -63,7 +63,7 @@ impl SubscriptionRequest {
             block_id: self.block_id,
             user_id: self.user_id,
             notified_at: 0,
-            create_at: 0,
+            created_at: 0,
             deleted_at: None,
         };
         if let Err(error) = subscription.validate() {
@@ -80,7 +80,7 @@ impl SubscriptionRequest {
 /// may stop and start again. A chapter of a course takes no subscriptions (404). A
 /// `userId` that is not the user of the session is 403. The `blockType` is stored as it
 /// is sent, and not compared with the block. Subscribing again is no error: the
-/// subscription stays as it was made, with its `blockType` and `createAt`, and only its
+/// subscription stays as it was made, with its `blockType` and `createdAt`, and only its
 /// `notifiedAt` is set anew.
 #[utoipa::path(
     post,

@@ -162,7 +162,7 @@ pub(crate) fn put_patch_bodies<'a>(
         };
         if !change.is_keep() && patch.read_at.is_none() {
             return Err(AppError::bad_request(
-                "a change of the body needs readAt, the updateAt of the block as it was read",
+                "a change of the body needs readAt, the updatedAt of the block as it was read",
             )
             .with_field("readAt")
             .under(&element_pointer(list, index)));

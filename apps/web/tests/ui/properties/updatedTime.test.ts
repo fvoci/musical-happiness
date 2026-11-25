@@ -24,7 +24,7 @@ describe('an updated time property', () => {
   it('follows the card when it changes again', async () => {
     const mounted = mount('updatedTime', undefined);
     const card = testCard();
-    card.updateAt = at('Asia/Seoul', 2026, 3, 9, 8, 15);
+    card.updatedAt = at('Asia/Seoul', 2026, 3, 9, 8, 15);
     await mounted.setProps({ card });
     expect(mounted.container).toHaveTextContent('March 09 at 8:15 AM');
   });

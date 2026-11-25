@@ -13,7 +13,7 @@ use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::{Store, blocks, container_kinds, container_search, containers, link_locks};
 
-const WORKSPACE_COLUMNS: &str = "id, name, settings, modified_by, update_at, guest_invitations";
+const WORKSPACE_COLUMNS: &str = "id, name, settings, modified_by, updated_at, guest_invitations";
 
 impl Store {
     /// Stores a new workspace of the handle's organization, with the current time as its
@@ -60,7 +60,7 @@ impl Store {
             let mut sql = scope.sql("UPDATE workspaces SET guest_invitations = ");
             sql.bind(change.enabled)
                 .push_bind(", modified_by = ", OptId(modified_by))
-                .push_bind(", update_at = ", now)
+                .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NULL")
@@ -110,7 +110,7 @@ impl Store {
     pub async fn get_workspaces(&self) -> Result<Vec<Workspace>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_workspaces(scope)?;
-            sql.push(" ORDER BY create_at, id");
+            sql.push(" ORDER BY created_at, id");
             scope
                 .fetch_all(sql)
                 .await?
@@ -131,7 +131,7 @@ pub(crate) async fn insert_workspace(
     let now = now_millis();
     let mut sql = scope.sql(
         "INSERT INTO workspaces (id, org_id, name, settings, modified_by, guest_invitations, \
-         create_at, update_at) VALUES (",
+         created_at, updated_at) VALUES (",
     );
     sql.bind(Id(&workspace.id))
         .push_bind(", ", org)
@@ -213,7 +213,7 @@ async fn insert_organization_of(
     };
     let now = now_millis();
     let mut sql = scope.sql(
-        "INSERT INTO organizations (id, name, kind, owner_id, settings, create_at, update_at) \
+        "INSERT INTO organizations (id, name, kind, owner_id, settings, created_at, updated_at) \
          VALUES (",
     );
     sql.bind(org.clone())
@@ -251,7 +251,7 @@ fn workspace_from_row(row: &Row) -> Result<Workspace, StoreError> {
         title: row.text(1)?,
         settings: row.json_map(2, "settings")?,
         modified_by: row.id(3)?,
-        update_at: row.int(4)?,
+        updated_at: row.int(4)?,
         guest_invitations: row.bool(5)?,
     })
 }

@@ -320,7 +320,7 @@ async fn save_file(store: &Store, board_id: &str, stored_name: &str) -> FileReco
         name: format!("uploaded as {stored_name}"),
         size: 1,
         path: format!("{board_id}/{stored_name}"),
-        create_at: now_millis(),
+        created_at: now_millis(),
         ..FileRecord::default()
     };
     store
@@ -578,8 +578,8 @@ async fn insert_a_block_with_tampered_data(
     let id10 = new_id();
     let mut tampered = Block {
         title: "Old Title".to_owned(),
-        create_at: created_at,
-        update_at: updated_at,
+        created_at,
+        updated_at,
         created_by: user5,
         modified_by: user6,
         ..block(&id10, other_board_id)
@@ -603,12 +603,12 @@ async fn insert_a_block_with_tampered_data(
         retrieved.modified_by, user1,
         "the modifier is the inserting user, not the one given"
     );
-    assert_within_a_second(expected_time, retrieved.create_at, "create time");
-    assert_within_a_second(expected_time, retrieved.update_at, "update time");
+    assert_within_a_second(expected_time, retrieved.created_at, "create time");
+    assert_within_a_second(expected_time, retrieved.updated_at, "update time");
     // Caller-supplied block timestamps are overwritten with what was stored.
     assert_eq!(
-        (tampered.create_at, tampered.update_at),
-        (retrieved.create_at, retrieved.update_at),
+        (tampered.created_at, tampered.updated_at),
+        (retrieved.created_at, retrieved.updated_at),
         "the argument has the times that were stored, not the ones given"
     );
 }
@@ -761,10 +761,10 @@ async fn patch_block() {
     test.teardown().await;
 }
 
-/// A block's `update_at` moves on with every change, even when the clock has not: a
+/// A block's `updated_at` moves on with every change, even when the clock has not: a
 /// patch made against the time a block was read at must see every change after it.
 #[tokio::test]
-async fn update_at_moves_on_with_every_change() {
+async fn updated_at_moves_on_with_every_change() {
     let test = common::setup().await;
     let store = &test.store;
     let Fixture { board_id, .. } = fixture(store).await;
@@ -777,28 +777,28 @@ async fn update_at_moves_on_with_every_change() {
         .expect("the block is inserted");
 
     // A time an hour ahead of the clock, as a block written by a clock that ran fast.
-    let ahead = existing_block(store, &block_id).await.update_at + 3_600_000;
+    let ahead = existing_block(store, &block_id).await.updated_at + 3_600_000;
     common::execute_raw(
         &test.database_connection(),
-        &format!("UPDATE blocks SET update_at = {ahead} WHERE id = '{block_id}'"),
+        &format!("UPDATE blocks SET updated_at = {ahead} WHERE id = '{block_id}'"),
     )
     .await;
     store
         .patch_block(&block_id, &title_patch("once"), &user_id)
         .await
         .expect("the block is patched");
-    let once = existing_block(store, &block_id).await.update_at;
+    let once = existing_block(store, &block_id).await.updated_at;
     assert_eq!(
         once,
         ahead + 1,
-        "the patch moved update_at past the stored one"
+        "the patch moved updated_at past the stored one"
     );
 
     store
         .patch_block(&block_id, &title_patch("twice"), &user_id)
         .await
         .expect("the block is patched again");
-    let twice = existing_block(store, &block_id).await.update_at;
+    let twice = existing_block(store, &block_id).await.updated_at;
     assert_eq!(twice, once + 1, "a second patch moved it on again");
 
     test.teardown().await;
@@ -1260,8 +1260,8 @@ async fn get_block() {
         fetched.modified_by, user1,
         "the modifier is the inserting user"
     );
-    assert_within_a_second(now_millis(), fetched.create_at, "create time");
-    assert_within_a_second(now_millis(), fetched.update_at, "update time");
+    assert_within_a_second(now_millis(), fetched.created_at, "create time");
+    assert_within_a_second(now_millis(), fetched.updated_at, "update time");
 
     // Unknown UUID, non-UUID text, and empty string all return not-found.
     for missing in [new_id().as_str(), "non-existing-id", ""] {
@@ -2424,7 +2424,7 @@ async fn assert_restored(
         let stored = block_named(tree, name);
         let expected = Block {
             modified_by: restorer_id.to_owned(),
-            update_at: restored_at,
+            updated_at: restored_at,
             ..stored.clone()
         };
         assert_eq!(
@@ -2535,8 +2535,8 @@ async fn undelete_block_of_a_card_brings_back_everything_deleted_with_it() {
         existing_block(store, card_id).await,
         "the card is returned as it is stored"
     );
-    assert_within_a_second(now_millis(), card.update_at, "the time of the restore");
-    assert_restored(store, &tree, &CARD_AND_BELOW, &restorer_id, card.update_at).await;
+    assert_within_a_second(now_millis(), card.updated_at, "the time of the restore");
+    assert_restored(store, &tree, &CARD_AND_BELOW, &restorer_id, card.updated_at).await;
 
     let blocks = board_blocks(store, &board_id).await;
     assert_eq!(
@@ -2589,7 +2589,7 @@ async fn undelete_block_of_a_child_brings_back_the_whole_deletion() {
         &tree,
         &CARD_AND_BELOW,
         &restorer_id,
-        deepest.update_at,
+        deepest.updated_at,
     )
     .await;
     let blocks = board_blocks(store, &board_id).await;
@@ -2659,7 +2659,7 @@ async fn a_child_deleted_before_its_card_comes_back_only_after_the_card() {
         &tree,
         &["card", "comment"],
         &restorer_id,
-        card.update_at,
+        card.updated_at,
     )
     .await;
     assert_eq!(
@@ -2684,7 +2684,7 @@ async fn a_child_deleted_before_its_card_comes_back_only_after_the_card() {
         &tree,
         &["text", "below", "deepest"],
         &restorer_id,
-        restored_text.update_at,
+        restored_text.updated_at,
     )
     .await;
     let blocks = board_blocks(store, &board_id).await;
@@ -2770,7 +2770,7 @@ fn subscription(block: &Block, user_id: &str) -> Subscription {
         block_id: block.id.clone(),
         user_id: user_id.to_owned(),
         notified_at: 0,
-        create_at: 0,
+        created_at: 0,
         deleted_at: None,
     }
 }
@@ -3140,10 +3140,10 @@ async fn lists_of_blocks_are_ordered_by_creation_time_then_identifier() {
     // pairs of blocks are equally old, which the clock would make a matter of luck.
     let set_times: Vec<String> = CHILDREN
         .iter()
-        .map(|&(number, create_at, _)| (ids[number].as_str(), create_at))
+        .map(|&(number, created_at, _)| (ids[number].as_str(), created_at))
         .chain([(card_id.as_str(), 9000)])
-        .map(|(id, create_at)| {
-            format!("UPDATE blocks SET create_at = {create_at} WHERE id = '{id}';")
+        .map(|(id, created_at)| {
+            format!("UPDATE blocks SET created_at = {created_at} WHERE id = '{id}';")
         })
         .collect();
     common::execute_raw(&test.database_connection(), &set_times.join("\n")).await;
@@ -3293,7 +3293,7 @@ async fn purge_trash_removes_what_was_deleted_before_the_cutoff() {
         &tree,
         &["other card", "other text"],
         user_id,
-        other_card.update_at,
+        other_card.updated_at,
     )
     .await;
 
@@ -3393,7 +3393,7 @@ async fn an_update_keeps_the_creator_and_the_creation_time() {
             let mut update = Block {
                 title: title.to_owned(),
                 created_by: updater_id.clone(),
-                create_at: 631_155_600_000,
+                created_at: 631_155_600_000,
                 ..block(&block_id, &board_id)
             };
             store
@@ -3409,8 +3409,8 @@ async fn an_update_keeps_the_creator_and_the_creation_time() {
 
         let updated = existing_block(store, &block_id).await;
         assert_eq!(
-            (updated.created_by.as_str(), updated.create_at),
-            (creator_id.as_str(), created.create_at),
+            (updated.created_by.as_str(), updated.created_at),
+            (creator_id.as_str(), created.created_at),
             "the block that was {title} keeps its creator and creation time"
         );
         assert_eq!(
@@ -3419,10 +3419,10 @@ async fn an_update_keeps_the_creator_and_the_creation_time() {
             "the block that was {title} has the new title and modifier"
         );
         assert!(
-            updated.update_at > before.update_at,
+            updated.updated_at > before.updated_at,
             "the block that was {title} has a later modification time: {} after {}",
-            updated.update_at,
-            before.update_at
+            updated.updated_at,
+            before.updated_at
         );
     }
 

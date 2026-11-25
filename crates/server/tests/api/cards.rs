@@ -140,8 +140,8 @@ pub(crate) fn new_block(board_id: &str, parent_id: &str, block_type: BlockType) 
         id: new_id(),
         container_id: board_id.to_owned(),
         parent_id: parent_id.to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         block_type,
         ..Block::default()
     }
@@ -786,8 +786,8 @@ async fn create_card_answer_and_stored_block() {
                 "icon": "👨‍👩‍👧",
                 "isTemplate": true,
                 "properties": {"p": "v", "q": ["1", "2"]},
-                "createAt": 5,
-                "updateAt": 6,
+                "createdAt": 5,
+                "updatedAt": 6,
                 "deletedAt": 7,
             }),
         )
@@ -798,12 +798,16 @@ async fn create_card_answer_and_stored_block() {
         "a new identifier, not the client's: {}",
         card.id
     );
-    assert!(card.create_at >= before, "created now: {}", card.create_at);
     assert!(
-        card.update_at >= card.create_at,
+        card.created_at >= before,
+        "created now: {}",
+        card.created_at
+    );
+    assert!(
+        card.updated_at >= card.created_at,
         "written at {}, not before its creation at {}",
-        card.update_at,
-        card.create_at
+        card.updated_at,
+        card.created_at
     );
     assert_eq!(
         response.value(),
@@ -822,8 +826,8 @@ async fn create_card_answer_and_stored_block() {
             "tasksTotal": 0,
             "tasksDone": 0,
             "lastCommentAt": 0,
-            "createAt": card.create_at,
-            "updateAt": card.update_at,
+            "createdAt": card.created_at,
+            "updatedAt": card.updated_at,
         }),
         "the answer is the card with the server's identifier, creator and times"
     );
@@ -846,8 +850,8 @@ async fn create_card_answer_and_stored_block() {
                 "properties": {"p": "v", "q": ["1", "2"]},
             },
             "body": null,
-            "createAt": card.create_at,
-            "updateAt": card.update_at,
+            "createdAt": card.created_at,
+            "updatedAt": card.updated_at,
             "containerId": board.id,
         }),
         "a card block directly on its board, with the times that were answered"
@@ -884,8 +888,8 @@ async fn create_card_without_members() {
             "tasksTotal": 0,
             "tasksDone": 0,
             "lastCommentAt": 0,
-            "createAt": card.create_at,
-            "updateAt": card.update_at,
+            "createdAt": card.created_at,
+            "updatedAt": card.updated_at,
         }),
         "an empty card"
     );
@@ -1393,8 +1397,8 @@ async fn get_card_permissions_and_refusals() {
             "tasksTotal": 0,
             "tasksDone": 0,
             "lastCommentAt": 0,
-            "createAt": response.value()["createAt"],
-            "updateAt": response.value()["updateAt"],
+            "createdAt": response.value()["createdAt"],
+            "updatedAt": response.value()["updatedAt"],
         }),
         "the card of a bare card block"
     );
@@ -1582,10 +1586,10 @@ async fn patch_card_changes() {
 
     // The title alone; the answer is the whole card.
     let patched = send(&th.client, &path, json!({"title": "patched"})).await;
-    assert!(patched.update_at >= card.update_at, "modified now");
+    assert!(patched.updated_at >= card.updated_at, "modified now");
     let expected = Card {
         title: "patched".to_owned(),
-        update_at: patched.update_at,
+        updated_at: patched.updated_at,
         ..card.clone()
     };
     assert_eq!(patched, expected, "only the title changed");
@@ -1600,7 +1604,7 @@ async fn patch_card_changes() {
     ] {
         let patched = send(&th.client, &path, body.clone()).await;
         let expected = Card {
-            update_at: patched.update_at,
+            updated_at: patched.updated_at,
             ..expected.clone()
         };
         assert_eq!(patched, expected, "nothing changed by {body}");
@@ -1852,8 +1856,8 @@ async fn comment_on(client: &Client, card: &Card) -> Block {
         parent_id: card.id.clone(),
         block_type: BlockType::Comment,
         title: "said".to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let stored: Vec<Block> = client
@@ -1866,7 +1870,7 @@ async fn comment_on(client: &Client, card: &Card) -> Block {
 }
 
 /// Both the card list and `getCard` report when a card's last comment was posted (zero if
-/// none); deleted comments do not count, and commenting leaves the card's `updateAt` unchanged.
+/// none); deleted comments do not count, and commenting leaves the card's `updatedAt` unchanged.
 #[tokio::test]
 async fn a_card_says_when_it_was_last_commented_on() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1893,12 +1897,12 @@ async fn a_card_says_when_it_was_last_commented_on() {
     let earlier = comment_on(&th.client, card).await;
     let later = comment_on(&th.client, card).await;
     assert!(
-        later.create_at > earlier.create_at,
+        later.created_at > earlier.created_at,
         "posted one after the other"
     );
     assert_eq!(
         posted_at(&cards_of(&th.client, &board.id, "").await),
-        expected(later.create_at)
+        expected(later.created_at)
     );
     // What is not a comment of the card does not count: a block on the card after it,
     // and a comment on the comment.
@@ -1924,13 +1928,16 @@ async fn a_card_says_when_it_was_last_commented_on() {
     let first_page: Vec<Card> = cards_of(&th.client, &board.id, "?page=0&perPage=1").await;
     assert_eq!(
         posted_at(&first_page),
-        [(card.id.clone(), later.create_at)],
+        [(card.id.clone(), later.created_at)],
         "a page of the list says it too"
     );
     let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
-    assert_eq!(read.last_comment_at, later.create_at, "getCard says it too");
     assert_eq!(
-        read.update_at, card.update_at,
+        read.last_comment_at, later.created_at,
+        "getCard says it too"
+    );
+    assert_eq!(
+        read.updated_at, card.updated_at,
         "commenting does not touch the card"
     );
 
@@ -1938,7 +1945,7 @@ async fn a_card_says_when_it_was_last_commented_on() {
     th.client.delete(&block(&later.id)).await.check_no_content();
     let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
     assert_eq!(
-        read.last_comment_at, earlier.create_at,
+        read.last_comment_at, earlier.created_at,
         "a deleted comment does not count"
     );
     let patched: Card = th
@@ -1947,7 +1954,7 @@ async fn a_card_says_when_it_was_last_commented_on() {
         .await
         .ok_json();
     assert_eq!(
-        patched.last_comment_at, earlier.create_at,
+        patched.last_comment_at, earlier.created_at,
         "patchCard says it too"
     );
     // A comment changed is not a comment posted.
@@ -1957,7 +1964,7 @@ async fn a_card_says_when_it_was_last_commented_on() {
         .check_no_content();
     let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
     assert_eq!(
-        read.last_comment_at, earlier.create_at,
+        read.last_comment_at, earlier.created_at,
         "the time it was posted"
     );
     th.client

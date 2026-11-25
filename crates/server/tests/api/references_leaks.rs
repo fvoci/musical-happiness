@@ -133,7 +133,7 @@ async fn told_of_a_change(th: &TestServer, reader: &Client, path: &str, targets:
     let mut socket = Socket::connect_as(reader).await;
     subscribe_to_workspace(th, &mut socket, TEST_WORKSPACE_ID, &reader.me().await.id).await;
     let source = path.rsplit('/').next().expect("a path");
-    let read_at = th.client.get(path).await.value()["updateAt"].clone();
+    let read_at = th.client.get(path).await.value()["updatedAt"].clone();
     th.client
         .patch(
             path,

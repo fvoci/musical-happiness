@@ -47,7 +47,7 @@ interface DevBackend {
     cardId: string,
   ): Promise<{
     title: string;
-    updateAt: number;
+    updatedAt: number;
     body: unknown;
     fields: { icon?: string; properties: Record<string, unknown> };
   }>;
@@ -770,7 +770,7 @@ async function writtenWholeElsewhere(page: Page, place: Place, body: object): Pr
     async ({ place: at, body: written }) => {
       const other = window.fvociDev.someoneElse();
       const card = await other.card(at.boardId, at.cardId);
-      await other.writeCardBody(at.boardId, at.cardId, { body: written, readAt: card.updateAt });
+      await other.writeCardBody(at.boardId, at.cardId, { body: written, readAt: card.updatedAt });
     },
     { place, body },
   );

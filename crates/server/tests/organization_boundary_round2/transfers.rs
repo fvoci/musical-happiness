@@ -58,7 +58,7 @@ async fn subscriptions_are_scoped_even_when_the_subscriber_uses_both_organizatio
             block_id: card.id.clone(),
             user_id: scene.user.clone(),
             notified_at: 0,
-            create_at: 0,
+            created_at: 0,
             deleted_at: None,
         })
         .await

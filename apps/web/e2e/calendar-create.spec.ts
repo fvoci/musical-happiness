@@ -60,11 +60,11 @@ test('a card is made on an empty day with the keys alone, and one undo takes it 
     const store = (
       window as unknown as {
         fvociDev: {
-          workspace: { board: { cards: { id: string; title: string; createAt: number }[] } };
+          workspace: { board: { cards: { id: string; title: string; createdAt: number }[] } };
         };
       }
     ).fvociDev.workspace.board;
-    return [...store.cards].sort((a, b) => b.createAt - a.createAt)[0]?.title ?? 'none';
+    return [...store.cards].sort((a, b) => b.createdAt - a.createdAt)[0]?.title ?? 'none';
   });
   expect(made).toBe('');
   await expect.poll(() => dueOf(page, '')).toEqual({ from: '2026-11-25' });
@@ -130,14 +130,14 @@ test('the header’s “New” makes the card on the day picked (question C13)',
           workspace: {
             board: {
               board: { cardProperties: { id: string; name: string }[] };
-              cards: { createAt: number; fields: { properties: Record<string, unknown> } }[];
+              cards: { createdAt: number; fields: { properties: Record<string, unknown> } }[];
             };
           };
         };
       }
     ).fvociDev.workspace.board;
     const due = store.board.cardProperties.find((each) => each.name === 'Day')?.id ?? '';
-    const last = [...store.cards].sort((a, b) => b.createAt - a.createAt)[0];
+    const last = [...store.cards].sort((a, b) => b.createdAt - a.createdAt)[0];
     return last?.fields.properties[due];
   });
   expect(newest).toEqual({ from: '2026-11-25' });

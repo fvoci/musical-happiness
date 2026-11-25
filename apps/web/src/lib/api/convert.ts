@@ -75,8 +75,8 @@ export function userOf(user: Schemas['User']): User {
     name: personNameOf(user),
     email: '',
     isAdmin: user.isAdmin,
-    createAt: user.createAt,
-    updateAt: user.updateAt,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
     ...(user.deletedAt === undefined ? {} : { deletedAt: user.deletedAt }),
   };
 }
@@ -117,8 +117,8 @@ export function containerOf(board: Schemas['Container']): Container {
     templateVersion: board.templateVersion,
     properties: board.properties as Container['properties'],
     cardProperties: board.cardProperties,
-    createAt: board.createAt,
-    updateAt: board.updateAt,
+    createdAt: board.createdAt,
+    updatedAt: board.updatedAt,
     ...(board.deletedAt === undefined ? {} : { deletedAt: board.deletedAt }),
   };
 }
@@ -173,8 +173,8 @@ export function cardOf(card: Schemas['Card']): CardSummary {
       type: 'card',
       title: card.title,
       fields: { icon: card.icon, isTemplate: card.isTemplate, properties: card.properties },
-      createAt: card.createAt,
-      updateAt: card.updateAt,
+      createdAt: card.createdAt,
+      updatedAt: card.updatedAt,
       ...(card.deletedAt === undefined ? {} : { deletedAt: card.deletedAt }),
       ...(card.number === null ? {} : { number: card.number }),
     }),
@@ -317,8 +317,8 @@ export function categoryOf(category: Schemas['CategoryContainers']): Category {
     sortOrder: category.sortOrder,
     containerIds: metadata.map((entry) => entry.containerId),
     hiddenContainerIds: metadata.filter((entry) => entry.hidden).map((entry) => entry.containerId),
-    createAt: category.createAt,
-    updateAt: category.updateAt,
+    createdAt: category.createdAt,
+    updatedAt: category.updatedAt,
   };
 }
 
@@ -368,8 +368,8 @@ export function newBoardAndViewOf(
         type: 'view',
         title: firstView.title,
         fields: firstView.fields,
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
       },
     ],
   };

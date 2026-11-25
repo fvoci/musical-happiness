@@ -156,8 +156,8 @@ pub(crate) fn new_block(board_id: &str, block_type: BlockType, title: &str) -> B
     Block {
         id: new_id(),
         container_id: board_id.to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         block_type,
         title: title.to_owned(),
         ..Block::default()
@@ -438,7 +438,7 @@ async fn post_block_update_a_block_should_not_be_possible_through_the_insert_end
 
     let update = Block {
         id: first.id.clone(),
-        update_at: 20,
+        updated_at: 20,
         ..new_block(&board.id, BlockType::Card, "Updated title")
     };
     let inserted = insert(&th.client, &board.id, std::slice::from_ref(&update)).await;
@@ -1268,7 +1268,7 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
 // -- POST /boards/{board_id}/blocks -----------------------------------------------------
 
 /// What an insert answers and what it stores: new identifiers, the user as creator, and
-/// the request's `createAt` in the answer while the stored block has the current time.
+/// the request's `createdAt` in the answer while the stored block has the current time.
 #[tokio::test]
 async fn post_blocks_answer_and_stored_block() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1299,10 +1299,10 @@ async fn post_blocks_answer_and_stored_block() {
         assert_eq!(block.created_by, user.id, "created by the user");
         assert_eq!(block.modified_by, user.id, "modified by the user");
         assert!(
-            block.create_at >= before,
+            block.created_at >= before,
             "created now, whatever the request says"
         );
-        assert!(block.update_at >= before, "the modification time is now");
+        assert!(block.updated_at >= before, "the modification time is now");
     }
     // A block sent without fields is stored and returned with an empty object.
     assert_eq!(response.value()[0]["fields"], json!({}), "no null fields");
@@ -1326,7 +1326,7 @@ async fn post_blocks_without_identifiers_and_in_the_order_of_the_request() {
         .map(|index| {
             json!({
                 "containerId": board.id, "type": "card", "title": format!("nameless {index}"),
-                "createAt": 1, "updateAt": 1,
+                "createdAt": 1, "updatedAt": 1,
             })
         })
         .collect();
@@ -1377,8 +1377,7 @@ async fn post_blocks_validation() {
     let board = create_board_in_store(&th, ContainerVisibility::Private).await;
     let other_board = create_board_in_store(&th, ContainerVisibility::Private).await;
     let path = blocks_path(&board.id);
-    let valid =
-        json!({"id": "x1", "containerId": board.id, "type": "card", "createAt": 1, "updateAt": 1});
+    let valid = json!({"id": "x1", "containerId": board.id, "type": "card", "createdAt": 1, "updatedAt": 1});
     let without = |member: &str| {
         let mut block = valid.as_object().expect("the block is an object").clone();
         block.remove(member);
@@ -1390,8 +1389,8 @@ async fn post_blocks_validation() {
     let elsewhere_words = "the block is on another board than the path";
     let cases = [
         (without("type"), "the block has no type"),
-        (without("createAt"), "a new block's createAt is 1 or more"),
-        (without("updateAt"), "a new block's updateAt is 1 or more"),
+        (without("createdAt"), "a new block's createdAt is 1 or more"),
+        (without("updatedAt"), "a new block's updatedAt is 1 or more"),
         (without("containerId"), elsewhere_words),
         (json!([elsewhere]), elsewhere_words),
     ];
@@ -1409,7 +1408,7 @@ async fn post_blocks_validation() {
         "null",
         "{\"a\":1}",
         "[null]",
-        "[{\"createAt\":\"x\"}]",
+        "[{\"createdAt\":\"x\"}]",
     ] {
         let response = th.client.send_raw_body(Method::POST, &path, body).await;
         response.check_bad_request();
@@ -1704,7 +1703,7 @@ async fn patch_block_changes() {
     let card = &content.card;
     let card_path = block_path(&boards.board.id, &card.id);
     let created = blocks_of(&th.client, &boards.board.id).await;
-    let created_at = find(&created, &card.id).create_at;
+    let created_at = find(&created, &card.id).created_at;
 
     patch(&boards.editor, card, &title_patch("by the editor")).await;
     let stored = blocks_of(&th.client, &boards.board.id).await;
@@ -1715,8 +1714,8 @@ async fn patch_block_changes() {
         boards.editor.me().await.id,
         "modified by the editor"
     );
-    assert!(patched.update_at > card.update_at, "at a later time");
-    assert_eq!(patched.create_at, created_at, "created when it was");
+    assert!(patched.updated_at > card.updated_at, "at a later time");
+    assert_eq!(patched.created_at, created_at, "created when it was");
 
     // The empty patch, and members a patch does not have, change nothing but the
     // modifier.

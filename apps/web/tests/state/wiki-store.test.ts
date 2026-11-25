@@ -160,7 +160,7 @@ describe('an open wiki', () => {
     if (!written) throw new Error('no page');
     await made.backend.wiki.patchPage(made.wikiId, written.id, {
       body: text('kept'),
-      readAt: written.updateAt,
+      readAt: written.updatedAt,
     });
     const parent = await made.store.createPage({ title: 'Parent' });
     if (!parent) throw new Error('no page');

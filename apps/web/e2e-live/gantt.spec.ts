@@ -285,8 +285,8 @@ test('"display by" chosen for a view that named no date can be taken back on the
         containerId: board.boardId,
         type: 'view',
         title: 'Bare Gantt',
-        createAt: 1,
-        updateAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
         fields: {
           viewType: 'gantt',
           sort: [],

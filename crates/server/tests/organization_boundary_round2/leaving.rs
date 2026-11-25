@@ -76,7 +76,7 @@ async fn of_another_organization(ts: &TestServer, username: &str, role: &str) ->
         .for_org(&org_id)
         .expect("an identifier")
         .execute_unchecked(&format!(
-            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+            "INSERT INTO organization_members (org_id, user_id, role, created_at) \
              VALUES ('{org_id}', '{user_id}', '{role}', 1)"
         ))
         .await

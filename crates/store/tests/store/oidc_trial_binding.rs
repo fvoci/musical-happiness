@@ -34,8 +34,8 @@ fn provider(issuer: &str, secret: &str) -> StoredProvider {
         enabled: true,
         sso_required: true,
         revision: 0,
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
     }
 }
 
@@ -151,7 +151,7 @@ async fn try_unbound(
     };
     let trial = Trial {
         provider_id: &organization.provider.id,
-        pending_at: organization.pending.create_at,
+        pending_at: organization.pending.created_at,
         trier_id: asked.trier_id,
         keep_former: Duration::from_hours(24),
     };

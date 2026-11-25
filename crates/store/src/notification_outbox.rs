@@ -158,10 +158,10 @@ impl Store {
                 .push_bind(" AND block_id = ", Id(&event.block_id))
                 .push_bind(" AND kind = ", event.kind.as_str())
                 .push_bind(
-                    " AND create_at > ",
+                    " AND created_at > ",
                     now.saturating_sub(limits.same_within_millis),
                 )
-                .push(" ORDER BY create_at DESC LIMIT 1");
+                .push(" ORDER BY created_at DESC LIMIT 1");
             if let Some(row) = scope.fetch_optional(sql).await? {
                 let (org_id, id) = (row.id(0)?, row.id(1)?);
                 let Some(counted) = with_counted(&row.text(3)?, &event.source_id, &event.actor_id)
@@ -169,7 +169,7 @@ impl Store {
                     return Ok(Told::Counted(id));
                 };
                 let doers = with_doer(&row.text(2)?, &event.actor_id);
-                let mut sql = scope.sql("UPDATE notifications SET update_at = ");
+                let mut sql = scope.sql("UPDATE notifications SET updated_at = ");
                 sql.bind(now)
                     .push(", times = times + 1, read_at = 0, actor_id = ")
                     .bind(OptId(&event.actor_id))
@@ -188,7 +188,7 @@ impl Store {
             let id = new_id();
             let mut sql = scope.sql(
                 "INSERT INTO notifications (recipient_id, id, org_id, kind, source_id, \
-                 block_id, container_id, actor_id, made_by, create_at, update_at, times, \
+                 block_id, container_id, actor_id, made_by, created_at, updated_at, times, \
                  doers, counted, read_at) VALUES (",
             );
             sql.bind(Id(&event.recipient_id))
@@ -280,7 +280,7 @@ async fn made_by_one(
     sql.bind(Id(&event.recipient_id))
         .push_bind(" AND made_by = ", Id(&event.actor_id))
         .push_bind(
-            " AND create_at > ",
+            " AND created_at > ",
             now.saturating_sub(limits.made_within_millis),
         );
     match scope.fetch_optional(sql).await? {
@@ -369,7 +369,7 @@ pub(crate) async fn keep_newest(
             Id(user_id),
         )
         .push_bind(
-            " ORDER BY CASE WHEN read_at = 0 THEN 1 ELSE 0 END, update_at, id LIMIT ",
+            " ORDER BY CASE WHEN read_at = 0 THEN 1 ELSE 0 END, updated_at, id LIMIT ",
             over,
         )
         .push(")");

@@ -202,7 +202,7 @@ async fn recorded_file(ts: &TestServer, owner: &Store, board_id: &str) -> String
             stored_name,
             path: path.clone(),
             size: 8,
-            create_at: 1,
+            created_at: 1,
             ..FileRecord::default()
         })
         .await
@@ -224,7 +224,7 @@ async fn misbound_upload(ts: &TestServer, path: &str) -> Upload {
         name: "misbound.txt".to_owned(),
         size: 8,
         part_size: 8,
-        create_at: now_millis(),
+        created_at: now_millis(),
         expires_at: now_millis() + 60_000,
         multipart_id: "left-over-multipart".to_owned(),
         path: path.to_owned(),

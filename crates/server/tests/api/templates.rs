@@ -683,7 +683,7 @@ async fn an_organizations_purge_leaves_the_files_of_the_templates() {
         name: "unshown.png".to_owned(),
         size: 3,
         path: format!("{}/unshown.png", template.id),
-        create_at: 1,
+        created_at: 1,
         ..fvoci_model::FileRecord::default()
     };
     ts.system_store()
@@ -738,7 +738,7 @@ async fn templates_stored_again_remove_the_old_files() {
         name: "picture.png".to_owned(),
         size: 3,
         path: format!("{}/picture.png", old.id),
-        create_at: 1,
+        created_at: 1,
         ..fvoci_model::FileRecord::default()
     };
     ts.app

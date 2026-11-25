@@ -54,7 +54,7 @@ function world() {
   const workspaceId = made.world.workspace.id;
   const write = async (cardId: string, body: DocNode): Promise<void> => {
     const now = await made.backend.card(alpha.containerId, cardId);
-    await made.backend.writeCardBody(alpha.containerId, cardId, { body, readAt: now.updateAt });
+    await made.backend.writeCardBody(alpha.containerId, cardId, { body, readAt: now.updatedAt });
   };
   return { ...made, boardId: alpha.containerId, workspaceId, alpha, beta, gamma, write };
 }
@@ -253,8 +253,8 @@ describe('references, for a reader by a public link', () => {
     ...(icon === undefined ? {} : { icon }),
     properties: {},
     isTemplate: false,
-    createAt: 1,
-    updateAt: 1,
+    createdAt: 1,
+    updatedAt: 1,
   });
 
   it('are resolved among the cards of the link’s board, and nothing else is asked', async () => {

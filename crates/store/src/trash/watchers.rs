@@ -23,7 +23,7 @@ pub(super) struct StoredWatcher {
     block_type: String,
     user_id: String,
     notified_at: i64,
-    create_at: i64,
+    created_at: i64,
 }
 
 /// The subscriptions to those of `block_ids` that have any, by block, each block's in
@@ -36,16 +36,16 @@ pub(super) async fn watchers_of(
     for batch in block_ids.chunks(BATCH) {
         let mut sql = scope.sql(
             "SELECT block_id, block_type, user_id, notified_at, \
-             create_at FROM subscriptions WHERE block_id IN (",
+             created_at FROM subscriptions WHERE block_id IN (",
         );
         sql.bind_list(batch.iter().map(|id| Id(id)))
-            .push(") ORDER BY block_id, create_at, user_id");
+            .push(") ORDER BY block_id, created_at, user_id");
         for row in scope.fetch_all(sql).await? {
             watchers.entry(row.id(0)?).or_default().push(StoredWatcher {
                 block_type: row.text(1)?,
                 user_id: row.id(2)?,
                 notified_at: row.int(3)?,
-                create_at: row.int(4)?,
+                created_at: row.int(4)?,
             });
         }
     }
@@ -176,14 +176,14 @@ pub(super) async fn watch_again(
     for watcher in watchers {
         let mut sql = scope.sql(if postgres {
             "INSERT INTO subscriptions (org_id, block_type, block_id, \
-             user_id, notified_at, create_at) SELECT b.org_id, "
+             user_id, notified_at, created_at) SELECT b.org_id, "
         } else {
             "INSERT INTO subscriptions (block_type, block_id, \
-             user_id, notified_at, create_at) SELECT "
+             user_id, notified_at, created_at) SELECT "
         });
         sql.bind(watcher.block_type.as_str())
             .push_bind(", b.id, u.id, ", watcher.notified_at)
-            .push_bind(", ", watcher.create_at)
+            .push_bind(", ", watcher.created_at)
             .push_bind(
                 " FROM blocks AS b JOIN users AS u ON u.id = ",
                 Id(&watcher.user_id),

@@ -431,7 +431,7 @@
                       {kindLabel(note.kind)}
                     </span>
                     <span class="text-xs text-muted-foreground">
-                      {relativeTime(note.updateAt, locale, Math.max(Date.now(), note.updateAt))}
+                      {relativeTime(note.updatedAt, locale, Math.max(Date.now(), note.updatedAt))}
                     </span>
                   </div>
                   <div class="flex shrink-0 items-center gap-0.5">

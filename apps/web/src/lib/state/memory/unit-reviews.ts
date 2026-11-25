@@ -8,7 +8,7 @@
  * - Strict per-user isolation: each learner reads and mutates only their own rows.
  * - Unjoined open-course readers get `[]` on GET reviews/notes and `403` on writes.
  * - Chapters, trashed units, non-course containers, foreign IDs, and non-UUIDs return `404`.
- * - Completion retry is idempotent (`completedAt`/`updateAt` preserved, `nextReview: null`).
+ * - Completion retry is idempotent (`completedAt`/`updatedAt` preserved, `nextReview: null`).
  * - Interval suggestions respect `course.properties.defaultReviewIntervals` or `[1, 3, 7, 14, 30]`.
  * - Zero WebSocket broadcasts on review/note writes.
  */
@@ -111,7 +111,7 @@ function checkCalendarDate(raw: unknown, field: string): CalendarDate {
 
 function compareReviewsAsc(a: UnitReview, b: UnitReview): number {
   if (a.scheduledDate !== b.scheduledDate) return a.scheduledDate < b.scheduledDate ? -1 : 1;
-  if (a.createAt !== b.createAt) return a.createAt - b.createAt;
+  if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
@@ -132,10 +132,10 @@ export function memorySuggestedIntervalForUnit(
   );
   if (reviews.length === 0) return suggestedNextIntervalDays(null, intervals);
   reviews.sort((a, b) => {
-    const aOrder = a.completedAt ?? a.createAt;
-    const bOrder = b.completedAt ?? b.createAt;
+    const aOrder = a.completedAt ?? a.createdAt;
+    const bOrder = b.completedAt ?? b.createdAt;
     if (aOrder !== bOrder) return bOrder - aOrder;
-    if (a.createAt !== b.createAt) return b.createAt - a.createAt;
+    if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
     return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });
   return suggestedNextIntervalDays(reviews[0]?.intervalDays ?? null, intervals);
@@ -216,8 +216,8 @@ export function memoryScheduleUnitReview(
     scheduledDate,
     completedAt: null,
     intervalDays,
-    createAt: now,
-    updateAt: now,
+    createdAt: now,
+    updatedAt: now,
   };
   const theirs = world.unitReviews.get(userId) ?? [];
   theirs.push(created);
@@ -252,7 +252,7 @@ export function memoryCompleteUnitReview(
   if (review.completedAt === null) {
     const now = world.now();
     review.completedAt = now;
-    review.updateAt = now;
+    review.updatedAt = now;
     if (nextInterval !== null) {
       const today = userToday(world, userId);
       const followUp: UnitReview = {
@@ -262,8 +262,8 @@ export function memoryCompleteUnitReview(
         scheduledDate: addDays(today, nextInterval),
         completedAt: null,
         intervalDays: nextInterval,
-        createAt: now,
-        updateAt: now,
+        createdAt: now,
+        updatedAt: now,
       };
       theirs.push(followUp);
       nextReview = copy(followUp);
@@ -319,13 +319,13 @@ export function memoryWorkspaceTodayReviews(
       scheduledDate: review.scheduledDate,
       intervalDays: review.intervalDays,
       overdueDays,
-      createAt: review.createAt,
-      updateAt: review.updateAt,
+      createdAt: review.createdAt,
+      updatedAt: review.updatedAt,
     });
   }
   return rows.sort((a, b) => {
     if (a.scheduledDate !== b.scheduledDate) return a.scheduledDate < b.scheduledDate ? -1 : 1;
-    if (a.createAt !== b.createAt) return a.createAt - b.createAt;
+    if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 }

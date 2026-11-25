@@ -10,7 +10,7 @@ it('distinguishes a server operator from a person whose account is gone', () => 
     targetId: 'org',
     targetName: null,
     subject: null,
-    createAt: 1,
+    createdAt: 1,
     detail: null,
     identity: null,
   } as const;
@@ -37,7 +37,7 @@ it('says what became of the previous provider, and whose identity was connected'
     targetId: 'org',
     targetName: null,
     subject: null,
-    createAt: 1,
+    createdAt: 1,
     identity: null,
   } as const;
   const detail = 'https://before.example.test';
@@ -99,7 +99,7 @@ it('tells no identity under a record that names none', () => {
       subject: null,
       targetId: 'org',
       targetName: null,
-      createAt: 1,
+      createdAt: 1,
       detail: null,
       identity: null,
     },

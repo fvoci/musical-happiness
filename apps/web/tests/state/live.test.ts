@@ -43,8 +43,8 @@ class FakeSocket extends EventTarget {
 
 const BLOCK = {
   parentId: 'b1',
-  createAt: 1,
-  updateAt: 2,
+  createdAt: 1,
+  updatedAt: 2,
   createdBy: 'u',
   modifiedBy: 'u',
   schema: 1,
@@ -177,8 +177,8 @@ describe('changes from the server', () => {
       templateVersion: 0,
       properties: {},
       cardProperties: [],
-      createAt: 1,
-      updateAt: 2,
+      createdAt: 1,
+      updatedAt: 2,
     };
     socket.message({
       type: 'containerChanged',
