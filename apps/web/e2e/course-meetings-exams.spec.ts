@@ -324,7 +324,6 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
           modifiedBy: '',
           createAt: 1,
           updateAt: 1,
-          deleteAt: 0,
         },
       });
       return;

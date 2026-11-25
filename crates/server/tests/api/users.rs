@@ -372,7 +372,6 @@ async fn a_registration_answers_the_user_that_was_made() {
             "createAt",
             "credentials",
             "customName",
-            "deleteAt",
             "displayName",
             "firstName",
             "id",
@@ -389,7 +388,7 @@ async fn a_registration_answers_the_user_that_was_made() {
     );
     assert_eq!(made["username"], json!(username), "{made}");
     assert_eq!(made["isAdmin"], json!(is_admin), "{made}");
-    assert_eq!(made["deleteAt"], json!(0), "{made}");
+    assert_eq!(made.get("deletedAt"), None, "{made}");
     assert!(
         made["id"].as_str().is_some_and(fvoci_model::is_id),
         "{username}: the identifier the server gave: {made}"
@@ -469,7 +468,6 @@ async fn get_me_logged_in() {
             "credentials": [],
             "createAt": me.create_at,
             "updateAt": me.update_at,
-            "deleteAt": 0,
             // The first user of an instance administers it.
             "isAdmin": true,
             // Told to the user themselves only: whether, never what.
@@ -618,7 +616,6 @@ async fn users_list_and_profiles() {
             "credentials": [],
             "createAt": user2.create_at,
             "updateAt": user2.update_at,
-            "deleteAt": 0,
             "isAdmin": false,
         }),
         "the profile of another user"

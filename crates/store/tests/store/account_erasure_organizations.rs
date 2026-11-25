@@ -159,10 +159,10 @@ async fn begin_alone(test: &TestStore, leaver: &str, org: &str, now: i64) {
     assert_eq!(standing.sole_admin_of[0].id, org, "{standing:?}");
     for statement in [
         format!(
-            "UPDATE users SET delete_at = {now}, delete_after = {now}, \
+            "UPDATE users SET deleted_at = {now}, delete_after = {now}, \
              erase_started_at = {now} WHERE id = '{leaver}'"
         ),
-        format!("UPDATE organizations SET delete_at = {now} WHERE id = '{org}'"),
+        format!("UPDATE organizations SET deleted_at = {now} WHERE id = '{org}'"),
     ] {
         test.system()
             .execute_unchecked(&statement)
@@ -202,7 +202,7 @@ async fn fill(alone_store: &Store, alone: &str, alone_workspace: &str, leaver: &
     board_of(alone_store, &trashed, leaver).await;
     alone_store
         .execute_unchecked(&format!(
-            "UPDATE workspaces SET delete_at = {T0} WHERE id = '{trashed}'"
+            "UPDATE workspaces SET deleted_at = {T0} WHERE id = '{trashed}'"
         ))
         .await
         .expect("the workspace is in the trash");
@@ -458,7 +458,7 @@ async fn an_organization_somebody_came_into_during_the_wait_stays() {
     assert_eq!(
         count(
             &alone_store,
-            "SELECT CAST(count(*) AS TEXT) FROM organizations WHERE delete_at = 0"
+            "SELECT CAST(count(*) AS TEXT) FROM organizations WHERE deleted_at IS NULL"
         )
         .await,
         1,
@@ -478,7 +478,7 @@ async fn an_organization_somebody_came_into_past_the_mark_is_in_use_again() {
     let Alone { leaver, org, .. } = alone_in_an_organization(&test).await;
     let in_use = format!(
         "SELECT CAST(count(*) AS TEXT) FROM organizations \
-         WHERE delete_at = 0 AND CAST(id AS TEXT) = '{org}'"
+         WHERE deleted_at IS NULL AND CAST(id AS TEXT) = '{org}'"
     );
     if common::db_type() == DbType::Postgres {
         assert!(matches!(
@@ -575,7 +575,7 @@ async fn the_instances_own_organization_does_not_go_with_an_account() {
     let in_use = system
         .texts_unchecked(
             "SELECT CAST(id AS TEXT) FROM organizations \
-             WHERE delete_at = 0 AND is_system = false AND owner_id IS NULL \
+             WHERE deleted_at IS NULL AND is_system = false AND owner_id IS NULL \
              ORDER BY create_at, id",
         )
         .await
@@ -622,7 +622,7 @@ async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
     begin_alone(&test, &leaver, &org, T0).await;
     let out_of_use = format!(
         "SELECT CAST(count(*) AS TEXT) FROM organizations \
-         WHERE delete_at > 0 AND CAST(id AS TEXT) = '{org}'"
+         WHERE deleted_at IS NOT NULL AND CAST(id AS TEXT) = '{org}'"
     );
 
     let of_other = erase(&test, &other, Erasing::AtOnce, T0 + 1).await;

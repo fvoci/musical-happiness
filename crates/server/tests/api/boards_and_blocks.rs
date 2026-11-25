@@ -1281,7 +1281,7 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     for block_id in &block_ids {
         let message = socket.expect("blockChanged", "/block/id", block_id).await;
         assert!(
-            message["block"]["deleteAt"].as_i64() > Some(0),
+            message["block"]["deletedAt"].as_i64() > Some(0),
             "a deletion: {message}"
         );
     }
@@ -1290,7 +1290,7 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
             .expect("containerChanged", "/container/id", board_id)
             .await;
         assert!(
-            message["container"]["deleteAt"].as_i64() > Some(0),
+            message["container"]["deletedAt"].as_i64() > Some(0),
             "a deletion: {message}"
         );
     }

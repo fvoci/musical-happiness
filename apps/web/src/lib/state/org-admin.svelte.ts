@@ -89,8 +89,12 @@ export class OrgAdmin {
     this.#shell = shell;
   }
 
-  readonly inUse = $derived(this.workspaces.filter((workspace) => workspace.deletedAt === 0));
-  readonly inTheTrash = $derived(this.workspaces.filter((workspace) => workspace.deletedAt > 0));
+  readonly inUse = $derived(
+    this.workspaces.filter((workspace) => workspace.deletedAt === undefined),
+  );
+  readonly inTheTrash = $derived(
+    this.workspaces.filter((workspace) => workspace.deletedAt !== undefined),
+  );
 
   async load(): Promise<void> {
     try {

@@ -69,7 +69,7 @@ impl Store {
             let mut sql = scope.sql(SELECT_MEMBERS);
             sql.bind(Id(workspace_id))
                 .push_bind(" AND t.org_id = ", scope.org()?)
-                .push_bind(" AND t.delete_at = ", 0_i64)
+                .push(" AND t.deleted_at IS NULL")
                 .push(" ORDER BY wm.create_at, wm.user_id");
             scope
                 .fetch_all(sql)
@@ -96,7 +96,7 @@ impl Store {
             let mut sql = scope.sql(SELECT_MEMBERS);
             sql.bind(Id(workspace_id))
                 .push_bind(" AND t.org_id = ", scope.org()?)
-                .push_bind(" AND t.delete_at = ", 0_i64)
+                .push(" AND t.deleted_at IS NULL")
                 .push_bind(" AND wm.user_id = ", Id(user_id));
             scope
                 .fetch_optional(sql)
@@ -365,7 +365,7 @@ pub(crate) async fn is_workspace_here(
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
-        .push_bind(" AND delete_at = ", 0_i64);
+        .push(" AND deleted_at IS NULL");
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
@@ -380,7 +380,7 @@ pub(crate) async fn hold_workspace(
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
-        .push_bind(" AND delete_at = ", 0_i64);
+        .push(" AND deleted_at IS NULL");
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR NO KEY UPDATE");
     }

@@ -12,7 +12,7 @@ pub const PASSWORD_RESET_LIFETIME_MILLIS: i64 = 60 * 60 * 1_000;
 /// nor one put out of use otherwise.
 fn resettable() -> String {
     format!(
-        "password_hash <> '' AND (delete_at = 0 OR ({}))",
+        "password_hash <> '' AND (deleted_at IS NULL OR ({}))",
         users::WAITS
     )
 }

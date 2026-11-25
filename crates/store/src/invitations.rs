@@ -721,7 +721,7 @@ fn select_live(scope: &Scope<'_>, now: i64, replacing: Option<&str>) -> Result<S
 pub(crate) fn push_maker_in_use(sql: &mut Sql) {
     sql.push(
         " AND EXISTS (SELECT 1 FROM users AS maker WHERE maker.id = i.created_by \
-         AND maker.delete_at = 0)",
+         AND maker.deleted_at IS NULL)",
     );
 }
 

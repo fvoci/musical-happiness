@@ -370,7 +370,7 @@ async fn handle_move_unit(
 ///
 /// Moves the unit to the trash of its course, or moves the chapter together with every
 /// unit below it as one deletion, for editors of the course. The course's listeners are
-/// told with `blockChanged` of the deleted block alone, whose `deleteAt` is not 0.
+/// told with `blockChanged` of the deleted block alone, with `deletedAt` set.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}",

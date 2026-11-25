@@ -150,7 +150,7 @@ async fn an_account_asked_to_be_deleted_waits_out_of_use_and_comes_back_as_it_wa
     assert!(opens(&test, "meanwhile").await, "the session opens again");
     assert_eq!(waits(&test, "meanwhile").await, None);
     let user = test.get_user_by_id(&member).await.expect("in use again");
-    assert_eq!((user.username.as_str(), user.delete_at), ("member", 0));
+    assert_eq!((user.username.as_str(), user.deleted_at), ("member", None));
     assert!(
         !test
             .cancel_account_deletion(&member, late + 1)
@@ -350,7 +350,7 @@ async fn nothing_is_taken_back_once_the_erasing_began() {
     assert!(open(&test, &erasing, "meanwhile").await);
     for statement in [
         format!("UPDATE users SET erase_started_at = {T0} WHERE id = '{erasing}'"),
-        format!("UPDATE users SET delete_at = {T0} WHERE id = '{deactivated}'"),
+        format!("UPDATE users SET deleted_at = {T0} WHERE id = '{deactivated}'"),
     ] {
         test.execute_unchecked(&statement).await.expect("set");
     }

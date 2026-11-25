@@ -399,11 +399,11 @@ describe('CSV rows', () => {
 
 describe('merging updated blocks', () => {
   it('replaces updated blocks, appends new ones and drops deleted ones', () => {
-    const block = (id: string, title: string, deleteAt = 0) => ({
+    const block = (id: string, title: string, deletedAt?: number) => ({
       ...createBlock(),
       id,
       title,
-      deleteAt,
+      ...(deletedAt === undefined ? {} : { deletedAt }),
     });
     const merged = mergeBlocks(
       [block('a', 'old a'), block('b', 'old b'), block('c', 'old c')],

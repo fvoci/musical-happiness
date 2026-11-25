@@ -168,7 +168,7 @@ async fn board_changes_are_broadcast_to_the_members() {
         .expect("containerChanged", "/container/id", &board.id)
         .await;
     assert!(
-        message["container"]["deleteAt"].as_i64() > Some(0),
+        message["container"]["deletedAt"].as_i64() > Some(0),
         "a deletion: {message}"
     );
 
@@ -177,8 +177,8 @@ async fn board_changes_are_broadcast_to_the_members() {
         .expect("containerChanged", "/container/id", &board.id)
         .await;
     assert_eq!(
-        message["container"]["deleteAt"],
-        json!(0),
+        message["container"].get("deletedAt"),
+        None,
         "restored: {message}"
     );
 

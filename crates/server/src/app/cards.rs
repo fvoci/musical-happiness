@@ -59,7 +59,7 @@ impl App {
             modified_by: user_id.to_owned(),
             create_at: now,
             update_at: now,
-            delete_at: 0,
+            deleted_at: None,
             ..card
         };
 

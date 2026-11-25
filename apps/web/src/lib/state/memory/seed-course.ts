@@ -66,7 +66,6 @@ export function seedCourse(
       body: type === 'unit' && body ? paragraph(body) : null,
       createAt: made,
       updateAt: made,
-      deleteAt: 0,
     });
     return id;
   };
@@ -244,7 +243,6 @@ function seedBuiltinCourseTemplate(world: World, reader: User): void {
       body: type === 'unit' ? (body ?? null) : null,
       createAt: made,
       updateAt: made,
-      deleteAt: 0,
     });
     return id;
   };

@@ -50,7 +50,6 @@ function card(
     fields: { isTemplate: opts.isTemplate ?? false },
     createAt: 0,
     updateAt: 0,
-    deleteAt: 0,
     createdBy: '',
     modifiedBy: '',
     schema: 1,

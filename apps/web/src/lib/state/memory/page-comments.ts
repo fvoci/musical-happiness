@@ -110,7 +110,6 @@ export function createComment(on: OnPage, body: DocNode): Comment {
     body: text,
     createAt: now,
     updateAt: now,
-    deleteAt: 0,
   };
   on.world.blocks.set(comment.id, comment);
   tell(on, comment);

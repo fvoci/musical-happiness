@@ -72,8 +72,8 @@ impl Store {
                 .push_bind(" AND e.org_id = ", org.clone())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND w.org_id = ", org.clone())
-                .push_bind(" AND w.delete_at = ", 0_i64)
-                .push_bind(" AND o.delete_at = ", 0_i64)
+                .push(" AND w.deleted_at IS NULL")
+                .push(" AND o.deleted_at IS NULL")
                 .push(&scope.same_organization(&[("e", "c"), ("c", "w")]))
                 .push(
                     " ORDER BY CASE WHEN e.exam_date IS NULL THEN 1 ELSE 0 END, \
@@ -378,8 +378,8 @@ async fn require_live_exam(
         .push_bind(" AND e.container_id = ", Id(course_id))
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org.clone())
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("e", "c"), ("c", "w")]));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR KEY SHARE OF e");
@@ -407,7 +407,7 @@ async fn require_active_workspace_user(
     }
     let mut user = scope.sql("SELECT 1 FROM users WHERE id = ");
     user.bind(Id(user_id))
-        .push_bind(" AND delete_at = ", 0_i64)
+        .push(" AND deleted_at IS NULL")
         .push_bind(" AND erased_at = ", 0_i64);
     if scope.dialect() == Dialect::Postgres {
         user.push(" FOR KEY SHARE");

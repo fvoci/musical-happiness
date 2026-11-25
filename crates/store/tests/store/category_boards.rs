@@ -89,7 +89,7 @@ async fn get_user_category_containers() {
         workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: false,
         ..Category::default()
     };
@@ -105,7 +105,7 @@ async fn get_user_category_containers() {
         workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: false,
         ..Category::default()
     };
@@ -121,7 +121,7 @@ async fn get_user_category_containers() {
         workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: false,
         ..Category::default()
     };

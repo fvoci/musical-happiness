@@ -356,7 +356,7 @@ async fn organization(case: &mut Case) {
     .await;
     case.run("deleteOrgWorkspace", at, json!({})).await;
     let restored = case.run("restoreOrgWorkspace", at, json!({})).await.value();
-    assert_eq!(restored["deletedAt"], 0, "workspace is restored");
+    assert_eq!(restored.get("deletedAt"), None, "workspace is restored");
     case.present("getOrgWorkspaces", &[], &workspace).await;
     case.present("getOrgAudit", &[], &workspace).await;
 }

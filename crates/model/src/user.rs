@@ -90,9 +90,15 @@ pub struct User {
     /// account.
     pub update_at: i64,
     /// When the account was put out of use (deactivated, or its deletion asked), in
-    /// milliseconds since the Unix epoch; zero for one in use, and for a deleted account,
-    /// which an empty `username` tells.
-    pub delete_at: i64,
+    /// milliseconds since the Unix epoch; absent for one in use, and for a deleted
+    /// account, which an empty `username` tells.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::non_null"
+    )]
+    #[schema(nullable = false)]
+    pub deleted_at: Option<i64>,
     /// Whether the user is an administrator of the instance. Decided by the server;
     /// nothing a request says about it is taken over.
     pub is_admin: bool,
@@ -142,7 +148,7 @@ impl fmt::Debug for User {
             .field("name", &self.name)
             .field("create_at", &self.create_at)
             .field("update_at", &self.update_at)
-            .field("delete_at", &self.delete_at)
+            .field("deleted_at", &self.deleted_at)
             .field("is_admin", &self.is_admin)
             .field("is_bot", &self.is_bot)
             .field("is_guest", &self.is_guest)

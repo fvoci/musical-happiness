@@ -11,6 +11,7 @@ use crate::common::{self, db_type};
 
 const PRE0070_FILES_TABLE: &str = "file_info";
 const PRE0070_LINKS_TABLE: &str = "sharing";
+const OLD_DEL_KEY: &str = concat!("delete", "At");
 
 #[derive(Clone, Copy)]
 enum TemplateKind {
@@ -147,8 +148,7 @@ async fn seed_pre0070_template(pre: &Store) -> (String, FileRecord) {
 async fn seed_pre0070_second_org(pre: &Store) -> Pre0070SecondOrg {
     let (org_id, ws_b) = common::organization(pre, "org-b").await;
     let scoped_b = pre.for_org(&org_id).expect("org-b");
-    let bob = common::user(&scoped_b, "bob").await;
-    common::works_in(&scoped_b, &ws_b, &bob).await;
+    let bob = common::pre0072_user(&scoped_b, &org_id, &ws_b, "bob").await;
     let open_board_id = new_id();
     insert_pre0070_container(
         &scoped_b,
@@ -197,7 +197,7 @@ async fn seed_pre0070_second_org(pre: &Store) -> Pre0070SecondOrg {
         "cardProperties": [{"id": "pb", "name": "Priority", "type": "select"}],
         "createAt": 100,
         "updateAt": 200,
-        "deleteAt": 250
+        (OLD_DEL_KEY): 250
     })
     .to_string();
     scoped_b
@@ -268,7 +268,7 @@ async fn seed_pre0070_trash_in_org_a(
         "cardProperties": [{"id": "p1", "name": "Status", "type": "select"}],
         "createAt": 100,
         "updateAt": 200,
-        "deleteAt": 260
+        (OLD_DEL_KEY): 260
     })
     .to_string();
     let del1 = new_id();
@@ -290,7 +290,7 @@ async fn seed_pre0070_trash_in_org_a(
         "plain description"
     };
     let priv_doc = format!(
-        r#"{{"id":"{trashed_private_id}","workspaceId":"{ws_a}","createdBy":"{alice}","modifiedBy":"{alice}","type":"P","kind":"board","title":"Trashed Private","description":"{desc}","cardProperties":[{{"id":"p2","name":"Kind","type":"multiSelect"}}],"createAt":100,"updateAt":200,"deleteAt":270}}"#
+        r#"{{"id":"{trashed_private_id}","workspaceId":"{ws_a}","createdBy":"{alice}","modifiedBy":"{alice}","type":"P","kind":"board","title":"Trashed Private","description":"{desc}","cardProperties":[{{"id":"p2","name":"Kind","type":"multiSelect"}}],"createAt":100,"updateAt":200,"{OLD_DEL_KEY}":270}}"#
     );
     scoped_a
         .execute_unchecked(&format!(
@@ -390,8 +390,7 @@ async fn seed_pre0070(pre: &Store) -> Pre0070Fixture {
     let (template_id, template_file) = seed_pre0070_template(pre).await;
     let (org_a, ws_a) = common::organization(pre, "org-a").await;
     let scoped_a = pre.for_org(&org_a).expect("org-a");
-    let alice = common::user(&scoped_a, "alice").await;
-    common::works_in(&scoped_a, &ws_a, &alice).await;
+    let alice = common::pre0072_user(&scoped_a, &org_a, &ws_a, "alice").await;
 
     let (open_board_id, private_wiki_id, private_course_id) = (new_id(), new_id(), new_id());
     for (id, raw_type, kind, title, card_props) in [

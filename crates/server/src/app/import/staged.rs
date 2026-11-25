@@ -405,7 +405,7 @@ fn stamp_container_and_blocks(
         container.create_at = now;
     }
     container.update_at = now;
-    container.delete_at = 0;
+    container.deleted_at = None;
 
     for block in blocks {
         block.container_id.clone_from(&container.id);
@@ -415,7 +415,7 @@ fn stamp_container_and_blocks(
             block.create_at = now;
         }
         block.update_at = now;
-        block.delete_at = 0;
+        block.deleted_at = None;
     }
 }
 

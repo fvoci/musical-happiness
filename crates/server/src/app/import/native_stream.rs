@@ -348,6 +348,7 @@ impl ScanAccum {
         })?;
         modified_by.clone_into(&mut container.modified_by);
         container.update_at = self.now;
+        container.deleted_at = None;
         workspace_id.clone_into(&mut container.workspace_id);
         container
             .check_storable()
@@ -384,6 +385,7 @@ impl ScanAccum {
         })?;
         modified_by.clone_into(&mut block.modified_by);
         block.update_at = self.now;
+        block.deleted_at = None;
         let container_idx = self.current_container_idx;
         let container_state = if let Some(idx) = container_idx {
             block.container_id.clone_from(&self.containers[idx].id);

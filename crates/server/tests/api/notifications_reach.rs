@@ -188,7 +188,7 @@ async fn nobody_watches_or_is_listed_what_they_do_not_read() {
                 user_id: user_id.clone(),
                 notified_at: 0,
                 create_at: 0,
-                delete_at: 0,
+                deleted_at: None,
             })
             .await
             .expect("a subscription past the API");
@@ -295,7 +295,7 @@ async fn open_course_unit_respects_worker_guest_and_private_isolation() {
             user_id: guest_id,
             notified_at: 0,
             create_at: 0,
-            delete_at: 0,
+            deleted_at: None,
         })
         .await
         .expect("direct subscription");

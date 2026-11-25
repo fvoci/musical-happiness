@@ -59,7 +59,7 @@ impl App {
         let Some(access) = app.container_access(asker.user_id, container_id).await? else {
             return Ok(None);
         };
-        if access.container.delete_at != 0
+        if access.container.deleted_at.is_some()
             || (role.is_some() && !access.grant.reads())
             || (!workspace_id.is_empty() && workspace_id != access.container.workspace_id)
         {

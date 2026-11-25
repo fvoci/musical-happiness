@@ -16,7 +16,6 @@ export function exampleBlock(id: string, type: Block['type'] = 'card'): Block {
     fields: {},
     createAt: STORY_NOW,
     updateAt: STORY_NOW,
-    deleteAt: 0,
   };
 }
 

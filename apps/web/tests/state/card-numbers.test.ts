@@ -205,7 +205,6 @@ describe('the numbers of cards, from the server', () => {
     modifiedBy: 'u',
     createAt: 1,
     updateAt: 2,
-    deleteAt: 0,
     hasBody: false,
     tasksTotal: 0,
     tasksDone: 0,

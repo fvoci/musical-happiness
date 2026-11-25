@@ -334,7 +334,7 @@ pub(crate) async fn insert_account(
     }
     user.create_at = now;
     user.update_at = now;
-    user.delete_at = 0;
+    user.deleted_at = None;
     user.is_admin = role == InstanceRole::Administrator;
     user.display_name = user.name.shown();
     users::insert_user_row(scope, user).await?;
@@ -486,7 +486,7 @@ fn push_workspace(sql: &mut Sql, scope: &Scope<'_>, which: Which<'_>) -> Result<
             );
         }
     }
-    sql.push_bind(" AND t.delete_at = ", 0_i64);
+    sql.push(" AND t.deleted_at IS NULL");
     Ok(())
 }
 
@@ -501,7 +501,7 @@ async fn name_organization(
     sql.bind(organization_name)
         .push_bind(", update_at = ", now)
         .push_bind(" WHERE id = ", scope.org()?)
-        .push_bind(" AND delete_at = ", 0_i64);
+        .push(" AND deleted_at IS NULL");
     if scope.execute(sql).await? == 0 {
         return Err(StoreError::not_found("organization"));
     }
@@ -513,7 +513,7 @@ async fn name_organization(
             scope.org()?,
         )
         .push_bind(") AND org_id = ", scope.org()?)
-        .push_bind(" AND delete_at = ", 0_i64)
+        .push(" AND deleted_at IS NULL")
         .push(" RETURNING id");
     // A name is one workspace's among those the organization has in use: an
     // organization that was given another workspace of that name before anybody signed

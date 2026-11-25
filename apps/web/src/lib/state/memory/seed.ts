@@ -77,7 +77,7 @@ export async function loadTemplates(): Promise<SeedTemplate[]> {
 export const SEED_EPOCH = Date.UTC(2026, 9, 1);
 const MINUTE = 60_000;
 
-const PEOPLE: readonly Omit<User, 'id' | 'createAt' | 'updateAt' | 'deleteAt'>[] = [
+const PEOPLE: readonly Omit<User, 'id' | 'createAt' | 'updateAt' | 'deletedAt'>[] = [
   {
     username: 'hana',
     displayName: '김하나',
@@ -152,7 +152,6 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       isAdmin: index === 0,
       createAt: at,
       updateAt: at,
-      deleteAt: 0,
     };
   });
   seedUsers(world, users);
@@ -287,7 +286,6 @@ function seedAttachment(world: World, reader: User): void {
     fields: {},
     createAt: made,
     updateAt: made,
-    deleteAt: 0,
     file: { fileId, name: 'kick-off-notes.txt', size: notes.size, contentType: 'text/plain' },
   });
 }

@@ -149,7 +149,7 @@ async fn hold_account(
     user_id: &str,
 ) -> Result<Option<(String, String)>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT username, email FROM users WHERE (delete_at = 0 OR ({})) AND id = ",
+        "SELECT username, email FROM users WHERE (deleted_at IS NULL OR ({})) AND id = ",
         users::WAITS
     ));
     sql.bind(Id(user_id));

@@ -407,14 +407,14 @@ async fn seed_pre_0062_versions(
     let before = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("opens schema at 61");
-    let (org1, _) = common::organization(&before, "org-one").await;
+    let (org1, default_ws1) = common::organization(&before, "org-one").await;
     let org2 = if database.db_type() == DbType::Postgres {
         Some(common::organization(&before, "org-two").await.0)
     } else {
         None
     };
     let scoped1 = before.for_org(&org1).expect("org1");
-    let author = common::user(&scoped1, "mig62.author").await;
+    let author = common::pre0072_user(&scoped1, &org1, &default_ws1, "mig62.author").await;
     let ws1 = common::workspace(&scoped1).await;
     let board_id = new_id();
     scoped1

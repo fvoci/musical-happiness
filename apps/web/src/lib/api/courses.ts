@@ -352,7 +352,7 @@ export class ServerCourses implements Courses {
       {},
       workspaceId,
     );
-    return subs.filter((sub) => sub.deleteAt === 0).map((sub) => sub.blockId);
+    return subs.filter((sub) => sub.deletedAt === undefined).map((sub) => sub.blockId);
   }
 
   async watchUnit(workspaceId: string, unitId: string, userId: string): Promise<void> {

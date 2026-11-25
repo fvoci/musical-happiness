@@ -249,9 +249,8 @@ async fn ws_broadcasts_subcard_deletion_and_restoration() {
         .check_no_content();
     for id in [&d1.id, &d2.id, &d3.id] {
         let msg = socket.expect("blockChanged", "/block/id", id).await;
-        assert_ne!(
-            msg["block"]["deleteAt"],
-            json!(0),
+        assert!(
+            msg["block"]["deletedAt"].as_i64() > Some(0),
             "sub-card {id} delete broadcast: {msg}"
         );
     }
@@ -268,7 +267,7 @@ async fn ws_broadcasts_subcard_deletion_and_restoration() {
         (&d3.id, d2.id.as_str()),
     ] {
         let msg = socket.expect("blockChanged", "/block/id", id).await;
-        assert_eq!(msg["block"]["deleteAt"], json!(0), "restored deleteAt");
+        assert_eq!(msg["block"].get("deletedAt"), None, "restored deletedAt");
         assert_eq!(
             msg["block"]["parentId"],
             json!(expected_parent),

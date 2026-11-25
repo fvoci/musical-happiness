@@ -852,7 +852,8 @@ async fn what_goes_for_good_takes_what_was_told_of_it() {
         .await
         .expect("in the trash")
         .block
-        .delete_at;
+        .deleted_at
+        .expect("deletion time");
     let now = || {
         let since = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

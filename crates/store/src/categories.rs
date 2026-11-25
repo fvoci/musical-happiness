@@ -165,7 +165,7 @@ fn category_from_row(row: &Row) -> Result<Category, StoreError> {
         create_at: row.int(4)?,
         update_at: row.int(5)?,
         // A category that exists is not deleted.
-        delete_at: 0,
+        deleted_at: None,
         collapsed: row.bool(6)?,
         sort_order: row.int(7)?,
         // The table has no column for the sorting method.

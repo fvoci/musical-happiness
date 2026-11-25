@@ -43,8 +43,9 @@ function listed(user: User): User {
 export function eraseUser(world: World, userId: string): void {
   const user = world.users.get(userId);
   if (!user) return;
+  const { deletedAt: _deletedAt, ...rest } = user;
   world.users.set(userId, {
-    ...user,
+    ...rest,
     username: '',
     displayName: '',
     name: emptyName(),
@@ -52,7 +53,6 @@ export function eraseUser(world: World, userId: string): void {
     isAdmin: false,
     createAt: 0,
     updateAt: 0,
-    deleteAt: 0,
   });
   world.workspaceMembers.delete(userId);
   world.settings.delete(userId);
@@ -70,7 +70,7 @@ export function eraseUser(world: World, userId: string): void {
 /** The people who work in a workspace (`workersOf`), but who are gone. */
 export function usersAmong(world: World, workers: ReadonlySet<string>): User[] {
   return scramble([...world.users.values()])
-    .filter((user) => workers.has(user.id) && !isGone(user) && user.deleteAt === 0)
+    .filter((user) => workers.has(user.id) && !isGone(user) && user.deletedAt === undefined)
     .map(listed);
 }
 
@@ -117,7 +117,7 @@ export function usersNamed(
       .filter(
         (user) =>
           userIds.includes(user.id) &&
-          (isGone(user) || (visible.has(user.id) && user.deleteAt === 0)),
+          (isGone(user) || (visible.has(user.id) && user.deletedAt === undefined)),
       )
       .map(listed)
   );

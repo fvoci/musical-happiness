@@ -76,8 +76,7 @@ async fn seed_pre_0067_fixture(
         .expect("open before 0067");
     let (org_id, workspace_id) = common::organization(&pre, "academy").await;
     let scoped = pre.for_org(&org_id).expect("org handle");
-    let owner = common::user(&scoped, "learner").await;
-    common::works_in(&scoped, &workspace_id, &owner).await;
+    let owner = common::pre0072_user(&scoped, &org_id, &workspace_id, "learner").await;
     let course_id = new_id();
     scoped
         .execute_unchecked(&format!(

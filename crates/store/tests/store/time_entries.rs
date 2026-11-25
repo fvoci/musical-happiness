@@ -88,8 +88,7 @@ async fn migration_0064_preserves_existing_rows_and_enforces_constraints() {
         .expect("open pre-0064 database");
     let (org_id, ws_id) = common::organization(&pre_store, "pre64").await;
     let scoped = pre_store.for_org(&org_id).expect("org handle");
-    let user_id = common::user(&scoped, "migrated_user").await;
-    common::works_in(&scoped, &ws_id, &user_id).await;
+    let user_id = common::pre0072_user(&scoped, &org_id, &ws_id, "migrated_user").await;
     pre_store.close().await;
 
     let before = by_column(&dump(&database).await);

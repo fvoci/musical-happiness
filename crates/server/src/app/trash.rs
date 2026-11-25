@@ -25,7 +25,7 @@ impl App {
             .map(|deleted| DeletedItem {
                 id: deleted.block.id,
                 title: deleted.block.title,
-                deleted_at: deleted.block.delete_at,
+                deleted_at: deleted.deleted_at,
                 deleted_by: deleted.deleted_by,
                 kind: None,
             })
@@ -62,7 +62,7 @@ impl App {
             .map(|deleted| DeletedItem {
                 id: deleted.container.id,
                 title: deleted.container.title,
-                deleted_at: deleted.container.delete_at,
+                deleted_at: deleted.deleted_at,
                 deleted_by: deleted.deleted_by,
                 kind: Some(deleted.container.kind),
             })

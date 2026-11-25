@@ -446,9 +446,14 @@ pub struct Container {
     /// Last modification time in milliseconds since the Unix epoch.
     #[serde(default)]
     pub update_at: i64,
-    /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
-    #[serde(default)]
-    pub delete_at: i64,
+    /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::non_null"
+    )]
+    #[schema(nullable = false)]
+    pub deleted_at: Option<i64>,
 }
 
 impl Container {

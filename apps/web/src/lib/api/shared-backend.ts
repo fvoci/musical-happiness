@@ -60,7 +60,6 @@ const READER: User = {
   email: '',
   createAt: 0,
   updateAt: 0,
-  deleteAt: 0,
 };
 
 /** A change, which a reader by the link does not make. */

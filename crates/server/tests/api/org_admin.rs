@@ -568,7 +568,7 @@ async fn a_workspace_in_the_trash_is_not_there_and_comes_back_as_it_was() {
         trashed["deletedAt"].as_i64().unwrap_or_default() > 0,
         "{trashed}"
     );
-    assert_eq!(restored["deletedAt"], json!(0));
+    assert_eq!(restored.get("deletedAt"), None);
     assert_eq!(restored["memberCount"], json!(2), "its members are there");
     for response in &back {
         response.check_ok();
@@ -610,7 +610,7 @@ async fn the_housekeeping_removes_a_workspace_in_the_trash_for_good_with_its_fil
         .app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE workspaces SET delete_at = 1 WHERE id = '{workspace}'"
+            "UPDATE workspaces SET deleted_at = 1 WHERE id = '{workspace}'"
         ))
         .await
         .expect("the deletion is made an old one");

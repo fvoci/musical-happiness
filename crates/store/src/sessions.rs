@@ -132,7 +132,7 @@ impl Store {
                 .push_bind(" AND last_used_at > ", idle_since)
                 .push(
                     " AND EXISTS (SELECT 1 FROM users WHERE users.id = sessions.user_id \
-                     AND users.delete_at = 0)",
+                     AND users.deleted_at IS NULL)",
                 );
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             session_from_row(&row)
@@ -154,7 +154,7 @@ impl Store {
                 .push_bind(" AND last_used_at > ", idle_since)
                 .push(
                     " AND EXISTS (SELECT 1 FROM users WHERE users.id = sessions.user_id \
-                     AND users.delete_at = 0)",
+                     AND users.deleted_at IS NULL)",
                 );
             match scope.fetch_optional(sql).await? {
                 Some(row) => row.int(0),
@@ -416,8 +416,8 @@ async fn hold_account_proved_by(
     proof: Proof,
 ) -> Result<Option<SignedInto>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT password_hash, delete_at, password_locked_at FROM users \
-         WHERE (delete_at = 0 OR ({})) AND id = ",
+        "SELECT password_hash, deleted_at, password_locked_at FROM users \
+         WHERE (deleted_at IS NULL OR ({})) AND id = ",
         crate::users::WAITS
     ));
     sql.bind(Id(user_id));
@@ -430,7 +430,7 @@ async fn hold_account_proved_by(
     if row.text(0)? != seen_password_hash || (proof == Proof::Password && row.int(2)? != 0) {
         return Ok(None);
     }
-    Ok(Some(if row.int(1)? == 0 {
+    Ok(Some(if row.opt_int(1)?.is_none() {
         SignedInto::InUse
     } else {
         SignedInto::Waiting

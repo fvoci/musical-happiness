@@ -531,7 +531,7 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
         create_at: row.int(8)?,
         update_at: row.int(9)?,
         // A block that exists is not deleted.
-        delete_at: 0,
+        deleted_at: None,
         container_id: row.id(10)?,
         number: card_numbers::number_from_row(row, 11)?,
         body: match row.json(12, "body")? {
@@ -724,7 +724,7 @@ pub(crate) async fn insert_block_at(
     let parent_type = parent.as_ref().map(|info| &info.block_type);
     let now = at.unwrap_or_else(now_millis);
     block.update_at = now;
-    block.delete_at = 0;
+    block.deleted_at = None;
     user_id.clone_into(&mut block.modified_by);
 
     let existing = find_block(scope, &block.id).await?;

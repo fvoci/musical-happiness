@@ -100,7 +100,7 @@ impl Store {
                      WHERE p.org_id = o.id AND p.enabled = ",
                 );
                 sql.bind(true).push(
-                    ") FROM organizations AS o WHERE o.delete_at = 0 AND o.is_system = false",
+                    ") FROM organizations AS o WHERE o.deleted_at IS NULL AND o.is_system = false",
                 );
                 super::of_people(&mut sql, "o.kind");
                 if let Some(org_id) = org_id {

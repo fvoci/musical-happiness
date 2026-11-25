@@ -468,7 +468,7 @@ fn container_from_row(row: &Row) -> Result<Container, StoreError> {
         create_at: row.int(15)?,
         update_at: row.int(16)?,
         // A board that exists is not deleted.
-        delete_at: 0,
+        deleted_at: None,
     })
 }
 
@@ -604,7 +604,7 @@ pub(crate) async fn insert_container(
     let now = now_millis();
     user_id.clone_into(&mut container.modified_by);
     container.update_at = now;
-    container.delete_at = 0;
+    container.deleted_at = None;
 
     if let Some(existing) = existing {
         // A board is of the kind it was made as: nothing stores it as of another.

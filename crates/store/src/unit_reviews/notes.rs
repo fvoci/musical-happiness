@@ -206,8 +206,8 @@ async fn require_live_unit_exists(
         .push_bind(" AND b.type = ", BlockType::Unit.as_str())
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org)
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("b", "c"), ("c", "w")]));
     if scope.fetch_optional(sql).await?.is_none() {
         return Err(StoreError::not_found("unit"));
@@ -238,8 +238,8 @@ async fn find_live_note_unit(
         .push_bind(" AND b.type = ", BlockType::Unit.as_str())
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org)
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("un", "b"), ("b", "c"), ("c", "w")]));
     let row = scope
         .fetch_optional(sql)

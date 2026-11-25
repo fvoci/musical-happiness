@@ -716,7 +716,7 @@ async fn seed_pre_0058_boards(
         ))
         .await
         .expect("the user is stored");
-    common::works_in(&before, &workspace_id, &user_id).await;
+    common::pre0072_works_in(&before, &workspace_id, &user_id).await;
     let boards = [new_id(), new_id()];
     for id in &boards {
         before

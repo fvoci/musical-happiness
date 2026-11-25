@@ -254,7 +254,6 @@ export class MemoryDiaries implements Diaries {
       bodyUpdatedAt: now,
       createAt: now,
       updateAt: now,
-      deleteAt: 0,
     };
     world.blocks.set(block.id, block);
     world.tellContainer(diaryId, changeOf(diaryId, block));

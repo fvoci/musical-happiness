@@ -642,7 +642,7 @@ async fn undelete_block_undelete_a_block() {
         .ok_json();
     assert_eq!(undeleted.id, block.id, "the answer is the restored block");
     assert_eq!(undeleted.title, "New title", "with its content");
-    assert_eq!(undeleted.delete_at, 0, "and not deleted");
+    assert_eq!(undeleted.deleted_at, None, "and not deleted");
 
     let blocks = blocks_of(&th.client, &block.container_id).await;
     assert_eq!(ids(&blocks), [block.id.as_str()], "the block is back");
@@ -814,7 +814,10 @@ async fn app_delete_block_success_scenario() {
         .await
         .expect("the trash is read")
         .expect("the block is in the trash");
-    assert_ne!(deleted.block.delete_at, 0, "the trash records the deletion");
+    assert!(
+        deleted.block.deleted_at.is_some_and(|at| at > 0),
+        "the trash records the deletion"
+    );
     assert_eq!(deleted.deleted_by, th.stranger().await, "and who deleted");
 
     th.teardown().await;
@@ -860,7 +863,7 @@ async fn app_undelete_block_success_scenario() {
     assert_eq!(undeleted.title, "back", "with its content");
 
     let stored = th.app.block(&block.id).await.expect("the block is stored");
-    assert_eq!(stored.delete_at, 0, "and not deleted");
+    assert_eq!(stored.deleted_at, None, "and not deleted");
 
     th.teardown().await;
 }
@@ -1719,7 +1722,7 @@ async fn patch_block_changes() {
         "containerId": boards.other_board.id,
         "id": "another",
         "createdBy": "someone",
-        "deleteAt": 5,
+        "deletedAt": 5,
     });
     th.client
         .patch(&format!("{card_path}?disableNotify=true"), &foreign_members)
@@ -2334,7 +2337,7 @@ async fn block_changes_are_broadcast() {
     assert_eq!(announced["id"], json!(card.id), "{announced}");
     assert_eq!(announced["containerId"], json!(board.id), "{announced}");
     assert_eq!(announced["title"], json!(""), "{announced}");
-    assert_ne!(announced["deleteAt"], json!(0), "{announced}");
+    assert!(announced["deletedAt"].as_i64() > Some(0), "{announced}");
 
     // Undelete: the block as restored.
     th.client
@@ -2344,7 +2347,7 @@ async fn block_changes_are_broadcast() {
     let announced = member.next_block().await;
     assert_eq!(announced["id"], json!(card.id), "{announced}");
     assert_eq!(announced["title"], json!("batch 1"), "{announced}");
-    assert_eq!(announced["deleteAt"], json!(0), "{announced}");
+    assert_eq!(announced.get("deletedAt"), None, "{announced}");
 
     member.expect_quiet(&th, "nothing else was announced").await;
     outsider

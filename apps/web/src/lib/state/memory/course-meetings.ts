@@ -45,7 +45,7 @@ export function activeMemberIds(world: World, courseId: string): Set<string> {
   const active = new Set<string>();
   for (const member of world.members.get(courseId) ?? []) {
     const user = world.users.get(member.userId);
-    if (user && !isGone(user) && user.deleteAt === 0) active.add(member.userId);
+    if (user && !isGone(user) && user.deletedAt === undefined) active.add(member.userId);
   }
   return active;
 }

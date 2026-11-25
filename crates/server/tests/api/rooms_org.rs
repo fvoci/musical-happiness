@@ -99,7 +99,7 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
     th.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE workspaces SET delete_at = 1 WHERE id = '{workspace}'"
+            "UPDATE workspaces SET deleted_at = 1 WHERE id = '{workspace}'"
         ))
         .await
         .expect("the deletion is made an old one");

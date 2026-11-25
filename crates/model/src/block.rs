@@ -589,8 +589,14 @@ pub struct Block {
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
     pub update_at: i64,
-    /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
-    pub delete_at: i64,
+    /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::non_null"
+    )]
+    #[schema(nullable = false)]
+    pub deleted_at: Option<i64>,
     /// The identifier of the board the block belongs to.
     pub container_id: String,
     /// A card's number on its board, as `Card.number` gives it; absent for a template

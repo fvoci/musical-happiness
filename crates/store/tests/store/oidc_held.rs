@@ -498,7 +498,7 @@ async fn bring_about(
             attempt.former = at_the_old("known to nobody");
         }
         Meanwhile::AccountDeleted => {
-            let delete = format!("UPDATE users SET delete_at = 1 WHERE id = '{member}'");
+            let delete = format!("UPDATE users SET deleted_at = 1 WHERE id = '{member}'");
             store.execute_unchecked(&delete).await.expect("deleted");
         }
         Meanwhile::NoPlace => {
@@ -511,7 +511,7 @@ async fn bring_about(
             let leave = format!("DELETE FROM organization_members WHERE user_id = '{member}'");
             store.execute_unchecked(&leave).await.expect("left");
             let gone = format!(
-                "UPDATE workspaces SET delete_at = 1 WHERE id IN \
+                "UPDATE workspaces SET deleted_at = 1 WHERE id IN \
                  (SELECT workspace_id FROM workspace_members WHERE user_id = '{member}')"
             );
             store.execute_unchecked(&gone).await.expect("deleted");

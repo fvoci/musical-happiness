@@ -59,7 +59,7 @@ async fn subscriptions_are_scoped_even_when_the_subscriber_uses_both_organizatio
             user_id: scene.user.clone(),
             notified_at: 0,
             create_at: 0,
-            delete_at: 0,
+            deleted_at: None,
         })
         .await
         .expect("the subscriber has access in this organization");

@@ -97,7 +97,7 @@ impl App {
         // The category is gone from the store. What is sent to the user's connections is
         // the category as it was, marked as deleted now.
         let deleted = Category {
-            delete_at: now_millis(),
+            deleted_at: Some(now_millis()),
             ..existing
         };
         self.ws().broadcast_category_change(&deleted).await;

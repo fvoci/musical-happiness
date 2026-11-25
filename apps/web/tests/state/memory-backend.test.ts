@@ -372,6 +372,34 @@ describe('file blocks', () => {
     expect(await backend.boards(workspaceId)).toHaveLength(before);
   });
 
+  it('clears deletedAt on containers and blocks imported from an archive', async () => {
+    const { backend, boardId } = await firstBoard();
+    const exported = await backend.exportContainer(boardId);
+    const stamped = (await exported.bytes.text())
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const entry = JSON.parse(line) as { type: string; data?: Record<string, unknown> };
+        if ((entry.type === 'container' || entry.type === 'block') && entry.data) {
+          entry.data.deletedAt = 99_999;
+        }
+        return JSON.stringify(entry);
+      })
+      .join('\n');
+    const [workspace] = await backend.workspaces();
+    const workspaceId = workspace?.id ?? '';
+    const beforeIds = new Set((await backend.boards(workspaceId)).map((b) => b.id));
+    await backend.importArchive(workspaceId, new File([`${stamped}\n`], 'trashed.fvoci'));
+    const imported = (await backend.boards(workspaceId)).find((b) => !beforeIds.has(b.id));
+    expect(imported).toBeDefined();
+    expect(imported?.deletedAt).toBeUndefined();
+    const cards = await backend.cards(imported?.id ?? '');
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) {
+      expect(card.deletedAt).toBeUndefined();
+    }
+  });
+
   it('gives a copy of the board files of its own for its file blocks, with the same bytes', async () => {
     const { backend, boardId, byTitle } = await firstBoard();
     const uploaded = await backend.upload(boardId, new File(['%PDF'], 'minutes.pdf'));

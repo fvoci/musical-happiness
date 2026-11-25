@@ -275,7 +275,6 @@ test('keeps unjoined open-course reader read-only until joining, and isolates pu
           modifiedBy: '',
           createAt: 1,
           updateAt: 1,
-          deleteAt: 0,
         },
       });
       return;

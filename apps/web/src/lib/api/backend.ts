@@ -540,11 +540,10 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     patch: BlockPatch,
   ): Promise<{ before: BoardView; after: BoardView }> {
     const before = await this.#view(boardId, viewId);
-    const { deleteAt: _deleteAt, ...request } = patch;
     await this.inWorkspace(
       '/boards/{boardId}/blocks/{blockId}',
       { boardId, blockId: viewId },
-      { method: 'PATCH', json: request },
+      { method: 'PATCH', json: patch },
     );
     try {
       return { before, after: await this.#view(boardId, viewId) };

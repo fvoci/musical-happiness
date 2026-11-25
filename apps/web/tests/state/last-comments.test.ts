@@ -100,7 +100,6 @@ describe('an open board', () => {
         fields: {},
         createAt: at,
         updateAt: at,
-        deleteAt: 0,
         body: text(words),
       });
       return id;

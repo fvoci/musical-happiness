@@ -372,7 +372,7 @@ async fn trash_and_restore_handle_card_hierarchies() {
             user_id: user_id.clone(),
             notified_at: 0,
             create_at: 0,
-            delete_at: 0,
+            deleted_at: None,
         })
         .await
         .expect("subscribed to d2");
@@ -465,7 +465,7 @@ async fn restore_refusals_and_purge_handle_card_hierarchies() {
             user_id: user_id.clone(),
             notified_at: 0,
             create_at: 0,
-            delete_at: 0,
+            deleted_at: None,
         })
         .await
         .expect("subscribed to d2");

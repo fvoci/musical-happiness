@@ -65,7 +65,7 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
             .await
             .expect("a member of the deleted one");
         deleted
-            .execute_unchecked("UPDATE organizations SET delete_at = 1")
+            .execute_unchecked("UPDATE organizations SET deleted_at = 1")
             .await
             .expect("deleted");
         let held = deleted.count_rows("audit_log").await.expect("counted");

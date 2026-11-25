@@ -419,9 +419,8 @@ async fn board_changes_go_to_subscribed_members() {
         .expect("the member is told");
     assert_eq!(message["type"], json!("blockChanged"), "{message}");
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
-    assert_ne!(
-        message["block"]["deleteAt"],
-        json!(0),
+    assert!(
+        message["block"]["deletedAt"].as_i64() > Some(0),
         "a deletion carries its time: {message}"
     );
 

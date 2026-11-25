@@ -365,7 +365,6 @@ async fn create_subscription_answer_and_subscribing_again() {
             "userId": me,
             "notifiedAt": first.create_at,
             "createAt": first.create_at,
-            "deleteAt": 0,
         }),
         "the answer"
     );

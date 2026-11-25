@@ -64,7 +64,7 @@ impl SubscriptionRequest {
             user_id: self.user_id,
             notified_at: 0,
             create_at: 0,
-            delete_at: 0,
+            deleted_at: None,
         };
         if let Err(error) = subscription.validate() {
             error.into_refusals().into_result()?;

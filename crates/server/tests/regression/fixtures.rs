@@ -58,7 +58,6 @@ pub(crate) fn block(
         "schema": 1,
         "createAt": 1,
         "updateAt": 1,
-        "deleteAt": 0,
     });
     block["fields"] = fields;
     block

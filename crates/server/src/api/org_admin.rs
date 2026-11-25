@@ -170,7 +170,7 @@ async fn handle_remove_org_member(
 
 /// The workspaces of an organization
 ///
-/// Every workspace of it, in use (`deletedAt` 0) and in the trash, the oldest first:
+/// Every workspace of it, in use (`deletedAt` absent) and in the trash, the oldest first:
 /// its name, how many members it has and what the administrator who asks is in it.
 /// Nothing of what is in it: that is read by joining it.
 #[utoipa::path(

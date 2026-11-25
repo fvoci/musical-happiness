@@ -367,7 +367,9 @@ async fn spoil(store: &Store, organization: &Enforced, lacking: Lacking) {
              login_subject = NULL, login_revision = NULL",
         ),
         Lacking::Ended => session(&format!("expires_at = {NOW}")),
-        Lacking::AccountDeleted => format!("UPDATE users SET delete_at = 1 WHERE id = '{admin}'"),
+        Lacking::AccountDeleted => {
+            format!("UPDATE users SET deleted_at = 1 WHERE id = '{admin}'")
+        }
         Lacking::NoAdministrator => format!(
             "UPDATE organization_members SET role = '{}' WHERE user_id = '{admin}' \
              AND org_id IN (SELECT id FROM organizations WHERE owner_id IS NULL)",

@@ -229,7 +229,7 @@
 | `searchWorkspaceBoards` | 경로의 워크스페이스로 좁히지 않는다. 사용자가 찾을 수 있는 모든 워크스페이스의 보드를 찾는다 |
 | 동작을 경로 끝에 붙인 라우트 | `duplicate`, `undelete`, `join`, `leave`, `hide`, `unhide`, `onboard` |
 | 구독의 경로 | `DELETE /subscriptions/{blockId}/{userId}`, `GET /subscriptions/{userId}`. 아래 (1) |
-| `deleteAt` | 있는 것에서는 늘 0이다(지운 것은 휴지통에 있다). WebSocket의 삭제 알림이 쓴다 |
+| `deletedAt` | 있는 것에서는 생략된다(지운 것은 휴지통에 있다). WebSocket의 삭제 알림과 탈퇴 대기 사용자에 실린다 |
 | 워크스페이스의 `title`, `settings` | 값을 정하는 라우트가 없다. `getMyWorkspaces`는 `title`을 `name`이라 부른다 |
 | `ping`의 주소 | `/api/v1/ping` 아래에 있다. 아래 (2) |
 | 요청 스키마와 서버의 해석 | 서버는 계약의 요청 스키마보다 너그럽게 읽는다. 아래 (3) |

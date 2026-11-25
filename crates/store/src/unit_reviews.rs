@@ -83,8 +83,8 @@ impl Store {
                 .push_bind(" AND b.type = ", BlockType::Unit.as_str())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND w.org_id = ", org)
-                .push_bind(" AND w.delete_at = ", 0_i64)
-                .push_bind(" AND o.delete_at = ", 0_i64)
+                .push(" AND w.deleted_at IS NULL")
+                .push(" AND o.deleted_at IS NULL")
                 .push(&scope.same_organization(&[("ur", "b"), ("b", "c"), ("c", "w")]));
             match status {
                 ReviewStatusFilter::All => {}
@@ -139,8 +139,8 @@ impl Store {
                 .push_bind(" AND b.type = ", BlockType::Unit.as_str())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND w.org_id = ", org)
-                .push_bind(" AND w.delete_at = ", 0_i64)
-                .push_bind(" AND o.delete_at = ", 0_i64)
+                .push(" AND w.deleted_at IS NULL")
+                .push(" AND o.deleted_at IS NULL")
                 .push(&scope.same_organization(&[("ur", "b"), ("b", "c"), ("c", "w")]));
             if let Some(unit_id) = unit_id {
                 sql.push_bind(" AND ur.unit_id = ", Id(unit_id));
@@ -328,8 +328,8 @@ impl Store {
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND c.is_template = ", false)
                 .push_bind(" AND w.org_id = ", org.clone())
-                .push_bind(" AND w.delete_at = ", 0_i64)
-                .push_bind(" AND o.delete_at = ", 0_i64)
+                .push(" AND w.deleted_at IS NULL")
+                .push(" AND o.deleted_at IS NULL")
                 .push(&scope.same_organization(&[("ur", "b"), ("b", "c"), ("c", "w"), ("wm", "w")]))
                 .push(
                     " AND (EXISTS (\
@@ -397,9 +397,9 @@ impl Store {
                 .push_bind(" AND b.type = ", BlockType::Unit.as_str())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND c.is_template = ", false)
-                .push_bind(" AND w.delete_at = ", 0_i64)
-                .push_bind(" AND o.delete_at = ", 0_i64)
-                .push_bind(" AND u.delete_at = ", 0_i64)
+                .push(" AND w.deleted_at IS NULL")
+                .push(" AND o.deleted_at IS NULL")
+                .push(" AND u.deleted_at IS NULL")
                 .push_bind(" AND u.erased_at = ", 0_i64)
                 .push(&scope.same_organization(&[("ur", "b"), ("b", "c"), ("c", "w"), ("wm", "w")]))
                 .push(
@@ -567,8 +567,8 @@ async fn find_live_review_unit(
         .push_bind(" AND b.type = ", BlockType::Unit.as_str())
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
         .push_bind(" AND w.org_id = ", org)
-        .push_bind(" AND w.delete_at = ", 0_i64)
-        .push_bind(" AND o.delete_at = ", 0_i64)
+        .push(" AND w.deleted_at IS NULL")
+        .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("ur", "b"), ("b", "c"), ("c", "w")]));
     let row = scope
         .fetch_optional(sql)

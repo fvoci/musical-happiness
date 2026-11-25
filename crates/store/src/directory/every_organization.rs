@@ -116,7 +116,7 @@ pub(crate) async fn organizations_made_by(
     past_the_wall(scope, async |scope| {
         let mut sql = scope.sql("SELECT COUNT(*) FROM organizations WHERE created_by = ");
         sql.bind(Id(user_id))
-            .push(" AND delete_at = 0 AND is_system = false")
+            .push(" AND deleted_at IS NULL AND is_system = false")
             .push_bind(" AND kind = ", OrgKind::Team.as_str());
         match scope.fetch_optional(sql).await? {
             Some(row) => row.int(0),
@@ -139,7 +139,7 @@ pub(super) async fn organizations_of_user(
          JOIN organizations AS o ON o.id = om.org_id WHERE om.user_id = ",
     );
     sql.bind(Id(user_id))
-        .push(" AND o.delete_at = 0 AND o.is_system = false")
+        .push(" AND o.deleted_at IS NULL AND o.is_system = false")
         .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
         .push(" ORDER BY o.create_at, o.id");
     scope

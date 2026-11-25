@@ -405,13 +405,13 @@ async fn create_user_stamps_times_and_reads_back_the_stored_members() {
         password_hash: "hash".to_owned(),
         create_at: 1,
         update_at: 2,
-        delete_at: 3,
+        deleted_at: Some(3),
         ..User::default()
     };
     store.create_user(&mut user).await.unwrap();
     assert!(user.create_at >= before, "create_at is the current time");
     assert_eq!(user.update_at, user.create_at);
-    assert_eq!(user.delete_at, 0, "a new user is never deleted");
+    assert_eq!(user.deleted_at, None, "a new user is never deleted");
 
     let got = store.get_user_by_id(&user.id).await.unwrap();
     assert_eq!(got, user, "everything stored reads back");
@@ -1190,7 +1190,7 @@ async fn set_user_admin_keeps_one_administrator() {
         .expect("no failure");
     common::execute_raw(
         &test.database_connection(),
-        &format!("UPDATE users SET delete_at = 1 WHERE id = '{admin_id}'"),
+        &format!("UPDATE users SET deleted_at = 1 WHERE id = '{admin_id}'"),
     )
     .await;
     assert_eq!(

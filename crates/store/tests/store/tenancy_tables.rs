@@ -390,7 +390,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
             user_id: user_id.clone(),
             notified_at: 0,
             create_at: 0,
-            delete_at: 0,
+            deleted_at: None,
         })
         .await
         .expect("a subscription is stored");

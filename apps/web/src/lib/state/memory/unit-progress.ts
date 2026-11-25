@@ -159,7 +159,7 @@ export function memoryProgressSummary(
     if (roleOn([member], member.userId) === '') continue;
     if (!workers.has(member.userId)) continue;
     const user = world.users.get(member.userId);
-    if (user?.deleteAt !== 0) continue;
+    if (!user || user.deletedAt !== undefined) continue;
     memberIds.add(member.userId);
   }
   const sortedIds = [...memberIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));

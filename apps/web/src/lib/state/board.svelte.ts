@@ -313,7 +313,9 @@ export class BoardStore {
           if (isCardBlock(block)) this.#receiveCard(block);
           else if (isViewBlock(block)) this.#receiveView(block);
           else {
-            if (block.type === 'comment' && block.deleteAt === 0) this.#lastComments.heard(block);
+            if (block.type === 'comment' && block.deletedAt === undefined) {
+              this.#lastComments.heard(block);
+            }
             this.openCard?.receive(block);
           }
         }

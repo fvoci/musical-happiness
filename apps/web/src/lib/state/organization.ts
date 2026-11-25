@@ -38,8 +38,8 @@ export interface OrgWorkspace {
   name: string;
   memberCount: number;
   isDefault: boolean;
-  /** When it was put in the trash, in milliseconds; 0 while it is in use. */
-  deletedAt: number;
+  /** When it was put in the trash, in milliseconds; omitted while it is in use. */
+  deletedAt?: number;
   /** What the administrator who asks is in it; null for no member. */
   role: OrgWorkspaceRole | null;
   /** Whether they are in it having joined it as the organization's administrator. */

@@ -88,7 +88,7 @@ async fn get_create_category() {
             workspace_id: workspace_id.clone(),
             create_at: now,
             update_at: now,
-            delete_at: 0,
+            deleted_at: None,
             collapsed: false,
             ..Category::default()
         };
@@ -118,7 +118,7 @@ async fn get_create_category() {
             workspace_id: workspace_id.clone(),
             create_at: now,
             update_at: now,
-            delete_at: 0,
+            deleted_at: None,
             collapsed: true,
             ..Category::default()
         };
@@ -186,7 +186,7 @@ async fn update_category() {
         workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: false,
         ..Category::default()
     };
@@ -204,7 +204,7 @@ async fn update_category() {
         workspace_id,
         create_at: now,
         update_at: update_now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: true,
         ..Category::default()
     };
@@ -256,7 +256,7 @@ async fn delete_category() {
         workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: false,
         ..Category::default()
     };
@@ -297,7 +297,7 @@ async fn get_user_categories() {
         workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: false,
         ..Category::default()
     };
@@ -313,7 +313,7 @@ async fn get_user_categories() {
         workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: false,
         ..Category::default()
     };
@@ -330,7 +330,7 @@ async fn get_user_categories() {
         workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
-        delete_at: 0,
+        deleted_at: None,
         collapsed: false,
         ..Category::default()
     };
@@ -711,7 +711,7 @@ async fn update_category_leaves_other_members_and_rows_alone() {
             workspace_id: another_workspace,
             create_at: 5,
             update_at: 2000,
-            delete_at: 3000,
+            deleted_at: Some(3000),
             collapsed: true,
             sort_order: 500,
             category_type: CategoryType::Custom,
@@ -935,7 +935,7 @@ async fn categories_written_by_others() {
         };
         assert_eq!(category.category_type, expected_type, "{category:?}");
         assert_eq!(category.sort_order, 0, "{category:?}");
-        assert_eq!(category.delete_at, 0, "{category:?}");
+        assert_eq!(category.deleted_at, None, "{category:?}");
         assert!(!category.collapsed, "{category:?}");
     }
     let with_board = listed

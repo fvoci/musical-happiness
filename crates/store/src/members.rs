@@ -16,7 +16,7 @@ use crate::{Store, container_kinds, org_admin};
 /// the trash has no members to anybody.
 const IN_USE_MEMBERSHIPS: &str = " AND b.workspace_id IN (SELECT wm.workspace_id \
      FROM workspace_members AS wm JOIN workspaces AS ws ON ws.id = wm.workspace_id \
-     WHERE ws.delete_at = 0";
+     WHERE ws.deleted_at IS NULL";
 
 /// Opens the condition on a board `b` that it is an open board of `kinds` in a workspace
 /// the user works in (a member who is no guest: `WorkspaceAccess::works_there`), "or":
@@ -117,7 +117,7 @@ impl Store {
                 .push_bind(", ", now_millis())
                 .push_bind(" FROM workspaces WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
-                .push_bind(" AND delete_at = ", 0_i64);
+                .push(" AND deleted_at IS NULL");
             if scope.execute(sql).await? == 0 {
                 return Err(StoreError::not_found("workspace"));
             }

@@ -1,6 +1,6 @@
 //! An account its person asks to delete: the asking, the wait, and taking it back.
 //!
-//! From the asking the account is out of use, as a deactivated one is (`delete_at`),
+//! From the asking the account is out of use, as a deactivated one is (`deleted_at`),
 //! and waits until `delete_after`: its sessions are ended, and one made by signing in
 //! meanwhile opens nothing but the way back ([`Store::leaving_session`],
 //! [`Store::cancel_account_deletion`]). Its memberships and what it wrote stay as
@@ -107,7 +107,7 @@ impl Store {
             let mut sql = scope.sql(
                 "SELECT c.kind, CAST(COUNT(*) AS BIGINT) FROM containers AS c \
                  JOIN workspaces AS w ON w.id = c.workspace_id \
-                 WHERE w.delete_at = 0 AND w.org_id = ",
+                 WHERE w.deleted_at IS NULL AND w.org_id = ",
             );
             sql.bind(scope.org()?)
                 .push_bind(" AND c.is_template = ", false)
@@ -125,7 +125,7 @@ impl Store {
                 "SELECT CAST(COUNT(*) AS BIGINT) FROM files AS f \
                  JOIN containers AS c ON c.id = f.container_id \
                  JOIN workspaces AS w ON w.id = c.workspace_id \
-                 WHERE w.delete_at = 0 AND w.org_id = ",
+                 WHERE w.deleted_at IS NULL AND w.org_id = ",
             );
             sql.bind(scope.org()?)
                 .push_bind(" AND c.is_template = ", false)
@@ -171,11 +171,11 @@ impl Store {
                 if !standing.is_open() {
                     return Ok(DeletionAsking::Refused(standing));
                 }
-                let mut sql = scope.sql("UPDATE users SET delete_at = ");
+                let mut sql = scope.sql("UPDATE users SET deleted_at = ");
                 sql.bind(now)
                     .push_bind(", delete_after = ", delete_after)
                     .push_bind(", update_at = ", now)
-                    .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id))
+                    .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(user_id))
                     .push_bind(" AND password_hash = ", seen_password_hash)
                     .push_bind(" AND password_locked_at = ", 0_i64);
                 if scope.execute(sql).await? == 0 {
@@ -225,7 +225,7 @@ impl Store {
         self.system()
             .transaction(async |scope| {
                 let mut sql =
-                    scope.sql("UPDATE users SET delete_at = 0, delete_after = 0, update_at = ");
+                    scope.sql("UPDATE users SET deleted_at = NULL, delete_after = 0, update_at = ");
                 sql.bind(now)
                     .push_bind(" WHERE id = ", Id(user_id))
                     .push(" AND ")
@@ -256,13 +256,13 @@ impl Store {
     ) -> Result<Option<(Session, Leaving)>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT u.delete_at, u.delete_after FROM sessions AS s \
+                "SELECT u.deleted_at, u.delete_after FROM sessions AS s \
                  JOIN users AS u ON u.id = s.user_id WHERE s.token_hash = ",
             );
             sql.bind(token_digest)
                 .push_bind(" AND s.expires_at > ", now)
                 .push_bind(" AND s.last_used_at > ", idle_since)
-                .push(" AND u.delete_after > 0 AND u.erase_started_at = 0");
+                .push(" AND u.deleted_at IS NOT NULL AND u.delete_after > 0 AND u.erase_started_at = 0");
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
             };
@@ -306,7 +306,7 @@ pub(crate) async fn standing(
     sql.bind(Id(user_id))
         .push_bind(" AND m.role = ", OrgRole::Admin.as_str())
         .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
-        .push(" AND o.delete_at = 0 AND o.is_system = false ORDER BY o.id");
+        .push(" AND o.deleted_at IS NULL AND o.is_system = false ORDER BY o.id");
     let administered: Vec<OrganizationName> = scope
         .fetch_all(sql)
         .await?
@@ -377,7 +377,7 @@ async fn own_space(
     let mut sql = scope.sql("SELECT id, name FROM organizations WHERE owner_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND kind = ", OrgKind::Personal.as_str())
-        .push(" AND delete_at = 0");
+        .push(" AND deleted_at IS NULL");
     scope
         .fetch_optional(sql)
         .await?
@@ -400,7 +400,7 @@ pub(crate) async fn is_last_instance_admin(
     if scope.fetch_optional(sql).await?.is_none() {
         return Ok(false);
     }
-    let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+    let mut sql = scope.sql("SELECT 1 FROM users WHERE deleted_at IS NULL AND is_admin = ");
     sql.bind(true)
         .push_bind(" AND id <> ", Id(user_id))
         .push(" LIMIT 1");
@@ -416,7 +416,7 @@ async fn has_another_admin(
 ) -> Result<bool, StoreError> {
     let mut sql = scope.sql(
         "SELECT 1 FROM organization_members AS om JOIN users AS u ON u.id = om.user_id \
-         WHERE u.delete_at = 0 AND om.org_id = ",
+         WHERE u.deleted_at IS NULL AND om.org_id = ",
     );
     sql.bind(Id(org_id))
         .push_bind(" AND om.role = ", OrgRole::Admin.as_str())

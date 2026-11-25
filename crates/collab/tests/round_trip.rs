@@ -75,7 +75,7 @@ fn elements(txn: &TransactionMut<'_>, parent: &impl XmlFragment, found: &mut Vec
 
 /// Deletes children at random places, as edits that are merged may: an entry of a
 /// list, the paragraph an entry starts with, all a quote holds.
-fn delete_at_random(doc: &Doc, random: &mut Random) {
+fn remove_at_random(doc: &Doc, random: &mut Random) {
     let root = doc.get_or_insert_xml_fragment(FIELD);
     let mut txn = doc.transact_mut();
     for _ in 0..=random.below(4) {
@@ -104,7 +104,7 @@ fn a_document_with_children_deleted_at_random_is_repaired_to_a_body() {
         let mut random = Random::new(seed);
         let document: Value = document(&mut random);
         let doc = from_body(&body_of(&document));
-        delete_at_random(&doc, &mut random);
+        remove_at_random(&doc, &mut random);
         let before = state_of(&doc);
 
         let repair = repair(&doc).unwrap_or_else(|error| panic!("seed {seed}: {error}"));

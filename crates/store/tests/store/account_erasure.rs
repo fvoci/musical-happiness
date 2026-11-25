@@ -1082,7 +1082,7 @@ async fn places_of_a_leaver(test: &TestStore, founder: &str) -> Places {
         .await
         .expect("to the trash");
     test.execute_unchecked(&format!(
-        "UPDATE workspaces SET delete_at = {T0} WHERE id = '{trashed}'"
+        "UPDATE workspaces SET deleted_at = {T0} WHERE id = '{trashed}'"
     ))
     .await
     .expect("the workspace is in the trash");

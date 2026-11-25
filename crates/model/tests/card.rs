@@ -55,7 +55,7 @@ fn sample_block() -> Block {
         body: None,
         create_at: NOW,
         update_at: NOW,
-        delete_at: 0,
+        deleted_at: None,
         container_id: board_id,
         number: Some(7),
         edited_at: 0,

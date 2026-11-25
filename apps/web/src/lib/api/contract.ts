@@ -1077,7 +1077,7 @@ export interface paths {
         };
         /**
          * The workspaces of an organization
-         * @description Every workspace of it, in use (`deletedAt` 0) and in the trash, the oldest first:
+         * @description Every workspace of it, in use (`deletedAt` absent) and in the trash, the oldest first:
          *     its name, how many members it has and what the administrator who asks is in it.
          *     Nothing of what is in it: that is read by joining it.
          */
@@ -4212,7 +4212,7 @@ export interface paths {
          * Delete a unit or chapter
          * @description Moves the unit to the trash of its course, or moves the chapter together with every
          *     unit below it as one deletion, for editors of the course. The course's listeners are
-         *     told with `blockChanged` of the deleted block alone, whose `deleteAt` is not 0.
+         *     told with `blockChanged` of the deleted block alone, with `deletedAt` set.
          */
         delete: operations["deleteUnit"];
         options?: never;
@@ -4359,7 +4359,7 @@ export interface paths {
          * @description The comment goes to the trash, as a comment on a card or page does: by its author
          *     from the commenter's role up, and the comment of somebody else by the course's admins
          *     only (403, `access denied to delete other users' comments`). Who reads the course is
-         *     told with `blockChanged` whose `deleteAt` is not 0.
+         *     told with `blockChanged` with `deletedAt` set.
          */
         delete: operations["deleteUnitComment"];
         options?: never;
@@ -5666,11 +5666,11 @@ export interface paths {
          *     An account that was deleted is answered to whoever asks by its identifier, seen
          *     before or not, as what is left of it: the identifier, an empty `username`, `email`
          *     and `displayName`, every part of the name empty, no title nor credentials,
-         *     `nameShown` `name`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
-         *     the account is answered, neither when it went nor when it was asked to (the
+         *     `nameShown` `name`, `createAt` and `updateAt` both zero, and `deletedAt` absent: no
+         *     time of the account is answered, neither when it went nor when it was asked to (the
          *     identifier is kept as it was made). The empty `username` is what tells it, not a
          *     time: a page shows a deleted user where it wrote or is mentioned.
-         *     `deleteAt` is not zero for a writer whose account waits to be deleted, who is
+         *     `deletedAt` is present for a writer whose account waits to be deleted, who is
          *     answered as they are, with their name.
          */
         post: operations["getWorkspaceUsersById"];
@@ -5791,7 +5791,7 @@ export interface paths {
          * Delete a page
          * @description The page goes to the trash with every page below it and the comments on them, for
          *     editors of the wiki. The wiki's members are told with `blockChanged` of the page
-         *     alone, whose `deleteAt` is not 0, as for any block that is deleted; what went with
+         *     alone, with `deletedAt` set, as for any block that is deleted; what went with
          *     it is not told of one by one.
          */
         delete: operations["deletePage"];
@@ -5933,7 +5933,7 @@ export interface paths {
          * @description The comment goes to the trash, as a comment on a card does: by its author from the
          *     commenter's role up, and the comment of somebody else by the wiki's admins only
          *     (403, `access denied to delete other users' comments`). Who reads the wiki is told
-         *     with `blockChanged` whose `deleteAt` is not 0.
+         *     with `blockChanged` with `deletedAt` set.
          */
         delete: operations["deletePageComment"];
         options?: never;
@@ -6318,9 +6318,9 @@ export interface components {
             createdBy: string;
             /**
              * Format: int64
-             * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+             * @description Deletion time in milliseconds since the Unix epoch; absent while not deleted.
              */
-            deleteAt: number;
+            deletedAt?: number;
             /**
              * Format: int64
              * @description For a comment whose body was changed: when that last happened, in milliseconds
@@ -6498,9 +6498,9 @@ export interface components {
             createdBy: string;
             /**
              * Format: int64
-             * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+             * @description Deletion time in milliseconds since the Unix epoch; absent while not deleted.
              */
-            deleteAt: number;
+            deletedAt?: number;
             /** @description Whether the card has a body. */
             hasBody: boolean;
             /** @description The card's icon; at most one grapheme. */
@@ -6637,9 +6637,9 @@ export interface components {
             createAt: number;
             /**
              * Format: int64
-             * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+             * @description Deletion time in milliseconds since the Unix epoch; absent while not deleted.
              */
-            deleteAt: number;
+            deletedAt?: number;
             /** @description The category's identifier. */
             id: string;
             /** @description The display name. */
@@ -6820,9 +6820,9 @@ export interface components {
             createdBy: string;
             /**
              * Format: int64
-             * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+             * @description Deletion time in milliseconds since the Unix epoch; absent while not deleted.
              */
-            deleteAt: number;
+            deletedAt?: number;
             /** @description The board's description. */
             description: string;
             /** @description The board's icon, usually one emoji. */
@@ -8620,10 +8620,10 @@ export interface components {
         OrgWorkspace: {
             /**
              * Format: int64
-             * @description When it was put in the trash, in milliseconds since the epoch; zero while it is
+             * @description When it was put in the trash, in milliseconds since the epoch; absent while it is
              *     in use.
              */
-            deletedAt: number;
+            deletedAt?: number;
             /** @description The workspace's identifier. */
             id: string;
             /** @description Whether it is the organization's default workspace, which cannot be deleted. */
@@ -9255,9 +9255,9 @@ export interface components {
             createAt: number;
             /**
              * Format: int64
-             * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+             * @description Deletion time in milliseconds since the Unix epoch; absent while not deleted.
              */
-            deleteAt: number;
+            deletedAt?: number;
             /**
              * Format: int64
              * @description The time of the last notification sent for this subscription, in milliseconds
@@ -9826,10 +9826,10 @@ export interface components {
             /**
              * Format: int64
              * @description When the account was put out of use (deactivated, or its deletion asked), in
-             *     milliseconds since the Unix epoch; zero for one in use, and for a deleted account,
-             *     which an empty `username` tells.
+             *     milliseconds since the Unix epoch; absent for one in use, and for a deleted
+             *     account, which an empty `username` tells.
              */
-            deleteAt: number;
+            deletedAt?: number;
             /**
              * @description The name the user is shown by, by the rule of `PersonName::shown`: empty when
              *     that is the login name, which is shown then. Kept with the account and made anew
