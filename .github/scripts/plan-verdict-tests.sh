@@ -388,4 +388,37 @@ expect_verdict "the plan's list is not JSON" 1 "$(needs success 'web-e2e' succes
 expect_verdict "the plan names a job not waited for" 1 "$(needs success '["web-e2e","nothing"]' success skipped)"
 expect_verdict "the plan skips itself" 1 "$(needs success '["plan"]' success success)"
 
+# Every job of ci.yml is waited for by ci-done, and the sharded Rust jobs keep the ids
+# plan.sh and verdict.sh know them by.
+WORKFLOW="$HERE/../workflows/ci.yml"
+written=$(sed -n '/^jobs:/,$p' "$WORKFLOW" |
+  sed -n 's/^  \([^ #].*\)$/\1/p' | sed 's/:[[:space:]]*\(#.*\)\{0,1\}$//' |
+  grep -v '^ci-done$' | sort)
+waited=$(sed -n '/^  ci-done:/,/^    runs-on:/p' "$WORKFLOW" |
+  sed -n 's/^      - \([^ #].*\)$/\1/p' | sort)
+if diff -u <(echo "$written") <(echo "$waited") >/dev/null; then
+  echo "ok    workflow: ci-done waits for every job of ci.yml"
+else
+  echo "FAIL  workflow: ci-done's needs do not match the jobs of ci.yml"
+  failed=1
+fi
+
+full_needs() {
+  jq --null-input --compact-output --arg skip "$1" --arg sqlite "$2" --arg postgres "$3" \
+    '{plan: {result: "success", outputs: {skip: $skip}},
+      "rust-check": {result: "success", outputs: {}},
+      "rust-sqlite": {result: $sqlite, outputs: {}},
+      "rust-postgres": {result: $postgres, outputs: {}},
+      "web-checks": {result: "success", outputs: {}},
+      "web-build": {result: "success", outputs: {}},
+      "web-e2e": {result: "success", outputs: {}},
+      "web-e2e-apple": {result: "success", outputs: {}},
+      "web-e2e-live": {result: "success", outputs: {}}}'
+}
+
+expect_verdict "both sharded Rust jobs skipped by a web-only plan" 0 \
+  "$(full_needs "[$RUST]" skipped skipped)"
+expect_verdict "a sharded Rust job whose matrix failed fails ci-done" 1 \
+  "$(full_needs '[]' success failure)"
+
 exit "$failed"
