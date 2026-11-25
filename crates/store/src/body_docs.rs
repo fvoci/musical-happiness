@@ -8,7 +8,7 @@
 //! ([`forget_gone_blocks`]). What a document's bytes are is the server's to know: the
 //! store keeps them.
 
-use fvoci_model::{BlockPatch, BlockType, Body, BodyChange};
+use fvoci_model::{BlockPatch, Body, BodyChange};
 
 use crate::Store;
 use crate::block_derived::{self, Before};
@@ -101,7 +101,7 @@ pub struct LoggedUpdate {
 
 impl Store {
     /// The board a card is on, or the wiki a page is in; `None` for no block of that
-    /// identifier, and for a block whose body has no room ([`BlockType::has_room`]).
+    /// identifier, and for a block whose body has no room ([`fvoci_model::BlockType::has_room`]).
     /// Nothing else of the block is read: who asks whether somebody may come to its
     /// body is answered in the same time whatever the body is.
     ///
@@ -115,7 +115,7 @@ impl Store {
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
             };
-            let has_room = BlockType::from(row.text(0)?).has_room();
+            let has_room = crate::blocks::block_type_column(&row, 0, "type")?.has_room();
             Ok(if has_room { Some(row.id(1)?) } else { None })
         })
         .await

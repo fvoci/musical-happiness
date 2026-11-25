@@ -147,7 +147,7 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     let restored = th
         .client2
         .post(
-            &format!("{TEST_WS}/containers/{}/undelete", board.id),
+            &format!("{TEST_WS}/containers/{}/restore", board.id),
             &json!({}),
         )
         .await;

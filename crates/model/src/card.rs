@@ -331,7 +331,6 @@ impl From<Card> for Block {
             parent_id: card.parent_id,
             created_by: card.created_by,
             modified_by: card.modified_by,
-            schema: 1,
             block_type: BlockType::Card,
             title: card.title,
             fields,

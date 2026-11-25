@@ -184,7 +184,7 @@ async fn the_deepest_body_is_read_back_from_every_place_it_is_written_in() {
     let block = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, made.id);
     th.client.delete(&block).await.check_no_content();
     th.client
-        .post_empty(&format!("{block}/undelete"))
+        .post_empty(&format!("{block}/restore"))
         .await
         .check_ok();
     assert_eq!(stored(&made.id).await.as_ref(), Some(&deep));

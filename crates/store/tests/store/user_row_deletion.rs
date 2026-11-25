@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 
 use fvoci_model::{
-    Block, BlockType, Category, Container, ContainerMember, ContainerPatch, Subscription,
-    UserPreferencesPatch, new_id,
+    Block, BlockType, Category, ClientStatePatch, Container, ContainerMember, ContainerPatch,
+    Subscription, UserSettingsPatch, new_id,
 };
 use fvoci_store::{BlockFilter, Store};
 
@@ -79,14 +79,24 @@ async fn give_belongings(
     block: &Block,
 ) -> String {
     open_session(store, user_id).await;
-    let preference = UserPreferencesPatch {
+    let client_state = ClientStatePatch {
         updated_fields: BTreeMap::from([("theme".to_owned(), "dark".to_owned())]),
         deleted_fields: Vec::new(),
     };
     store
-        .patch_user_preferences(user_id, &preference)
+        .patch_client_state(user_id, &client_state)
         .await
-        .expect("the preference is stored");
+        .expect("the client state is stored");
+    let settings = UserSettingsPatch::from_members(
+        serde_json::json!({ "theme": "dark" })
+            .as_object()
+            .expect("object"),
+    )
+    .expect("valid settings");
+    store
+        .patch_user_settings(user_id, &settings)
+        .await
+        .expect("the settings are stored");
     let category = Category {
         id: new_id(),
         name: "Mine".to_owned(),
@@ -119,7 +129,7 @@ async fn give_belongings(
         .expect("the user becomes a member of the board");
     store
         .create_subscription(Subscription {
-            block_type: block.block_type.clone(),
+            block_type: block.block_type,
             block_id: block.id.clone(),
             user_id: user_id.to_owned(),
             notified_at: 0,
@@ -145,11 +155,15 @@ async fn belongings_left(
     if has_session(store, user_id).await {
         left.push("session");
     }
-    let preferences = store
-        .get_user_preferences(user_id)
+    let client_state = store
+        .get_client_state(user_id)
         .await
-        .expect("the preferences are read");
-    if !preferences.is_empty() {
+        .expect("the client state is read");
+    let settings = store
+        .get_user_settings(user_id)
+        .await
+        .expect("the settings are read");
+    if !client_state.is_empty() || settings != fvoci_model::UserSettings::default() {
         left.push("preference");
     }
     let listed = store

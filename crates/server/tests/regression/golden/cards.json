@@ -445,7 +445,6 @@
         "id": "<id:7>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:5>",
-        "schema": 1,
         "title": "one",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -459,7 +458,6 @@
         "id": "<id:8>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:5>",
-        "schema": 1,
         "title": "two",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -473,7 +471,6 @@
         "id": "<id:9>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:5>",
-        "schema": 1,
         "title": "three",
         "type": "attachment",
         "updatedAt": "<ts>"

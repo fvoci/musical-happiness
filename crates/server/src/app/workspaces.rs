@@ -60,7 +60,7 @@ impl App {
             .await?;
         let takes = SessionTaken::of_organization(required);
         sso::require_session_opens(session.into(), org_id, &takes)?;
-        Ok(Some(self.scoped(tenant).with_org_kind(OrgKind::Team)))
+        Ok(Some(self.scoped(tenant).with_org_kind(OrgKind::Shared)))
     }
 
     /// The same server reaching the rows of the organization `org_id`, for a member of
@@ -82,7 +82,7 @@ impl App {
         if self.org_actor(user_id, org_id).await?.org.is_none() {
             return Ok(None);
         }
-        Ok(Some(self.scoped(tenant).with_org_kind(OrgKind::Team)))
+        Ok(Some(self.scoped(tenant).with_org_kind(OrgKind::Shared)))
     }
 
     /// The same server reaching the rows of the organization `org_id`, for a sign-in

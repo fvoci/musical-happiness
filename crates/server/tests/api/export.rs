@@ -1030,8 +1030,12 @@ pub(crate) fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> 
 #[tokio::test]
 async fn an_archive_with_a_refused_board_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
-    let older_type = serde_json::json!({"type": "block", "data": {
+    let unknown_type = serde_json::json!({"type": "block", "data": {
         "id": "t2", "containerId": "b2", "parentId": "c2", "type": "text", "title": "text",
+        "createdAt": 1, "updatedAt": 1,
+    }});
+    let non_board_type = serde_json::json!({"type": "block", "data": {
+        "id": "p2", "containerId": "b2", "parentId": "", "type": "page", "title": "page",
         "createdAt": 1, "updatedAt": 1,
     }});
     let oversized = serde_json::json!({"type": "block", "data": {
@@ -1039,7 +1043,11 @@ async fn an_archive_with_a_refused_board_stores_nothing() {
         "updatedAt": 1, "fields": {"note": "x".repeat(70_000)},
     }});
     for (block, says) in [
-        (older_type, "a block is a `card`"),
+        (unknown_type, "unknown variant `text`"),
+        (
+            non_board_type,
+            "a page is a block of a wiki, not of a board",
+        ),
         (oversized, "block fields size limit exceeded"),
     ] {
         let before = boards_of(&ts).await.len();

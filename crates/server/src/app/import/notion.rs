@@ -571,7 +571,6 @@ async fn build_wiki_container(
             title: truncate_title(&page.title, summary),
             fields,
             body,
-            schema: 1,
             ..Block::default()
         });
     }
@@ -660,7 +659,6 @@ async fn build_board_container(
             title: truncate_title(&row.title, summary),
             fields,
             body,
-            schema: 1,
             ..Block::default()
         });
     }
@@ -739,7 +737,6 @@ fn build_csv_view(
         block_type: BlockType::View,
         title: title.to_owned(),
         fields,
-        schema: 1,
         ..Block::default()
     }
 }

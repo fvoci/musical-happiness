@@ -85,10 +85,6 @@ pub struct Category {
     pub collapsed: bool,
     /// The position of the category among the user's categories.
     pub sort_order: i64,
-    /// The sorting method applied to the boards in the category. Nothing stores one;
-    /// not part of the JSON form.
-    #[serde(skip)]
-    pub sorting: String,
     /// Whether this is a system or a custom category.
     #[serde(rename = "type")]
     pub category_type: CategoryType,

@@ -173,7 +173,7 @@ async fn check_started(
     );
     assert_eq!(
         (theirs.kind, theirs.role, theirs.name.as_str()),
-        (OrgKind::Team, WorkspaceRole::Admin, "Theirs"),
+        (OrgKind::Shared, WorkspaceRole::Admin, "Theirs"),
         "of an organization of people, under its name, administered by who started it"
     );
     assert_eq!(

@@ -264,7 +264,7 @@ fn board_cases() -> Vec<Case> {
         ),
         case(
             Method::POST,
-            |h, i| format!("{TEST_WS}/containers/{}/undelete", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/restore", h.board[i]),
             no_body,
         ),
         case(
@@ -369,7 +369,7 @@ fn content_cases() -> Vec<Case> {
             Method::POST,
             |h, i| {
                 format!(
-                    "{TEST_WS}/boards/{}/blocks/{}/undelete",
+                    "{TEST_WS}/boards/{}/blocks/{}/restore",
                     h.board[i], h.card[i]
                 )
             },
@@ -440,12 +440,12 @@ fn content_cases() -> Vec<Case> {
         // Both kinds of combined request.
         case(
             Method::PATCH,
-            |_, _| format!("{TEST_WS}/boards-and-blocks"),
+            |_, _| format!("{TEST_WS}/containers-and-blocks"),
             |h, i| json!({"containerIds": [h.board[i]], "containerPatches": [{"title": "x"}]}),
         ),
         case(
             Method::DELETE,
-            |_, _| format!("{TEST_WS}/boards-and-blocks"),
+            |_, _| format!("{TEST_WS}/containers-and-blocks"),
             |h, i| json!({"containers": [h.board[i]]}),
         ),
         // A subscription to one of its blocks, and the owner's subscriptions.
@@ -535,7 +535,7 @@ fn mixed_cases() -> Vec<Case> {
             Method::POST,
             |h, i| {
                 format!(
-                    "{TEST_WS}/boards/{}/blocks/{}/undelete",
+                    "{TEST_WS}/boards/{}/blocks/{}/restore",
                     h.own_board, h.card[i]
                 )
             },
@@ -574,7 +574,7 @@ fn mixed_cases() -> Vec<Case> {
         // The asker's own board together with a hidden block, or a hidden board.
         case(
             Method::PATCH,
-            |_, _| format!("{TEST_WS}/boards-and-blocks"),
+            |_, _| format!("{TEST_WS}/containers-and-blocks"),
             |h, i| {
                 json!({
                     "containerIds": [h.own_board], "containerPatches": [{"title": "x"}],
@@ -584,7 +584,7 @@ fn mixed_cases() -> Vec<Case> {
         ),
         case(
             Method::PATCH,
-            |_, _| format!("{TEST_WS}/boards-and-blocks"),
+            |_, _| format!("{TEST_WS}/containers-and-blocks"),
             |h, i| {
                 json!({
                     "containerIds": [h.own_board, h.board[i]],
@@ -594,7 +594,7 @@ fn mixed_cases() -> Vec<Case> {
         ),
         case(
             Method::DELETE,
-            |_, _| format!("{TEST_WS}/boards-and-blocks"),
+            |_, _| format!("{TEST_WS}/containers-and-blocks"),
             |h, i| json!({"containers": [h.own_board], "blocks": [h.card[i]]}),
         ),
         // Blocks for the asker's own board, with files to copy from a hidden board.
@@ -1028,7 +1028,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         ),
         (
             Method::POST,
-            format!("{TEST_WS}/boards/{board}/blocks/{{}}/undelete"),
+            format!("{TEST_WS}/boards/{board}/blocks/{{}}/restore"),
             Value::Null,
         ),
         (

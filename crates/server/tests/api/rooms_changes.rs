@@ -152,7 +152,7 @@ async fn a_template_closed_to_the_workspace_puts_out_its_uninvited_readers() {
 async fn a_batch_closing_a_template_puts_out_its_uninvited_readers() {
     let th = seldom().start().await.init_basic().await;
     let (board, mut reader) = template_reader(&th).await;
-    th.client.patch(&format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"), &json!({
+    th.client.patch(&format!("/w/{TEST_WORKSPACE_ID}/containers-and-blocks"), &json!({
         "containerIds": [board], "containerPatches": [{"visibility": "private"}], "blockIds": [], "blockPatches": [],
     })).await.check_ok();
     assert_eq!(reader.text("docLeft").await["reason"], json!("not_found"));
@@ -172,7 +172,7 @@ async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
     let (second, mut second_reader) = template_reader(&th).await;
     th.client
         .patch(
-            &format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"),
+            &format!("/w/{TEST_WORKSPACE_ID}/containers-and-blocks"),
             &json!({
                 "containerIds": [roomless, first, second],
                 "containerPatches": [{"visibility": "private"}, {"visibility": "private"}, {"visibility": "private"}],

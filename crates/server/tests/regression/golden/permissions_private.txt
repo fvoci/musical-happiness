@@ -6,7 +6,7 @@ board: patch properties                     401        404        403        403
 board: patch visibility                     401        404        403        403        403        200
 board: patch minimum role                   401        404        403        403        403        200
 board: delete                               401        404        403        403        403        204
-board: undelete                             401        404        403        403        403        200
+board: restore                              401        404        403        403        403        200
 board: duplicate                            401        404        201        201        201        201
 board: duplicate as template                401        404        201        201        201        201
 board: metadata                             404        404        404        404        404        404
@@ -29,10 +29,10 @@ blocks: patch several                       401        404        403        403
 blocks: delete card                         401        404        403        403        204        204
 blocks: delete view                         401        404        403        403        204        204
 blocks: delete another's comment            401        404        403        403        403        204
-blocks: undelete                            401        404        403        403        200        200
+blocks: restore                             401        404        403        403        200        200
 blocks: duplicate                           401        404        403        403        201        201
-boards-and-blocks: patch                    401        404        403        403        200        200
-boards-and-blocks: delete                   401        404        403        403        403        204
+containers-and-blocks: patch                401        404        403        403        200        200
+containers-and-blocks: delete               401        404        403        403        403        204
 cards: create                               401        404        403        403        201        201
 cards: list                                 401        404        200        200        200        200
 cards: get                                  401        404        200        200        200        200

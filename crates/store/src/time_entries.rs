@@ -797,7 +797,7 @@ fn org_opened_by(
 ) -> bool {
     let takes = match kind {
         OrgKind::Personal => SessionTaken::of_space(password),
-        OrgKind::Team => SessionTaken::of_organization(required_provider),
+        OrgKind::Shared => SessionTaken::of_organization(required_provider),
     };
     takes.opened_by(making)
 }

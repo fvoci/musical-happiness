@@ -24,7 +24,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// The deleted cards of a board
 ///
 /// One page of the board's cards that are in the trash, each with its identifier, its
-/// title, when it was deleted and by whom; `undeleteBlock` brings one back until the
+/// title, when it was deleted and by whom; `restoreBlock` brings one back until the
 /// trash is emptied of it. A card that went with the block it was on (another card, a
 /// view) comes back with that block, and is not listed. For the board's editors. The
 /// last deleted first; the pages cut that order.
@@ -58,12 +58,12 @@ async fn handle_get_deleted_cards(
 ///
 /// One page of the workspace's boards that are in the trash and that the user was an admin
 /// of when they were deleted, or every one of them for an administrator of the
-/// workspace, which is who `undeleteContainer` lets bring them back: each
+/// workspace, which is who `restoreContainer` lets bring them back: each
 /// with its identifier, its title, when it was deleted and by whom. The last deleted
 /// first; the pages cut that order. For users of the workspace.
 ///
 /// The wikis in the trash are in the same list, which go there and come back as boards
-/// do (`deleteContainer`, `undeleteContainer`): each entry says its `kind`.
+/// do (`deleteContainer`, `restoreContainer`): each entry says its `kind`.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/trash/containers",

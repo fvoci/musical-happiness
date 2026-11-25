@@ -69,7 +69,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 48] = [
     "patchDiaryEntry",
     "deleteDiaryEntry",
     "getDeletedDiaryEntries",
-    "undeleteDiaryEntry",
+    "restoreDiaryEntry",
     "getDiaryEntryBodyVersions",
     "keepDiaryEntryBodyVersion",
     "getDiaryEntryBodyVersion",
@@ -100,12 +100,12 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 48] = [
     // The card is no comment, and has no versions of one.
     "getCommentVersions",
     // The board is not in the trash, nor the card, nor the wiki's page, nor its comment.
-    "undeleteContainer",
-    "undeleteBlock",
-    "undeletePage",
-    "undeletePageComment",
-    "undeleteUnit",
-    "undeleteUnitComment",
+    "restoreContainer",
+    "restoreBlock",
+    "restorePage",
+    "restorePageComment",
+    "restoreUnit",
+    "restoreUnitComment",
     // The member's subscription is to the card, by its own identifier.
     "deleteSubscription",
     // The upload asked of is done with by then, or was never begun in parts.
@@ -148,7 +148,7 @@ fn operations() -> Vec<(String, String, String)> {
         | "deleteUnitReview"
         | "deleteUnitNote"
         | "deleteCourseSchedule"
-        | "deleteBoardsAndBlocks"
+        | "deleteContainersAndBlocks"
         | "deleteUpload"
         | "deleteCategory"
         | "deleteTimeEntry"

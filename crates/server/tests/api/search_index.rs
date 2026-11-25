@@ -109,7 +109,7 @@ async fn a_card_is_found_while_it_is_there_as_it_is() {
     assert_eq!(titles(&fake), BTreeMap::new(), "a card in the trash");
     assert_eq!(found(&th).await, Vec::<String>::new());
     th.client
-        .post_empty(&format!("{block}/undelete"))
+        .post_empty(&format!("{block}/restore"))
         .await
         .check_ok();
     tend(&th.app).await;
@@ -138,7 +138,7 @@ async fn a_card_is_found_while_it_is_there_as_it_is() {
         json!([{"term": {"orgId": org_id}}, {"term": {"containerId": board.id}}])
     );
     th.client
-        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/restore", board.id))
         .await
         .check_ok();
     tend(&th.app).await;

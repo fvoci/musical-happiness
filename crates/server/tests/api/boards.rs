@@ -1466,7 +1466,7 @@ async fn delete_container_an_existing_board_should_be_correctly_deleted() {
 
 pub(crate) async fn undelete_board(client: &Client, board_id: &str) -> ApiResponse {
     client
-        .post_empty(&format!("{TEST_WS}/containers/{board_id}/undelete"))
+        .post_empty(&format!("{TEST_WS}/containers/{board_id}/restore"))
         .await
 }
 
@@ -1479,7 +1479,7 @@ async fn assert_board_is_gone(th: &TestServer, board_id: &str) {
     assert!(error.is_not_found(), "not found: {error:?}");
 }
 
-/// Unauthenticated `POST /boards/{board_id}/undelete` is rejected.
+/// Unauthenticated `POST /boards/{board_id}/restore` is rejected.
 #[tokio::test]
 async fn undelete_container_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;

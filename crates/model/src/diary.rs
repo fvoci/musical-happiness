@@ -454,7 +454,7 @@ pub struct DiaryRun {
     pub days: u32,
 }
 
-/// An entry in the trash, as the trash of a diary lists it: `undeleteDiaryEntry` brings
+/// An entry in the trash, as the trash of a diary lists it: `restoreDiaryEntry` brings
 /// it back to its day.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]

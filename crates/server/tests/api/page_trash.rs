@@ -1,4 +1,4 @@
-//! The trash of a wiki's pages over HTTP (`getDeletedPages`, `undeletePage`): what it
+//! The trash of a wiki's pages over HTTP (`getDeletedPages`, `restorePage`): what it
 //! lists, a page brought back with those below it and told of, for the wiki's editors,
 //! held to the organization's limits.
 
@@ -60,7 +60,7 @@ async fn a_deleted_page_is_listed_brought_back_with_those_below_and_told_of() {
 
     let mut socket = WorkspaceSocket::subscribe(&ts, client, TEST_WORKSPACE_ID, &me).await;
     let back = client
-        .post(&format!("{wiki}/pages/{a}/undelete"), &json!({}))
+        .post(&format!("{wiki}/pages/{a}/restore"), &json!({}))
         .await;
     back.check_ok();
     let page: Page = back.json();
@@ -76,7 +76,7 @@ async fn a_deleted_page_is_listed_brought_back_with_those_below_and_told_of() {
     }
     // Once back, it is no more in the trash.
     client
-        .post(&format!("{wiki}/pages/{a}/undelete"), &json!({}))
+        .post(&format!("{wiki}/pages/{a}/restore"), &json!({}))
         .await
         .check_not_found();
     ts.teardown().await;
@@ -113,14 +113,14 @@ async fn the_trash_of_a_wiki_is_its_editors_and_held_to_the_limits() {
         .await
         .check_forbidden();
     ts.client2
-        .post(&format!("{wiki}/pages/{a}/undelete"), &json!({}))
+        .post(&format!("{wiki}/pages/{a}/restore"), &json!({}))
         .await
         .check_forbidden();
 
     // Two pages came and one was made since: three would be one too many.
     make(client, &wiki, "").await;
     let refused = client
-        .post(&format!("{wiki}/pages/{a}/undelete"), &json!({}))
+        .post(&format!("{wiki}/pages/{a}/restore"), &json!({}))
         .await;
     refused.check_bad_request();
     assert_eq!(refused.value()["reason"], json!("too_many_pages"));
@@ -153,7 +153,7 @@ async fn a_page_that_would_be_too_deep_stays_in_the_trash_and_names_no_member() 
         .await
         .check_ok();
     let refused = client
-        .post(&format!("{wiki}/pages/{b}/undelete"), &json!({}))
+        .post(&format!("{wiki}/pages/{b}/restore"), &json!({}))
         .await;
     refused.check_bad_request();
     let problem = refused.value();

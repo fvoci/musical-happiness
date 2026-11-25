@@ -353,7 +353,6 @@ async function readTrelloImport(
       body: null,
       createdBy: '',
       modifiedBy: '',
-      schema: 1,
       createdAt: 0,
       updatedAt: 0,
     });

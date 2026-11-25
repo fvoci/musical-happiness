@@ -111,21 +111,27 @@ pub(crate) const BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION: i64 = 73;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_UNIFIED_TIMESTAMPS_VERSION: i64 = 74;
 
+/// The migration before dedicated `user_settings` / `user_client_state`, removal of
+/// `blocks."schema"`, and `organizations.kind` `'shared'` (0076).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_USER_SETTINGS_AND_BLOCK_CLEANUP_VERSION: i64 = 75;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 12] = [
+pub(crate) const GLOBAL_TABLES: [&str; 13] = [
     "_sqlx_migrations",
     "data_steps",
     "email_changes",
     "email_reverts",
     "instance",
-    "preferences",
     "password_resets",
     "search_index_state",
     "sessions",
     "signups",
+    "user_client_state",
     "user_identities",
+    "user_settings",
     "users",
 ];
 
@@ -558,5 +564,20 @@ mod tests {
             .expect("migration 75 is in the list");
         assert_eq!(step.version, 75);
         assert_eq!(step.description, "unified created updated timestamps");
+    }
+
+    /// Migration 76 splits `preferences` into `user_settings` and `user_client_state`,
+    /// drops `blocks."schema"`, and updates shared `organizations.kind` to `'shared'`.
+    #[test]
+    fn migration_76_is_user_settings_client_state_and_block_cleanup() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_USER_SETTINGS_AND_BLOCK_CLEANUP_VERSION + 1)
+            .expect("migration 76 is in the list");
+        assert_eq!(step.version, 76);
+        assert_eq!(
+            step.description,
+            "user settings client state and block cleanup"
+        );
     }
 }

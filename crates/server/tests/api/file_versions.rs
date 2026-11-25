@@ -747,7 +747,7 @@ async fn versions_go_to_the_trash_and_for_good_with_their_board() {
         .expect("collected");
     assert_eq!(remove_doomed(&ts, now_millis()).await.removed, 0);
     ts.client
-        .post(&format!("{board_path}/undelete"), &json!({}))
+        .post(&format!("{board_path}/restore"), &json!({}))
         .await
         .check_ok();
     assert_eq!(

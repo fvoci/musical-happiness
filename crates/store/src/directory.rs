@@ -884,7 +884,7 @@ impl Store {
                 sql.bind(Id(user_id))
                     .push_bind(" AND om.org_id = ", Id(org_id))
                     .push(" AND o.deleted_at IS NULL AND o.is_system = false")
-                    .push_bind(" AND o.kind = ", OrgKind::Team.as_str());
+                    .push_bind(" AND o.kind = ", OrgKind::Shared.as_str());
                 match scope.fetch_optional(sql).await? {
                     Some(row) => role(&row, 0).map(Some),
                     None => Ok(None),

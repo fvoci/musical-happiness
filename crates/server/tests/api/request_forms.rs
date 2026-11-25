@@ -307,7 +307,7 @@ async fn the_board_is_no_parent_in_a_batch_or_with_new_boards() {
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &json!({
                 "containers": [{"id": "b", "workspaceId": crate::common::TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [{"id": "x", "containerId": "b", "parentId": "b", "type": "card",

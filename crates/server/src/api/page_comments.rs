@@ -39,7 +39,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_page_comment
         ))
         .routes(routes!(handle_get_page_comment_versions))
-        .routes(routes!(handle_undelete_page_comment))
+        .routes(routes!(handle_restore_page_comment))
 }
 
 /// What a comment is changed by, and what a comment is refused with that a request does
@@ -321,24 +321,24 @@ async fn handle_delete_page_comment(
 
 /// Bring a deleted comment on a page back
 ///
-/// A comment deleted on its own comes back onto its page, as `undeleteBlock` brings a
+/// A comment deleted on its own comes back onto its page, as `restoreBlock` brings a
 /// card's comment back: for its author from the commenter's role up if they deleted it
 /// themselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied
 /// to undelete other users' comments`, and for the author of a comment somebody else
 /// deleted, `a comment somebody else deleted is brought back by the board's admins`). A
 /// comment that went to the trash with its page comes back with the page
-/// (`undeletePage`), not on its own; that one, one not in the trash, and one of another
+/// (`restorePage`), not on its own; that one, one not in the trash, and one of another
 /// page are not there (404), nor is any while the page is in the trash. Who reads the
 /// wiki is told with `blockChanged`.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete",
-    operation_id = "undeletePageComment",
+    path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/restore",
+    operation_id = "restorePageComment",
     tag = tag::WIKIS,
     params(MemberWorkspaceId, WikiId, PageId, CommentId),
     responses((status = 200, description = "The comment as it is again.", body = Block)),
 )]
-async fn handle_undelete_page_comment(
+async fn handle_restore_page_comment(
     InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {

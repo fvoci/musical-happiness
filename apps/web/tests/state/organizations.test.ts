@@ -68,7 +68,7 @@ describe('the organization on the server', () => {
   it('does not ask for the reader’s own space, which nobody administers', async () => {
     const sent = serve({});
     const listed = [
-      { id: 'w1', title: '', orgId: 'o1', kind: 'team', role: 'member' },
+      { id: 'w1', title: '', orgId: 'o1', kind: 'shared', role: 'member' },
       { id: 'own', title: '', orgId: 'mine', kind: 'personal', role: 'admin' },
     ] as const;
     expect(await organizations().administered(listed)).toBeUndefined();

@@ -11,7 +11,6 @@ export function exampleBlock(id: string, type: Block['type'] = 'card'): Block {
     parentId: '',
     createdBy: 'example-reader',
     modifiedBy: 'example-reader',
-    schema: 1,
     title: '',
     fields: {},
     createdAt: STORY_NOW,

@@ -48,7 +48,6 @@ fn sample_block() -> Block {
         parent_id: String::new(),
         created_by: user_id.clone(),
         modified_by: user_id,
-        schema: 1,
         block_type: BlockType::Card,
         title: "My card title".to_owned(),
         fields: sample_fields(),
@@ -88,10 +87,11 @@ fn card_from_block_good_block() {
 /// `TestBlock2Card` / "Not a card"
 #[test]
 fn card_from_block_not_a_card() {
-    assert_eq!(
-        Card::from_block(&Block::default(), NOW),
-        Err(CardError::NotCardBlock)
-    );
+    let view = Block {
+        block_type: BlockType::View,
+        ..Block::default()
+    };
+    assert_eq!(Card::from_block(&view, NOW), Err(CardError::NotCardBlock));
 }
 
 #[test]
@@ -438,6 +438,6 @@ fn only_a_card_that_is_no_template_takes_a_number() {
         BlockType::Attachment,
         BlockType::Page,
     ] {
-        assert!(!with(other.clone(), json!(false)), "{other}");
+        assert!(!with(other, json!(false)), "{other}");
     }
 }

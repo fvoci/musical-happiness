@@ -257,7 +257,7 @@ async fn ws_broadcasts_subcard_deletion_and_restoration() {
 
     let undeleted: Block = th
         .client
-        .post_empty(&format!("{}/undelete", block_path(&board.id, &d1.id)))
+        .post_empty(&format!("{}/restore", block_path(&board.id, &d1.id)))
         .await
         .ok_json();
     assert_eq!(undeleted.id, d1.id, "undelete returned top card");

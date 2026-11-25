@@ -39,7 +39,7 @@ const ROUTES: [&str; 53] = [
     "board: patch visibility",
     "board: patch minimum role",
     "board: delete",
-    "board: undelete",
+    "board: restore",
     "board: duplicate",
     "board: duplicate as template",
     "board: metadata",
@@ -62,10 +62,10 @@ const ROUTES: [&str; 53] = [
     "blocks: delete card",
     "blocks: delete view",
     "blocks: delete another's comment",
-    "blocks: undelete",
+    "blocks: restore",
     "blocks: duplicate",
-    "boards-and-blocks: patch",
-    "boards-and-blocks: delete",
+    "containers-and-blocks: patch",
+    "containers-and-blocks: delete",
     "cards: create",
     "cards: list",
     "cards: get",
@@ -296,9 +296,9 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             Request::json(Method::PATCH, board_path, json!({"minimumRole": "editor"}))
         }
         "board: delete" => Request::new(Method::DELETE, board_path),
-        "board: undelete" => {
+        "board: restore" => {
             fx.owner(Method::DELETE, &board_path, Payload::None).await;
-            Request::new(Method::POST, format!("{board_path}/undelete"))
+            Request::new(Method::POST, format!("{board_path}/restore"))
         }
         "board: duplicate" => Request::new(Method::POST, format!("{board_path}/duplicate")),
         "board: duplicate as template" => Request::new(
@@ -367,25 +367,25 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         "blocks: delete another's comment" => {
             Request::new(Method::DELETE, format!("{blocks}/{}", fx.comment))
         }
-        "blocks: undelete" => {
+        "blocks: restore" => {
             let view = format!("{blocks}/{}", fx.view);
             fx.owner(Method::DELETE, &view, Payload::None).await;
-            Request::new(Method::POST, format!("{view}/undelete"))
+            Request::new(Method::POST, format!("{view}/restore"))
         }
         "blocks: duplicate" => {
             Request::new(Method::POST, format!("{blocks}/{}/duplicate", fx.card))
         }
-        "boards-and-blocks: patch" => Request::json(
+        "containers-and-blocks: patch" => Request::json(
             Method::PATCH,
-            format!("{ROOT_API}/boards-and-blocks"),
+            format!("{ROOT_API}/containers-and-blocks"),
             json!({
                 "containerIds": [board], "containerPatches": [{"title": "p"}],
                 "blockIds": [fx.card], "blockPatches": [{"title": "p"}],
             }),
         ),
-        "boards-and-blocks: delete" => Request::json(
+        "containers-and-blocks: delete" => Request::json(
             Method::DELETE,
-            format!("{ROOT_API}/boards-and-blocks"),
+            format!("{ROOT_API}/containers-and-blocks"),
             json!({"containers": [board], "blocks": [fx.card]}),
         ),
         "cards: create" => Request::json(

@@ -58,7 +58,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getContainer", Reaches::EVERY),
     ("patchContainer", Reaches::EVERY),
     ("deleteContainer", Reaches::EVERY),
-    ("undeleteContainer", Reaches::EVERY),
+    ("restoreContainer", Reaches::EVERY),
     // Who is on it (boards, wikis and courses; diaries have no people).
     ("getMembers", Reaches::SHARED),
     ("addMember", Reaches::SHARED),
@@ -104,7 +104,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchBlocks", Reaches::BOARDS),
     ("patchBlock", Reaches::BOARDS),
     ("deleteBlock", Reaches::BOARDS),
-    ("undeleteBlock", Reaches::BOARDS),
+    ("restoreBlock", Reaches::BOARDS),
     ("duplicateBlock", Reaches::BOARDS),
     ("getCommentVersions", Reaches::BOARDS),
     ("createCard", Reaches::BOARDS),
@@ -128,7 +128,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchPageComment", Reaches::WIKIS),
     ("deletePageComment", Reaches::WIKIS),
     ("getPageCommentVersions", Reaches::WIKIS),
-    ("undeletePageComment", Reaches::WIKIS),
+    ("restorePageComment", Reaches::WIKIS),
     ("getPageBodyVersions", Reaches::WIKIS),
     ("getPageBodyVersion", Reaches::WIKIS),
     ("restorePageBodyVersion", Reaches::WIKIS),
@@ -136,7 +136,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("movePage", Reaches::WIKIS),
     ("duplicatePage", Reaches::WIKIS),
     ("getDeletedPages", Reaches::WIKIS),
-    ("undeletePage", Reaches::WIKIS),
+    ("restorePage", Reaches::WIKIS),
     // What a diary holds.
     ("getDiaryDays", Reaches::DIARIES),
     ("getDiaryRuns", Reaches::DIARIES),
@@ -146,7 +146,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchDiaryEntry", Reaches::DIARIES),
     ("deleteDiaryEntry", Reaches::DIARIES),
     ("getDeletedDiaryEntries", Reaches::DIARIES),
-    ("undeleteDiaryEntry", Reaches::DIARIES),
+    ("restoreDiaryEntry", Reaches::DIARIES),
     ("getDiaryEntryBodyVersions", Reaches::DIARIES),
     ("getDiaryEntryBodyVersion", Reaches::DIARIES),
     ("restoreDiaryEntryBodyVersion", Reaches::DIARIES),
@@ -162,14 +162,14 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchUnitComment", Reaches::COURSES),
     ("deleteUnitComment", Reaches::COURSES),
     ("getUnitCommentVersions", Reaches::COURSES),
-    ("undeleteUnitComment", Reaches::COURSES),
+    ("restoreUnitComment", Reaches::COURSES),
     ("getUnitBodyVersions", Reaches::COURSES),
     ("getUnitBodyVersion", Reaches::COURSES),
     ("restoreUnitBodyVersion", Reaches::COURSES),
     ("keepUnitBodyVersion", Reaches::COURSES),
     ("moveUnit", Reaches::COURSES),
     ("getDeletedUnits", Reaches::COURSES),
-    ("undeleteUnit", Reaches::COURSES),
+    ("restoreUnit", Reaches::COURSES),
     ("getMyCourseProgress", Reaches::COURSES),
     ("putUnitProgress", Reaches::COURSES),
     ("getCourseProgressSummary", Reaches::COURSES),
@@ -538,36 +538,36 @@ impl World {
     async fn prepare(&self, operation: &str, things: &Things) {
         let at = format!("{ROOT_WS}/containers/{}", things.container);
         let deleted = match operation {
-            "undeleteContainer" => self.ts.client.delete(&at).await,
-            "undeleteBlock" => {
+            "restoreContainer" => self.ts.client.delete(&at).await,
+            "restoreBlock" => {
                 let block = format!(
                     "{ROOT_WS}/boards/{}/blocks/{}",
                     things.container, things.block
                 );
                 self.ts.client.delete(&block).await
             }
-            "undeletePage" => {
+            "restorePage" => {
                 let page = format!(
                     "{ROOT_WS}/wikis/{}/pages/{}",
                     things.container, things.block
                 );
                 self.ts.client.delete(&page).await
             }
-            "undeletePageComment" => {
+            "restorePageComment" => {
                 let comment = format!(
                     "{ROOT_WS}/wikis/{}/pages/{}/comments/{}",
                     things.container, things.block, things.comment
                 );
                 self.ts.client.delete(&comment).await
             }
-            "undeleteUnit" => {
+            "restoreUnit" => {
                 let unit = format!(
                     "{ROOT_WS}/courses/{}/units/{}",
                     things.container, things.block
                 );
                 self.ts.client.delete(&unit).await
             }
-            "undeleteUnitComment" => {
+            "restoreUnitComment" => {
                 let comment = format!(
                     "{ROOT_WS}/courses/{}/units/{}/comments/{}",
                     things.container, things.block, things.comment
@@ -957,11 +957,11 @@ async fn a_diary_is_there_to_the_operations_of_its_rows_and_to_no_other() {
             diary.container, diary.block
         );
         match operation.as_str() {
-            "undeleteContainer" => {
+            "restoreContainer" => {
                 let at = format!("/w/{own}/containers/{}", diary.container);
                 client.delete(&at).await.check_done();
             }
-            "undeleteDiaryEntry" => client.delete(&entry).await.check_done(),
+            "restoreDiaryEntry" => client.delete(&entry).await.check_done(),
             _ => {}
         }
         let ask = async |things: &Things| world.ask(&method, &template, &operation, things).await;
@@ -1064,7 +1064,7 @@ async fn what_names_a_diary_in_a_body_is_refused() {
         json!({"id": "made", "visibility": "private", "kind": "diary", "title": "no board"});
     let many = client
         .post(
-            &format!("{ws}/boards-and-blocks"),
+            &format!("{ws}/containers-and-blocks"),
             &json!({"containers": [as_diary], "blocks": [{
                 "id": "card", "containerId": "made", "type": "card", "createdAt": 1, "updatedAt": 1,
             }]}),
@@ -1074,7 +1074,7 @@ async fn what_names_a_diary_in_a_body_is_refused() {
         refused.check_bad_request();
         assert_eq!(refused.refused_at(), at, "{}", refused.text());
     }
-    let together = format!("{ws}/boards-and-blocks");
+    let together = format!("{ws}/containers-and-blocks");
     for method in [Method::PATCH, Method::DELETE] {
         let body = |id: &str| {
             if method == Method::PATCH {
@@ -1263,7 +1263,7 @@ async fn every_list_is_of_its_kinds() {
     );
     let again = client
         .post(
-            &format!("{ROOT_WS}/containers/{}/undelete", board.container),
+            &format!("{ROOT_WS}/containers/{}/restore", board.container),
             &json!({}),
         )
         .await;
@@ -1307,7 +1307,7 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
             );
         }
     };
-    let together = format!("{ROOT_WS}/boards-and-blocks");
+    let together = format!("{ROOT_WS}/containers-and-blocks");
     same(Method::PATCH, &together, &|id| {
         json!({
             "containerIds": [id],
@@ -1445,7 +1445,7 @@ async fn assert_board_creation_refuses_other_kinds(client: &Client, board_id: &s
             .await;
         let many = client
             .post(
-                &format!("{ROOT_WS}/boards-and-blocks"),
+                &format!("{ROOT_WS}/containers-and-blocks"),
                 &json!({"containers": [as_other], "blocks": [card]}),
             )
             .await;
@@ -1577,7 +1577,7 @@ async fn a_patch_that_names_a_kind_is_refused() {
     // Nor is a kind changed with blocks.
     let together = client
         .patch(
-            &format!("{ROOT_WS}/boards-and-blocks"),
+            &format!("{ROOT_WS}/containers-and-blocks"),
             &json!({
                 "containerIds": [board.container],
                 "containerPatches": [{"kind": "wiki"}],

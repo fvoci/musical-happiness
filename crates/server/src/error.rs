@@ -742,7 +742,7 @@ impl From<StoreError> for AppError {
                 Self::new(ErrorKind::NotFound, "not found")
             }
             // More client state than one account keeps.
-            StoreError::TooManyPreferences { limit } => Self::bad_request(error)
+            StoreError::TooManyClientStateEntries { limit } => Self::bad_request(error)
                 .with_field("updatedFields")
                 .with_limit(u64::try_from(limit).unwrap_or(u64::MAX)),
             // A registration that was not the first after all.

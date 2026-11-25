@@ -426,7 +426,7 @@ async fn deleting_a_page_or_its_wiki_closes_the_rooms_of_what_goes_with_it() {
         );
         if target == "wiki" {
             th.client
-                .post_empty(&format!("{wiki}/undelete"))
+                .post_empty(&format!("{wiki}/restore"))
                 .await
                 .check_ok();
             let back = body_of(&read(&th.client, &below_at).await);

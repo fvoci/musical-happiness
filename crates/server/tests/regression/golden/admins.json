@@ -105,7 +105,7 @@
     "body": [
       {
         "id": "<id:3>",
-        "kind": "team",
+        "kind": "shared",
         "name": "The Firm",
         "orgId": "<id:4>",
         "passwordRequired": false,
@@ -114,7 +114,7 @@
       },
       {
         "id": "<id:5>",
-        "kind": "team",
+        "kind": "shared",
         "name": "",
         "orgId": "<id:4>",
         "passwordRequired": false,
@@ -140,7 +140,7 @@
     "body": [
       {
         "id": "<id:3>",
-        "kind": "team",
+        "kind": "shared",
         "name": "The Firm",
         "orgId": "<id:4>",
         "passwordRequired": false,
@@ -149,7 +149,7 @@
       },
       {
         "id": "<id:5>",
-        "kind": "team",
+        "kind": "shared",
         "name": "",
         "orgId": "<id:4>",
         "passwordRequired": false,

@@ -305,7 +305,7 @@ pub(crate) async fn standing(
     );
     sql.bind(Id(user_id))
         .push_bind(" AND m.role = ", OrgRole::Admin.as_str())
-        .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
+        .push_bind(" AND o.kind = ", OrgKind::Shared.as_str())
         .push(" AND o.deleted_at IS NULL AND o.is_system = false ORDER BY o.id");
     let administered: Vec<OrganizationName> = scope
         .fetch_all(sql)

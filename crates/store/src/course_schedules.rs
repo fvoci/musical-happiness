@@ -758,7 +758,7 @@ fn node_row_from_row(row: &Row) -> Result<NodeRow, StoreError> {
     let node = UnitNode::from(Block {
         id: row.id(0)?,
         parent_id: row.id(1)?,
-        block_type: BlockType::from(row.text(2)?),
+        block_type: crate::blocks::block_type_column(row, 2, "type")?,
         title: row.text(3)?,
         fields: fields.clone(),
         created_at: row.int(5)?,

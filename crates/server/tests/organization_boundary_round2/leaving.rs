@@ -22,7 +22,7 @@ async fn organizations_of(client: &Client) -> (Option<String>, String) {
     let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
     let shared = listed
         .iter()
-        .find(|workspace| workspace.kind == OrgKind::Team)
+        .find(|workspace| workspace.kind == OrgKind::Shared)
         .map(|workspace| workspace.org_id.clone());
     let space = listed
         .iter()

@@ -401,12 +401,12 @@ describe('a course in memory', () => {
     ]);
 
     // Restoring u1 while its parent chapter is still deleted places it at top.
-    const restoredUnit = await courses.undeleteUnit(made.course.id, u1.id);
+    const restoredUnit = await courses.restoreUnit(made.course.id, u1.id);
     expect(restoredUnit.parentId).toBe('');
     expect(await shape(made)).toEqual(['Standalone', 'Welcome']);
 
     // Restoring the chapter brings it and its child back.
-    await courses.undeleteUnit(made.course.id, ch.id);
+    await courses.restoreUnit(made.course.id, ch.id);
     expect(await shape(made)).toEqual([['Basics', ['Included']], 'Standalone', 'Welcome']);
     expect(await courses.deletedUnits(made.course.id)).toEqual([]);
   });

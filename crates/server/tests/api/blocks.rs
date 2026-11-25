@@ -180,7 +180,7 @@ pub(crate) fn block_path(board_id: &str, block_id: &str) -> String {
 }
 
 pub(crate) fn undelete_path(board_id: &str, block_id: &str) -> String {
-    format!("{}/undelete", block_path(board_id, block_id))
+    format!("{}/restore", block_path(board_id, block_id))
 }
 
 fn duplicate_path(board_id: &str, block_id: &str) -> String {
@@ -2033,7 +2033,7 @@ async fn delete_block_takes_the_children_along() {
     th.teardown().await;
 }
 
-// -- POST /boards/{board_id}/blocks/{block_id}/undelete ---------------------------------
+// -- POST /boards/{board_id}/blocks/{block_id}/restore ---------------------------------
 
 /// Undelete refusals are checked in order (board, block, permission), and undeleting
 /// restores the block.

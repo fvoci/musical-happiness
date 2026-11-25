@@ -1,6 +1,6 @@
 /**
  * Unit schedule field validation (`amount`, `amountUnit`, `scheduledDate`) and
- * unit undelete logic for the in-memory course backend (`memory/courses.ts`).
+ * unit restore logic for the in-memory course backend (`memory/courses.ts`).
  */
 import { isAmountUnit, isValidUnitAmount } from '../../logic/course-schedule.ts';
 import { parseCalendarDate, type CalendarDate } from '../../logic/dates.ts';
@@ -136,7 +136,7 @@ export function patchedUnitScheduleFields(
   return next;
 }
 
-export interface UndeleteUnitHost {
+export interface RestoreUnitHost {
   world: World;
   userId: string;
   courseId: string;
@@ -148,7 +148,7 @@ export interface UndeleteUnitHost {
 }
 
 /** Restores a deleted unit or chapter (with its child units & comments) from trash. */
-export function memoryUndeleteUnit(host: UndeleteUnitHost): CourseUnitDetail {
+export function memoryRestoreUnit(host: RestoreUnitHost): CourseUnitDetail {
   const { world, userId, courseId, unitId, tree } = host;
   const deleted = world.deletedBlocks.get(unitId);
   const [top] = deleted?.blocks ?? [];

@@ -257,7 +257,7 @@ impl From<Block> for Unit {
 }
 
 /// A unit or chapter in the trash, at the top of what went with it, as the trash of a
-/// course lists it: `undeleteUnit` brings it back, and for a chapter brings back the
+/// course lists it: `restoreUnit` brings it back, and for a chapter brings back the
 /// units deleted along with it.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
@@ -530,12 +530,12 @@ mod tests {
 
     #[test]
     fn unit_has_a_room_and_chapter_has_no_body_and_no_room() {
-        let unit = BlockType::from("unit");
-        let chapter = BlockType::from("chapter");
+        let unit: BlockType = "unit".parse().expect("known type");
+        let chapter: BlockType = "chapter".parse().expect("known type");
         assert_eq!(unit, BlockType::Unit);
         assert_eq!(chapter, BlockType::Chapter);
-        assert_eq!(String::from(unit.clone()), "unit");
-        assert_eq!(String::from(chapter.clone()), "chapter");
+        assert_eq!(unit.as_str(), "unit");
+        assert_eq!(chapter.as_str(), "chapter");
         assert!(unit.has_body() && unit.has_room() && !unit.is_current() && unit.takes_comments());
         assert!(
             !chapter.has_body()
@@ -565,18 +565,12 @@ mod tests {
             block.validate()
         };
         for block_type in [BlockType::Unit, BlockType::Chapter] {
-            assert_eq!(
-                with(block_type.clone(), PAGE_ORDER_FIELD, json!("V1")),
-                Ok(())
-            );
-            assert_eq!(
-                with(block_type.clone(), PAGE_ORDER_FIELD, json!(null)),
-                Ok(())
-            );
+            assert_eq!(with(block_type, PAGE_ORDER_FIELD, json!("V1")), Ok(()));
+            assert_eq!(with(block_type, PAGE_ORDER_FIELD, json!(null)), Ok(()));
             for bad in [json!(5), json!(""), json!("V0"), json!("a b")] {
                 assert!(
                     matches!(
-                        with(block_type.clone(), PAGE_ORDER_FIELD, bad.clone()),
+                        with(block_type, PAGE_ORDER_FIELD, bad.clone()),
                         Err(BlockError::InvalidUnitField { field, .. }) if field == PAGE_ORDER_FIELD
                     ),
                     "{block_type}: {bad}"

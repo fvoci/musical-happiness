@@ -76,7 +76,7 @@ impl Case {
         let kinds: Vec<OrgKind> = listed.iter().map(|listed| listed.kind).collect();
         assert_eq!(
             kinds,
-            [OrgKind::Team, OrgKind::Personal],
+            [OrgKind::Shared, OrgKind::Personal],
             "a founder sees only the workspace of their organization, and their own space"
         );
         let workspace = listed[0].id.clone();
@@ -425,8 +425,8 @@ async fn keep_a_diary(case: &mut Case) {
     case.send("deleteDiaryEntry", deleted).await;
     let trash = format!("{diary}/trash/entries");
     ask(case, "getDeletedDiaryEntries", get, &trash, json!({})).await;
-    let back = format!("{entry}/undelete");
-    ask(case, "undeleteDiaryEntry", post, &back, json!({})).await;
+    let back = format!("{entry}/restore");
+    ask(case, "restoreDiaryEntry", post, &back, json!({})).await;
 }
 
 /// Keep response semantics while replacing generated identifiers, times and the

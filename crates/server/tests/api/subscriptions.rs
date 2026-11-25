@@ -399,8 +399,8 @@ async fn create_subscription_answer_and_subscribing_again() {
         "what is stored is what was answered"
     );
 
-    // The block type is whatever the client says, also another one than the block's.
-    for block_type in ["text", "whatever"] {
+    // The block type may be any closed BlockType variant, also another one than the block's.
+    for block_type in ["view", "comment"] {
         let card = insert_card(&th.client, &board.id).await;
         let mut body = request(&card.id, &me);
         body["blockType"] = json!(block_type);
@@ -411,6 +411,13 @@ async fn create_subscription_answer_and_subscribing_again() {
         let listed = get_subscriptions(&th.client, &me).await.value();
         let listed = listed.as_array().expect("a list");
         assert!(listed.contains(&answer), "{answer} is among {listed:?}");
+    }
+
+    // Unknown block type strings are rejected at deserialization time.
+    for block_type in ["text", "whatever"] {
+        let mut body = request(&card.id, &me);
+        body["blockType"] = json!(block_type);
+        th.client.post(PATH, &body).await.check_bad_request();
     }
 
     th.teardown().await;
@@ -505,7 +512,7 @@ async fn a_subscription_goes_to_the_trash_with_its_block_and_comes_back_with_it(
     check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
 
     th.client
-        .post_empty(&format!("{block_path}/undelete"))
+        .post_empty(&format!("{block_path}/restore"))
         .await
         .check_ok();
     assert_eq!(

@@ -404,7 +404,7 @@ async fn who_watched_a_card_or_a_page_watches_it_again_once_it_is_back() {
         .check_ok();
     th.client
         .post(
-            &format!("{TEST_WS}/wikis/{wiki}/pages/{}/undelete", page.id),
+            &format!("{TEST_WS}/wikis/{wiki}/pages/{}/restore", page.id),
             &json!({}),
         )
         .await

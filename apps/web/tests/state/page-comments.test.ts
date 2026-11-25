@@ -206,7 +206,7 @@ describe('the comments on a page, in memory', () => {
     expect(await rejection(mine.restoreComment(...at, admins.id))).toBe(404);
     const [listed] = await mine.deletedPages(made.wikiId);
     expect(listed?.below).toBe(0);
-    await mine.undeletePage(made.wikiId, made.pageId);
+    await mine.restorePage(made.wikiId, made.pageId);
     expect((await mine.comments(...at)).map((comment) => comment.id)).toEqual([own.id]);
   });
 

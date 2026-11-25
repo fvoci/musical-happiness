@@ -151,10 +151,9 @@ mod tests {
             BlockType::Comment,
             BlockType::View,
             BlockType::Attachment,
-            BlockType::Other("text".to_owned()),
         ] {
             assert_eq!(
-                LinkedBlock::of(&block(other.clone()), &container),
+                LinkedBlock::of(&block(other), &container),
                 None,
                 "{other:?}"
             );

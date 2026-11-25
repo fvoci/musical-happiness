@@ -59,9 +59,7 @@ impl App {
     /// Returns the blocks of a board, optionally only those with the given parent or of
     /// the given type, in no particular order.
     ///
-    /// The type is compared as the stored string: [`BlockType::Other`] finds the blocks
-    /// of a type the server does not know. The empty type does not filter. An empty
-    /// board identifier finds nothing.
+    /// An empty board identifier finds nothing.
     ///
     /// # Errors
     ///
@@ -79,8 +77,8 @@ impl App {
         if let Some(parent_id) = parent_id {
             filter = filter.with_parent(parent_id);
         }
-        if let Some(block_type) = block_type {
-            filter = filter.with_type(block_type.clone());
+        if let Some(&block_type) = block_type {
+            filter = filter.with_type(block_type);
         }
         let mut blocks = self.store().get_blocks(&filter).await?;
         hide_inactive_numbers(&mut blocks);
@@ -399,11 +397,21 @@ impl App {
             .collect();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_delete(&container.workspace_id, &block.id, &block.container_id)
+                .broadcast_block_delete(
+                    &container.workspace_id,
+                    &block.id,
+                    &block.container_id,
+                    block.block_type,
+                )
                 .await;
             for child_id in &child_card_ids {
                 app.ws()
-                    .broadcast_block_delete(&container.workspace_id, child_id, &block.container_id)
+                    .broadcast_block_delete(
+                        &container.workspace_id,
+                        child_id,
+                        &block.container_id,
+                        BlockType::Card,
+                    )
                     .await;
             }
         });

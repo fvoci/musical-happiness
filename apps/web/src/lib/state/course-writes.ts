@@ -217,7 +217,7 @@ export class CourseWrites {
   }
 
   async restoreUnit(unitId: string): Promise<void> {
-    const back = await this.#host.courses().undeleteUnit(this.#host.courseId, unitId);
+    const back = await this.#host.courses().restoreUnit(this.#host.courseId, unitId);
     this.#host.takeUnit(back);
     this.#host.reread();
   }

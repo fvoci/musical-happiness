@@ -64,7 +64,7 @@ async fn shared_organizations_of(client: &Client) -> Vec<String> {
     let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
     listed
         .into_iter()
-        .filter(|workspace| workspace.kind == OrgKind::Team)
+        .filter(|workspace| workspace.kind == OrgKind::Shared)
         .map(|workspace| workspace.org_id)
         .collect()
 }
@@ -507,7 +507,7 @@ async fn get_my_organizations_returns_shared_orgs_including_zero_workspace_orgs(
         ts.client2.get("/users/me/workspaces").await.ok_json();
     for ws in member_workspaces
         .into_iter()
-        .filter(|ws| ws.kind == OrgKind::Team)
+        .filter(|ws| ws.kind == OrgKind::Shared)
     {
         if ws.id != ROOT_WORKSPACE_ID {
             ts.client

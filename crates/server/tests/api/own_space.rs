@@ -27,7 +27,7 @@ pub(crate) async fn workspaces_and_own(client: &Client) -> (Vec<UserWorkspace>, 
     assert!(
         workspaces
             .iter()
-            .all(|workspace| workspace.kind == OrgKind::Team && workspace.org_id != own.org_id),
+            .all(|workspace| workspace.kind == OrgKind::Shared && workspace.org_id != own.org_id),
         "one space of the user's own: {workspaces:?}"
     );
     (workspaces, own)

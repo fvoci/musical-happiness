@@ -478,7 +478,7 @@ async fn subscription_ties_fall_back_to_identifiers() {
     common::insert_blocks(store, &mut cards, &users[0]).await;
     let subscribe = async |block: &Block, user_id: &str| {
         let subscription = Subscription {
-            block_type: block.block_type.clone(),
+            block_type: block.block_type,
             block_id: block.id.clone(),
             user_id: user_id.to_owned(),
             notified_at: 0,

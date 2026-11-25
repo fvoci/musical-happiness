@@ -33,7 +33,7 @@ pub(super) async fn exercise(case: &mut Case) {
         trash.text().contains(&board),
         "the deleted board is in this founder's trash"
     );
-    case.run("undeleteContainer", &[("boardId", &board)], json!({}))
+    case.run("restoreContainer", &[("boardId", &board)], json!({}))
         .await;
     // Keep private fixtures behind for the next founder's template and trash reads.
     for template in [true, false] {
@@ -191,7 +191,7 @@ async fn courses(case: &mut Case) {
     case.run("moveUnit", of_unit, json!({"parentId": ""})).await;
     case.run("deleteUnit", of_unit, json!({})).await;
     case.present("getDeletedUnits", at, &unit).await;
-    case.run("undeleteUnit", of_unit, json!({})).await;
+    case.run("restoreUnit", of_unit, json!({})).await;
 }
 
 /// Course study meetings, attendance, exams, and personal exam scores.
@@ -368,7 +368,7 @@ async fn unit_comments(case: &mut Case, course: &str, unit: &str) {
     case.run("getUnitCommentVersions", of_comment, json!({}))
         .await;
     case.run("deleteUnitComment", of_comment, json!({})).await;
-    case.run("undeleteUnitComment", of_comment, json!({})).await;
+    case.run("restoreUnitComment", of_comment, json!({})).await;
 }
 
 /// Pages of the wiki, one below the other: made, listed, read, changed, moved,
@@ -428,7 +428,7 @@ async fn pages(case: &mut Case, wiki: &str) {
         .await;
     case.run("deletePage", of_below, json!({})).await;
     case.present("getDeletedPages", at, &below).await;
-    case.run("undeletePage", of_below, json!({})).await;
+    case.run("restorePage", of_below, json!({})).await;
     case.run("deletePage", of_below, json!({})).await;
 }
 
@@ -491,7 +491,7 @@ async fn page_comments(case: &mut Case, wiki: &str, page: &str) {
     case.run("getPageCommentVersions", of_comment, json!({}))
         .await;
     case.run("deletePageComment", of_comment, json!({})).await;
-    case.run("undeletePageComment", of_comment, json!({})).await;
+    case.run("restorePageComment", of_comment, json!({})).await;
 }
 
 async fn cards(case: &mut Case, board: &str) -> String {
@@ -585,7 +585,7 @@ async fn cards(case: &mut Case, board: &str) -> String {
         trash.text().contains(&card),
         "deleted card is visible in its trash"
     );
-    case.run("undeleteBlock", card_at, json!({})).await;
+    case.run("restoreBlock", card_at, json!({})).await;
     card
 }
 
@@ -809,15 +809,15 @@ async fn subscriptions(case: &mut Case, card: &str) {
 }
 
 async fn bulk(case: &mut Case) {
-    let made = case.run("createBoardsAndBlocks", &[], json!({
+    let made = case.run("createContainersAndBlocks", &[], json!({
         "containers": [{"id": "board-reference", "title": "Bulk board", "visibility": "private", "workspaceId": case.workspace}],
         "blocks": [{"id": "card-reference", "containerId": "board-reference", "title": "Bulk card", "type": "card", "createdAt": 1, "updatedAt": 1}]
     })).await.value();
     let board = case.remember(&made["containers"][0], "id");
     let card = case.remember(&made["blocks"][0], "id");
-    case.run("patchBoardsAndBlocks", &[], json!({"containerIds": [board], "containerPatches": [{"title": "Bulk changed"}], "blockIds": [card], "blockPatches": [{"title": "Bulk card changed"}]})).await;
+    case.run("patchContainersAndBlocks", &[], json!({"containerIds": [board], "containerPatches": [{"title": "Bulk changed"}], "blockIds": [card], "blockPatches": [{"title": "Bulk card changed"}]})).await;
     case.run(
-        "deleteBoardsAndBlocks",
+        "deleteContainersAndBlocks",
         &[],
         json!({"containers": [board], "blocks": [card]}),
     )

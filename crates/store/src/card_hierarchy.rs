@@ -35,7 +35,7 @@ pub(crate) async fn parent_on_container(
         .push_bind(" AND container_id = ", Id(container_id));
     match scope.fetch_optional(sql).await? {
         Some(row) => {
-            let block_type = BlockType::from(row.text(0)?);
+            let block_type = crate::blocks::block_type_column(&row, 0, "type")?;
             let fields = row.json_map(1, "fields")?;
             let is_template = fields.get("isTemplate") == Some(&Value::Bool(true));
             Ok(Some(ParentInfo {
@@ -176,8 +176,8 @@ pub(crate) async fn check_restore(
             };
             Some(parent)
         };
-        let parent_type = parent.as_ref().map(|parent| &parent.block_type);
-        if let Some(source) = comment_places::restore_refusal(&block.block_type, parent_type) {
+        let parent_type = parent.as_ref().map(|parent| parent.block_type);
+        if let Some(source) = comment_places::restore_refusal(block.block_type, parent_type) {
             return Err(StoreError::NotRestorable {
                 id: block.id.clone(),
                 source,

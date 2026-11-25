@@ -182,7 +182,7 @@ pub use time_entries::{NewStoredTimeEntry, TimeEntryFilter, TimeEntryPatchOutcom
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use unit_reviews::DueReviewCandidate;
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
-pub use users::{AdminChange, InstanceRole, Preference};
+pub use users::{AdminChange, InstanceRole};
 pub use visibility::{VisibilityScope, VisibilityVersion};
 pub use workspace_membership::MembershipChange;
 

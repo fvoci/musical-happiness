@@ -54,7 +54,7 @@ async fn subscriptions_are_scoped_even_when_the_subscriber_uses_both_organizatio
         (&scene.b_app, &scene.card_b),
     ] {
         app.create_subscription(Subscription {
-            block_type: card.block_type.clone(),
+            block_type: card.block_type,
             block_id: card.id.clone(),
             user_id: scene.user.clone(),
             notified_at: 0,

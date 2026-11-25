@@ -60,11 +60,11 @@ describe('the trash of pages in memory', () => {
     expect(listed[0]?.deletedBy).toBe(made.workspace.me?.id);
     expect((await wikis.deletedPages(made.wikiId, { page: 1, perPage: 1 })).length).toBe(1);
     // One that went with the page it was below comes back with that page only.
-    expect((await rejection(wikis.undeletePage(made.wikiId, b))).status).toBe(404);
-    const back = await wikis.undeletePage(made.wikiId, a);
+    expect((await rejection(wikis.restorePage(made.wikiId, b))).status).toBe(404);
+    const back = await wikis.restorePage(made.wikiId, a);
     expect(back.id).toBe(a);
     expect(titles(await wikis.pages(made.wikiId))).toEqual(['A', '  B', '    C']);
-    expect((await rejection(wikis.undeletePage(made.wikiId, a))).status).toBe(404);
+    expect((await rejection(wikis.restorePage(made.wikiId, a))).status).toBe(404);
   });
 
   it('brings a page whose parent is gone back last at the top, held to the limits', async () => {
@@ -77,13 +77,13 @@ describe('the trash of pages in memory', () => {
     await wikis.deletePage(made.wikiId, b);
     await wikis.deletePage(made.wikiId, a);
     wikis.limits = { depth: 10, pages: 2 };
-    const full = await rejection(wikis.undeletePage(made.wikiId, b));
+    const full = await rejection(wikis.restorePage(made.wikiId, b));
     expect([full.reason, full.limit]).toEqual(['too_many_pages', 2]);
     wikis.limits = { depth: 1, pages: 100 };
-    const deep = await rejection(wikis.undeletePage(made.wikiId, b));
+    const deep = await rejection(wikis.restorePage(made.wikiId, b));
     expect([deep.reason, deep.limit]).toEqual(['page_too_deep', 1]);
     wikis.limits = { depth: 10, pages: 100 };
-    await wikis.undeletePage(made.wikiId, b);
+    await wikis.restorePage(made.wikiId, b);
     expect(titles(await wikis.pages(made.wikiId))).toEqual(['D', 'B', '  C']);
   });
 
@@ -94,7 +94,7 @@ describe('the trash of pages in memory', () => {
     const b = await made.page('B');
     await wikis.deletePage(made.wikiId, b);
     await made.page('C');
-    await wikis.undeletePage(made.wikiId, b);
+    await wikis.restorePage(made.wikiId, b);
     const top = await wikis.pages(made.wikiId);
     expect(new Set(top.map((page) => page.order)).size).toBe(3);
     expect(titles(top)[0]).toBe('A');
@@ -196,7 +196,7 @@ describe('the trash of pages in an open wiki', () => {
     await made.backend.wiki.deletePage(made.wikiId, a);
     await settle();
     expect(made.store.pages).toEqual([]);
-    await made.backend.wiki.undeletePage(made.wikiId, a);
+    await made.backend.wiki.restorePage(made.wikiId, a);
     await settle();
     expect(titles(made.store.pages)).toEqual(['A', '  B']);
 
@@ -235,7 +235,7 @@ describe('the trash of pages in an open wiki', () => {
     await made.backend.wiki.deletePage(made.wikiId, a);
     await settle();
     expect(shown?.missing).toBe(true);
-    await made.backend.wiki.undeletePage(made.wikiId, a);
+    await made.backend.wiki.restorePage(made.wikiId, a);
     await settle();
     expect([shown?.missing, shown?.status]).toEqual([false, 'ready']);
   });
@@ -333,7 +333,7 @@ describe('a page copied with the pages below it', () => {
     expect(copy.icon).toBe('📘');
     expect((await wikis.page(made.wikiId, copy.id)).body).toEqual(body);
     await made.workspace.undoLast();
-    await wikis.undeletePage(made.wikiId, copy.id);
+    await wikis.restorePage(made.wikiId, copy.id);
     await made.workspace.redoLast();
     await settle();
     expect(made.workspace.problems).toEqual([]);

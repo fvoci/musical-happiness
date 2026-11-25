@@ -31,7 +31,7 @@ fn shown_block(row: &Row) -> Result<Block, StoreError> {
         id: row.id(0)?,
         container_id: row.id(1)?,
         parent_id: row.id(2)?,
-        block_type: BlockType::from(row.text(3)?),
+        block_type: crate::blocks::block_type_column(row, 3, "type")?,
         title: row.text(4)?,
         fields: row.json_map(5, "fields")?,
         updated_at: row.int(6)?,

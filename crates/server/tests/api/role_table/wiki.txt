@@ -5,7 +5,7 @@ container: patch title           200         200         403         403        
 container: patch visibility         200         403         403         403         404         403         403         404         403        404=        404=
 container: change visibility         200         403         403         403         404         403         403         404         403        404=        404=
 container: delete                204         403         403         403         404         403         403         404         204        404=        404=
-container: undelete              200         403         403         403         404         404         403         404         200        404=        404=
+container: restore               200         403         403         403         404         404         403         404         200        404=        404=
 trash: list                     200+        200-        200-        200-        200-        200-         404         404        200+        404=        200-
 members: list                    200         200         200         200         404         200         200         404         200        404=        404=
 members: add                     200         403         403         403         404         403         403         404         200        404=        404=
@@ -42,11 +42,11 @@ pages: trash                     200         200         403         403        
 pages: comments                  200         200         200         200         404         200         200         404         404        404=        404=
 pages: comment                   201         201         201         403         404         403         201         404         404        404=        404=
 pages: versions                  200         200         200         200         404         200         200         404         404        404=        404=
-pages: undelete                  200         200         403         403         404         403         200         404         404        404=        404=
+pages: restore                   200         200         403         403         404         403         200         404         404        404=        404=
 pages: comment versions          200         200         200         200         404         200         200         404         404        404=        404=
 pages: comment change            200         403         403         403         404         403         403         404         404        404=        404=
 pages: comment delete            204         403         403         403         404         403         403         404         404        404=        404=
-pages: comment undelete          200         403         403         403         404         403         403         404         404        404=        404=
+pages: comment restore           200         403         403         403         404         403         403         404         404        404=        404=
 pages: version                   200         200         200         200         404         200         200         404         404        404=        404=
 pages: version restore           200         200         403         403         404         403         200         404         404        404=        404=
 pages: keep version              200         200         403         403         404         403         200         404         404        404=        404=

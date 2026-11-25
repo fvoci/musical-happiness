@@ -196,7 +196,6 @@ async fn get_cards_fixture(th: &TestServer) -> Container {
             .map(|text| Block {
                 created_by: user_id.clone(),
                 modified_by: user_id.clone(),
-                schema: 1,
                 title: format!("text {text} for card {number}"),
                 ..new_block(&board.id, &created.id, BlockType::Attachment)
             })
@@ -533,7 +532,6 @@ async fn app_get_cards_success_scenario() {
         .await;
     let mut blocks: Vec<Block> = (0..CARD_COUNT)
         .map(|number| Block {
-            schema: 1,
             title: format!("card {number}"),
             ..new_block(&board.id, "", BlockType::Card)
         })
@@ -840,7 +838,6 @@ async fn create_card_answer_and_stored_block() {
             "parentId": "",
             "createdBy": me.id,
             "modifiedBy": me.id,
-            "schema": 1,
             "type": "card",
             "title": "t",
             // A content order is no member of a card: what the request had is not stored.

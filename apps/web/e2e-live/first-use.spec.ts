@@ -137,7 +137,7 @@ test('somebody starts an organization, and a second person comes in by its link 
 
   // The first board, open to the workspace.
   const made = page.waitForResponse(
-    (answer) => answer.url().endsWith('/boards-and-blocks') && answer.status() === 201,
+    (answer) => answer.url().endsWith('/containers-and-blocks') && answer.status() === 201,
   );
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();

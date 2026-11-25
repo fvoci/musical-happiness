@@ -142,7 +142,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
   const clock = (): number => SEED_EPOCH + (tick += 1) * MINUTE;
   const world = new World(clock);
 
-  world.workspace = { id: world.newId(), title: 'fvoci', kind: 'team' };
+  world.workspace = { id: world.newId(), title: 'fvoci', kind: 'shared' };
 
   const users: User[] = PEOPLE.map((person, index) => {
     const at = world.now();
@@ -280,7 +280,6 @@ function seedAttachment(world: World, reader: User): void {
     parentId: firstCard.id,
     createdBy: reader.id,
     modifiedBy: reader.id,
-    schema: 1,
     type: 'attachment',
     title: 'kick-off-notes.txt',
     fields: {},

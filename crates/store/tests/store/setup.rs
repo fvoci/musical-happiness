@@ -930,6 +930,37 @@ pub(crate) async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
     }
 }
 
+async fn seed_legacy_content_block_types(conn: &str, ids: [&str; 4], trashed_h1_id: &str) {
+    let (drop_check, rewrite_trashed_h1) = match common::db_type() {
+        fvoci_store::DbType::Sqlite => (
+            "",
+            format!(
+                "UPDATE deleted_blocks SET block = json_set(block, '$.type', 'h1') WHERE id = '{trashed_h1_id}'"
+            ),
+        ),
+        fvoci_store::DbType::Postgres => (
+            "ALTER TABLE blocks DROP CONSTRAINT IF EXISTS blocks_type_check; ",
+            format!(
+                "UPDATE deleted_blocks SET block = jsonb_set(block::jsonb, '{{type}}', '\"h1\"'::jsonb)::json WHERE id = '{trashed_h1_id}'"
+            ),
+        ),
+    };
+    common::execute_raw(
+        conn,
+        &format!(
+            "{drop_check}\
+             UPDATE blocks SET type = 'board' WHERE id = '{}'; \
+             UPDATE blocks SET type = 'image' WHERE id = '{}'; \
+             UPDATE blocks SET type = 'text' WHERE id = '{}'; \
+             UPDATE blocks SET type = 'checkbox' WHERE id = '{}'; \
+             {rewrite_trashed_h1}; \
+             INSERT INTO data_steps (name) VALUES ('content_blocks');",
+            ids[0], ids[1], ids[2], ids[3],
+        ),
+    )
+    .await;
+}
+
 /// The step of migration 8 deletes the content blocks an older server stored, with what
 /// is below them, on the board and in the trash, and leaves the files that only they
 /// showed to be collected. The other blocks and their files stay.
@@ -941,67 +972,63 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
     save_files(&test, board_id, &["7image.png", "7kept.png"]).await;
-    let block = |block_type: &str, fields: serde_json::Value| Block {
+    let block = |block_type: BlockType, fields: serde_json::Value| Block {
         id: new_id(),
         container_id: board_id.clone(),
-        block_type: BlockType::from(block_type),
+        block_type,
         fields: serde_json::from_value(fields).expect("the fields are a JSON object"),
         ..Block::default()
     };
     let none = serde_json::json!({});
-    // A card, an attachment, a view and a legacy board block that stay; an image, a
-    // text, a heading in the trash and a checkbox that go. The image is stored as an
-    // attachment first, which puts down its file, and then made an image as an older
-    // server stored it.
     let mut blocks = [
-        block("card", none.clone()),
-        block("attachment", serde_json::json!({"fileId": "7kept.png"})),
-        block("view", none.clone()),
-        block("board", none.clone()),
-        block("attachment", serde_json::json!({"fileId": "7image.png"})),
-        block("text", none.clone()),
-        block("h1", none.clone()),
-        block("checkbox", none.clone()),
+        block(BlockType::Card, none.clone()),
+        block(
+            BlockType::Attachment,
+            serde_json::json!({"fileId": "7kept.png"}),
+        ),
+        block(BlockType::View, none.clone()),
+        block(BlockType::View, none.clone()),
+        block(
+            BlockType::Attachment,
+            serde_json::json!({"fileId": "7image.png"}),
+        ),
+        block(BlockType::View, none.clone()),
+        block(BlockType::View, none.clone()),
+        block(BlockType::View, none.clone()),
     ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
-    // A block below the text and one below the heading, which takes it to the trash:
-    // they go with them. (Attachments: a comment is on a card.)
     let mut below = [
         Block {
             parent_id: blocks[5].id.clone(),
-            ..block("attachment", none.clone())
+            ..block(BlockType::Attachment, none.clone())
         },
         Block {
             parent_id: blocks[6].id.clone(),
-            ..block("attachment", none)
+            ..block(BlockType::Attachment, none)
         },
     ];
     common::insert_blocks(&test, &mut below, &user_id).await;
-    // The block below the text goes to the trash on its own, below a block that goes.
     for trashed in [&below[0].id, &blocks[6].id] {
         test.delete_block(trashed, &user_id)
             .await
             .expect("the block goes to the trash");
     }
     test.store.close().await;
-    common::execute_raw(
-        &test.database_connection(),
-        &format!(
-            "UPDATE blocks SET type = 'image' WHERE id = '{}'",
-            blocks[4].id
-        ),
-    )
-    .await;
-    common::execute_raw(
-        &test.database_connection(),
-        "INSERT INTO data_steps (name) VALUES ('content_blocks')",
-    )
-    .await;
+    let legacy = [
+        blocks[3].id.as_str(),
+        &blocks[4].id,
+        &blocks[5].id,
+        &blocks[7].id,
+    ];
+    seed_legacy_content_block_types(&test.database_connection(), legacy, &blocks[6].id).await;
 
     let store = test.reconnect().await;
-    for kept in &blocks[..4] {
+    for kept in &blocks[..3] {
         store.get_block(&kept.id).await.expect("the block stays");
     }
+    let sql = format!("SELECT type FROM blocks WHERE id = '{}'", blocks[3].id);
+    let kept_legacy_board = store.texts_unchecked(&sql).await.expect("legacy board row");
+    assert_eq!(kept_legacy_board, ["board"], "migration 8 step keeps board");
     for gone in blocks[4..].iter().chain(&below) {
         let error = store
             .get_block(&gone.id)
@@ -1014,8 +1041,9 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         .await
         .expect_err("nor in the trash");
     assert!(error.is_not_found(), "{error:?}");
+    let now = crate::blocks::now_millis() + 3_600_000;
     let collected: Vec<String> = store
-        .collect_unreferenced_files(crate::blocks::now_millis() + 3_600_000)
+        .collect_unreferenced_files(now)
         .await
         .expect("the files no block shows are collected")
         .into_iter()

@@ -78,11 +78,11 @@ const SOMEBODY_ELSE_DELETED: &str =
 /// admins do, each refused in its own words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlockAction<'a> {
-    /// Change it (`patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`).
+    /// Change it (`patchBlock`, `patchBlocks`, `patchContainersAndBlocks`).
     Change,
-    /// Delete it (`deleteBlock`, `deleteBoardsAndBlocks`).
+    /// Delete it (`deleteBlock`, `deleteContainersAndBlocks`).
     Delete,
-    /// Bring it back from the trash (`undeleteBlock`), where the deletion of
+    /// Bring it back from the trash (`restoreBlock`), where the deletion of
     /// `deleted_by` put it.
     Undelete {
         /// Who deleted it; empty if nobody did.

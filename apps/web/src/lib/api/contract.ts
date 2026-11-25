@@ -2413,48 +2413,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/boards-and-blocks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Make boards with their blocks
-         * @description Makes boards and their blocks together, all or none, under identifiers the server
-         *     makes; the identifiers of the request only say which block belongs to which board
-         *     and to which other block. The request needs at least one board and one block; every
-         *     board needs an `id`, and all boards are of one workspace. The user becomes the admin of
-         *     each board, and each board that is no template is filed under the user's default
-         *     category. They are boards: one whose `kind` is not `board` is 400 at its `kind`.
-         */
-        post: operations["createBoardsAndBlocks"];
-        /**
-         * Delete boards and blocks together
-         * @description Deletes several boards of one workspace, all or none. The request names at least one
-         *     board, and every block it names must be on one of its boards and be the user's to
-         *     delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
-         *     board takes all of its blocks along. The boards go to the trash as `deleteContainer`
-         *     puts them there, and `undeleteContainer` brings each back with its blocks. For the
-         *     admins of every board named.
-         */
-        delete: operations["deleteBoardsAndBlocks"];
-        options?: never;
-        head?: never;
-        /**
-         * Change boards and blocks together
-         * @description Applies a patch to each of several boards of one workspace and to blocks of those
-         *     boards, all or none. The request names at least one board, and every block it names
-         *     is on one of its boards: blocks alone are not changed this way. Each board needs
-         *     what `patchContainer` needs, each block what `patchBlock` needs; a board's patch that
-         *     names a `kind` is 400 at `/containerPatches/{index}/kind`.
-         */
-        patch: operations["patchBoardsAndBlocks"];
-        trace?: never;
-    };
     "/api/v1/w/{workspaceId}/boards/search": {
         parameters: {
             query?: never;
@@ -2536,7 +2494,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a block
-         * @description The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
+         * @description The block goes to the trash with the blocks below it, and `restoreBlock` brings it
          *     back until the trash is emptied of it. For editors; a comment is its author's to
          *     delete from the commenter's role up, and a comment of somebody else the board's
          *     admins' only (403, `access denied to delete other users' comments`), also as a
@@ -2581,7 +2539,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/undelete": {
+    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -2605,7 +2563,7 @@ export interface paths {
          *     card alone, so a comment that went with its card comes back for whoever may bring
          *     back the card.
          */
-        post: operations["undeleteBlock"];
+        post: operations["restoreBlock"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2675,7 +2633,7 @@ export interface paths {
          *     `relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`
          *     (a block of the board that is no card) or `relation_card_not_found`: no card of that
          *     identifier on the board, which is also the answer for a card of another board. Every
-         *     write of a card checks so (`patchCard`, the block routes, `createBoardsAndBlocks`)
+         *     write of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)
          *     the values it changes, and does not ask again for a card that a value named before.
          */
         post: operations["createCard"];
@@ -2745,7 +2703,7 @@ export interface paths {
         /**
          * The deleted cards of a board
          * @description One page of the board's cards that are in the trash, each with its identifier, its
-         *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
+         *     title, when it was deleted and by whom; `restoreBlock` brings one back until the
          *     trash is emptied of it. A card that went with the block it was on (another card, a
          *     view) comes back with that block, and is not listed. For the board's editors. The
          *     last deleted first; the pages cut that order.
@@ -3061,6 +3019,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/containers-and-blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make boards with their blocks
+         * @description Makes boards and their blocks together, all or none, under identifiers the server
+         *     makes; the identifiers of the request only say which block belongs to which board
+         *     and to which other block. The request needs at least one board and one block; every
+         *     board needs an `id`, and all boards are of one workspace. The user becomes the admin of
+         *     each board, and each board that is no template is filed under the user's default
+         *     category. They are boards: one whose `kind` is not `board` is 400 at its `kind`.
+         */
+        post: operations["createContainersAndBlocks"];
+        /**
+         * Delete boards and blocks together
+         * @description Deletes several boards of one workspace, all or none. The request names at least one
+         *     board, and every block it names must be on one of its boards and be the user's to
+         *     delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
+         *     board takes all of its blocks along. The boards go to the trash as `deleteContainer`
+         *     puts them there, and `restoreContainer` brings each back with its blocks. For the
+         *     admins of every board named.
+         */
+        delete: operations["deleteContainersAndBlocks"];
+        options?: never;
+        head?: never;
+        /**
+         * Change boards and blocks together
+         * @description Applies a patch to each of several boards of one workspace and to blocks of those
+         *     boards, all or none. The request names at least one board, and every block it names
+         *     is on one of its boards: blocks alone are not changed this way. Each board needs
+         *     what `patchContainer` needs, each block what `patchBlock` needs; a board's patch that
+         *     names a `kind` is 400 at `/containerPatches/{index}/kind`.
+         */
+        patch: operations["patchContainersAndBlocks"];
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/containers/{containerId}": {
         parameters: {
             query?: never;
@@ -3078,7 +3078,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a board
-         * @description The board goes to the trash with its blocks and its members, and `undeleteContainer`
+         * @description The board goes to the trash with its blocks and its members, and `restoreContainer`
          *     brings it back until the trash is emptied of it. Team IDs and their roles are kept,
          *     but grant no access while the board is in the trash. Its sharing ends, with its read
          *     token, and so do its places in the users' sidebars and the subscriptions to its
@@ -3555,6 +3555,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a deleted board back
+         * @description Restores a board from the trash with its blocks and its members. Each user who had
+         *     filed it, and can see it again, finds it where it was in the sidebar (the same
+         *     category and place, hidden or not) or in the default category if that one was
+         *     deleted since, and is told with `containerCategoriesChanged` and the category's
+         *     `categoryContainersReordered`. Its sharing and the subscriptions to its blocks ended with
+         *     the deletion and stay ended. Surviving teams regain their saved roles for their
+         *     current members; deleted teams are skipped. For who was an admin of the board when
+         *     it was deleted, and for the workspace's administrators (who, if they were no member,
+         *     get it without its description and properties); to anybody else there is no such board.
+         */
+        post: operations["restoreContainer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/containers/{containerId}/teams": {
         parameters: {
             query?: never;
@@ -3600,34 +3628,6 @@ export interface paths {
          *     roles inherited from other teams remain. Idempotent for an existing team.
          */
         delete: operations["removeContainerTeam"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/w/{workspaceId}/containers/{containerId}/undelete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Bring a deleted board back
-         * @description Restores a board from the trash with its blocks and its members. Each user who had
-         *     filed it, and can see it again, finds it where it was in the sidebar (the same
-         *     category and place, hidden or not) or in the default category if that one was
-         *     deleted since, and is told with `containerCategoriesChanged` and the category's
-         *     `categoryContainersReordered`. Its sharing and the subscriptions to its blocks ended with
-         *     the deletion and stay ended. Surviving teams regain their saved roles for their
-         *     current members; deleted teams are skipped. For who was an admin of the board when
-         *     it was deleted, and for the workspace's administrators (who, if they were no member,
-         *     get it without its description and properties); to anybody else there is no such board.
-         */
-        post: operations["undeleteContainer"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4130,7 +4130,7 @@ export interface paths {
          * The deleted units and chapters of a course
          * @description One page of the course's chapters and units that are in the trash, each with its
          *     identifier, `kind`, title, the chapter it was below, when it was deleted, by whom,
-         *     and (for a chapter) how many units below it went with it; `undeleteUnit` brings one
+         *     and (for a chapter) how many units below it went with it; `restoreUnit` brings one
          *     back until the trash is emptied of it. A unit that went with its chapter comes back
          *     with that chapter, and is not listed separately. For editors of the course. The last
          *     deleted first; the pages cut that order.
@@ -4373,7 +4373,7 @@ export interface paths {
         patch: operations["patchUnitComment"];
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/undelete": {
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -4384,17 +4384,17 @@ export interface paths {
         put?: never;
         /**
          * Bring a deleted comment on a unit back
-         * @description A comment deleted on its own comes back onto its unit, as `undeletePageComment`
+         * @description A comment deleted on its own comes back onto its unit, as `restorePageComment`
          *     brings a page's comment back: for its author from the commenter's role up if they
          *     deleted it themselves, and for the course's admins whoever wrote or deleted it (403,
          *     `access denied to undelete other users' comments`, and for the author of a comment
          *     somebody else deleted, `a comment somebody else deleted is brought back by the
          *     board's admins`). A comment that went to the trash with its unit comes back with the
-         *     unit (`undeleteUnit`), not on its own; that one, one not in the trash, and one of
+         *     unit (`restoreUnit`), not on its own; that one, one not in the trash, and one of
          *     another unit are not there (404), nor is any while the unit is in the trash. Who
          *     reads the course is told with `blockChanged`.
          */
-        post: operations["undeleteUnitComment"];
+        post: operations["restoreUnitComment"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4517,6 +4517,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring back a unit or chapter
+         * @description Restores the unit from the course's trash, or restores the chapter together with the
+         *     units deleted along with it, for editors of the course: below the chapter it was
+         *     below at the place it had (right after the siblings before it if a sibling took that
+         *     place since), or, if that chapter is gone (in the trash or purged), last at the top
+         *     of the course. Held to the course's limits: 400 with the reason `too_many_units` or
+         *     `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
+         *     not in this course's trash, or a unit that went with its chapter (it comes back with
+         *     that chapter), is 404. The course's listeners are told with `blockChanged` of each
+         *     block that came back (a chapter before its units, and each unit before its comments)
+         *     and each sibling numbered anew.
+         */
+        post: operations["restoreUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/reviews": {
         parameters: {
             query?: never;
@@ -4562,35 +4591,6 @@ export interface paths {
          */
         put: operations["putUnitSchedule"];
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/undelete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Bring back a unit or chapter
-         * @description Restores the unit from the course's trash, or restores the chapter together with the
-         *     units deleted along with it, for editors of the course: below the chapter it was
-         *     below at the place it had (right after the siblings before it if a sibling took that
-         *     place since), or, if that chapter is gone (in the trash or purged), last at the top
-         *     of the course. Held to the course's limits: 400 with the reason `too_many_units` or
-         *     `too_many_chapters` (each with the `limit`) if restoring would exceed them. A block
-         *     not in this course's trash, or a unit that went with its chapter (it comes back with
-         *     that chapter), is 404. The course's listeners are told with `blockChanged` of each
-         *     block that came back (a chapter before its units, and each unit before its comments)
-         *     and each sibling numbered anew.
-         */
-        post: operations["undeleteUnit"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4731,7 +4731,7 @@ export interface paths {
          * Delete an entry
          * @description An entry with a body or any note (mood, weather or place) goes to the trash of its
          *     diary, where it holds no day so the day takes a new entry; it is restored by
-         *     `undeleteDiaryEntry`, and gone for good when the trash is emptied of it. A completely
+         *     `restoreDiaryEntry`, and gone for good when the trash is emptied of it. A completely
          *     empty entry (no body, no mood, no weather and no place) is removed for good without
          *     entering the trash.
          */
@@ -4827,7 +4827,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/undelete": {
+    "/api/v1/w/{workspaceId}/diaries/{diaryId}/entries/{entryId}/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -4844,7 +4844,7 @@ export interface paths {
          *     entries as one may, 400 with the reason `too_many_entries` and the `limit`. 404 if
          *     the trash of the diary has no such entry.
          */
-        post: operations["undeleteDiaryEntry"];
+        post: operations["restoreDiaryEntry"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5354,8 +5354,9 @@ export interface paths {
          * @description Subscribes the user of the session to a block of a board, a page of a wiki, or a unit
          *     of a course they may read: whoever writes a card, a page or a unit watches it, and
          *     may stop and start again. A chapter of a course takes no subscriptions (404). A
-         *     `userId` that is not the user of the session is 403. The `blockType` is stored as it
-         *     is sent, and not compared with the block. Subscribing again is no error: the
+         *     `userId` that is not the user of the session is 403. The `blockType` must be a known
+         *     `BlockType` (400 otherwise), and is stored without comparing it with the block's own
+         *     type. Subscribing again is no error: the
          *     subscription stays as it was made, with its `blockType` and `createdAt`, and only its
          *     `notifiedAt` is set anew.
          */
@@ -5537,12 +5538,12 @@ export interface paths {
          * The deleted boards of a workspace
          * @description One page of the workspace's boards that are in the trash and that the user was an admin
          *     of when they were deleted, or every one of them for an administrator of the
-         *     workspace, which is who `undeleteContainer` lets bring them back: each
+         *     workspace, which is who `restoreContainer` lets bring them back: each
          *     with its identifier, its title, when it was deleted and by whom. The last deleted
          *     first; the pages cut that order. For users of the workspace.
          *
          *     The wikis in the trash are in the same list, which go there and come back as boards
-         *     do (`deleteContainer`, `undeleteContainer`): each entry says its `kind`.
+         *     do (`deleteContainer`, `restoreContainer`): each entry says its `kind`.
          */
         get: operations["getDeletedContainers"];
         put?: never;
@@ -5947,7 +5948,7 @@ export interface paths {
         patch: operations["patchPageComment"];
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete": {
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -5958,17 +5959,17 @@ export interface paths {
         put?: never;
         /**
          * Bring a deleted comment on a page back
-         * @description A comment deleted on its own comes back onto its page, as `undeleteBlock` brings a
+         * @description A comment deleted on its own comes back onto its page, as `restoreBlock` brings a
          *     card's comment back: for its author from the commenter's role up if they deleted it
          *     themselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied
          *     to undelete other users' comments`, and for the author of a comment somebody else
          *     deleted, `a comment somebody else deleted is brought back by the board's admins`). A
          *     comment that went to the trash with its page comes back with the page
-         *     (`undeletePage`), not on its own; that one, one not in the trash, and one of another
+         *     (`restorePage`), not on its own; that one, one not in the trash, and one of another
          *     page are not there (404), nor is any while the page is in the trash. Who reads the
          *     wiki is told with `blockChanged`.
          */
-        post: operations["undeletePageComment"];
+        post: operations["restorePageComment"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6062,7 +6063,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/undelete": {
+    "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -6085,7 +6086,7 @@ export interface paths {
          *     with `blockChanged` of each page and comment that came back, a page before what is
          *     below it, and of each page numbered anew to leave it room.
          */
-        post: operations["undeletePage"];
+        post: operations["restorePage"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6103,7 +6104,7 @@ export interface paths {
          * The deleted pages of a wiki
          * @description One page of the wiki's pages that are in the trash, each with its identifier, its
          *     title and icon, the page it was below, when it was deleted, by whom, and how many
-         *     pages below it went with it; `undeletePage` brings one back with those until the
+         *     pages below it went with it; `restorePage` brings one back with those until the
          *     trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
          *     went with the page it was below comes back with that page, and is not listed. For
          *     the wiki's editors. The last deleted first; the pages cut that order.
@@ -6330,11 +6331,10 @@ export interface components {
             /**
              * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
              *     comment, an attachment, a page, an entry, a unit or a chapter and 800,000 for a
-             *     view or a block of another type. The `icon` of a card is a string and its
-             *     `isTemplate` a boolean, or either `null` (400 naming `fields` otherwise). A page
-             *     has its `icon` and its `order` here, as `Page` gives them, an entry its `date`,
-             *     `mood`, `weather` and `place`, as `DiaryEntry` gives them, and a unit or chapter
-             *     its `order`, as `Unit` gives it.
+             *     view. The `icon` of a card is a string and its `isTemplate` a boolean, or either
+             *     `null` (400 naming `fields` otherwise). A page has its `icon` and its `order`
+             *     here, as `Page` gives them, an entry its `date`, `mood`, `weather` and `place`,
+             *     as `DiaryEntry` gives them, and a unit or chapter its `order`, as `Unit` gives it.
              */
             fields: {
                 [key: string]: unknown;
@@ -6352,22 +6352,17 @@ export interface components {
             number?: number | null;
             /** @description The identifier of the parent block; empty for root blocks. */
             parentId: string;
-            /**
-             * Format: int64
-             * @description The schema version of the block.
-             */
-            schema: number;
             /** @description The display title. A title with U+0000 is refused (400 naming `title`). */
             title: string;
             /**
              * @description The block type: `card`, `view`, `comment` or `attachment` on a board, `page`
-             *     and `comment` (on a page) on a wiki, `entry` on a diary, and `chapter` and `unit`
-             *     on a course. No request of blocks makes a block of another type or patches one
-             *     into it (400 naming `type`), nor a page, an entry, a unit or a chapter:
-             *     `createPage` makes pages, `createPageComment` the comments of a wiki,
-             *     `createDiaryEntry` entries, and `createUnit` chapters and units.
+             *     and `comment` (on a page) on a wiki, `entry` on a diary, and `chapter`, `unit`
+             *     and `comment` (on a unit) on a course. No request of blocks makes a block of
+             *     another type or patches one into it (400 naming `type`), nor a page, an entry,
+             *     a unit or a chapter: `createPage` makes pages, `createPageComment` the comments
+             *     of a wiki, `createDiaryEntry` entries, and `createUnit` chapters and units.
              */
-            type: string;
+            type: components["schemas"]["BlockType"];
             /**
              * Format: int64
              * @description Last modification time in milliseconds since the Unix epoch.
@@ -6387,18 +6382,9 @@ export interface components {
              *     since, the patch is refused.
              */
             readAt?: number | null;
-            /**
-             * Format: int64
-             * @description The new schema version.
-             */
-            schema?: number | null;
             /** @description The new title. */
             title?: string | null;
-            /**
-             * @description The new block type: `card`, `view`, `comment` or `attachment`. Any other is
-             *     refused (400 naming `type`).
-             */
-            type?: string | null;
+            type?: components["schemas"]["BlockType"] | null;
             /** @description Fields to set, replacing any existing value under the same key. */
             updatedFields?: {
                 [key: string]: unknown;
@@ -6411,6 +6397,14 @@ export interface components {
             /** @description The patches, one per identifier. */
             blockPatches: components["schemas"]["BlockPatch"][];
         };
+        /**
+         * @description The type of a block.
+         *
+         *     A block of a board is `card`, `view`, `comment` or `attachment`, a wiki has `page`
+         *     and `comment`, a diary has `entry`, and a course has `chapter`, `unit` and `comment`.
+         * @enum {string}
+         */
+        BlockType: "card" | "view" | "comment" | "attachment" | "page" | "entry" | "unit" | "chapter";
         /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
         Body: {
             [key: string]: unknown;
@@ -6742,6 +6736,18 @@ export interface components {
              *     answers each search 503 (`search_unavailable`).
              */
             searchEnabled: boolean;
+        };
+        /**
+         * @description A change to the bag of state a client keeps with the account: entries the server
+         *     stores without knowing what they mean.
+         */
+        ClientStatePatch: {
+            /** @description Names of entries to remove. */
+            deletedFields?: string[];
+            /** @description Entries to set, by name. */
+            updatedFields?: {
+                [key: string]: string;
+            };
         };
         /**
          * @description A text a comment had before its body was changed: the body then, who wrote it and
@@ -7209,7 +7215,7 @@ export interface components {
             containers: string[];
         };
         /**
-         * @description An entry in the trash, as the trash of a diary lists it: `undeleteDiaryEntry` brings
+         * @description An entry in the trash, as the trash of a diary lists it: `restoreDiaryEntry` brings
          *     it back to its day.
          */
         DeletedDiaryEntry: {
@@ -7228,7 +7234,7 @@ export interface components {
         };
         /**
          * @description A card or a board in the trash, with as much as it takes to decide whether to bring
-         *     it back (`undeleteBlock`, `undeleteContainer`).
+         *     it back (`restoreBlock`, `restoreContainer`).
          */
         DeletedItem: {
             /**
@@ -7246,7 +7252,7 @@ export interface components {
         };
         /**
          * @description A page in the trash, at the top of what went with it, as the trash of a wiki lists
-         *     it: `undeletePage` brings it back with the pages below it.
+         *     it: `restorePage` brings it back with the pages below it.
          */
         DeletedPage: {
             /**
@@ -7275,7 +7281,7 @@ export interface components {
         };
         /**
          * @description A unit or chapter in the trash, at the top of what went with it, as the trash of a
-         *     course lists it: `undeleteUnit` brings it back, and for a chapter brings back the
+         *     course lists it: `restoreUnit` brings it back, and for a chapter brings back the
          *     units deleted along with it.
          */
         DeletedUnit: {
@@ -8022,18 +8028,13 @@ export interface components {
              *     block of the request. Left out for a block directly on its board.
              */
             parentId?: string;
-            /**
-             * Format: int64
-             * @description The schema version of the block.
-             */
-            schema?: number;
             /** @description The display title. */
             title?: string;
             /**
              * @description The block type: `card`, `view`, `comment` or `attachment`. Any other type is
              *     refused (400 naming `type`): a card's content is its body.
              */
-            type: string;
+            type: components["schemas"]["BlockType"];
             /**
              * Format: int64
              * @description Must be 1 or more. The server does not keep it.
@@ -8286,7 +8287,7 @@ export interface components {
             /** @description The identifier of the block subscribed to. */
             blockId: string;
             /** @description The type of the block subscribed to. */
-            blockType: string;
+            blockType: components["schemas"]["BlockType"];
             /** @description The user of the session: a user subscribes for themselves only. */
             userId: string;
         };
@@ -8577,7 +8578,7 @@ export interface components {
          * @description What an organization is.
          * @enum {string}
          */
-        OrgKind: "team" | "personal";
+        OrgKind: "shared" | "personal";
         /** @description A member of an organization, as its administrators list them. */
         OrgMember: components["schemas"]["PersonName"] & {
             /** @description The name the user shows; empty for none. */
@@ -9252,7 +9253,7 @@ export interface components {
             /** @description The identifier of the block subscribed to. */
             blockId: string;
             /** @description The type of the block subscribed to. */
-            blockType: string;
+            blockType: components["schemas"]["BlockType"];
             /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
@@ -9873,18 +9874,6 @@ export interface components {
             role: components["schemas"]["OrgRole"];
         };
         /**
-         * @description A change to the bag of state a client keeps with the account: entries the server
-         *     stores without knowing what they mean.
-         */
-        UserPreferencesPatch: {
-            /** @description Names of entries to remove. */
-            deletedFields?: string[];
-            /** @description Entries to set, by name. */
-            updatedFields?: {
-                [key: string]: string;
-            };
-        };
-        /**
          * @description The settings of a user. Every member has a value: what was never set, or was reset,
          *     is at its default.
          */
@@ -9923,7 +9912,7 @@ export interface components {
             id: string;
             /**
              * @description What that organization is: `personal` for the one workspace of the user's own
-             *     space, `team` for every other.
+             *     space, `shared` for every other.
              */
             kind: components["schemas"]["OrgKind"];
             /**
@@ -12197,7 +12186,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserPreferencesPatch"];
+                "application/json": components["schemas"]["ClientStatePatch"];
             };
         };
         responses: {
@@ -13292,112 +13281,6 @@ export interface operations {
             };
         };
     };
-    createBoardsAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewContainersAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards in the order of the request, and the blocks board by board in that order, each board's in the order of the request. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContainersAndBlocks"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteBoardsAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteContainersAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards and blocks are deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchBoardsAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchContainersAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards and the blocks as they are now, each in the order of the request. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContainersAndBlocks"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
     searchWorkspaceBoards: {
         parameters: {
             query?: {
@@ -13677,7 +13560,7 @@ export interface operations {
             };
         };
     };
-    undeleteBlock: {
+    restoreBlock: {
         parameters: {
             query?: never;
             header?: never;
@@ -14460,6 +14343,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": string[];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createContainersAndBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewContainersAndBlocks"];
+            };
+        };
+        responses: {
+            /** @description The boards in the order of the request, and the blocks board by board in that order, each board's in the order of the request. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainersAndBlocks"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteContainersAndBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteContainersAndBlocks"];
+            };
+        };
+        responses: {
+            /** @description The boards and blocks are deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchContainersAndBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchContainersAndBlocks"];
+            };
+        };
+        responses: {
+            /** @description The boards and the blocks as they are now, each in the order of the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainersAndBlocks"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -15414,6 +15403,40 @@ export interface operations {
             };
         };
     };
+    restoreContainer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board, the wiki, the diary or the course. */
+                containerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Container"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getContainerTeams: {
         parameters: {
             query?: never;
@@ -15508,40 +15531,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    undeleteContainer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board, the wiki, the diary or the course. */
-                containerId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The board as it is again. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Container"];
-                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -17026,7 +17015,7 @@ export interface operations {
             };
         };
     };
-    undeleteUnitComment: {
+    restoreUnitComment: {
         parameters: {
             query?: never;
             header?: never;
@@ -17261,6 +17250,42 @@ export interface operations {
             };
         };
     };
+    restoreUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
+                courseId: string;
+                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
+                unitId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unit or chapter as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     scheduleUnitReview: {
         parameters: {
             query?: never;
@@ -17328,42 +17353,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnitProgress"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    undeleteUnit: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is. */
-                courseId: string;
-                /** @description The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course. */
-                unitId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The unit or chapter as it is again. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Unit"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -17834,7 +17823,7 @@ export interface operations {
             };
         };
     };
-    undeleteDiaryEntry: {
+    restoreDiaryEntry: {
         parameters: {
             query?: never;
             header?: never;
@@ -19677,7 +19666,7 @@ export interface operations {
             };
         };
     };
-    undeletePageComment: {
+    restorePageComment: {
         parameters: {
             query?: never;
             header?: never;
@@ -19833,7 +19822,7 @@ export interface operations {
             };
         };
     };
-    undeletePage: {
+    restorePage: {
         parameters: {
             query?: never;
             header?: never;

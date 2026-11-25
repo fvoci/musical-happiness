@@ -70,7 +70,7 @@ async fn a_user_lists_the_workspaces_they_are_a_member_of() {
         serde_json::json!({
             "id": ROOT_WORKSPACE_ID,
             "orgId": first[0].org_id,
-            "kind": "team",
+            "kind": "shared",
             "name": crate::common::ORG_NAME,
             "role": "admin",
             "ssoRequired": false,

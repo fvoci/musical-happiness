@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use fvoci_model::UserPreferencesPatch;
+use fvoci_model::ClientStatePatch;
 use fvoci_store::StoreError;
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -139,12 +139,12 @@ async fn changes_at_once_never_overfill_the_bag_of_client_state() {
     let test = common::setup().await;
     let store = &test.store;
     let limit = fvoci_model::CLIENT_STATE_MAX_ENTRIES;
-    let entries = |names: Vec<String>| UserPreferencesPatch {
+    let entries = |names: Vec<String>| ClientStatePatch {
         updated_fields: names
             .into_iter()
             .map(|name| (name, "v".to_owned()))
             .collect(),
-        ..UserPreferencesPatch::default()
+        ..ClientStatePatch::default()
     };
 
     for round in 0..ROUNDS {
@@ -153,7 +153,7 @@ async fn changes_at_once_never_overfill_the_bag_of_client_state() {
             .map(|index| format!("before-{index:03}"))
             .collect();
         store
-            .patch_user_preferences(&user_id, &entries(before))
+            .patch_client_state(&user_id, &entries(before))
             .await
             .expect("the bag takes what leaves room");
 
@@ -165,7 +165,7 @@ async fn changes_at_once_never_overfill_the_bag_of_client_state() {
             let patch = entries(vec![format!("added-{adder:02}")]);
             adders.spawn(async move {
                 start.wait().await;
-                store.patch_user_preferences(&user_id, &patch).await
+                store.patch_client_state(&user_id, &patch).await
             });
         }
         let outcomes = adders.join_all().await;
@@ -181,14 +181,14 @@ async fn changes_at_once_never_overfill_the_bag_of_client_state() {
                         bag.len()
                     );
                 }
-                Err(StoreError::TooManyPreferences { limit: said }) => {
+                Err(StoreError::TooManyClientStateEntries { limit: said }) => {
                     assert_eq!(*said, limit, "round {round}: the limit the refusal names");
                 }
                 Err(other) => panic!("round {round}: a change failed otherwise: {other:?}"),
             }
         }
         let stored = store
-            .get_user_preferences(&user_id)
+            .get_client_state(&user_id)
             .await
             .expect("the bag is read");
         assert!(

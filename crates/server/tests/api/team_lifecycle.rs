@@ -60,7 +60,7 @@ async fn board_restore_keeps_surviving_teams_and_uses_their_current_people() {
         .await
         .check_status(StatusCode::NOT_FOUND);
     th.client2
-        .post(&format!("{path}/undelete"), &json!({}))
+        .post(&format!("{path}/restore"), &json!({}))
         .await
         .check_status(StatusCode::NOT_FOUND);
     th.client
@@ -77,7 +77,7 @@ async fn board_restore_keeps_surviving_teams_and_uses_their_current_people() {
         .await
         .check_no_content();
     th.client
-        .post(&format!("{path}/undelete"), &json!({}))
+        .post(&format!("{path}/restore"), &json!({}))
         .await
         .check_ok();
     let assigned: Vec<ContainerTeam> = th.client.get(&format!("{path}/teams")).await.ok_json();
@@ -254,7 +254,7 @@ async fn a_manager_who_restores_a_board_through_its_teams_puts_everyone_it_opens
         "a board in the trash opens nothing"
     );
     th.client
-        .post(&format!("{path}/undelete"), &json!({}))
+        .post(&format!("{path}/restore"), &json!({}))
         .await
         .check_ok();
     th.client.get(&path).await.check_ok();
@@ -309,7 +309,7 @@ async fn an_admin_of_the_board_who_restores_it_records_nobody() {
         .check_no_content();
     th.client.delete(&path).await.check_no_content();
     th.client
-        .post(&format!("{path}/undelete"), &json!({}))
+        .post(&format!("{path}/restore"), &json!({}))
         .await
         .check_ok();
     assert_eq!(

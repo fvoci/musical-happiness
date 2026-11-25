@@ -266,7 +266,6 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       parentId,
       createdBy: userId,
       modifiedBy: userId,
-      schema: 1,
       type: 'page',
       title,
       fields: { icon },
@@ -401,8 +400,8 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
    * has it (then right after the pages before it), or, its parent gone, last
    * at the top.
    */
-  async undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail> {
-    await this.#enter('undeletePage');
+  async restorePage(wikiId: string, pageId: string): Promise<WikiPageDetail> {
+    await this.#enter('restorePage');
     this.#mayWrite(wikiId);
     const world = this.#world;
     const deleted = world.deletedBlocks.get(pageId);

@@ -1,4 +1,4 @@
-//! Boards: listing, creating, reading, patching, deleting, duplicating and undeleting.
+//! Boards: listing, creating, reading, patching, deleting, duplicating and restoring.
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
@@ -40,7 +40,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_delete_container
         ))
         .routes(routes!(handle_duplicate_container))
-        .routes(routes!(handle_undelete_container))
+        .routes(routes!(handle_restore_container))
         .routes(routes!(handle_reorder_card_properties))
 }
 
@@ -298,7 +298,7 @@ async fn handle_reorder_card_properties(
 
 /// Delete a board
 ///
-/// The board goes to the trash with its blocks and its members, and `undeleteContainer`
+/// The board goes to the trash with its blocks and its members, and `restoreContainer`
 /// brings it back until the trash is emptied of it. Team IDs and their roles are kept,
 /// but grant no access while the board is in the trash. Its sharing ends, with its read
 /// token, and so do its places in the users' sidebars and the subscriptions to its
@@ -433,13 +433,13 @@ async fn handle_duplicate_container(
 /// get it without its description and properties); to anybody else there is no such board.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/containers/{containerId}/undelete",
-    operation_id = "undeleteContainer",
+    path = "/w/{workspaceId}/containers/{containerId}/restore",
+    operation_id = "restoreContainer",
     tag = tag::CONTAINERS,
     params(MemberWorkspaceId, ContainerId),
     responses((status = 200, description = "The board as it is again.", body = Container)),
 )]
-async fn handle_undelete_container(
+async fn handle_restore_container(
     InContainer(ws): InContainer,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {

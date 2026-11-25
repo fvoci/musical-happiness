@@ -49,7 +49,7 @@ test('a board is made with its first view, changed, deleted and brought back', a
 
   // "Add board", an empty one: the board and a kanban grouped by its "Status", made together.
   const made = page.waitForResponse(
-    (answer) => answer.url().endsWith('/boards-and-blocks') && answer.status() === 201,
+    (answer) => answer.url().endsWith('/containers-and-blocks') && answer.status() === 201,
   );
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();

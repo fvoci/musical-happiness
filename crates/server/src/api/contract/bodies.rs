@@ -13,8 +13,9 @@
 )]
 
 use fvoci_model::{
-    Body, CardOpen, CardPropertyDefinition, CategoryType, ContainerRole, ContainerVisibility,
-    Credential, Density, HourCycle, JsonMap, MinimumRole, NameShown, Theme, Title, WeekStart,
+    BlockType, Body, CardOpen, CardPropertyDefinition, CategoryType, ContainerRole,
+    ContainerVisibility, Credential, Density, HourCycle, JsonMap, MinimumRole, NameShown, Theme,
+    Title, WeekStart,
 };
 use utoipa::ToSchema;
 
@@ -122,10 +123,7 @@ pub(crate) struct NewBlock {
     /// The block type: `card`, `view`, `comment` or `attachment`. Any other type is
     /// refused (400 naming `type`): a card's content is its body.
     #[schema(rename = "type")]
-    block_type: String,
-    /// The schema version of the block.
-    #[schema(nullable = false)]
-    schema: Option<i64>,
+    block_type: BlockType,
     /// The display title.
     #[schema(nullable = false)]
     title: Option<String>,
@@ -252,7 +250,7 @@ pub(crate) struct PublicLinkRequest {
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewSubscription {
     /// The type of the block subscribed to.
-    block_type: String,
+    block_type: BlockType,
     /// The identifier of the block subscribed to.
     block_id: String,
     /// The user of the session: a user subscribes for themselves only.

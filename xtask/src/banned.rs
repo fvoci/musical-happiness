@@ -84,14 +84,15 @@ const BANNED_PHRASES: [&str; 8] = [
     concat!("원본", "에서 옮"),
 ];
 
-/// Retired pre-0075 timestamp identifiers refused in tracked project files (matched on
-/// ASCII identifier boundaries so words such as `createAttachment` or `updateAttributes`
-/// are not flagged).
-const RETIRED_TOKENS: [&str; 4] = [
+/// Retired pre-launch identifiers refused in tracked project files (matched on ASCII
+/// identifier boundaries so words such as `createAttachment` or `updateAttributes` are
+/// not flagged).
+const RETIRED_TOKENS: [&str; 5] = [
     concat!("create", "At"),
     concat!("update", "At"),
     concat!("create", "_at"),
     concat!("update", "_at"),
+    concat!("UserPreferences", "Patch"),
 ];
 
 /// Path prefixes exempt from [`BANNED_PHRASES`] (never from [`BANNED`]):

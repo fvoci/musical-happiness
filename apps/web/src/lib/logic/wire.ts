@@ -101,7 +101,6 @@ export interface Block {
   parentId: string;
   createdBy: string;
   modifiedBy: string;
-  schema: number;
   type: BlockType;
   title: string;
   fields: Record<string, unknown>;
@@ -116,7 +115,6 @@ export interface Block {
 
 export interface BlockPatch {
   parentId?: string;
-  schema?: number;
   type?: BlockType;
   title?: string;
   updatedFields?: Record<string, unknown>;
@@ -132,7 +130,6 @@ export function createBlock(source?: Block): Block {
   const now = Date.now();
   return {
     id: source?.id || createId(idKindOfBlockType(source?.type)),
-    schema: 1,
     containerId: source?.containerId || '',
     parentId: source?.parentId || '',
     createdBy: source?.createdBy || '',

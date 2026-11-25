@@ -209,7 +209,7 @@ async fn insert_organization_of(
 ) -> Result<(), StoreError> {
     let kind = match owner {
         Some(_) => OrgKind::Personal,
-        None => OrgKind::Team,
+        None => OrgKind::Shared,
     };
     let now = now_millis();
     let mut sql = scope.sql(

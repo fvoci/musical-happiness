@@ -79,7 +79,7 @@ fn block_validate_limits_the_serialized_fields_by_type() {
         let mut fields = fvoci_model::JsonMap::new();
         fields.insert("k".to_owned(), json!("a".repeat(len)));
         Block {
-            block_type: block_type.clone(),
+            block_type: *block_type,
             fields,
             ..block()
         }
@@ -110,41 +110,70 @@ fn block_validate_limits_the_serialized_fields_by_type() {
 /// A new block is a card, a view, a comment or an attachment (`docs/s6-design.md` 5.7).
 #[test]
 fn only_four_types_are_current() {
-    for name in ["card", "view", "comment", "attachment"] {
-        assert!(BlockType::from(name).is_current(), "{name}");
-    }
-    for name in [
-        "board", "text", "image", "checkbox", "divider", "h1", "", "Card",
+    for block_type in [
+        BlockType::Card,
+        BlockType::View,
+        BlockType::Comment,
+        BlockType::Attachment,
     ] {
-        assert!(!BlockType::from(name).is_current(), "{name:?}");
+        assert!(block_type.is_current(), "{block_type}");
+    }
+    for block_type in [
+        BlockType::Page,
+        BlockType::Entry,
+        BlockType::Unit,
+        BlockType::Chapter,
+    ] {
+        assert!(!block_type.is_current(), "{block_type}");
     }
 }
 
-/// The refusal of a type does not repeat what the client wrote.
+/// Container-specific block types map to their dedicated refusal errors.
 #[test]
-fn a_refused_type_is_not_repeated() {
-    for name in ["text", "h1", &"é".repeat(100)] {
-        let refusal = BlockError::type_not_current(&BlockType::from(name));
-        assert_eq!(refusal, BlockError::TypeNotCurrent, "{name}");
-        assert!(!refusal.to_string().contains(name), "{refusal}");
-    }
+fn non_board_block_types_name_their_operations() {
     assert_eq!(
         BlockError::type_not_current(&BlockType::Page),
         BlockError::PageByBlocks
+    );
+    assert_eq!(
+        BlockError::type_not_current(&BlockType::Entry),
+        BlockError::EntryByBlocks
+    );
+    assert_eq!(
+        BlockError::type_not_current(&BlockType::Unit),
+        BlockError::UnitByBlocks
+    );
+    assert_eq!(
+        BlockError::type_not_current(&BlockType::Chapter),
+        BlockError::UnitByBlocks
     );
 }
 
 /// A patch may give a block a type that a new block may have, and no other.
 #[test]
 fn a_patch_does_not_give_a_block_a_type_that_is_not_current() {
-    let to = |name: &str| BlockPatch {
-        block_type: Some(BlockType::from(name)),
+    let to = |block_type: BlockType| BlockPatch {
+        block_type: Some(block_type),
         ..BlockPatch::default()
     };
     assert_eq!(BlockPatch::default().check_type(), Ok(()), "no type");
-    assert_eq!(to("card").check_type(), Ok(()), "to a card");
-    assert_eq!(to("text").check_type(), Err(BlockError::TypeNotCurrent));
-    assert_eq!(to("h1").check_type(), Err(BlockError::TypeNotCurrent));
+    assert_eq!(to(BlockType::Card).check_type(), Ok(()), "to a card");
+    assert_eq!(
+        to(BlockType::Page).check_type(),
+        Err(BlockError::PageByBlocks)
+    );
+    assert_eq!(
+        to(BlockType::Entry).check_type(),
+        Err(BlockError::EntryByBlocks)
+    );
+    assert_eq!(
+        to(BlockType::Unit).check_type(),
+        Err(BlockError::UnitByBlocks)
+    );
+    assert_eq!(
+        to(BlockType::Chapter).check_type(),
+        Err(BlockError::UnitByBlocks)
+    );
 }
 
 #[test]

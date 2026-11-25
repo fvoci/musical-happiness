@@ -56,13 +56,13 @@ pub(super) async fn compare_query_targets(client: &Client, own: &Container, hidd
         };
         let concealed = Client::send(
             client
-                .request(method.clone(), &format!("{ROOT_WS}/boards-and-blocks"))
+                .request(method.clone(), &format!("{ROOT_WS}/containers-and-blocks"))
                 .json(&body(&hidden.id)),
         )
         .await;
         let missing = Client::send(
             client
-                .request(method.clone(), &format!("{ROOT_WS}/boards-and-blocks"))
+                .request(method.clone(), &format!("{ROOT_WS}/containers-and-blocks"))
                 .json(&body(UNKNOWN_ID)),
         )
         .await;

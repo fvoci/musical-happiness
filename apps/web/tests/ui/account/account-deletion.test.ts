@@ -67,10 +67,10 @@ describe('the settings', () => {
     await opened({
       ...open,
       organizations: [
-        { id: 'a', kind: 'team', name: 'Alone', boards: 3, wikis: 1, files: 12 },
-        { id: 'd', kind: 'team', name: 'Small', boards: 1, wikis: 0, files: 1 },
-        { id: 'b', kind: 'team', name: 'Walled' },
-        { id: 'c', kind: 'team', name: '', boards: 0, wikis: 0, files: 0 },
+        { id: 'a', kind: 'shared', name: 'Alone', boards: 3, wikis: 1, files: 12 },
+        { id: 'd', kind: 'shared', name: 'Small', boards: 1, wikis: 0, files: 1 },
+        { id: 'b', kind: 'shared', name: 'Walled' },
+        { id: 'c', kind: 'shared', name: '', boards: 0, wikis: 0, files: 0 },
       ],
     });
     const list = await screen.findByTestId('account-deletion-organizations');
@@ -85,7 +85,7 @@ describe('the settings', () => {
     await opened({
       ...open,
       organizations: [
-        { id: 'a', kind: 'team', name: 'Alone', boards: 1, wikis: 0, files: 0 },
+        { id: 'a', kind: 'shared', name: 'Alone', boards: 1, wikis: 0, files: 0 },
         { id: 'own', kind: 'personal', name: '', boards: 4, wikis: 1, diaries: 1, files: 2 },
       ],
     });
@@ -274,7 +274,7 @@ describe('the account that waits', () => {
     deleteAfter: Date.now() + 29 * DAY - 1000,
     organizations: [
       { id: 'own', kind: 'personal', name: '', boards: 2, wikis: 0, files: 0 },
-      { id: 'a', kind: 'team', name: 'Alone', boards: 1, wikis: 0, files: 0 },
+      { id: 'a', kind: 'shared', name: 'Alone', boards: 1, wikis: 0, files: 0 },
     ],
   };
 

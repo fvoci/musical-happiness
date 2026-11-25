@@ -596,8 +596,8 @@ describe('strict security, isolation and cache invalidation', () => {
   });
 
   it('evicts org caches on SSO requirement, leaving an organization, and OrgAdmin role/workspace changes', async () => {
-    const orgA: WorkspaceInfo = { id: 'ws-a', title: 'Org A', orgId: 'org-a', kind: 'team' };
-    const orgB: WorkspaceInfo = { id: 'ws-b', title: 'Org B', orgId: 'org-b', kind: 'team' };
+    const orgA: WorkspaceInfo = { id: 'ws-a', title: 'Org A', orgId: 'org-a', kind: 'shared' };
+    const orgB: WorkspaceInfo = { id: 'ws-b', title: 'Org B', orgId: 'org-b', kind: 'shared' };
     const { workspace, backend, boardsSpy } = multiWorkspaceSetup([orgA, orgB]);
     await workspace.load(orgA.id);
     workspace.rememberWikiPage('wiki-a', 'page-a');
@@ -691,9 +691,9 @@ describe('strict security, isolation and cache invalidation', () => {
   });
 
   it('evicts all sibling workspaces of an org on OrgAdmin.setRole()', async () => {
-    const orgA1: WorkspaceInfo = { id: 'ws-a1', title: 'Org A1', orgId: 'org-a', kind: 'team' };
-    const orgA2: WorkspaceInfo = { id: 'ws-a2', title: 'Org A2', orgId: 'org-a', kind: 'team' };
-    const orgB: WorkspaceInfo = { id: 'ws-b', title: 'Org B', orgId: 'org-b', kind: 'team' };
+    const orgA1: WorkspaceInfo = { id: 'ws-a1', title: 'Org A1', orgId: 'org-a', kind: 'shared' };
+    const orgA2: WorkspaceInfo = { id: 'ws-a2', title: 'Org A2', orgId: 'org-a', kind: 'shared' };
+    const orgB: WorkspaceInfo = { id: 'ws-b', title: 'Org B', orgId: 'org-b', kind: 'shared' };
     const { workspace, boardsSpy } = multiWorkspaceSetup([orgA1, orgA2, orgB]);
     await workspace.load(orgA1.id);
     await workspace.enter(orgA2.id);
@@ -874,8 +874,8 @@ describe('strict security, isolation and cache invalidation', () => {
   });
 
   it('does not re-cache an evicted active workspace or board on leave, and avoids zombie boards on evictOrg', async () => {
-    const orgA: WorkspaceInfo = { id: 'ws-a', title: 'Org A', orgId: 'org-a', kind: 'team' };
-    const orgB: WorkspaceInfo = { id: 'ws-b', title: 'Org B', orgId: 'org-b', kind: 'team' };
+    const orgA: WorkspaceInfo = { id: 'ws-a', title: 'Org A', orgId: 'org-a', kind: 'shared' };
+    const orgB: WorkspaceInfo = { id: 'ws-b', title: 'Org B', orgId: 'org-b', kind: 'shared' };
     const { workspace, first, boardsSpy } = multiWorkspaceSetup([orgA, orgB]);
     await workspace.load(first.id);
     const [b1, b2] = workspace.containers;

@@ -108,7 +108,7 @@ async fn database_before_courses() -> PreMigration {
             let mut block = Block {
                 id: new_id(),
                 container_id: container.id.clone(),
-                block_type: block_type.clone(),
+                block_type,
                 title: title.to_owned(),
                 ..Block::default()
             };

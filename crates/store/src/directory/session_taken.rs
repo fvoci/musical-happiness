@@ -153,7 +153,7 @@ impl SessionTaken {
 pub(crate) fn taken(kind: OrgKind, required_provider: String, password: &str) -> SessionTaken {
     match kind {
         OrgKind::Personal => SessionTaken::of_space(password),
-        OrgKind::Team => {
+        OrgKind::Shared => {
             SessionTaken::of_organization(Some(required_provider).filter(|id| !id.is_empty()))
         }
     }
@@ -182,7 +182,7 @@ impl Membership {
             kind: self.kind,
             name: self.name,
             role: self.role,
-            sso_required: closed && self.kind == OrgKind::Team,
+            sso_required: closed && self.kind == OrgKind::Shared,
             password_required: closed && self.kind == OrgKind::Personal,
         }
     }
@@ -383,11 +383,11 @@ mod tests {
             SessionTaken::Any
         );
         assert_eq!(
-            taken(OrgKind::Team, "a-provider".to_owned(), "set"),
+            taken(OrgKind::Shared, "a-provider".to_owned(), "set"),
             through("a-provider")
         );
         assert_eq!(
-            taken(OrgKind::Team, String::new(), "set"),
+            taken(OrgKind::Shared, String::new(), "set"),
             SessionTaken::Any
         );
     }

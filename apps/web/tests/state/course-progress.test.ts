@@ -217,7 +217,7 @@ describe('unit progress in memory backend', () => {
     ).toBe(404);
     expect((await made.backend.course.progressSummary(course.id)).totalUnits).toBe(1);
 
-    await made.backend.course.undeleteUnit(course.id, u1.id);
+    await made.backend.course.restoreUnit(course.id, u1.id);
     const restored = await made.backend.course.myProgress(course.id);
     expect(restored).toHaveLength(1);
     expect(restored[0]?.completedAt).toBe(cleared.completedAt);

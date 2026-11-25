@@ -260,18 +260,18 @@ pub(crate) async fn blocks(s: &mut Session) {
     s.get("list: views after delete", &format!("{path}?type=view"))
         .user(&alice)
         .await;
-    s.post("undelete: commenter", &format!("{path}/{view}/undelete"))
+    s.post("undelete: commenter", &format!("{path}/{view}/restore"))
         .user(&bob)
         .await;
-    s.post("undelete", &format!("{path}/{view}/undelete"))
+    s.post("undelete", &format!("{path}/{view}/restore"))
         .user(&alice)
         .await;
-    s.post("undelete: again", &format!("{path}/{view}/undelete"))
+    s.post("undelete: again", &format!("{path}/{view}/restore"))
         .user(&alice)
         .await;
     s.post(
         "undelete: unknown block",
-        &format!("{path}/unknown-block/undelete"),
+        &format!("{path}/unknown-block/restore"),
     )
     .user(&alice)
     .await;

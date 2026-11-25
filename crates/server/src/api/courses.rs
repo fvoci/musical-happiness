@@ -40,7 +40,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         ))
         .routes(routes!(handle_move_unit))
         .routes(routes!(handle_get_deleted_units))
-        .routes(routes!(handle_undelete_unit))
+        .routes(routes!(handle_restore_unit))
 }
 
 /// A course to make.
@@ -403,7 +403,7 @@ async fn handle_delete_unit(
 ///
 /// One page of the course's chapters and units that are in the trash, each with its
 /// identifier, `kind`, title, the chapter it was below, when it was deleted, by whom,
-/// and (for a chapter) how many units below it went with it; `undeleteUnit` brings one
+/// and (for a chapter) how many units below it went with it; `restoreUnit` brings one
 /// back until the trash is emptied of it. A unit that went with its chapter comes back
 /// with that chapter, and is not listed separately. For editors of the course. The last
 /// deleted first; the pages cut that order.
@@ -448,13 +448,13 @@ async fn handle_get_deleted_units(
 /// and each sibling numbered anew.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/undelete",
-    operation_id = "undeleteUnit",
+    path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/restore",
+    operation_id = "restoreUnit",
     tag = tag::COURSES,
     params(MemberWorkspaceId, CourseId, UnitId),
     responses((status = 200, description = "The unit or chapter as it is again.", body = Unit)),
 )]
-async fn handle_undelete_unit(
+async fn handle_restore_unit(
     InCourse(ws): InCourse,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {

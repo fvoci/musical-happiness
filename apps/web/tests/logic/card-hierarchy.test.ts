@@ -52,7 +52,6 @@ function card(
     updatedAt: 0,
     createdBy: '',
     modifiedBy: '',
-    schema: 1,
   });
   for (const [key, value] of Object.entries(opts.properties ?? {})) {
     setCardProperty(made, key, value);

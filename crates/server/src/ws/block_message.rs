@@ -50,7 +50,7 @@ pub(super) struct UpdateBlockMessage<'a> {
 
 impl<'a> UpdateBlockMessage<'a> {
     pub(super) fn new(workspace_id: &'a str, block: &'a Block) -> Self {
-        let (block, summary) = if block.block_type.has_room() {
+        let (block, summary) = if block.deleted_at.is_none() && block.block_type.has_room() {
             let summary = Summary::of(block.body.as_ref());
             (Cow::Owned(without_body(block)), Some(summary))
         } else if !block.takes_number() && block.number.is_some() {
@@ -97,7 +97,6 @@ fn without_body(block: &Block) -> Block {
         parent_id,
         created_by,
         modified_by,
-        schema,
         block_type,
         title,
         fields,
@@ -114,8 +113,7 @@ fn without_body(block: &Block) -> Block {
         parent_id: parent_id.clone(),
         created_by: created_by.clone(),
         modified_by: modified_by.clone(),
-        schema: *schema,
-        block_type: block_type.clone(),
+        block_type: *block_type,
         title: title.clone(),
         fields: fields.clone(),
         body: None,

@@ -62,7 +62,7 @@ const shared = (id: string, title: string, role: 'admin' | 'member', orgId: stri
   title,
   role,
   orgId,
-  kind: 'team',
+  kind: 'shared',
   passwordRequired: false,
 });
 
@@ -72,7 +72,7 @@ describe('the workspaces as the server lists them', () => {
       {
         id: 'a',
         orgId: ORG,
-        kind: 'team',
+        kind: 'shared',
         name: 'A',
         role: 'member',
         ssoRequired: true,
@@ -81,7 +81,7 @@ describe('the workspaces as the server lists them', () => {
       {
         id: 'b',
         orgId: 'another',
-        kind: 'team',
+        kind: 'shared',
         name: 'B',
         role: 'admin',
         ssoRequired: false,
@@ -291,7 +291,7 @@ describe('the workspace to start in', () => {
       closed = false,
     ): WorkspaceInfo => ({
       ...one(id, role, closed),
-      kind: 'team',
+      kind: 'shared',
     });
 
     it('is the workspace of the organization a new account started, not its own space', () => {

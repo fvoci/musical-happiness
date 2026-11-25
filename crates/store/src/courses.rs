@@ -131,7 +131,7 @@ impl Store {
             );
             sql.bind(Id(course_id))
                 .push(" AND type IN (")
-                .bind_list(COURSE_TYPES.iter().map(BlockType::as_str))
+                .bind_list(COURSE_TYPES.iter().copied().map(BlockType::as_str))
                 .push(")");
             let rows = scope.fetch_all(sql).await?;
             let mut units = Vec::with_capacity(rows.len());
@@ -139,7 +139,7 @@ impl Store {
                 units.push(UnitNode::from(Block {
                     id: row.id(0)?,
                     parent_id: row.id(1)?,
-                    block_type: BlockType::from(row.text(2)?),
+                    block_type: crate::blocks::block_type_column(row, 2, "type")?,
                     title: row.text(3)?,
                     fields: row.json_map(4, "fields")?,
                     created_at: row.int(5)?,
@@ -362,7 +362,7 @@ async fn course_outline(
     let mut sql = scope.sql("SELECT id, parent_id, type, fields FROM blocks WHERE container_id = ");
     sql.bind(Id(course_id))
         .push(" AND type IN (")
-        .bind_list(COURSE_TYPES.iter().map(BlockType::as_str))
+        .bind_list(COURSE_TYPES.iter().copied().map(BlockType::as_str))
         .push(")");
     let rows = scope.fetch_all(sql).await?;
     let mut nodes = Vec::with_capacity(rows.len());
@@ -370,7 +370,7 @@ async fn course_outline(
     for row in &rows {
         let id = row.id(0)?;
         let parent_id = row.id(1)?;
-        let block_type = BlockType::from(row.text(2)?);
+        let block_type = crate::blocks::block_type_column(row, 2, "type")?;
         let fields = row.json_map(3, "fields")?;
         if block_type == BlockType::Chapter {
             chapters.insert(id.clone());

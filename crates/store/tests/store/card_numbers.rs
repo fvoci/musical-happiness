@@ -54,7 +54,6 @@ fn block(board_id: &str, block_type: BlockType, title: &str) -> Block {
         container_id: board_id.to_owned(),
         block_type,
         title: title.to_owned(),
-        schema: 1,
         number: Some(999),
         ..Block::default()
     }

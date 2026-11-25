@@ -297,7 +297,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
         "blocks": [{"id": "p", "containerId": "b", "type": "page", "createdAt": 1, "updatedAt": 1}],
     });
     let with_board = client
-        .post(&format!("{TEST_WS}/boards-and-blocks"), &with_board)
+        .post(&format!("{TEST_WS}/containers-and-blocks"), &with_board)
         .await;
     check_refused_at(&with_board, "/blocks/0/type");
 
@@ -423,7 +423,7 @@ async fn a_page_is_subscribed_to_by_its_readers_and_not_brought_back_as_a_block(
         .check_not_found();
     for at in [&of_wiki, &blocks] {
         client
-            .post_empty(&format!("{at}/{}/undelete", page.id))
+            .post_empty(&format!("{at}/{}/restore", page.id))
             .await
             .check_not_found();
     }

@@ -414,10 +414,7 @@ async fn patch_containers_and_blocks() {
                     title: "initial title".to_owned(),
                     ..new_card(&block1_id, &board1_id)
                 },
-                Block {
-                    schema: 1,
-                    ..new_card(&block2_id, &board2_id)
-                },
+                new_card(&block2_id, &board2_id),
             ],
         };
 
@@ -430,7 +427,7 @@ async fn patch_containers_and_blocks() {
         // apply the patches
         let new_title = "new title";
         let new_description = "new description";
-        let new_schema: i64 = 2;
+        let second_title = "second title";
 
         let pbab = PatchContainersAndBlocks {
             container_ids: vec![board3_id.clone(), board1_id.clone()],
@@ -452,7 +449,7 @@ async fn patch_containers_and_blocks() {
                     ..BlockPatch::default()
                 },
                 BlockPatch {
-                    schema: Some(new_schema),
+                    title: Some(second_title.to_owned()),
                     ..BlockPatch::default()
                 },
             ],
@@ -483,7 +480,7 @@ async fn patch_containers_and_blocks() {
         assert_eq!(new_title, block1.title, "block 1 is patched");
 
         let block2 = test.get_block(&block2_id).await.expect("the block exists");
-        assert_eq!(new_schema, block2.schema, "block 2 is patched");
+        assert_eq!(second_title, block2.title, "block 2 is patched");
 
         // Added: what comes back is what was stored, in the order of the request.
         assert_eq!(bab.containers, [board3, board1], "the patched boards");

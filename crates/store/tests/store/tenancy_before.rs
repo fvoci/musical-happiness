@@ -299,7 +299,7 @@ async fn assert_the_workspaces_are_its_workspaces(
     assert_eq!(
         ids,
         [
-            (before.id("older_workspace"), OrgKind::Team),
+            (before.id("older_workspace"), OrgKind::Shared),
             (own[0].as_str(), OrgKind::Personal)
         ],
         "the default workspace, and the one of the space made with the account"
@@ -529,7 +529,7 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
         .await
         .expect("read");
     let own = OrgKind::Personal.as_str();
-    let shared = OrgKind::Team.as_str();
+    let shared = OrgKind::Shared.as_str();
     assert_eq!(kinds, [own, own, own, shared, shared]);
     let org_id = unset
         .instance_organization()
@@ -577,7 +577,7 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
         let kinds: Vec<OrgKind> = listed.iter().map(|workspace| workspace.kind).collect();
         assert_eq!(
             kinds,
-            [OrgKind::Team, OrgKind::Personal],
+            [OrgKind::Shared, OrgKind::Personal],
             "one workspace, and the one of the user's own space: {listed:?}"
         );
     }

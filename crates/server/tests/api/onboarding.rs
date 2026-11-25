@@ -229,14 +229,14 @@ async fn onboard_copies_the_welcome_board_as_a_private_board() {
     assert_eq!(board.title, WELCOME_TITLE, "it is the welcome board");
 
     let user_id = ts.client.me().await.id;
-    let preferences = ts
+    let client_state = ts
         .app
-        .user_preferences(&user_id)
+        .client_state(&user_id)
         .await
-        .expect("the preferences");
+        .expect("the client state");
     assert!(
-        preferences.is_empty(),
-        "nothing is noted in the client's state: {preferences:?}"
+        client_state.is_empty(),
+        "nothing is noted in the client's state: {client_state:?}"
     );
     ts.teardown().await;
 }

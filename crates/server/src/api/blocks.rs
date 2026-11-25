@@ -1,12 +1,11 @@
-//! Blocks: reading, inserting, patching, deleting, undeleting and duplicating.
+//! Blocks: reading, inserting, patching, deleting, restoring and duplicating.
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, CommentVersion, Container,
-    RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
+    JsonMap, RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
 };
-
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -43,7 +42,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_patch_blocks
         ))
         .routes(routes!(handle_delete_block, handle_patch_block))
-        .routes(routes!(handle_undelete_block))
+        .routes(routes!(handle_restore_block))
         .routes(routes!(handle_get_comment_versions))
         .routes(routes!(handle_duplicate_block))
 }
@@ -155,7 +154,13 @@ pub(super) async fn asked_blocks(
     } else {
         let parent_id = query_option(query, "parentId");
         // The type is matched as it is written: one that no block has finds nothing.
-        let block_type = query_option(query, "type").map(BlockType::from);
+        let block_type = match query_option(query, "type") {
+            None => None,
+            Some(raw) => match raw.parse::<BlockType>() {
+                Ok(parsed) => Some(parsed),
+                Err(_) => return Ok(Vec::new()),
+            },
+        };
         app.blocks(container_id, parent_id.as_deref(), block_type.as_ref())
             .await
     }
@@ -217,13 +222,11 @@ async fn check_and_copy_body_files(
 /// Gives each new block the body the request had for it. A body its type may not have
 /// ([`BlockType::check_body`]) is refused here, before anything is copied for it, at the
 /// block's place in the request.
-fn give_bodies(blocks: &mut [Block], bodies: Vec<Option<Body>>) -> Result<(), AppError> {
+fn give_bodies(blocks: &mut [RawNewBlock], bodies: Vec<Option<Body>>) -> Result<(), AppError> {
     for (index, (block, body)) in blocks.iter_mut().zip(bodies).enumerate() {
         block
-            .block_type
-            .check_body(body.as_ref())
+            .set_body_checked(body)
             .map_err(|refused| AppError::from(refused).under(&element_pointer(Some(""), index)))?;
-        block.body = body;
     }
     Ok(())
 }
@@ -277,32 +280,32 @@ async fn handle_post_blocks(
     .await?;
     // A list first, so that a request that is none is refused as before, and the bodies
     // apart, so that one that may not be stored is refused as a body.
-    let mut blocks: Vec<Value> = decode_json(&body)?;
-    let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut), Some(""))?;
-    let mut blocks: Vec<Block> =
-        serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
-    give_bodies(&mut blocks, bodies)?;
+    let mut raw_values: Vec<Value> = decode_json(&body)?;
+    let bodies = take_block_bodies(raw_values.iter_mut().map(Value::as_object_mut), Some(""))?;
+    let mut raw_blocks: Vec<RawNewBlock> =
+        serde_json::from_value(Value::Array(raw_values)).map_err(AppError::bad_request)?;
+    give_bodies(&mut raw_blocks, bodies)?;
     // Where a block is in the request: the body is the list.
     let place = |index: usize| element_pointer(Some(""), index);
 
     let mut has_comments = false;
     let mut has_contents = false;
-    for (index, block) in blocks.iter().enumerate() {
+    let mut blocks = Vec::with_capacity(raw_blocks.len());
+    for (index, raw_block) in raw_blocks.into_iter().enumerate() {
         let on_board = |container_id: &str| container_id == board_id;
-        if let Some((member, problem)) = new_block_problem(
-            block,
-            on_board,
-            "the block is on another board than the path",
-        ) {
-            return Err(AppError::bad_request(problem)
-                .with_field(member)
-                .under(&place(index)));
-        }
+        let block = raw_block
+            .into_block(on_board, "the block is on another board than the path")
+            .map_err(|(member, problem)| {
+                AppError::bad_request(problem)
+                    .with_field(member)
+                    .under(&place(index))
+            })?;
         if block.block_type == BlockType::Comment {
             has_comments = true;
         } else {
             has_contents = true;
         }
+        blocks.push(block);
     }
     if has_contents {
         require_container_permission(
@@ -340,38 +343,179 @@ async fn handle_post_blocks(
     Ok(created(&blocks))
 }
 
-/// What is wrong with a block that a request makes, if anything, in the order the
-/// checks go: its board (`on_board` says whether the request makes blocks on the board
-/// it names, and `elsewhere` is the words for one it does not), its type, and its times.
-/// The member that is wrong, and the words, which do not repeat what the request says:
-/// the answer points at the block.
-pub(super) fn new_block_problem(
-    block: &Block,
-    on_board: impl Fn(&str) -> bool,
-    elsewhere: &'static str,
-) -> Option<(&'static str, String)> {
-    if !on_board(&block.container_id) {
-        Some(("containerId", elsewhere.to_owned()))
-    } else if block.block_type.is_empty() {
-        Some(("type", "the block has no type".to_owned()))
-    } else if !block.block_type.is_current() {
-        Some((
-            "type",
-            BlockError::type_not_current(&block.block_type).to_string(),
-        ))
-    } else if block.created_at < 1 {
-        Some((
-            "createdAt",
-            "a new block's createdAt is 1 or more".to_owned(),
-        ))
-    } else if block.updated_at < 1 {
-        Some((
-            "updatedAt",
-            "a new block's updatedAt is 1 or more".to_owned(),
-        ))
-    } else {
-        None
+/// How the `type` member of a new block object was written in the request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum RawBlockType {
+    /// Left out or empty (`""`).
+    #[default]
+    Missing,
+    /// A non-empty string outside [`BlockType`].
+    Unknown,
+    /// A known [`BlockType`].
+    Known(BlockType),
+}
+
+fn deserialize_new_block_type<'de, D>(deserializer: D) -> Result<RawBlockType, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    let raw = String::deserialize(deserializer)?;
+    if raw.is_empty() {
+        return Ok(RawBlockType::Missing);
     }
+    Ok(raw
+        .parse::<BlockType>()
+        .map_or(RawBlockType::Unknown, RawBlockType::Known))
+}
+
+fn non_null_i64<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    i64::deserialize(deserializer).map(Some)
+}
+
+fn number_as_sent<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    let sent = Value::deserialize(deserializer)?;
+    Ok(sent
+        .as_u64()
+        .and_then(|number| u32::try_from(number).ok())
+        .filter(|number| *number > 0))
+}
+
+/// Request representation of a newly created block before its board, `type`, and
+/// timestamps are validated: a missing or unknown `type` cannot become a [`Block`].
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawNewBlock {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    parent_id: String,
+    #[serde(default)]
+    created_by: String,
+    #[serde(default)]
+    modified_by: String,
+    #[serde(
+        default,
+        rename = "type",
+        deserialize_with = "deserialize_new_block_type"
+    )]
+    raw_type: RawBlockType,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    fields: JsonMap,
+    #[serde(skip)]
+    body: Option<Body>,
+    #[serde(default)]
+    created_at: i64,
+    #[serde(default)]
+    updated_at: i64,
+    #[serde(default, deserialize_with = "non_null_i64")]
+    deleted_at: Option<i64>,
+    #[serde(default)]
+    container_id: String,
+    #[serde(default, deserialize_with = "number_as_sent")]
+    number: Option<u32>,
+    #[serde(default)]
+    edited_at: i64,
+}
+
+impl RawNewBlock {
+    /// Checks `body` against the requested block type and attaches it.
+    fn set_body_checked(&mut self, body: Option<Body>) -> Result<(), BlockError> {
+        match self.raw_type {
+            RawBlockType::Known(bt) => bt.check_body(body.as_ref())?,
+            RawBlockType::Missing | RawBlockType::Unknown if body.is_some() => {
+                return Err(BlockError::BodyNotAllowed);
+            }
+            RawBlockType::Missing | RawBlockType::Unknown => {}
+        }
+        self.body = body;
+        Ok(())
+    }
+
+    /// Attaches an already extracted `body` without `check_body` (for routes where the
+    /// store runs body validation after container checks).
+    pub(super) fn set_body_unchecked(&mut self, body: Option<Body>) {
+        self.body = body;
+    }
+
+    /// Validates the block's board (`on_board` / `elsewhere`), its `type`, and its
+    /// timestamps in contract order, producing a [`Block`] only when all pass.
+    pub(super) fn into_block(
+        self,
+        on_board: impl Fn(&str) -> bool,
+        elsewhere: &'static str,
+    ) -> Result<Block, (&'static str, String)> {
+        if !on_board(&self.container_id) {
+            return Err(("containerId", elsewhere.to_owned()));
+        }
+        let block_type = match self.raw_type {
+            RawBlockType::Missing => return Err(("type", "the block has no type".to_owned())),
+            RawBlockType::Unknown => return Err(("type", BlockError::TypeNotCurrent.to_string())),
+            RawBlockType::Known(bt) if !bt.is_current() => {
+                return Err(("type", BlockError::type_not_current(&bt).to_string()));
+            }
+            RawBlockType::Known(bt) => bt,
+        };
+        if self.created_at < 1 {
+            return Err((
+                "createdAt",
+                "a new block's createdAt is 1 or more".to_owned(),
+            ));
+        }
+        if self.updated_at < 1 {
+            return Err((
+                "updatedAt",
+                "a new block's updatedAt is 1 or more".to_owned(),
+            ));
+        }
+        Ok(Block {
+            id: self.id,
+            parent_id: self.parent_id,
+            created_by: self.created_by,
+            modified_by: self.modified_by,
+            block_type,
+            title: self.title,
+            fields: self.fields,
+            body: self.body,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            deleted_at: self.deleted_at,
+            container_id: self.container_id,
+            number: self.number,
+            edited_at: self.edited_at,
+        })
+    }
+}
+
+/// Refuses a block patch whose `type` is a string outside [`BlockType`], naming `type`
+/// at the patch's JSON Pointer and stripping the unknown value so `decode_object_with`
+/// surfaces this pointer-bearing error rather than a flat serde error.
+pub(super) fn check_patch_block_types<'a>(
+    patches: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+    list: Option<&str>,
+) -> Result<(), AppError> {
+    for (index, patch) in patches.into_iter().enumerate() {
+        let Some(patch) = patch else { continue };
+        if let Some(Value::String(raw)) = patch.get("type")
+            && raw.parse::<BlockType>().is_err()
+        {
+            patch.remove("type");
+            return Err(AppError::bad_request(BlockError::TypeNotCurrent)
+                .with_field("type")
+                .under(&element_pointer(list, index)));
+        }
+    }
+    Ok(())
 }
 
 /// Gives the blocks of a request to a board new identifiers ([`renew_block_ids`]): a
@@ -399,7 +543,7 @@ async fn renew_request_ids(
 
 /// Delete a block
 ///
-/// The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
+/// The block goes to the trash with the blocks below it, and `restoreBlock` brings it
 /// back until the trash is emptied of it. For editors; a comment is its author's to
 /// delete from the commenter's role up, and a comment of somebody else the board's
 /// admins' only (403, `access denied to delete other users' comments`), also as a
@@ -453,13 +597,13 @@ async fn handle_delete_block(
 /// back the card.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/undelete",
-    operation_id = "undeleteBlock",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/restore",
+    operation_id = "restoreBlock",
     tag = tag::BLOCKS,
     params(MemberWorkspaceId, BoardId, BlockId),
     responses((status = 200, description = "The block as it is again.", body = Block)),
 )]
-async fn handle_undelete_block(
+async fn handle_restore_block(
     ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
@@ -600,8 +744,10 @@ async fn handle_patch_block(
         CHANGES_DENIED,
     )
     .await?;
-    let (mut patch, changes): (BlockPatch, _) =
-        decode_object_with(&body, |patch| take_patch_bodies([Some(patch)], None))?;
+    let (mut patch, changes): (BlockPatch, _) = decode_object_with(&body, |patch| {
+        check_patch_block_types([Some(&mut *patch)], None)?;
+        take_patch_bodies([Some(patch)], None)
+    })?;
     put_patch_bodies([&mut patch], changes?, None)?;
     require_block_patch_permission(&ws.app, user_id, &block, &patch, CHANGES_DENIED).await?;
     ws.app
@@ -652,6 +798,7 @@ async fn handle_patch_blocks(
     .await?;
     let board = ws.app.container(&board_id).await?;
     let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
+        check_patch_block_types(objects_mut(batch, "blockPatches"), Some(PATCHES))?;
         take_patch_bodies(objects_mut(batch, "blockPatches"), Some(PATCHES))
     })?;
     put_patch_bodies(&mut batch.block_patches, changes?, Some(PATCHES))?;

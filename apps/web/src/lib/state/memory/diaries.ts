@@ -246,7 +246,6 @@ export class MemoryDiaries implements Diaries {
       parentId: '',
       createdBy: userId,
       modifiedBy: userId,
-      schema: 1,
       type: 'entry',
       title: day,
       fields: { date: day, mood: null, weather: '', place: '' },

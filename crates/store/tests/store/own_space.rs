@@ -43,7 +43,7 @@ async fn an_account_is_made_with_its_own_space() {
         .map(|workspace| (workspace.org_id, workspace.kind))
         .collect();
     assert_eq!(listed.len(), 2, "{listed:?}");
-    assert_eq!(listed[0], (test.org_id.clone(), OrgKind::Team));
+    assert_eq!(listed[0], (test.org_id.clone(), OrgKind::Shared));
     assert_eq!(listed[1].1, OrgKind::Personal);
     test.teardown().await;
 }
@@ -85,7 +85,7 @@ async fn who_starts_an_organization_has_a_space_beside_it() {
         let own = common::own_workspace(&test, &founder.id).await;
         assert_eq!(
             listed,
-            [(workspace_id, OrgKind::Team), (own, OrgKind::Personal)],
+            [(workspace_id, OrgKind::Shared), (own, OrgKind::Personal)],
             "{username}: the workspace of the organization, and their own last"
         );
     }
@@ -105,7 +105,7 @@ async fn one_account_owns_one_space_which_stays_what_it_is() {
     let test = common::setup().await;
     let system = test.system();
     let owner = common::user(&test, "owner").await;
-    let (own, shared) = (OrgKind::Personal.as_str(), OrgKind::Team.as_str());
+    let (own, shared) = (OrgKind::Personal.as_str(), OrgKind::Shared.as_str());
     let insert = |kind: &str, owner: &str| {
         format!(
             "INSERT INTO organizations (id, name, kind, owner_id, settings, created_at, updated_at) \

@@ -140,7 +140,7 @@ export class SharedBackend implements Backend {
     createPage: refused,
     patchPage: refused,
     deletePage: refused,
-    undeletePage: refused,
+    restorePage: refused,
     movePage: refused,
     duplicatePage: refused,
   };
@@ -175,7 +175,7 @@ export class SharedBackend implements Backend {
     createUnit: refused,
     patchUnit: refused,
     deleteUnit: refused,
-    undeleteUnit: refused,
+    restoreUnit: refused,
     moveUnit: refused,
     myProgress: nothing,
     putUnitProgress: refused,

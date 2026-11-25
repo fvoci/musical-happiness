@@ -27,7 +27,7 @@ async fn deleting_cards_boards_and_batches_keeps_the_last_room_body_for_restore(
             _ => th
                 .client
                 .delete_json(
-                    &format!("{base}/boards-and-blocks"),
+                    &format!("{base}/containers-and-blocks"),
                     &json!({"containers": [table.board_id], "blocks": [table.card_id]}),
                 )
                 .await
@@ -53,7 +53,7 @@ async fn deleting_cards_boards_and_batches_keeps_the_last_room_body_for_restore(
         );
         let restore = if target == "card" { &block } else { &board };
         th.client
-            .post_empty(&format!("{restore}/undelete"))
+            .post_empty(&format!("{restore}/restore"))
             .await
             .check_ok();
         let mut reopened = Peer::connect(&th.client, 203).await;
@@ -138,7 +138,7 @@ async fn a_deleted_rooms_late_input_cannot_reach_the_restored_cards_new_room() {
     });
     waiting.notified().await;
     th.client
-        .post_empty(&format!("{path}/undelete"))
+        .post_empty(&format!("{path}/restore"))
         .await
         .check_ok();
     let mut fresh = Peer::connect(&th.client, 303).await;
@@ -270,7 +270,7 @@ async fn a_card_below_the_deleted_block_keeps_its_rooms_last_body() {
     assert_eq!(writer.text("docLeft").await["reason"], json!("not_found"));
     assert_eq!(trashed_body(&th, &child_id).await, wanted);
     th.client
-        .post_empty(&format!("{parent}/undelete"))
+        .post_empty(&format!("{parent}/restore"))
         .await
         .check_ok();
     let mut reopened = Peer::connect(&th.client, 402).await;
@@ -300,7 +300,7 @@ async fn the_deleted_room_emptied_after_a_restore_leaves_the_new_room_alone() {
     });
     waiting.notified().await;
     th.client
-        .post_empty(&format!("{path}/undelete"))
+        .post_empty(&format!("{path}/restore"))
         .await
         .check_ok();
     let mut fresh = Peer::connect(&th.client, 503).await;

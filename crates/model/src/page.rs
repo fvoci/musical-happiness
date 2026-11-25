@@ -250,7 +250,7 @@ impl From<Block> for Page {
 }
 
 /// A page in the trash, at the top of what went with it, as the trash of a wiki lists
-/// it: `undeletePage` brings it back with the pages below it.
+/// it: `restorePage` brings it back with the pages below it.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct DeletedPage {
@@ -534,27 +534,19 @@ mod tests {
     fn a_page_is_a_block_no_write_of_blocks_makes() {
         use crate::{BlockError, BlockType};
 
-        let page = BlockType::from("page");
+        let page: BlockType = "page".parse().expect("known type");
         assert_eq!(page, BlockType::Page);
-        assert_eq!(String::from(page.clone()), "page");
+        assert_eq!(page.as_str(), "page");
         assert!(page.has_body() && !page.is_current());
         assert_eq!(
             BlockError::type_not_current(&page),
             BlockError::PageByBlocks
         );
-        // Its body is edited together as a card's is, and no other block's.
-        let with_room: Vec<&str> = [
-            "card",
-            "page",
-            "comment",
-            "view",
-            "attachment",
-            "board",
-            "text",
-        ]
-        .into_iter()
-        .filter(|name| BlockType::from(*name).has_room())
-        .collect();
+        // Its body is edited together as a card's, an entry's and a unit's are.
+        let with_room: Vec<&str> = ["card", "page", "comment", "view", "attachment", "chapter"]
+            .into_iter()
+            .filter(|name| name.parse::<BlockType>().expect("known type").has_room())
+            .collect();
         assert_eq!(with_room, ["card", "page"]);
     }
 

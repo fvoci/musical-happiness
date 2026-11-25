@@ -392,7 +392,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Card with image",
         "type": "card",
         "updatedAt": "<ts>"
@@ -408,7 +407,6 @@
         "id": "<id:6>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:5>",
-        "schema": 1,
         "title": "",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -437,7 +435,6 @@
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
-        "schema": 1,
         "title": "Card with image",
         "type": "card",
         "updatedAt": "<ts>"

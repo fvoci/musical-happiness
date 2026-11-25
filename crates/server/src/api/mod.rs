@@ -9,13 +9,13 @@ mod admin;
 mod archive;
 mod auth;
 mod blocks;
-mod boards_and_blocks;
 mod body;
 mod cards;
 mod categories;
 mod config;
 mod container_teams;
 mod containers;
+mod containers_and_blocks;
 mod content_search;
 pub mod contract;
 mod course_events;
@@ -148,7 +148,7 @@ fn routes() -> Routes {
         .merge(unit_progress::routes())
         .merge(unit_reviews::routes())
         .merge(unit_versions::routes())
-        .merge(boards_and_blocks::routes())
+        .merge(containers_and_blocks::routes())
         .merge(cards::routes())
         .merge(trash::routes())
         .merge(categories::routes())

@@ -417,7 +417,7 @@ impl Store {
 ///
 /// `meeting_attendance` and `course_meetings` (`presenter_id`, `host_id`) are intentionally
 /// excluded: shared study meeting history stays under the erased user's tombstone identifier.
-const PERSONAL: [(&str, &str); 16] = [
+const PERSONAL: [(&str, &str); 17] = [
     ("notifications", "recipient_id"),
     ("notification_outbox", "recipient_id"),
     ("time_entries", "user_id"),
@@ -425,7 +425,8 @@ const PERSONAL: [(&str, &str); 16] = [
     ("email_changes", "user_id"),
     ("email_reverts", "user_id"),
     ("sessions", "user_id"),
-    ("preferences", "user_id"),
+    ("user_settings", "user_id"),
+    ("user_client_state", "user_id"),
     ("password_resets", "user_id"),
     ("subscriptions", "user_id"),
     ("category_containers", "user_id"),

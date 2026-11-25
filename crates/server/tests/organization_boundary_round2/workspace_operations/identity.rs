@@ -125,7 +125,7 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
         .collect();
     assert_eq!(
         kinds,
-        [OrgKind::Team, OrgKind::Personal].map(|kind| Some(kind.as_str())),
+        [OrgKind::Shared, OrgKind::Personal].map(|kind| Some(kind.as_str())),
         "OIDC newcomer joins one workspace, and has a space of their own"
     );
     assert_eq!(

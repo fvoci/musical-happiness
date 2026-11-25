@@ -235,7 +235,7 @@ pub use unit_review::{
     suggested_next_interval_days,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
-pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};
+pub use user::{ClientStatePatch, LoginOrigin, Me, Session, User};
 pub use workspace::{GuestInvitationsChange, Workspace};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.

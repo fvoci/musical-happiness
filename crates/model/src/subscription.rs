@@ -20,14 +20,12 @@ impl SubscriptionError {
 }
 
 /// A subscription to the changes of a block.
-// Every member defaults to its empty value when decoding. (No extra doc comment: the doc
-// comment is the description in the API contract.)
+// `blockType` is required when decoding; every other member defaults to its empty value.
+// (No extra doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {
     /// The type of the block subscribed to.
-    #[serde(default)]
-    #[schema(value_type = String)]
     pub block_type: BlockType,
     /// The identifier of the block subscribed to.
     #[serde(default)]
@@ -57,15 +55,12 @@ impl Subscription {
     ///
     /// # Errors
     ///
-    /// Returns a [`SubscriptionError`] with every one of the block identifier, the block
-    /// type and the user identifier that is empty.
+    /// Returns a [`SubscriptionError`] with every one of the block identifier and the
+    /// user identifier that is empty.
     pub fn validate(&self) -> Result<(), SubscriptionError> {
         let mut refused = Refusals::new();
         if self.block_id.is_empty() {
             refused.refuse("blockId", RefusalReason::Required, "missing block id");
-        }
-        if self.block_type.is_empty() {
-            refused.refuse("blockType", RefusalReason::Required, "missing block type");
         }
         if self.user_id.is_empty() {
             refused.refuse("userId", RefusalReason::Required, "missing user id");

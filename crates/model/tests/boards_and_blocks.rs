@@ -237,13 +237,7 @@ fn patch_containers_and_blocks_validate_no_container_ids() {
         container_ids: vec![],
         container_patches: vec![],
         block_ids: ids(&["block-id-1"]),
-        block_patches: vec![
-            title_patch("new title"),
-            BlockPatch {
-                schema: Some(1),
-                ..BlockPatch::default()
-            },
-        ],
+        block_patches: vec![title_patch("new title"), title_patch("other title")],
     };
     assert_eq!(pbab.validate(), Err(ContainersAndBlocksError::NoContainers));
 }
@@ -282,13 +276,7 @@ fn patch_containers_and_blocks_validate_mismatched_block_ids_and_patches() {
             },
         ],
         block_ids: ids(&["block-id-1"]),
-        block_patches: vec![
-            title_patch("new title"),
-            BlockPatch {
-                schema: Some(1),
-                ..BlockPatch::default()
-            },
-        ],
+        block_patches: vec![title_patch("new title"), title_patch("other title")],
     };
     assert_eq!(
         pbab.validate(),

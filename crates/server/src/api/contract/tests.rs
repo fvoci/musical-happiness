@@ -348,18 +348,20 @@ fn what_is_always_there_is_what_the_server_writes() {
 #[test]
 fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
     use fvoci_model::{
-        CardOpen, ContainerRole, Density, HourCycle, PropertyColor, PropertyType, Theme,
-        UserSettings, WeekStart,
+        BlockType, CardOpen, ContainerRole, Density, HourCycle, OrgKind, PropertyColor,
+        PropertyType, Theme, UserSettings, WeekStart,
     };
 
     let text = document().expect("the document");
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let schemas = &document["components"]["schemas"];
     for (name, words) in [
+        ("BlockType", BlockType::WORDS),
         ("CardOpen", CardOpen::WORDS),
         ("ContainerRole", ContainerRole::WORDS),
         ("Density", Density::WORDS),
         ("HourCycle", HourCycle::WORDS),
+        ("OrgKind", OrgKind::WORDS),
         ("PropertyColor", PropertyColor::WORDS),
         ("PropertyType", PropertyType::WORDS),
         ("Theme", Theme::WORDS),
@@ -534,7 +536,7 @@ fn a_schema_that_is_written_where_it_is_used_is_finished_too() {
 const ORDERS: &[(&str, &str)] = &[
     ("createBlocks", "in the order of the request"),
     (
-        "createBoardsAndBlocks",
+        "createContainersAndBlocks",
         "The boards in the order of the request",
     ),
     ("duplicateBlock", "the copy of the block first"),
@@ -652,7 +654,10 @@ const ORDERS: &[(&str, &str)] = &[
         "Ordered by `scheduledDate` ascending",
     ),
     ("listMyUnitNotes", "Ordered by `createdAt` descending"),
-    ("patchBoardsAndBlocks", "each in the order of the request"),
+    (
+        "patchContainersAndBlocks",
+        "each in the order of the request",
+    ),
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),
     ("reorderCategoryContainers", "in their new order"),

@@ -52,7 +52,7 @@ impl App {
         Ok(UserWorkspace {
             id: started.workspace_id,
             org_id: started.org_id,
-            kind: OrgKind::Team,
+            kind: OrgKind::Shared,
             name: name.to_owned(),
             role: WorkspaceRole::Admin,
             // An organization that was just made has no provider to require.

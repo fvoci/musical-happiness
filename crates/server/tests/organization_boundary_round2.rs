@@ -360,7 +360,7 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
     let response = ts
         .client2
         .post(
-            &format!("{ROOT_WS}/containers/{}/undelete", board.id),
+            &format!("{ROOT_WS}/containers/{}/restore", board.id),
             &json!({}),
         )
         .await;

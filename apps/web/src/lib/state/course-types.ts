@@ -297,7 +297,7 @@ export interface Courses {
   /** The course's deleted chapters and units, newest first. */
   deletedUnits(courseId: string, paging?: Paging): Promise<DeletedItem[]>;
   /** Restores a unit (or a chapter with the units deleted with it) from the trash. */
-  undeleteUnit(courseId: string, unitId: string): Promise<CourseUnitDetail>;
+  restoreUnit(courseId: string, unitId: string): Promise<CourseUnitDetail>;
 
   // Comments on a unit (chapters return 404).
   /** Oldest first. Open-course unjoined workspace members may read. */

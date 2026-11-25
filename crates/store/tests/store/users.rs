@@ -4,12 +4,11 @@ use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
-    Density, Session, Theme, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
+    ClientStatePatch, Density, Session, Theme, User, UserSettings, UserSettingsPatch,
     WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AdminChange, DbType, Founding, InstanceRole, Looking, Preference, Reach, Sight, Store,
-    StoreError, Taken,
+    AdminChange, DbType, Founding, InstanceRole, Looking, Reach, Sight, Store, StoreError, Taken,
 };
 use serde_json::{Value, json};
 
@@ -40,11 +39,8 @@ async fn create_user(store: &Store, mut user: User) -> User {
     user
 }
 
-fn value_of<'p>(preferences: &'p [Preference], name: &str) -> Option<&'p str> {
-    preferences
-        .iter()
-        .find(|preference| preference.name == name)
-        .map(|preference| preference.value.as_str())
+fn value_of<'p>(entries: &'p BTreeMap<String, String>, name: &str) -> Option<&'p str> {
+    entries.get(name).map(String::as_str)
 }
 
 /// Listing users returns all stored users, growing as new users are created.
@@ -316,74 +312,41 @@ async fn patch_user_props() {
     };
 
     // Only update props
-    let patch = UserPreferencesPatch {
+    let patch = ClientStatePatch {
         updated_fields: fields(&[
             (key1, "new_value_1"),
             (key2, "new_value_2"),
             (key3, "new_value_3"),
         ]),
-        ..UserPreferencesPatch::default()
+        ..ClientStatePatch::default()
     };
 
-    let user_preferences = store
-        .patch_user_preferences(&user.id, &patch)
-        .await
-        .unwrap();
-    assert_eq!(user_preferences.len(), 3);
-
-    for preference in &user_preferences {
-        match preference.name.as_str() {
-            name if name == key1 => assert_eq!(preference.value, "new_value_1"),
-            name if name == key2 => assert_eq!(preference.value, "new_value_2"),
-            name if name == key3 => assert_eq!(preference.value, "new_value_3"),
-            _ => {}
-        }
-    }
+    let client_state = store.patch_client_state(&user.id, &patch).await.unwrap();
+    assert_eq!(client_state.len(), 3);
+    assert_eq!(value_of(&client_state, key1), Some("new_value_1"));
+    assert_eq!(value_of(&client_state, key2), Some("new_value_2"));
+    assert_eq!(value_of(&client_state, key3), Some("new_value_3"));
 
     // Delete a prop
-    let patch = UserPreferencesPatch {
+    let patch = ClientStatePatch {
         deleted_fields: vec![key1.to_owned()],
-        ..UserPreferencesPatch::default()
+        ..ClientStatePatch::default()
     };
 
-    let user_preferences = store
-        .patch_user_preferences(&user.id, &patch)
-        .await
-        .unwrap();
-
-    for preference in &user_preferences {
-        match preference.name.as_str() {
-            name if name == key1 => {
-                panic!("new_key_1 shouldn't exist in user preference as we just deleted it")
-            }
-            name if name == key2 => assert_eq!(preference.value, "new_value_2"),
-            name if name == key3 => assert_eq!(preference.value, "new_value_3"),
-            _ => {}
-        }
-    }
+    let client_state = store.patch_client_state(&user.id, &patch).await.unwrap();
+    assert_eq!(value_of(&client_state, key1), None);
+    assert_eq!(value_of(&client_state, key2), Some("new_value_2"));
+    assert_eq!(value_of(&client_state, key3), Some("new_value_3"));
 
     // update and delete together
-    let patch = UserPreferencesPatch {
+    let patch = ClientStatePatch {
         updated_fields: fields(&[(key3, "new_value_3_new_again")]),
         deleted_fields: vec![key2.to_owned()],
     };
-    let user_preferences = store
-        .patch_user_preferences(&user.id, &patch)
-        .await
-        .unwrap();
-
-    for preference in &user_preferences {
-        match preference.name.as_str() {
-            name if name == key1 => {
-                panic!("new_key_1 shouldn't exist in user preference as we just deleted it")
-            }
-            name if name == key2 => {
-                panic!("new_key_2 shouldn't exist in user preference as we just deleted it")
-            }
-            name if name == key3 => assert_eq!(preference.value, "new_value_3_new_again"),
-            _ => {}
-        }
-    }
+    let client_state = store.patch_client_state(&user.id, &patch).await.unwrap();
+    assert_eq!(value_of(&client_state, key1), None);
+    assert_eq!(value_of(&client_state, key2), None);
+    assert_eq!(value_of(&client_state, key3), Some("new_value_3_new_again"));
 
     test.teardown().await;
 }
@@ -843,10 +806,10 @@ async fn user_preferences_are_per_user_and_ordered() {
     let user_a = common::user(store, "user-a").await;
     let user_b = common::user(store, "user-b").await;
 
-    let none = store.get_user_preferences(&user_a).await.unwrap();
+    let none = store.get_client_state(&user_a).await.unwrap();
     assert!(none.is_empty(), "got {none:?}");
 
-    let patch = |updated: &[(&str, &str)], deleted: &[&str]| UserPreferencesPatch {
+    let patch = |updated: &[(&str, &str)], deleted: &[&str]| ClientStatePatch {
         updated_fields: updated
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
@@ -855,66 +818,57 @@ async fn user_preferences_are_per_user_and_ordered() {
     };
 
     store
-        .patch_user_preferences(&user_a, &patch(&[("b", "1"), ("a", "2"), ("c", "3")], &[]))
+        .patch_client_state(&user_a, &patch(&[("b", "1"), ("a", "2"), ("c", "3")], &[]))
         .await
         .unwrap();
     store
-        .patch_user_preferences(&user_b, &patch(&[("a", "other")], &[]))
+        .patch_client_state(&user_b, &patch(&[("a", "other")], &[]))
         .await
         .unwrap();
 
     let patched = store
-        .patch_user_preferences(
+        .patch_client_state(
             &user_a,
             &patch(&[("a", "4"), ("d", "5")], &["b", "missing"]),
         )
         .await
         .unwrap();
-    let names: Vec<&str> = patched
-        .iter()
-        .map(|preference| preference.name.as_str())
-        .collect();
+    let names: Vec<&str> = patched.keys().map(String::as_str).collect();
     assert_eq!(names, ["a", "c", "d"], "by name");
     assert_eq!(value_of(&patched, "a"), Some("4"));
-    assert!(
-        patched
-            .iter()
-            .all(|preference| preference.user_id == user_a && preference.category == "client"),
-        "got {patched:?}"
-    );
 
-    let stored = store.get_user_preferences(&user_a).await.unwrap();
+    let stored = store.get_client_state(&user_a).await.unwrap();
     assert_eq!(
         stored, patched,
         "the patch returns what is stored, in the same order"
     );
 
-    let other = store.get_user_preferences(&user_b).await.unwrap();
+    let other = store.get_client_state(&user_b).await.unwrap();
     assert_eq!(value_of(&other, "a"), Some("other"));
     assert_eq!(other.len(), 1);
 
     // A name that is both updated and deleted ends up deleted.
     let both = store
-        .patch_user_preferences(&user_b, &patch(&[("a", "again")], &["a"]))
+        .patch_client_state(&user_b, &patch(&[("a", "again")], &["a"]))
         .await
         .unwrap();
     assert!(both.is_empty(), "got {both:?}");
-    let other = store.get_user_preferences(&user_b).await.unwrap();
+    let other = store.get_client_state(&user_b).await.unwrap();
     assert!(other.is_empty(), "got {other:?}");
 
-    // Text that is not an identifier names no user: it has no preferences, and none
-    // are stored for it.
-    let none = store.get_user_preferences("not-a-user").await.unwrap();
+    // Text that is not an identifier names no user: it has no client state, and none
+    // is stored for it.
+    let none = store.get_client_state("not-a-user").await.unwrap();
     assert!(none.is_empty(), "got {none:?}");
     let error = store
-        .patch_user_preferences("not-a-user", &patch(&[("a", "1")], &[]))
+        .patch_client_state("not-a-user", &patch(&[("a", "1")], &[]))
         .await
         .unwrap_err();
     assert!(
         matches!(&error, StoreError::UserNotFound(user) if user == "not-a-user"),
         "got {error:?}"
     );
-    let none = store.get_user_preferences("not-a-user").await.unwrap();
+    let none = store.get_client_state("not-a-user").await.unwrap();
     assert!(none.is_empty(), "got {none:?}");
 
     test.teardown().await;
@@ -1330,11 +1284,11 @@ async fn settings_are_stored_per_user_and_apart_from_client_state() {
     );
 
     // An entry of the bag with the name of a setting is another thing.
-    let bag = UserPreferencesPatch {
+    let bag = ClientStatePatch {
         updated_fields: BTreeMap::from([("theme".to_owned(), "of-the-client".to_owned())]),
-        ..UserPreferencesPatch::default()
+        ..ClientStatePatch::default()
     };
-    let entries = store.patch_user_preferences(&user_a, &bag).await.unwrap();
+    let entries = store.patch_client_state(&user_a, &bag).await.unwrap();
     assert_eq!(value_of(&entries, "theme"), Some("of-the-client"));
     assert_eq!(
         store.get_user_settings(&user_a).await.unwrap(),
@@ -1346,7 +1300,7 @@ async fn settings_are_stored_per_user_and_apart_from_client_state() {
         .await
         .unwrap();
     assert_eq!(after, UserSettings::default(), "the setting is reset");
-    let entries = store.get_user_preferences(&user_a).await.unwrap();
+    let entries = store.get_client_state(&user_a).await.unwrap();
     assert_eq!(
         value_of(&entries, "theme"),
         Some("of-the-client"),
@@ -1363,10 +1317,7 @@ async fn settings_are_stored_per_user_and_apart_from_client_state() {
         matches!(&error, StoreError::UserNotFound(user) if *user == nobody),
         "got {error:?}"
     );
-    let error = store
-        .patch_user_preferences(&nobody, &bag)
-        .await
-        .unwrap_err();
+    let error = store.patch_client_state(&nobody, &bag).await.unwrap_err();
     assert!(
         matches!(&error, StoreError::UserNotFound(user) if *user == nobody),
         "got {error:?}"
@@ -1376,7 +1327,7 @@ async fn settings_are_stored_per_user_and_apart_from_client_state() {
         UserSettings::default(),
         "nothing was stored for nobody"
     );
-    let entries = store.get_user_preferences(&nobody).await.unwrap();
+    let entries = store.get_client_state(&nobody).await.unwrap();
     assert!(entries.is_empty(), "got {entries:?}");
 
     test.teardown().await;
@@ -1390,28 +1341,28 @@ async fn the_bag_of_client_state_is_bounded() {
     let store = &test.store;
     let user_id = common::user(store, "collector").await;
     let limit = fvoci_model::CLIENT_STATE_MAX_ENTRIES;
-    let entries = |range: std::ops::Range<usize>| UserPreferencesPatch {
+    let entries = |range: std::ops::Range<usize>| ClientStatePatch {
         updated_fields: range
             .map(|index| (format!("entry-{index:03}"), "v".to_owned()))
             .collect(),
-        ..UserPreferencesPatch::default()
+        ..ClientStatePatch::default()
     };
 
     let full = store
-        .patch_user_preferences(&user_id, &entries(0..limit))
+        .patch_client_state(&user_id, &entries(0..limit))
         .await
         .expect("as many entries as the bag holds");
     assert_eq!(full.len(), limit, "the bag is full");
 
     let error = store
-        .patch_user_preferences(&user_id, &entries(limit - 1..limit + 1))
+        .patch_client_state(&user_id, &entries(limit - 1..limit + 1))
         .await
         .expect_err("one more than the bag holds");
     assert!(
-        matches!(error, StoreError::TooManyPreferences { limit: said } if said == limit),
+        matches!(error, StoreError::TooManyClientStateEntries { limit: said } if said == limit),
         "got {error:?}"
     );
-    let stored = store.get_user_preferences(&user_id).await.unwrap();
+    let stored = store.get_client_state(&user_id).await.unwrap();
     assert_eq!(stored, full, "nothing of the refused change was stored");
 
     // Replacing an entry, and adding one while removing another, fit.
@@ -1420,7 +1371,7 @@ async fn the_bag_of_client_state_is_bounded() {
         .insert("entry-000".to_owned(), "replaced".to_owned());
     swap.deleted_fields.push("entry-001".to_owned());
     let swapped = store
-        .patch_user_preferences(&user_id, &swap)
+        .patch_client_state(&user_id, &swap)
         .await
         .expect("as many entries as before");
     assert_eq!(swapped.len(), limit, "still full");

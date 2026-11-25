@@ -153,10 +153,10 @@ pub(crate) async fn boards(s: &mut Session) {
     s.delete("delete", &path).user(&alice).await;
     s.get("get deleted", &path).user(&alice).await;
     s.delete("delete again", &path).user(&alice).await;
-    s.post("undelete: other user", &format!("{path}/undelete"))
+    s.post("undelete: other user", &format!("{path}/restore"))
         .user(&bob)
         .await;
-    s.post("undelete", &format!("{path}/undelete"))
+    s.post("undelete", &format!("{path}/restore"))
         .user(&alice)
         .await;
     s.get("get undeleted", &path).user(&alice).await;
@@ -370,7 +370,7 @@ pub(crate) async fn members(s: &mut Session) {
 
 pub(crate) async fn boards_and_blocks(s: &mut Session) {
     let [alice, bob] = s.users("bab", ["alice", "bob"]).await;
-    let path = format!("{ROOT_API}/boards-and-blocks");
+    let path = format!("{ROOT_API}/containers-and-blocks");
     let body = json!({
         "containers": [
             {"id": "board-a", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "Board A"},

@@ -159,7 +159,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   async patchScreenState(updated: Record<string, string>, deleted: string[] = []): Promise<void> {
-    const patch: Schemas['UserPreferencesPatch'] = {
+    const patch: Schemas['ClientStatePatch'] = {
       updatedFields: updated,
       deletedFields: deleted,
     };
@@ -170,7 +170,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /**
    * Makes the board and its first view in one request
-   * (`createBoardsAndBlocks`): all or none. The identifiers sent only tie
+   * (`createContainersAndBlocks`): all or none. The identifiers sent only tie
    * the view to the board; the server makes the real ones.
    */
   async createBoard(
@@ -180,7 +180,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   ): Promise<{ board: Container; view: BoardView }> {
     const request = newBoardAndViewOf(draft, firstView);
     const made = await this.inWorkspace<Schemas['ContainersAndBlocks']>(
-      '/boards-and-blocks',
+      '/containers-and-blocks',
       {},
       { method: 'POST', json: request },
       workspaceId,
@@ -254,7 +254,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   async restoreContainer(id: string): Promise<Container> {
     return containerOf(
       await this.inWorkspace<Schemas['Container']>(
-        '/containers/{containerId}/undelete',
+        '/containers/{containerId}/restore',
         { containerId: id },
         { method: 'POST' },
       ),
@@ -779,7 +779,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    */
   async restoreBlock(boardId: string, blockId: string): Promise<void> {
     await this.inWorkspace(
-      '/boards/{boardId}/blocks/{blockId}/undelete',
+      '/boards/{boardId}/blocks/{blockId}/restore',
       { boardId, blockId },
       { method: 'POST' },
     );

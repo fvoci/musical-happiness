@@ -20,12 +20,12 @@ const own: WorkspaceInfo = { id: 'own', title: '', kind: 'personal', role: 'admi
 const design: WorkspaceInfo = {
   id: 'd',
   title: 'Design',
-  kind: 'team',
+  kind: 'shared',
   role: 'member',
   orgId: 'a',
 };
-const sales: WorkspaceInfo = { id: 's', title: 'Sales', kind: 'team', role: 'admin', orgId: 'a' };
-const plain: WorkspaceInfo = { id: 'p', title: '', kind: 'team', role: 'member', orgId: 'c' };
+const sales: WorkspaceInfo = { id: 's', title: 'Sales', kind: 'shared', role: 'admin', orgId: 'a' };
+const plain: WorkspaceInfo = { id: 'p', title: '', kind: 'shared', role: 'member', orgId: 'c' };
 
 function holder(read: () => Promise<WorkspaceInfo[]>) {
   return {

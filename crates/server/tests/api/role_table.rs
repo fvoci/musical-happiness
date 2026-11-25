@@ -169,9 +169,9 @@ fn container_ops() -> Vec<Op> {
         Op {
             prepare: Prepare::DeleteContainer,
             ..op(
-                "container: undelete",
+                "container: restore",
                 Method::POST,
-                "/containers/{c}/undelete",
+                "/containers/{c}/restore",
                 Json(|_, _| json!({})),
             )
         },
@@ -441,9 +441,9 @@ fn wiki_ops() -> Vec<Op> {
         Op {
             prepare: Prepare::DeletePage,
             ..op(
-                "pages: undelete",
+                "pages: restore",
                 Method::POST,
-                "/wikis/{c}/pages/{p}/undelete",
+                "/wikis/{c}/pages/{p}/restore",
                 Json(|_, _| json!({})),
             )
         },
@@ -474,9 +474,9 @@ fn page_ops() -> Vec<Op> {
         Op {
             prepare: Prepare::DeleteComment,
             ..op(
-                "pages: comment undelete",
+                "pages: comment restore",
                 Method::POST,
-                "/wikis/{c}/pages/{p}/comments/{comment}/undelete",
+                "/wikis/{c}/pages/{p}/comments/{comment}/restore",
                 Json(|_, _| json!({})),
             )
         },
@@ -1135,7 +1135,7 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         "pages: comment",
         "pages: comment change",
         "pages: comment delete",
-        "pages: comment undelete",
+        "pages: comment restore",
         "pages: version restore",
         "pages: keep version",
     ] {

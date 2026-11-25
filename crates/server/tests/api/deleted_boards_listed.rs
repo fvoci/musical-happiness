@@ -96,7 +96,7 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
 
     // Brought back, a board is no longer listed.
     th.client
-        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", mine.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/restore", mine.id))
         .await
         .check_ok();
     let listed: Vec<Value> = th.client.get(&trash).await.ok_json();

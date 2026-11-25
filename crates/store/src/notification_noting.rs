@@ -265,7 +265,7 @@ impl Noted<'_> {
             Id(&self.block.container_id),
         )
         .push_bind(" AND bo.is_template = ", false)
-        .push_bind(" AND o.kind = ", OrgKind::Team.as_str());
+        .push_bind(" AND o.kind = ", OrgKind::Shared.as_str());
     }
 
     /// Notes that `users` may be told of `kind`: each as the doing of whoever named
@@ -371,7 +371,7 @@ async fn watch(scope: &mut Scope<'_>, block_id: &str, users: &[&str]) -> Result<
             .push(")")
             .push_bind(" WHERE u.erased_at = 0 AND b.id = ", Id(block_id))
             .push_bind(" AND bo.is_template = ", false)
-            .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
+            .push_bind(" AND o.kind = ", OrgKind::Shared.as_str())
             .push(" ORDER BY u.id ON CONFLICT (block_id, user_id) DO NOTHING");
         scope.execute(sql).await?;
     }

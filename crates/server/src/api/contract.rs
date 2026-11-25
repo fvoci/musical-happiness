@@ -84,7 +84,7 @@ const TAGS: [(&str, &str); 20] = [
          nothing else; its owner alone reads it. What it shares with a board is asked \
          under `/containers/{containerId}` with the diary's identifier: the diary itself \
          (`getContainer`), its title, description and icon (`patchContainer`), the trash \
-         (`deleteContainer`, `undeleteContainer`, `getDeletedContainers`), its files and \
+         (`deleteContainer`, `restoreContainer`, `getDeletedContainers`), its files and \
          their versions and leases, its place in the sidebar, and its archive \
          (`exportContainer`; the archive of the workspace holds its diaries, and an \
          archive that is imported makes each diary anew, in the user's own space only). \
@@ -612,8 +612,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("TimeEntryPatch", Members::Only(&[])),
     ("ReferenceIds", Members::AsWritten),
     ("UserIds", Members::AsWritten),
-    ("UserPreferencesPatch", Members::Only(&[])),
+    ("ClientStatePatch", Members::Only(&[])),
     // Closed sets of words.
+    ("BlockType", Members::AsWritten),
     ("CardOpen", Members::AsWritten),
     ("DeletionProof", Members::AsWritten),
     ("CategoryType", Members::AsWritten),

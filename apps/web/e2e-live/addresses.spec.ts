@@ -278,7 +278,7 @@ test('a board made in a workspace that was left meanwhile does not take the read
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route('**/boards-and-blocks', async (route) => {
+  await page.route('**/containers-and-blocks', async (route) => {
     received();
     await held;
     await route.continue();
@@ -294,7 +294,7 @@ test('a board made in a workspace that was left meanwhile does not take the read
     await expect(page.getByTestId('board-page')).toBeVisible();
 
     const answered = page.waitForResponse((response) =>
-      response.url().endsWith('/boards-and-blocks'),
+      response.url().endsWith('/containers-and-blocks'),
     );
     release();
     expect((await answered).status()).toBe(201);

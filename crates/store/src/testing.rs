@@ -490,7 +490,7 @@ pub async fn forget_migration(db_type: DbType, database_connection: &str, versio
 
 /// The tables that are no organization's; every other table of the schema is behind
 /// the wall between organizations.
-pub const GLOBAL_TABLES: [&str; 12] = crate::schema::GLOBAL_TABLES;
+pub const GLOBAL_TABLES: [&str; 13] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
@@ -738,6 +738,21 @@ pub async fn migrate_to_before_native_property_definitions(database: &TestDataba
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_unified_timestamps(database: &TestDatabase) {
     migrate_database(database, crate::schema::BEFORE_UNIFIED_TIMESTAMPS_VERSION).await;
+}
+
+/// Brings a test database to the schema as a server left it before dedicated
+/// `user_settings` and `user_client_state` tables, `blocks."schema"` removal, and
+/// `organizations.kind` `'shared'` (migration 76): every migration up to 75.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_user_settings_and_block_cleanup(database: &TestDatabase) {
+    migrate_database(
+        database,
+        crate::schema::BEFORE_USER_SETTINGS_AND_BLOCK_CLEANUP_VERSION,
+    )
+    .await;
 }
 
 /// Brings a test database to the schema as a server left it before the organization's

@@ -2,12 +2,11 @@
 
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Card, CardPropertyDefinition, Category,
-    CategoryContainerMetadata, CategoryContainers, CategoryType, ClientConfig, Container,
-    ContainerKind, ContainerMember, ContainerMemberPatch, ContainerPatch, ContainerRole,
+    CategoryContainerMetadata, CategoryContainers, CategoryType, ClientConfig, ClientStatePatch,
+    Container, ContainerKind, ContainerMember, ContainerMemberPatch, ContainerPatch, ContainerRole,
     ContainerVisibility, Credential, InvalidInput, LoginRequest, MinimumRole, NameShown,
     OrgWorkspace, PatchContainersAndBlocks, PersonName, Problem, PropertyColor, PropertyOption,
-    PropertyType, PublicLink, Subscriber, Subscription, Title, User, UserPreferencesPatch,
-    Workspace,
+    PropertyType, PublicLink, Subscriber, Subscription, Title, User, Workspace,
 };
 use serde_json::{Value, json};
 
@@ -22,7 +21,6 @@ fn block_json_members() {
         parent_id: "c1".to_owned(),
         created_by: "u1".to_owned(),
         modified_by: "u2".to_owned(),
-        schema: 1,
         block_type: BlockType::Comment,
         title: "hello".to_owned(),
         fields: serde_json::from_value(json!({ "z": 1, "a": [true] })).expect("object"),
@@ -35,7 +33,7 @@ fn block_json_members() {
         edited_at: 0,
     };
     let want = json!({
-        "id": "a1", "parentId": "c1", "createdBy": "u1", "modifiedBy": "u2", "schema": 1,
+        "id": "a1", "parentId": "c1", "createdBy": "u1", "modifiedBy": "u2",
         "type": "comment", "title": "hello", "fields": { "a": [true], "z": 1 }, "body": null,
         "createdAt": 10, "updatedAt": 20, "containerId": "b1"
     });
@@ -84,92 +82,99 @@ fn a_number_that_no_card_can_have_is_read_as_none() {
         json!(4_294_967_296_u64),
         json!([1]),
     ] {
-        let block: Block = serde_json::from_value(json!({ "number": sent })).expect("a block");
+        let block: Block =
+            serde_json::from_value(json!({ "type": "card", "number": sent })).expect("a block");
         assert_eq!(block.number, None, "{sent}");
         let card: Card = serde_json::from_value(json!({ "number": sent })).expect("a card");
         assert_eq!(card.number, None, "{sent}");
     }
-    let block: Block = serde_json::from_value(json!({ "number": 12 })).expect("a block");
+    let block: Block =
+        serde_json::from_value(json!({ "type": "card", "number": 12 })).expect("a block");
     assert_eq!(block.number, Some(12));
 }
 
 #[test]
-fn block_decodes_missing_members_as_empty_and_refuses_null_ones() {
-    let block: Block = serde_json::from_str(r#"{"id":"a1"}"#).expect("decodes");
+fn block_decodes_missing_members_as_empty_and_requires_a_valid_type() {
+    let block: Block = serde_json::from_str(r#"{"id":"a1","type":"card"}"#).expect("decodes");
     assert_eq!(
         block,
         Block {
             id: "a1".to_owned(),
+            block_type: BlockType::Card,
             ..Block::default()
         }
     );
-    assert!(
-        block.block_type.is_empty(),
-        "a missing type is the empty type"
-    );
-    serde_json::from_str::<Block>(r#"{"id":"a1","fields":null}"#)
+    for invalid in [
+        r#"{"id":"a1"}"#,
+        r#"{"id":"a1","type":""}"#,
+        r#"{"id":"a1","type":"text"}"#,
+        r#"{"id":"a1","type":"h1"}"#,
+        r#"{"id":"a1","type":"Card"}"#,
+        r#"{"id":"a1","type":null}"#,
+    ] {
+        serde_json::from_str::<Block>(invalid)
+            .expect_err("a missing or unknown block type is refused at deserialization");
+    }
+    serde_json::from_str::<Block>(r#"{"id":"a1","type":"card","fields":null}"#)
         .expect_err("fields is no member that may be null");
     let block: Block =
-        serde_json::from_str(r#"{"id":"a1","body":null}"#).expect("body may be null");
+        serde_json::from_str(r#"{"id":"a1","type":"card","body":null}"#).expect("body may be null");
     assert_eq!(block.body, None, "a null body is none");
 }
 
 #[test]
-fn block_type_keeps_unknown_strings_and_parses_strictly() {
-    for name in ["card", "view", "comment", "attachment", "page"] {
-        let block_type = BlockType::from(name);
-        assert!(
-            !matches!(block_type, BlockType::Other(_)),
-            "{name} is a known type"
-        );
-        assert_eq!(block_type.as_str(), name);
+fn block_type_is_a_closed_enum_rejecting_unknown_strings() {
+    for block_type in BlockType::ALL {
+        let name = block_type.as_str();
         assert_eq!(name.parse::<BlockType>(), Ok(block_type));
+        assert_eq!(to_json(&block_type), json!(name));
+        assert_eq!(
+            serde_json::from_value::<BlockType>(json!(name)).expect("decodes"),
+            block_type
+        );
         name.to_uppercase()
             .parse::<BlockType>()
             .expect_err("a type is parsed as it is written, case and all");
+        serde_json::from_value::<BlockType>(json!(name.to_uppercase()))
+            .expect_err("uppercase is rejected by serde");
     }
 
-    // Decoding is exact: a different case is some other type, kept as sent.
-    assert_eq!(BlockType::from("Card"), BlockType::Other("Card".to_owned()));
-    // Retired content block types and board block types decode as `BlockType::Other`.
-    assert_eq!(BlockType::from("text"), BlockType::Other("text".to_owned()));
-    assert_eq!(
-        BlockType::from("board"),
-        BlockType::Other("board".to_owned())
-    );
-    assert_eq!(to_json(&BlockType::from("list-item")), json!("list-item"));
-    assert_eq!(
-        serde_json::from_value::<BlockType>(json!("h1")).expect("decodes"),
-        BlockType::Other("h1".to_owned())
-    );
-
-    let error = "h1"
-        .parse::<BlockType>()
-        .expect_err("h1 is not a server-side type");
-    assert_eq!(
-        error.to_string(),
-        "the text names no block type",
-        "the text is not echoed"
-    );
+    for unknown in ["", "Card", "text", "board", "list-item", "h1"] {
+        serde_json::from_value::<BlockType>(json!(unknown))
+            .expect_err("unknown block type strings are rejected at deserialization");
+        let error = unknown
+            .parse::<BlockType>()
+            .expect_err("unknown block type strings are rejected by FromStr");
+        assert_eq!(
+            error.to_string(),
+            "the text names no block type",
+            "the text is not echoed"
+        );
+    }
 }
 
 #[test]
 fn block_patch_json_members() {
     let patch: BlockPatch = serde_json::from_value(json!({
-        "parentId": "p", "schema": 2, "type": "card", "title": "t",
+        "parentId": "p", "type": "card", "title": "t",
         "updatedFields": { "a": 1 }, "deletedFields": ["b"]
     }))
     .expect("decodes");
     assert_eq!(patch.parent_id.as_deref(), Some("p"));
-    assert_eq!(patch.schema, Some(2));
     assert_eq!(patch.block_type, Some(BlockType::Card));
     assert_eq!(patch.title.as_deref(), Some("t"));
     assert_eq!(patch.updated_fields["a"], json!(1));
     assert_eq!(patch.deleted_fields, ["b"]);
 
+    // Unknown block types in a patch are rejected at deserialization.
+    for unknown in ["", "text", "h1", "Card"] {
+        serde_json::from_value::<BlockPatch>(json!({ "type": unknown }))
+            .expect_err("unknown patch type is refused");
+    }
+
     // A member that may be null is none when it is; the lists may only be left out.
     let nulls: BlockPatch = serde_json::from_value(json!({
-        "parentId": null, "schema": null, "type": null, "title": null,
+        "parentId": null, "type": null, "title": null,
     }))
     .expect("decodes");
     assert_eq!(nulls, BlockPatch::default());
@@ -473,10 +478,8 @@ fn category_json_members() {
         deleted_at: None,
         collapsed: true,
         sort_order: 20,
-        sorting: "alpha".to_owned(),
         category_type: CategoryType::System,
     };
-    // The sorting method has no place in the storage and is not sent.
     let want = json!({
         "id": "7c", "name": "Boards", "userId": "u", "workspaceId": "0", "createdAt": 1,
         "updatedAt": 2, "collapsed": true, "sortOrder": 20,
@@ -485,10 +488,7 @@ fn category_json_members() {
     assert_eq!(to_json(&category), want);
     assert_eq!(
         serde_json::from_value::<Category>(want).expect("decodes"),
-        Category {
-            sorting: String::new(),
-            ..category
-        }
+        category
     );
 
     let defaulted: Category = serde_json::from_value(json!({ "name": "n" })).expect("decodes");
@@ -595,10 +595,6 @@ fn user_json_hides_credentials_and_carries_the_name() {
         updated_at: 5,
         deleted_at: None,
         is_admin: true,
-        is_bot: false,
-        is_guest: true,
-        permissions: vec![],
-        roles: "system_user".to_owned(),
     };
     assert_eq!(
         to_json(&user),
@@ -788,14 +784,14 @@ fn config_error_and_request_json_members() {
         "Debug leaks the password"
     );
 
-    let preferences: UserPreferencesPatch =
+    let client_state: ClientStatePatch =
         serde_json::from_value(json!({ "updatedFields": { "a": "b" } })).expect("decodes");
-    assert_eq!(preferences.updated_fields["a"], "b");
+    assert_eq!(client_state.updated_fields["a"], "b");
     assert!(
-        preferences.deleted_fields.is_empty(),
+        client_state.deleted_fields.is_empty(),
         "a list left out is empty"
     );
-    serde_json::from_value::<UserPreferencesPatch>(
+    serde_json::from_value::<ClientStatePatch>(
         json!({ "updatedFields": {}, "deletedFields": null }),
     )
     .expect_err("a null list is refused");
@@ -823,13 +819,6 @@ fn subscription_validate() {
         ),
         (
             Subscription {
-                block_type: BlockType::default(),
-                ..valid.clone()
-            },
-            "missing block type",
-        ),
-        (
-            Subscription {
                 user_id: String::new(),
                 ..valid
             },
@@ -839,6 +828,14 @@ fn subscription_validate() {
     for (subscription, message) in cases {
         let error = subscription.validate().expect_err(message);
         assert_eq!(error.to_string(), message);
+    }
+    for invalid in [
+        json!({ "blockId": "c", "userId": "u" }),
+        json!({ "blockType": "", "blockId": "c", "userId": "u" }),
+        json!({ "blockType": "text", "blockId": "c", "userId": "u" }),
+    ] {
+        serde_json::from_value::<Subscription>(invalid)
+            .expect_err("missing or unknown blockType is rejected at deserialization");
     }
 }
 
@@ -883,11 +880,11 @@ fn refuses_null_members<T: serde::de::DeserializeOwned>(
 fn null_is_refused_for_members_that_are_not_nullable() {
     refuses_null_members::<Block>(
         &json!({
-            "id": "a1", "parentId": "", "createdBy": "u1", "modifiedBy": "u1", "schema": 1,
+            "id": "a1", "parentId": "", "createdBy": "u1", "modifiedBy": "u1",
             "type": "card", "title": "t", "fields": {}, "createdAt": 1, "updatedAt": 1,
             "deletedAt": 2, "containerId": "b1",
         }),
-        &[],
+        &["type"],
         "a block",
     );
     refuses_null_members::<Container>(
@@ -932,7 +929,7 @@ fn null_is_refused_for_members_that_are_not_nullable() {
             "blockType": "card", "blockId": "c1", "userId": "u1",
             "notifiedAt": 0, "createdAt": 1, "deletedAt": 2,
         }),
-        &[],
+        &["blockType"],
         "a subscription",
     );
     refuses_null_members::<OrgWorkspace>(
@@ -973,7 +970,7 @@ fn null_is_refused_for_members_that_are_not_nullable() {
     );
 
     // A member that may be null is none when it is.
-    let block: Block =
-        serde_json::from_value(json!({ "id": "a1", "body": null })).expect("decodes");
+    let block: Block = serde_json::from_value(json!({ "id": "a1", "type": "card", "body": null }))
+        .expect("decodes");
     assert_eq!(block.body, None, "a null body is no body");
 }

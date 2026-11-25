@@ -69,7 +69,7 @@ async fn subscribed_blocks(store: &Store, user: &User) -> Vec<String> {
 /// Builds a user subscription to `block`.
 fn subscription(block: &Block, user: &User) -> Subscription {
     Subscription {
-        block_type: block.block_type.clone(),
+        block_type: block.block_type,
         block_id: block.id.clone(),
         user_id: user.id.clone(),
         notified_at: 0,
@@ -173,7 +173,7 @@ async fn create_subscription() {
 
         assert_invalid(store.create_subscription(sub.clone()).await);
 
-        sub.block_type = block.block_type.clone();
+        sub.block_type = block.block_type;
         assert_invalid(store.create_subscription(sub.clone()).await);
 
         sub.block_id.clone_from(&block.id);
@@ -1347,9 +1347,9 @@ async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
         &trashed_mixed,
         &alice,
         serde_json::json!([
-            {"blockType": "card", "subscriberType": "channel", "subscriberId": bob, "notifiedAt": 10, (old_create_key): 20},
+            {"blockType": "c\"d", "subscriberType": "channel", "subscriberId": bob, "notifiedAt": 10, (old_create_key): 20},
             {"blockType": "card", "subscriberType": "user", "subscriberId": alice, "notifiedAt": 30, (old_create_key): 40},
-            {"blockType": "c\"d", "subscriberType": "user", "subscriberId": bob, "notifiedAt": 50, (old_create_key): 60}
+            {"blockType": "view", "subscriberType": "user", "subscriberId": bob, "notifiedAt": 50, (old_create_key): 60}
         ]),
     )
     .await;
@@ -1544,14 +1544,14 @@ async fn assert_post_0069_org_a(post_a: &Store, fx: &Pre0069Fixture) {
             .await
             .expect("bob restored subscription"),
         Subscription {
-            block_type: BlockType::from("c\"d"),
+            block_type: BlockType::View,
             block_id: fx.trashed_mixed.id.clone(),
             user_id: fx.bob.clone(),
             notified_at: 50,
             created_at: 60,
             deleted_at: None,
         },
-        "restored bob watcher preserves escaped block_type and timestamps"
+        "restored bob watcher preserves block_type and timestamps"
     );
 
     let restored_empty = post_a

@@ -29,7 +29,7 @@ use crate::notification_noting::{self, Telling};
 use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
-pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
+pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, type, title, \
                              fields, created_at, updated_at, container_id, number, body";
 
 /// The columns a block is read with: [`BLOCK_COLUMNS`], and when its body was last
@@ -40,7 +40,7 @@ pub(crate) fn block_read_columns() -> String {
 
 /// The column of a block read with [`block_read_columns`] that says when its body was
 /// last changed.
-const EDITED_AT: usize = 13;
+const EDITED_AT: usize = 12;
 
 /// The columns that [`BLOCK_COLUMNS`] does not read: what is worked out from the body
 /// when it is stored.
@@ -48,7 +48,7 @@ const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, b
 
 /// The columns of a listed block: [`BLOCK_COLUMNS`] with no body, and what a list says
 /// about the body in its place.
-const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
+const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, type, title, \
                              fields, created_at, updated_at, container_id, number, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
@@ -61,13 +61,13 @@ const LAST_COMMENT_AT_COLUMN: &str = "COALESCE((SELECT MAX(c.created_at) FROM bl
                                       WHERE c.parent_id = blocks.id AND c.type = 'comment'), 0)";
 
 /// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
-const LISTED_HAS_BODY: usize = 13;
+const LISTED_HAS_BODY: usize = 12;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's task items.
-const LISTED_TASKS_TOTAL: usize = 14;
+const LISTED_TASKS_TOTAL: usize = 13;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's checked task items.
-const LISTED_TASKS_DONE: usize = 15;
+const LISTED_TASKS_DONE: usize = 14;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
-const LISTED_LAST_COMMENT_AT: usize = 16;
+const LISTED_LAST_COMMENT_AT: usize = 15;
 /// The columns a list reads for previews, after the last comment's time: the beginning
 /// of the plain text of the body, worked out when it was stored, and the body. The text
 /// is 201 characters (code points, each of one or two UTF-16 code units): the 200 units
@@ -75,9 +75,9 @@ const LISTED_LAST_COMMENT_AT: usize = 16;
 /// runs past 200 units, so the preview leaves it out whole.
 const PREVIEW_COLUMNS: &str = "SUBSTR(body_text, 1, 201), body";
 /// The column of the plain text of the body, read for previews.
-const LISTED_BODY_TEXT: usize = 17;
+const LISTED_BODY_TEXT: usize = 16;
 /// The column of the body, read for previews.
-const LISTED_BODY: usize = 18;
+const LISTED_BODY: usize = 17;
 
 /// The order of every list of blocks.
 pub(crate) const OLDEST_FIRST: &str = " ORDER BY created_at, id";
@@ -89,7 +89,7 @@ pub struct BlockFilter {
     pub container_id: Option<String>,
     /// Only blocks with this parent.
     pub parent_id: Option<String>,
-    /// Only blocks of this type. The empty type does not filter either.
+    /// Only blocks of this type.
     pub block_type: Option<BlockType>,
     /// Only one page of the result.
     pub paging: Option<Paging>,
@@ -516,6 +516,20 @@ pub(crate) async fn fetch_blocks(
         .collect()
 }
 
+/// Reads a [`BlockType`] column written by the store, rejecting unknown values as
+/// [`StoreError::Corrupt`].
+pub(crate) fn block_type_column(
+    row: &Row,
+    index: usize,
+    column: &'static str,
+) -> Result<BlockType, StoreError> {
+    let raw = row.text(index)?;
+    raw.parse().map_err(|_| StoreError::Corrupt {
+        column,
+        reason: format!("unknown block type {raw:?}"),
+    })
+}
+
 /// The block of a row read with [`BLOCK_COLUMNS`] or [`LISTED_BLOCK_COLUMNS`]: without
 /// [`Block::edited_at`].
 fn block_from_row(row: &Row) -> Result<Block, StoreError> {
@@ -524,17 +538,16 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
         parent_id: row.id(1)?,
         created_by: row.id(2)?,
         modified_by: row.id(3)?,
-        schema: row.int(4)?,
-        block_type: BlockType::from(row.text(5)?),
-        title: row.text(6)?,
-        fields: row.json_map(7, "fields")?,
-        created_at: row.int(8)?,
-        updated_at: row.int(9)?,
+        block_type: block_type_column(row, 4, "type")?,
+        title: row.text(5)?,
+        fields: row.json_map(6, "fields")?,
+        created_at: row.int(7)?,
+        updated_at: row.int(8)?,
         // A block that exists is not deleted.
         deleted_at: None,
-        container_id: row.id(10)?,
-        number: card_numbers::number_from_row(row, 11)?,
-        body: match row.json(12, "body")? {
+        container_id: row.id(9)?,
+        number: card_numbers::number_from_row(row, 10)?,
+        body: match row.json(11, "body")? {
             Value::Null => None,
             document => Some(Body::from_stored(document)),
         },
@@ -582,14 +595,8 @@ fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sq
     if let Some(parent_id) = &filter.parent_id {
         sql.push_bind(" AND parent_id = ", Id(parent_id));
     }
-    // The empty type does not filter.
-    let block_type = filter
-        .block_type
-        .as_ref()
-        .map(BlockType::as_str)
-        .filter(|name| !name.is_empty());
-    if let Some(block_type) = block_type {
-        sql.push_bind(" AND type = ", block_type);
+    if let Some(block_type) = filter.block_type {
+        sql.push_bind(" AND type = ", block_type.as_str());
     }
     sql.push(OLDEST_FIRST);
     // A page size of zero does not limit, and the offset of any page is then zero.
@@ -756,7 +763,6 @@ pub(crate) async fn insert_block_at(
         let mut sql = scope.sql("UPDATE blocks SET ");
         sql.push_bind("parent_id = ", OptId(&block.parent_id))
             .push_bind(", modified_by = ", OptId(&block.modified_by))
-            .push_bind(", \"schema\" = ", block.schema)
             .push_bind(", type = ", block.block_type.as_str())
             .push_bind(", title = ", &block.title)
             .push_bind(", fields = ", Param::json(&block.fields)?)
@@ -809,7 +815,6 @@ pub(crate) async fn insert_block_row(
         .push_bind(", ", OptId(&block.parent_id))
         .push_bind(", ", OptId(&block.created_by))
         .push_bind(", ", OptId(&block.modified_by))
-        .push_bind(", ", block.schema)
         .push_bind(", ", block.block_type.as_str())
         .push_bind(", ", &block.title)
         .push_bind(", ", Param::json(&block.fields)?)

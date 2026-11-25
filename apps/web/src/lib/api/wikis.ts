@@ -2,7 +2,7 @@
  * The wikis and their pages on the server (`Backend.wiki`): the operations
  * under `/w/{workspaceId}/wikis` (`getWikis`, `createWiki`, `getPageTree`,
  * `createPage`, `getPage`, `patchPage`, `deletePage`, `movePage`, `duplicatePage`, `getDeletedPages`,
- * `undeletePage`), the comments on a page (`getPageComments` and the rest)
+ * `restorePage`), the comments on a page (`getPageComments` and the rest)
  * and the versions of its body (`ServerPageVersions`). What a wiki shares
  * with a board (reading it, changing, deleting and bringing it back, its
  * members, joining it, the sidebar) goes by the board's operations.
@@ -229,10 +229,10 @@ export class ServerWikis implements Wikis {
     return pages.map(deletedPageOf);
   }
 
-  async undeletePage(wikiId: string, pageId: string): Promise<WikiPageDetail> {
+  async restorePage(wikiId: string, pageId: string): Promise<WikiPageDetail> {
     return pageDetailOf(
       await this.#request<Schemas['Page']>(
-        '/wikis/{wikiId}/pages/{pageId}/undelete',
+        '/wikis/{wikiId}/pages/{pageId}/restore',
         { wikiId, pageId },
         { method: 'POST' },
       ),
@@ -292,7 +292,7 @@ export class ServerWikis implements Wikis {
   async restoreComment(wikiId: string, pageId: string, commentId: string): Promise<Comment> {
     return commentOf(
       await this.#request<Schemas['Block']>(
-        '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete',
+        '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/restore',
         { wikiId, pageId, commentId },
         { method: 'POST' },
       ),

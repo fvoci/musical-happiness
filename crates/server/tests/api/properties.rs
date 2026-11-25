@@ -107,7 +107,7 @@ async fn new_board(client: &Client, card_properties: Value) -> ApiResponse {
 fn card_block(board_id: &str, properties: Value) -> Value {
     let mut block = json!({
         "id": "c1", "containerId": board_id, "type": "card", "title": "Card",
-        "schema": 1, "createdAt": 1, "updatedAt": 1, "fields": {},
+        "createdAt": 1, "updatedAt": 1, "fields": {},
     });
     block["fields"]["properties"] = properties;
     block
@@ -491,7 +491,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &request(json!([{"name": "no id"}]), json!({})),
         )
         .await;
@@ -499,7 +499,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &request(json!([{"id": "p1"}]), json!({"p1": 3})),
         )
         .await;
@@ -509,7 +509,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     let created: Value = th
         .client
         .post(
-            &format!("{TEST_WS}/boards-and-blocks"),
+            &format!("{TEST_WS}/containers-and-blocks"),
             &request(json!([{"id": "p1"}]), json!({"p1": "v"})),
         )
         .await
@@ -532,7 +532,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
         let response = th
             .client
             .patch(
-                &format!("{TEST_WS}/boards-and-blocks"),
+                &format!("{TEST_WS}/containers-and-blocks"),
                 &json!({
                     "containerIds": [board_id], "containerPatches": [board_patch],
                     "blockIds": [block_id], "blockPatches": [block_patch],
@@ -815,9 +815,9 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     });
     check_refused(
         &th.client
-            .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
+            .patch(&format!("{TEST_WS}/containers-and-blocks"), &request)
             .await,
-        "patchBoardsAndBlocks",
+        "patchContainersAndBlocks",
     );
     let date =
         json!({"updatedFields": {"properties": {"p1": "open", "due": {"from": "2026-03-05"}}}});

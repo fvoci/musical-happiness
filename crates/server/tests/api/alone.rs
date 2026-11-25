@@ -63,7 +63,7 @@ fn check_invitation_required(response: &ApiResponse) {
 async fn organizations_of_people(th: &TestServer) -> usize {
     let query = format!(
         "SELECT 'row' FROM organizations WHERE kind = '{}' AND NOT is_system",
-        OrgKind::Team.as_str()
+        OrgKind::Shared.as_str()
     );
     let found = th.app.store().system().texts_unchecked(&query).await;
     found.expect("read").len()
@@ -372,7 +372,7 @@ async fn an_account_starts_organizations_and_no_more_than_three_on_postgres() {
             gamma.name.as_str(),
             gamma.sso_required
         ),
-        (OrgKind::Team, WorkspaceRole::Admin, "Gamma", false),
+        (OrgKind::Shared, WorkspaceRole::Admin, "Gamma", false),
         "{gamma:?}"
     );
     let (listed, own_after) = workspaces_and_own(&carol).await;
