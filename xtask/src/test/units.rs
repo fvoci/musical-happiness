@@ -41,6 +41,9 @@ pub(crate) struct Unit {
     pub(crate) flags: Vec<String>,
     /// The harness's filter, which the names of a rerun take the place of.
     pub(crate) filter: Vec<String>,
+    /// Which slice of its target's listed tests this subunit runs, when `--part` splits
+    /// a large integration test target across shards.
+    pub(crate) slice: Option<Part>,
     pub(crate) services: Services,
 }
 
@@ -51,6 +54,7 @@ impl Unit {
             targets: targets.iter().map(|&target| target.to_owned()).collect(),
             flags: Vec::new(),
             filter: Vec::new(),
+            slice: None,
             services,
         }
     }
@@ -206,6 +210,25 @@ pub(crate) fn of_packages(
 pub(crate) struct Part {
     index: NonZeroUsize,
     count: NonZeroUsize,
+}
+
+impl Part {
+    /// `index/count`, when `1 <= index <= count`.
+    pub(crate) fn new(index: usize, count: usize) -> Option<Self> {
+        let index = NonZeroUsize::new(index)?;
+        let count = NonZeroUsize::new(count)?;
+        (index <= count).then_some(Self { index, count })
+    }
+
+    /// Which part this is, from `1`.
+    pub(crate) fn index(self) -> usize {
+        self.index.get()
+    }
+
+    /// How many parts there are in total.
+    pub(crate) fn count(self) -> usize {
+        self.count.get()
+    }
 }
 
 impl FromStr for Part {

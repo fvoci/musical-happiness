@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use super::harness::UnitRun;
+use super::shards;
 use super::units::DOC;
 use crate::times::{Scope, TestName, UnitTime, Verdict};
 
@@ -105,9 +106,14 @@ pub(crate) fn reruns(results: &[UnitResult]) -> Vec<String> {
             failed.partition(|result| result.reruns_by_name());
         let command = |units: &[&UnitResult]| {
             let mut command = format!("cargo xtask test --database {database}");
+            let mut seen: Vec<&str> = Vec::new();
             for result in units {
-                command.push_str(" --unit ");
-                command.push_str(&result.unit);
+                let unit = shards::base_name(&result.unit);
+                if !seen.contains(&unit) {
+                    seen.push(unit);
+                    command.push_str(" --unit ");
+                    command.push_str(unit);
+                }
             }
             command
         };
@@ -591,6 +597,28 @@ mod tests {
             flaky(&[chosen], &earlier),
             [],
             "some of its tests passing says nothing of the whole"
+        );
+    }
+
+    #[test]
+    fn failed_subunits_rerun_under_their_target_unit_name_once() {
+        let results = [
+            result(
+                "postgres",
+                "api/1",
+                Exit::Failure,
+                finished(&[], &["boards::a"]),
+            ),
+            result(
+                "postgres",
+                "api/2",
+                Exit::Failure,
+                finished(&[], &["users::b"]),
+            ),
+        ];
+        assert_eq!(
+            reruns(&results),
+            ["cargo xtask test --database postgres --unit api -- --exact boards::a users::b"]
         );
     }
 }
