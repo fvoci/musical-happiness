@@ -1,7 +1,7 @@
 # The whole verification of a change: what `cargo xtask check`, `cargo xtask test` and
 # the web app's `check`, `test`, `build`, `test:storybook`, `e2e`, `e2e:apple` and
-# `e2e:live` do on a developer's machine, by the same commands, cut into 17 jobs for
-# runners of four processors. At most 14 run at once (`plan` and `web build` end
+# `e2e:live` do on a developer's machine, by the same commands, cut into 21 jobs for
+# runners of four processors. At most 18 run at once (`plan` and `web build` end
 # before the end-to-end jobs start, `ci-done` starts after all), so two runs fit in
 # the 40 jobs the account runs at once. `plan` says which jobs a run may skip, from
 # what it changes (.github/scripts/plan.sh); `ci-done` is the one check that stands
@@ -146,11 +146,15 @@ jobs:
           "$RUNNER_TEMP/bin/zizmor" --color always .github
 
   rust-sqlite:
-    name: cargo xtask test (SQLite)
+    name: cargo xtask test (SQLite) (${{ matrix.shard }}/3)
     needs: plan
     if: ${{ !contains(needs.plan.outputs.skip, '"rust-sqlite"') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -158,15 +162,22 @@ jobs:
       - uses: $/.github/actions/rust
         with:
           cache: workspace-tests
-          save: 'true'
-      - run: cargo xtask test --database sqlite
+          # Shard 3 holds store, libs and the remaining workspace targets.
+          save: ${{ matrix.shard == 3 && 'true' || 'false' }}
+      - env:
+          PART: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: cargo xtask test --database sqlite --part "$PART"
 
   rust-postgres:
-    name: cargo xtask test (PostgreSQL)
+    name: cargo xtask test (PostgreSQL) (${{ matrix.shard }}/3)
     needs: plan
     if: ${{ !contains(needs.plan.outputs.skip, '"rust-postgres"') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -174,9 +185,12 @@ jobs:
       - uses: $/.github/actions/rust
         with:
           cache: server-tests
-          save: 'true'
+          # Shard 3 holds store, libs and the remaining server targets.
+          save: ${{ matrix.shard == 3 && 'true' || 'false' }}
       # xtask starts the PostgreSQL container itself, as on a developer's machine.
-      - run: cargo xtask test --database postgres
+      - env:
+          PART: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: cargo xtask test --database postgres --part "$PART"
 
   # The three commands that read the source, on one runner. Each runs even when the
   # one before it failed.
