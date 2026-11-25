@@ -567,13 +567,13 @@ Task B,No,85%,\"May 14, 2026\",https://example.com/b,Beta,Done,Second detailed s
     assert_eq!(
         types,
         vec![
-            InferredKind::Checkbox.wire_type(),
-            InferredKind::Number.wire_type(),
-            InferredKind::Date.wire_type(),
-            InferredKind::Url.wire_type(),
-            InferredKind::MultiSelect.wire_type(),
-            InferredKind::Select.wire_type(),
-            InferredKind::Text.wire_type(),
+            InferredKind::Checkbox.property_type().as_str(),
+            InferredKind::Number.property_type().as_str(),
+            InferredKind::Date.property_type().as_str(),
+            InferredKind::Url.property_type().as_str(),
+            InferredKind::MultiSelect.property_type().as_str(),
+            InferredKind::Select.property_type().as_str(),
+            InferredKind::Text.property_type().as_str(),
         ],
         "all 7 property types inferred in order"
     );

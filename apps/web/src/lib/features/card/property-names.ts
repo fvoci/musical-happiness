@@ -20,10 +20,11 @@ const NAMES: Record<PropertyType, () => string> = {
   updatedBy: m['PropertyType.UpdatedBy'],
   relation: m.property_type_relation,
   file: m['PropertyType.Unknown'],
-  unknown: m['PropertyType.Unknown'],
 };
 
 /** The name of a kind; a kind this app does not know is "Unknown". */
 export function propertyTypeName(type: string): string {
-  return ((NAMES as Record<string, (() => string) | undefined>)[type] ?? NAMES.unknown)();
+  return (
+    (NAMES as Record<string, (() => string) | undefined>)[type] ?? m['PropertyType.Unknown']
+  )();
 }

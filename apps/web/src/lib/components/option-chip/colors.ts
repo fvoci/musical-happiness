@@ -41,10 +41,6 @@ const NAMES: Record<OptionColor, () => string> = {
   red: m.property_color_red,
 };
 
-export function isOptionColor(color: string): color is OptionColor {
-  return (OPTION_COLORS as readonly string[]).includes(color);
-}
-
 /** The class that fills a label with a colour. */
 export function optionFill(color: OptionColor): string {
   return FILLS[color];

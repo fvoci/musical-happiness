@@ -208,11 +208,11 @@ describe('groups of a board view', () => {
 });
 
 describe('property behaviour', () => {
-  it('knows every kind a person can choose, and the two that are not offered', () => {
+  it('knows every kind a person can choose, and the one that is not offered', () => {
     expect(Object.keys(PROPERTY_BEHAVIORS).sort()).toEqual(
-      [...SELECTABLE_PROPERTY_TYPES, 'file', 'unknown'].sort(),
+      [...SELECTABLE_PROPERTY_TYPES, 'file'].sort(),
     );
-    expect(propertyBehavior('something-new')).toBe(PROPERTY_BEHAVIORS.unknown);
+    expect(propertyBehavior('something-new')).toBe(PROPERTY_BEHAVIORS.file);
   });
 
   it('says which kinds can group, filter and be edited', () => {
@@ -224,11 +224,7 @@ describe('property behaviour', () => {
       'select',
       'updatedBy',
     ]);
-    expect(where((name) => !propertyBehavior(name).canFilter)).toEqual([
-      'file',
-      'number',
-      'unknown',
-    ]);
+    expect(where((name) => !propertyBehavior(name).canFilter)).toEqual(['file', 'number']);
     expect(where((name) => propertyBehavior(name).isReadOnly)).toEqual([
       'createdBy',
       'createdTime',

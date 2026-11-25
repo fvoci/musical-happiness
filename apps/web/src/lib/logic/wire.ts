@@ -505,8 +505,7 @@ export type PropertyType =
   | 'createdBy'
   | 'updatedTime'
   | 'updatedBy'
-  | 'relation'
-  | 'unknown';
+  | 'relation';
 
 export interface PropertyOption {
   id: string;

@@ -178,6 +178,8 @@ const dayOfMoment = (
   return { first: day, last: day };
 };
 
+const UNKNOWN_BEHAVIOR = behavior({});
+
 /** The behaviour of every kind of property. `file` has none of its own and behaves as unknown. */
 export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
   text: textLike,
@@ -249,15 +251,13 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     calculationOptions: ['none'],
     displayValue: displayRelation,
   }),
-  file: behavior({}),
-  unknown: behavior({}),
+  file: UNKNOWN_BEHAVIOR,
 };
 
-/** The behaviour of a kind; a kind this app does not know behaves as `unknown`. */
+/** The behaviour of a kind; a kind this app does not know has no special behaviour. */
 export function propertyBehavior(type: string): PropertyBehavior {
   return (
-    (PROPERTY_BEHAVIORS as Record<string, PropertyBehavior | undefined>)[type] ??
-    PROPERTY_BEHAVIORS.unknown
+    (PROPERTY_BEHAVIORS as Record<string, PropertyBehavior | undefined>)[type] ?? UNKNOWN_BEHAVIOR
   );
 }
 

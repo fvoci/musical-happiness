@@ -322,15 +322,21 @@ fn well_formed_definitions_pass() {
 }
 
 #[test]
-fn property_colors_and_types_reject_legacy_and_unknown_wire_strings() {
+fn property_color_and_type_words_match_all_in_order() {
     assert_eq!(
         PropertyColor::WORDS,
-        PropertyColor::ALL.map(PropertyColor::as_str)
+        PropertyColor::ALL.map(PropertyColor::as_str),
+        "PropertyColor::WORDS must match PropertyColor::ALL in order"
     );
     assert_eq!(
         PropertyType::WORDS,
-        PropertyType::ALL.map(PropertyType::as_str)
+        PropertyType::ALL.map(PropertyType::as_str),
+        "PropertyType::WORDS must match PropertyType::ALL in order"
     );
+}
+
+#[test]
+fn property_colors_and_types_reject_legacy_and_unknown_wire_strings() {
     for color in PropertyColor::ALL {
         assert_eq!(color.as_str().parse::<PropertyColor>(), Ok(color));
         assert_eq!(serde_json::to_value(color).expect("json"), color.as_str());
