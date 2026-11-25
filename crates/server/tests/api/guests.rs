@@ -49,7 +49,7 @@ async fn board_of_user1(th: &TestServer, board_type: ContainerVisibility, title:
 
 fn viewer(board_id: &str, user_id: &str) -> ContainerMember {
     ContainerMember {
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..member(board_id, user_id)
     }
 }
@@ -122,7 +122,7 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
     let guest = guest_of_the_workspace(&th).await;
     let board = board_of_user1(&th, ContainerVisibility::Private, "Guest's board").await;
     let as_admin = ContainerMember {
-        scheme_admin: true,
+        role: fvoci_model::ContainerRole::Admin,
         ..member(&board, &guest)
     };
 
@@ -148,7 +148,7 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
     let not_on_board = update_member(
         &th.client,
         &ContainerMember {
-            scheme_admin: true,
+            role: fvoci_model::ContainerRole::Admin,
             ..member(&elsewhere, &guest)
         },
     )
@@ -170,7 +170,7 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
     let raised = update_member(
         &th.client,
         &ContainerMember {
-            scheme_admin: true,
+            role: fvoci_model::ContainerRole::Admin,
             ..member(&board, &leaver)
         },
     )
@@ -190,8 +190,8 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
         "nothing was stored by the refused request"
     );
     assert_eq!(
-        (stored.scheme_admin, stored.scheme_editor),
-        (false, true),
+        stored.role,
+        fvoci_model::ContainerRole::Editor,
         "the guest stays an editor"
     );
 }
@@ -206,7 +206,7 @@ async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored(
     th.app
         .store()
         .save_member(&ContainerMember {
-            scheme_admin: true,
+            role: fvoci_model::ContainerRole::Admin,
             ..member(&board, &guest)
         })
         .await
@@ -243,11 +243,6 @@ async fn a_guest_is_told_the_changes_of_its_boards_and_of_no_other() {
     let other = board_of_user1(&th, ContainerVisibility::Open, "Other").await;
     th.client
         .add_member(&viewer(&invited, &guest))
-        .await
-        .check_ok();
-    // A membership without a role opens nothing, over HTTP and here.
-    th.client
-        .add_member(&member(&other, &guest))
         .await
         .check_ok();
     let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &guest).await;

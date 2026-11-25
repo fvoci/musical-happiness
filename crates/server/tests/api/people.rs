@@ -133,7 +133,7 @@ async fn a_guest_sees_who_is_on_its_boards() {
         .created_json();
     th.client
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&board.id, &guest)
         })
         .await
@@ -176,7 +176,7 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
         .created_json();
     th.client
         .add_member(&ContainerMember {
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..member(&board.id, &leaver)
         })
         .await
@@ -268,13 +268,14 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
         .created_json();
     th.client
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&shared.id, &guest)
         })
         .await
         .check_ok();
-    // On this board the guest has a membership without a role, which shares nothing.
-    let roleless: fvoci_model::Container = th
+    // On this board the third user is a viewer; a request without a role is refused and
+    // leaves the guest off the board.
+    let other_board: fvoci_model::Container = th
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
@@ -283,17 +284,20 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
         ))
         .await
         .created_json();
-    for user in [&guest, &third] {
-        let membership = if *user == third {
-            ContainerMember {
-                scheme_viewer: true,
-                ..member(&roleless.id, user)
-            }
-        } else {
-            member(&roleless.id, user)
-        };
-        th.client.add_member(&membership).await.check_ok();
-    }
+    th.client
+        .add_member(&ContainerMember {
+            role: fvoci_model::ContainerRole::Viewer,
+            ..member(&other_board.id, &third)
+        })
+        .await
+        .check_ok();
+    th.client
+        .post(
+            &format!("{TEST_WS}/containers/{}/members", other_board.id),
+            &json!({"userId": guest}),
+        )
+        .await
+        .check_bad_request();
 
     let coworker = th.client2.get(&format!("{TEST_WS}/users/{user1}")).await;
     let not_shared = th
@@ -344,7 +348,7 @@ async fn a_guest_editing_an_open_board_adds_nobody() {
         .created_json();
     th.client
         .add_member(&ContainerMember {
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..member(&board.id, &guest)
         })
         .await
@@ -531,8 +535,11 @@ async fn a_guest_names_who_wrote_on_its_board_and_finds_them_nowhere() {
             .add_member_in(
                 ROOT_WORKSPACE_ID,
                 &ContainerMember {
-                    scheme_viewer: !editor,
-                    scheme_editor: editor,
+                    role: if editor {
+                        fvoci_model::ContainerRole::Editor
+                    } else {
+                        fvoci_model::ContainerRole::Viewer
+                    },
                     ..member(&board.id, user_id)
                 },
             )

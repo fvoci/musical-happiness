@@ -1284,14 +1284,14 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
         (
             &board.id,
             fvoci_model::ContainerMember {
-                scheme_commenter: true,
+                role: fvoci_model::ContainerRole::Commenter,
                 ..Default::default()
             },
         ),
         (
             &source.id,
             fvoci_model::ContainerMember {
-                scheme_viewer: true,
+                role: fvoci_model::ContainerRole::Viewer,
                 ..Default::default()
             },
         ),
@@ -1422,7 +1422,7 @@ async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
         .add_member_to_container(&fvoci_model::ContainerMember {
             container_id: board.id.clone(),
             user_id: user2.id.clone(),
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..Default::default()
         })
         .await

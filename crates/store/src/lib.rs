@@ -83,6 +83,8 @@ mod search_text;
 mod server_lock;
 mod sessions;
 mod signups;
+#[cfg(any(test, feature = "test-util"))]
+mod sqlite_seed;
 mod subscriptions;
 mod teams;
 #[cfg(feature = "test-util")]
@@ -363,6 +365,10 @@ impl Store {
     /// schema is to be changed and the role does not own the tables, and
     /// [`StoreError::Database`] if the database cannot be reached.
     pub async fn connect(db_type: DbType, connection: &str) -> Result<Self, StoreError> {
+        #[cfg(any(test, feature = "test-util"))]
+        if db_type == DbType::Sqlite {
+            sqlite_seed::seed_if_fresh(connection).await;
+        }
         let store = Self::open(db_type, connection).await?;
         store.migrate().await?;
         Ok(store)

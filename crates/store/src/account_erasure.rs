@@ -623,7 +623,7 @@ async fn leave_workspace(
     for container_id in &containers {
         let administers = find_member(scope, container_id, user_id)
             .await?
-            .is_some_and(|member| member.scheme_admin);
+            .is_some_and(|member| member.role == ContainerRole::Admin);
         let alone = administers && members::is_only_admin(scope, container_id, user_id).await?;
         if alone && heir.is_none() {
             left.without_admin.push(container_id.clone());
@@ -634,7 +634,7 @@ async fn leave_workspace(
                 user_id: heir_id.clone(),
                 ..ContainerMember::default()
             }
-            .with_role(Some(ContainerRole::Admin));
+            .with_role(ContainerRole::Admin);
             save_member(scope, &admin).await?;
             let entry = AuditEntry::by(
                 actor,

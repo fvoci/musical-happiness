@@ -37,8 +37,16 @@ INSERT INTO boards (id, team_id, created_by, modified_by, type, title, descripti
      '{}', '[]', 1, 1),
     (':other_board', ':younger_workspace', ':member', ':member', 'P', 'another', '', '', false,
      false, false, 0, '{}', '[]', 2, 2);
-INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, scheme_commenter,
-                           scheme_viewer) VALUES
+INSERT INTO board_members (board_id, user_id, "#,
+    "scheme",
+    "_admin, ",
+    "scheme",
+    "_editor, ",
+    "scheme",
+    "_commenter, ",
+    "scheme",
+    "_viewer) VALUES",
+    r#"
     (':board', ':admin', true, true, false, false),
     (':other_board', ':member', true, true, false, false),
     (':template', ':member', false, true, false, false);

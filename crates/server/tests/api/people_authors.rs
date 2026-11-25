@@ -65,7 +65,7 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
     if matches!(authorship, Authorship::Board) {
         creator
             .add_member(&ContainerMember {
-                scheme_admin: true,
+                role: fvoci_model::ContainerRole::Admin,
                 ..member(&board.id, &owner)
             })
             .await
@@ -317,7 +317,7 @@ async fn check_authorship(authorship: Authorship) {
     );
     th.client
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&board.id, &guest_id)
         })
         .await

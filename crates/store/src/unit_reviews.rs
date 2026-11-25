@@ -334,14 +334,8 @@ impl Store {
                 .push(
                     " AND (EXISTS (\
                      SELECT 1 FROM container_members AS cm \
-                     WHERE cm.container_id = c.id AND cm.user_id = ur.user_id \
-                       AND (cm.scheme_admin = ",
+                     WHERE cm.container_id = c.id AND cm.user_id = ur.user_id",
                 )
-                .bind(true)
-                .push_bind(" OR cm.scheme_editor = ", true)
-                .push_bind(" OR cm.scheme_commenter = ", true)
-                .push_bind(" OR cm.scheme_viewer = ", true)
-                .push(")")
                 .push(&scope.same_organization(&[("cm", "c")]))
                 .push(") OR (wm.role <> ")
                 .bind(WorkspaceRole::Guest.as_str())
@@ -405,14 +399,8 @@ impl Store {
                 .push(
                     " AND (EXISTS (\
                      SELECT 1 FROM container_members AS cm \
-                     WHERE cm.container_id = c.id AND cm.user_id = ur.user_id \
-                       AND (cm.scheme_admin = ",
+                     WHERE cm.container_id = c.id AND cm.user_id = ur.user_id",
                 )
-                .bind(true)
-                .push_bind(" OR cm.scheme_editor = ", true)
-                .push_bind(" OR cm.scheme_commenter = ", true)
-                .push_bind(" OR cm.scheme_viewer = ", true)
-                .push(")")
                 .push(&scope.same_organization(&[("cm", "c")]))
                 .push(") OR (wm.role <> ")
                 .bind(WorkspaceRole::Guest.as_str())

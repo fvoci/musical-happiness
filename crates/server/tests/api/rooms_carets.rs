@@ -277,7 +277,7 @@ async fn a_caret_stays_in_its_organization() {
     let member = ContainerMember {
         container_id: board_id,
         user_id: user2,
-        scheme_editor: true,
+        role: fvoci_model::ContainerRole::Editor,
         ..ContainerMember::default()
     };
     theirs.save_member(&member).await.expect("invited");

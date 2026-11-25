@@ -663,7 +663,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
         let member = ContainerMember {
             container_id: board.id.clone(),
             user_id: user2_id.clone(),
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..ContainerMember::default()
         };
         th.client.add_member(&member).await.check_ok();
@@ -723,7 +723,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     let member = ContainerMember {
         container_id: boards[0].id.clone(),
         user_id: user2_id.clone(),
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..ContainerMember::default()
     };
     th.client.add_member(&member).await.check_ok();

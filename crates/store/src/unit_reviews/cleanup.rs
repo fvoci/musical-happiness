@@ -88,14 +88,8 @@ pub(crate) async fn forget_user_in_workspace_unjoined(
                 ") AND NOT EXISTS (\
                  SELECT 1 FROM container_members AS cm \
                  WHERE cm.container_id = {table}.container_id \
-                   AND cm.user_id = {table}.user_id \
-                   AND (cm.scheme_admin = "
+                   AND cm.user_id = {table}.user_id"
             ))
-            .bind(true)
-            .push_bind(" OR cm.scheme_editor = ", true)
-            .push_bind(" OR cm.scheme_commenter = ", true)
-            .push_bind(" OR cm.scheme_viewer = ", true)
-            .push(")")
             .push(&scope.same_organization(&[("cm", table)]))
             .push(") AND NOT EXISTS (SELECT 1 FROM ")
             .push(&inherited)

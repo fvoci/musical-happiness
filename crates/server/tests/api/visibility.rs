@@ -203,7 +203,7 @@ fn title(_: &Hidden, _: usize) -> Value {
 }
 
 fn member(_: &Hidden, _: usize) -> Value {
-    json!({"userId": "somebody", "schemeEditor": true})
+    json!({"userId": "somebody", "role": "editor"})
 }
 
 /// The path of a category of the test workspace, and of what follows it.
@@ -1044,7 +1044,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         (
             Method::PUT,
             format!("{TEST_WS}/containers/{board}/members/{{}}"),
-            json!({"schemeEditor": true}),
+            json!({"role": "editor"}),
         ),
         (
             Method::DELETE,
@@ -1054,7 +1054,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         (
             Method::POST,
             format!("{TEST_WS}/containers/{board}/members"),
-            json!({"userId": "{}", "schemeEditor": true}),
+            json!({"userId": "{}", "role": "editor"}),
         ),
         (
             Method::POST,

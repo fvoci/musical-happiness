@@ -32,11 +32,13 @@ use crate::common::{
     ApiResponse, Client, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
 };
 
-/// A board, or a wiki.
+/// A container kind exercised by the role tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Board,
     Wiki,
+    Course,
+    Template,
 }
 
 /// Who a container is for besides its members.
@@ -189,7 +191,7 @@ fn container_ops() -> Vec<Op> {
             "/containers/{c}/members",
             Json(|things, people| {
                 let (board, user) = (&things.container, &people.extra);
-                json!({"containerId": board, "userId": user, "schemeViewer": true})
+                json!({"containerId": board, "userId": user, "role": "viewer"})
             }),
         ),
         op(
@@ -198,7 +200,7 @@ fn container_ops() -> Vec<Op> {
             "/containers/{c}/members/{viewer}",
             Json(|things, people| {
                 let (board, user) = (&things.container, &people.viewer);
-                json!({"containerId": board, "userId": user, "schemeCommenter": true})
+                json!({"containerId": board, "userId": user, "role": "commenter"})
             }),
         ),
         op(
@@ -636,25 +638,38 @@ fn done(response: &ApiResponse) {
 /// and commented on.
 async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
     let owner = &people.clients["admin"];
-    let at = match kind {
-        Kind::Board => format!("{TEST_WS}/boards"),
-        Kind::Wiki => format!("{TEST_WS}/wikis"),
+    let (at, new_body) = match kind {
+        Kind::Board => (
+            format!("{TEST_WS}/boards"),
+            json!({"visibility": scope.wire()}),
+        ),
+        Kind::Wiki => (
+            format!("{TEST_WS}/wikis"),
+            json!({"visibility": scope.wire()}),
+        ),
+        Kind::Course => (
+            format!("{TEST_WS}/courses"),
+            json!({"visibility": scope.wire()}),
+        ),
+        Kind::Template => (
+            format!("{TEST_WS}/boards"),
+            json!({"visibility": scope.wire(), "isTemplate": true}),
+        ),
     };
-    let made = owner.post(&at, &json!({"visibility": scope.wire()})).await;
+    let made = owner.post(&at, &new_body).await;
     done(&made);
     let container = text(&made.value(), "id");
     let at = format!("{TEST_WS}/containers/{container}");
     let mut roles = vec![
-        (&people.editor, "schemeEditor"),
-        (&people.commenter, "schemeCommenter"),
-        (&people.viewer, "schemeViewer"),
+        (&people.editor, "editor"),
+        (&people.commenter, "commenter"),
+        (&people.viewer, "viewer"),
     ];
     if scope == Scope::Invited {
-        roles.push((&people.guest, "schemeEditor"));
+        roles.push((&people.guest, "editor"));
     }
-    for (user, flag) in roles {
-        let mut member = json!({"containerId": container, "userId": user});
-        member[flag] = json!(true);
+    for (user, role) in roles {
+        let member = json!({"containerId": container, "userId": user, "role": role});
         done(&owner.post(&format!("{at}/members"), &member).await);
         done(&owner.put(&format!("{at}/members/{user}"), &member).await);
     }
@@ -674,8 +689,19 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
             .await,
     );
     let file = text(&uploaded.value(), "fileId");
+    make_kind_content(owner, kind, scope, container, file).await
+}
+
+/// Populates the sample card, course units, or wiki pages inside `container` for `make`.
+async fn make_kind_content(
+    owner: &Client,
+    kind: Kind,
+    scope: Scope,
+    container: String,
+    file: String,
+) -> Things {
     match kind {
-        Kind::Board => {
+        Kind::Board | Kind::Template => {
             let card = owner
                 .post(
                     &format!("{TEST_WS}/boards/{container}/cards"),
@@ -692,6 +718,35 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
                 comment: String::new(),
                 comment_at: Value::Null,
                 version: String::new(),
+            }
+        }
+        Kind::Course => {
+            let units = format!("{TEST_WS}/courses/{container}/units");
+            let unit = owner.post(&units, &json!({"title": "a unit"})).await;
+            let second = owner.post(&units, &json!({"title": "another"})).await;
+            done(&unit);
+            done(&second);
+            let block = text(&unit.value(), "id");
+            let at = format!("{units}/{block}");
+            for body in ["first", "second"] {
+                let read = owner.get(&at).await.value();
+                let change = json!({"readAt": read["updateAt"], "body": said(body)});
+                done(&owner.patch(&at, &change).await);
+            }
+            let comment = owner
+                .post(&format!("{at}/comments"), &json!({"body": said("theirs")}))
+                .await;
+            done(&comment);
+            let comment = comment.value();
+            Things {
+                scope,
+                container,
+                block,
+                second: text(&second.value(), "id"),
+                file,
+                comment: text(&comment, "id"),
+                comment_at: comment["updateAt"].clone(),
+                version: "1".to_owned(),
             }
         }
         Kind::Wiki => {
@@ -848,10 +903,56 @@ fn place_of(who: Who) -> &'static str {
     }
 }
 
+/// The operations of what a course holds.
+fn course_ops() -> Vec<Op> {
+    use Body::{Json, None};
+    vec![
+        op("units: tree", Method::GET, "/courses/{c}/units", None),
+        op("units: get", Method::GET, "/courses/{c}/units/{p}", None),
+        op(
+            "units: create",
+            Method::POST,
+            "/courses/{c}/units",
+            Json(|_, _| json!({"title": "made"})),
+        ),
+        op(
+            "units: patch",
+            Method::PATCH,
+            "/courses/{c}/units/{p}",
+            Json(|_, _| json!({"title": "changed"})),
+        ),
+        op(
+            "units: comments",
+            Method::GET,
+            "/courses/{c}/units/{p}/comments",
+            None,
+        ),
+        op(
+            "units: comment",
+            Method::POST,
+            "/courses/{c}/units/{p}/comments",
+            Json(|_, _| json!({"body": said("said")})),
+        ),
+        op(
+            "course: duplicate",
+            Method::POST,
+            "/containers/{c}/duplicate",
+            Json(|_, _| json!({})),
+        ),
+        op(
+            "course: export",
+            Method::GET,
+            "/containers/{c}/archive/export",
+            None,
+        ),
+    ]
+}
+
 /// The table of `kind`: for each row, the cells in the order of [`COLUMNS`].
 async fn table(people: &People, kind: Kind) -> Vec<(&'static str, Vec<String>)> {
     let own = match kind {
-        Kind::Board => board_ops(),
+        Kind::Board | Kind::Template => board_ops(),
+        Kind::Course => course_ops(),
         Kind::Wiki => {
             let mut ops = wiki_ops();
             ops.extend(page_ops());
@@ -905,6 +1006,8 @@ fn printed(kind: Kind, rows: &[(&str, Vec<String>)]) -> String {
         match kind {
             Kind::Board => "board",
             Kind::Wiki => "wiki",
+            Kind::Course => "course",
+            Kind::Template => "template",
         }
     );
     let _ = write!(out, "{:<24}", "operation");
@@ -927,6 +1030,7 @@ fn check_file(kind: Kind, actual: &str) {
     let name = match kind {
         Kind::Board => "board.txt",
         Kind::Wiki => "wiki.txt",
+        Kind::Course | Kind::Template => unreachable!("only board and wiki have pinned files"),
     };
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/api/role_table")
@@ -1076,5 +1180,432 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
             }
         }
     }
+    ts.teardown().await;
+}
+
+/// Expected permission set for `(actor_key, role, scope)` in the pure permission matrix.
+fn expected_permissions(
+    actor_key: &str,
+    role: Option<fvoci_model::ContainerRole>,
+    scope: fvoci_server::permissions::ContainerScope,
+) -> Vec<fvoci_server::permissions::ContainerPermission> {
+    use fvoci_model::ContainerRole::{Admin, Commenter, Editor};
+    use fvoci_server::permissions::ContainerPermission::{
+        self, CommentCards, Delete, Join, ListMembers, ManageCards, ManageOthersComments,
+        ManageProperties, ManageRoles, ManageType, See, Share, View,
+    };
+    use fvoci_server::permissions::ContainerScope::{
+        BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate, OpenToRead,
+    };
+
+    if scope == BuiltIn {
+        return if matches!(actor_key, "member" | "ws-admin") {
+            vec![See, View, ListMembers]
+        } else {
+            Vec::new()
+        };
+    }
+    if matches!(actor_key, "org-admin" | "stranger") {
+        return Vec::new();
+    }
+    let effective_role = match (actor_key, role) {
+        ("guest", Some(Admin)) => Some(Editor),
+        (_, other) => other,
+    };
+    let mut set = Vec::new();
+    if let Some(r) = effective_role {
+        set.extend([See, View, ListMembers]);
+        if r >= Commenter {
+            set.push(CommentCards);
+        }
+        if r >= Editor {
+            set.extend([ManageCards, ManageProperties]);
+        }
+        if r >= Admin {
+            set.extend([ManageType, ManageRoles, Delete, Share, ManageOthersComments]);
+        }
+    }
+    if matches!(actor_key, "member" | "ws-admin") {
+        match scope {
+            Open => set.extend([See, Join]),
+            OpenToRead => set.extend([See, Join, View, ListMembers]),
+            OpenTemplate => set.extend([See, View, ListMembers]),
+            InvitedOnly | InvitedOnlyTemplate | BuiltIn => {}
+        }
+    }
+    if actor_key == "ws-admin" {
+        set.extend([See, ListMembers, ManageRoles, Delete]);
+    }
+    ContainerPermission::ALL
+        .into_iter()
+        .filter(|p| set.contains(p))
+        .collect()
+}
+
+/// Tuple `(label, kind, is_template, is_builtin, visibility, expected_scope)` for matrix cases.
+type MatrixContainer = (
+    &'static str,
+    fvoci_model::ContainerKind,
+    bool,
+    bool,
+    fvoci_model::ContainerVisibility,
+    fvoci_server::permissions::ContainerScope,
+);
+
+/// Every container shape exercised by the role × scope permission matrix.
+fn matrix_containers() -> [MatrixContainer; 13] {
+    use fvoci_model::ContainerKind::{Board, Course, Diary, Wiki};
+    use fvoci_model::ContainerVisibility::{Open as VisOpen, Private};
+    use fvoci_server::permissions::ContainerScope::{
+        BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate, OpenToRead,
+    };
+
+    [
+        ("board:private", Board, false, false, Private, InvitedOnly),
+        ("board:open", Board, false, false, VisOpen, Open),
+        ("wiki:private", Wiki, false, false, Private, InvitedOnly),
+        ("wiki:open", Wiki, false, false, VisOpen, OpenToRead),
+        ("course:private", Course, false, false, Private, InvitedOnly),
+        ("course:open", Course, false, false, VisOpen, OpenToRead),
+        ("diary:private", Diary, false, false, Private, InvitedOnly),
+        ("diary:open", Diary, false, false, VisOpen, InvitedOnly),
+        (
+            "template:board:private",
+            Board,
+            true,
+            false,
+            Private,
+            InvitedOnlyTemplate,
+        ),
+        (
+            "template:board:open",
+            Board,
+            true,
+            false,
+            VisOpen,
+            OpenTemplate,
+        ),
+        (
+            "template:course:private",
+            Course,
+            true,
+            false,
+            Private,
+            InvitedOnlyTemplate,
+        ),
+        (
+            "template:course:open",
+            Course,
+            true,
+            false,
+            VisOpen,
+            OpenTemplate,
+        ),
+        ("template:builtin", Board, true, true, VisOpen, BuiltIn),
+    ]
+}
+
+/// Every workspace/organization actor shape exercised by the pure permission matrix.
+fn matrix_actors() -> [(&'static str, fvoci_server::permissions::Actor); 5] {
+    use fvoci_model::OrgRole;
+    use fvoci_server::permissions::Actor;
+
+    [
+        (
+            "member",
+            Actor {
+                org: Some(OrgRole::Member),
+                workspace: Some(WorkspaceRole::Member),
+            },
+        ),
+        (
+            "guest",
+            Actor {
+                org: None,
+                workspace: Some(WorkspaceRole::Guest),
+            },
+        ),
+        (
+            "ws-admin",
+            Actor {
+                org: Some(OrgRole::Member),
+                workspace: Some(WorkspaceRole::Admin),
+            },
+        ),
+        (
+            "org-admin",
+            Actor {
+                org: Some(OrgRole::Admin),
+                workspace: None,
+            },
+        ),
+        (
+            "stranger",
+            Actor {
+                org: None,
+                workspace: None,
+            },
+        ),
+    ]
+}
+
+/// Every role (`admin`, `editor`, `commenter`, `viewer`, `guest`, `unjoined`) across
+/// every container kind (`board`, `wiki`, `course`, `diary`, `template`) yields the
+/// exact permission set, collab document mode, management-only flag, and guest-invite
+/// rule.
+#[test]
+fn role_and_scope_permission_matrix_matches_across_every_container_kind() {
+    use fvoci_model::{Container, ContainerRole, Workspace};
+    use fvoci_server::permissions::{
+        ContainerFacts, ContainerPermission, ContainerScope, DocMode, doc_mode, grant,
+        invites_guests,
+    };
+
+    let containers = matrix_containers();
+    let actors = matrix_actors();
+    let roles = [
+        None,
+        Some(ContainerRole::Viewer),
+        Some(ContainerRole::Commenter),
+        Some(ContainerRole::Editor),
+        Some(ContainerRole::Admin),
+    ];
+    let team_roles = [
+        None,
+        Some(ContainerRole::Viewer),
+        Some(ContainerRole::Commenter),
+        Some(ContainerRole::Editor),
+    ];
+    let ws = Workspace {
+        guest_invitations: true,
+        ..Workspace::default()
+    };
+
+    for (label, kind, is_template, is_builtin, visibility, expected_scope) in containers {
+        let container = Container {
+            kind,
+            is_template,
+            is_builtin,
+            visibility,
+            ..Container::default()
+        };
+        let scope = ContainerScope::of(&container);
+        assert_eq!(scope, expected_scope, "{label}");
+        for (actor_key, actor) in actors {
+            for role in roles {
+                for team_role in team_roles {
+                    let g = grant(
+                        actor,
+                        ContainerFacts {
+                            scope,
+                            role,
+                            team_role,
+                        },
+                    );
+                    let actual: Vec<ContainerPermission> = ContainerPermission::ALL
+                        .into_iter()
+                        .filter(|p| g.allows(*p))
+                        .collect();
+                    let effective = if matches!(actor_key, "member" | "ws-admin") {
+                        role.max(team_role)
+                    } else {
+                        role
+                    };
+                    let want = expected_permissions(actor_key, effective, scope);
+                    assert_eq!(
+                        actual, want,
+                        "{label} actor={actor_key} role={role:?} team={team_role:?}"
+                    );
+                    let want_doc = if actual.contains(&ContainerPermission::ManageCards) {
+                        Some(DocMode::Write)
+                    } else if actual.contains(&ContainerPermission::View) {
+                        Some(DocMode::Read)
+                    } else {
+                        None
+                    };
+                    assert_eq!(doc_mode(g), want_doc, "{label} {actor_key} {role:?}");
+                    let want_invites = !is_template
+                        && !is_builtin
+                        && actual.contains(&ContainerPermission::ManageRoles);
+                    assert_eq!(
+                        invites_guests(g, scope, &ws),
+                        want_invites,
+                        "{label} {actor_key} {role:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Checks a diary in the owner's personal space and against every non-owner role in a
+/// shared workspace.
+async fn check_diary_role_matrix(ts: &TestServer, people: &People) {
+    let workspaces: Vec<fvoci_model::UserWorkspace> =
+        ts.client.get("/users/me/workspaces").await.ok_json();
+    let own = &workspaces
+        .iter()
+        .find(|w| w.kind == fvoci_model::OrgKind::Personal)
+        .expect("owner personal workspace")
+        .id;
+    let own_ws = format!("/w/{own}");
+    let created = ts
+        .client
+        .post(&format!("{own_ws}/diaries"), &json!({"title": "Journal"}))
+        .await;
+    done(&created);
+    let diary_id = text(&created.value(), "id");
+    assert_eq!(
+        ts.client
+            .get(&format!("{own_ws}/containers/{diary_id}"))
+            .await
+            .status
+            .as_u16(),
+        200,
+        "diary owner reads personal diary"
+    );
+    let entry = ts
+        .client
+        .post(
+            &format!("{own_ws}/diaries/{diary_id}/entries"),
+            &json!({"date": "2026-11-25"}),
+        )
+        .await;
+    assert_eq!(entry.status.as_u16(), 201, "diary owner creates entry");
+    let entry_id = text(&entry.value(), "id");
+    // Diaries have no shared membership route: adding another member answers 404.
+    assert_eq!(
+        ts.client
+            .post(
+                &format!("{own_ws}/containers/{diary_id}/members"),
+                &json!({"userId": people.viewer, "role": "viewer"}),
+            )
+            .await
+            .status
+            .as_u16(),
+        404,
+        "diary rejects shared membership route"
+    );
+    // Every other actor sees 404= under both the personal workspace and the shared workspace.
+    for (_, who, _) in COLUMNS.iter().filter(|(_, who, _)| *who != Who::Admin) {
+        let client = people.client(*who);
+        for ws in [own_ws.as_str(), TEST_WS] {
+            for (real, fake) in [
+                (
+                    format!("{ws}/containers/{diary_id}"),
+                    format!("{ws}/containers/{UNKNOWN_ID}"),
+                ),
+                (
+                    format!("{ws}/diaries/{diary_id}/entries/{entry_id}"),
+                    format!("{ws}/diaries/{UNKNOWN_ID}/entries/{UNKNOWN_ID}"),
+                ),
+            ] {
+                let (got, miss) = (client.get(&real).await, client.get(&fake).await);
+                assert_eq!(got.status.as_u16(), 404, "{who:?} {real}");
+                assert_eq!(got.problem(), miss.problem(), "{who:?} {real}");
+            }
+        }
+    }
+}
+
+/// Live HTTP verification that `course`, `template`, and `diary` routes match the role ×
+/// scope permission matrix across `admin`, `editor`, `commenter`, `viewer`, `guest`, and
+/// `unjoined` callers.
+#[tokio::test]
+async fn course_template_and_diary_routes_match_the_role_matrix() {
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    let people = People::of(&ts).await;
+    let board = table(&people, Kind::Board).await;
+    let wiki = table(&people, Kind::Wiki).await;
+    let course = table(&people, Kind::Course).await;
+    let template = table(&people, Kind::Template).await;
+
+    // Every shared operation on a course matches a wiki cell-for-cell across all 11 columns.
+    for op in shared_ops() {
+        assert_eq!(
+            row_of(&course, op.row),
+            row_of(&wiki, op.row),
+            "course vs wiki on {}",
+            op.row
+        );
+    }
+    for (course_row, wiki_row) in [
+        ("units: tree", "pages: tree"),
+        ("units: get", "pages: get"),
+        ("units: create", "pages: create"),
+        ("units: patch", "pages: patch"),
+        ("units: comments", "pages: comments"),
+        ("units: comment", "pages: comment"),
+    ] {
+        assert_eq!(
+            row_of(&course, course_row),
+            row_of(&wiki, wiki_row),
+            "{course_row} vs {wiki_row}"
+        );
+    }
+    let unjoined = column(READS_UNJOINED);
+    assert_eq!(
+        row_of(&course, "course: duplicate")[unjoined],
+        "201",
+        "unjoined member duplicates open course"
+    );
+    assert_eq!(
+        row_of(&course, "course: export")[unjoined],
+        "200",
+        "unjoined member exports open course"
+    );
+
+    // On a template, every column except `member@open` matches a board; on `member@open`
+    // joining is refused (403) while reading, duplicating and exporting are allowed.
+    for (row, of_template) in &template {
+        let of_board = row_of(&board, row);
+        for (idx, (col_name, _, _)) in COLUMNS.iter().enumerate() {
+            if idx != unjoined {
+                assert_eq!(
+                    of_template[idx], of_board[idx],
+                    "template vs board on {row}: {col_name}"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        row_of(&template, "members: join")[unjoined],
+        "403",
+        "open template refuses join"
+    );
+    for read_row in [
+        "container: get",
+        "members: list",
+        "teams: list",
+        "files: get",
+        "cards: list",
+        "cards: get",
+        "blocks: list",
+        "board: export",
+    ] {
+        assert_eq!(
+            row_of(&template, read_row)[unjoined],
+            "200",
+            "open template unjoined: {read_row}"
+        );
+    }
+    assert_eq!(
+        row_of(&template, "board: duplicate")[unjoined],
+        "201",
+        "open template unjoined duplicate"
+    );
+    for write_row in [
+        "container: patch title",
+        "cards: create",
+        "comments: create",
+    ] {
+        assert_eq!(
+            row_of(&template, write_row)[unjoined],
+            "403",
+            "open template unjoined write: {write_row}"
+        );
+    }
+
+    check_diary_role_matrix(&ts, &people).await;
     ts.teardown().await;
 }

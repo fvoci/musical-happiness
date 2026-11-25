@@ -47,9 +47,7 @@ async function twoReaders(): Promise<Setup & { board: BoardStore; theirs: BoardS
   made.world.members.set(
     made.board.boardId,
     (made.world.members.get(made.board.boardId) ?? []).map((member) =>
-      member.userId === made.other.userId
-        ? { ...member, schemeEditor: true, schemeCommenter: true }
-        : member,
+      member.userId === made.other.userId ? { ...member, role: 'editor' } : member,
     ),
   );
   const elsewhere = new Workspace({ backend: made.other, locale: () => 'en' });

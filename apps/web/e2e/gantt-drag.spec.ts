@@ -415,10 +415,7 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
     };
     board.members = board.members.map((member) => ({
       ...member,
-      schemeAdmin: false,
-      schemeEditor: false,
-      schemeCommenter: false,
-      schemeViewer: true,
+      role: 'viewer',
     }));
   });
   await expect(gantt(page).locator('[data-grip]')).toHaveCount(0);

@@ -89,7 +89,7 @@ async fn course_with_progress(
             .save_member(&ContainerMember {
                 container_id: course.id.clone(),
                 user_id: learner.to_owned(),
-                scheme_viewer: true,
+                role: fvoci_model::ContainerRole::Viewer,
                 ..ContainerMember::default()
             })
             .await
@@ -413,7 +413,7 @@ async fn what_stays(test: &TestStore, placed: &Placed) {
     );
     let administered = format!(
         "SELECT CAST(count(*) AS TEXT) FROM container_members \
-         WHERE container_id = '{founders}' AND user_id = '{founder}' AND scheme_admin"
+         WHERE container_id = '{founders}' AND user_id = '{founder}' AND role = 'admin'"
     );
     assert_eq!(
         one(test, &administered).await,

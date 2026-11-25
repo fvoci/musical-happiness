@@ -231,14 +231,14 @@ mod tests {
         );
 
         let error = AppError::conflict("no admins")
-            .with_field("schemeAdmin")
+            .with_field("role")
             .with_reason(Reason::LastAdmin);
         let (_, body) = reported(error).await;
         assert_eq!(body.reason.as_deref(), Some("last_admin"), "the reason");
         assert_eq!(
             serde_json::to_value(&body.errors).expect("the entries serialize"),
             serde_json::json!([
-                { "pointer": "/schemeAdmin", "detail": "no admins", "reason": "last_admin" }
+                { "pointer": "/role", "detail": "no admins", "reason": "last_admin" }
             ]),
             "the member, with the detail and the reason of the problem"
         );

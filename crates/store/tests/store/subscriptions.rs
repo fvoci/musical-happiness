@@ -1068,7 +1068,7 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
         let member = ContainerMember {
             container_id: board_id.clone(),
             user_id: user.id.clone(),
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..ContainerMember::default()
         };
         store
@@ -1152,12 +1152,14 @@ async fn remove_member_ends_subscriptions_only_when_it_removes() {
     let blocks = create_test_blocks(store, &admin.id, 2).await;
     let (on_board, elsewhere) = (&blocks[0], &blocks[1]);
     let board_id = &on_board.container_id;
-    for (user, scheme_admin) in [(admin, true), (editor, false)] {
+    for (user, role) in [
+        (admin, fvoci_model::ContainerRole::Admin),
+        (editor, fvoci_model::ContainerRole::Editor),
+    ] {
         let member = ContainerMember {
             container_id: board_id.clone(),
             user_id: user.id.clone(),
-            scheme_admin,
-            scheme_editor: true,
+            role,
             ..ContainerMember::default()
         };
         store

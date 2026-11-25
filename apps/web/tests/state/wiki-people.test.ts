@@ -168,8 +168,7 @@ describe('a wiki shared by its admins', () => {
     const otherId = made.other.userId;
     const roleOfOther = () => {
       const member = store.members.find((one) => one.userId === otherId);
-      if (!member) return 'none';
-      return member.schemeEditor ? 'editor' : member.schemeViewer ? 'viewer' : 'other';
+      return member ? member.role : 'none';
     };
 
     await store.addMember(otherId, 'viewer');

@@ -1187,8 +1187,7 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
         .save_member(&ContainerMember {
             container_id: board.id.clone(),
             user_id: user_id.clone(),
-            scheme_admin: true,
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Admin,
             ..ContainerMember::default()
         })
         .await
@@ -1475,7 +1474,7 @@ pub(super) async fn compare_resource_routes(
                 "createDiaryEntry" => json!({"date": "2020-02-29"}),
                 "patchDiaryEntry" => json!({"mood": "good"}),
                 "createUpload" => json!({"name": "new.bin", "size": 0}),
-                "addMember" => json!({"userId": user, "schemeViewer": true}),
+                "addMember" => json!({"userId": user, "role": "viewer"}),
                 "setPublicLink" => json!({"enabled": true}),
                 "holdFileLease" => json!({"leaseId": ""}),
                 "createSubscription" => {

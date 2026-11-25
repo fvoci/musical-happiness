@@ -301,7 +301,7 @@ impl Store {
     }
 
     /// Returns the boards of `kinds` of a workspace that are in the trash and, with an
-    /// `admin_id`, that the user was an admin of when they were deleted (`schemeAdmin` of
+    /// `admin_id`, that the user was an admin of when they were deleted (`role` `admin` of
     /// the membership they had); without one, every such board of the workspace in the
     /// trash. With their memberships, the last deleted first and then by identifier: one
     /// page of them if `paging` says so (a page size of zero is every board).
@@ -326,12 +326,12 @@ impl Store {
             let was_admin = match scope.dialect() {
                 Dialect::Sqlite => {
                     " AND EXISTS (SELECT 1 FROM json_each(deleted_containers.members) member \
-                     WHERE json_extract(member.value, '$.schemeAdmin') = 1 \
+                     WHERE json_extract(member.value, '$.role') = 'admin' \
                      AND json_extract(member.value, '$.userId') = "
                 }
                 Dialect::Postgres => {
                     " AND EXISTS (SELECT 1 FROM json_array_elements(deleted_containers.members) \
-                     member WHERE member->>'schemeAdmin' = 'true' AND member->>'userId' = "
+                     member WHERE member->>'role' = 'admin' AND member->>'userId' = "
                 }
             };
             let mut sql = scope.sql(
@@ -597,7 +597,9 @@ pub(crate) async fn change_member_of_deleted_containers(
     for row in scope.fetch_all(sql).await? {
         let members: Vec<ContainerMember> = from_json(&row, 1, "members")?;
         let changes = |member: &ContainerMember| {
-            member.user_id == user_id && (roles == TrashedRoles::Forget || member.scheme_admin)
+            member.user_id == user_id
+                && (roles == TrashedRoles::Forget
+                    || member.role == fvoci_model::ContainerRole::Admin)
         };
         if !members.iter().any(changes) {
             continue;
@@ -608,7 +610,7 @@ pub(crate) async fn change_member_of_deleted_containers(
                 _ if !changes(&member) => Some(member),
                 TrashedRoles::Forget => None,
                 TrashedRoles::NoMoreThanEditor => {
-                    Some(member.with_role(Some(fvoci_model::ContainerRole::Editor)))
+                    Some(member.with_role(fvoci_model::ContainerRole::Editor))
                 }
             })
             .collect();
@@ -922,7 +924,7 @@ pub(crate) async fn undelete_container(
             user_id: user_id.to_owned(),
             ..ContainerMember::default()
         }
-        .with_role(Some(fvoci_model::ContainerRole::Admin));
+        .with_role(fvoci_model::ContainerRole::Admin);
         containers::save_member(scope, &admin).await?;
     }
     crate::container_team_trash::restore(scope, &container, user_id).await?;

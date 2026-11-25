@@ -311,7 +311,7 @@ async fn leaving_a_workspace_joined_gives_back_what_one_was() {
     let as_viewer = ContainerMember {
         container_id: taken.clone(),
         user_id: admin.clone(),
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..ContainerMember::default()
     };
     test.add_member_recorded(
@@ -547,7 +547,7 @@ async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
     let as_viewer = ContainerMember {
         container_id: read.clone(),
         user_id: admin.clone(),
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..ContainerMember::default()
     };
     test.add_member(&as_viewer).await.expect("a viewer of it");
@@ -556,7 +556,7 @@ async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
         .await
         .expect("joined");
     test.change_member(&ContainerMember {
-        scheme_admin: true,
+        role: fvoci_model::ContainerRole::Admin,
         ..as_viewer.clone()
     })
     .await
@@ -570,8 +570,9 @@ async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
         .get_member_for_container(&read, &admin)
         .await
         .expect("the role they had stays");
-    assert!(
-        held.scheme_viewer && !held.scheme_admin,
+    assert_eq!(
+        held.role,
+        fvoci_model::ContainerRole::Viewer,
         "a viewer again: {held:?}"
     );
     let error = test
@@ -600,7 +601,7 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
     let as_viewer = ContainerMember {
         container_id: read.clone(),
         user_id: admin.clone(),
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..ContainerMember::default()
     };
     test.add_member(&as_viewer).await.expect("a viewer of it");
@@ -613,7 +614,7 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
         .await
         .expect("joined");
     test.change_member(&ContainerMember {
-        scheme_admin: true,
+        role: fvoci_model::ContainerRole::Admin,
         ..as_viewer.clone()
     })
     .await
@@ -634,14 +635,19 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
         .get_member_for_container(&theirs_before, &admin)
         .await
         .expect("a board of theirs from before stays theirs");
-    assert!(kept.scheme_admin, "its admin still: {kept:?}");
+    assert_eq!(
+        kept.role,
+        fvoci_model::ContainerRole::Admin,
+        "its admin still: {kept:?}"
+    );
 
     let held = test
         .get_member_for_container(&read, &admin)
         .await
         .expect("the role they had comes back");
-    assert!(
-        held.scheme_viewer && !held.scheme_admin,
+    assert_eq!(
+        held.role,
+        fvoci_model::ContainerRole::Viewer,
         "a viewer again: {held:?}"
     );
     let error = test
@@ -688,7 +694,7 @@ async fn who_administers_no_more_changes_nothing() {
             &ContainerMember {
                 container_id: board.clone(),
                 user_id: former.clone(),
-                scheme_viewer: true,
+                role: fvoci_model::ContainerRole::Viewer,
                 ..ContainerMember::default()
             },
             &AuditEntry::new(
@@ -997,7 +1003,7 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
     let as_admin = |user_id: &str| ContainerMember {
         container_id: made.clone(),
         user_id: user_id.to_owned(),
-        scheme_admin: true,
+        role: fvoci_model::ContainerRole::Admin,
         ..ContainerMember::default()
     };
     let added = test
@@ -1029,7 +1035,7 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
     let viewer = ContainerMember {
         container_id: theirs.clone(),
         user_id: accomplice.clone(),
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..ContainerMember::default()
     };
     assert_eq!(

@@ -444,7 +444,7 @@ async fn a_guest_link_mailed_by_another_inviter_is_made_by_the_sender_and_gone_w
     th.client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}/members", board.id),
-            &json!({"userId": user1, "schemeAdmin": true}),
+            &json!({"userId": user1, "role": "admin"}),
         )
         .await
         .check_ok();

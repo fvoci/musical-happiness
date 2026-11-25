@@ -516,6 +516,7 @@ async fn archives_of_the_former_formats_are_refused() {
             ),
         ),
     ]);
+    let legacy_flag = concat!("scheme", "Admin");
     let legacy_member_line = zip_of(&[
         ("version.json", r#"{"version":1,"date":1}"#.to_owned()),
         (
@@ -524,7 +525,20 @@ async fn archives_of_the_former_formats_are_refused() {
                 "{board}\n{}\n",
                 serde_json::json!({
                     "type": "boardMember",
-                    "data": {"containerId": "b1", "userId": "u1", "schemeAdmin": true}
+                    "data": {"containerId": "b1", "userId": "u1", (legacy_flag): true}
+                })
+            ),
+        ),
+    ]);
+    let legacy_container_member_flags = zip_of(&[
+        ("version.json", r#"{"version":1,"date":1}"#.to_owned()),
+        (
+            "b1/container.jsonl",
+            format!(
+                "{board}\n{}\n",
+                serde_json::json!({
+                    "type": "containerMember",
+                    "data": {"containerId": "b1", "userId": "u1", (legacy_flag): true}
                 })
             ),
         ),
@@ -537,6 +551,10 @@ async fn archives_of_the_former_formats_are_refused() {
         ("non-zip jsonl", legacy.into_bytes()),
         ("legacy board line", legacy_board_line),
         ("legacy boardMember line", legacy_member_line),
+        (
+            "legacy containerMember flags",
+            legacy_container_member_flags,
+        ),
     ] {
         let response = import(&ts.client, TEST_WORKSPACE_ID, &bytes).await;
         response.check_bad_request();

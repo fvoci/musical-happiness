@@ -148,7 +148,7 @@ impl App {
                 user_id: passed.heir_id.clone(),
                 ..ContainerMember::default()
             }
-            .with_role(Some(ContainerRole::Admin));
+            .with_role(ContainerRole::Admin);
             self.broadcast_member_change_in_background(passed.workspace_id.clone(), admin);
             self.collab()
                 .recheck_access(

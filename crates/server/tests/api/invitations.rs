@@ -720,7 +720,7 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
             &fvoci_model::ContainerMember {
                 container_id: board.id.clone(),
                 user_id: third.me().await.id,
-                scheme_editor: true,
+                role: fvoci_model::ContainerRole::Editor,
                 ..fvoci_model::ContainerMember::default()
             },
         )
@@ -827,7 +827,11 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
         .into_iter()
         .find(|member| member.user_id != inviter.id)
         .expect("the guest is a member of the board");
-    assert!(member.scheme_editor && !member.scheme_admin, "{member:?}");
+    assert_eq!(
+        member.role,
+        fvoci_model::ContainerRole::Editor,
+        "{member:?}"
+    );
     visitor
         .get(&container_path(&other))
         .await
@@ -839,13 +843,25 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
     let titles: Vec<&str> = boards.iter().map(|board| board.title.as_str()).collect();
     assert_eq!(titles, ["Plans"], "the board of the link and no other");
 
-    // Used once, the link is as no link at all, to whoever asks and however.
+    assert_guest_link_is_exhausted(&th, &visitor, &link.id, &token).await;
+
+    th.teardown().await;
+}
+
+/// Verifies that a single-use guest invitation link answers 404 to every subsequent
+/// preview or accept call.
+async fn assert_guest_link_is_exhausted(
+    th: &TestServer,
+    visitor: &Client,
+    link_id: &str,
+    token: &str,
+) {
     let no_link = said(
         &th.anonymous()
             .post("/invitations/preview", &json!({"token": "no-such-link"}))
             .await,
     );
-    assert_eq!(no_link.0, StatusCode::NOT_FOUND);
+    assert_eq!(no_link.0, StatusCode::NOT_FOUND, "unknown link answers 404");
     let again = [
         th.anonymous()
             .post("/invitations/preview", &json!({"token": token}))
@@ -859,7 +875,6 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
         th.client
             .post("/invitations/accept", &json!({"token": token}))
             .await,
-        // Not even who it let in is let in again: it is nobody's any more.
         visitor
             .post("/invitations/accept", &json!({"token": token}))
             .await,
@@ -867,9 +882,11 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
     for answer in &again {
         assert_eq!(said(answer), no_link, "used up");
     }
-    assert_eq!(of_the_link(&th, &link.id, "uses").await, ["1"]);
-
-    th.teardown().await;
+    assert_eq!(
+        of_the_link(th, link_id, "uses").await,
+        ["1"],
+        "guest link recorded one use"
+    );
 }
 
 /// The links of a workspace are listed and revoked by its administrators, and by
@@ -993,8 +1010,11 @@ async fn a_link_for_a_guest_lets_in_while_its_maker_may_still_invite() {
     let as_member = |user_id: &str, admin: bool| fvoci_model::ContainerMember {
         container_id: board.id.clone(),
         user_id: user_id.to_owned(),
-        scheme_admin: admin,
-        scheme_editor: !admin,
+        role: if admin {
+            fvoci_model::ContainerRole::Admin
+        } else {
+            fvoci_model::ContainerRole::Editor
+        },
         ..fvoci_model::ContainerMember::default()
     };
     let third_id = third.me().await.id;
@@ -1130,7 +1150,7 @@ async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
             .ok_json::<Vec<fvoci_model::ContainerMember>>()
             .into_iter()
             .find(|member| member.user_id == user_id)
-            .and_then(|member| member.role())
+            .map(|member| member.role)
     };
 
     // The admin of the board accepts a link to it as a viewer: nothing changes, and
@@ -1360,7 +1380,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
     // Who reads the wiki and does not add its members makes no link to it.
     let reader = th.add_user("wiki.reader").await;
     let reader_id = reader.me().await.id;
-    let member = json!({"containerId": wiki, "userId": reader_id, "schemeViewer": true});
+    let member = json!({"containerId": wiki, "userId": reader_id, "role": "viewer"});
     th.client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/containers/{wiki}/members"),

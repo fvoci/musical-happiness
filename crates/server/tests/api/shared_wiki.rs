@@ -47,7 +47,7 @@ async fn shared_wiki(th: &TestServer) -> SharedWiki {
     owner
         .post(
             &format!("{TEST_WS}/containers/{wiki}/members"),
-            &json!({"containerId": wiki, "userId": other_id, "schemeEditor": true}),
+            &json!({"containerId": wiki, "userId": other_id, "role": "editor"}),
         )
         .await
         .check_ok();

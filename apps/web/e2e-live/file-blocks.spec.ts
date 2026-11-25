@@ -157,7 +157,7 @@ test('a PDF put into a page is a file block that others, a copy and the public l
     people.push(userId);
     await answered(
       await api.post(`/api/v1/w/${ws}/containers/${wiki.id}/members`, {
-        data: { userId, schemeViewer: true, schemeCommenter: editor, schemeEditor: editor },
+        data: { userId, role: editor ? 'editor' : 'viewer' },
       }),
     );
   }

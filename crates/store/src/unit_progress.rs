@@ -317,11 +317,6 @@ async fn fetch_summary_rows(
         .push(" AND o.deleted_at IS NULL")
         .push(" AND u.deleted_at IS NULL")
         .push_bind(" AND u.erased_at = ", 0_i64)
-        .push_bind(" AND (cm.scheme_admin = ", true)
-        .push_bind(" OR cm.scheme_editor = ", true)
-        .push_bind(" OR cm.scheme_commenter = ", true)
-        .push_bind(" OR cm.scheme_viewer = ", true)
-        .push(")")
         .push(&scope.same_organization(&[("cm", "c"), ("wm", "c"), ("w", "c")]))
         .push(" UNION SELECT im.user_id FROM ")
         .push(&inherited)
@@ -476,14 +471,8 @@ pub(crate) async fn forget_user_in_workspace_unjoined(
             ") AND NOT EXISTS (\
              SELECT 1 FROM container_members AS cm \
              WHERE cm.container_id = unit_progress.container_id \
-               AND cm.user_id = unit_progress.user_id \
-               AND (cm.scheme_admin = ",
+               AND cm.user_id = unit_progress.user_id",
         )
-        .bind(true)
-        .push_bind(" OR cm.scheme_editor = ", true)
-        .push_bind(" OR cm.scheme_commenter = ", true)
-        .push_bind(" OR cm.scheme_viewer = ", true)
-        .push(")")
         .push(&scope.same_organization(&[("cm", "unit_progress")]))
         .push(") AND NOT EXISTS (SELECT 1 FROM ")
         .push(&inherited)

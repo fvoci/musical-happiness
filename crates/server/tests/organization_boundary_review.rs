@@ -377,7 +377,7 @@ async fn removing_workspace_membership_stops_websocket_content_from_that_organiz
         .save_member(&ContainerMember {
             user_id: user_id.clone(),
             container_id: board.id.clone(),
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..ContainerMember::default()
         })
         .await

@@ -33,7 +33,7 @@ async fn enroll(store: &Store, course_id: &str, user_id: &str, role: fvoci_model
         user_id: user_id.to_owned(),
         ..ContainerMember::default()
     }
-    .with_role(Some(role));
+    .with_role(role);
     store.save_member(&member).await.expect("member enrolled");
 }
 

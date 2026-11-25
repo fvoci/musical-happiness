@@ -342,9 +342,9 @@ impl App {
                     let viewer = ContainerMember {
                         user_id: user_id.clone(),
                         container_id: container.id.clone(),
-                        scheme_viewer: true,
+                        role: fvoci_model::ContainerRole::Viewer,
                         synthetic: true,
-                        ..ContainerMember::default()
+                        inherited_role: None,
                     };
                     self.ws()
                         .broadcast_member_change(&container.workspace_id, &container.id, &viewer)

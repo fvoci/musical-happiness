@@ -558,7 +558,7 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
     test.save_member(&ContainerMember {
         container_id: board_id,
         user_id: guest.clone(),
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..ContainerMember::default()
     })
     .await

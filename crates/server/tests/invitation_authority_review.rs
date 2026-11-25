@@ -225,7 +225,8 @@ async fn a_new_board_keeps_an_admin_during(loss: MembershipLoss) {
     assert!(
         members
             .iter()
-            .any(|member| member.user_id == admin && member.scheme_admin),
+            .any(|member| member.user_id == admin
+                && member.role == fvoci_model::ContainerRole::Admin),
         "the workspace administrator must take over the new board during {loss:?}: {members:?}"
     );
 }
@@ -310,7 +311,7 @@ async fn a_board_made_after_a_removal_listed_the_boards_keeps_an_admin() {
         Some(board_id) => store
             .texts_unchecked(&format!(
                 "SELECT user_id::text FROM container_members WHERE container_id = '{board_id}' \
-                 AND scheme_admin"
+                 AND role = 'admin'"
             ))
             .await
             .expect("the board's admins are read"),

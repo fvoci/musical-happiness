@@ -364,8 +364,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         assert_eq!(
             members,
             vec![ContainerMember {
-                scheme_admin: true,
-                scheme_editor: true,
+                role: fvoci_model::ContainerRole::Admin,
                 ..member(&board.id, &user1.id)
             }],
             "the creator administers the board"
@@ -989,7 +988,7 @@ async fn patch_boards_and_blocks_checks() {
     // An editor patches board properties and blocks, but not the board type.
     th.client
         .add_member(&ContainerMember {
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..member(first_id, &user2.id)
         })
         .await
@@ -1051,7 +1050,7 @@ async fn patch_boards_and_blocks_checks() {
     // A commenter patches nothing.
     th.app
         .update_container_member(&ContainerMember {
-            scheme_commenter: true,
+            role: fvoci_model::ContainerRole::Commenter,
             ..member(first_id, &user2.id)
         })
         .await

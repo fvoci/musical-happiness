@@ -90,12 +90,12 @@ impl Places<'_> {
             (
                 Method::POST,
                 on_board.clone(),
-                json!({"userId": id, "schemeViewer": true}),
+                json!({"userId": id, "role": "viewer"}),
             ),
             (
                 Method::PUT,
                 format!("{on_board}/{id}"),
-                json!({"schemeEditor": true}),
+                json!({"role": "editor"}),
             ),
             (Method::DELETE, format!("{on_board}/{id}"), Value::Null),
             (

@@ -55,7 +55,7 @@ describe('a course in memory', () => {
     const system = categories.find((category) => category.type === 'system');
     expect(system?.containerIds).toContain(made.course.id);
     const [member] = await made.backend.members(made.course.id);
-    expect(member?.schemeAdmin).toBe(true);
+    expect(member?.role).toBe('admin');
     expect((await made.backend.course.courses(made.workspaceId)).map((c) => c.id)).toEqual([
       made.course.id,
     ]);

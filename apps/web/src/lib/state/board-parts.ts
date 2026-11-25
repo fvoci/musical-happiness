@@ -1,6 +1,6 @@
 /**
  * What the board store is built on besides the backend: a board of the
- * workspace shown, a member's role, the flags of a role, adding a member,
+ * workspace shown, a member's effective role, adding a member,
  * the place of a drop, the card a copy is made as.
  */
 import { cardsOfView } from '../logic/card-list.ts';
@@ -22,7 +22,7 @@ import {
   type PropertyValue,
 } from '../logic/wire.ts';
 
-import type { Backend, ContainerRole, CardDraft, CardSummary } from './backend.ts';
+import type { Backend, CardDraft, CardSummary } from './backend.ts';
 import { allPages } from './page-reads.ts';
 import { BackendError } from './problems.ts';
 
@@ -96,12 +96,19 @@ export async function draftOfCopy(
   };
 }
 
+const ROLE_RANK: Record<Exclude<MemberRole, ''>, number> = {
+  viewer: 1,
+  commenter: 2,
+  editor: 3,
+  admin: 4,
+};
+
 export function roleOf(member: ContainerMember | undefined): MemberRole {
   if (!member) return '';
-  if (member.schemeAdmin) return 'admin';
-  if (member.schemeEditor || member.inheritedRole === 'editor') return 'editor';
-  if (member.schemeCommenter || member.inheritedRole === 'commenter') return 'commenter';
-  return member.schemeViewer || member.inheritedRole === 'viewer' ? 'viewer' : '';
+  if (!member.inheritedRole) return member.role;
+  return ROLE_RANK[member.inheritedRole] > ROLE_RANK[member.role]
+    ? member.inheritedRole
+    : member.role;
 }
 
 /**
@@ -117,18 +124,6 @@ export function canChangeComment(
 ): boolean {
   if (role === 'admin') return true;
   return (role === 'editor' || role === 'commenter') && createdBy === readerId;
-}
-
-/** The flags of a membership with exactly the one role. */
-export function roleFlags(
-  role: ContainerRole,
-): Pick<ContainerMember, 'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer'> {
-  return {
-    schemeAdmin: role === 'admin',
-    schemeEditor: role === 'editor',
-    schemeCommenter: role === 'commenter',
-    schemeViewer: role === 'viewer',
-  };
 }
 
 /** A container with its workspace visibility set to `'open'` or `'private'`. */

@@ -104,9 +104,10 @@ pub use category::{
 pub use client_config::ClientConfig;
 pub use comment_version::CommentVersion;
 pub use container::{
-    Container, ContainerError, ContainerKind, ContainerKinds, ContainerMember, ContainerPatch,
-    ContainerRole, ContainerSearchField, ContainerVisibility, MinimumRole, ParseContainerKindError,
-    ParseContainerSearchFieldError, ParseContainerVisibilityError,
+    Container, ContainerError, ContainerKind, ContainerKinds, ContainerMember,
+    ContainerMemberPatch, ContainerPatch, ContainerRole, ContainerSearchField, ContainerVisibility,
+    MinimumRole, ParseContainerKindError, ParseContainerSearchFieldError,
+    ParseContainerVisibilityError,
 };
 pub use container_teams::{ContainerTeam, ContainerTeamRole};
 pub use containers_and_blocks::{

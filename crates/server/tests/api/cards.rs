@@ -49,15 +49,15 @@ pub(crate) async fn board_with_roles(th: &TestServer) -> Roles {
     };
     let members = [
         ContainerMember {
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..member(editor.me().await.id)
         },
         ContainerMember {
-            scheme_commenter: true,
+            role: fvoci_model::ContainerRole::Commenter,
             ..member(commenter.me().await.id)
         },
         ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(viewer.me().await.id)
         },
     ];

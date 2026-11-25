@@ -31,7 +31,7 @@ async fn enroll(store: &Store, course_id: &str, user_id: &str) {
         .save_member(&ContainerMember {
             container_id: course_id.to_owned(),
             user_id: user_id.to_owned(),
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..ContainerMember::default()
         })
         .await

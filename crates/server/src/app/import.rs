@@ -259,9 +259,10 @@ fn no_more_than_holdable(
     workspace_role: WorkspaceRole,
 ) -> ContainerMember {
     let highest = permissions::highest_container_role(workspace_role);
-    match permissions::role_of(&member) {
-        Some(role) if role > highest => permissions::with_role(member, Some(highest)),
-        _ => member,
+    if member.role > highest {
+        permissions::with_role(member, highest)
+    } else {
+        member
     }
 }
 

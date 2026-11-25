@@ -84,7 +84,7 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     });
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: boraUser.id,
-      schemeViewer: true,
+      role: 'viewer',
     });
     const unit1 = await postJson<Schemas['Unit']>(
       adaApi,
@@ -200,7 +200,7 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     // then Chloe submits 90 (3rd scorer) -> Ada & Bora reload and see 90 / 100 with 3 submitted!
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: chloeUser.id,
-      schemeViewer: true,
+      role: 'viewer',
     });
     await chloePage.reload();
     const chloeExam = chloePage.getByTestId('exam-card').first();

@@ -364,7 +364,7 @@ async fn sharing_needs_the_permission_to_share_the_board() {
     let editor = ContainerMember {
         container_id: board.id.clone(),
         user_id: other.id.clone(),
-        scheme_editor: true,
+        role: fvoci_model::ContainerRole::Editor,
         ..ContainerMember::default()
     };
     th.app

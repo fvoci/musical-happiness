@@ -179,7 +179,7 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
         .save_member(&ContainerMember {
             container_id: board.id.clone(),
             user_id: user,
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..ContainerMember::default()
         })
         .await

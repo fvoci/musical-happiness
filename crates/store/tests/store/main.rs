@@ -29,6 +29,7 @@ mod categories;
 mod category_boards;
 mod common;
 mod confirmed_password;
+mod container_member_role_migration;
 mod container_rename;
 mod container_visibility_migration;
 mod course_exams;

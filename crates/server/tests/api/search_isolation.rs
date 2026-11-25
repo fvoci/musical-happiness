@@ -246,7 +246,7 @@ async fn world(th: &TestServer) -> World {
     let invited = private_board(&th.client, "Invited").await;
     th.client
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&invited.id, &guest_id)
         })
         .await
@@ -449,7 +449,7 @@ async fn numbered_world(th: &TestServer) -> NumberedWorld {
     let invited = private_board(&th.client, "Guest Board").await;
     th.client
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&invited.id, &guest_id)
         })
         .await

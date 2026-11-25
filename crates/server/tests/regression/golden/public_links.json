@@ -32,10 +32,7 @@
     "content_type": "application/json",
     "body": {
       "containerId": "<id:3>",
-      "schemeAdmin": false,
-      "schemeCommenter": false,
-      "schemeEditor": true,
-      "schemeViewer": false,
+      "role": "editor",
       "userId": "<id:4>"
     }
   },

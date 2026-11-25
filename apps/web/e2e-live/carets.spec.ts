@@ -380,7 +380,7 @@ test("a wiki's page shows the carets of who write it, by the name the server kno
   const boraApi = await signedIn(base, bora);
   const [adaId, boraId] = [await userId(api), await userId(boraApi)];
   await api.post(`${inWorkspace}/containers/${wiki.id}/members`, {
-    data: { userId: boraId, schemeViewer: true, schemeCommenter: true, schemeEditor: true },
+    data: { userId: boraId, role: 'editor' },
   });
   const made = (await (
     await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Welcome' } })

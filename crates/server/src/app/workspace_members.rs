@@ -192,7 +192,7 @@ impl App {
                         user_id: by.to_owned(),
                         ..ContainerMember::default()
                     }
-                    .with_role(Some(ContainerRole::Admin));
+                    .with_role(ContainerRole::Admin);
                     self.broadcast_member_change_in_background(workspace_id.to_owned(), admin);
                 }
                 Ok(taken_over)

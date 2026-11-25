@@ -41,9 +41,9 @@
   );
   const roles: TeamRole[] = ['editor', 'commenter', 'viewer'];
   const labels = {
-    editor: () => m['BoardMember.schemeEditor'](),
-    commenter: () => m['BoardMember.schemeCommenter'](),
-    viewer: () => m['BoardMember.schemeViewer'](),
+    editor: () => m['BoardMember.roleEditor'](),
+    commenter: () => m['BoardMember.roleCommenter'](),
+    viewer: () => m['BoardMember.roleViewer'](),
   };
 
   async function read(workspaceId: string, containerId: string): Promise<void> {

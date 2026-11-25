@@ -34,7 +34,7 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
         .add_member_to_container(&fvoci_model::ContainerMember {
             container_id: theirs.id.clone(),
             user_id: th.client.me().await.id,
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..ContainerMember::default()
         })
         .await

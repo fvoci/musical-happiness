@@ -335,7 +335,7 @@ impl World {
         made.check_done();
         let container = text(&made.value(), "id");
         let at = format!("{ROOT_WS}/containers/{container}");
-        let member = json!({"containerId": container, "userId": self.other, "schemeEditor": true});
+        let member = json!({"containerId": container, "userId": self.other, "role": "editor"});
         client
             .post(&format!("{at}/members"), &member)
             .await
@@ -692,7 +692,7 @@ impl World {
             "createDiaryEntry" => json!({"date": "2020-02-29"}),
             "patchDiaryEntry" => json!({"mood": "good"}),
             "addMember" | "updateMember" => {
-                json!({"containerId": things.container, "userId": self.other, "schemeViewer": true})
+                json!({"containerId": things.container, "userId": self.other, "role": "viewer"})
             }
             "setContainerTeam" => json!({"role": "editor"}),
             "setPublicLink" => json!({"enabled": false}),
@@ -1500,7 +1500,7 @@ async fn the_audit_names_a_wiki_as_it_names_a_board() {
         administrator
             .post(
                 &format!("{ROOT_WS}/containers/{id}/members"),
-                &json!({"containerId": id, "userId": world.me, "schemeAdmin": true}),
+                &json!({"containerId": id, "userId": world.me, "role": "admin"}),
             )
             .await
             .check_done();

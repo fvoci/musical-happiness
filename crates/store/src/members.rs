@@ -3,7 +3,7 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{ContainerKinds, ContainerVisibility, OrgRole, WorkspaceRole};
+use fvoci_model::{ContainerKinds, ContainerRole, ContainerVisibility, OrgRole, WorkspaceRole};
 
 use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
@@ -34,10 +34,6 @@ pub(crate) fn push_open_containers_at_work<'sql>(
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
         .push(")) OR ")
 }
-
-/// The condition that the membership `bm` has a role: one without opens nothing.
-pub(crate) const BM_HAS_A_ROLE: &str =
-    " AND (bm.scheme_admin OR bm.scheme_editor OR bm.scheme_commenter OR bm.scheme_viewer)";
 
 /// Pushes the condition that the membership `bm` is the user's and that the user is
 /// still a member of the board's workspace `b`, a guest too: a role left on a board after
@@ -253,7 +249,7 @@ async fn has_acting_admin(
          ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id WHERE bm.container_id = ",
     );
     sql.bind(Id(container_id))
-        .push_bind(" AND bm.scheme_admin = ", true)
+        .push_bind(" AND bm.role = ", ContainerRole::Admin.as_str())
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str());
     if let Some(user_id) = except {
         sql.push_bind(" AND bm.user_id <> ", Id(user_id));

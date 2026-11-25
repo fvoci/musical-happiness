@@ -112,7 +112,9 @@ export function deletedUnitsOf(
 
 /** Whether a member was an admin of the board, which bringing it back takes. */
 export const wasAdmin = (members: readonly ContainerMember[], userId: string): boolean =>
-  members.some((member) => member.userId === userId && member.schemeAdmin);
+  members.some(
+    (member) => !member.synthetic && member.userId === userId && member.role === 'admin',
+  );
 
 /** The boards and wikis of the workspace in the trash that the user was an admin of, the last deleted first. */
 export function deletedContainersOf(
@@ -210,7 +212,7 @@ export function mayManageCards(
   if (!board || (board.kind ?? 'board') !== 'board') fail(404, 'no such board');
   const member = world.members.get(boardId)?.find((each) => each.userId === userId);
   if (!member && board.visibility !== 'open') fail(404, 'no such board');
-  if (!member?.schemeAdmin && !member?.schemeEditor) fail(403, refusal);
+  if (member?.role !== 'admin' && member?.role !== 'editor') fail(403, refusal);
 }
 
 /**

@@ -130,7 +130,7 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     let added = th
         .client2
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&board.id, &third)
         })
         .await;
@@ -215,7 +215,7 @@ async fn a_workspace_admin_who_makes_themselves_a_member_reads_the_board_and_is_
     let admin = workspace_admin(&th).await;
     let (board, card_id) = private_board_with_a_card(&th).await;
     let as_viewer = ContainerMember {
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..member(&board.id, &admin)
     };
 
@@ -293,25 +293,27 @@ async fn exported(client: &Client) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_workspace_admin_who_gives_a_membership_without_a_role_a_role_is_recorded() {
+async fn a_workspace_admin_who_asks_without_a_role_reads_nothing_until_giving_one_is_recorded() {
     let th = Setup::native().start().await.init_basic().await;
     let admin = workspace_admin(&th).await;
     let (board, card_id) = private_board_with_a_card(&th).await;
-    // A membership without a role, as a board's admin leaves who they take every role
-    // from: it opens nothing, the archive of the workspace neither.
-    th.app
-        .store()
-        .save_member(&member(&board.id, &admin))
-        .await
-        .expect("a membership without a role");
+    // A request without a role is refused, opens nothing, and exports nothing.
+    let refused = th
+        .client2
+        .post(
+            &format!("{TEST_WS}/containers/{}/members", board.id),
+            &json!({"userId": admin}),
+        )
+        .await;
+    refused.check_bad_request();
     let before = th.client2.get(&format!("{TEST_WS}/cards/{card_id}")).await;
     let archived = exported(&th.client2).await;
 
     let raised = th
         .client2
-        .put(
-            &format!("{TEST_WS}/containers/{}/members/{admin}", board.id),
-            &json!({"schemeViewer": true}),
+        .post(
+            &format!("{TEST_WS}/containers/{}/members", board.id),
+            &json!({"userId": admin, "role": "viewer"}),
         )
         .await;
     let after = th.client2.get(&format!("{TEST_WS}/cards/{card_id}")).await;
@@ -367,7 +369,7 @@ async fn a_workspace_admin_who_joins_an_open_board_is_not_recorded() {
     let added = th
         .client2
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&board.id, &admin)
         })
         .await;
@@ -401,11 +403,14 @@ async fn a_workspace_admin_lists_a_template_they_only_manage_by_name_and_adding_
         .await
         .created_json();
 
-    // A membership without a role opens nothing, and is not recorded.
+    // A request without a role is refused, opens nothing, and is not recorded.
     th.client2
-        .add_member(&member(&template.id, &admin))
+        .post(
+            &format!("{TEST_WS}/containers/{}/members", template.id),
+            &json!({"userId": admin}),
+        )
         .await
-        .check_ok();
+        .check_bad_request();
     let templates: Vec<Container> = th
         .client2
         .get(&format!("{TEST_WS}/templates"))

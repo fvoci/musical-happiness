@@ -186,11 +186,11 @@ pub(crate) async fn members(s: &mut Session) {
     s.get("list", &members).user(&alice).await;
     s.get("list: non-member", &members).user(&bob).await;
     s.post("add: non-member adds", &members)
-        .json(json!({"containerId": board, "userId": carol_id, "schemeEditor": true}))
+        .json(json!({"containerId": board, "userId": carol_id, "role": "editor"}))
         .user(&bob)
         .await;
     s.post("add editor", &members)
-        .json(json!({"containerId": board, "userId": bob_id, "schemeEditor": true}))
+        .json(json!({"containerId": board, "userId": bob_id, "role": "editor"}))
         .user(&alice)
         .await;
     s.post("add: no user", &members)
@@ -198,19 +198,19 @@ pub(crate) async fn members(s: &mut Session) {
         .user(&alice)
         .await;
     s.post("add: unknown user", &members)
-        .json(json!({"containerId": board, "userId": "unknown-user", "schemeViewer": true}))
+        .json(json!({"containerId": board, "userId": "unknown-user", "role": "viewer"}))
         .user(&alice)
         .await;
     s.post("add: editor adds", &members)
-        .json(json!({"containerId": board, "userId": carol_id, "schemeViewer": true}))
+        .json(json!({"containerId": board, "userId": carol_id, "role": "viewer"}))
         .user(&bob)
         .await;
     s.post("add viewer", &members)
-        .json(json!({"containerId": board, "userId": carol_id, "schemeViewer": true}))
+        .json(json!({"containerId": board, "userId": carol_id, "role": "viewer"}))
         .user(&alice)
         .await;
     s.post("add: already a member", &members)
-        .json(json!({"containerId": board, "userId": carol_id, "schemeAdmin": true}))
+        .json(json!({"containerId": board, "userId": carol_id, "role": "admin"}))
         .user(&alice)
         .await;
     s.get("list after adding", &members).user(&bob).await;
@@ -222,22 +222,22 @@ pub(crate) async fn members(s: &mut Session) {
     .await;
 
     s.put("update: to commenter", &format!("{members}/{carol_id}"))
-        .json(json!({"containerId": board, "userId": carol_id, "schemeCommenter": true}))
+        .json(json!({"containerId": board, "userId": carol_id, "role": "commenter"}))
         .user(&alice)
         .await;
     s.put("update: by editor", &format!("{members}/{carol_id}"))
-        .json(json!({"containerId": board, "userId": carol_id, "schemeAdmin": true}))
+        .json(json!({"containerId": board, "userId": carol_id, "role": "admin"}))
         .user(&bob)
         .await;
     s.put(
         "update: demote the last admin",
         &format!("{members}/{alice_id}"),
     )
-    .json(json!({"containerId": board, "userId": alice_id, "schemeEditor": true}))
+    .json(json!({"containerId": board, "userId": alice_id, "role": "editor"}))
     .user(&alice)
     .await;
     s.put("update: unknown member", &format!("{members}/unknown-user"))
-        .json(json!({"containerId": board, "userId": "unknown-user", "schemeEditor": true}))
+        .json(json!({"containerId": board, "userId": "unknown-user", "role": "editor"}))
         .user(&alice)
         .await;
 
@@ -312,7 +312,7 @@ pub(crate) async fn members(s: &mut Session) {
         "add below the minimum role: admin adds a viewer",
         &role_members,
     )
-    .json(json!({"containerId": role_board, "userId": bob_id, "schemeViewer": true}))
+    .json(json!({"containerId": role_board, "userId": bob_id, "role": "viewer"}))
     .user(&alice)
     .await;
     s.post(
@@ -348,7 +348,7 @@ pub(crate) async fn members(s: &mut Session) {
     .user(&carol)
     .await;
     s.put("make an editor", &format!("{role_members}/{carol_id}"))
-        .json(json!({"schemeEditor": true}))
+        .json(json!({"role": "editor"}))
         .user(&alice)
         .await;
     s.post(

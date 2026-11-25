@@ -215,11 +215,10 @@ async fn change_role(
         crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id)
             .await?;
         taken_over = hand_over(scope, workspace_id, &containers, user_id, by).await?;
-        let mut sql = scope.sql("UPDATE container_members SET scheme_admin = ");
-        sql.bind(false)
-            .push_bind(", scheme_editor = ", true)
+        let mut sql = scope.sql("UPDATE container_members SET role = ");
+        sql.bind(ContainerRole::Editor.as_str())
             .push_bind(" WHERE user_id = ", Id(user_id))
-            .push_bind(" AND scheme_admin = ", true)
+            .push_bind(" AND role = ", ContainerRole::Admin.as_str())
             .push_bind(
                 " AND container_id IN (SELECT id FROM containers WHERE workspace_id = ",
                 Id(workspace_id),
@@ -484,19 +483,17 @@ async fn hand_over(
     for container_id in containers {
         let administers = find_member(scope, container_id, user_id)
             .await?
-            .is_some_and(|member| member.scheme_admin);
+            .is_some_and(|member| member.role == ContainerRole::Admin);
         if !administers || !members::is_only_admin(scope, container_id, user_id).await? {
             continue;
         }
-        let had_a_role = find_member(scope, container_id, by)
-            .await?
-            .is_some_and(|member| member.role().is_some());
+        let had_a_role = find_member(scope, container_id, by).await?.is_some();
         let admin = ContainerMember {
             container_id: container_id.clone(),
             user_id: by.to_owned(),
             ..ContainerMember::default()
         }
-        .with_role(Some(ContainerRole::Admin));
+        .with_role(ContainerRole::Admin);
         save_member(scope, &admin).await?;
         if !had_a_role {
             let entry = AuditEntry::new(

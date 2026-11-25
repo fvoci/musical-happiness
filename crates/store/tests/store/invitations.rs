@@ -325,7 +325,12 @@ async fn of_many_who_accept_a_link_for_one_at_once_one_gets_in() {
             .expect("the members of the board");
         assert_eq!(members.len(), 1, "round {round}: {members:?}");
         assert_eq!(members[0].user_id, let_in[0], "round {round}");
-        assert!(members[0].scheme_editor, "round {round}: {:?}", members[0]);
+        assert_eq!(
+            members[0].role,
+            ContainerRole::Editor,
+            "round {round}: {:?}",
+            members[0]
+        );
 
         test.teardown().await;
     }
@@ -415,7 +420,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         user_id: admin.clone(),
         ..ContainerMember::default()
     }
-    .with_role(Some(ContainerRole::Admin));
+    .with_role(ContainerRole::Admin);
     test.add_member(&as_admin)
         .await
         .expect("the administrator of the board");
@@ -428,7 +433,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         test.get_member_for_container(&boards[board].id, user_id)
             .await
             .ok()
-            .and_then(|member| member.role())
+            .map(|member| member.role)
     };
     assert_eq!(role(0, &admin).await, Some(ContainerRole::Admin));
     assert_eq!(uses_of(&test, "guest").await, Some(0));
@@ -500,7 +505,7 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
             user_id: user_id.clone(),
             ..ContainerMember::default()
         }
-        .with_role(Some(ContainerRole::Admin));
+        .with_role(ContainerRole::Admin);
         test.add_member(&member)
             .await
             .expect("a member of the board");
@@ -540,7 +545,7 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
         test.get_member_for_container(board_id, user_id)
             .await
             .ok()
-            .and_then(|member| member.role())
+            .map(|member| member.role)
     };
     assert_eq!(
         role(invited_to, &returning).await,

@@ -607,9 +607,8 @@ async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
     let other = common::user(&test, "other").await;
     system
         .execute_unchecked(&format!(
-            "INSERT INTO container_members (container_id, user_id, org_id, scheme_admin, \
-             scheme_editor, scheme_commenter, scheme_viewer) \
-             VALUES ('{board}', '{other}', '{org}', false, true, false, false)"
+            "INSERT INTO container_members (container_id, user_id, org_id, role) \
+             VALUES ('{board}', '{other}', '{org}', 'editor')"
         ))
         .await
         .expect("a role is left");

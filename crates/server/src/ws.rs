@@ -43,7 +43,7 @@ use crate::app::{Audience, Former, SessionKept, SessionMade};
 use crate::auth::limiter::AddressKey;
 use crate::auth::{Authenticator, now_millis};
 use crate::metrics::{Disconnect, Metrics};
-use crate::permissions::{ContainerScope, role_of};
+use crate::permissions::ContainerScope;
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -618,9 +618,9 @@ impl Hub {
                 .into_iter()
                 .filter(|id| {
                     listeners.by_id.get(id).is_some_and(|listener| {
-                        !members.iter().any(|member| {
-                            member.user_id == listener.user_id && role_of(member).is_some()
-                        })
+                        !members
+                            .iter()
+                            .any(|member| member.user_id == listener.user_id)
                     })
                 })
                 .collect()

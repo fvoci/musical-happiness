@@ -630,7 +630,7 @@ mod tests {
         let of_second = visibility.version(second).await;
         let of_everything = visibility.version(Tenant::Unset).await;
         let writing = visibility.writing(first);
-        writing.statement("UPDATE container_members SET scheme_admin = true");
+        writing.statement("UPDATE container_members SET role = 'admin'");
         assert!(
             visibility.if_current(of_second, || {}),
             "a writer of the first organization does not hold up the second's dispatch"

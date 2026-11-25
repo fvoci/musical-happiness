@@ -489,7 +489,7 @@ async fn a_guest_carries_their_account_over_and_keeps_their_boards() {
     let other = board("Not invited").await;
     ts.client
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&invited, &guest)
         })
         .await

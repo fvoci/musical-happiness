@@ -146,7 +146,7 @@ async fn board_changes_are_broadcast_to_the_members() {
         .expect("containerMemberChanged", "/member/containerId", &board.id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
-    assert_eq!(message["member"]["schemeAdmin"], json!(true), "{message}");
+    assert_eq!(message["member"]["role"], json!("admin"), "{message}");
 
     patch_board(&th.client, &board.id, &title_patch("Roadmap 2"))
         .await
@@ -227,13 +227,13 @@ async fn member_changes_are_broadcast() {
             json!(board.id),
             "{message}"
         );
-        assert_eq!(message["member"]["schemeEditor"], json!(true), "{message}");
+        assert_eq!(message["member"]["role"], json!("editor"), "{message}");
     }
 
     update_member(
         &th.client,
         &ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..member(&board.id, &user2.id)
         },
     )
@@ -242,8 +242,7 @@ async fn member_changes_are_broadcast() {
     let message = socket2
         .expect("containerMemberChanged", "/member/userId", &user2.id)
         .await;
-    assert_eq!(message["member"]["schemeViewer"], json!(true), "{message}");
-    assert_eq!(message["member"]["schemeEditor"], json!(false), "{message}");
+    assert_eq!(message["member"]["role"], json!("viewer"), "{message}");
 
     delete_member(&th.client, &member(&board.id, &user2.id))
         .await
@@ -321,10 +320,7 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
         json!({
             "containerId": template.id,
             "userId": user2.id,
-            "schemeAdmin": false,
-            "schemeEditor": false,
-            "schemeCommenter": false,
-            "schemeViewer": true,
+            "role": "viewer",
             "synthetic": true,
         }),
         "a viewer"

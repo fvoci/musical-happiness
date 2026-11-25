@@ -73,7 +73,7 @@ async fn one_editor_holds_a_file_s_lease_at_a_time() {
     let member = ContainerMember {
         container_id: board.id.clone(),
         user_id: editor.clone(),
-        scheme_editor: true,
+        role: fvoci_model::ContainerRole::Editor,
         ..ContainerMember::default()
     };
     ts.client.add_member(&member).await.check_ok();
@@ -159,7 +159,7 @@ async fn the_lease_is_held_by_editors_and_told_to_readers() {
     let viewer = ContainerMember {
         container_id: board.id.clone(),
         user_id: ts.client2.me().await.id,
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..ContainerMember::default()
     };
     ts.client.add_member(&viewer).await.check_ok();

@@ -11,7 +11,7 @@ use fvoci_model::{
 
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::{Store, blocks, container_kinds, container_search, containers, link_locks, members};
+use crate::{Store, blocks, container_kinds, container_search, containers, link_locks};
 
 const WORKSPACE_COLUMNS: &str = "id, name, settings, modified_by, update_at, guest_invitations";
 
@@ -361,7 +361,6 @@ async fn search_containers_for_user_in_workspace(
             ContainerVisibility::Private.as_str(),
         )
         .push_bind(" AND bm.user_id = ", Id(user_id))
-        .push(members::BM_HAS_A_ROLE)
         .push(") OR ");
     crate::container_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")");

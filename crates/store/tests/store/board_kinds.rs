@@ -553,7 +553,7 @@ async fn seed_course_learning_rows(
                 user_id: learner.to_owned(),
                 ..ContainerMember::default()
             }
-            .with_role(Some(ContainerRole::Viewer)),
+            .with_role(ContainerRole::Viewer),
         )
         .await
         .expect("direct course viewer");

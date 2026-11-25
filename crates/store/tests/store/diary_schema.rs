@@ -155,8 +155,12 @@ async fn a_database_from_before() -> (fvoci_store::testing::TestDatabase, String
         store
             .execute_unchecked(&format!(
                 "INSERT INTO container_members \
-                 (container_id, user_id, scheme_admin, scheme_editor, scheme_commenter, scheme_viewer) \
+                 (container_id, user_id, {}, {}, {}, {}) \
                  VALUES ('{}', '{user_id}', true, true, false, false)",
+                concat!("scheme", "_admin"),
+                concat!("scheme", "_editor"),
+                concat!("scheme", "_commenter"),
+                concat!("scheme", "_viewer"),
                 container.id
             ))
             .await

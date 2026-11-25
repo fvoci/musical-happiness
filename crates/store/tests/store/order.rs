@@ -220,7 +220,7 @@ async fn memberships_come_by_identifier() {
         let member = ContainerMember {
             container_id: board_id.to_owned(),
             user_id: user_id.to_owned(),
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..ContainerMember::default()
         };
         store
@@ -548,8 +548,11 @@ async fn board_administered_by(
             .save_member(&ContainerMember {
                 container_id: board_id.clone(),
                 user_id: member.to_owned(),
-                scheme_admin: admin,
-                scheme_editor: !admin,
+                role: if admin {
+                    fvoci_model::ContainerRole::Admin
+                } else {
+                    fvoci_model::ContainerRole::Editor
+                },
                 ..ContainerMember::default()
             })
             .await

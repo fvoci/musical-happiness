@@ -1,8 +1,8 @@
 //! Assigning workspace groups to boards, with authorization and audit in the transaction.
 
 use fvoci_model::{
-    AuditAction, Container, ContainerMember, ContainerTeam, ContainerVisibility, MinimumRole,
-    WorkspaceRole,
+    AuditAction, Container, ContainerMember, ContainerRole, ContainerTeam, ContainerVisibility,
+    MinimumRole, WorkspaceRole,
 };
 
 use crate::audit::{self, AuditEntry};
@@ -123,7 +123,8 @@ async fn require_manager(
         .map(|(role, _)| role);
     let direct = containers::find_member(scope, &container.id, by).await?;
     if role == Some(WorkspaceRole::Admin)
-        || (role == Some(WorkspaceRole::Member) && direct.is_some_and(|m| m.scheme_admin))
+        || (role == Some(WorkspaceRole::Member)
+            && direct.is_some_and(|m| m.role == ContainerRole::Admin))
     {
         Ok(())
     } else {
@@ -174,7 +175,7 @@ async fn reads(
 ) -> Result<bool, StoreError> {
     let direct = containers::find_member(scope, container_id, user_id)
         .await?
-        .and_then(|m| m.role());
+        .map(|m| m.role);
     Ok(direct
         .max(container_team_access::role_for(scope, container_id, user_id).await?)
         .is_some())

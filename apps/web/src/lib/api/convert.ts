@@ -31,7 +31,6 @@ import {
   type BoardDraft,
   type AccountSettingsPatch,
   type Attachment,
-  type ContainerRole,
   type CardDetail,
   type CardDraft,
   type CardPatch,
@@ -125,14 +124,12 @@ export function containerOf(board: Schemas['Container']): Container {
   };
 }
 
-/**
- * A membership. An inherited role stays separate from the direct scheme flags.
- * The local minimum role is empty; the server already resolves inherited access.
- */
+/** A membership. An inherited role stays separate from the direct `role`. */
 export function memberOf(member: Schemas['ContainerMember']): ContainerMember {
   return {
-    ...member,
-    minimumRole: '',
+    containerId: member.containerId,
+    userId: member.userId,
+    role: member.role,
     synthetic: member.synthetic ?? false,
     inheritedRole: member.inheritedRole ?? undefined,
   };
@@ -338,16 +335,6 @@ export function settingsOf(settings: Schemas['UserSettings']): AccountSettings {
 
 export function settingsChangeOf(patch: AccountSettingsPatch): Schemas['SettingsChange'] {
   return patch;
-}
-
-/** A role as the server keeps it: exactly one of the four flags. */
-export function rolesOf(role: ContainerRole): Schemas['MemberRoles'] {
-  return {
-    schemeAdmin: role === 'admin',
-    schemeEditor: role === 'editor',
-    schemeCommenter: role === 'commenter',
-    schemeViewer: role === 'viewer',
-  };
 }
 
 /** A public link; one that was never on has no token. */

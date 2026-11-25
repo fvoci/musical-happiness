@@ -108,7 +108,7 @@ async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
         .save_member(&ContainerMember {
             container_id: t.board_id.clone(),
             user_id: user.clone(),
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..ContainerMember::default()
         })
         .await

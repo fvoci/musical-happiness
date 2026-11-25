@@ -109,7 +109,7 @@ async fn give_belongings(
     let member = ContainerMember {
         container_id: block.container_id.clone(),
         user_id: user_id.to_owned(),
-        scheme_editor: true,
+        role: fvoci_model::ContainerRole::Editor,
         ..ContainerMember::default()
     };
     store
@@ -406,7 +406,7 @@ async fn what_comes_back_from_the_trash_forgets_a_creator_whose_row_is_gone() {
         let member = ContainerMember {
             container_id: board_of_gone.id.clone(),
             user_id: user_id.clone(),
-            scheme_admin: true,
+            role: fvoci_model::ContainerRole::Admin,
             ..ContainerMember::default()
         };
         store

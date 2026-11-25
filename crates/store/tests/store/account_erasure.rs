@@ -667,7 +667,7 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         .save_member(&ContainerMember {
             container_id: course.id.clone(),
             user_id: learner.to_owned(),
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..ContainerMember::default()
         })
         .await
@@ -1064,7 +1064,7 @@ async fn places_of_a_leaver(test: &TestStore, founder: &str) -> Places {
         user_id: younger.clone(),
         ..fvoci_model::ContainerMember::default()
     }
-    .with_role(Some(fvoci_model::ContainerRole::Admin));
+    .with_role(fvoci_model::ContainerRole::Admin);
     test.save_member(&other_admin)
         .await
         .expect("a second admin");
@@ -1150,7 +1150,7 @@ async fn a_board_whose_only_admin_is_erased_passes_to_an_administrator_of_its_wo
         async move {
             test.texts_unchecked(&format!(
                 "SELECT CAST(user_id AS TEXT) FROM container_members \
-                 WHERE container_id = '{container_id}' AND scheme_admin ORDER BY 1"
+                 WHERE container_id = '{container_id}' AND role = 'admin' ORDER BY 1"
             ))
             .await
             .expect("read")

@@ -30,14 +30,10 @@ pub struct ContainerAccess {
 
 impl ContainerAccess {
     /// Whether the user holds an enrolled membership on this container (either a direct
-    /// role flag or an inherited group role as a workspace worker).
+    /// membership or an inherited group role as a workspace worker).
     #[must_use]
     pub fn has_membership(&self) -> bool {
-        let direct = self
-            .member
-            .as_ref()
-            .and_then(permissions::role_of)
-            .is_some();
+        let direct = self.member.is_some();
         let inherited = self.actor.works_there() && self.team_role.is_some();
         self.actor.workspace.is_some() && (direct || inherited)
     }
@@ -113,7 +109,7 @@ impl App {
                 ContainerFacts {
                     team_role,
                     scope: ContainerScope::of(&container),
-                    role: member.as_ref().and_then(permissions::role_of),
+                    role: member.as_ref().map(|m| m.role),
                 },
             )
         };
@@ -226,7 +222,7 @@ impl App {
             .members
             .iter()
             .find(|member| member.user_id == user_id)
-            .and_then(permissions::role_of);
+            .map(|member| member.role);
         let grant = if user_id.is_empty() {
             Grant::NONE
         } else {

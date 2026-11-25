@@ -117,7 +117,7 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
         .save_member(&ContainerMember {
             container_id: board.id.clone(),
             user_id: user2.clone(),
-            scheme_admin: true,
+            role: fvoci_model::ContainerRole::Admin,
             ..ContainerMember::default()
         })
         .await
@@ -158,7 +158,7 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
         .created_json();
     th.client
         .add_member(&ContainerMember {
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..crate::boards::member(&board.id, &user2)
         })
         .await
@@ -212,19 +212,19 @@ async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
             .created_json();
         th.client
             .add_member(&ContainerMember {
-                scheme_editor: true,
+                role: fvoci_model::ContainerRole::Editor,
                 ..crate::boards::member(&board.id, &user2)
             })
             .await
             .check_ok();
         boards.push(board);
     }
-    // A membership without a role, of a user who is not in the workspace.
+    // A former member of the workspace is omitted from the exported archive.
     th.app
         .store()
         .save_member(&crate::boards::member(&boards[1].id, &third))
         .await
-        .expect("a membership without a role");
+        .expect("a membership of a third user");
     remove_from_the_test_workspace(&th, &third).await;
     let archive = th.client.get(&format!("{TEST_WS}/archive/export")).await;
     archive.check_ok();
@@ -233,6 +233,6 @@ async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
     let imported = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
     th.teardown().await;
 
-    // The second user, on both boards, once; the third, without a role, not at all.
+    // The second user, on both boards, once; the third, already gone at export, not at all.
     assert_eq!(imported.value()["membersLeftOut"], json!(1));
 }

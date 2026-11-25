@@ -83,7 +83,7 @@ test('saves schedule with auto-assign, preserves overdue units, isolates viewer 
     });
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: boraUser.id,
-      schemeViewer: true,
+      role: 'viewer',
     });
     const chapter = await postJson<Schemas['Unit']>(
       adaApi,

@@ -357,7 +357,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .save_member(&ContainerMember {
             container_id: board_id.clone(),
             user_id: user_id.clone(),
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Editor,
             ..ContainerMember::default()
         })
         .await
@@ -365,7 +365,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     let as_viewer = ContainerMember {
         container_id: board_id.clone(),
         user_id: user_id.clone(),
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..ContainerMember::default()
     };
     let entry = AuditEntry::new(

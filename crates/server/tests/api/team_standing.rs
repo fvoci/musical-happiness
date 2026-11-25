@@ -55,7 +55,7 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
     let requested = ContainerMember {
         container_id: board.id.clone(),
         user_id: manager.clone(),
-        scheme_viewer: true,
+        role: ContainerRole::Viewer,
         ..ContainerMember::default()
     };
     th.app
@@ -78,7 +78,7 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
             .is_not_found()
     );
 
-    stale_invitation(&th, &manager, &board.id, &team.id, &requested).await;
+    stale_invitation(&th, &manager, &board.id, &team.id).await;
     let before = th
         .app
         .store()
@@ -87,12 +87,9 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
         .unwrap()
         .len();
     th.client
-        .put(
-            &format!(
-                "/w/{ROOT_WORKSPACE_ID}/containers/{}/members/{manager}",
-                board.id
-            ),
-            &json!({"schemeViewer":true}),
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}/members", board.id),
+            &json!({"userId": manager, "role": "viewer"}),
         )
         .await
         .check_ok();
@@ -113,23 +110,18 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
     th.teardown().await;
 }
 
-async fn stale_invitation(
-    th: &TestServer,
-    manager: &str,
-    board_id: &str,
-    team_id: &str,
-    requested: &ContainerMember,
-) {
-    // An existing membership with no flags is equally insufficient after revocation.
-    let empty = ContainerMember {
-        scheme_viewer: false,
-        ..requested.clone()
-    };
+async fn stale_invitation(th: &TestServer, manager: &str, board_id: &str, team_id: &str) {
+    let colleague = th.add_user("colleague").await.me().await.id;
     th.app
         .store()
-        .add_member(&empty)
+        .add_member(&ContainerMember {
+            container_id: board_id.to_owned(),
+            user_id: colleague.clone(),
+            role: ContainerRole::Viewer,
+            ..ContainerMember::default()
+        })
         .await
-        .expect("store the empty direct membership");
+        .expect("store a colleague viewer on the board");
     th.app
         .add_team_member(ROOT_WORKSPACE_ID, team_id, manager, manager)
         .await
@@ -158,9 +150,15 @@ async fn stale_invitation(
         .remove_team_member(ROOT_WORKSPACE_ID, team_id, manager, manager)
         .await
         .expect("revoke the team role");
+    let colleague_update = ContainerMember {
+        container_id: board_id.to_owned(),
+        user_id: colleague,
+        role: ContainerRole::Editor,
+        ..ContainerMember::default()
+    };
     assert!(
         th.app
-            .update_member_asked(requested, manager, &access)
+            .update_member_asked(&colleague_update, manager, &access)
             .await
             .expect("check the stale role change")
             .is_none(),

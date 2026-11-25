@@ -911,7 +911,7 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
     ts.client
         .post(
             &format!("{ROOT_WS}/containers/{}/members", invited_template.id),
-            &json!({"userId": user.id, "schemeViewer": true}),
+            &json!({"userId": user.id, "role": "viewer"}),
         )
         .await
         .check_ok();

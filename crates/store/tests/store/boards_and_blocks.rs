@@ -846,8 +846,7 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
         [ContainerMember {
             container_id: board.id.clone(),
             user_id: copier.clone(),
-            scheme_admin: true,
-            scheme_editor: true,
+            role: fvoci_model::ContainerRole::Admin,
             ..ContainerMember::default()
         }],
         "the copier administers the copy"

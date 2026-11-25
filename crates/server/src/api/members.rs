@@ -2,23 +2,44 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{ContainerMember, ContainerRole, ContainerVisibility, WorkspaceRole};
+use fvoci_model::{
+    ContainerMember, ContainerMemberPatch, ContainerRole, ContainerVisibility, WorkspaceRole,
+};
+use serde::Deserialize;
+use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::bodies::{MemberRoles, NewMember};
+use super::contract::bodies::NewMember;
 use super::contract::params::{MemberWorkspaceId, PeopleContainerId, UserId};
 use super::contract::tag;
 use super::workspace::InShared;
 
 use super::{ApiResult, json_response, no_content};
-use super::{decode_object, refusal, require_container_permission, require_granted};
+use super::{decode_object_with, refusal, require_container_permission, require_granted};
 use crate::app::App;
 use crate::error::{AppError, Reason};
 use crate::permissions::{self, ContainerPermission, Grant};
 
 /// The refusal to add, change or remove a member.
 const MODIFY_MEMBERS_DENIED: &str = "access denied to modify board members";
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddMemberRequest {
+    #[serde(default)]
+    user_id: String,
+}
+
+fn parse_member_role(value: Option<Value>) -> Result<Option<ContainerRole>, AppError> {
+    match value {
+        None => Ok(None),
+        Some(Value::Null) => Err(AppError::bad_request("role cannot be null").with_field("role")),
+        Some(raw) => serde_json::from_value::<ContainerRole>(raw)
+            .map(Some)
+            .map_err(|err| AppError::bad_request(err).with_field("role")),
+    }
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -28,32 +49,15 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_leave_container))
 }
 
-/// The membership a request asks for: the user and board the handler decided on, and
-/// the role flags of the body. Whatever else the body says is ignored.
-fn requested_member(
-    container_id: String,
-    user_id: String,
-    body: &ContainerMember,
-) -> ContainerMember {
+/// A membership with `role` as its direct role.
+fn member_with_role(container_id: String, user_id: String, role: ContainerRole) -> ContainerMember {
     ContainerMember {
         container_id,
         user_id,
-        scheme_admin: body.scheme_admin,
-        scheme_editor: body.scheme_editor,
-        scheme_commenter: body.scheme_commenter,
-        scheme_viewer: body.scheme_viewer,
-        ..ContainerMember::default()
+        role,
+        synthetic: false,
+        inherited_role: None,
     }
-}
-
-/// A membership with exactly the one role.
-fn member_with_role(container_id: String, user_id: String, role: ContainerRole) -> ContainerMember {
-    let member = ContainerMember {
-        container_id,
-        user_id,
-        ..ContainerMember::default()
-    };
-    permissions::with_role(member, Some(role))
 }
 
 /// Refuses a membership whose role the user's place in the workspace does not let
@@ -62,12 +66,13 @@ fn require_holdable(
     workspace_role: WorkspaceRole,
     member: &ContainerMember,
 ) -> Result<(), AppError> {
-    match permissions::role_of(member) {
-        Some(role) if !permissions::may_hold(workspace_role, role) => Err(AppError::forbidden(
-            "a guest of the workspace is given no role above editor",
+    if permissions::may_hold(workspace_role, member.role) {
+        Ok(())
+    } else {
+        Err(
+            AppError::forbidden("a guest of the workspace is given no role above editor")
+                .with_reason(Reason::GuestRoleLimit),
         )
-        .with_reason(Reason::GuestRoleLimit)),
-        _ => Ok(()),
     }
 }
 
@@ -101,7 +106,7 @@ async fn handle_get_members_for_container(
     let mut members = ws.app.effective_container_members(&container_id).await?;
     if ws.actor().workspace == Some(WorkspaceRole::Guest) {
         for member in &mut members {
-            *member = member.clone().with_role(member.role());
+            member.role = member.effective_role();
             member.inherited_role = None;
             member.synthetic = false;
         }
@@ -111,12 +116,11 @@ async fn handle_get_members_for_container(
 
 /// Make a user a member of a board
 ///
-/// The board's admins add members with the roles the request names; with no role at
-/// all the member may do nothing on the board, not even view it. On an open board
+/// The board's admins add members with the `role` the request names. On an open board
 /// editors who work in the workspace add members too, with the board's minimum role,
-/// whatever else the request names; a request of theirs that asks for `schemeAdmin` is
+/// whatever else the request names; a request of theirs that asks for `admin` is
 /// 403. A guest of the workspace is given no role above editor: asking for
-/// `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
+/// `admin` for one is 403 with the reason `guest_role_limit`. A user who is a
 /// member already stays as they are. The workspace's administrators manage the members
 /// of every board of it; one who could not read a board and gives somebody a role on
 /// it, themselves or another, is recorded in the workspace's audit log.
@@ -151,7 +155,9 @@ async fn handle_add_member(
         return Err(refusal(grant, MODIFY_MEMBERS_DENIED));
     }
 
-    let request: ContainerMember = decode_object(&body)?;
+    let (request, raw_role): (AddMemberRequest, Option<Value>) =
+        decode_object_with(&body, |members| members.remove("role"))?;
+    let requested_role = parse_member_role(raw_role)?;
     if request.user_id.is_empty() {
         return Err(AppError::bad_request("empty userId").with_field("userId"));
     }
@@ -179,29 +185,26 @@ async fn handle_add_member(
     // Granting the admin role requires role-management permission; otherwise an editor of
     // an open board could promote a second account to admin and take the board over.
     // The web app offers a user who does not manage roles the board's minimum role only.
-    if request.scheme_admin && !manages_roles {
+    if requested_role == Some(ContainerRole::Admin) && !manages_roles {
         return Err(AppError::forbidden(MODIFY_MEMBERS_DENIED));
     }
 
     // Choosing explicit roles belongs to those who manage them; callers without role
     // management always grant the board's minimum role.
-    let member = if manages_roles {
-        requested_member(container_id, request.user_id.clone(), &request)
+    let role = if manages_roles {
+        requested_role.ok_or_else(|| AppError::bad_request("missing role").with_field("role"))?
     } else {
         // The board's minimum role: what joining gives, and so what somebody gives who
         // has no say about roles.
-        member_with_role(
-            container_id,
-            request.user_id.clone(),
-            ContainerRole::from(container.minimum_role),
-        )
+        ContainerRole::from(container.minimum_role)
     };
+    let member = member_with_role(container_id, request.user_id, role);
     require_holdable(target_role, &member)?;
     // A workspace's administrator who could not read the board and gives somebody a
     // role on it is recorded doing so: themselves, by which they come to read it, or
     // somebody else, who might be another account of theirs. The board was there a
     // moment ago; if it is not any more, there is nothing to be a member of.
-    let added = if grant.manages_only() && permissions::role_of(&member).is_some() {
+    let added = if grant.manages_only() {
         ws.app.add_member_as_manager(&member, user_id).await?
     } else {
         // Only if who asks is still what the check found, where it is written.
@@ -300,21 +303,20 @@ async fn handle_leave_container(
     Ok(no_content())
 }
 
-/// Change the roles of a member
+/// Change the role of a member
 ///
-/// Replaces the roles of a member of the board; with no role at all the member may do
-/// nothing on the board, not even view it. For the board's admins. The last admin of a
-/// board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
-/// workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
-/// reason `guest_role_limit`. A user who is no member of the board, or of its workspace any
-/// more, is 404.
+/// Replaces the `role` of a member of the board. For the board's admins. The last admin
+/// of a board cannot be made less: that is 409 with the reason `last_admin`. A guest of
+/// the workspace is made no more than an editor: `admin` for one is 403 with the
+/// reason `guest_role_limit`. A user who is no member of the board, or of its workspace
+/// any more, is 404.
 #[utoipa::path(
     put,
     path = "/w/{workspaceId}/containers/{containerId}/members/{userId}",
     operation_id = "updateMember",
     tag = tag::MEMBERS,
     params(MemberWorkspaceId, PeopleContainerId, UserId),
-    request_body = MemberRoles,
+    request_body = ContainerMemberPatch,
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_update_member(
@@ -338,8 +340,11 @@ async fn handle_update_member(
         .container_access(&member_user_id, &container_id)
         .await?
         .ok_or_else(|| AppError::not_found("board"))?;
-    let request: ContainerMember = decode_object(&body)?;
-    let member = requested_member(container_id, member_user_id, &request);
+    let (_, raw_role): (serde::de::IgnoredAny, Option<Value>) =
+        decode_object_with(&body, |members| members.remove("role"))?;
+    let role = parse_member_role(raw_role)?
+        .ok_or_else(|| AppError::bad_request("missing role").with_field("role"))?;
+    let member = member_with_role(container_id, member_user_id, role);
     // Who is no member of the board is not found, and so is who has left its
     // workspace: the role left there opens nothing, and is not to be changed.
     let (Some(_), Some(workspace_role)) = (target.member, target.actor.workspace) else {
@@ -349,7 +354,7 @@ async fn handle_update_member(
 
     // A workspace's administrator who could not read the board and gives somebody a
     // role on it is recorded doing so, as one who adds a member.
-    let updated = if grant.manages_only() && permissions::role_of(&member).is_some() {
+    let updated = if grant.manages_only() {
         ws.app
             .update_member_as_manager(&member, &ws.session.user_id)
             .await?

@@ -190,14 +190,7 @@ async fn joining_an_open_wiki_gives_its_minimum_role() {
         .post(&format!("{TEST_WS}/containers/{wiki}/join"), &json!({}))
         .await
         .ok_json();
-    let roles = [
-        "schemeAdmin",
-        "schemeEditor",
-        "schemeCommenter",
-        "schemeViewer",
-    ]
-    .map(|role| joined[role].as_bool().expect("a scheme flag"));
-    assert_eq!(roles, [false, false, false, true], "{joined}");
+    assert_eq!(joined["role"], json!("viewer"), "{joined}");
     assert_eq!(
         answers(&th.client2, &wiki, &page).await,
         [200, 200, 200, 403, 403, 403]

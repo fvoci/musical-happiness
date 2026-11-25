@@ -19,7 +19,7 @@ impl Store {
             .await
     }
 
-    /// Current board members, with inherited roles separate from their direct flags:
+    /// Current board members, with inherited roles separate from their direct `role`:
     /// the direct members who are in the board's workspace now and the people of its
     /// teams, as `Store::get_present_members_for_container` lists the direct ones, of a
     /// workspace and an organization that are not deleted.
@@ -117,14 +117,17 @@ pub(crate) async fn extend(
                 .is_none_or(|old| ContainerRole::from(old) < ContainerRole::from(role))
             {
                 member.inherited_role = Some(role);
+                if member.synthetic {
+                    member.role = ContainerRole::from(role);
+                }
             }
         } else {
             members.push(ContainerMember {
                 container_id,
                 user_id,
+                role: ContainerRole::from(role),
                 inherited_role: Some(role),
                 synthetic: true,
-                ..ContainerMember::default()
             });
         }
     }
@@ -138,12 +141,12 @@ pub(crate) fn push_has_team_role(sql: &mut Sql, scope: &Scope<'_>, user_id: &str
         .bind(Id(user_id)).push(&scope.same_organization(&[("bt", "b")])).push(")");
 }
 
-/// Directory membership rows. Inherited rows only need a presence flag, not their rank.
+/// Directory membership rows `(container_id, user_id, org_id)`, direct and inherited.
 pub(crate) fn directory_members(scope: &Scope<'_>) -> String {
     let direct_wall = scope.same_organization(&[("dm", "db"), ("db", "dw")]);
     let team_members = crate::teams::present_members(scope);
     format!(
-        "(SELECT dm.container_id, dm.user_id, dm.scheme_admin, dm.scheme_editor, dm.scheme_commenter, dm.scheme_viewer, dw.org_id FROM container_members dm JOIN containers db ON db.id = dm.container_id JOIN workspaces dw ON dw.id = db.workspace_id WHERE true{direct_wall} UNION ALL SELECT bt.container_id, tm.user_id, false, true, false, false, bt.org_id FROM container_teams bt JOIN {team_members} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id)"
+        "(SELECT dm.container_id, dm.user_id, dw.org_id FROM container_members dm JOIN containers db ON db.id = dm.container_id JOIN workspaces dw ON dw.id = db.workspace_id WHERE true{direct_wall} UNION ALL SELECT bt.container_id, tm.user_id, bt.org_id FROM container_teams bt JOIN {team_members} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id)"
     )
 }
 

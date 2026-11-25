@@ -39,9 +39,9 @@
   const uid = $props.id();
   const ROLES: readonly GuestContainerRole[] = ['editor', 'commenter', 'viewer'];
   const ROLE_LABELS: Record<GuestContainerRole, () => string> = {
-    editor: () => m['BoardMember.schemeEditor'](),
-    commenter: () => m['BoardMember.schemeCommenter'](),
-    viewer: () => m['BoardMember.schemeViewer'](),
+    editor: () => m['BoardMember.roleEditor'](),
+    commenter: () => m['BoardMember.roleCommenter'](),
+    viewer: () => m['BoardMember.roleViewer'](),
   };
 
   let role = $state<GuestContainerRole>('editor');

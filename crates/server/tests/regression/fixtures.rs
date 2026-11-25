@@ -63,14 +63,11 @@ pub(crate) fn block(
     block
 }
 
-/// The role flags of a board member.
+/// The wire role field of a board member.
 #[track_caller]
 pub(crate) fn role_flags(role: &str) -> Value {
     match role {
-        "admin" => json!({"schemeAdmin": true}),
-        "editor" => json!({"schemeEditor": true}),
-        "commenter" => json!({"schemeCommenter": true}),
-        "viewer" => json!({"schemeViewer": true}),
+        "admin" | "editor" | "commenter" | "viewer" => json!({"role": role}),
         other => panic!("no role {other:?}"),
     }
 }

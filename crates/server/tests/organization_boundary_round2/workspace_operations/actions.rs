@@ -655,7 +655,7 @@ async fn people(case: &mut Case, board: &str) -> String {
     case.run(
         "addMember",
         at,
-        json!({"containerId": board, "userId": peer, "schemeEditor": true}),
+        json!({"containerId": board, "userId": peer, "role": "editor"}),
     )
     .await;
     case.present("getMembers", at, &peer).await;
@@ -663,7 +663,7 @@ async fn people(case: &mut Case, board: &str) -> String {
     case.run(
         "updateMember",
         member_at,
-        json!({"containerId": board, "userId": peer, "schemeViewer": true}),
+        json!({"containerId": board, "userId": peer, "role": "viewer"}),
     )
     .await;
     case.run("removeMember", member_at, json!({})).await;
@@ -750,7 +750,7 @@ async fn joining(case: &mut Case) {
     case.run(
         "addMember",
         at,
-        json!({"containerId": board, "userId": case.peer, "schemeAdmin": true}),
+        json!({"containerId": board, "userId": case.peer, "role": "admin"}),
     )
     .await;
     case.run("leaveContainer", at, json!({})).await;
@@ -771,7 +771,7 @@ async fn audit_admission(case: &mut Case) -> String {
     case.run(
         "addMember",
         at,
-        json!({"containerId": board, "userId": case.peer, "schemeAdmin": true}),
+        json!({"containerId": board, "userId": case.peer, "role": "admin"}),
     )
     .await;
     case.run("leaveContainer", at, json!({})).await;
@@ -779,7 +779,7 @@ async fn audit_admission(case: &mut Case) -> String {
     case.run(
         "addMember",
         at,
-        json!({"containerId": board, "userId": case.user, "schemeAdmin": true}),
+        json!({"containerId": board, "userId": case.user, "role": "admin"}),
     )
     .await;
     board

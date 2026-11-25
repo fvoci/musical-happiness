@@ -491,7 +491,7 @@ pub(crate) async fn let_in(
                 user_id: user_id.to_owned(),
                 ..ContainerMember::default()
             }
-            .with_role(Some(container_role));
+            .with_role(container_role);
             let let_in = let_in_as_guest(scope, &link.workspace_id, guest).await?;
             // Whom a manager who does not read the board puts on it is on the
             // record, by a link as by adding them.
@@ -615,14 +615,6 @@ pub(crate) async fn inviter_still(
         Some(container_id) => find_member(scope, container_id, &link.created_by).await?,
         None => None,
     };
-    let flags = |member: &ContainerMember| {
-        [
-            member.scheme_admin,
-            member.scheme_editor,
-            member.scheme_commenter,
-            member.scheme_viewer,
-        ]
-    };
     let team_role = match &link.container_id {
         Some(container_id) => {
             crate::container_team_access::role_for(scope, container_id, &link.created_by).await?
@@ -630,7 +622,7 @@ pub(crate) async fn inviter_still(
         None => None,
     };
     Ok(role == found.workspace_role
-        && member.as_ref().map(flags) == found.member.map(flags)
+        && member.as_ref().map(|m| m.role) == found.member.map(|m| m.role)
         && team_role == found.team_role)
 }
 
@@ -669,8 +661,8 @@ async fn let_in_as_guest(
     .await?;
     let held = find_member(scope, &invited.container_id, user_id)
         .await?
-        .and_then(|member| member.role());
-    if held >= invited.role() {
+        .map(|member| member.role);
+    if held >= Some(invited.role) {
         return Ok(GuestLetIn {
             changed: joined,
             onto_container: false,

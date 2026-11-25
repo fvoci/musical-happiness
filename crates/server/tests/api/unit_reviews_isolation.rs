@@ -319,7 +319,7 @@ async fn strict_personal_isolation_matrix_and_zero_side_channel_leaks() {
         th.client
             .post(
                 &format!("{TEST_WS}/containers/{c}/members"),
-                &json!({"containerId": c, "userId": user2.id, "schemeAdmin": true}),
+                &json!({"containerId": c, "userId": user2.id, "role": "admin"}),
             )
             .await
             .check_ok();

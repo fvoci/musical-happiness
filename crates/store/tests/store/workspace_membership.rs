@@ -115,7 +115,7 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
             user_id: user_id.to_owned(),
             ..ContainerMember::default()
         }
-        .with_role(Some(role));
+        .with_role(role);
         test.add_member(&member)
             .await
             .expect("a member of the board");
@@ -161,7 +161,7 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
         test.get_member_for_container(board_id, user_id)
             .await
             .ok()
-            .and_then(|member| member.role())
+            .map(|member| member.role)
     };
     for board_id in [alone, with_another, with_a_guest_admin] {
         assert_eq!(role(board_id, &leaving).await, None, "no role is left");
@@ -245,7 +245,7 @@ async fn a_board_comes_back_from_the_trash_with_an_admin() {
             user_id: user_id.to_owned(),
             ..ContainerMember::default()
         }
-        .with_role(Some(ContainerRole::Admin));
+        .with_role(ContainerRole::Admin);
         test.add_member(&member)
             .await
             .expect("an admin of the board");
@@ -281,7 +281,7 @@ async fn a_board_comes_back_from_the_trash_with_an_admin() {
         test.get_member_for_container(board_id, user_id)
             .await
             .ok()
-            .and_then(|member| member.role())
+            .map(|member| member.role)
     };
     assert_eq!(role(of_the_leaver, &leaving).await, None);
     assert_eq!(

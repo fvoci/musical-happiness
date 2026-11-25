@@ -115,7 +115,7 @@ async fn a_page_moves_where_it_is_asked_and_what_is_wrong_is_named() {
     client
         .post(
             &format!("{TEST_WS}/containers/{wiki_id}/members"),
-            &json!({"containerId": wiki_id, "userId": other, "schemeViewer": true}),
+            &json!({"containerId": wiki_id, "userId": other, "role": "viewer"}),
         )
         .await
         .check_ok();

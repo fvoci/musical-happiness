@@ -13,8 +13,8 @@
 )]
 
 use fvoci_model::{
-    Body, CardOpen, CategoryType, ContainerVisibility, Credential, Density, HourCycle, JsonMap,
-    MinimumRole, NameShown, Theme, Title, WeekStart,
+    Body, CardOpen, CategoryType, ContainerRole, ContainerVisibility, Credential, Density,
+    HourCycle, JsonMap, MinimumRole, NameShown, Theme, Title, WeekStart,
 };
 use utoipa::ToSchema;
 
@@ -222,49 +222,17 @@ pub(crate) struct CategoryUpdate {
     collapsed: Option<bool>,
 }
 
-/// A user to make a member of a board, and the roles to give them. A member with no
-/// role may do nothing on the board, not even view it.
+/// A user to make a member of a board, and the role to give them.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewMember {
     /// The identifier of the user, who must be able to see the board's workspace.
     user_id: String,
-    /// The user administers the board. Only who manages the board's roles may ask for
-    /// this.
+    /// The role the user is to have on the board. Required when who asks manages the
+    /// board's roles (`admin` included); on an open board an editor who does not manage
+    /// roles grants the board's `minimumRole` (and asking for `admin` is 403).
     #[schema(nullable = false)]
-    scheme_admin: Option<bool>,
-    /// The user may edit the board.
-    #[schema(nullable = false)]
-    scheme_editor: Option<bool>,
-    /// The user may comment on the board's cards.
-    #[schema(nullable = false)]
-    scheme_commenter: Option<bool>,
-    /// The user may view the board.
-    #[schema(nullable = false)]
-    scheme_viewer: Option<bool>,
-}
-
-/// The roles a member of a board is to have. A role that is left out is taken away, and
-/// a member with no role may do nothing on the board, not even view it.
-#[derive(Debug, ToSchema)]
-#[schema(rename_all = "camelCase")]
-#[expect(
-    clippy::struct_field_names,
-    reason = "the members are named as the wire format names them"
-)]
-pub(crate) struct MemberRoles {
-    /// The user administers the board.
-    #[schema(nullable = false)]
-    scheme_admin: Option<bool>,
-    /// The user may edit the board.
-    #[schema(nullable = false)]
-    scheme_editor: Option<bool>,
-    /// The user may comment on the board's cards.
-    #[schema(nullable = false)]
-    scheme_commenter: Option<bool>,
-    /// The user may view the board.
-    #[schema(nullable = false)]
-    scheme_viewer: Option<bool>,
+    role: Option<ContainerRole>,
 }
 
 /// Whether a container's public link is to be enabled.

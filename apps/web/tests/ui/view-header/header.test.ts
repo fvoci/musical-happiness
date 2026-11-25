@@ -341,9 +341,7 @@ describe('a reader who may only look', () => {
     const { board, workspace } = await mount('List');
     const me = workspace.me?.id;
     board.members = board.members.map((member) =>
-      member.userId === me
-        ? { ...member, schemeAdmin: false, schemeEditor: false, schemeCommenter: true }
-        : member,
+      member.userId === me ? { ...member, role: 'commenter' } : member,
     );
     expect(board.role).toBe('commenter');
     await openMenu(toolButton('views'));

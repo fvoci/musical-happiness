@@ -40,8 +40,7 @@ async fn create_course(client: &Client, ws: &str, course_type: &str, title: &str
 
 async fn add_member(client: &Client, ws: &str, course_id: &str, user_id: &str, role: &str) {
     let body = match role {
-        "editor" => json!({"containerId": course_id, "userId": user_id, "schemeEditor": true}),
-        "viewer" => json!({"containerId": course_id, "userId": user_id, "schemeViewer": true}),
+        "editor" | "viewer" => json!({"containerId": course_id, "userId": user_id, "role": role}),
         other => panic!("unexpected role {other}"),
     };
     client

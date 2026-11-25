@@ -217,7 +217,7 @@ async fn a_guest_member_of_a_template_board_reads_its_blocks() {
         .created_json();
     ts.client
         .add_member(&ContainerMember {
-            scheme_viewer: true,
+            role: fvoci_model::ContainerRole::Viewer,
             ..crate::boards::member(&template.id, &guest)
         })
         .await

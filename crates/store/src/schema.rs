@@ -99,6 +99,10 @@ pub(crate) const BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION: i64 = 70;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_NULLABLE_DELETED_AT_VERSION: i64 = 71;
 
+/// The migration before the single `role` enum on `container_members` (0073).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION: i64 = 72;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]

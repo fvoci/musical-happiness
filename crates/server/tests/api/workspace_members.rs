@@ -66,7 +66,7 @@ async fn add_to_board(client: &Client, board: &Container, user_id: &str, role: C
         user_id: user_id.to_owned(),
         ..ContainerMember::default()
     }
-    .with_role(Some(role));
+    .with_role(role);
     client
         .add_member_in(&board.workspace_id, &member)
         .await
@@ -81,7 +81,7 @@ async fn roles_on(th: &TestServer, board: &Container) -> Vec<(String, Option<Con
         .await
         .expect("the members of the board")
         .into_iter()
-        .map(|member| (member.user_id.clone(), member.role()))
+        .map(|member| (member.user_id.clone(), Some(member.role)))
         .collect()
 }
 

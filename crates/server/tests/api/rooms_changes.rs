@@ -340,8 +340,11 @@ async fn a_board_passed_to_the_workspace_admin_lets_them_write_at_once() {
     let role = |user: &str, admin: bool| fvoci_model::ContainerMember {
         container_id: t.board_id.clone(),
         user_id: user.to_owned(),
-        scheme_admin: admin,
-        scheme_viewer: true,
+        role: if admin {
+            fvoci_model::ContainerRole::Admin
+        } else {
+            fvoci_model::ContainerRole::Viewer
+        },
         ..fvoci_model::ContainerMember::default()
     };
     // The other user is the board's only admin; the first a viewer of it.

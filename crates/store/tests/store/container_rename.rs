@@ -289,8 +289,8 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
          ('{joined}', {org}, '{workspace}', '{admin}', 'person', 'self_added_to_board', \
          '{board}', NULL, 2); \
          UPDATE deleted_boards SET \
-         members = '[{{\"boardId\":\"{deleted}\",\"userId\":\"{admin}\",\"schemeAdmin\":true}}, \
-         {{\"boardId\":\"{deleted}\",\"userId\":\"{member}\",\"schemeViewer\":true}}]', \
+         members = '[{{\"boardId\":\"{deleted}\",\"userId\":\"{admin}\",\"{}\":true}}, \
+         {{\"boardId\":\"{deleted}\",\"userId\":\"{member}\",\"{}\":true}}]', \
          files = '[{{\"id\":\"f\",\"board_id\":\"{deleted}\",\"stored_name\":\"s\"}}, \
          {{\"id\":\"g\",\"board_id\":\"{deleted}\",\"stored_name\":\"t\"}}]' \
          WHERE id = '{deleted}'; \
@@ -302,7 +302,9 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
          parent_id, deleted_at, deleted_by, deletion_id, \
          '{{\"boardId\":\"{board}\",\"fields\":{{\"boardId\":\"kept\",\"note\":\"a\\u0000b\"}}, \
          \"type\":\"card\"}}'{trash_values} FROM deleted_blocks WHERE id = '{deleted_card}'; \
-         DELETE FROM data_steps;"
+         DELETE FROM data_steps;",
+        concat!("scheme", "Admin"),
+        concat!("scheme", "Viewer"),
     )
 }
 

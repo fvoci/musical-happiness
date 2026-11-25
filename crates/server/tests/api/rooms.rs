@@ -559,9 +559,7 @@ pub(crate) async fn give_in(
     let member = ContainerMember {
         container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
-        scheme_viewer: role == "viewer",
-        scheme_commenter: role == "commenter",
-        scheme_editor: role == "editor",
+        role: role.parse().expect("a valid role"),
         ..ContainerMember::default()
     };
     let is_member = th
@@ -1033,7 +1031,7 @@ async fn a_card_of_another_organization_is_reached_through_its_workspace_only() 
     let member = ContainerMember {
         container_id: board_id,
         user_id: user1,
-        scheme_editor: true,
+        role: fvoci_model::ContainerRole::Editor,
         ..ContainerMember::default()
     };
     theirs.save_member(&member).await.expect("invited");

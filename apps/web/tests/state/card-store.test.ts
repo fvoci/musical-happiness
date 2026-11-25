@@ -259,9 +259,7 @@ describe('comments and attachments', () => {
     world.members.set(
       board.boardId,
       (world.members.get(board.boardId) ?? []).map((member) =>
-        member.userId === other.userId
-          ? { ...member, schemeAdmin: true, schemeEditor: false, schemeCommenter: false }
-          : member,
+        member.userId === other.userId ? { ...member, role: 'admin' } : member,
       ),
     );
     expect(await card.addComment(text('mine'))).toBe(true);
@@ -494,30 +492,22 @@ describe('who deletes a comment', () => {
   it('an admin anyone’s, an editor or a commenter their own, a viewer none', async () => {
     const { board, workspace } = await openAlpha();
     const me = workspace.me?.id ?? '';
-    const as = (
-      role: Partial<Record<'schemeAdmin' | 'schemeEditor' | 'schemeCommenter', boolean>>,
-    ) => {
+    const as = (role: 'admin' | 'editor' | 'commenter' | 'viewer') => {
       board.members = board.members.map((member) =>
-        member.userId === me
-          ? { ...member, schemeAdmin: false, schemeEditor: false, schemeCommenter: false, ...role }
-          : member,
+        member.userId === me ? { ...member, role } : member,
       );
     };
     expect(board.role).toBe('admin');
     expect(board.canDeleteComment('someone')).toBe(true);
-    as({ schemeEditor: true });
+    as('editor');
     expect([board.canDeleteComment(me), board.canDeleteComment('someone')]).toEqual([true, false]);
-    as({ schemeCommenter: true });
+    as('commenter');
     expect([board.canDeleteComment(me), board.canDeleteComment('someone')]).toEqual([true, false]);
     // A viewer, and who is no member, none.
-    board.members = board.members.map((member) =>
-      member.userId === me
-        ? { ...member, schemeEditor: false, schemeCommenter: false, schemeViewer: true }
-        : member,
-    );
+    as('viewer');
     expect(board.role).toBe('viewer');
     expect(board.canDeleteComment(me)).toBe(false);
-    as({});
+    board.members = board.members.filter((member) => member.userId !== me);
     expect(board.canDeleteComment(me)).toBe(false);
   });
 });
@@ -526,25 +516,16 @@ describe('who changes a comment', () => {
   it('an admin anyone’s, an editor or a commenter their own, a viewer none', async () => {
     const { board, workspace } = await openAlpha();
     const me = workspace.me?.id ?? '';
-    const as = (role: 'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer') => {
+    const as = (role: 'admin' | 'editor' | 'commenter' | 'viewer') => {
       board.members = board.members.map((member) =>
-        member.userId === me
-          ? {
-              ...member,
-              schemeAdmin: false,
-              schemeEditor: false,
-              schemeCommenter: false,
-              schemeViewer: false,
-              [role]: true,
-            }
-          : member,
+        member.userId === me ? { ...member, role } : member,
       );
       return [board.canEditComment(me), board.canEditComment('someone')];
     };
-    expect(as('schemeAdmin')).toEqual([true, true]);
-    expect(as('schemeEditor')).toEqual([true, false]);
-    expect(as('schemeCommenter')).toEqual([true, false]);
-    expect(as('schemeViewer')).toEqual([false, false]);
+    expect(as('admin')).toEqual([true, true]);
+    expect(as('editor')).toEqual([true, false]);
+    expect(as('commenter')).toEqual([true, false]);
+    expect(as('viewer')).toEqual([false, false]);
     // Any member reads what comments said before; whoever is none (a reader by the link) does not.
     expect(board.canReadCommentHistory).toBe(true);
     board.members = board.members.filter((member) => member.userId !== me);

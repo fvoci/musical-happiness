@@ -367,7 +367,7 @@ async fn a_card_by_its_number_is_there_for_who_reads_its_board_and_for_nobody_el
     let member = fvoci_model::ContainerMember {
         container_id: board.id.clone(),
         user_id: viewer_id,
-        scheme_viewer: true,
+        role: fvoci_model::ContainerRole::Viewer,
         ..fvoci_model::ContainerMember::default()
     };
     ts.client.add_member(&member).await.check_ok();

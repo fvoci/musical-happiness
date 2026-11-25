@@ -222,11 +222,7 @@ export function memberOf(
   return {
     containerId,
     userId,
-    minimumRole: 'editor',
-    schemeAdmin: role === 'admin',
-    schemeEditor: role === 'editor',
-    schemeCommenter: role === 'commenter',
-    schemeViewer: role === 'viewer',
+    role,
     synthetic: false,
   };
 }
