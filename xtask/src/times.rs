@@ -366,7 +366,10 @@ pub(crate) fn failures_of(records: &[Record], source: &Source) -> BTreeMap<TestN
         {
             let name = |test: Option<&String>| TestName {
                 database: unit.database.clone(),
-                unit: unit.unit.clone(),
+                unit: match test {
+                    Some(_) => crate::test::base_unit_name(&unit.unit).to_owned(),
+                    None => unit.unit.clone(),
+                },
                 test: test.cloned(),
             };
             if !unit.every_failure_named || unit.failed_tests.is_empty() {
@@ -603,7 +606,7 @@ mod tests {
                 3,
                 "a",
                 vec![
-                    unit("postgres", "api", 1.0, &["api::x"]),
+                    unit("postgres", "api/1", 1.0, &["api::x"]),
                     unit("sqlite", "doc", 1.0, &[]),
                 ],
             ),

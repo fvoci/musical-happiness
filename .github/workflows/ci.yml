@@ -162,9 +162,10 @@ jobs:
       - uses: $/.github/actions/rust
         with:
           cache: workspace-tests
-          save: ${{ matrix.shard == 1 && 'true' || 'false' }}
+          # Shard 3 holds store, libs and the remaining workspace targets.
+          save: ${{ matrix.shard == 3 && 'true' || 'false' }}
       - env:
-          PART: ${{ matrix.shard }}/3
+          PART: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: cargo xtask test --database sqlite --part "$PART"
 
   rust-postgres:
@@ -184,10 +185,11 @@ jobs:
       - uses: $/.github/actions/rust
         with:
           cache: server-tests
-          save: ${{ matrix.shard == 1 && 'true' || 'false' }}
+          # Shard 3 holds store, libs and the remaining server targets.
+          save: ${{ matrix.shard == 3 && 'true' || 'false' }}
       # xtask starts the PostgreSQL container itself, as on a developer's machine.
       - env:
-          PART: ${{ matrix.shard }}/3
+          PART: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: cargo xtask test --database postgres --part "$PART"
 
   # The three commands that read the source, on one runner. Each runs even when the

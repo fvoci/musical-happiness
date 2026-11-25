@@ -44,6 +44,9 @@ pub(crate) struct Unit {
     /// Which slice of its target's listed tests this subunit runs, when `--part` splits
     /// a large integration test target across shards.
     pub(crate) slice: Option<Part>,
+    /// How many tests (`passed + failed + ignored`) `libtest` must account for when this
+    /// subunit runs whole.
+    pub(crate) expected_tests: Option<usize>,
     pub(crate) services: Services,
 }
 
@@ -55,6 +58,7 @@ impl Unit {
             flags: Vec::new(),
             filter: Vec::new(),
             slice: None,
+            expected_tests: None,
             services,
         }
     }

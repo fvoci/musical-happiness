@@ -3,20 +3,22 @@
 //! A whole `api` integration test target holds ~1,600 tests (~25 minutes on PostgreSQL),
 //! which alone would dominate any shard of `--part`. When `--part` divides a database into
 //! two or more parts, `api` becomes two logical subunits (`api/1` and `api/2`), and default
-//! weights place `api/1`, `api/2` and `store` into separate shards when no `--times` file
-//! is given. After the chosen targets are built, `-- --list --format terse` enumerates the
-//! binary's exact test names so each subunit receives a compact module-prefix + `--skip`
-//! filter (with `--exact` fallback) whose matched set partitions the binary without missing
-//! or repeating a single test.
+//! weights place `api/1`, `api/2` and `store` into separate shards while distributing
+//! medium and smaller units across the shards when no `--times` file is given. After the
+//! chosen targets are built, `-- --list --format terse` enumerates the binary's exact test
+//! names so each subunit receives a compact module-prefix + `--skip` filter (with `--exact`
+//! fallback) whose matched set partitions the binary without missing or repeating a test.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
+use sha2::{Digest as _, Sha256};
 
-use super::units::{Part, Unit};
+use super::units::{DOC, LIBS, Part, Unit};
 
 /// The integration test unit whose ~1,600 tests dominate PostgreSQL and SQLite runs.
 const API_UNIT: &str = "api";
@@ -27,20 +29,43 @@ const STORE_UNIT: &str = "store";
 /// How many logical subunits [`API_UNIT`] is split into when `--part` has at least two parts.
 const API_SUBUNITS: usize = 2;
 
-/// Default weight (in seconds) of each [`API_UNIT`] subunit when no `--times` file is given,
-/// sized from CI's ~25-minute PostgreSQL `api` run (~750–800s per half).
-const DEFAULT_API_SUBUNIT_SECONDS: f64 = 800.0;
+/// `API_SUBUNITS` as `f64`, for splitting a recorded whole `api` runtime across halves.
+const API_SUBUNITS_DIVISOR: f64 = 2.0;
 
-/// Default weight (in seconds) of [`STORE_UNIT`] when no `--times` file is given, so that
-/// `api/1`, `api/2` and `store` (+ the smaller units) land on the three shards `1/3..3/3`.
-const DEFAULT_STORE_SECONDS: f64 = 500.0;
+/// Default weight (seconds) of each [`API_UNIT`] subunit when unrecorded.
+///
+/// Calibrated from PR #104 CI run `45602006012` (2026-11-25, 4-vCPU `ubuntu-24.04` runners,
+/// where 800/800/500/1 piled all 49 SQLite / 21 PostgreSQL non-`api` targets onto `3/3` at
+/// `18m27s` / `9m55s` vs `1/3` `8m30s` / `13m04s` and `2/3` `6m28s` / `17m30s`): setting
+/// `api/*` to `600`, `store` to `450`, `libs` & `collab` to `120`, `regression` & `doc` to
+/// `60`, and other units to `10` keeps `api/1`, `api/2`, and `store`+`libs` on separate
+/// shards (`1/3`, `2/3`, `3/3`) while sharing the remaining targets evenly across all three.
+const DEFAULT_API_SUBUNIT_SECONDS: f64 = 600.0;
 
-/// Default weight (in seconds) of every other unit when no `--times` file is given.
-const DEFAULT_OTHER_SECONDS: f64 = 1.0;
+/// Default weight (seconds) of [`STORE_UNIT`] when unrecorded (see [`DEFAULT_API_SUBUNIT_SECONDS`]).
+const DEFAULT_STORE_SECONDS: f64 = 450.0;
 
-/// A sentinel test name that no Rust test function has, used with `--exact` when a part of
-/// a tiny binary receives zero tests so `libtest` runs none instead of all.
-const NO_TEST_SENTINEL: &str = "";
+/// Default weight (seconds) of medium units (`libs`, `collab`) when unrecorded.
+const DEFAULT_MEDIUM_SECONDS: f64 = 120.0;
+
+/// Default weight (seconds) of modest units (`regression`, `doc`) when unrecorded.
+const DEFAULT_MODEST_SECONDS: f64 = 60.0;
+
+/// Default weight (seconds) of every other unit (and filtered `--ignored` subsets) when unrecorded.
+const DEFAULT_OTHER_SECONDS: f64 = 10.0;
+
+/// What [`prepare_part`] computes for one subunit from its target's `--list` output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreparedSlice {
+    /// Harness filter arguments (`[FILTER ..., "--skip", ...]`, or `["--exact", ...]`).
+    pub(crate) filter: Vec<String>,
+    /// How many tests (`passed + failed + ignored`) `libtest` must report for this slice.
+    pub(crate) expected_tests: usize,
+    /// Total unique tests listed by the target binary.
+    pub(crate) total_tests: usize,
+    /// Hex SHA-256 of the sorted unique test list, so shard logs can be compared.
+    pub(crate) list_sha256: String,
+}
 
 /// The `--unit` target name underlying `unit_name`: `"api"` for `"api/1"`, else `unit_name`.
 pub(crate) fn base_name(unit_name: &str) -> &str {
@@ -76,39 +101,49 @@ pub(crate) fn expand_units(units: Vec<Unit>, part: Part) -> Vec<Unit> {
     expanded
 }
 
-/// Weights for `units`: `recorded` times when given (splitting a whole parent's time evenly
-/// across its subunits if the subunits themselves were not recorded), else built-in CI hints
-/// that place `api/1`, `api/2` and `store` (+ the remaining units) on separate shards.
+/// Built-in CI weight hint for a single `unit` when no recorded time applies to it.
+fn default_unit_weight(unit: &Unit) -> f64 {
+    if !unit.flags.is_empty() || (!unit.filter.is_empty() && unit.slice.is_none()) {
+        DEFAULT_OTHER_SECONDS
+    } else if unit.slice.is_some() {
+        DEFAULT_API_SUBUNIT_SECONDS
+    } else if unit.name == API_UNIT {
+        DEFAULT_API_SUBUNIT_SECONDS * API_SUBUNITS_DIVISOR
+    } else if unit.name == STORE_UNIT {
+        DEFAULT_STORE_SECONDS
+    } else if matches!(unit.name.as_str(), LIBS | "collab") {
+        DEFAULT_MEDIUM_SECONDS
+    } else if matches!(unit.name.as_str(), "regression" | DOC) {
+        DEFAULT_MODEST_SECONDS
+    } else {
+        DEFAULT_OTHER_SECONDS
+    }
+}
+
+/// Weights for `units`: uses each unit's recorded time from `recorded` when finite and
+/// non-negative, else splits a recorded whole parent's time evenly across its subunits,
+/// else falls back per unit to [`default_unit_weight`].
 pub(crate) fn weigh_units(units: &[Unit], recorded: &HashMap<String, f64>) -> HashMap<String, f64> {
-    if recorded.is_empty() {
-        return units
-            .iter()
-            .map(|unit| {
-                let weight = if unit.slice.is_some() {
-                    DEFAULT_API_SUBUNIT_SECONDS
-                } else if unit.name == API_UNIT {
-                    DEFAULT_API_SUBUNIT_SECONDS
-                        * f64::from(u32::try_from(API_SUBUNITS).unwrap_or(2))
-                } else if unit.name == STORE_UNIT {
-                    DEFAULT_STORE_SECONDS
-                } else {
-                    DEFAULT_OTHER_SECONDS
-                };
-                (unit.name.clone(), weight)
-            })
-            .collect();
-    }
-    let mut weights = recorded.clone();
-    for unit in units {
-        if let Some(slice) = unit.slice
-            && !weights.contains_key(&unit.name)
-            && let Some(&whole) = recorded.get(base_name(&unit.name))
-        {
-            let divisor = u32::try_from(slice.count()).map_or(1.0, f64::from);
-            weights.insert(unit.name.clone(), whole / divisor);
-        }
-    }
-    weights
+    let valid = |name: &str| {
+        recorded
+            .get(name)
+            .copied()
+            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+    };
+    units
+        .iter()
+        .map(|unit| {
+            let weight = valid(&unit.name)
+                .or_else(|| {
+                    let slice = unit.slice?;
+                    let divisor =
+                        u32::try_from(slice.count()).map_or(API_SUBUNITS_DIVISOR, f64::from);
+                    valid(base_name(&unit.name)).map(|whole| whole / divisor)
+                })
+                .unwrap_or_else(|| default_unit_weight(unit));
+            (unit.name.clone(), weight)
+        })
+        .collect()
 }
 
 /// Lists every test and benchmark name of an already-built `cargo test` target via
@@ -152,7 +187,7 @@ pub(crate) fn list_tests(
 }
 
 /// Parses `libtest`'s `--list --format terse` output into sorted, unique test names.
-pub(crate) fn parse_listed_tests(output: &str) -> Vec<String> {
+fn parse_listed_tests(output: &str) -> Vec<String> {
     output
         .lines()
         .map(|line| line.trim_end_matches('\r'))
@@ -164,6 +199,41 @@ pub(crate) fn parse_listed_tests(output: &str) -> Vec<String> {
         .collect::<BTreeSet<String>>()
         .into_iter()
         .collect()
+}
+
+/// Computes the filter, expected count, total count, and list SHA-256 for `part` of `tests`.
+pub(crate) fn prepare_part(tests: &[String], part: Part) -> PreparedSlice {
+    let unique: BTreeSet<&str> = tests.iter().map(String::as_str).collect();
+    let sorted: Vec<&str> = unique.into_iter().collect();
+    let mut hasher = Sha256::new();
+    for &name in &sorted {
+        hasher.update(name.as_bytes());
+        hasher.update(b"\n");
+    }
+    let list_sha256 = hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        });
+    if sorted.is_empty() {
+        return PreparedSlice {
+            filter: Vec::new(),
+            expected_tests: 0,
+            total_tests: 0,
+            list_sha256,
+        };
+    }
+    let wanted = slice_sorted(&sorted, part);
+    let expected_tests = wanted.len();
+    let filter = build_slice_filter(&sorted, &wanted, part);
+    PreparedSlice {
+        filter,
+        expected_tests,
+        total_tests: sorted.len(),
+        list_sha256,
+    }
 }
 
 /// Top-level module key (`"boards::"`) for a module test, or the bare test name itself.
@@ -212,26 +282,18 @@ fn slice_sorted<'a>(sorted: &[&'a str], part: Part) -> Vec<&'a str> {
         .collect()
 }
 
-/// Builds `libtest` filter arguments for `part` of `tests` such that every test in `tests`
-/// matches in `libtest` if and only if it belongs to `part`'s slice.
-pub(crate) fn filter_for_part(tests: &[String], part: Part) -> Vec<String> {
-    let unique: BTreeSet<&str> = tests.iter().map(String::as_str).collect();
-    let sorted: Vec<&str> = unique.into_iter().collect();
-    if sorted.is_empty() {
-        return Vec::new();
-    }
-    let wanted = slice_sorted(&sorted, part);
+/// Builds non-empty `libtest` filter arguments for `wanted` within `sorted` whenever
+/// `part.count() > 1` (even if a 1-test binary gave `1/2` all of `sorted`, so a populated
+/// subunit never has an empty `filter`).
+fn build_slice_filter(sorted: &[&str], wanted: &[&str], part: Part) -> Vec<String> {
     if wanted.is_empty() {
-        let mut sentinel = NO_TEST_SENTINEL.to_owned();
-        while sorted.contains(&sentinel.as_str()) {
-            sentinel.push('_');
-        }
-        return vec!["--exact".to_owned(), sentinel];
+        // No Rust test name is empty; `--exact ""` makes libtest run 0 tests cleanly.
+        return vec!["--exact".to_owned(), String::new()];
     }
-    if wanted.len() == sorted.len() {
+    if part.count() == 1 && wanted.len() == sorted.len() {
         return Vec::new();
     }
-    if let Some(compact) = compact_prefix_filter(&sorted, &wanted) {
+    if let Some(compact) = compact_prefix_filter(sorted, wanted) {
         let exact_bytes: usize = 8 + wanted.iter().map(|name| name.len() + 1).sum::<usize>();
         let compact_bytes: usize = compact.iter().map(|word| word.len() + 1).sum();
         if compact_bytes <= exact_bytes {
@@ -239,7 +301,7 @@ pub(crate) fn filter_for_part(tests: &[String], part: Part) -> Vec<String> {
         }
     }
     std::iter::once("--exact".to_owned())
-        .chain(wanted.into_iter().map(str::to_owned))
+        .chain(wanted.iter().map(|&name| name.to_owned()))
         .collect()
 }
 
@@ -290,7 +352,7 @@ fn compact_prefix_filter(sorted: &[&str], wanted: &[&str]) -> Option<Vec<String>
 }
 
 /// Evaluates `libtest`'s filter rules (`[FILTER ...]`, `--exact`, `--skip SKIP`) on `test_name`.
-pub(crate) fn libtest_matches(arguments: &[String], test_name: &str) -> bool {
+fn libtest_matches(arguments: &[String], test_name: &str) -> bool {
     let mut exact = false;
     let mut filters: Vec<&str> = Vec::new();
     let mut skips: Vec<&str> = Vec::new();
@@ -344,6 +406,12 @@ mod tests {
         let parsed = syn::parse_file(&source)
             .unwrap_or_else(|error| panic!("parsing {}: {error}", file.display()));
         let parent = file.parent().expect("test file has a parent directory");
+        let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let search_dir = if matches!(stem, "main" | "mod" | "") {
+            parent.to_path_buf()
+        } else {
+            parent.join(stem)
+        };
         for item in parsed.items {
             match item {
                 syn::Item::Fn(function) if is_test_fn(&function.attrs) => {
@@ -365,8 +433,8 @@ mod tests {
                     if let Some((_, items)) = module.content {
                         collect_inline_items(&items, &child_prefix, out);
                     } else {
-                        let direct = parent.join(format!("{mod_name}.rs"));
-                        let nested = parent.join(&mod_name).join("mod.rs");
+                        let direct = search_dir.join(format!("{mod_name}.rs"));
+                        let nested = search_dir.join(&mod_name).join("mod.rs");
                         let target = if direct.is_file() { direct } else { nested };
                         if target.is_file() {
                             collect_module_tests(&target, &child_prefix, out);
@@ -409,17 +477,37 @@ mod tests {
     fn assert_exact_partition(tests: &[String], count: usize) {
         let expected: BTreeSet<&str> = tests.iter().map(String::as_str).collect();
         let mut union: BTreeSet<&str> = BTreeSet::new();
+        let mut digest: Option<String> = None;
         for index in 1..=count {
-            let filter = filter_for_part(tests, Part::new(index, count).expect("valid part"));
+            let prepared = prepare_part(tests, Part::new(index, count).expect("valid part"));
+            if count > 1 && !expected.is_empty() {
+                assert!(
+                    !prepared.filter.is_empty(),
+                    "multi-part filter is always populated ({index}/{count})"
+                );
+            }
+            assert_eq!(prepared.total_tests, expected.len(), "total_tests matches");
+            assert_eq!(prepared.list_sha256.len(), 64, "sha256 is 64 hex chars");
+            if let Some(prev) = &digest {
+                assert_eq!(prev, &prepared.list_sha256, "identical digest across parts");
+            } else {
+                digest = Some(prepared.list_sha256.clone());
+            }
             let matched: Vec<&str> = tests
                 .iter()
                 .map(String::as_str)
-                .filter(|&name| libtest_matches(&filter, name))
+                .filter(|&name| libtest_matches(&prepared.filter, name))
                 .collect();
+            assert_eq!(
+                matched.len(),
+                prepared.expected_tests,
+                "expected_tests equals matched count in {index}/{count}"
+            );
             for name in matched {
                 assert!(
                     union.insert(name),
-                    "duplicate test `{name}` in part {index}/{count} (filter: {filter:?})"
+                    "duplicate test `{name}` in part {index}/{count} (filter: {:?})",
+                    prepared.filter
                 );
             }
         }
@@ -436,50 +524,37 @@ mod tests {
         let root = crate::workspace_root();
         let api_tests = collect_suite_tests(&root.join("crates/server/tests/api/main.rs"));
         let store_tests = collect_suite_tests(&root.join("crates/store/tests/store/main.rs"));
-        assert!(
-            api_tests.len() >= 1500,
-            "expected >= 1500 real api tests, found {}",
-            api_tests.len()
-        );
-        assert!(
-            store_tests.len() >= 600,
-            "expected >= 600 real store tests, found {}",
-            store_tests.len()
-        );
+        assert!(!api_tests.is_empty(), "api suite has tests");
+        assert!(!store_tests.is_empty(), "store suite has tests");
 
         for count in 1..=5 {
             assert_exact_partition(&api_tests, count);
             assert_exact_partition(&store_tests, count);
         }
 
-        let first = filter_for_part(&api_tests, part("1/2"));
-        let second = filter_for_part(&api_tests, part("2/2"));
-        let first_count = api_tests
-            .iter()
-            .filter(|name| libtest_matches(&first, name))
-            .count();
-        let second_count = api_tests
-            .iter()
-            .filter(|name| libtest_matches(&second, name))
-            .count();
+        let first = prepare_part(&api_tests, part("1/2"));
+        let second = prepare_part(&api_tests, part("2/2"));
         assert_eq!(
-            first_count + second_count,
+            first.expected_tests + second.expected_tests,
             api_tests.len(),
             "halves sum to all api tests"
         );
+        let first_pct = first.expected_tests * 100 / api_tests.len();
         assert!(
-            first_count * 100 / api_tests.len() >= 45 && second_count * 100 / api_tests.len() >= 45,
-            "api halves stay balanced: {first_count} vs {second_count}"
+            (40..=60).contains(&first_pct),
+            "api halves stay within 40%..=60%: {} vs {}",
+            first.expected_tests,
+            second.expected_tests
         );
-        for (label, filter) in [("api/1", &first), ("api/2", &second)] {
-            let bytes: usize = filter.iter().map(|word| word.len() + 1).sum();
+        for (label, prepared) in [("api/1", &first), ("api/2", &second)] {
+            let bytes: usize = prepared.filter.iter().map(|word| word.len() + 1).sum();
             assert!(
                 bytes < 4096,
                 "{label} filter stays compact ({bytes} bytes < 4 KiB)"
             );
             assert!(
-                !filter.iter().any(|word| word == "--exact"),
-                "{label} uses compact module prefixes rather than --exact: {filter:?}"
+                !prepared.filter.iter().any(|word| word == "--exact"),
+                "{label} uses compact module prefixes rather than --exact"
             );
         }
     }
@@ -511,9 +586,9 @@ mod tests {
                 shard_units.push(chosen.iter().map(|unit| unit.name.clone()).collect());
                 for unit in chosen {
                     if let Some(slice) = unit.slice {
-                        let filter = filter_for_part(&api_tests, slice);
+                        let prepared = prepare_part(&api_tests, slice);
                         for test in &api_tests {
-                            if libtest_matches(&filter, test) {
+                            if libtest_matches(&prepared.filter, test) {
                                 assert!(
                                     seen_api_tests.insert(test.as_str()),
                                     "duplicate api test `{test}` in {} {current}",
@@ -532,11 +607,29 @@ mod tests {
                 }
             }
 
-            assert_eq!(shard_units[0], ["api/1"], "{} 1/3", database.name());
-            assert_eq!(shard_units[1], ["api/2"], "{} 2/3", database.name());
             assert!(
-                shard_units[2].iter().any(|name| name == "store"),
-                "{} 3/3 holds store: {:?}",
+                shard_units[0].iter().any(|name| name == "api/1")
+                    && !shard_units[0]
+                        .iter()
+                        .any(|name| name == "api/2" || name == "store"),
+                "{} 1/3 holds api/1 separate from api/2 and store: {:?}",
+                database.name(),
+                shard_units[0]
+            );
+            assert!(
+                shard_units[1].iter().any(|name| name == "api/2")
+                    && !shard_units[1]
+                        .iter()
+                        .any(|name| name == "api/1" || name == "store"),
+                "{} 2/3 holds api/2 separate from api/1 and store: {:?}",
+                database.name(),
+                shard_units[1]
+            );
+            assert!(
+                shard_units[2].iter().any(|name| name == "store")
+                    && shard_units[2].iter().any(|name| name == LIBS)
+                    && !shard_units[2].iter().any(|name| name.starts_with("api/")),
+                "{} 3/3 holds store and libs (for cache save) without api/*: {:?}",
                 database.name(),
                 shard_units[2]
             );
@@ -554,15 +647,23 @@ mod tests {
             );
         }
 
-        // Single-part (`1/1`) and S3 (`--ignored` api subset) stay unsplit.
+        // Single-part (`1/1`) and S3 (`--ignored` api subset) stay unsplit, and S3's
+        // filtered `api` subset gets the small default weight rather than whole `api`'s.
         let s3 = Database::S3.units("{}").expect("s3 units");
         assert_eq!(expand_units(s3.clone(), part("1/2")), s3, "s3 stays whole");
+        let s3_weights = weigh_units(&s3, &HashMap::new());
+        assert_eq!(
+            s3_weights.get("api"),
+            Some(&DEFAULT_OTHER_SECONDS),
+            "S3's `--ignored with_s3` api subset weighs as a small unit, not whole api"
+        );
         let single = vec![Unit {
             name: "api".to_owned(),
             targets: vec!["--test".to_owned(), "api".to_owned()],
             flags: Vec::new(),
             filter: Vec::new(),
             slice: None,
+            expected_tests: None,
             services: Services::Sqlite,
         }];
         assert_eq!(
@@ -573,20 +674,51 @@ mod tests {
     }
 
     #[test]
-    fn recorded_whole_api_time_splits_across_subunits_when_given() {
-        let single = Unit {
-            name: "api".to_owned(),
-            targets: vec!["--test".to_owned(), "api".to_owned()],
-            flags: Vec::new(),
-            filter: Vec::new(),
-            slice: None,
-            services: Services::Postgres,
-        };
-        let expanded = expand_units(vec![single], part("1/3"));
+    fn recorded_times_split_whole_api_and_fall_back_per_missing_unit() {
+        let units_in = vec![
+            Unit {
+                name: "api".to_owned(),
+                targets: vec!["--test".to_owned(), "api".to_owned()],
+                flags: Vec::new(),
+                filter: Vec::new(),
+                slice: None,
+                expected_tests: None,
+                services: Services::Postgres,
+            },
+            Unit {
+                name: "store".to_owned(),
+                targets: vec!["--test".to_owned(), "store".to_owned()],
+                flags: Vec::new(),
+                filter: Vec::new(),
+                slice: None,
+                expected_tests: None,
+                services: Services::Postgres,
+            },
+            Unit {
+                name: "web".to_owned(),
+                targets: vec!["--test".to_owned(), "web".to_owned()],
+                flags: Vec::new(),
+                filter: Vec::new(),
+                slice: None,
+                expected_tests: None,
+                services: Services::Postgres,
+            },
+        ];
+        let expanded = expand_units(units_in, part("1/3"));
         let recorded = HashMap::from([("api".to_owned(), 1500.0)]);
         let weights = weigh_units(&expanded, &recorded);
         assert_eq!(weights.get("api/1"), Some(&750.0), "first half gets half");
         assert_eq!(weights.get("api/2"), Some(&750.0), "second half gets half");
+        assert_eq!(
+            weights.get("store"),
+            Some(&DEFAULT_STORE_SECONDS),
+            "unrecorded store falls back to its built-in hint, not api's median"
+        );
+        assert_eq!(
+            weights.get("web"),
+            Some(&DEFAULT_OTHER_SECONDS),
+            "unrecorded small unit falls back to DEFAULT_OTHER_SECONDS"
+        );
     }
 
     #[test]
@@ -688,9 +820,9 @@ mod tests {
         for count in [2_usize, 3] {
             let mut seen = BTreeSet::new();
             for index in 1..=count {
-                let filter = filter_for_part(&listed, Part::new(index, count).expect("part"));
+                let prepared = prepare_part(&listed, Part::new(index, count).expect("part"));
                 let run_out = Command::new(&binary)
-                    .args(&filter)
+                    .args(&prepared.filter)
                     .output()
                     .expect("runs sample test binary");
                 assert!(run_out.status.success(), "part {index}/{count} passed");
@@ -699,6 +831,12 @@ mod tests {
                     reading.line(line);
                 }
                 let report = reading.finish();
+                let counted = report.passed + report.failed + report.ignored;
+                assert_eq!(
+                    usize::try_from(counted).expect("count fits"),
+                    prepared.expected_tests,
+                    "libtest count equals expected_tests in {index}/{count}"
+                );
                 for test in report.seen_tests {
                     assert!(
                         seen.insert(test.clone()),

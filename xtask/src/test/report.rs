@@ -18,15 +18,35 @@ pub(crate) struct UnitResult {
     pub(crate) database: &'static str,
     pub(crate) unit: String,
     pub(crate) scope: Scope,
+    /// Expected `passed + failed + ignored` count when this unit is a `--part` subunit.
+    pub(crate) expected_tests: Option<usize>,
     pub(crate) run: UnitRun,
 }
 
 impl UnitResult {
-    /// Whether it failed: its command failed, its harness named a failure, or a test
-    /// binary of it never reported.
+    /// Returns `(counted, expected)` when a whole, non-interrupted subunit run reported a
+    /// different total test count (`passed + failed + ignored`) than its `--list` slice.
+    pub(crate) fn wrong_test_count(&self) -> Option<(u64, u64)> {
+        if self.run.interrupted || self.scope != Scope::Whole {
+            return None;
+        }
+        let want = u64::try_from(self.expected_tests?).ok()?;
+        let report = &self.run.report;
+        let counted = report
+            .passed
+            .saturating_add(report.failed)
+            .saturating_add(report.ignored);
+        (counted != want).then_some((counted, want))
+    }
+
+    /// Whether it failed: its command failed, its harness named a failure, a test binary
+    /// of it never reported, or a subunit ran fewer/more tests than its slice listed.
     pub(crate) fn failed(&self) -> bool {
         let report = &self.run.report;
-        !self.run.succeeded || !report.failed_tests.is_empty() || !report.every_binary_finished()
+        !self.run.succeeded
+            || !report.failed_tests.is_empty()
+            || !report.every_binary_finished()
+            || self.wrong_test_count().is_some()
     }
 
     /// Passed, failed, or interrupted: a signal that asks to stop (Ctrl-C) ended its
@@ -58,9 +78,12 @@ impl UnitResult {
     }
 
     /// Whether the names of its failed tests are all its failures: every binary is
-    /// accounted for, and named as many failures as it counted.
+    /// accounted for, any subunit test-count invariant matched, and the harness named as
+    /// many failures as it counted.
     fn every_failure_named(&self) -> bool {
-        self.every_binary_accounted_for() && self.run.report.names_every_failure()
+        self.wrong_test_count().is_none()
+            && self.every_binary_accounted_for()
+            && self.run.report.names_every_failure()
     }
 
     /// Whether its failures run again by name. Documentation tests do not: rustdoc
@@ -151,15 +174,28 @@ pub(crate) fn flaky(
     for result in results {
         let name = |test: Option<&String>| TestName {
             database: result.database.to_owned(),
-            unit: result.unit.clone(),
+            unit: match test {
+                Some(_) => shards::base_name(&result.unit).to_owned(),
+                None => result.unit.clone(),
+            },
             test: test.cloned(),
         };
         let whole = name(None);
-        if result.scope == Scope::Whole
-            && !result.failed()
-            && let Some(&started) = earlier.get(&whole)
-        {
-            flaky.push((whole, started));
+        if result.scope == Scope::Whole && !result.failed() {
+            if let Some(&started) = earlier.get(&whole) {
+                flaky.push((whole, started));
+            }
+            if !result.unit.contains('/') {
+                for (earlier_name, &started) in earlier {
+                    if earlier_name.database == result.database
+                        && earlier_name.test.is_none()
+                        && earlier_name.unit != result.unit
+                        && shards::base_name(&earlier_name.unit) == result.unit
+                    {
+                        flaky.push((earlier_name.clone(), started));
+                    }
+                }
+            }
         }
         let report = &result.run.report;
         // A name can be in two binaries of a unit and fail in one, or not be reached
@@ -214,6 +250,12 @@ pub(crate) fn lines(results: &[UnitResult], flaky: &[(TestName, u64)], now_unix:
             }
             if result.run.interrupted {
                 text.push_str("    (stopped before its end: it runs again whole)\n");
+            } else if let Some((counted, want)) = result.wrong_test_count() {
+                let _ = writeln!(
+                    text,
+                    "    (expected {want} tests in this shard, harness counted {counted}: \
+                     it runs again whole)"
+                );
             } else if result.unit == DOC {
                 text.push_str(
                     "    (rustdoc cuts a name at its spaces: the documentation tests run \
@@ -293,6 +335,7 @@ mod tests {
             database,
             unit: unit.to_owned(),
             scope: Scope::Whole,
+            expected_tests: None,
             run: UnitRun {
                 succeeded: matches!(exit, Exit::Success),
                 interrupted: false,
@@ -619,6 +662,132 @@ mod tests {
         assert_eq!(
             reruns(&results),
             ["cargo xtask test --database postgres --unit api -- --exact boards::a users::b"]
+        );
+    }
+
+    #[test]
+    fn subunit_named_and_whole_failures_are_flaky_when_rerun_under_base_unit() {
+        use crate::times::{self, Record, Source, UnitTime};
+
+        let source = Source {
+            commit: "abc123".to_owned(),
+            changes: String::new(),
+        };
+        let shard_records = [
+            Record {
+                task: "test".to_owned(),
+                started_unix: 100,
+                source: source.clone(),
+                units: vec![UnitTime {
+                    database: "postgres".to_owned(),
+                    unit: "api/1".to_owned(),
+                    verdict: Verdict::Failed,
+                    failed_tests: vec!["boards::archive".to_owned()],
+                    every_failure_named: true,
+                    ..UnitTime::default()
+                }],
+                ..Record::default()
+            },
+            Record {
+                task: "test".to_owned(),
+                started_unix: 200,
+                source: source.clone(),
+                units: vec![UnitTime {
+                    database: "postgres".to_owned(),
+                    unit: "api/1".to_owned(),
+                    verdict: Verdict::Failed,
+                    every_failure_named: false,
+                    ..UnitTime::default()
+                }],
+                ..Record::default()
+            },
+        ];
+        let earlier = times::failures_of(&shard_records, &source);
+
+        // 1) Rerunning `--unit api -- --exact boards::archive` (`Scope::Chosen`) catches
+        // the named failure from `api/1`, without clearing the unnamed whole `api/1` failure.
+        let named_rerun = UnitResult {
+            scope: Scope::Chosen,
+            ..result(
+                "postgres",
+                "api",
+                Exit::Success,
+                finished(&["boards::archive"], &[]),
+            )
+        };
+        assert_eq!(
+            flaky(&[named_rerun], &earlier),
+            [(test_name("postgres", "api", Some("boards::archive")), 100)],
+            "named rerun on `--unit api` matches failure recorded in `api/1`"
+        );
+
+        // 2) `api/2` passing whole does NOT clear `api/1`'s unnamed whole failure.
+        let other_shard = result(
+            "postgres",
+            "api/2",
+            Exit::Success,
+            finished(&["users::x"], &[]),
+        );
+        assert_eq!(
+            flaky(&[other_shard], &earlier),
+            [],
+            "another shard passing whole says nothing of `api/1`"
+        );
+
+        // 3) `--unit api` passing whole catches `api/1`'s unnamed whole failure.
+        let whole_api = result(
+            "postgres",
+            "api",
+            Exit::Success,
+            finished(&["boards::y"], &[]),
+        );
+        assert_eq!(
+            flaky(&[whole_api], &earlier),
+            [(test_name("postgres", "api/1", None), 200)],
+            "whole `--unit api` pass catches unnamed `api/1` failure"
+        );
+    }
+
+    #[test]
+    fn subunit_whose_counted_tests_disagree_with_expected_slice_fails() {
+        let mut mismatch = result(
+            "postgres",
+            "api/1",
+            Exit::Success,
+            finished(&["boards::a", "boards::b"], &[]),
+        );
+        mismatch.expected_tests = Some(3);
+        assert!(
+            mismatch.failed(),
+            "2 counted != 3 expected fails the subunit"
+        );
+        assert_eq!(mismatch.verdict(), Verdict::Failed);
+        assert!(!mismatch.time().every_failure_named);
+        assert_eq!(
+            reruns(std::slice::from_ref(&mismatch)),
+            ["cargo xtask test --database postgres --unit api"],
+            "mismatched subunit reruns whole under its base unit"
+        );
+        let summary = lines(std::slice::from_ref(&mismatch), &[], 0);
+        assert!(
+            summary.contains("expected 3 tests in this shard, harness counted 2"),
+            "{summary}"
+        );
+
+        // Matching count passes; interrupted run stays Interrupted; Chosen rerun ignores slice count.
+        let mut matching = mismatch.clone();
+        matching.expected_tests = Some(2);
+        assert!(!matching.failed(), "matching count passes");
+
+        let mut stopped = mismatch.clone();
+        stopped.run.interrupted = true;
+        assert_eq!(stopped.verdict(), Verdict::Interrupted);
+
+        let mut chosen = mismatch;
+        chosen.scope = Scope::Chosen;
+        assert!(
+            !chosen.failed(),
+            "Chosen rerun is not held to whole slice count"
         );
     }
 }

@@ -34,6 +34,7 @@ use std::time::Instant;
 use anyhow::{Context as _, Result, bail};
 
 use self::report::UnitResult;
+pub(crate) use self::shards::base_name as base_unit_name;
 pub(crate) use self::units::Part;
 use self::units::{Services, Unit};
 use crate::containers;
@@ -277,6 +278,7 @@ impl Run<'_> {
         };
         let mut failed = Vec::new();
         for unit in &chosen {
+            ensure_subunit_filter(unit)?;
             let mut environment = self.backends.borrow_mut().environment(unit.services)?;
             environment.extend(self.test_threads.iter().cloned());
             let mut arguments: Vec<String> = ["test", "--locked", "--no-fail-fast"]
@@ -296,6 +298,7 @@ impl Run<'_> {
                 } else {
                     Scope::Chosen
                 },
+                expected_tests: unit.expected_tests,
                 run: ran,
             };
             if result.failed() {
@@ -355,7 +358,8 @@ impl Run<'_> {
     }
 
     /// Queries `-- --list --format terse` for any split subunit in `chosen` (already
-    /// compiled by the build step) and fills its exact `libtest` filter.
+    /// compiled by the build step), logs the slice count and list digest, and fills its
+    /// exact `libtest` filter and expected test count.
     fn populate_subunit_filters(&self, database: Database, chosen: &mut [Unit]) -> Result<()> {
         let mut listed: HashMap<Vec<String>, Vec<String>> = HashMap::new();
         for unit in chosen {
@@ -368,11 +372,32 @@ impl Run<'_> {
                 listed.insert(unit.targets.clone(), fetched);
             }
             if let Some(tests) = listed.get(&unit.targets) {
-                unit.filter = shards::filter_for_part(tests, slice);
+                let prepared = shards::prepare_part(tests, slice);
+                steps::say(&format!(
+                    "    {}: {} of {} tests (list sha256 {})",
+                    unit.name,
+                    prepared.expected_tests,
+                    prepared.total_tests,
+                    &prepared.list_sha256[..12]
+                ));
+                unit.filter = prepared.filter;
+                unit.expected_tests = Some(prepared.expected_tests);
             }
         }
         Ok(())
     }
+}
+
+/// Refuses to run a split subunit whose `filter` was not populated first, so a bug never
+/// silently runs the whole binary in every shard.
+fn ensure_subunit_filter(unit: &Unit) -> Result<()> {
+    if unit.slice.is_some() && unit.filter.is_empty() {
+        bail!(
+            "subunit `{}` has no harness filter populated before running",
+            unit.name
+        );
+    }
+    Ok(())
 }
 
 /// The `cargo test --no-run` that builds what the chosen units run, if anything: all of
@@ -656,6 +681,7 @@ mod tests {
             database: "sqlite",
             unit: unit.to_owned(),
             scope: Scope::Chosen,
+            expected_tests: None,
             run: UnitRun {
                 succeeded: true,
                 interrupted: false,
@@ -731,5 +757,20 @@ mod tests {
             "they are ignored unless asked for"
         );
         assert_eq!(units[2].services, Services::PostgresS3);
+    }
+
+    #[test]
+    fn an_unpopulated_subunit_is_refused_before_running() {
+        let mut halves = shards::expand_units(named(&["api"]), "1/2".parse().expect("part"));
+        let api_half = halves
+            .iter_mut()
+            .find(|unit| unit.slice.is_some())
+            .expect("api/1");
+        assert!(
+            ensure_subunit_filter(api_half).is_err(),
+            "empty filter on a subunit fails fast"
+        );
+        api_half.filter = vec!["boards::".to_owned()];
+        assert!(ensure_subunit_filter(api_half).is_ok());
     }
 }
