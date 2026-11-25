@@ -730,7 +730,7 @@ pub(crate) async fn take_blocks_out_of_trash(
     let mut kept = Vec::with_capacity(rows.len());
     for row in &rows {
         let (block, watchers) = block_and_watchers_from_json(row, 0)?;
-        kept.push((block.id.clone(), watchers));
+        kept.push((block.id.clone(), block.block_type, watchers));
         restored.push(block);
     }
     let mut known_users = KnownUsers::default();
@@ -749,8 +749,8 @@ pub(crate) async fn take_blocks_out_of_trash(
     for index in parents_first(&restored) {
         blocks::insert_block_row(scope, &restored[index], NewBodyFiles::Unchecked).await?;
     }
-    for (block_id, watchers) in &kept {
-        watchers::watch_again(scope, block_id, watchers).await?;
+    for (block_id, block_type, watchers) in &kept {
+        watchers::watch_again(scope, block_id, *block_type, watchers).await?;
     }
     let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));

@@ -258,7 +258,7 @@ impl App {
         let mut deleted_blocks = Vec::with_capacity(request.blocks.len());
         for block_id in &request.blocks {
             let block = self.store().get_block(block_id).await?;
-            deleted_blocks.push((block.id, block.container_id));
+            deleted_blocks.push((block.id, block.container_id, block.block_type));
         }
 
         let (removed, by) = (request.clone(), user_id.to_owned());
@@ -288,13 +288,14 @@ impl App {
                     scope: *scope,
                 })
         };
-        for (block_id, container_id) in &deleted_blocks {
+        for (block_id, container_id, block_type) in &deleted_blocks {
             // A block of a board the request does not list was refused by the store.
             self.ws()
                 .broadcast_block_delete_with_container(
                     &workspace_id,
                     block_id,
                     container_id,
+                    *block_type,
                     former(container_id),
                 )
                 .await;

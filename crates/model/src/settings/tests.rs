@@ -12,7 +12,7 @@ fn members(value: serde_json::Value) -> JsonMap {
 fn patched(value: serde_json::Value) -> UserSettings {
     let patch = UserSettingsPatch::from_members(&members(value)).expect("a valid change");
     let (set, _reset) = patch.changes();
-    UserSettings::from_stored(set)
+    UserSettings::from_stored(set.into_iter().map(|(name, value)| (name.as_str(), value)))
 }
 
 #[test]
@@ -228,8 +228,8 @@ fn null_puts_a_setting_back_and_what_is_not_named_is_not_touched() {
     ))
     .expect("a valid change");
     let (set, reset) = patch.changes();
-    assert_eq!(set, [("density", "compact")]);
-    assert_eq!(reset, ["theme", "haptics"]);
+    assert_eq!(set, [(SettingName::Density, "compact")]);
+    assert_eq!(reset, [SettingName::Theme, SettingName::Haptics]);
     assert!(!patch.is_empty(), "it changes something");
     assert!(
         UserSettingsPatch::from_members(&JsonMap::new())
