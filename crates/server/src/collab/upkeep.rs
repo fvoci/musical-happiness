@@ -670,7 +670,7 @@ impl Collab {
         let changed = digest != open.body_digest;
         let last_writer = open.last_writer.clone();
         let as_read = open.as_read();
-        let mut read_at = held.update_at;
+        let mut read_at = held.updated_at;
         #[cfg(feature = "test-util")]
         self.paused_before_projection().await;
         let mut tries = 0;
@@ -711,7 +711,7 @@ impl Collab {
                     "the card kept changing while the body of its document was written to it",
                 ));
             }
-            read_at = held.update_at;
+            read_at = held.updated_at;
         }
         let open = slot.open.as_mut().expect("the document is open");
         open.written_seq = through;

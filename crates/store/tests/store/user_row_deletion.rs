@@ -123,7 +123,7 @@ async fn give_belongings(
             block_id: block.id.clone(),
             user_id: user_id.to_owned(),
             notified_at: 0,
-            create_at: 0,
+            created_at: 0,
             deleted_at: None,
         })
         .await

@@ -510,8 +510,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       type: 'view',
       title: draft.title,
       fields: draft.fields,
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
     };
     const [made] = await this.inWorkspace<Schemas['Block'][]>(
       '/boards/{boardId}/blocks',
@@ -528,7 +528,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * read again, since the server answers 204 alone. `updatedFields`
    * replaces a field whole, as the screens' patch means. The changes of one
    * view go one after another (`BlockTurns.patchView`), forwarding `readAt`
-   * along queued writes from each succeeded write's returned `updateAt`.
+   * along queued writes from each succeeded write's returned `updatedAt`.
    */
   patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
     return this.#turns.patchView(viewId, patch, (sent) => this.#patchView(boardId, viewId, sent));
@@ -654,8 +654,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       type: 'comment',
       title: '',
       fields: {},
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
       body: wireBody(body),
     } satisfies Schemas['NewBlock'] & { body: Schemas['Body'] };
     const [made] = await this.inWorkspace<Schemas['Block'][]>(
@@ -751,8 +751,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       type: 'attachment',
       title: file.name,
       fields: { fileId: file.fileId, size: file.size, contentType: file.contentType },
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
     };
     const [made] = await this.inWorkspace<Schemas['Block'][]>(
       '/boards/{boardId}/blocks',

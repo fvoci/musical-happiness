@@ -261,7 +261,7 @@
             {@render linkRow(
               link,
               m.people_link_row({
-                made: displayDate(link.createAt, context),
+                made: displayDate(link.createdAt, context),
                 ends: displayDate(link.expiresAt, context),
                 uses: link.uses,
               }),

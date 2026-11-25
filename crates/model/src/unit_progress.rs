@@ -32,7 +32,7 @@ pub struct UnitProgress {
     /// Optional last read or watched position string, at most 256 characters.
     pub last_position: Option<String>,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// Suggested next spaced-repetition review interval in days when the unit is
     /// completed; omitted when incomplete.
     #[serde(default, skip_serializing_if = "Option::is_none")]

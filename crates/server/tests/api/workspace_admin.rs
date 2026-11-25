@@ -246,7 +246,7 @@ async fn a_workspace_admin_who_makes_themselves_a_member_reads_the_board_and_is_
             TEST_WORKSPACE_ID
         )
     );
-    assert!(entry.create_at > 0, "{entry:?}");
+    assert!(entry.created_at > 0, "{entry:?}");
 }
 
 #[tokio::test]

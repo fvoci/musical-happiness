@@ -296,7 +296,7 @@ describe('the titles of what references name', () => {
         type: 'doc',
         content: [{ type: 'paragraph', content: [{ type: 'reference', attrs: { id: alpha.id } }] }],
       },
-      readAt: now.updateAt,
+      readAt: now.updatedAt,
     });
     const naming = await titles.to(alpha.id);
     expect(naming.map((linked) => linked.title)).toEqual(['Beta']);

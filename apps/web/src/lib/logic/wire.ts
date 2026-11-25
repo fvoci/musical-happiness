@@ -12,7 +12,7 @@
  * tests/logic/wire-boundary.test.ts fails when one of them reads `fields`
  * itself. What they do use directly are the members every block has at the
  * top level: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`,
- * `modifiedBy`, `createAt`, `updateAt`, `deletedAt`, `limited` and `number`.
+ * `modifiedBy`, `createdAt`, `updatedAt`, `deletedAt`, `limited` and `number`.
  */
 import type { MemberRole } from './container-members.ts';
 export type { ContainerMember, MemberRole } from './container-members.ts';
@@ -105,8 +105,8 @@ export interface Block {
   type: BlockType;
   title: string;
   fields: Record<string, unknown>;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
   deletedAt?: number;
   /** Set by the server on a card it withholds the content of. */
   limited?: boolean;
@@ -140,8 +140,8 @@ export function createBlock(source?: Block): Block {
     type: source?.type || 'unknown',
     fields: source?.fields ? { ...source.fields } : {},
     title: source?.title || '',
-    createAt: source?.createAt || now,
-    updateAt: source?.updateAt || now,
+    createdAt: source?.createdAt || now,
+    updatedAt: source?.updatedAt || now,
     ...(source?.deletedAt === undefined ? {} : { deletedAt: source.deletedAt }),
     limited: Boolean(source?.limited),
     ...(source?.number === undefined ? {} : { number: source.number }),
@@ -542,8 +542,8 @@ export interface Container {
   templateVersion: number;
   properties: Record<string, string | string[]>;
   cardProperties: PropertyTemplate[];
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
   deletedAt?: number;
 }
 
@@ -606,8 +606,8 @@ export function createBoard(source?: Container, statusName = 'Status'): Containe
     templateVersion: source?.templateVersion || 0,
     properties: source?.properties ?? {},
     cardProperties,
-    createAt: source?.createAt || now,
-    updateAt: source?.updateAt || now,
+    createdAt: source?.createdAt || now,
+    updatedAt: source?.updatedAt || now,
     ...(source?.deletedAt === undefined ? {} : { deletedAt: source.deletedAt }),
   };
 }
@@ -618,7 +618,7 @@ export function createBoard(source?: Container, statusName = 'Status'): Containe
  * How a date property is written on the wire: an object, not text. Each end
  * says by its JSON type what it is. A calendar day is the text `YYYY-MM-DD`,
  * the same day for every reader; a moment is an integer, the milliseconds
- * since 1970-01-01 00:00 UTC, like `createAt` and `updateAt` of a block.
+ * since 1970-01-01 00:00 UTC, like `createdAt` and `updatedAt` of a block.
  *
  * `from` is always there; `to`, when there, is of the same kind as `from`,
  * later than it, and itself part of the range. Nothing else is in the object:

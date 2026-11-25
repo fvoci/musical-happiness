@@ -641,7 +641,7 @@ const ORDERS: &[(&str, &str)] = &[
     ),
     (
         "listCourseExams",
-        "ordered by `examDate` ascending (exams without a date last), then by `createAt` and `id`",
+        "ordered by `examDate` ascending (exams without a date last), then by `createdAt` and `id`",
     ),
     (
         "listCourseMeetings",
@@ -651,7 +651,7 @@ const ORDERS: &[(&str, &str)] = &[
         "listMyCourseReviews",
         "Ordered by `scheduledDate` ascending",
     ),
-    ("listMyUnitNotes", "Ordered by `createAt` descending"),
+    ("listMyUnitNotes", "Ordered by `createdAt` descending"),
     ("patchBoardsAndBlocks", "each in the order of the request"),
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),

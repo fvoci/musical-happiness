@@ -7,7 +7,9 @@ use fvoci_store::{DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharedContainer, S
 use serde_json::json;
 use sqlx::Connection as _;
 
-use crate::common::{self, db_type};
+use crate::common::{
+    self, PRE0075_CREATE_COL, PRE0075_CREATE_KEY, PRE0075_UPDATE_COL, PRE0075_UPDATE_KEY, db_type,
+};
 
 const PRE0070_FILES_TABLE: &str = "file_info";
 const PRE0070_LINKS_TABLE: &str = "sharing";
@@ -65,7 +67,8 @@ async fn insert_pre0070_container(scoped: &Store, spec: &Pre0070Container<'_>) {
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-              show_description, is_template, is_builtin, properties, card_properties, create_at, update_at) \
+              show_description, is_template, is_builtin, properties, card_properties, \
+              {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
              VALUES ('{}', '{}', {creator}, {creator}, '{}', '{}', \
               '{}', '', '', false, {is_template}, {is_template}, '{{}}', '{}', 100, 200)",
             spec.id, spec.workspace_id, spec.raw_type, spec.kind, spec.title, spec.card_props,
@@ -99,7 +102,7 @@ async fn insert_pre0070_file(scoped: &Store, file: &FileRecord, unreferenced_at:
     scoped
         .execute_unchecked(&format!(
             "INSERT INTO {PRE0070_FILES_TABLE} \
-             (id, container_id, name, original_name, extension, size, path, create_at, \
+             (id, container_id, name, original_name, extension, size, path, {PRE0075_CREATE_COL}, \
               unreferenced_at, version, created_by) \
              VALUES ('{}', '{}', '{}', '{}', '{}', {}, '{}', {}, {unref}, {}, {creator})",
             file.id,
@@ -109,7 +112,7 @@ async fn insert_pre0070_file(scoped: &Store, file: &FileRecord, unreferenced_at:
             file.extension,
             file.size,
             file.path,
-            file.create_at,
+            file.created_at,
             file.version,
         ))
         .await
@@ -141,7 +144,7 @@ async fn seed_pre0070_template(pre: &Store) -> (String, FileRecord) {
         extension: ".png".to_owned(),
         size: 512,
         path: format!("templates/{template_id}/7tpl.png"),
-        create_at: 100,
+        created_at: 100,
         version: 1,
         created_by: String::new(),
     };
@@ -150,7 +153,7 @@ async fn seed_pre0070_template(pre: &Store) -> (String, FileRecord) {
 }
 
 async fn seed_pre0070_second_org(pre: &Store) -> Pre0070SecondOrg {
-    let (org_id, ws_b) = common::organization(pre, "org-b").await;
+    let (org_id, ws_b) = common::pre0075_organization(pre, "org-b").await;
     let scoped_b = pre.for_org(&org_id).expect("org-b");
     let bob = common::pre0072_user(&scoped_b, &org_id, &ws_b, "bob").await;
     let open_board_id = new_id();
@@ -170,7 +173,7 @@ async fn seed_pre0070_second_org(pre: &Store) -> Pre0070SecondOrg {
     .await;
     scoped_b
         .execute_unchecked(&format!(
-            "INSERT INTO {PRE0070_LINKS_TABLE} (container_id, enabled, token, modified_by, update_at) \
+            "INSERT INTO {PRE0070_LINKS_TABLE} (container_id, enabled, token, modified_by, {PRE0075_UPDATE_COL}) \
              VALUES ('{open_board_id}', true, 'tok-org-b', '{bob}', 300)"
         ))
         .await
@@ -183,7 +186,7 @@ async fn seed_pre0070_second_org(pre: &Store) -> Pre0070SecondOrg {
         extension: ".png".to_owned(),
         size: 128,
         path: format!("boards/{open_board_id}/7bob.png"),
-        create_at: 150,
+        created_at: 150,
         version: 1,
         created_by: bob.clone(),
     };
@@ -199,8 +202,8 @@ async fn seed_pre0070_second_org(pre: &Store) -> Pre0070SecondOrg {
         "kind": "board",
         "title": "Org B Trashed",
         "cardProperties": [{"id": "pb", "name": "Priority", "type": "select"}],
-        "createAt": 100,
-        "updateAt": 200,
+        (PRE0075_CREATE_KEY): 100,
+        (PRE0075_UPDATE_KEY): 200,
         (OLD_DEL_KEY): 250
     })
     .to_string();
@@ -235,7 +238,7 @@ async fn seed_pre0070_trash_in_org_a(
         extension: ".png".to_owned(),
         size: 64,
         path: format!("boards/{trashed_open_id}/7trashed.png"),
-        create_at: 110,
+        created_at: 110,
         version: 1,
         created_by: alice.to_owned(),
     };
@@ -247,7 +250,7 @@ async fn seed_pre0070_trash_in_org_a(
         "extension": trashed_file.extension,
         "size": trashed_file.size,
         "path": trashed_file.path,
-        "create_at": trashed_file.create_at,
+        (PRE0075_CREATE_COL): trashed_file.created_at,
         "version": trashed_file.version,
         "created_by": trashed_file.created_by,
     }])
@@ -270,8 +273,8 @@ async fn seed_pre0070_trash_in_org_a(
         "kind": "board",
         "title": "Trashed Open Board",
         "cardProperties": [{"id": "p1", "name": "Status", "type": "select"}],
-        "createAt": 100,
-        "updateAt": 200,
+        (PRE0075_CREATE_KEY): 100,
+        (PRE0075_UPDATE_KEY): 200,
         (OLD_DEL_KEY): 260
     })
     .to_string();
@@ -294,7 +297,7 @@ async fn seed_pre0070_trash_in_org_a(
         "plain description"
     };
     let priv_doc = format!(
-        r#"{{"id":"{trashed_private_id}","workspaceId":"{ws_a}","createdBy":"{alice}","modifiedBy":"{alice}","type":"P","kind":"board","title":"Trashed Private","description":"{desc}","cardProperties":[{{"id":"p2","name":"Kind","type":"multiSelect"}}],"createAt":100,"updateAt":200,"{OLD_DEL_KEY}":270}}"#
+        r#"{{"id":"{trashed_private_id}","workspaceId":"{ws_a}","createdBy":"{alice}","modifiedBy":"{alice}","type":"P","kind":"board","title":"Trashed Private","description":"{desc}","cardProperties":[{{"id":"p2","name":"Kind","type":"multiSelect"}}],"{PRE0075_CREATE_KEY}":100,"{PRE0075_UPDATE_KEY}":200,"{OLD_DEL_KEY}":270}}"#
     );
     scoped_a
         .execute_unchecked(&format!(
@@ -317,7 +320,7 @@ async fn seed_pre0070_files_in_org_a(
     scoped_a
         .execute_unchecked(&format!(
             "INSERT INTO blocks (id, container_id, parent_id, created_by, modified_by, \"schema\", \
-             type, title, fields, create_at, update_at, number) \
+             type, title, fields, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, number) \
              VALUES ('{card_id}', '{open_board_id}', NULL, '{alice}', '{alice}', 1, 'card', \
              'Card 1', '{{}}', 120, 120, 1)"
         ))
@@ -332,7 +335,7 @@ async fn seed_pre0070_files_in_org_a(
         extension: ".png".to_owned(),
         size: 1024,
         path: format!("boards/{open_board_id}/7kept.png"),
-        create_at: 130,
+        created_at: 130,
         version: 2,
         created_by: alice.to_owned(),
     };
@@ -344,7 +347,7 @@ async fn seed_pre0070_files_in_org_a(
         extension: ".png".to_owned(),
         size: 256,
         path: format!("boards/{open_board_id}/7stale.png"),
-        create_at: 140,
+        created_at: 140,
         version: 1,
         created_by: alice.to_owned(),
     };
@@ -392,7 +395,7 @@ async fn seed_pre0070_diary(pre: &Store, alice: &str) -> (String, String) {
 
 async fn seed_pre0070(pre: &Store) -> Pre0070Fixture {
     let (template_id, template_file) = seed_pre0070_template(pre).await;
-    let (org_a, ws_a) = common::organization(pre, "org-a").await;
+    let (org_a, ws_a) = common::pre0075_organization(pre, "org-a").await;
     let scoped_a = pre.for_org(&org_a).expect("org-a");
     let alice = common::pre0072_user(&scoped_a, &org_a, &ws_a, "alice").await;
 
@@ -426,7 +429,7 @@ async fn seed_pre0070(pre: &Store) -> Pre0070Fixture {
 
     scoped_a
         .execute_unchecked(&format!(
-            "INSERT INTO {PRE0070_LINKS_TABLE} (container_id, enabled, token, modified_by, update_at) VALUES \
+            "INSERT INTO {PRE0070_LINKS_TABLE} (container_id, enabled, token, modified_by, {PRE0075_UPDATE_COL}) VALUES \
              ('{open_board_id}', true, 'tok-open-board', '{alice}', 310), \
              ('{private_wiki_id}', false, '', '{alice}', 320)"
         ))
@@ -764,7 +767,7 @@ async fn assert_post0070_links_and_files(migrated: &Store, fx: &Pre0070Fixture) 
             enabled: true,
             token: "tok-open-board".to_owned(),
             modified_by: fx.alice.clone(),
-            update_at: 310,
+            updated_at: 310,
         },
         "enabled public link migrated intact"
     );
@@ -842,12 +845,12 @@ async fn assert_post0070_links_and_files(migrated: &Store, fx: &Pre0070Fixture) 
 async fn assert_diary_public_link_triggers(sys: &Store, fx: &Pre0070Fixture) {
     let diary_link_sql = match db_type() {
         DbType::Sqlite => format!(
-            "INSERT INTO public_links (container_id, enabled, token, update_at) \
+            "INSERT INTO public_links (container_id, enabled, token, updated_at) \
              VALUES ('{}', 1, 'tok-diary', 1)",
             fx.diary_id
         ),
         DbType::Postgres => format!(
-            "INSERT INTO public_links (container_id, org_id, enabled, token, update_at) \
+            "INSERT INTO public_links (container_id, org_id, enabled, token, updated_at) \
              VALUES ('{}', '{}', true, 'tok-diary', 1)",
             fx.diary_id, fx.own_org
         ),

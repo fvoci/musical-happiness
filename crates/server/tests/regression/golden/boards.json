@@ -48,7 +48,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -62,7 +62,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "x",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -109,7 +109,7 @@
           "type": "select"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "plans",
       "icon": "🎯",
@@ -125,7 +125,7 @@
       "showDescription": true,
       "templateVersion": 0,
       "title": "Roadmap",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -137,7 +137,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -151,7 +151,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "open",
       "workspaceId": "<id:1>"
     }
@@ -170,7 +170,7 @@
           "type": "select"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "plans",
       "icon": "🎯",
@@ -186,7 +186,7 @@
       "showDescription": true,
       "templateVersion": 0,
       "title": "Roadmap",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -212,7 +212,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -226,7 +226,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "open",
       "workspaceId": "<id:1>"
     }
@@ -340,7 +340,7 @@
             "type": "relation"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
         "icon": "👋",
@@ -354,13 +354,13 @@
         "showDescription": true,
         "templateVersion": 12,
         "title": "Getting started with fvoci",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "",
         "icon": "",
@@ -374,7 +374,7 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "x",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       },
@@ -387,7 +387,7 @@
             "type": "select"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "plans",
         "icon": "🎯",
@@ -403,13 +403,13 @@
         "showDescription": true,
         "templateVersion": 0,
         "title": "Roadmap",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "",
         "icon": "",
@@ -423,7 +423,7 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "open",
         "workspaceId": "<id:1>"
       }
@@ -510,7 +510,7 @@
             "type": "relation"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:20>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
         "icon": "👋",
@@ -524,13 +524,13 @@
         "showDescription": true,
         "templateVersion": 12,
         "title": "Getting started with fvoci",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "",
         "icon": "",
@@ -544,7 +544,7 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "open",
         "workspaceId": "<id:1>"
       }
@@ -584,7 +584,7 @@
           "type": "person"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "new plans",
       "icon": "🚀",
@@ -601,7 +601,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -620,7 +620,7 @@
           "type": "person"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "new plans",
       "icon": "🚀",
@@ -636,7 +636,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -690,7 +690,7 @@
           "type": "person"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "new plans",
       "icon": "🚀",
@@ -706,7 +706,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "open",
       "workspaceId": "<id:1>"
     }
@@ -725,7 +725,7 @@
           "type": "person"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "new plans",
       "icon": "🚀",
@@ -741,7 +741,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -753,7 +753,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -767,7 +767,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "open",
       "workspaceId": "<id:1>"
     }
@@ -814,7 +814,7 @@
           "type": "person"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "new plans",
       "icon": "🚀",
@@ -830,7 +830,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -844,7 +844,7 @@
       {
         "body": null,
         "containerId": "<id:4>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "icon": "x"
@@ -856,7 +856,7 @@
         "schema": 1,
         "title": "A card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -870,7 +870,7 @@
         {
           "body": null,
           "containerId": "<id:23>",
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:2>",
           "fields": {
             "icon": "x"
@@ -882,7 +882,7 @@
           "schema": 1,
           "title": "A card",
           "type": "card",
-          "updateAt": "<ts>"
+          "updatedAt": "<ts>"
         }
       ],
       "containers": [
@@ -895,7 +895,7 @@
               "type": "person"
             }
           ],
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:2>",
           "description": "new plans",
           "icon": "🚀",
@@ -911,7 +911,7 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Roadmap 2 copy",
-          "updateAt": "<ts>",
+          "updatedAt": "<ts>",
           "visibility": "private",
           "workspaceId": "<id:1>"
         }
@@ -928,7 +928,7 @@
         {
           "body": null,
           "containerId": "<id:25>",
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:2>",
           "fields": {
             "icon": "x"
@@ -940,7 +940,7 @@
           "schema": 1,
           "title": "A card",
           "type": "card",
-          "updateAt": "<ts>"
+          "updatedAt": "<ts>"
         }
       ],
       "containers": [
@@ -953,7 +953,7 @@
               "type": "person"
             }
           ],
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:2>",
           "description": "new plans",
           "icon": "🚀",
@@ -969,7 +969,7 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "New board template",
-          "updateAt": "<ts>",
+          "updatedAt": "<ts>",
           "visibility": "private",
           "workspaceId": "<id:1>"
         }
@@ -1013,7 +1013,7 @@
       {
         "body": null,
         "containerId": "<id:23>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "icon": "x"
@@ -1025,7 +1025,7 @@
         "schema": 1,
         "title": "A card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -1105,7 +1105,7 @@
           "type": "person"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "new plans",
       "icon": "🚀",
@@ -1121,7 +1121,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -1140,7 +1140,7 @@
           "type": "person"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "new plans",
       "icon": "🚀",
@@ -1156,7 +1156,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Roadmap 2",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -1170,7 +1170,7 @@
       {
         "body": null,
         "containerId": "<id:4>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "icon": "x"
@@ -1182,7 +1182,7 @@
         "schema": 1,
         "title": "A card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -1267,7 +1267,7 @@
             "type": "relation"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
         "icon": "👋",
@@ -1281,13 +1281,13 @@
         "showDescription": true,
         "templateVersion": 12,
         "title": "Getting started with fvoci",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "",
         "icon": "",
@@ -1301,7 +1301,7 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "x",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       },
@@ -1314,7 +1314,7 @@
             "type": "person"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "new plans",
         "icon": "🚀",
@@ -1330,13 +1330,13 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Roadmap 2",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "",
         "icon": "",
@@ -1350,7 +1350,7 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "open",
         "workspaceId": "<id:1>"
       },
@@ -1363,7 +1363,7 @@
             "type": "person"
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "new plans",
         "icon": "🚀",
@@ -1379,7 +1379,7 @@
         "showDescription": false,
         "templateVersion": 0,
         "title": "Roadmap 2 copy",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "visibility": "private",
         "workspaceId": "<id:1>"
       }

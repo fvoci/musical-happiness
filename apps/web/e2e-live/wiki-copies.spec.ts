@@ -81,7 +81,7 @@ export async function makeWiki(api: APIRequestContext, title: string): Promise<M
   await make('Policies');
   const fileId = await uploadPicture(api, ws, wiki.id);
   const write = async (page: Schemas['Page'], body: unknown) => {
-    await answered(await api.patch(`${at}/${page.id}`, { data: { readAt: page.updateAt, body } }));
+    await answered(await api.patch(`${at}/${page.id}`, { data: { readAt: page.updatedAt, body } }));
   };
   await write(started, {
     type: 'doc',

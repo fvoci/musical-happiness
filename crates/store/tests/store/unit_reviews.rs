@@ -85,7 +85,7 @@ async fn seed_pre_0067_fixture(
     let pre = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("open before 0067");
-    let (org_id, workspace_id) = common::organization(&pre, "academy").await;
+    let (org_id, workspace_id) = common::pre0075_organization(&pre, "academy").await;
     let scoped = pre.for_org(&org_id).expect("org handle");
     let owner = common::pre0072_user(&scoped, &org_id, &workspace_id, "learner").await;
     let course_id = new_id();
@@ -93,9 +93,11 @@ async fn seed_pre_0067_fixture(
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-              show_description, is_template, properties, card_properties, create_at, update_at) \
+              show_description, is_template, properties, card_properties, {}, {}) \
              VALUES ('{course_id}', '{workspace_id}', '{owner}', '{owner}', 'P', 'course', \
-              'Rust', '', '', false, false, '{{}}', '[]', 1, 1)"
+              'Rust', '', '', false, false, '{{}}', '[]', 1, 1)",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ))
         .await
         .expect("pre-0067 course stored");
@@ -115,23 +117,35 @@ async fn seed_pre_0067_fixture(
         id: course_id,
         ..Container::default()
     };
-    let unit = create_item(
-        &scoped.telling_nobody(),
-        &course.id,
-        UnitKind::Unit,
-        "Ownership",
-        &owner,
-    )
-    .await;
+    let mut unit = fvoci_model::Block {
+        id: new_id(),
+        container_id: course.id.clone(),
+        block_type: UnitKind::Unit.block_type(),
+        title: "Ownership".to_owned(),
+        fields: NewUnit {
+            kind: UnitKind::Unit,
+            title: "Ownership".to_owned(),
+            ..NewUnit::default()
+        }
+        .to_fields(),
+        ..fvoci_model::Block::default()
+    };
+    unit.fields
+        .insert("order".to_owned(), serde_json::json!("V"));
+    common::pre0075_insert_block(&scoped, &mut unit, &owner).await;
     let existing_notif_id = new_id();
     pre.system()
         .execute_unchecked(&format!(
             "INSERT INTO notifications \
              (id, org_id, recipient_id, kind, source_id, block_id, container_id, actor_id, \
-              made_by, create_at, update_at, times, doers, counted, read_at) \
+              made_by, {}, {}, times, doers, counted, read_at) \
              VALUES ('{existing_notif_id}', '{org_id}', '{owner}', 'mention', '{}', '{}', '{}', \
               NULL, NULL, 1000, 1000, 1, '[]', '[]', 0)",
-            unit.id, unit.id, course.id
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
+            unit.id,
+            unit.id,
+            course.id
         ))
         .await
         .expect("pre-0067 notification inserted");
@@ -432,8 +446,8 @@ async fn assert_complete_filter_and_delete_reviews(
         "completion must be idempotent"
     );
     assert_eq!(
-        again.review.update_at, done.review.update_at,
-        "idempotent replay must not rewrite update_at"
+        again.review.updated_at, done.review.updated_at,
+        "idempotent replay must not rewrite updated_at"
     );
     assert!(
         again.next_review.is_none(),

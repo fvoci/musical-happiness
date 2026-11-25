@@ -132,12 +132,12 @@ describe('diaries in memory', () => {
     world.useClock(() => made + 1000);
     const written = await diaries.patchEntry(diary.id, entry.id, {
       body: text('first'),
-      readAt: entry.updateAt,
+      readAt: entry.updatedAt,
     });
     expect(written.body).toEqual(text('first'));
     const stale = diaries.patchEntry(diary.id, entry.id, {
       body: text('late'),
-      readAt: entry.updateAt,
+      readAt: entry.updatedAt,
     });
     expect(await statusOf(stale)).toBe(409);
     await diaries.deleteEntry(diary.id, entry.id);
@@ -275,7 +275,7 @@ describe('a diary’s page', () => {
     const theirs = await device.diary.createEntry(diary.id, today);
     await device.diary.patchEntry(diary.id, theirs.id, {
       body: text('theirs'),
-      readAt: theirs.updateAt,
+      readAt: theirs.updatedAt,
     });
     await vi.waitFor(() => {
       expect(store.entries[0]?.body).toEqual(text('theirs'));
@@ -371,7 +371,7 @@ describe('a diary’s page', () => {
     });
     await backend.as(backend.userId).diary.patchEntry(diary.id, there.id, {
       body: text('written'),
-      readAt: there.updateAt,
+      readAt: there.updatedAt,
     });
     await vi.waitFor(() => {
       expect(store.entries[0]?.body).toEqual(text('written'));
@@ -485,7 +485,7 @@ describe('a diary’s page', () => {
         return answer;
       });
     const device = backend.as(backend.userId).diary;
-    await device.patchEntry(diary.id, there.id, { body: text('then'), readAt: there.updateAt });
+    await device.patchEntry(diary.id, there.id, { body: text('then'), readAt: there.updatedAt });
     await vi.waitFor(() => {
       expect(asked).toHaveBeenCalled();
     });

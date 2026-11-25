@@ -87,7 +87,7 @@ describe('the notifications of comments, in memory', () => {
       second.id,
       0,
     ]);
-    expect(joined?.updateAt).toBeGreaterThan(first.updateAt);
+    expect(joined?.updatedAt).toBeGreaterThan(first.updatedAt);
 
     made.later(20);
     await made.other.createComment(made.boardId, made.cardId, text('three'));
@@ -96,7 +96,7 @@ describe('the notifications of comments, in memory', () => {
     expect(await mine.unread()).toBe(2);
 
     // Read through the older one: the newer stays unread; then all of them.
-    await mine.readAll(joined?.updateAt);
+    await mine.readAll(joined?.updatedAt);
     expect(await mine.unread()).toBe(1);
     await mine.readAll();
     expect(await mine.unread()).toBe(0);

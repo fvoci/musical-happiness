@@ -394,7 +394,7 @@ export class Workspace {
         if (change.container.workspaceId !== this.info?.id) break;
         // Two tellings of one board may arrive out of order: the older one is let go.
         const known = this.containers.find((board) => board.id === change.container.id);
-        if (known && known.updateAt > change.container.updateAt) break;
+        if (known && known.updatedAt > change.container.updatedAt) break;
         // A template is no board of the sidebar, as the server's list of boards says.
         const others = this.containers.filter((board) => board.id !== change.container.id);
         this.containers = change.container.isTemplate ? others : [...others, change.container];

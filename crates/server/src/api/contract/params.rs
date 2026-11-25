@@ -120,7 +120,7 @@ parameter!(AllBlocks: Query "all", String, False, "Any value that is not empty a
 parameter!(OneBlockId: Query "blockId", String, False, "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.");
 parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the blocks below the block of this identifier.");
 parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type, written as the blocks have it.");
-parameter!(ReadThrough: Query "through", i64, False, "The time, in milliseconds, up to which the notifications are read: those whose latest happened later (`updateAt`) stay unread. Left out, now.");
+parameter!(ReadThrough: Query "through", i64, False, "The time, in milliseconds, up to which the notifications are read: those whose latest happened later (`updatedAt`) stay unread. Left out, now.");
 parameter!(Page: Query "page", u32, False, "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.");
 parameter!(PerPage: Query "perPage", PerPageCount, False, "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");

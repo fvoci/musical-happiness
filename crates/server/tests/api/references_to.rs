@@ -24,7 +24,7 @@ pub(crate) fn body_naming(text: &str, targets: &[&str]) -> Value {
 
 /// Writes the body to the card or the page at `path`, as `client`.
 async fn write_body(client: &Client, path: &str, body: &Value) {
-    let read_at = client.get(path).await.value()["updateAt"].clone();
+    let read_at = client.get(path).await.value()["updatedAt"].clone();
     client
         .patch(path, &json!({"readAt": read_at, "body": body}))
         .await
@@ -68,8 +68,8 @@ pub(crate) async fn comment_naming(
         block_type: BlockType::Comment,
         body: fvoci_model::Body::parse(body_naming("in a comment", targets))
             .expect("the body may be stored"),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let stored: Vec<Block> = client

@@ -8,7 +8,7 @@ use fvoci_store::{DbType, Store};
 use serde_json::Value;
 use sqlx::Connection as _;
 
-use crate::common::{self, db_type};
+use crate::common::{self, PRE0075_CREATE_COL, db_type};
 use crate::tenancy_before::Before;
 use crate::workspace_rename::{Dump, dump};
 
@@ -274,7 +274,7 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
          INSERT INTO board_teams (board_id, team_id, org_id, workspace_id, role) VALUES \
          ('{board}', '{team}', {org}, '{workspace}', 'editor'); \
          INSERT INTO invitations (id, org_id, workspace_id, role, board_id, board_role, \
-         token_hash, created_by, create_at, expires_at) VALUES \
+         token_hash, created_by, {PRE0075_CREATE_COL}, expires_at) VALUES \
          ('{invitation}', {org}, '{workspace}', 'guest', '{board}', 'commenter', 'hash', \
          '{admin}', 1, 9000000000000); \
          {body_links} \
@@ -283,7 +283,7 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
          UPDATE workspace_members SET prior_board_roles = '[[\"{board}\",[true,true,false,false]]]' \
          WHERE workspace_id = '{workspace}' AND user_id = '{admin}'; \
          INSERT INTO audit_log (id, org_id, workspace_id, actor_id, actor_kind, action, \
-         target_id, subject_id, create_at) VALUES \
+         target_id, subject_id, {PRE0075_CREATE_COL}) VALUES \
          ('{added}', {org}, '{workspace}', '{admin}', 'person', 'added_to_board', '{board}', \
          '{member}', 1), \
          ('{joined}', {org}, '{workspace}', '{admin}', 'person', 'self_added_to_board', \
@@ -431,7 +431,7 @@ async fn the_keys_and_the_checks_find_the_containers(
             let filing = |container_id: &str| {
                 format!(
                     "INSERT INTO category_containers (id, user_id, category_id, container_id, \
-                     org_id, create_at, update_at, sort_order, hidden) SELECT '{}', c.user_id, \
+                     org_id, created_at, updated_at, sort_order, hidden) SELECT '{}', c.user_id, \
                      c.id, '{container_id}', c.org_id, 0, 0, 0, false FROM categories AS c \
                      LIMIT 1 ON CONFLICT DO NOTHING",
                     new_id()
@@ -440,7 +440,7 @@ async fn the_keys_and_the_checks_find_the_containers(
             let upload = |container_id: &str| {
                 format!(
                     "INSERT INTO uploads (id, user_id, container_id, name, size, content_type, \
-                     part_size, create_at, expires_at, closed_at, multipart_id, org_id) \
+                     part_size, created_at, expires_at, closed_at, multipart_id, org_id) \
                      SELECT '{}', u.id, '{container_id}', 'a.png', 1, 'image/png', 1, 1, \
                      9000000000000, 0, '', c.org_id FROM users AS u, containers AS c \
                      WHERE c.id = '{container}' LIMIT 1",

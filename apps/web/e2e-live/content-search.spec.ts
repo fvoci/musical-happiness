@@ -136,10 +136,10 @@ test('a page of a wiki is found by a word of its body and opened over its wiki',
     data: { title: 'Counting puffins' },
   });
   expect(written.ok(), await written.text()).toBe(true);
-  const { id: pageId, updateAt } = (await written.json()) as Schemas['Page'];
+  const { id: pageId, updatedAt } = (await written.json()) as Schemas['Page'];
   // A body is sent with when the page it replaces was read.
   const bodied = await api.patch(`${inWorkspace}/wikis/${wiki.id}/pages/${pageId}`, {
-    data: { body: body(`The ${word} colony grew`), readAt: updateAt },
+    data: { body: body(`The ${word} colony grew`), readAt: updatedAt },
   });
   expect(bodied.ok(), await bodied.text()).toBe(true);
   await expect.poll(() => foundBy(api, workspaceId, word)).toEqual([pageId]);

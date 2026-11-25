@@ -245,8 +245,8 @@ describe('the display name, on the server', () => {
         username: 'ada',
         displayName: 'Ada',
         isAdmin: false,
-        createAt: 1,
-        updateAt: 2,
+        createdAt: 1,
+        updatedAt: 2,
       };
       return Promise.resolve(
         new Response(JSON.stringify(user), { headers: { 'Content-Type': 'application/json' } }),
@@ -323,8 +323,8 @@ describe('the display name, on the server', () => {
           id: 'u1',
           username: 'grace',
           displayName: '',
-          createAt: 0,
-          updateAt: 0,
+          createdAt: 0,
+          updatedAt: 0,
           hasPassword: false,
         }),
       );

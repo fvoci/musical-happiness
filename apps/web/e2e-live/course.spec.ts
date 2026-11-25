@@ -783,7 +783,7 @@ test('boundaries and search: rejects board ID at course URL and finds a unit via
             { type: 'paragraph', content: [{ type: 'text', text: `Tracking ${word} pods` }] },
           ],
         },
-        readAt: created.updateAt,
+        readAt: created.updatedAt,
       },
     });
     expect(patched.ok(), await patched.text()).toBe(true);

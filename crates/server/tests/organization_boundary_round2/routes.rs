@@ -848,7 +848,7 @@ async fn compare_workspaces_in_a_body(
             let (path, body) = if bulk {
                 (
                     &format!("{ROOT_WS}/boards-and-blocks"),
-                    json!({"containers": [board], "blocks": [{"id": "card-ref", "containerId": "board-ref", "type": "card", "createAt": 1, "updateAt": 1}]}),
+                    json!({"containers": [board], "blocks": [{"id": "card-ref", "containerId": "board-ref", "type": "card", "createdAt": 1, "updatedAt": 1}]}),
                 )
             } else {
                 (&format!("{ROOT_WS}/boards"), board)
@@ -1595,7 +1595,7 @@ async fn follow(store: &fvoci_store::Store, card: &Block, user_id: &str) {
             block_id: card.id.clone(),
             user_id: user_id.to_owned(),
             notified_at: 0,
-            create_at: 0,
+            created_at: 0,
             deleted_at: None,
         })
         .await

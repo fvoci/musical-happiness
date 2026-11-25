@@ -9,7 +9,7 @@
  * The shapes follow the server design (its `docs/s6-design.md`): errors are
  * the problem details of RFC 9457 with the status codes of its section 1.3, identifiers are made by the server, a card or a comment has
  * its text as one document (`body`), a card list comes without bodies, a
- * comment is written with the `updateAt` it was read at so that a stale
+ * comment is written with the `updatedAt` it was read at so that a stale
  * write is refused with 409, and a card's body is written together in its
  * room (`openDoc`). Where the design says nothing and something had to be
  * made up and is still open, it is listed in `docs/contract-assumptions.md`.
@@ -96,11 +96,11 @@ export interface User extends UserNames {
    * one made through an organization's provider until its person sets one.
    */
   hasPassword?: boolean;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
   /**
    * Present when the account waits to be deleted (or is deactivated); omitted while in use.
-   * An account that was erased has an empty `username`, `createAt` and `updateAt` 0, and no `deletedAt`.
+   * An account that was erased has an empty `username`, `createdAt` and `updatedAt` 0, and no `deletedAt`.
    */
   deletedAt?: number;
 }
@@ -223,7 +223,7 @@ export interface BoardDraft {
 /** A write of a body: the document and the version it was based on. */
 export interface BodyWrite {
   body: DocNode | null;
-  /** The `updateAt` of the comment as the writer read it. */
+  /** The `updatedAt` of the comment as the writer read it. */
   readAt: number;
 }
 

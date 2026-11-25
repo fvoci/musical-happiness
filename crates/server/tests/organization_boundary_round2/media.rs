@@ -548,7 +548,7 @@ async fn purging_a_trash_row_does_not_delete_another_orgs_file() {
         .expect("B's real file");
     let files = json!([{
         "id": new_id(), "board_id": new_id(), "stored_name": "gone.txt", "name": "gone.txt",
-        "extension": ".txt", "size": 1, "path": victim.path, "create_at": 0,
+        "extension": ".txt", "size": 1, "path": victim.path, "created_at": 0,
     }]);
     let stored = scene
         .ts

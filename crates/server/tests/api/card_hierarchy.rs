@@ -359,7 +359,7 @@ async fn hostile_archives_are_rejected_without_storing_boards() {
 
     let board_line = json!({
         "type": "container",
-        "data": { "id": "b1", "visibility": "private", "kind": "board", "title": "Bad", "createAt": 1, "updateAt": 1 }
+        "data": { "id": "b1", "visibility": "private", "kind": "board", "title": "Bad", "createdAt": 1, "updatedAt": 1 }
     });
     let card_line = |id: &str, parent_id: &str, is_template: bool| {
         json!({
@@ -371,8 +371,8 @@ async fn hostile_archives_are_rejected_without_storing_boards() {
                 "type": BlockType::Card,
                 "title": id,
                 "fields": { "isTemplate": is_template },
-                "createAt": 1,
-                "updateAt": 1
+                "createdAt": 1,
+                "updatedAt": 1
             }
         })
     };

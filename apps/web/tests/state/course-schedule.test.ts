@@ -152,7 +152,7 @@ describe('course schedule API client', () => {
           completedAt: null,
           plannedDate: null,
           lastPosition: null,
-          updateAt: 1,
+          updatedAt: 1,
         } as T);
       }
       return Promise.resolve(emptyView as T);

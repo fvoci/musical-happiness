@@ -29,14 +29,14 @@ import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 function sortReviewsAsc(rows: readonly UnitReview[]): UnitReview[] {
   return [...rows].sort((a, b) => {
     if (a.scheduledDate !== b.scheduledDate) return a.scheduledDate < b.scheduledDate ? -1 : 1;
-    if (a.createAt !== b.createAt) return a.createAt - b.createAt;
+    if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 }
 
 function sortNotesDesc(rows: readonly UnitNote[]): UnitNote[] {
   return [...rows].sort((a, b) => {
-    if (a.createAt !== b.createAt) return b.createAt - a.createAt;
+    if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
     return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });
 }

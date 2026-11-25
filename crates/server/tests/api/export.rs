@@ -95,8 +95,8 @@ async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Container {
         container_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "a card for export".to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     ts.client
@@ -425,8 +425,8 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
             parent_id: String::new(),
             block_type: fvoci_model::BlockType::Attachment,
             fields,
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..fvoci_model::Block::default()
         }
     };
@@ -476,7 +476,7 @@ pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Container> {
 async fn archives_of_the_former_formats_are_refused() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = serde_json::json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Former", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Former", "createdAt": 1, "updatedAt": 1,
     }});
     let zip_of = |entries: &[(&str, String)]| {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -500,7 +500,7 @@ async fn archives_of_the_former_formats_are_refused() {
     let legacy = format!(
         "{{\"version\":1,\"date\":1}}\n{}\n",
         serde_json::json!({"type": "block", "data": {
-            "id": "b1", "type": "board", "title": "Former", "createAt": 1, "updateAt": 1,
+            "id": "b1", "type": "board", "title": "Former", "createdAt": 1, "updatedAt": 1,
         }})
     );
     let legacy_board_line = zip_of(&[
@@ -619,8 +619,8 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
         parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     ts.client
@@ -725,7 +725,7 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &serde_json::json!([{"containerId": board.id, "parentId": card["id"], "type": "comment",
-                                 "createAt": 1, "updateAt": 1, "body": body}]),
+                                 "createdAt": 1, "updatedAt": 1, "body": body}]),
         )
         .await
         .check_created();
@@ -788,13 +788,13 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
         line(
             "block",
             serde_json::json!({"id": id, "containerId": "b1", "parentId": parent, "type": kind,
-                               "title": id, "createAt": 1, "updateAt": 1}),
+                               "title": id, "createdAt": 1, "updatedAt": 1}),
         )
     };
     let board = line(
         "container",
         serde_json::json!({"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Comments",
-                           "createAt": 1, "updateAt": 1}),
+                           "createdAt": 1, "updatedAt": 1}),
     );
     let before = boards_of(&ts).await.len();
     for blocks in [
@@ -836,7 +836,7 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
 async fn an_archive_with_a_broken_entry_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = serde_json::json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Broken", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Broken", "createdAt": 1, "updatedAt": 1,
     }});
     let stored =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
@@ -885,8 +885,8 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
             parent_id: String::new(),
             block_type: BlockType::Attachment,
             fields,
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Block::default()
         }
     };
@@ -917,14 +917,14 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
 pub(crate) fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
     let board = |id: &str| {
         serde_json::json!({"type": "container", "data": {
-            "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": id, "createAt": 1,
-            "updateAt": 1,
+            "id": id, "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": id, "createdAt": 1,
+            "updatedAt": 1,
         }})
     };
     let card = |id: &str, board_id: &str| {
         serde_json::json!({"type": "block", "data": {
-            "id": id, "containerId": board_id, "type": "card", "title": "card", "createAt": 1,
-            "updateAt": 1,
+            "id": id, "containerId": board_id, "type": "card", "title": "card", "createdAt": 1,
+            "updatedAt": 1,
         }})
     };
     let first = vec![board("b1"), card("c1", "b1")];
@@ -959,11 +959,11 @@ async fn an_archive_with_a_refused_board_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
     let older_type = serde_json::json!({"type": "block", "data": {
         "id": "t2", "containerId": "b2", "parentId": "c2", "type": "text", "title": "text",
-        "createAt": 1, "updateAt": 1,
+        "createdAt": 1, "updatedAt": 1,
     }});
     let oversized = serde_json::json!({"type": "block", "data": {
-        "id": "c3", "containerId": "b2", "type": "card", "title": "big", "createAt": 1,
-        "updateAt": 1, "fields": {"note": "x".repeat(70_000)},
+        "id": "c3", "containerId": "b2", "type": "card", "title": "big", "createdAt": 1,
+        "updatedAt": 1, "fields": {"note": "x".repeat(70_000)},
     }});
     for (block, says) in [
         (older_type, "a block is a `card`"),
@@ -1052,8 +1052,8 @@ async fn a_large_file_is_whole_in_the_archive() {
             .as_object()
             .expect("an object")
             .clone(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     ts.client
@@ -1144,8 +1144,8 @@ async fn board_with_large_archive(ts: &TestServer) -> Container {
                 .as_object()
                 .expect("an object")
                 .clone(),
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Block::default()
         });
     }
@@ -1358,8 +1358,8 @@ async fn board_with_missing_files(ts: &TestServer) -> MissingFiles {
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     ts.client

@@ -41,8 +41,8 @@ export interface StoredCourseExam {
   examDate: string | null;
   maxScore: number;
   description: string;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** A view, card, comment or attachment as the world stores it. */
@@ -58,13 +58,13 @@ export interface StoredBlock extends Block {
 }
 
 /**
- * The order the server lists the blocks of a board in (`ORDER BY create_at,
+ * The order the server lists the blocks of a board in (`ORDER BY created_at,
  * id`), and so copies and exports them: the one made first first, those made
  * at once by their identifiers. The world's own order is the order it stored
  * them in, which a block back from the trash leaves at the end.
  */
 export function oldestFirst(a: StoredBlock, b: StoredBlock): number {
-  return a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  return a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 export type StoredView = StoredBlock & BoardView;
@@ -80,7 +80,7 @@ export interface StoredFile {
   blob?: Blob;
   url?: string;
   /** When it was uploaded and by whom, for the files uploaded here. */
-  createAt?: number;
+  createdAt?: number;
   createdBy?: string;
   /** Its versions, the oldest first, once it was written anew (file-versions.ts). */
   versions?: KeptFileVersion[];
@@ -89,7 +89,7 @@ export interface StoredFile {
 /** A version kept of a file: `name`, `size` and `blob` of the file are its newest's. */
 export interface KeptFileVersion {
   version: number;
-  createAt: number;
+  createdAt: number;
   createdBy: string;
   size: number;
   restoredFrom: number | null;

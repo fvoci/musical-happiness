@@ -183,9 +183,9 @@ pub struct TimeEntry {
     /// Optional note written by the user (at most 1000 characters).
     pub note: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 /// The caller's currently running timer, if any.

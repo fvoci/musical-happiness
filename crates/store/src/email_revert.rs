@@ -75,7 +75,7 @@ impl Store {
             let mut later = scope.sql("DELETE FROM email_reverts WHERE user_id = ");
             later
                 .bind(Id(&link.user_id))
-                .push_bind(" AND create_at > ", link.create_at);
+                .push_bind(" AND created_at > ", link.created_at);
             scope.execute(later).await?;
             let restored =
                 if email_change::is_held(scope, &link.email, Some(&link.user_id), now).await? {
@@ -86,7 +86,7 @@ impl Store {
                     Some(link.email)
                 };
             let unlinked_identities =
-                oidc_identities::remove_linked_after(scope, &link.user_id, link.create_at).await?;
+                oidc_identities::remove_linked_after(scope, &link.user_id, link.created_at).await?;
             password_reset::end_links_of_user(scope, &link.user_id).await?;
             users::lock_password(scope, &link.user_id, now).await?;
             sessions::delete_sessions_of_user(scope, &link.user_id).await?;
@@ -122,12 +122,12 @@ struct Link {
     user_id: String,
     /// The address it gives back.
     email: String,
-    create_at: i64,
+    created_at: i64,
 }
 
 async fn find(scope: &mut Scope<'_>, digest: &str, now: i64) -> Result<Option<Link>, StoreError> {
     let mut sql =
-        scope.sql("SELECT user_id, email, create_at FROM email_reverts WHERE token_hash = ");
+        scope.sql("SELECT user_id, email, created_at FROM email_reverts WHERE token_hash = ");
     sql.bind(digest).push_bind(" AND expires_at > ", now);
     scope
         .fetch_optional(sql)
@@ -136,7 +136,7 @@ async fn find(scope: &mut Scope<'_>, digest: &str, now: i64) -> Result<Option<Li
             Ok(Link {
                 user_id: row.id(0)?,
                 email: row.text(1)?,
-                create_at: row.int(2)?,
+                created_at: row.int(2)?,
             })
         })
         .transpose()
@@ -171,7 +171,7 @@ pub(crate) async fn after_latest(
     user_id: &str,
     now: i64,
 ) -> Result<i64, StoreError> {
-    let mut latest = scope.sql("SELECT MAX(create_at) FROM email_reverts WHERE user_id = ");
+    let mut latest = scope.sql("SELECT MAX(created_at) FROM email_reverts WHERE user_id = ");
     latest.bind(Id(user_id));
     let latest = match scope.fetch_optional(latest).await? {
         Some(row) => row.opt_int(0)?,
@@ -194,10 +194,10 @@ pub(crate) async fn insert(
     now: i64,
 ) -> Result<(), StoreError> {
     let after_reverts = after_latest(scope, user_id, now).await?;
-    let latest_identity = oidc_identities::latest_create_at(scope, user_id).await?;
+    let latest_identity = oidc_identities::latest_created_at(scope, user_id).await?;
     let made = after_reverts.max(latest_identity.unwrap_or(i64::MIN));
     let mut sql = scope.sql(
-        "INSERT INTO email_reverts (token_hash, user_id, email, create_at, expires_at) VALUES (",
+        "INSERT INTO email_reverts (token_hash, user_id, email, created_at, expires_at) VALUES (",
     );
     sql.bind(digest)
         .push_bind(", ", Id(user_id))

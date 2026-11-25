@@ -39,7 +39,7 @@ pub enum ExamScoreOutcome {
 
 impl Store {
     /// Lists all exams of live course `course_id`, ordered by `exam_date ASC NULLS LAST,
-    /// create_at ASC, id ASC`.
+    /// created_at ASC, id ASC`.
     ///
     /// When `caller_user_id` is `Some(uid)` (an active enrolled course member), includes
     /// `my_score` strictly for `uid`, `score_count` across active enrolled course
@@ -61,7 +61,7 @@ impl Store {
             let org = scope.org()?;
             let mut sql = scope.sql(
                 "SELECT e.id, e.container_id, e.title, e.exam_date, e.max_score, \
-                 e.description, e.create_at, e.update_at \
+                 e.description, e.created_at, e.updated_at \
                  FROM course_exams AS e \
                  JOIN containers AS c ON c.id = e.container_id \
                  JOIN workspaces AS w ON w.id = c.workspace_id \
@@ -77,7 +77,7 @@ impl Store {
                 .push(&scope.same_organization(&[("e", "c"), ("c", "w")]))
                 .push(
                     " ORDER BY CASE WHEN e.exam_date IS NULL THEN 1 ELSE 0 END, \
-                     e.exam_date ASC, e.create_at ASC, e.id ASC",
+                     e.exam_date ASC, e.created_at ASC, e.id ASC",
                 );
             let rows = scope.fetch_all(sql).await?;
             let mut exams = Vec::with_capacity(rows.len());
@@ -124,7 +124,7 @@ impl Store {
             let mut sql = scope.sql(
                 "INSERT INTO course_exams \
                  (id, org_id, container_id, title, exam_date, max_score, description, \
-                  create_at, update_at) VALUES (",
+                  created_at, updated_at) VALUES (",
             );
             sql.changing_no_access()
                 .bind(Id(&id))
@@ -145,8 +145,8 @@ impl Store {
                 exam_date: new.exam_date.clone(),
                 max_score: new.max_score,
                 description: new.description.clone(),
-                create_at: now,
-                update_at: now,
+                created_at: now,
+                updated_at: now,
                 my_score: None,
                 average_score: None,
                 score_count: 0,
@@ -196,7 +196,7 @@ impl Store {
                 .push_bind(", exam_date = ", Param::OptText(exam_date.clone()))
                 .push_bind(", max_score = ", max_score)
                 .push_bind(", description = ", description)
-                .push_bind(", update_at = ", now)
+                .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(exam_id))
                 .push_bind(" AND org_id = ", org.clone())
                 .push_bind(" AND container_id = ", Id(course_id));
@@ -221,8 +221,8 @@ impl Store {
                 exam_date,
                 max_score,
                 description: description.to_owned(),
-                create_at: existing.create_at,
-                update_at: now,
+                created_at: existing.created_at,
+                updated_at: now,
                 my_score,
                 average_score,
                 score_count,
@@ -305,7 +305,7 @@ impl Store {
             let now = now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO exam_scores \
-                 (exam_id, org_id, container_id, user_id, score, note, update_at) VALUES (",
+                 (exam_id, org_id, container_id, user_id, score, note, updated_at) VALUES (",
             );
             sql.changing_no_access()
                 .bind(Id(exam_id))
@@ -318,13 +318,13 @@ impl Store {
                 .push(
                     ") ON CONFLICT (exam_id, org_id, user_id) \
                      DO UPDATE SET score = excluded.score, note = excluded.note, \
-                     update_at = excluded.update_at",
+                     updated_at = excluded.updated_at",
                 );
             scope.execute(sql).await?;
             Ok(ExamScoreOutcome::Saved(MyExamScore {
                 score,
                 note: input.note.clone(),
-                update_at: now,
+                updated_at: now,
             }))
         })
         .await
@@ -425,8 +425,8 @@ async fn fetch_exam_for_update(
     org: &Param,
 ) -> Result<CourseExam, StoreError> {
     let mut sql = scope.sql(
-        "SELECT id, container_id, title, exam_date, max_score, description, create_at, \
-         update_at FROM course_exams WHERE id = ",
+        "SELECT id, container_id, title, exam_date, max_score, description, created_at, \
+         updated_at FROM course_exams WHERE id = ",
     );
     sql.bind(Id(exam_id))
         .push_bind(" AND org_id = ", org.clone())
@@ -493,7 +493,7 @@ async fn fetch_my_scores(
     exam_id: Option<&str>,
 ) -> Result<BTreeMap<String, MyExamScore>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT exam_id, score, note, update_at \
+        "SELECT exam_id, score, note, updated_at \
          FROM exam_scores WHERE container_id = ",
     );
     sql.bind(Id(course_id))
@@ -509,7 +509,7 @@ async fn fetch_my_scores(
             MyExamScore {
                 score: row.float(1)?,
                 note: row.text(2)?,
-                update_at: row.int(3)?,
+                updated_at: row.int(3)?,
             },
         );
     }
@@ -524,8 +524,8 @@ fn exam_from_row(row: &Row) -> Result<CourseExam, StoreError> {
         exam_date: row.opt_text(3)?,
         max_score: row.float(4)?,
         description: row.text(5)?,
-        create_at: row.int(6)?,
-        update_at: row.int(7)?,
+        created_at: row.int(6)?,
+        updated_at: row.int(7)?,
         my_score: None,
         average_score: None,
         score_count: 0,

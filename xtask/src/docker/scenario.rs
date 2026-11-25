@@ -247,9 +247,9 @@ pub(super) fn write_card(client: &Client<'_>, w: &str, board: &str) -> Result<St
     )?;
     let card_id = text(&card, "id")?;
     let read_at = card
-        .get("updateAt")
+        .get("updatedAt")
         .and_then(Value::as_i64)
-        .with_context(|| format!("no updateAt in {card}"))?;
+        .with_context(|| format!("no updatedAt in {card}"))?;
     client.expect(
         "PATCH",
         &format!("{w}/cards/{card_id}"),

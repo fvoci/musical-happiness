@@ -185,7 +185,7 @@ fn number_statement(scope: &Scope<'_>, search: &NumberSearch<'_>, offset: i64, l
     }
     sql.push_bind(" AND b.type = ", SearchKind::Card.block_type().as_str())
         .push_bind(" AND b.number = ", i64::from(search.number))
-        .push(" ORDER BY b.update_at DESC, b.id")
+        .push(" ORDER BY b.updated_at DESC, b.id")
         .push_bind(" LIMIT ", limit)
         .push_bind(" OFFSET ", offset);
     sql
@@ -208,7 +208,7 @@ fn statement(scope: &Scope<'_>, search: &TextSearch<'_>, offset: i64, limit: i64
     push_every_word(&mut sql, dialect, search.words);
     sql.push(" ORDER BY CASE WHEN ");
     push_title_holds_every_word(&mut sql, dialect, search.words);
-    sql.push(" THEN 0 ELSE 1 END, b.update_at DESC, b.id")
+    sql.push(" THEN 0 ELSE 1 END, b.updated_at DESC, b.id")
         .push_bind(" LIMIT ", limit)
         .push_bind(" OFFSET ", offset);
     sql

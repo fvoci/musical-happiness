@@ -85,10 +85,10 @@ pub struct User {
     pub password_locked_at: i64,
     /// Creation time in milliseconds since the Unix epoch; zero for a deleted account
     /// (an empty `username`).
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch; zero for a deleted
     /// account.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// When the account was put out of use (deactivated, or its deletion asked), in
     /// milliseconds since the Unix epoch; absent for one in use, and for a deleted
     /// account, which an empty `username` tells.
@@ -146,8 +146,8 @@ impl fmt::Debug for User {
             .field("email", &self.email)
             .field("password_locked_at", &self.password_locked_at)
             .field("name", &self.name)
-            .field("create_at", &self.create_at)
-            .field("update_at", &self.update_at)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
             .field("deleted_at", &self.deleted_at)
             .field("is_admin", &self.is_admin)
             .field("is_bot", &self.is_bot)

@@ -369,7 +369,7 @@ async fn a_registration_answers_the_user_that_was_made() {
     assert_eq!(
         members,
         [
-            "createAt",
+            "createdAt",
             "credentials",
             "customName",
             "displayName",
@@ -381,7 +381,7 @@ async fn a_registration_answers_the_user_that_was_made() {
             "latinLastName",
             "nameShown",
             "title",
-            "updateAt",
+            "updatedAt",
             "username"
         ],
         "{username}: the members of the answer, sorted: {made}"
@@ -466,8 +466,8 @@ async fn get_me_logged_in() {
             "nameShown": "name",
             "title": null,
             "credentials": [],
-            "createAt": me.create_at,
-            "updateAt": me.update_at,
+            "createdAt": me.created_at,
+            "updatedAt": me.updated_at,
             // The first user of an instance administers it.
             "isAdmin": true,
             // Told to the user themselves only: whether, never what.
@@ -478,7 +478,7 @@ async fn get_me_logged_in() {
         }),
         "the members of a user on the wire to themselves: no password, nothing else"
     );
-    assert!(me.create_at > 0, "a creation time: {raw}");
+    assert!(me.created_at > 0, "a creation time: {raw}");
 
     // Unknown query parameters such as `channelID` are ignored on `/users/me`.
     let with_channel = client.get("/users/me?channelID=any-channel").await.value();
@@ -614,8 +614,8 @@ async fn users_list_and_profiles() {
             "nameShown": "name",
             "title": null,
             "credentials": [],
-            "createAt": user2.create_at,
-            "updateAt": user2.update_at,
+            "createdAt": user2.created_at,
+            "updatedAt": user2.updated_at,
             "isAdmin": false,
         }),
         "the profile of another user"
@@ -1147,7 +1147,7 @@ async fn workspaces() {
             "modifiedBy",
             "settings",
             "title",
-            "updateAt"
+            "updatedAt"
         ],
         "a workspace carries no token of anything: {workspace}"
     );

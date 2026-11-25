@@ -335,8 +335,8 @@ impl App {
             .iter()
             .map(|told| Notification {
                 id: told.id.clone(),
-                create_at: told.create_at,
-                update_at: told.update_at,
+                created_at: told.created_at,
+                updated_at: told.updated_at,
                 read_at: told.read_at,
                 subject: places
                     .remove(told.id.as_str())

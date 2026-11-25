@@ -153,7 +153,11 @@ async fn what_a_search_would_find_differently_is_noted_with_its_write() {
     );
     settle_all(store).await;
 
-    let read_at = store.get_block(&card.id).await.expect("the card").update_at;
+    let read_at = store
+        .get_block(&card.id)
+        .await
+        .expect("the card")
+        .updated_at;
     let written = BlockPatch {
         body: BodyChange::Set(body("환불규정을 따른다")),
         read_at: Some(read_at),
@@ -230,7 +234,7 @@ async fn typed(store: &Store, card_id: &str, text: &str, seq: i64, user_id: &str
             .await
             .expect("a document is stored");
     }
-    let read_at = store.get_block(card_id).await.expect("the card").update_at;
+    let read_at = store.get_block(card_id).await.expect("the card").updated_at;
     let as_read = crate::body_docs::as_read(store, card_id).await;
     store
         .project_body(
@@ -746,7 +750,7 @@ async fn every_way_a_card_is_written_notes_it() {
         .get_block(&second.id)
         .await
         .expect("the card")
-        .update_at;
+        .updated_at;
     let as_read = crate::body_docs::as_read(store, &second.id).await;
     store
         .project_body(

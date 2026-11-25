@@ -273,8 +273,8 @@ test('keeps unjoined open-course reader read-only until joining, and isolates pu
           properties: {},
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;
@@ -288,8 +288,8 @@ test('keeps unjoined open-course reader read-only until joining, and isolates pu
             parentId: '',
             title: 'Public Lesson',
             order: 'a',
-            createAt: 1,
-            updateAt: 1,
+            createdAt: 1,
+            updatedAt: 1,
           },
         ],
       });
@@ -307,8 +307,8 @@ test('keeps unjoined open-course reader read-only until joining, and isolates pu
           body: null,
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;

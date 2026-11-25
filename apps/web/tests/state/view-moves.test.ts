@@ -390,10 +390,10 @@ describe('a move', () => {
     await moveView(board, idOf(board, 'Gamma'), -1);
     await settle();
     const alpha = idOf(board, 'Alpha');
-    // Bump stored updateAt without delivering a WS event so board's view is stale.
+    // Bump stored updatedAt without delivering a WS event so board's view is stale.
     const stored = world.blocks.get(alpha);
     if (!stored) throw new Error('missing view');
-    stored.updateAt = world.now();
+    stored.updatedAt = world.now();
     const viewsSpy = vi
       .spyOn(backend, 'views')
       .mockRejectedValueOnce(new BackendError(503, { detail: 'unavailable' }));
@@ -413,7 +413,7 @@ describe('a move', () => {
     const stored = world.blocks.get(alpha);
     if (!stored) throw new Error('missing view');
     stored.title = 'Alpha remote';
-    stored.updateAt = world.now();
+    stored.updatedAt = world.now();
     const patchSpy = vi.spyOn(backend, 'patchView');
     const first = moveView(board, alpha, 1);
     const second = moveView(board, alpha, 1);
@@ -429,7 +429,7 @@ describe('a move', () => {
     const latest = world.blocks.get(alpha);
     if (!latest) throw new Error('missing view');
     latest.title = 'Alpha remote 2';
-    latest.updateAt = world.now();
+    latest.updatedAt = world.now();
     const moving = moveView(board, alpha, -1);
     const renaming = board.changeView(alpha, (view) => ({ ...view, title: 'Alpha mine' }));
     const [held] = await Promise.all([moving, renaming]);
@@ -480,7 +480,7 @@ describe('a move', () => {
       expect(call[2].readAt).toBeUndefined();
     }
     patch.mockClear();
-    const readBefore = new Map(board.views.map((view) => [view.id, view.updateAt]));
+    const readBefore = new Map(board.views.map((view) => [view.id, view.updatedAt]));
     await moveView(board, alpha, 1);
     expect(patch.mock.calls.length).toBeGreaterThan(0);
     for (const call of patch.mock.calls) {
@@ -497,14 +497,14 @@ describe('a move', () => {
     await settle();
     expect(titles(board)).toEqual(['Beta', 'Alpha', 'Board', 'Gamma', 'Delta']);
 
-    // An intervening non-order edit and its undo bump updateAt; move undo still works.
+    // An intervening non-order edit and its undo bump updatedAt; move undo still works.
     await board.changeView(alpha, (view) => ({ ...view, title: 'Alpha edited' }));
     await workspace.undoLast();
     await workspace.undoLast();
     await settle();
     expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Gamma', 'Delta']);
 
-    // Redo also uses the fresh updateAt.
+    // Redo also uses the fresh updatedAt.
     await workspace.redoLast();
     await settle();
     expect(titles(board)).toEqual(['Beta', 'Alpha', 'Board', 'Gamma', 'Delta']);
@@ -523,7 +523,7 @@ describe('a move', () => {
     expect(workspace.problems[0]?.action).toBe('undo');
     expect(workspace.canUndo).toBe(true);
 
-    // Asking undo again now uses the refreshed updateAt and succeeds.
+    // Asking undo again now uses the refreshed updatedAt and succeeds.
     await workspace.undoLast();
     await settle();
     expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Gamma', 'Delta']);

@@ -77,6 +77,6 @@ export function cardsNamed(cards: readonly Card[], typed: string): Card[] {
   const byTitle = cards
     .filter((card) => !taken.has(card.id))
     .filter((card) => words.every((word) => foldCase(card.title).includes(word)))
-    .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id));
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
   return [...byNumber, ...byTitle].slice(0, NAMED_AT_MOST);
 }

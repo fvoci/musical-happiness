@@ -415,7 +415,7 @@ impl World {
         client
             .patch(
                 &format!("{pages}/{page_id}"),
-                &json!({"readAt": page["updateAt"], "body": body}),
+                &json!({"readAt": page["updatedAt"], "body": body}),
             )
             .await
             .check_ok();
@@ -458,7 +458,7 @@ impl World {
         client
             .patch(
                 &format!("{units}/{unit_id}"),
-                &json!({"readAt": unit["updateAt"], "body": said()}),
+                &json!({"readAt": unit["updatedAt"], "body": said()}),
             )
             .await
             .check_ok();
@@ -507,7 +507,7 @@ impl World {
         client
             .patch(
                 &format!("{ROOT_WS}/cards/{card}"),
-                &json!({"readAt": made["updateAt"], "body": text_of}),
+                &json!({"readAt": made["updatedAt"], "body": text_of}),
             )
             .await
             .check_ok();
@@ -516,7 +516,7 @@ impl World {
                 &format!("{at}/blocks"),
                 &json!([{
                     "containerId": board, "parentId": card, "type": "comment", "body": text_of,
-                    "createAt": 1, "updateAt": 1,
+                    "createdAt": 1, "updatedAt": 1,
                 }]),
             )
             .await;
@@ -845,7 +845,7 @@ async fn make_in_own_space(world: &World, own: &str) -> [Things; 4] {
     let body = json!({"readAt": 0, "body": said()});
     let written = |made: &Value| {
         let mut body = body.clone();
-        body["readAt"] = made["updateAt"].clone();
+        body["readAt"] = made["updatedAt"].clone();
         body
     };
     let mut made = Vec::new();
@@ -1066,7 +1066,7 @@ async fn what_names_a_diary_in_a_body_is_refused() {
         .post(
             &format!("{ws}/boards-and-blocks"),
             &json!({"containers": [as_diary], "blocks": [{
-                "id": "card", "containerId": "made", "type": "card", "createAt": 1, "updateAt": 1,
+                "id": "card", "containerId": "made", "type": "card", "createdAt": 1, "updatedAt": 1,
             }]}),
         )
         .await;
@@ -1099,7 +1099,7 @@ async fn what_names_a_diary_in_a_body_is_refused() {
         .post(
             &format!("{ws}/boards/{}/blocks", board.container),
             &json!([{"containerId": board.container, "type": "entry", "title": "2026-11-21",
-                     "fields": {"date": "2026-11-21"}, "createAt": 1, "updateAt": 1}]),
+                     "fields": {"date": "2026-11-21"}, "createdAt": 1, "updatedAt": 1}]),
         )
         .await;
     entry_as_block.check_bad_request();
@@ -1324,7 +1324,7 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     )
     .await;
     let copied =
-        json!([{"containerId": board.container, "type": "card", "createAt": 1, "updateAt": 1}]);
+        json!([{"containerId": board.container, "type": "card", "createdAt": 1, "updatedAt": 1}]);
     let from = async |source: &str| {
         let path = format!(
             "{ROOT_WS}/boards/{}/blocks?sourceBoardId={source}",
@@ -1433,8 +1433,7 @@ async fn assert_course_subscriptions(world: &World, course_id: &str, unit_id: &s
 }
 
 async fn assert_board_creation_refuses_other_kinds(client: &Client, board_id: &str) {
-    let card =
-        json!({"id": "card", "containerId": "made", "type": "card", "createAt": 1, "updateAt": 1});
+    let card = json!({"id": "card", "containerId": "made", "type": "card", "createdAt": 1, "updatedAt": 1});
     for non_board in ["wiki", "course"] {
         let as_other =
             json!({"id": "made", "visibility": "private", "kind": non_board, "title": "no board"});
@@ -1470,7 +1469,7 @@ async fn assert_board_creation_refuses_other_kinds(client: &Client, board_id: &s
             .post(
                 &format!("{ROOT_WS}/boards/{board_id}/blocks"),
                 &json!([{"containerId": board_id, "type": block_type, "title": "no",
-                         "createAt": 1, "updateAt": 1}]),
+                         "createdAt": 1, "updatedAt": 1}]),
             )
             .await;
         refused.check_bad_request();

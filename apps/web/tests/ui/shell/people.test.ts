@@ -30,7 +30,7 @@ const MEMBERS: WorkspaceMember[] = [
 ];
 
 function link(id: string, role: 'member' | 'guest' = 'member'): Invitation {
-  return { id, role, createdBy: 'u1', createAt: 0, expiresAt: 7 * 86_400_000, uses: 2 };
+  return { id, role, createdBy: 'u1', createdAt: 0, expiresAt: 7 * 86_400_000, uses: 2 };
 }
 
 /** The requests the panel makes, each a mock that answers as the server would. */

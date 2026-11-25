@@ -57,7 +57,7 @@ describe('an open card', () => {
     expect(card.status).toBe('ready');
     expect(card.body).toEqual(text('first body'));
     expect(card.comments).toHaveLength(2);
-    expect(card.comments[0]?.createAt).toBeLessThan(card.comments[1]?.createAt ?? 0);
+    expect(card.comments[0]?.createdAt).toBeLessThan(card.comments[1]?.createdAt ?? 0);
     expect(card.attachments.map((attachment) => attachment.name)).toEqual(['kick-off-notes.txt']);
     expect(card.summary?.title).toBe('Alpha');
   });
@@ -71,7 +71,10 @@ describe('an open card', () => {
   it("takes somebody else's body while it is not in the body's room", async () => {
     const { card, other, board, cardId } = await openAlpha();
     const read = await other.card(board.boardId, cardId);
-    await other.writeCardBody(board.boardId, cardId, { body: text('news'), readAt: read.updateAt });
+    await other.writeCardBody(board.boardId, cardId, {
+      body: text('news'),
+      readAt: read.updatedAt,
+    });
     await settle();
     await settle();
     expect(card.body).toEqual(text('news'));
@@ -136,7 +139,7 @@ describe('an open card', () => {
     const read = await other.card(board.boardId, cardId);
     await other.writeCardBody(board.boardId, cardId, {
       body: text('theirs'),
-      readAt: read.updateAt,
+      readAt: read.updatedAt,
     });
     await vi.waitFor(() => {
       expect(card.room?.doc).not.toBe(doc);
@@ -265,11 +268,11 @@ describe('comments and attachments', () => {
     expect(await card.addComment(text('mine'))).toBe(true);
     const mine = card.comments.at(-1);
     if (!mine) throw new Error('no comment');
-    expect(await card.editComment(mine.id, text('mine, changed'), mine.updateAt)).toBe('saved');
+    expect(await card.editComment(mine.id, text('mine, changed'), mine.updatedAt)).toBe('saved');
     expect(card.comment(mine.id)?.body).toEqual(text('mine, changed'));
 
     // The reader begins on this version; somebody else changes it, and that is heard.
-    const begun = card.comment(mine.id)?.updateAt ?? 0;
+    const begun = card.comment(mine.id)?.updatedAt ?? 0;
     await other.patchComment(board.boardId, mine.id, { body: text('theirs'), readAt: begun });
     await settle();
     expect(card.comment(mine.id)?.body).toEqual(text('theirs'));
@@ -279,7 +282,7 @@ describe('comments and attachments', () => {
     expect(refresh).toHaveBeenCalledOnce();
     expect(card.comment(mine.id)?.body).toEqual(text('theirs'));
     // On the version shown now it goes.
-    const now = card.comment(mine.id)?.updateAt ?? 0;
+    const now = card.comment(mine.id)?.updatedAt ?? 0;
     expect(await card.editComment(mine.id, text('again'), now)).toBe('saved');
     expect(card.comment(mine.id)?.body).toEqual(text('again'));
   });
@@ -289,7 +292,7 @@ describe('comments and attachments', () => {
     const first = card.comments[0];
     if (!first) throw new Error('no comment');
     backend.failNext('patchComment', new BackendError(500));
-    expect(await card.editComment(first.id, text('x'), first.updateAt)).toBe('failed');
+    expect(await card.editComment(first.id, text('x'), first.updatedAt)).toBe('failed');
     expect(workspace.problems.at(-1)).toMatchObject({ action: 'save', error: { status: 500 } });
   });
 

@@ -164,7 +164,7 @@ describe('the versions of an open card, compared', () => {
     const made = await openFirstBoard();
     const card = made.board.cards.find((one) => one.title === 'Alpha');
     if (!card) throw new Error('no card');
-    const readAt = made.world.blocks.get(card.id)?.updateAt ?? 0;
+    const readAt = made.world.blocks.get(card.id)?.updatedAt ?? 0;
     await made.other.writeCardBody(card.containerId, card.id, {
       body: text('second body'),
       readAt,

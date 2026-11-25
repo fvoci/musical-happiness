@@ -185,7 +185,7 @@ impl Store {
             let now = now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO body_docs (block_id, state, state_seq, log_end, projected_seq, \
-                 body_digest, epoch, create_at, update_at) VALUES (",
+                 body_digest, epoch, created_at, updated_at) VALUES (",
             );
             sql.bind(Id(block_id))
                 .push_bind(", ", Param::Bytes(state.to_vec()))
@@ -249,7 +249,7 @@ impl Store {
                 if !written_by.is_empty() {
                     sql.push_bind(", last_writer = ", OptId(written_by));
                 }
-                sql.push_bind(", update_at = ", now);
+                sql.push_bind(", updated_at = ", now);
                 where_as_read(&mut sql, block_id, DocAsRead { log_end, ..as_read });
                 sql.push(" RETURNING log_end");
                 let Some(row) = scope.fetch_optional(sql).await? else {
@@ -299,7 +299,7 @@ impl Store {
             let mut sql = scope.sql("UPDATE body_docs SET state = ");
             sql.bind(Param::Bytes(state.to_vec()))
                 .push_bind(", state_seq = ", through_seq)
-                .push_bind(", update_at = ", now_millis());
+                .push_bind(", updated_at = ", now_millis());
             where_as_read(&mut sql, block_id, as_read);
             if scope.execute(sql).await? == 0 {
                 return Err(not_as_read(scope, block_id).await);
@@ -335,7 +335,7 @@ impl Store {
             sql.bind(Param::Bytes(state.to_vec()))
                 .push(", state_seq = log_end, projected_seq = log_end, epoch = epoch + 1")
                 .push_bind(", body_digest = ", Param::Bytes(body_digest.to_vec()))
-                .push_bind(", update_at = ", now_millis());
+                .push_bind(", updated_at = ", now_millis());
             where_as_read(&mut sql, block_id, as_read);
             sql.push(" RETURNING epoch");
             let Some(row) = scope.fetch_optional(sql).await? else {
@@ -357,9 +357,9 @@ impl Store {
     /// body is (its plain text, task counts and the files it shows with it), and the
     /// document is marked as written up to there, with `body_digest` the digest of
     /// `body`. With `body` `None` the block is not patched: its body is the document's
-    /// already. `read_at` is the block's `update_at` as it was read: a block changed
+    /// already. `read_at` is the block's `updated_at` as it was read: a block changed
     /// since is not written over. (A restore from the trash in the same millisecond as
-    /// the read, and the import's own writing of bodies, which keeps `update_at`, are
+    /// the read, and the import's own writing of bodies, which keeps `updated_at`, are
     /// not seen; neither writes a block whose document is open.)
     ///
     /// Only the body of the document as it was read (`as_read`) is written: the block

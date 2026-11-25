@@ -267,10 +267,10 @@ describe('which property places the cards, and where a card goes', () => {
     expect(displayableProperties([text, made, due])).toEqual([made, due]);
   });
 
-  function cardWith(value: unknown, createAt = 0): Card {
+  function cardWith(value: unknown, createdAt = 0): Card {
     const card = createCard();
     card.id = 'card';
-    card.createAt = createAt;
+    card.createdAt = createdAt;
     if (value !== undefined) setCardProperty(card, 'due', value as string);
     return card;
   }

@@ -68,8 +68,8 @@ describe('unit reviews & notes API client', () => {
       scheduledDate: '2026-11-25',
       completedAt: null,
       intervalDays: 1,
-      createAt: 100,
-      updateAt: 100,
+      createdAt: 100,
+      updatedAt: 100,
     };
     const note: UnitNote = {
       id: 'n1',
@@ -77,8 +77,8 @@ describe('unit reviews & notes API client', () => {
       containerId: 'c1',
       kind: 'question',
       content: 'Why borrow here?',
-      createAt: 100,
-      updateAt: 100,
+      createdAt: 100,
+      updatedAt: 100,
     };
     const request: WikiRequest = <T>(
       path: string,
@@ -181,7 +181,7 @@ describe('unit reviews & notes API client', () => {
         plannedDate: null,
         lastPosition: null,
         suggestedNextIntervalDays: 7,
-        updateAt: 100,
+        updatedAt: 100,
       }).suggestedNextIntervalDays,
     ).toBe(7);
     expect(
@@ -192,7 +192,7 @@ describe('unit reviews & notes API client', () => {
           plannedDate: null,
           lastPosition: null,
           suggestedNextIntervalDays: null,
-          updateAt: 100,
+          updatedAt: 100,
         }),
     ).toBe(false);
   });
@@ -322,7 +322,7 @@ describe('unit reviews & notes in memory backend', () => {
       scheduleNextIntervalDays: 7,
     });
     expect(replay.review.completedAt).toBe(firstComplete.review.completedAt);
-    expect(replay.review.updateAt).toBe(firstComplete.review.updateAt);
+    expect(replay.review.updatedAt).toBe(firstComplete.review.updatedAt);
     expect(replay.nextReview).toBeNull();
 
     // Zero WS broadcasts emitted on review writes.

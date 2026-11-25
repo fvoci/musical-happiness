@@ -12,7 +12,7 @@ use crate::db::{Id, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 
 /// The columns of a subscription, in the order [`subscription_from_row`] reads them.
-const SUBSCRIPTION_COLUMNS: &str = "block_type, block_id, user_id, notified_at, create_at";
+const SUBSCRIPTION_COLUMNS: &str = "block_type, block_id, user_id, notified_at, created_at";
 
 /// A subscription, and the board or the wiki its block is on: what decides whether its
 /// user may know of it.
@@ -98,7 +98,7 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
             sql.push_bind(" AND user_id = ", Id(user_id))
-                .push(" ORDER BY create_at, block_id");
+                .push(" ORDER BY created_at, block_id");
             fetch_subscriptions(scope, sql).await
         })
         .await
@@ -124,7 +124,7 @@ impl Store {
                     scope.same_organization(&[("bo", "bl")]),
                 ))
                 .bind(Id(workspace_id))
-                .push(") ORDER BY create_at, block_id");
+                .push(") ORDER BY created_at, block_id");
             fetch_subscriptions(scope, sql).await
         })
         .await
@@ -144,7 +144,7 @@ impl Store {
     ) -> Result<Vec<WatchedBlock>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(&format!(
-                "SELECT s.block_type, s.block_id, s.user_id, s.notified_at, s.create_at, \
+                "SELECT s.block_type, s.block_id, s.user_id, s.notified_at, s.created_at, \
                  bl.container_id FROM subscriptions AS s \
                  JOIN blocks AS bl ON bl.id = s.block_id{} \
                  JOIN containers AS bo ON bo.id = bl.container_id{} WHERE s.user_id = ",
@@ -155,7 +155,7 @@ impl Store {
             if let Some(workspace_id) = workspace_id {
                 sql.push_bind(" AND bo.workspace_id = ", Id(workspace_id));
             }
-            sql.push(" ORDER BY s.create_at, s.block_id");
+            sql.push(" ORDER BY s.created_at, s.block_id");
             scope
                 .fetch_all(sql)
                 .await?
@@ -244,7 +244,7 @@ fn subscription_from_row(row: &Row) -> Result<Subscription, StoreError> {
         block_id: row.id(1)?,
         user_id: row.id(2)?,
         notified_at: row.int(3)?,
-        create_at: row.int(4)?,
+        created_at: row.int(4)?,
         // A subscription that exists is not ended.
         deleted_at: None,
     })
@@ -284,7 +284,7 @@ pub(crate) async fn create_subscription(
     let now = now_millis();
     let subscription = Subscription {
         notified_at: now,
-        create_at: now,
+        created_at: now,
         deleted_at: None,
         ..subscription
     };
@@ -298,7 +298,7 @@ pub(crate) async fn create_subscription(
         .push_bind(", ", Id(&subscription.block_id))
         .push_bind(", ", Id(&subscription.user_id))
         .push_bind(", ", subscription.notified_at)
-        .push_bind(", ", subscription.create_at)
+        .push_bind(", ", subscription.created_at)
         .push(
             ") ON CONFLICT (block_id, user_id) DO UPDATE SET \
              notified_at = EXCLUDED.notified_at",

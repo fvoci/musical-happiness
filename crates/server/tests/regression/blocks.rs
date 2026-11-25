@@ -111,15 +111,15 @@ pub(crate) async fn blocks(s: &mut Session) {
         .user(&alice)
         .await;
     s.post("insert: no type", &path)
-        .json(json!([{"id": "x1", "containerId": board, "createAt": 1, "updateAt": 1}]))
+        .json(json!([{"id": "x1", "containerId": board, "createdAt": 1, "updatedAt": 1}]))
         .user(&alice)
         .await;
-    s.post("insert: no createAt", &path)
-        .json(json!([{"id": "x1", "containerId": board, "type": "card", "updateAt": 1}]))
+    s.post("insert: no createdAt", &path)
+        .json(json!([{"id": "x1", "containerId": board, "type": "card", "updatedAt": 1}]))
         .user(&alice)
         .await;
-    s.post("insert: no updateAt", &path)
-        .json(json!([{"id": "x1", "containerId": board, "type": "card", "createAt": 1}]))
+    s.post("insert: no updatedAt", &path)
+        .json(json!([{"id": "x1", "containerId": board, "type": "card", "createdAt": 1}]))
         .user(&alice)
         .await;
     s.post("insert: other board id", &path)
@@ -296,8 +296,8 @@ pub(crate) async fn blocks(s: &mut Session) {
     let second_path = format!("{ROOT_API}/boards/{second}/blocks");
     s.post("insert without identifiers", &second_path)
         .json(json!([
-            {"containerId": second, "type": "card", "title": "Nameless one", "createAt": 1, "updateAt": 1},
-            {"containerId": second, "type": "card", "title": "Nameless two", "createAt": 1, "updateAt": 1},
+            {"containerId": second, "type": "card", "title": "Nameless one", "createdAt": 1, "updatedAt": 1},
+            {"containerId": second, "type": "card", "title": "Nameless two", "createdAt": 1, "updatedAt": 1},
         ]))
         .user(&alice)
         .await;

@@ -19,10 +19,10 @@ impl Store {
     pub async fn identities_of_user(&self, user_id: &str) -> Result<Vec<TiedIdentity>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT issuer, subject, email, create_at FROM user_identities WHERE user_id = ",
+                "SELECT issuer, subject, email, created_at FROM user_identities WHERE user_id = ",
             );
             sql.bind(Id(user_id))
-                .push(" ORDER BY create_at, issuer, subject");
+                .push(" ORDER BY created_at, issuer, subject");
             scope
                 .fetch_all(sql)
                 .await?
@@ -32,7 +32,7 @@ impl Store {
                         issuer: row.text(0)?,
                         subject: row.text(1)?,
                         email: row.text(2)?,
-                        create_at: row.int(3)?,
+                        created_at: row.int(3)?,
                     })
                 })
                 .collect()
@@ -116,7 +116,7 @@ impl Store {
             // one identity at once the second waits for the first and ties nothing, and
             // the transaction goes on to read whose it is.
             let mut sql = scope.sql(
-                "INSERT INTO user_identities (issuer, subject, user_id, email, create_at) VALUES (",
+                "INSERT INTO user_identities (issuer, subject, user_id, email, created_at) VALUES (",
             );
             sql.bind(identity.issuer)
                 .push_bind(", ", identity.subject)
@@ -212,7 +212,7 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("SELECT email FROM user_identities WHERE user_id = ");
             sql.bind(Id(user_id))
-                .push(" ORDER BY create_at, issuer, subject");
+                .push(" ORDER BY created_at, issuer, subject");
             scope
                 .fetch_all(sql)
                 .await?
@@ -241,7 +241,7 @@ impl Store {
             .await
     }
 
-    /// Ties an identity to an account at `create_at` (milliseconds since the Unix
+    /// Ties an identity to an account at `created_at` (milliseconds since the Unix
     /// epoch). For tests that verify ordering against other timestamps.
     ///
     /// # Errors
@@ -254,21 +254,21 @@ impl Store {
         user_id: &str,
         identity: Identity<'_>,
         provider_email: &str,
-        create_at: i64,
+        created_at: i64,
     ) -> Result<(), StoreError> {
         self.with_write_conn(async |scope| {
-            crate::oidc::insert_identity(scope, identity, user_id, provider_email, create_at).await
+            crate::oidc::insert_identity(scope, identity, user_id, provider_email, created_at).await
         })
         .await
     }
 }
 
-/// The latest `create_at` among identities tied to `user_id`, if any exists.
-pub(crate) async fn latest_create_at(
+/// The latest `created_at` among identities tied to `user_id`, if any exists.
+pub(crate) async fn latest_created_at(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<Option<i64>, StoreError> {
-    let mut latest = scope.sql("SELECT MAX(create_at) FROM user_identities WHERE user_id = ");
+    let mut latest = scope.sql("SELECT MAX(created_at) FROM user_identities WHERE user_id = ");
     latest.bind(Id(user_id));
     match scope.fetch_optional(latest).await? {
         Some(row) => row.opt_int(0),
@@ -285,7 +285,7 @@ pub(crate) async fn remove_linked_after(
     after: i64,
 ) -> Result<u64, StoreError> {
     let mut sql = scope.sql("DELETE FROM user_identities WHERE user_id = ");
-    sql.bind(Id(user_id)).push_bind(" AND create_at > ", after);
+    sql.bind(Id(user_id)).push_bind(" AND created_at > ", after);
     scope.execute(sql).await
 }
 
@@ -299,7 +299,7 @@ pub struct TiedIdentity {
     /// The email address the provider gave when it was tied; empty for none.
     pub email: String,
     /// When it was tied, in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
 }
 
 /// The session a sign-in to link was started from, as the browser brings it back.

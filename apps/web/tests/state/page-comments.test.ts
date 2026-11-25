@@ -51,23 +51,23 @@ describe('the comments on a page, in memory', () => {
     ]);
     const changed = await theirs.patchComment(...at, own.id, {
       body: text('mine, again'),
-      readAt: own.updateAt,
+      readAt: own.updatedAt,
     });
     expect(changed.editedAt).toBeGreaterThan(0);
     const before = await theirs.commentVersions(...at, own.id);
     expect(before.map((version) => version.body)).toEqual([text('mine')]);
-    const write = { body: text('no'), readAt: admins.updateAt };
+    const write = { body: text('no'), readAt: admins.updatedAt };
     expect(await rejection(theirs.patchComment(...at, admins.id, write))).toBe(403);
     expect(await rejection(theirs.deleteComment(...at, admins.id))).toBe(403);
     // A stale text and an empty one.
     expect(
       await rejection(
-        theirs.patchComment(...at, own.id, { body: text('x'), readAt: own.updateAt }),
+        theirs.patchComment(...at, own.id, { body: text('x'), readAt: own.updatedAt }),
       ),
     ).toBe(409);
     expect(await rejection(theirs.createComment(...at, { type: 'doc', content: [] }))).toBe(400);
     // The admin's way with somebody else's.
-    await mine.patchComment(...at, own.id, { body: text('moderated'), readAt: changed.updateAt });
+    await mine.patchComment(...at, own.id, { body: text('moderated'), readAt: changed.updatedAt });
     const another = await theirs.createComment(...at, text('mine, deleted'));
     await theirs.deleteComment(...at, another.id);
     await mine.deleteComment(...at, own.id);
@@ -127,7 +127,7 @@ describe('the comments on a page, in memory', () => {
     expect(comments.comments.map((comment) => comment.body)).toEqual([text('from them')]);
     await made.other.wiki.patchComment(...at, theirs.id, {
       body: text('changed'),
-      readAt: theirs.updateAt,
+      readAt: theirs.updatedAt,
     });
     await settle();
     expect(comments.comment(theirs.id)?.body).toEqual(text('changed'));
@@ -234,9 +234,12 @@ describe('the versions of a page’s body, in memory', () => {
     let read = await wiki.page(made.wikiId, made.pageId);
     read = await wiki.patchPage(made.wikiId, made.pageId, {
       body: text('first'),
-      readAt: read.updateAt,
+      readAt: read.updatedAt,
     });
-    await wiki.patchPage(made.wikiId, made.pageId, { body: text('second'), readAt: read.updateAt });
+    await wiki.patchPage(made.wikiId, made.pageId, {
+      body: text('second'),
+      readAt: read.updatedAt,
+    });
     const listed = await made.other.wiki.bodyVersions.list(made.wikiId, made.pageId);
     expect(listed.map((version) => version.isCurrent)).toEqual([true, false]);
     const [, older] = listed;
@@ -268,7 +271,7 @@ describe('the versions of a page’s body, in memory', () => {
     const read = await made.backend.wiki.page(made.wikiId, made.pageId);
     await made.backend.wiki.patchPage(made.wikiId, made.pageId, {
       body: text('kept'),
-      readAt: read.updateAt,
+      readAt: read.updatedAt,
     });
     const store = new WikiStore(made.workspace, made.wikiId);
     await store.load();
@@ -287,11 +290,11 @@ describe('the versions of a page’s body, in memory', () => {
     const read = await wiki.page(made.wikiId, made.pageId);
     const first = await wiki.patchPage(made.wikiId, made.pageId, {
       body: text('first'),
-      readAt: read.updateAt,
+      readAt: read.updatedAt,
     });
     await wiki.patchPage(made.wikiId, made.pageId, {
       body: text('second'),
-      readAt: first.updateAt,
+      readAt: first.updatedAt,
     });
     const [, older] = await made.other.wiki.bodyVersions.list(made.wikiId, made.pageId);
     if (!older) throw new Error('two versions');

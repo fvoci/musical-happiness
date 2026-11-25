@@ -737,7 +737,7 @@ pub(crate) async fn take_blocks_out_of_trash(
     for block in &mut restored {
         adjust(block);
         block.deleted_at = None;
-        block.update_at = now;
+        block.updated_at = now;
         user_id.clone_into(&mut block.modified_by);
         known_users
             .forget_if_gone(scope, &mut block.created_by)
@@ -897,7 +897,7 @@ pub(crate) async fn undelete_container(
 
     let now = now_millis();
     container.deleted_at = None;
-    container.update_at = now;
+    container.updated_at = now;
     user_id.clone_into(&mut container.modified_by);
     let mut known_users = KnownUsers::default();
     known_users

@@ -141,14 +141,14 @@ pub enum StoreError {
     },
 
     /// A patch was made against a block as it was before its last change.
-    #[error("block {id} changed at {update_at}, after it was read at {read_at}")]
+    #[error("block {id} changed at {updated_at}, after it was read at {read_at}")]
     Stale {
         /// The block.
         id: String,
-        /// The `updateAt` the patch was made against.
+        /// The `updatedAt` the patch was made against.
         read_at: i64,
-        /// The block's `updateAt`.
-        update_at: i64,
+        /// The block's `updatedAt`.
+        updated_at: i64,
     },
 
     /// A block's document was written since whoever writes it now read it: it logged

@@ -8,7 +8,9 @@ use fvoci_store::{DbType, Store};
 use serde_json::{Value, json};
 use sqlx::Connection as _;
 
-use crate::common::{self, db_type};
+use crate::common::{
+    self, PRE0075_CREATE_COL, PRE0075_CREATE_KEY, PRE0075_UPDATE_COL, PRE0075_UPDATE_KEY, db_type,
+};
 
 // Retired pre-0072 column and JSON key names assembled via `concat!` so repository-wide
 // searches outside `crates/store/schema/` see zero literal occurrences.
@@ -60,17 +62,17 @@ async fn seed_pre0072_users(
              WHERE id = '{waiting_user}'"
         ),
         format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, {OLD_COL}) \
+            "INSERT INTO users (id, username, email, password_hash, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, {OLD_COL}) \
              VALUES ('{deactivated_user}', 'deactivated', 'deactivated@example.com', '', 10, 10, 1700000000100)"
         ),
         format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+            "INSERT INTO users (id, username, email, password_hash, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, \
              {OLD_COL}, delete_after, erase_started_at, erased_at) \
              VALUES ('{erased_user}', '', '', '', 0, 0, 1700000000200, 1700000000200, \
              1700000000300, 1700000000400)"
         ),
         format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+            "INSERT INTO users (id, username, email, password_hash, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, \
              {OLD_COL}, delete_after, erase_started_at, erased_at) \
              VALUES ('{erased_user_2}', '', '', '', 0, 0, 1700000000210, 1700000000210, \
              1700000000310, 1700000000410)"
@@ -86,11 +88,11 @@ async fn seed_pre0072_users(
         .expect("deleted personal org");
     for sql in [
         format!(
-            "INSERT INTO organizations (id, name, kind, owner_id, settings, create_at, update_at, {OLD_COL}) \
+            "INSERT INTO organizations (id, name, kind, owner_id, settings, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, {OLD_COL}) \
              VALUES ('{deleted_personal_org}', '', 'personal', '{erased_user}', '{{}}', 5, 5, 1700000000600)"
         ),
         format!(
-            "INSERT INTO workspaces (id, org_id, name, settings, guest_invitations, create_at, update_at, {OLD_COL}) \
+            "INSERT INTO workspaces (id, org_id, name, settings, guest_invitations, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, {OLD_COL}) \
              VALUES ('{deleted_personal_ws}', '{deleted_personal_org}', '', '{{}}', false, 5, 5, 1700000000600)"
         ),
         format!(
@@ -117,11 +119,11 @@ async fn seed_pre0072_workspaces(scoped_a: &Store, org_a: &str) -> (String, Stri
     let trashed_design_ws = new_id();
     for sql in [
         format!(
-            "INSERT INTO workspaces (id, org_id, name, settings, guest_invitations, create_at, update_at, {OLD_COL}) \
+            "INSERT INTO workspaces (id, org_id, name, settings, guest_invitations, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, {OLD_COL}) \
              VALUES ('{live_design_ws}', '{org_a}', 'Design', '{{}}', false, 30, 30, 0)"
         ),
         format!(
-            "INSERT INTO workspaces (id, org_id, name, settings, guest_invitations, create_at, update_at, {OLD_COL}) \
+            "INSERT INTO workspaces (id, org_id, name, settings, guest_invitations, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, {OLD_COL}) \
              VALUES ('{trashed_design_ws}', '{org_a}', 'Design', '{{}}', false, 25, 25, 1700000000800)"
         ),
     ] {
@@ -143,7 +145,7 @@ async fn seed_pre0072_deleted_containers(
         format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, visibility, kind, title, description, \
-              icon, show_description, is_template, properties, card_properties, create_at, update_at) \
+              icon, show_description, is_template, properties, card_properties, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
              VALUES ('{live_board_id}', '{ws_a}', '{alice}', '{alice}', 'private', 'board', \
               'Live Board', '', '', false, false, '{{}}', '[]', 100, 200)"
         ),
@@ -171,7 +173,7 @@ async fn seed_pre0072_deleted_containers(
         "plain description"
     };
     let pos_board_doc = format!(
-        r#"{{"id":"{trashed_board_pos}","workspaceId":"{ws_a}","createdBy":"{alice}","modifiedBy":"{alice}","visibility":"private","kind":"board","title":"Trashed Pos","description":"{desc}","cardProperties":[],"createAt":100,"updateAt":200,"{OLD_KEY}":1700000000900}}"#
+        r#"{{"id":"{trashed_board_pos}","workspaceId":"{ws_a}","createdBy":"{alice}","modifiedBy":"{alice}","visibility":"private","kind":"board","title":"Trashed Pos","description":"{desc}","cardProperties":[],"{PRE0075_CREATE_KEY}":100,"{PRE0075_UPDATE_KEY}":200,"{OLD_KEY}":1700000000900}}"#
     );
     let zero_board_doc = json!({
         "id": trashed_board_zero,
@@ -182,8 +184,8 @@ async fn seed_pre0072_deleted_containers(
         "kind": "board",
         "title": "Trashed Zero",
         "cardProperties": [],
-        "createAt": 100,
-        "updateAt": 200,
+        (PRE0075_CREATE_KEY): 100,
+        (PRE0075_UPDATE_KEY): 200,
         (OLD_KEY): 0
     })
     .to_string();
@@ -235,7 +237,7 @@ async fn seed_pre0072_deleted_blocks(
         (new_id(), new_id(), new_id());
     let pos_card_doc = if scoped_a.db_type() == DbType::Postgres {
         format!(
-            r#"{{"id":"{trashed_card_pos}","containerId":"{live_board_id}","parentId":"","createdBy":"{alice}","modifiedBy":"{alice}","schema":1,"type":"card","title":"NUL Card","fields":{{"note":"nul:\u0000 literal:\\u0000"}},"createAt":110,"updateAt":210,"{OLD_KEY}":1700000000950,"number":1}}"#
+            r#"{{"id":"{trashed_card_pos}","containerId":"{live_board_id}","parentId":"","createdBy":"{alice}","modifiedBy":"{alice}","schema":1,"type":"card","title":"NUL Card","fields":{{"note":"nul:\u0000 literal:\\u0000"}},"{PRE0075_CREATE_KEY}":110,"{PRE0075_UPDATE_KEY}":210,"{OLD_KEY}":1700000000950,"number":1}}"#
         )
     } else {
         json!({
@@ -248,8 +250,8 @@ async fn seed_pre0072_deleted_blocks(
             "type": "card",
             "title": "Pos Card",
             "fields": {"note": "plain"},
-            "createAt": 110,
-            "updateAt": 210,
+            (PRE0075_CREATE_KEY): 110,
+            (PRE0075_UPDATE_KEY): 210,
             (OLD_KEY): 1_700_000_000_950_i64,
             "number": 1
         })
@@ -265,8 +267,8 @@ async fn seed_pre0072_deleted_blocks(
         "type": "card",
         "title": "Zero Card",
         "fields": {},
-        "createAt": 110,
-        "updateAt": 210,
+        (PRE0075_CREATE_KEY): 110,
+        (PRE0075_UPDATE_KEY): 210,
         (OLD_KEY): 0,
         "number": 2
     })
@@ -281,8 +283,8 @@ async fn seed_pre0072_deleted_blocks(
         "type": "card",
         "title": "Decoy Nested Key",
         "fields": {(OLD_KEY): "must-keep-nested-field"},
-        "createAt": 110,
-        "updateAt": 210,
+        (PRE0075_CREATE_KEY): 110,
+        (PRE0075_UPDATE_KEY): 210,
         (OLD_KEY): 1_700_000_000_960_i64,
         "number": 3
     })
@@ -340,11 +342,12 @@ async fn seed_pre0072_trash(
 }
 
 async fn seed_pre0072_second_org(pre: &Store) -> Pre0072SecondOrg {
-    let (org_b, ws_b) = common::organization(pre, "org-b").await;
+    let (org_b, ws_b) = common::pre0075_organization(pre, "org-b").await;
     let scoped_b = pre.for_org(&org_b).expect("org-b");
     let bob = common::pre0072_user(&scoped_b, &org_b, &ws_b, "bob").await;
 
-    let (deleted_shared_org, deleted_shared_ws) = common::organization(pre, "org-deleted").await;
+    let (deleted_shared_org, deleted_shared_ws) =
+        common::pre0075_organization(pre, "org-deleted").await;
     pre.system()
         .execute_unchecked(&format!(
             "UPDATE organizations SET {OLD_COL} = 1700000000700 WHERE id = '{deleted_shared_org}'"
@@ -364,7 +367,7 @@ async fn seed_pre0072_second_org(pre: &Store) -> Pre0072SecondOrg {
         format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, visibility, kind, title, description, \
-              icon, show_description, is_template, properties, card_properties, create_at, update_at) \
+              icon, show_description, is_template, properties, card_properties, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
              VALUES ('{live_board_b}', '{ws_b}', '{bob}', '{bob}', 'open', 'board', \
               'Org B Live', '', '', false, false, '{{}}', '[]', 100, 200)"
         ),
@@ -395,8 +398,8 @@ async fn seed_pre0072_second_org(pre: &Store) -> Pre0072SecondOrg {
         "kind": "board",
         "title": "Org B Trashed Board",
         "cardProperties": [],
-        "createAt": 100,
-        "updateAt": 200,
+        (PRE0075_CREATE_KEY): 100,
+        (PRE0075_UPDATE_KEY): 200,
         (OLD_KEY): 1_700_000_000_980_i64
     })
     .to_string();
@@ -410,8 +413,8 @@ async fn seed_pre0072_second_org(pre: &Store) -> Pre0072SecondOrg {
         "type": "card",
         "title": "Org B Trashed Card",
         "fields": {},
-        "createAt": 110,
-        "updateAt": 210,
+        (PRE0075_CREATE_KEY): 110,
+        (PRE0075_UPDATE_KEY): 210,
         (OLD_KEY): 1_700_000_000_990_i64,
         "number": 1
     })
@@ -443,7 +446,7 @@ async fn seed_pre0072_second_org(pre: &Store) -> Pre0072SecondOrg {
 }
 
 async fn seed_pre0072(pre: &Store) -> Pre0072Fixture {
-    let (org_a, ws_a) = common::organization(pre, "org-a").await;
+    let (org_a, ws_a) = common::pre0075_organization(pre, "org-a").await;
     let scoped_a = pre.for_org(&org_a).expect("org-a");
     let (live_user, waiting_user, deactivated_user, erased_user, deleted_personal_org) =
         seed_pre0072_users(pre, &org_a, &ws_a).await;
@@ -518,8 +521,8 @@ async fn assert_post0072_users_and_checks(migrated: &Store, fx: &Pre0072Fixture)
     let erased = find(&fx.erased_user);
     assert_eq!(
         (
-            erased.create_at,
-            erased.update_at,
+            erased.created_at,
+            erased.updated_at,
             erased.deleted_at,
             erased.username.as_str()
         ),
@@ -550,7 +553,7 @@ async fn assert_post0072_user_constraints(migrated: &Store, fx: &Pre0072Fixture)
     // waiting/deactivated accounts keep their username and email reserved until erased.
     assert!(
         sys.execute_unchecked(&format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, deleted_at) \
+            "INSERT INTO users (id, username, email, password_hash, created_at, updated_at, deleted_at) \
              VALUES ('{}', 'WAITING', 'other@example.com', '', 1, 1, NULL)",
             new_id()
         ))
@@ -560,7 +563,7 @@ async fn assert_post0072_user_constraints(migrated: &Store, fx: &Pre0072Fixture)
     );
     assert!(
         sys.execute_unchecked(&format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, deleted_at) \
+            "INSERT INTO users (id, username, email, password_hash, created_at, updated_at, deleted_at) \
              VALUES ('{}', 'unique_u', 'DEACTIVATED@example.com', '', 1, 1, NULL)",
             new_id()
         ))
@@ -569,7 +572,7 @@ async fn assert_post0072_user_constraints(migrated: &Store, fx: &Pre0072Fixture)
         "deactivated account email stays reserved"
     );
     sys.execute_unchecked(&format!(
-        "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+        "INSERT INTO users (id, username, email, password_hash, created_at, updated_at, \
          deleted_at, delete_after, erase_started_at, erased_at) \
          VALUES ('{}', '', '', '', 0, 0, 999, 999, 999, 999)",
         new_id()
@@ -652,7 +655,7 @@ async fn assert_post0072_orgs_and_workspaces(migrated: &Store, fx: &Pre0072Fixtu
     assert!(
         scoped_a
             .execute_unchecked(&format!(
-                "INSERT INTO workspaces (id, org_id, name, settings, create_at, update_at, deleted_at) \
+                "INSERT INTO workspaces (id, org_id, name, settings, created_at, updated_at, deleted_at) \
                  VALUES ('{}', '{}', 'Design', '{{}}', 1, 1, NULL)",
                 new_id(),
                 fx.org_a
@@ -663,7 +666,7 @@ async fn assert_post0072_orgs_and_workspaces(migrated: &Store, fx: &Pre0072Fixtu
     );
     scoped_a
         .execute_unchecked(&format!(
-            "INSERT INTO workspaces (id, org_id, name, settings, create_at, update_at, deleted_at) \
+            "INSERT INTO workspaces (id, org_id, name, settings, created_at, updated_at, deleted_at) \
              VALUES ('{}', '{}', 'Design', '{{}}', 1, 1, 555)",
             new_id(),
             fx.org_a

@@ -425,8 +425,8 @@ impl App {
                 .patch_blocks(&batch, user_id)
                 .await
                 .map_err(not_written)?;
-            // The patch moved `updateAt` on: the caller's copies are what is answered and
-            // announced, and a client edits them with that `updateAt` as `readAt`.
+            // The patch moved `updatedAt` on: the caller's copies are what is answered and
+            // announced, and a client edits them with that `updatedAt` as `readAt`.
             let patched: HashSet<&str> = batch.block_ids.iter().map(String::as_str).collect();
             for block in blocks.iter_mut() {
                 if patched.contains(block.id.as_str()) {
@@ -572,7 +572,7 @@ impl App {
             container_id: container_id.to_owned(),
             stored_name: format!("{secret}{}", source.extension),
             path: key.to_string(),
-            create_at: now_millis(),
+            created_at: now_millis(),
             // A file of its own, with the newest bytes of the one it copies as its
             // only version, by nobody.
             version: 1,
@@ -621,7 +621,7 @@ pub(super) fn file_record(
         size: size_to_i64(size),
         name: place.name,
         extension: place.extension,
-        create_at: now_millis(),
+        created_at: now_millis(),
         version: 1,
         created_by: user_id.to_owned(),
     }

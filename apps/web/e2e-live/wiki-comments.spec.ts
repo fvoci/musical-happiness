@@ -63,7 +63,7 @@ async function twoOnAPage(
   for (const body of plan.bodies) {
     made = (await (
       await api.patch(`${pages}/${made.id}`, {
-        data: { body: paragraph(body), readAt: made.updateAt },
+        data: { body: paragraph(body), readAt: made.updatedAt },
       })
     ).json()) as Schemas['Page'];
   }

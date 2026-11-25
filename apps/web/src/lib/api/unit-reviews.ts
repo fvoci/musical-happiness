@@ -32,8 +32,8 @@ export function unitReviewOf(row: Schemas['UnitReview']): UnitReview {
     scheduledDate: row.scheduledDate,
     completedAt: row.completedAt ?? null,
     intervalDays: row.intervalDays,
-    createAt: row.createAt,
-    updateAt: row.updateAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -55,8 +55,8 @@ export function todayReviewItemOf(row: Schemas['TodayReviewItem']): TodayReviewI
     scheduledDate: row.scheduledDate,
     intervalDays: row.intervalDays,
     overdueDays: row.overdueDays,
-    createAt: row.createAt,
-    updateAt: row.updateAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -67,8 +67,8 @@ export function unitNoteOf(row: Schemas['UnitNote']): UnitNote {
     containerId: row.containerId,
     kind: row.kind,
     content: row.content,
-    createAt: row.createAt,
-    updateAt: row.updateAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 

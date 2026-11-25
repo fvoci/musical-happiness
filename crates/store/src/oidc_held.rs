@@ -24,7 +24,7 @@ use crate::sessions;
 
 /// The columns of a held sign-in, in the order [`held_from_row`] reads them.
 const HELD_COLUMNS: &str = "held_hash, org_id, provider_id, revision, issuer, subject, email, \
-                            email_unverified, name, preferred_username, create_at, expires_at";
+                            email_unverified, name, preferred_username, created_at, expires_at";
 
 /// A sign-in through a provider that is held: who the provider vouches for, who is
 /// nobody's yet, and what it said of them.
@@ -52,7 +52,7 @@ pub struct HeldSignIn {
     /// The name the person goes by at the provider; empty for none.
     pub preferred_username: String,
     /// When it was held, in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// When it can no longer be taken, in milliseconds since the Unix epoch.
     pub expires_at: i64,
 }
@@ -114,7 +114,7 @@ pub enum CarryOverRefusal {
 impl Store {
     /// Holds a sign-in through the provider of the handle's organization, if that is
     /// still the provider it came through, on, at the revision it vouched at, and a
-    /// former provider is kept at `held.create_at`; and says whether it is held.
+    /// former provider is kept at `held.created_at`; and says whether it is held.
     /// `held.org_id` is the handle's. One that is not held goes on as a sign-in
     /// does, which reads the provider again where it ends.
     ///
@@ -135,7 +135,7 @@ impl Store {
                 .push_bind(", ", held.email_unverified)
                 .push_bind(", ", &held.name)
                 .push_bind(", ", &held.preferred_username)
-                .push_bind(", ", held.create_at)
+                .push_bind(", ", held.created_at)
                 .push_bind(", ", held.expires_at)
                 .push_bind(
                     " FROM oidc_providers AS p WHERE p.id = ",
@@ -148,7 +148,7 @@ impl Store {
                     " AND EXISTS (SELECT 1 FROM oidc_former_providers AS former \
                      WHERE former.org_id = p.org_id",
                 )
-                .push_bind(" AND former.expires_at > ", held.create_at)
+                .push_bind(" AND former.expires_at > ", held.created_at)
                 .push(")");
             Ok(scope.execute(sql).await? > 0)
         })
@@ -375,7 +375,7 @@ pub(crate) async fn tie_unless_taken(
     // reverting a change made before this tie always removes it.
     let created = crate::email_revert::after_latest(scope, tying.user_id, tying.now).await?;
     let mut sql = scope
-        .sql("INSERT INTO user_identities (issuer, subject, user_id, email, create_at) VALUES (");
+        .sql("INSERT INTO user_identities (issuer, subject, user_id, email, created_at) VALUES (");
     sql.bind(identity.issuer)
         .push_bind(", ", identity.subject)
         .push_bind(", ", Id(tying.user_id))
@@ -407,7 +407,7 @@ fn held_from_row(row: &Row) -> Result<HeldSignIn, StoreError> {
         email_unverified: row.bool(7)?,
         name: row.text(8)?,
         preferred_username: row.text(9)?,
-        create_at: row.int(10)?,
+        created_at: row.int(10)?,
         expires_at: row.int(11)?,
     })
 }

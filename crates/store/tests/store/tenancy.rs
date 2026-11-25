@@ -93,7 +93,7 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
     let insert = |org: &str| {
         format!(
             "INSERT INTO containers (id, org_id, workspace_id, visibility, title, description, icon, \
-             show_description, is_template, properties, card_properties, create_at, update_at) \
+             show_description, is_template, properties, card_properties, created_at, updated_at) \
              VALUES ('{}', {org}, '{their_workspace}', 'open', '', '', '', false, false, '{{}}', '[]', 0, 0)",
             new_id()
         )
@@ -357,7 +357,7 @@ async fn open_upload(store: &Store, workspace_id: &str, user_id: &str, size: i64
         name: "upload.bin".to_owned(),
         size,
         part_size: size,
-        create_at: 1,
+        created_at: 1,
         expires_at: i64::MAX,
         ..Upload::default()
     };

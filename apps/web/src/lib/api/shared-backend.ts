@@ -58,8 +58,8 @@ const READER: User = {
   username: '',
   displayName: '',
   email: '',
-  createAt: 0,
-  updateAt: 0,
+  createdAt: 0,
+  updatedAt: 0,
 };
 
 /** A change, which a reader by the link does not make. */

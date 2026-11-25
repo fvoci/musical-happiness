@@ -222,7 +222,7 @@ export class MemoryBackend implements Backend {
   }
 
   #touch(block: StoredBlock): void {
-    block.updateAt = this.world.now();
+    block.updatedAt = this.world.now();
     block.modifiedBy = this.userId;
   }
 
@@ -247,8 +247,8 @@ export class MemoryBackend implements Backend {
       type,
       title: '',
       fields: {},
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
   }
 
@@ -349,8 +349,8 @@ export class MemoryBackend implements Backend {
       title: draft.title,
       description: draft.description ?? '',
       icon: draft.icon ?? '',
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     if (draft.cardProperties) board.cardProperties = copy(draft.cardProperties);
     this.world.containers.set(board.id, board);
@@ -369,7 +369,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('patchContainer');
     const board = applyContainerPatch(this.#container(id), patch);
     this.world.containers.set(id, board);
-    board.updateAt = this.world.now();
+    board.updatedAt = this.world.now();
     board.modifiedBy = this.userId;
     this.#tellContainer(board);
     return copy(board);
@@ -382,7 +382,7 @@ export class MemoryBackend implements Backend {
       fail(403, 'access denied to modifying board properties');
     }
     const board = inPropertyOrder(current, propertyIds);
-    board.updateAt = this.world.now();
+    board.updatedAt = this.world.now();
     board.modifiedBy = this.userId;
     this.world.containers.set(boardId, board);
     this.#tellContainer(board);
@@ -617,7 +617,7 @@ export class MemoryBackend implements Backend {
     const wanted = query.trim().toLowerCase();
     return (await this.users(workspaceId))
       .filter((user) => userFound(user, wanted))
-      .sort((first, second) => first.createAt - second.createAt)
+      .sort((first, second) => first.createdAt - second.createdAt)
       .slice(0, 10);
   }
 
@@ -686,7 +686,7 @@ export class MemoryBackend implements Backend {
     return this.#viewTurns.patchView(viewId, patch, async (sent) => {
       await this.#enter('patchView');
       const stored = this.#block(boardId, viewId, 'view') as StoredView;
-      if (sent.readAt !== undefined && stored.updateAt !== sent.readAt) {
+      if (sent.readAt !== undefined && stored.updatedAt !== sent.readAt) {
         fail(409, 'the block has changed since it was read');
       }
       const view: StoredView = { ...stored, ...applyViewPatch(stored, sent) };
@@ -752,7 +752,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('writeCardBody');
     const card = this.#block(boardId, cardId, 'card') as StoredCard;
     const body = checkedWhole(this.world, boardId, cardId, write.body);
-    if (card.updateAt !== write.readAt) fail(409, 'the card changed since it was read');
+    if (card.updatedAt !== write.readAt) fail(409, 'the card changed since it was read');
     writtenWhole(this.world, card, body, this.userId, () => {
       card.body = body;
       this.#touch(card);
@@ -797,7 +797,7 @@ export class MemoryBackend implements Backend {
     }
     const checked = checkedComment(this.world, boardId, write.body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
-    if (block.updateAt !== write.readAt) {
+    if (block.updatedAt !== write.readAt) {
       fail(409, 'the comment changed since it was read');
     }
     const before = block.body ?? null;

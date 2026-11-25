@@ -148,8 +148,8 @@ async fn copying_a_card_or_template_includes_pending_bodies_of_child_cards() {
         block_type: BlockType::Card,
         title: "Child".to_owned(),
         body: fvoci_model::Body::parse(paragraphs(&["child"])).expect("a body"),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let children: Vec<Block> = th

@@ -117,8 +117,8 @@ export function entryOf(block: StoredBlock): DiaryEntry {
     mood: fields.mood ?? null,
     weather: fields.weather ?? '',
     place: fields.place ?? '',
-    createAt: block.createAt,
-    updateAt: block.updateAt,
+    createdAt: block.createdAt,
+    updatedAt: block.updatedAt,
   };
 }
 
@@ -132,8 +132,8 @@ export function pageOf(block: StoredBlock): WikiPage {
     title: block.title,
     icon: typeof icon === 'string' ? icon : '',
     order: orderOf(block),
-    createAt: block.createAt,
-    updateAt: block.updateAt,
+    createdAt: block.createdAt,
+    updatedAt: block.updatedAt,
   };
 }
 
@@ -156,8 +156,8 @@ export function unitOf(block: StoredBlock): CourseUnit {
     amountUnit: kind === 'unit' && isAmountUnit(fields.amountUnit) ? fields.amountUnit : null,
     scheduledDate:
       kind === 'unit' && typeof fields.scheduledDate === 'string' ? fields.scheduledDate : null,
-    createAt: block.createAt,
-    updateAt: block.updateAt,
+    createdAt: block.createdAt,
+    updatedAt: block.updatedAt,
   };
 }
 

@@ -99,9 +99,9 @@ test('the body in its room, in each state the reader can see', async ({ browser,
   const readAt = async (): Promise<number> =>
     (
       (await (await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)).json()) as {
-        updateAt: number;
+        updatedAt: number;
       }
-    ).updateAt;
+    ).updatedAt;
   const written = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
     data: { body, readAt: await readAt() },
   });

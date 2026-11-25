@@ -111,7 +111,7 @@ async fn shared_course(th: &TestServer) -> SharedCourse {
         .expect("a line")
         .extend([mention(&owner_id), mention(&other_id)]);
     let path = format!("{at}/{unit}");
-    let read_at = owner.get(&path).await.value()["updateAt"].clone();
+    let read_at = owner.get(&path).await.value()["updatedAt"].clone();
     owner
         .patch(&path, &json!({"readAt": read_at, "body": body}))
         .await
@@ -283,7 +283,7 @@ async fn course_link_boundaries_switches_presence_and_invariants() {
         }))
         .await;
     let unit_path = format!("{TEST_WS}/courses/{}/units/{}", shared.course, shared.unit);
-    let read_at = owner.get(&unit_path).await.value()["updateAt"].clone();
+    let read_at = owner.get(&unit_path).await.value()["updatedAt"].clone();
     owner
         .patch(&unit_path, &json!({"readAt": read_at, "title": "Renamed"}))
         .await

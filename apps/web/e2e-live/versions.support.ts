@@ -27,7 +27,7 @@ export async function writeWhole(
 ): Promise<void> {
   const card = (await (await api.get(cardAt(board, cardId))).json()) as Schemas['Card'];
   const written = await api.patch(cardAt(board, cardId), {
-    data: { body: typeof body === 'string' ? paragraph(body) : body, readAt: card.updateAt },
+    data: { body: typeof body === 'string' ? paragraph(body) : body, readAt: card.updatedAt },
   });
   expect(written.ok()).toBe(true);
 }

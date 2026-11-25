@@ -80,7 +80,7 @@ fn incompressible(size: usize) -> Vec<u8> {
 /// `container.jsonl`, each written with `method`.
 fn archive_with(entries: &[(&str, &[u8])], method: zip::CompressionMethod) -> Vec<u8> {
     let board = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Limits", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Limits", "createdAt": 1, "updatedAt": 1,
     }});
     archive_of(&board, entries, method)
 }
@@ -140,8 +140,8 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
                 .as_object()
                 .expect("an object")
                 .clone(),
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Block::default()
         });
     }
@@ -187,7 +187,7 @@ async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = json!({"type": "container", "data": {
         "id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "visibility": "private", "title": "Imported board",
-        "createAt": 1, "updateAt": 1,
+        "createdAt": 1, "updatedAt": 1,
     }});
     let archive = archive_of(&board, &[], zip::CompressionMethod::Deflated);
     import(&ts.client, TEST_WORKSPACE_ID, &archive)
@@ -202,7 +202,7 @@ async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     assert_eq!(imported[0].workspace_id, TEST_WORKSPACE_ID);
 
     let invalid = json!({"type": "container", "data": {
-        "id": "b2", "workspaceId": 5, "visibility": "private", "title": "Numbered", "createAt": 1, "updateAt": 1,
+        "id": "b2", "workspaceId": 5, "visibility": "private", "title": "Numbered", "createdAt": 1, "updatedAt": 1,
     }});
     let archive = archive_of(&invalid, &[], zip::CompressionMethod::Deflated);
     let refused = import(&ts.client, TEST_WORKSPACE_ID, &archive).await;
@@ -216,7 +216,7 @@ async fn an_archive_board_validates_workspace_id_and_ignores_unknown_keys() {
     // An unknown workspace-like key is ignored rather than aliased to `workspaceId`.
     let unknown_key = json!({"type": "container", "data": {
         "id": "b3", "legacyWorkspaceId": 5, "visibility": "private", "title": "Unknown key ignored",
-        "createAt": 1, "updateAt": 1,
+        "createdAt": 1, "updatedAt": 1,
     }});
     let archive = archive_of(&unknown_key, &[], zip::CompressionMethod::Deflated);
     import(&ts.client, TEST_WORKSPACE_ID, &archive)
@@ -242,8 +242,8 @@ async fn an_archive_makes_its_wiki_a_wiki_and_refuses_a_template_wiki_whole() {
     let board_of = |kind: &str, template: bool| {
         json!({"type": "container", "data": {
             "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": kind,
-            "isTemplate": template, "title": format!("Archived {kind}"), "createAt": 1,
-            "updateAt": 1,
+            "isTemplate": template, "title": format!("Archived {kind}"), "createdAt": 1,
+            "updatedAt": 1,
         }})
     };
     let archive = |kind: &str| {
@@ -513,8 +513,8 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
             .as_object()
             .expect("an object")
             .clone(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     ts.client
@@ -636,7 +636,7 @@ async fn duplicate_entries_in_native_archive_are_refused_with_400() {
     let ts = Setup::native().start().await.init_basic().await;
     let before = boards_of(&ts).await.len();
     let board = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Dup", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Dup", "createdAt": 1, "updatedAt": 1,
     }});
     let opts = zip::write::SimpleFileOptions::default();
 
@@ -691,14 +691,14 @@ fn oversized_after_rename_native_zip() -> Vec<u8> {
     );
 
     let b1 = json!({"type": "container", "data": {
-        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Valid First", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Valid First", "createdAt": 1, "updatedAt": 1,
     }});
     let b2 = json!({"type": "container", "data": {
-        "id": "b2", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Overflow Second", "createAt": 1, "updateAt": 1,
+        "id": "b2", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Overflow Second", "createdAt": 1, "updatedAt": 1,
     }});
     let card = json!({"type": "block", "data": {
         "id": "c1", "containerId": "b2", "parentId": "", "type": "card", "title": "Big",
-        "fields": {}, "body": doc, "createAt": 1, "updateAt": 1,
+        "fields": {}, "body": doc, "createdAt": 1, "updatedAt": 1,
     }});
     let opts = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);

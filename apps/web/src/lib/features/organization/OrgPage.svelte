@@ -122,7 +122,7 @@
         remove={() => admin.deleteOidcProvider()}
         onSignIn={onSsoSignIn}
         discard={() => admin.discardOidcPending()}
-        endFormer={(createAt: number) => admin.endOidcFormer(createAt)}
+        endFormer={(createdAt: number) => admin.endOidcFormer(createdAt)}
         onTry={tryPending}
       />
     {/key}

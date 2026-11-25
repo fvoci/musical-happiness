@@ -74,9 +74,9 @@ export interface Organizations {
   discardOidcPending(orgId: string): Promise<void>;
   /**
    * Ends, before its time, the keeping of the provider the organization moved
-   * away from: the one read, kept since `createAt`. 409 if another is kept by now.
+   * away from: the one read, kept since `createdAt`. 409 if another is kept by now.
    */
-  endOidcFormer(orgId: string, createAt: number): Promise<void>;
+  endOidcFormer(orgId: string, createdAt: number): Promise<void>;
   /** Starts a sign-in through the pending settings: the address to send the browser to. */
   startOidcTrial(orgId: string): Promise<string>;
   /**

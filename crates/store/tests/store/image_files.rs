@@ -18,7 +18,7 @@ fn record_of(board_id: &str, stored_name: &str) -> FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
-        create_at: 1,
+        created_at: 1,
         path: format!("boards/{board_id}/{stored_name}"),
         name: "upload.png".to_owned(),
         extension: ".png".to_owned(),

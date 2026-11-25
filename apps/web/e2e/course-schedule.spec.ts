@@ -294,8 +294,8 @@ test('isolates unjoined open-course readers and strips all schedule UI/requests 
           properties: {},
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;
@@ -312,8 +312,8 @@ test('isolates unjoined open-course readers and strips all schedule UI/requests 
             amount: 30,
             amountUnit: 'minutes',
             scheduledDate: isoDateOffset(-2),
-            createAt: 1,
-            updateAt: 1,
+            createdAt: 1,
+            updatedAt: 1,
           },
         ],
       });
@@ -334,8 +334,8 @@ test('isolates unjoined open-course readers and strips all schedule UI/requests 
           body: null,
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;

@@ -164,7 +164,7 @@ impl App {
         for _ in 0..REVIEW_NOTIFY_MAX_ROUNDS {
             let after = cursor
                 .as_ref()
-                .map(|(date, create_at, id)| (date.as_str(), *create_at, id.as_str()));
+                .map(|(date, created_at, id)| (date.as_str(), *created_at, id.as_str()));
             let batch = app
                 .store()
                 .due_unnotified_reviews(&max_date, after, REVIEW_NOTIFY_ROUND)
@@ -216,7 +216,11 @@ impl App {
                 break;
             }
             if let Some(last) = batch.last() {
-                cursor = Some((last.scheduled_date.clone(), last.create_at, last.id.clone()));
+                cursor = Some((
+                    last.scheduled_date.clone(),
+                    last.created_at,
+                    last.id.clone(),
+                ));
             }
         }
         Ok(sent)

@@ -92,7 +92,7 @@ async fn migration_0062_to_0063_creates_unit_progress_behind_rls() {
     let pre = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("open at 0062");
-    let (org_id, workspace_id) = common::organization(&pre, "school").await;
+    let (org_id, workspace_id) = common::pre0075_organization(&pre, "school").await;
     let scoped = pre.for_org(&org_id).expect("org handle");
     let owner = common::pre0072_user(&scoped, &org_id, &workspace_id, "teacher").await;
     let course_id = new_id();
@@ -100,9 +100,11 @@ async fn migration_0062_to_0063_creates_unit_progress_behind_rls() {
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-              show_description, is_template, properties, card_properties, create_at, update_at) \
+              show_description, is_template, properties, card_properties, {}, {}) \
              VALUES ('{course_id}', '{workspace_id}', '{owner}', '{owner}', 'P', 'course', \
-              'Course', '', '', false, false, '{{}}', '[]', 1, 1)"
+              'Course', '', '', false, false, '{{}}', '[]', 1, 1)",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ))
         .await
         .expect("pre-0063 course stored");
@@ -122,15 +124,22 @@ async fn migration_0062_to_0063_creates_unit_progress_behind_rls() {
         id: course_id,
         ..Container::default()
     };
-    let unit = create_item(
-        &scoped.telling_nobody(),
-        &course.id,
-        UnitKind::Unit,
-        "",
-        "Intro",
-        &owner,
-    )
-    .await;
+    let mut unit = fvoci_model::Block {
+        id: new_id(),
+        container_id: course.id.clone(),
+        block_type: UnitKind::Unit.block_type(),
+        title: "Intro".to_owned(),
+        fields: NewUnit {
+            kind: UnitKind::Unit,
+            title: "Intro".to_owned(),
+            ..NewUnit::default()
+        }
+        .to_fields(),
+        ..fvoci_model::Block::default()
+    };
+    unit.fields
+        .insert("order".to_owned(), serde_json::json!("V"));
+    common::pre0075_insert_block(&scoped, &mut unit, &owner).await;
     pre.close().await;
 
     let migrated = Store::connect(database.db_type(), database.database_connection())
@@ -624,7 +633,7 @@ async fn postgres_org_isolation_and_cross_org_key_safety() {
     assert!(err.is_not_found(), "{err:?}");
 
     test.execute_unchecked(&format!(
-        "INSERT INTO unit_progress (unit_id, container_id, user_id, completed_at, update_at) \
+        "INSERT INTO unit_progress (unit_id, container_id, user_id, completed_at, updated_at) \
          VALUES ('{}', '{}', '{user_b}', 100, 100)",
         unit_b.id, course_b.id
     ))

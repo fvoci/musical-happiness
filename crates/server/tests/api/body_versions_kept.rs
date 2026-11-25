@@ -291,8 +291,8 @@ async fn a_server_that_starts_keeps_what_a_killed_one_left() {
         );
     }
     assert_eq!(
-        card(&th.client, &written).await.update_at,
-        typed_into.update_at,
+        card(&th.client, &written).await.updated_at,
+        typed_into.updated_at,
         "a card that held its body is not written again"
     );
 

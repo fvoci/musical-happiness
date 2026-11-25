@@ -648,7 +648,7 @@ fn waiting(
             .to_owned(),
         start,
         browser_hash: token_digest(marker.secret()),
-        create_at: now,
+        created_at: now,
         expires_at: now.saturating_add(SIGNUP_LIFETIME_MILLIS),
     }
 }

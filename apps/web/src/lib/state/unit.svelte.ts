@@ -76,7 +76,7 @@ export class UnitStore {
     return this.course.courseId;
   }
 
-  #read(): Promise<{ kind: 'unit' | 'chapter'; body: DocNode | null; updateAt: number }> {
+  #read(): Promise<{ kind: 'unit' | 'chapter'; body: DocNode | null; updatedAt: number }> {
     const courses = this.course.workspace.backend.course;
     if (!courses) return Promise.reject(new Error('this backend has no courses'));
     return courses.unit(this.#courseId, this.unitId);
@@ -149,8 +149,8 @@ export class UnitStore {
         this.gone();
         return;
       }
-      if (!first && detail.updateAt <= this.#readAt) return;
-      this.#readAt = detail.updateAt;
+      if (!first && detail.updatedAt <= this.#readAt) return;
+      this.#readAt = detail.updatedAt;
       if (!sameDoc(detail.body, this.body)) this.body = detail.body;
       void this.course.workspace.learnUsers(mentionedIn(detail.body));
       [this.status, this.missing] = ['ready', false];
@@ -185,7 +185,7 @@ export class UnitStore {
 
   /** The unit changed in the outline: re-read its body unless the room holds it. */
   unitChanged(unit: CourseUnit): void {
-    if (unit.id !== this.unitId || unit.updateAt <= this.#readAt || this.missing) return;
+    if (unit.id !== this.unitId || unit.updatedAt <= this.#readAt || this.missing) return;
     if (this.#busy()) {
       this.#news = unit;
       return;

@@ -200,7 +200,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       const sibling = this.#world.blocks.get(id);
       if (!sibling) return [];
       sibling.fields = { ...sibling.fields, order };
-      sibling.updateAt = now;
+      sibling.updatedAt = now;
       return [sibling];
     });
     node.fields = { ...node.fields, order: place.order };
@@ -267,8 +267,8 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       description: draft.description ?? '',
       icon: draft.icon ?? '',
       cardProperties: [],
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     world.containers.set(course.id, course);
     world.members.set(course.id, [memberOf(course.id, userId, 'admin')]);
@@ -313,8 +313,8 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       title,
       fields: scheduleFields,
       body: null,
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     const renumbered = this.#writePlace(made, place);
     this.#world.blocks.set(made.id, made);
@@ -338,14 +338,14 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       patch.body === undefined
         ? undefined
         : checkedWhole(this.#world, courseId, unitId, patch.body);
-    if (patch.readAt !== undefined && patch.readAt !== node.updateAt) {
+    if (patch.readAt !== undefined && patch.readAt !== node.updatedAt) {
       throw new BackendError(409, { detail: 'the unit changed since it was read' });
     }
     const write = (): void => {
       if (title !== undefined) node.title = title;
       if (body !== undefined) node.body = body;
       if (nextFields !== undefined) node.fields = nextFields;
-      node.updateAt = this.#world.now();
+      node.updatedAt = this.#world.now();
       node.modifiedBy = this.#host.userId;
     };
     if (body === undefined) write();
@@ -367,7 +367,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
     const place = tree.place(parentId, to.after, unitId);
     const renumbered = this.#writePlace(node, place);
     node.parentId = parentId;
-    node.updateAt = this.#world.now();
+    node.updatedAt = this.#world.now();
     node.modifiedBy = this.#host.userId;
     this.#tellUnits(courseId, [...renumbered, node]);
     return detailOf(node);

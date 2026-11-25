@@ -326,7 +326,7 @@ describe('a page copied with the pages below it', () => {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hello' }] }],
     };
-    await wikis.patchPage(made.wikiId, a, { icon: '📘', body, readAt: read.updateAt });
+    await wikis.patchPage(made.wikiId, a, { icon: '📘', body, readAt: read.updatedAt });
     await made.store.load();
     const copy = await made.store.duplicatePage(a, 'A (copy)');
     if (!copy) throw new Error('no copy');

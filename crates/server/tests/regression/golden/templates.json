@@ -28,7 +28,7 @@
     "status": 0,
     "body": [
       "cardProperties",
-      "createAt",
+      "createdAt",
       "createdBy",
       "description",
       "icon",
@@ -42,7 +42,7 @@
       "showDescription",
       "templateVersion",
       "title",
-      "updateAt",
+      "updatedAt",
       "visibility",
       "workspaceId"
     ]
@@ -77,7 +77,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -91,7 +91,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "My template",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -103,7 +103,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -117,7 +117,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "My template",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -211,7 +211,7 @@
           "type": "relation"
         }
       ],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
       "icon": "👋",
@@ -225,7 +225,7 @@
       "showDescription": true,
       "templateVersion": 12,
       "title": "Getting started with fvoci",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -258,12 +258,12 @@
             "hidden": false
           }
         ],
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "id": "<id:20>",
         "name": "Boards",
         "sortOrder": 10,
         "type": "system",
-        "updateAt": "<ts>",
+        "updatedAt": "<ts>",
         "userId": "<id:2>",
         "workspaceId": "<id:1>"
       }

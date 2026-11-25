@@ -62,7 +62,7 @@ test('a language chosen from the keys is stored, alone, and the block opens agai
   const card = (await (await api.get(cardAt)).json()) as Schemas['Card'];
   // Stored as plain text in a language it is not: the reader corrects it.
   const written = await api.patch(cardAt, {
-    data: { readAt: card.updateAt, body: codeBody('text') },
+    data: { readAt: card.updatedAt, body: codeBody('text') },
   });
   expect(written.ok()).toBe(true);
 

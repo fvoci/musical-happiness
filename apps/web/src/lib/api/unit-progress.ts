@@ -23,7 +23,7 @@ export function unitProgressOf(row: Schemas['UnitProgress']): UnitProgress {
     ...(typeof row.suggestedNextIntervalDays === 'number'
       ? { suggestedNextIntervalDays: row.suggestedNextIntervalDays }
       : {}),
-    updateAt: row.updateAt,
+    updatedAt: row.updatedAt,
   };
 }
 

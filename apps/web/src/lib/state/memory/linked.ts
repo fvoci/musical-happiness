@@ -105,7 +105,7 @@ export class MemoryReferences implements References {
       if (source && source.id !== blockId) naming.set(source.id, source);
     }
     const shown = [...naming.values()]
-      .sort((a, b) => a.createAt - b.createAt || a.id.localeCompare(b.id))
+      .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
       .flatMap((block) => this.#shown(block, workspaceId) ?? []);
     return pageOf(shown, paging);
   }
@@ -122,7 +122,7 @@ export class MemoryReferences implements References {
       .filter((block) => block.fields.isTemplate !== true)
       .filter((block) => world.containers.get(block.containerId)?.isTemplate !== true)
       .filter((block) => words.every((word) => block.title.toLowerCase().includes(word)))
-      .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
+      .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
       .flatMap((block) => this.#shown(block, workspaceId) ?? [])
       .slice(0, FOUND_AT_MOST);
   }

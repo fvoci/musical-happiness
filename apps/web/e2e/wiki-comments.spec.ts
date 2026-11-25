@@ -31,13 +31,13 @@ test.describe.configure({ mode: 'parallel', timeout: 90_000 });
 /** What `fvociDev.someoneElse()` offers these tests of a page (src/app/backend.ts). */
 interface Elsewhere {
   wiki: {
-    page(wikiId: string, pageId: string): Promise<{ updateAt: number }>;
+    page(wikiId: string, pageId: string): Promise<{ updatedAt: number }>;
     patchPage(wikiId: string, pageId: string, patch: object): Promise<unknown>;
     createComment(
       wikiId: string,
       pageId: string,
       body: object,
-    ): Promise<{ id: string; updateAt: number }>;
+    ): Promise<{ id: string; updatedAt: number }>;
     patchComment(
       wikiId: string,
       pageId: string,
@@ -84,17 +84,17 @@ async function commentElsewhere(
   page: Page,
   place: Place,
   text: string,
-  act: { change?: { id: string; updateAt: number }; remove?: string } = {},
-): Promise<{ id: string; updateAt: number }> {
+  act: { change?: { id: string; updatedAt: number }; remove?: string } = {},
+): Promise<{ id: string; updatedAt: number }> {
   return page.evaluate(
     async ({ at, what, body }) => {
       const { wiki } = (window as unknown as { fvociDev: Dev }).fvociDev.someoneElse();
       if (what.remove) {
         await wiki.deleteComment(at.wikiId, at.pageId, what.remove);
-        return { id: what.remove, updateAt: 0 };
+        return { id: what.remove, updatedAt: 0 };
       }
       if (what.change) {
-        const write = { body, readAt: what.change.updateAt };
+        const write = { body, readAt: what.change.updatedAt };
         await wiki.patchComment(at.wikiId, at.pageId, what.change.id, write);
         return what.change;
       }
@@ -115,7 +115,7 @@ async function writtenElsewhere(page: Page, place: Place, texts: string[]): Prom
           type: 'doc',
           content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
         };
-        await wiki.patchPage(at.wikiId, at.pageId, { body, readAt: read.updateAt });
+        await wiki.patchPage(at.wikiId, at.pageId, { body, readAt: read.updatedAt });
       }
     },
     { at: place, said: texts },

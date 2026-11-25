@@ -152,13 +152,13 @@ fn only_whole_runs_are_identifiers_or_secrets() {
 fn lists_keep_their_order() {
     let mut placeholders = Placeholders::default();
     let value = json!([
-        {"id": SECOND, "title": "b", "updateAt": 1_700_000_000_001_i64},
+        {"id": SECOND, "title": "b", "updatedAt": 1_700_000_000_001_i64},
         {"id": FIRST, "title": "a", "token": "x"},
     ]);
     assert_eq!(
         placeholders.value(&value, ""),
         json!([
-            {"id": "<id:1>", "title": "b", "updateAt": "<ts>"},
+            {"id": "<id:1>", "title": "b", "updatedAt": "<ts>"},
             {"id": "<id:2>", "title": "a", "token": "<secret>"},
         ]),
         "as they came, numbered in that order"

@@ -28,11 +28,11 @@ async fn set_public_link_and_get_public_link() {
             enabled: true,
             token: "token".to_owned(),
             modified_by: user_id.clone(),
-            update_at: first.update_at,
+            updated_at: first.updated_at,
         },
         "the state that was stored is returned"
     );
-    assert!(first.update_at > 0, "the store sets the time");
+    assert!(first.updated_at > 0, "the store sets the time");
     let stored = store.get_public_link(board_id).await.expect("it is read");
     assert_eq!(stored, first, "and read");
 

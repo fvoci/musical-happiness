@@ -196,7 +196,7 @@ async fn a_document_written_past_is_not_made_again() {
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", e.card_id),
-            &json!({"body": whole, "readAt": read.update_at}),
+            &json!({"body": whole, "readAt": read.updated_at}),
         )
         .await
         .check_ok();
@@ -267,7 +267,7 @@ async fn a_card_the_other_server_wrote_does_not_make_the_document_again() {
         .project_body(
             &e.card_id,
             Some(body.clone()),
-            read.update_at,
+            read.updated_at,
             as_read.log_end,
             &body_digest(body.as_ref()),
             &e.user2,
@@ -314,7 +314,7 @@ async fn a_body_is_not_written_to_a_card_the_other_server_holds_written() {
         .project_body(
             &e.card_id,
             None,
-            held.update_at,
+            held.updated_at,
             as_read.log_end,
             &unchanged,
             &e.user2,
@@ -330,8 +330,8 @@ async fn a_body_is_not_written_to_a_card_the_other_server_holds_written() {
     assert_eq!(told(&mut events, &e), [DocChange::Reopened]);
     let left = card(&th.client, &e.card_id).await;
     assert_eq!(
-        (texts(body_of(&left)), left.update_at),
-        (vec!["first".to_owned(), "ours".to_owned()], held.update_at),
+        (texts(body_of(&left)), left.updated_at),
+        (vec!["first".to_owned(), "ours".to_owned()], held.updated_at),
         "the card is as the other left it"
     );
     let after = stored(&e).await;

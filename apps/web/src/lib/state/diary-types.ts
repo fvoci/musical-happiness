@@ -61,8 +61,8 @@ export interface DiaryEntry extends DayNotes {
   id: string;
   diaryId: string;
   date: CalendarDate;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** An entry read on its own or with its page: with its body. */
@@ -78,7 +78,7 @@ export interface EntryPatch extends Partial<DayNotes> {
   body?: DocNode | null;
   /** Blocks appended after the entry's current body inside one server transaction. */
   appendBody?: DocNode | null;
-  /** The `updateAt` the entry was read at: one whose body changed since is refused (409). */
+  /** The `updatedAt` the entry was read at: one whose body changed since is refused (409). */
   readAt?: number;
 }
 

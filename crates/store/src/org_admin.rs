@@ -79,7 +79,7 @@ impl Store {
     ) -> Result<Organization, StoreError> {
         self.transaction(async |scope| {
             let before = held_by_admin(scope, actor_id).await?;
-            let mut sql = scope.sql("UPDATE organizations SET update_at = ");
+            let mut sql = scope.sql("UPDATE organizations SET updated_at = ");
             sql.bind(now_millis());
             if let Some(name) = &patch.name {
                 sql.push_bind(", name = ", name);
@@ -124,7 +124,7 @@ impl Store {
                  AND om.org_id = ",
             ));
             sql.bind(scope.org()?)
-                .push(" ORDER BY om.create_at, om.user_id");
+                .push(" ORDER BY om.created_at, om.user_id");
             push_page(&mut sql, paging);
             scope
                 .fetch_all(sql)
@@ -214,7 +214,7 @@ impl Store {
             );
             sql.bind(Id(viewer_id))
                 .push_bind(" WHERE w.org_id = ", scope.org()?)
-                .push(" ORDER BY w.create_at, w.id");
+                .push(" ORDER BY w.created_at, w.id");
             scope
                 .fetch_all(sql)
                 .await?
@@ -283,7 +283,7 @@ impl Store {
             let mut sql = scope.sql("UPDATE workspaces SET name = ");
             sql.bind(name)
                 .push_bind(", modified_by = ", OptId(actor_id))
-                .push_bind(", update_at = ", now_millis())
+                .push_bind(", updated_at = ", now_millis())
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NULL");
@@ -350,7 +350,7 @@ impl Store {
             // the workspace the first left: the removal holds the row.
             let mut sql = scope.sql("UPDATE workspaces SET deleted_at = NULL");
             sql.push_bind(", modified_by = ", OptId(actor_id))
-                .push_bind(", update_at = ", now_millis())
+                .push_bind(", updated_at = ", now_millis())
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NOT NULL");
@@ -445,7 +445,7 @@ impl Store {
             } else {
                 let mut sql = scope.sql(
                     "INSERT INTO workspace_members (workspace_id, user_id, role, \
-                     via_org_admin, prior_container_roles, create_at) VALUES (",
+                     via_org_admin, prior_container_roles, created_at) VALUES (",
                 );
                 sql.bind(Id(workspace_id))
                     .push_bind(", ", Id(user_id))

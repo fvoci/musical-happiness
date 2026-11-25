@@ -173,7 +173,7 @@ export async function searchBoardsOf(
       return [];
     }),
   );
-  return (await Promise.all(found)).flat().sort((one, other) => one.createAt - other.createAt);
+  return (await Promise.all(found)).flat().sort((one, other) => one.createdAt - other.createdAt);
 }
 
 /** Copies the welcome board for a new account and hands it to `receive`. */

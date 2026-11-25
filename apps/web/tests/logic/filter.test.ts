@@ -41,8 +41,8 @@ describe('src/cardFilter', () => {
   card1.title = 'card1';
   setCardProperty(card1, 'propertyId', 'Status');
 
-  card1.createAt = at(reader.timeZone, 2023, 12, 7);
-  card1.updateAt = at(reader.timeZone, 2023, 12, 7);
+  card1.createdAt = at(reader.timeZone, 2023, 12, 7);
+  card1.updatedAt = at(reader.timeZone, 2023, 12, 7);
   card1.deletedAt = at(reader.timeZone, 2023, 12, 7);
   const filterClause = createFilterClause({
     propertyId: 'propertyId',

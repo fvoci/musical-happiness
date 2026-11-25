@@ -164,7 +164,7 @@ test('people are shown by display name and login name wherever the board names t
   ).json()) as Schemas['Card'];
   const written = await ownerApi.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
     data: {
-      readAt: card.updateAt,
+      readAt: card.updatedAt,
       updatedProperties: { owner: namedId },
       body: {
         type: 'doc',
@@ -190,8 +190,8 @@ test('people are shown by display name and login name wherever the board names t
           parentId: cardId,
           type: 'comment',
           title: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
           fields: {},
           body: {
             type: 'doc',

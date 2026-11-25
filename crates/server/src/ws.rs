@@ -541,7 +541,7 @@ impl Hub {
         let block = Block {
             id: block_id.to_owned(),
             container_id: container_id.to_owned(),
-            update_at: now,
+            updated_at: now,
             deleted_at: Some(now),
             ..Block::default()
         };
@@ -563,7 +563,7 @@ impl Hub {
         let block = Block {
             id: block_id.to_owned(),
             container_id: container_id.to_owned(),
-            update_at: now,
+            updated_at: now,
             deleted_at: Some(now),
             ..Block::default()
         };
@@ -925,7 +925,7 @@ fn gone_container(workspace_id: &str, container_id: &str) -> Container {
     Container {
         id: container_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
-        update_at: now,
+        updated_at: now,
         deleted_at: Some(now),
         ..Container::default()
     }

@@ -29,7 +29,7 @@ function keptOf(file: StoredFile): KeptFileVersion[] {
     file.versions ?? [
       {
         version: 1,
-        createAt: file.createAt ?? 0,
+        createdAt: file.createdAt ?? 0,
         createdBy: file.createdBy ?? '',
         size: file.size,
         restoredFrom: null,
@@ -41,7 +41,7 @@ function keptOf(file: StoredFile): KeptFileVersion[] {
 
 const told = (kept: KeptFileVersion, newest: number): FileVersion => ({
   version: kept.version,
-  createAt: kept.createAt,
+  createdAt: kept.createdAt,
   createdBy: kept.createdBy,
   size: kept.size,
   isCurrent: kept.version === newest,
@@ -199,7 +199,7 @@ export class MemoryFileVersions implements FileVersions {
     const kept = keptOf(file);
     const made: KeptFileVersion = {
       version: (kept.at(-1)?.version ?? 1) + 1,
-      createAt: this.#world.now(),
+      createdAt: this.#world.now(),
       createdBy: this.#userId,
       size,
       restoredFrom,
@@ -220,7 +220,7 @@ export class MemoryFileVersions implements FileVersions {
     );
     for (const block of changed) {
       if (block.file) block.file = { ...block.file, size: file.size };
-      block.updateAt = this.#world.now();
+      block.updatedAt = this.#world.now();
       block.modifiedBy = this.#userId;
     }
     if (changed.length > 0) {

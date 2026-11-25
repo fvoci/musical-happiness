@@ -6,7 +6,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -20,7 +20,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Subscribed board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -34,7 +34,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:4>",
@@ -44,7 +44,7 @@
         "schema": 1,
         "title": "Watched card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -57,7 +57,7 @@
       {
         "blockId": "<id:4>",
         "blockType": "card",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "notifiedAt": "<ts>",
         "userId": "<id:2>"
       }
@@ -71,7 +71,7 @@
     "body": {
       "blockId": "<id:4>",
       "blockType": "card",
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "notifiedAt": "<ts>",
       "userId": "<id:2>"
     }
@@ -84,7 +84,7 @@
     "body": {
       "blockId": "<id:4>",
       "blockType": "card",
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "notifiedAt": "<ts>",
       "userId": "<id:2>"
     }
@@ -154,7 +154,7 @@
       {
         "blockId": "<id:4>",
         "blockType": "card",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "notifiedAt": "<ts>",
         "userId": "<id:2>"
       }

@@ -60,7 +60,7 @@ export async function storeUpload(
     contentType: file.type || 'application/octet-stream',
     blob: file as Blob,
   };
-  world.files.set(stored.fileId, { ...stored, createAt: world.now(), createdBy: userId });
+  world.files.set(stored.fileId, { ...stored, createdAt: world.now(), createdBy: userId });
   const { blob: _blob, containerId: _containerId, ...answer } = stored;
   return answer;
 }

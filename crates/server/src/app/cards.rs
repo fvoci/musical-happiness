@@ -57,8 +57,8 @@ impl App {
             board_id: board_id.to_owned(),
             created_by: user_id.to_owned(),
             modified_by: user_id.to_owned(),
-            create_at: now,
-            update_at: now,
+            created_at: now,
+            updated_at: now,
             deleted_at: None,
             ..card
         };
@@ -228,8 +228,8 @@ mod tests {
                 container_id: "b-board".to_owned(),
                 block_type: fvoci_model::BlockType::Card,
                 title: "a card".to_owned(),
-                create_at: 1,
-                update_at: 1,
+                created_at: 1,
+                updated_at: 1,
                 ..Block::default()
             };
             block.fields.insert("properties".to_owned(), properties);
@@ -273,8 +273,8 @@ mod tests {
                 container_id: "b-board".to_owned(),
                 block_type: fvoci_model::BlockType::Card,
                 title: "a card".to_owned(),
-                create_at: 1,
-                update_at: 1,
+                created_at: 1,
+                updated_at: 1,
                 ..Block::default()
             };
             block.fields.insert(field.to_owned(), value.clone());

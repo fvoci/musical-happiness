@@ -474,7 +474,7 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
     // change at the latest, and who made that change may have changed something else.
     // One asked for is kept when it was asked for.
     let kept_at = if editors.is_empty() && body.cause != BodyVersionCause::Manual {
-        block.update_at
+        block.updated_at
     } else {
         now_millis()
     };

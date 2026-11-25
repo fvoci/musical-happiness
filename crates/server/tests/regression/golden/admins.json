@@ -5,7 +5,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -19,7 +19,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "root"
     }
   },
@@ -29,7 +29,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -43,7 +43,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "admins-alice"
     }
   },
@@ -53,7 +53,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -65,7 +65,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "root"
     }
   },
@@ -80,7 +80,7 @@
       "modifiedBy": "",
       "settings": {},
       "title": "The Firm",
-      "updateAt": "<ts>"
+      "updatedAt": "<ts>"
     }
   },
   {
@@ -94,7 +94,7 @@
       "modifiedBy": "",
       "settings": {},
       "title": "The Firm",
-      "updateAt": "<ts>"
+      "updatedAt": "<ts>"
     }
   },
   {
@@ -229,7 +229,7 @@
     "status": 201,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:1>",
       "expiresAt": "<ts>",
       "id": "<id:11>",
@@ -424,7 +424,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -436,7 +436,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "admins-bob"
     }
   },
@@ -446,7 +446,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -458,7 +458,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "admins-bob"
     }
   },
@@ -473,7 +473,7 @@
       "modifiedBy": "",
       "settings": {},
       "title": "The Firm",
-      "updateAt": "<ts>"
+      "updatedAt": "<ts>"
     }
   },
   {
@@ -482,7 +482,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -494,7 +494,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "root"
     }
   },
@@ -524,7 +524,7 @@
       "modifiedBy": "",
       "settings": {},
       "title": "The Firm",
-      "updateAt": "<ts>"
+      "updatedAt": "<ts>"
     }
   },
   {

@@ -17,7 +17,7 @@ import {
 const version = (number: number, more: Partial<FileVersion> = {}): FileVersion => ({
   version: number,
   // Noon: the same day wherever the test runs.
-  createAt: Date.UTC(2026, 0, number, 12),
+  createdAt: Date.UTC(2026, 0, number, 12),
   createdBy: 'u1',
   size: 1024 * number,
   isCurrent: false,
@@ -199,7 +199,7 @@ describe('the list of the versions of a file', () => {
 
   it('reactively updates formatted timestamps when the regional prop changes', async () => {
     const source = sourceOf({
-      list: () => Promise.resolve([version(1, { createAt: Date.UTC(2026, 0, 1, 20, 15, 0) })]),
+      list: () => Promise.resolve([version(1, { createdAt: Date.UTC(2026, 0, 1, 20, 15, 0) })]),
     });
     const list = new VersionsList(source);
     const { rerender } = render(FileVersions, {

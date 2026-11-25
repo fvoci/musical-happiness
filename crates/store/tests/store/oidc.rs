@@ -73,8 +73,8 @@ async fn known_account_and_provider(test: &Store) -> (String, String, String) {
             sealed_client_secret: String::new(),
             auto_join: true,
             enabled: true,
-            create_at: 0,
-            update_at: 0,
+            created_at: 0,
+            updated_at: 0,
             sso_required: false,
             revision: 0,
         })
@@ -187,8 +187,8 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         sealed_client_secret: secret.to_owned(),
         auto_join: true,
         enabled: true,
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
         sso_required: false,
         revision: 0,
     };
@@ -205,10 +205,10 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         .expect("changed");
     assert_eq!(later.id, none_read.id, "the same provider");
     assert!(
-        later.update_at > none_read.update_at,
+        later.updated_at > none_read.updated_at,
         "{} after {}",
-        later.update_at,
-        none_read.update_at
+        later.updated_at,
+        none_read.updated_at
     );
     let stale = test
         .put_oidc_provider_as_read(
@@ -263,8 +263,8 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         sealed_client_secret: "sealed".to_owned(),
         auto_join: true,
         enabled: false,
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
         sso_required: false,
         revision: 0,
     };
@@ -284,7 +284,7 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
     // the time of the new one (the same millisecond, or the clock went back).
     let again = test.put_oidc_provider(&provider).await.expect("set again");
     let of_the_removed = StoredProvider {
-        update_at: again.update_at,
+        updated_at: again.updated_at,
         ..read.clone()
     };
     let change_again = test
@@ -307,8 +307,8 @@ fn provider_that(sso_required: Enforcement) -> StoredProvider {
         sealed_client_secret: String::new(),
         auto_join: true,
         enabled: true,
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
         sso_required: sso_required == Enforcement::On,
         revision: 0,
     }
@@ -357,13 +357,13 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
     );
     assert!(!released.sso_required);
     assert!(
-        released.update_at > enforced.update_at,
+        released.updated_at > enforced.updated_at,
         "another state of it"
     );
     assert_eq!(
         StoredProvider {
             sso_required: true,
-            update_at: enforced.update_at,
+            updated_at: enforced.updated_at,
             ..released
         },
         enforced,
@@ -912,7 +912,7 @@ async fn a_first_sign_in_makes_no_second_account_and_removes_no_registration_of_
         language: String::new(),
         start: fvoci_store::SignupStart::Organization("Theirs".to_owned()),
         browser_hash: String::new(),
-        create_at: now,
+        created_at: now,
         expires_at: i64::MAX,
     };
     test.scoped(Tenant::Unset)

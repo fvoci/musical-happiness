@@ -195,8 +195,10 @@ async fn the_migration_records_the_accounts_that_were_there_as_welcomed() {
     common::execute_raw(
         &connection,
         &format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at) \
-             VALUES ('{before}', 'before', 'before@example.com', '', 1, 1);"
+            "INSERT INTO users (id, username, email, password_hash, {}, {}) \
+             VALUES ('{before}', 'before', 'before@example.com', '', 1, 1);",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ),
     )
     .await;

@@ -89,7 +89,7 @@ fn parse_note_kind(query: Option<&str>) -> Result<Option<UnitNoteKind>, AppError
 /// My scheduled reviews in a course
 ///
 /// Returns the caller's own spaced-repetition reviews for live units of the course.
-/// Ordered by `scheduledDate` ascending, then `createAt` ascending, then `id` ascending.
+/// Ordered by `scheduledDate` ascending, then `createdAt` ascending, then `id` ascending.
 /// Optional query filters: `status` (`pending`, `completed`, or `all`) and `unitId`.
 /// Unjoined readers of an open course receive an empty array `[]`. Other users' reviews
 /// are never returned. Non-course containers and unreadable private courses answer 404.
@@ -250,7 +250,7 @@ async fn handle_delete_unit_review(
 /// My personal notes on a unit
 ///
 /// Returns the caller's own question, mistake, and review notes on a live unit of the
-/// course. Ordered by `createAt` descending, then `id` descending. Optional query filter
+/// course. Ordered by `createdAt` descending, then `id` descending. Optional query filter
 /// `kind` (`question`, `mistake`, or `review`). Unjoined readers of an open course
 /// receive an empty array `[]` for live units. Chapters, trashed units, and non-course
 /// containers answer 404.
@@ -394,7 +394,7 @@ async fn handle_delete_unit_note(
 /// Returns the caller's own pending reviews whose `scheduledDate` is on or before today
 /// (in the caller's configured time zone, or UTC) across all live courses of the
 /// workspace in which the caller is an active member. Ordered by `scheduledDate`
-/// ascending, then `createAt` ascending, then `id` ascending. Other users' reviews are
+/// ascending, then `createdAt` ascending, then `id` ascending. Other users' reviews are
 /// never returned.
 #[utoipa::path(
     get,

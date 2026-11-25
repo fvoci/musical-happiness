@@ -35,7 +35,7 @@ async fn shared_views_hide_people_after_their_property_is_deleted() {
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([{
                 "type": "view", "title": "By owner", "containerId": board.id,
-                "createAt": 1, "updateAt": 1,
+                "createdAt": 1, "updatedAt": 1,
                 "fields": {
                     "viewType": "board", "groupBy": "owner",
                     "filter": {"operation": "and", "filters": [

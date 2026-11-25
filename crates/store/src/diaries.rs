@@ -442,7 +442,7 @@ impl Store {
 }
 
 /// Stamps the server-managed body-change timestamp on a diary entry block before it is
-/// written. On insert, it equals `create_at`; on update, it advances to `update_at`
+/// written. On insert, it equals `created_at`; on update, it advances to `updated_at`
 /// only when the body changed, leaving metadata-only patches (`mood`, `weather`,
 /// `place`) from invalidating conditional body writes.
 pub(crate) fn stamp_entry_body_time(block: &mut Block, existing: Option<&Block>) {
@@ -451,23 +451,23 @@ pub(crate) fn stamp_entry_body_time(block: &mut Block, existing: Option<&Block>)
     }
     let body_at = match existing {
         Some(before) if block.body == before.body => entry_body_updated_at(before),
-        Some(_) => block.update_at,
-        None => block.create_at,
+        Some(_) => block.updated_at,
+        None => block.created_at,
     };
     block
         .fields
         .insert(ENTRY_BODY_UPDATED_AT_FIELD.to_owned(), Value::from(body_at));
 }
 
-/// The inclusive range `(min_read_at, update_at)` of `readAt` timestamps that are
+/// The inclusive range `(min_read_at, updated_at)` of `readAt` timestamps that are
 /// current for `block`. For diary entries, any `readAt` from the last body change
-/// through `update_at` is current (metadata-only edits do not conflict with body
-/// writes); for all other blocks, only the exact `update_at` matches.
+/// through `updated_at` is current (metadata-only edits do not conflict with body
+/// writes); for all other blocks, only the exact `updated_at` matches.
 pub(crate) fn read_at_window(block: &Block) -> (i64, i64) {
     if block.block_type == BlockType::Entry {
-        (entry_body_updated_at(block), block.update_at)
+        (entry_body_updated_at(block), block.updated_at)
     } else {
-        (block.update_at, block.update_at)
+        (block.updated_at, block.updated_at)
     }
 }
 

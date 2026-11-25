@@ -408,9 +408,9 @@ async fn create_category_base_case() {
         CategoryType::Custom,
         "custom by default"
     );
-    assert!(created.create_at > 0, "it got a creation time");
+    assert!(created.created_at > 0, "it got a creation time");
     assert_eq!(
-        created.update_at, created.create_at,
+        created.updated_at, created.created_at,
         "and the same update time"
     );
     let stored = th.app.category(&created.id).await.expect("it is stored");
@@ -478,7 +478,7 @@ async fn update_category_base_case() {
         collapsed: true,
         // Members that an update does not touch.
         sort_order: 990,
-        create_at: 1,
+        created_at: 1,
         category_type: CategoryType::System,
         ..created.clone()
     };
@@ -491,12 +491,12 @@ async fn update_category_base_case() {
     assert_eq!(updated.name, "Renamed", "the name changed");
     assert!(updated.collapsed, "the collapsed state changed");
     assert!(
-        updated.update_at >= created.update_at,
+        updated.updated_at >= created.updated_at,
         "the update time moved"
     );
     assert_eq!(updated.sort_order, created.sort_order, "the place is kept");
     assert_eq!(
-        updated.create_at, created.create_at,
+        updated.created_at, created.created_at,
         "the creation time is kept"
     );
     assert_eq!(
@@ -1173,8 +1173,8 @@ async fn get_user_category_containers_user_had_no_default_category_but_had_no_bo
             "name": "Boards",
             "userId": user.id,
             "workspaceId": ROOT_WORKSPACE_ID,
-            "createAt": listed[0].category.create_at,
-            "updateAt": listed[0].category.create_at,
+            "createdAt": listed[0].category.created_at,
+            "updatedAt": listed[0].category.created_at,
             "collapsed": false,
             "type": "system",
             "containerMetadata": [],
@@ -1598,8 +1598,8 @@ async fn create_category_answers_the_stored_category() {
             "name": "Cat A",
             "userId": user.id,
             "workspaceId": ROOT_WORKSPACE_ID,
-            "createAt": created.create_at,
-            "updateAt": created.create_at,
+            "createdAt": created.created_at,
+            "updatedAt": created.created_at,
             "collapsed": false,
             // Preserved quirk: a category created at the top is stored one place down.
             "sortOrder": 10,
@@ -1608,7 +1608,7 @@ async fn create_category_answers_the_stored_category() {
         "the created category"
     );
     assert!(is_id(&created.id), "a generated identifier: {}", created.id);
-    assert!(created.create_at > 0, "a creation time");
+    assert!(created.created_at > 0, "a creation time");
 
     // What the client may choose: the times, the collapsed state and the type. A
     // negative sort order counts as zero and a `sorting` member is no member of a
@@ -1622,7 +1622,7 @@ async fn create_category_answers_the_stored_category() {
                 "userId": user.id,
                 "workspaceId": ROOT_WORKSPACE_ID,
                 "sortOrder": -5,
-                "createAt": 5,
+                "createdAt": 5,
                 "sorting": "alpha",
                 "collapsed": true,
                 "type": "system",
@@ -1639,8 +1639,8 @@ async fn create_category_answers_the_stored_category() {
             "name": "With id",
             "userId": user.id,
             "workspaceId": ROOT_WORKSPACE_ID,
-            "createAt": 5,
-            "updateAt": 5,
+            "createdAt": 5,
+            "updatedAt": 5,
             "collapsed": true,
             "sortOrder": 10,
             "type": "system",
@@ -1806,7 +1806,7 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
                 "sortOrder": 99,
                 "type": "system",
                 "deletedAt": 77,
-                "createAt": 3,
+                "createdAt": 3,
             }),
         )
         .await;
@@ -1819,8 +1819,8 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
             "name": "Cat A2",
             "userId": user.id,
             "workspaceId": ROOT_WORKSPACE_ID,
-            "createAt": created.create_at,
-            "updateAt": updated.update_at,
+            "createdAt": created.created_at,
+            "updatedAt": updated.updated_at,
             "collapsed": true,
             "sortOrder": created.sort_order,
             "type": "custom",
@@ -1828,7 +1828,7 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
         "the updated category"
     );
     assert!(
-        updated.update_at >= created.update_at,
+        updated.updated_at >= created.updated_at,
         "the update time moved"
     );
 

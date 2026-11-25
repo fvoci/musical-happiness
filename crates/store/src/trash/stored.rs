@@ -51,7 +51,7 @@ struct StoredFile {
     extension: String,
     size: i64,
     path: String,
-    create_at: i64,
+    created_at: i64,
     /// The file's newest version; 1 in what was stored before files had versions.
     #[serde(default = "first_version")]
     version: i64,
@@ -76,7 +76,7 @@ impl From<Vec<FileRecord>> for StoredFiles {
                     extension: file.extension,
                     size: file.size,
                     path: file.path,
-                    create_at: file.create_at,
+                    created_at: file.created_at,
                     version: file.version,
                     created_by: file.created_by,
                 })
@@ -98,7 +98,7 @@ impl From<StoredFiles> for Vec<FileRecord> {
                 extension: file.extension,
                 size: file.size,
                 path: file.path,
-                create_at: file.create_at,
+                created_at: file.created_at,
                 version: file.version,
                 created_by: file.created_by,
             })

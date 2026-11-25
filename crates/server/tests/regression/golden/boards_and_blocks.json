@@ -9,7 +9,7 @@
         {
           "body": null,
           "containerId": "<id:2>",
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:3>",
           "fields": {},
           "id": "<id:4>",
@@ -19,12 +19,12 @@
           "schema": 1,
           "title": "Card A",
           "type": "card",
-          "updateAt": "<ts>"
+          "updatedAt": "<ts>"
         },
         {
           "body": null,
           "containerId": "<id:5>",
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:3>",
           "fields": {},
           "id": "<id:6>",
@@ -34,13 +34,13 @@
           "schema": 1,
           "title": "Card B",
           "type": "card",
-          "updateAt": "<ts>"
+          "updatedAt": "<ts>"
         }
       ],
       "containers": [
         {
           "cardProperties": [],
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:3>",
           "description": "",
           "icon": "",
@@ -54,13 +54,13 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Board A",
-          "updateAt": "<ts>",
+          "updatedAt": "<ts>",
           "visibility": "private",
           "workspaceId": "<id:1>"
         },
         {
           "cardProperties": [],
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:3>",
           "description": "",
           "icon": "",
@@ -74,7 +74,7 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Board B",
-          "updateAt": "<ts>",
+          "updatedAt": "<ts>",
           "visibility": "open",
           "workspaceId": "<id:1>"
         }
@@ -196,7 +196,7 @@
         {
           "body": null,
           "containerId": "<id:2>",
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:3>",
           "fields": {},
           "id": "<id:4>",
@@ -206,12 +206,12 @@
           "schema": 1,
           "title": "Card A2",
           "type": "card",
-          "updateAt": "<ts>"
+          "updatedAt": "<ts>"
         },
         {
           "body": null,
           "containerId": "<id:5>",
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:3>",
           "fields": {
             "icon": "z"
@@ -223,13 +223,13 @@
           "schema": 1,
           "title": "Card B",
           "type": "card",
-          "updateAt": "<ts>"
+          "updatedAt": "<ts>"
         }
       ],
       "containers": [
         {
           "cardProperties": [],
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:3>",
           "description": "",
           "icon": "",
@@ -243,13 +243,13 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Board A2",
-          "updateAt": "<ts>",
+          "updatedAt": "<ts>",
           "visibility": "private",
           "workspaceId": "<id:1>"
         },
         {
           "cardProperties": [],
-          "createAt": "<ts>",
+          "createdAt": "<ts>",
           "createdBy": "<id:3>",
           "description": "about B",
           "icon": "",
@@ -263,7 +263,7 @@
           "showDescription": false,
           "templateVersion": 0,
           "title": "Board B",
-          "updateAt": "<ts>",
+          "updatedAt": "<ts>",
           "visibility": "open",
           "workspaceId": "<id:1>"
         }
@@ -347,7 +347,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:3>",
       "description": "",
       "icon": "",
@@ -361,7 +361,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Board A2",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -375,7 +375,7 @@
       {
         "body": null,
         "containerId": "<id:5>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:3>",
         "fields": {
           "icon": "z"
@@ -387,7 +387,7 @@
         "schema": 1,
         "title": "Card B",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },

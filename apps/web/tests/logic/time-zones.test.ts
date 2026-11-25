@@ -57,7 +57,7 @@ const templates = [due, created];
 function cardCreatedAt(instant: number, id = 'card'): Card {
   const card = createCard();
   card.id = id;
-  card.createAt = instant;
+  card.createdAt = instant;
   return card;
 }
 

@@ -70,8 +70,8 @@ test('a view moved by the keys is the board’s order for another member, after 
       containerId: board.boardId,
       type: 'view',
       title,
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
       fields: first?.fields,
     })),
   });
@@ -175,8 +175,8 @@ test('two concurrent first moves on an unplaced board keep both moves', async ({
       containerId: board.boardId,
       type: 'view',
       title,
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
       fields: first?.fields,
     })),
   });
@@ -274,8 +274,8 @@ test('a tie raise and a concurrent move of the raised view keep both moves', asy
       containerId: board.boardId,
       type: 'view',
       title,
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
       fields: first?.fields,
     })),
   });

@@ -32,7 +32,7 @@ fn archive(lines: &[Value]) -> Vec<u8> {
 fn block(id: &str, kind: &str, created_by: &str, modified_by: &str) -> Value {
     json!({"type": "block", "data": {
         "id": id, "containerId": "board", "type": kind, "title": id,
-        "createdBy": created_by, "modifiedBy": modified_by, "createAt": 1, "updateAt": 1,
+        "createdBy": created_by, "modifiedBy": modified_by, "createdAt": 1, "updatedAt": 1,
     }})
 }
 
@@ -92,15 +92,15 @@ async fn everything_imported_is_the_importers_whoever_the_archive_names() {
     );
     let comment = json!({"type": "block", "data": {
         "id": "comment", "containerId": "board", "parentId": "theirs", "type": "comment",
-        "title": "", "createdBy": outsider, "modifiedBy": outsider, "createAt": 1,
-        "updateAt": 1,
+        "title": "", "createdBy": outsider, "modifiedBy": outsider, "createdAt": 1,
+        "updatedAt": 1,
         "body": {"type": "doc", "content": [
             {"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}]},
     }});
     let bytes = archive(&[
         json!({"type": "container", "data": {
             "id": "board", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Authored",
-            "createdBy": outsider, "modifiedBy": colleague, "createAt": 1, "updateAt": 1,
+            "createdBy": outsider, "modifiedBy": colleague, "createdAt": 1, "updatedAt": 1,
         }}),
         block("theirs", "card", &outsider, &outsider),
         block("elsewhere", "card", &elsewhere, &elsewhere),

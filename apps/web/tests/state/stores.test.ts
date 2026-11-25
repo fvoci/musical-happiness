@@ -47,11 +47,11 @@ describe('the workspace', () => {
       sortOrder,
       containerIds: boardIds,
       hiddenContainerIds: [],
-      createAt: 0,
-      updateAt: 0,
+      createdAt: 0,
+      updatedAt: 0,
     });
     const board = (id: string, title: string) =>
-      ({ id, title, createAt: 0 }) as Parameters<typeof sidebarOf>[1][number];
+      ({ id, title, createdAt: 0 }) as Parameters<typeof sidebarOf>[1][number];
     const boards = [
       board('b3', 'Zebra'),
       board('b1', 'One'),
@@ -370,7 +370,7 @@ describe('changing a card', () => {
     expect(board.card(alpha.id)?.fields.properties[STATUS]).toBe('done');
     await changing;
     expect(board.card(alpha.id)?.fields.properties[STATUS]).toBe('done');
-    expect(board.card(alpha.id)?.updateAt).toBeGreaterThan(alpha.updateAt);
+    expect(board.card(alpha.id)?.updatedAt).toBeGreaterThan(alpha.updatedAt);
     expect((await backend.card(board.boardId, alpha.id)).fields.properties[STATUS]).toBe('done');
   });
 
@@ -675,7 +675,7 @@ describe('reading again after changes may have been missed', () => {
     world.blocks.set(card.id, {
       ...world.blocks.get(card.id),
       title: 'Changed while away',
-      updateAt: card.updateAt + 1000,
+      updatedAt: card.updatedAt + 1000,
     } as never);
     world.blocks.delete(gone.id);
     for (const listener of listeners) listener({ kind: 'resync' });
@@ -689,7 +689,7 @@ describe('reading again after changes may have been missed', () => {
 });
 
 describe('a list read again', () => {
-  const item = (id: string, updateAt: number) => ({ id, updateAt });
+  const item = (id: string, updatedAt: number) => ({ id, updatedAt });
 
   it('takes what was read, keeps what is newer on screen or held by a write, and what came meanwhile', () => {
     // 'e' was shown, then deleted while the list was read: the older reading still has it.

@@ -32,8 +32,8 @@ export function ownSpaceOf(world: World, userId: string): WorkspaceInfo {
       sortOrder: 0,
       containerIds: [],
       hiddenContainerIds: [],
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     },
   ]);
   return own;

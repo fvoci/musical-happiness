@@ -77,7 +77,7 @@ export async function loadTemplates(): Promise<SeedTemplate[]> {
 export const SEED_EPOCH = Date.UTC(2026, 9, 1);
 const MINUTE = 60_000;
 
-const PEOPLE: readonly Omit<User, 'id' | 'createAt' | 'updateAt' | 'deletedAt'>[] = [
+const PEOPLE: readonly Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>[] = [
   {
     username: 'hana',
     displayName: '김하나',
@@ -150,8 +150,8 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       ...person,
       id: world.newId(),
       isAdmin: index === 0,
-      createAt: at,
-      updateAt: at,
+      createdAt: at,
+      updatedAt: at,
     };
   });
   seedUsers(world, users);
@@ -186,8 +186,8 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       icon: template.board.icon,
       showDescription: template.board.showDescription,
       cardProperties: boardCardProperties(template.board.cardProperties),
-      createAt: at,
-      updateAt: at,
+      createdAt: at,
+      updatedAt: at,
     };
     world.containers.set(boardId, board);
     world.members.set(
@@ -235,8 +235,8 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       sortOrder: index * 10,
       containerIds: keys.flatMap((key) => boardIdOf.get(key) ?? []),
       hiddenContainerIds: [],
-      createAt: at,
-      updateAt: at,
+      createdAt: at,
+      updatedAt: at,
     };
   });
 
@@ -284,8 +284,8 @@ function seedAttachment(world: World, reader: User): void {
     type: 'attachment',
     title: 'kick-off-notes.txt',
     fields: {},
-    createAt: made,
-    updateAt: made,
+    createdAt: made,
+    updatedAt: made,
     file: { fileId, name: 'kick-off-notes.txt', size: notes.size, contentType: 'text/plain' },
   });
 }

@@ -92,7 +92,7 @@
   /** The year the diary was made in, on the reader's calendar. */
   const made = $derived(
     diary?.diary
-      ? yearOf(dateOfInstant(diary.diary.createAt, workspace.regional.timeZone))
+      ? yearOf(dateOfInstant(diary.diary.createdAt, workspace.regional.timeZone))
       : yearOf(today.date),
   );
   const from = $derived(Math.min(made, reach));

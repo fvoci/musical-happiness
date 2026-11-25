@@ -72,7 +72,7 @@ async fn on_theirs(
 ) -> [u16; 5] {
     let comments = comments_of(at, course, unit);
     let comment = format!("{comments}/{}", id(theirs));
-    let change = json!({"body": text("changed"), "readAt": theirs["updateAt"]});
+    let change = json!({"body": text("changed"), "readAt": theirs["updatedAt"]});
     [
         client.get(&comments).await,
         client.post(&comments, &json!({"body": text("mine")})).await,
@@ -97,7 +97,7 @@ async fn roles_versions_and_undelete_ownership_hold_on_unit_comments() {
         .client
         .patch(
             &at_theirs,
-            &json!({"body": text("admin edited"), "readAt": theirs["updateAt"]}),
+            &json!({"body": text("admin edited"), "readAt": theirs["updatedAt"]}),
         )
         .await
         .value();
@@ -122,7 +122,7 @@ async fn roles_versions_and_undelete_ownership_hold_on_unit_comments() {
         .client2
         .patch(
             &at_mine,
-            &json!({"body": text("second"), "readAt": mine["updateAt"]}),
+            &json!({"body": text("second"), "readAt": mine["updatedAt"]}),
         )
         .await;
     patched.check_ok();
@@ -162,7 +162,7 @@ async fn open_course_unjoined_member_reads_comments_only() {
         .client
         .patch(
             &at_theirs,
-            &json!({"body": text("instructor edited"), "readAt": theirs["updateAt"]}),
+            &json!({"body": text("instructor edited"), "readAt": theirs["updatedAt"]}),
         )
         .await
         .value();
@@ -246,7 +246,7 @@ async fn chapters_file_blocks_trash_broadcasts_and_archive_round_trip() {
         course_with_chapter_and_unit(&th.client, TEST_WS, "private").await;
 
     // Chapter returns 404 identical to missing unit across all 6 comment operations.
-    let nothing = json!({"id": UNKNOWN_ID, "updateAt": 1});
+    let nothing = json!({"id": UNKNOWN_ID, "updatedAt": 1});
     assert_eq!(
         on_theirs(&th.client, TEST_WS, &course, &chapter, &nothing).await,
         [404; 5]

@@ -209,7 +209,7 @@ pub(crate) async fn memberships_of(
         .push(IN_USE)
         .push(&scope.same_organization(&[("wm", "t")]))
         .push_bind(" ORDER BY CASE WHEN o.kind = ", OrgKind::Personal.as_str())
-        .push(" THEN 1 ELSE 0 END, o.create_at, o.id, t.create_at, t.id");
+        .push(" THEN 1 ELSE 0 END, o.created_at, o.id, t.created_at, t.id");
     scope
         .fetch_all(sql)
         .await?

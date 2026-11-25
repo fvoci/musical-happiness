@@ -47,8 +47,8 @@ fn request_block(id: &str, board_id: &str, title: &str) -> Block {
         container_id: board_id.to_owned(),
         title: title.to_owned(),
         block_type: BlockType::Card,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     }
 }
@@ -176,8 +176,8 @@ async fn create_boards_and_blocks_no_boards() {
     let request = ContainersAndBlocks {
         containers: vec![],
         blocks: vec![Block {
-            create_at: 0,
-            update_at: 0,
+            created_at: 0,
+            updated_at: 0,
             ..request_block("block-id", "board-id", "")
         }],
     };
@@ -389,7 +389,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
 
 /// A card as a request names it, with the times the route insists on.
 fn card_json(board_id: &str) -> Value {
-    json!({"id": "b1", "containerId": board_id, "type": "card", "createAt": 1, "updateAt": 1})
+    json!({"id": "b1", "containerId": board_id, "type": "card", "createdAt": 1, "updatedAt": 1})
 }
 
 /// The boards of the test workspace that a client's user sees.
@@ -433,19 +433,19 @@ async fn create_boards_and_blocks_refusals() {
     // Each refusal names the member in the one spelling the API has.
     for (block, field, message) in [
         (
-            json!({"id": "b1", "containerId": "bd", "createAt": 1, "updateAt": 1}),
+            json!({"id": "b1", "containerId": "bd", "createdAt": 1, "updatedAt": 1}),
             "type",
             "the block has no type",
         ),
         (
-            json!({"id": "b1", "containerId": "bd", "type": "card", "updateAt": 1}),
-            "createAt",
-            "a new block's createAt is 1 or more",
+            json!({"id": "b1", "containerId": "bd", "type": "card", "updatedAt": 1}),
+            "createdAt",
+            "a new block's createdAt is 1 or more",
         ),
         (
-            json!({"id": "b1", "containerId": "bd", "type": "card", "createAt": 1}),
-            "updateAt",
-            "a new block's updateAt is 1 or more",
+            json!({"id": "b1", "containerId": "bd", "type": "card", "createdAt": 1}),
+            "updatedAt",
+            "a new block's updatedAt is 1 or more",
         ),
     ] {
         let response = th

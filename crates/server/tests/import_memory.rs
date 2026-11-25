@@ -169,8 +169,8 @@ fn write_large_native_archive(
                 "visibility": "private",
                 "kind": "board",
                 "title": "Large Native Import",
-                "createAt": 1,
-                "updateAt": 1,
+                "createdAt": 1,
+                "updatedAt": 1,
             }
         })
     );
@@ -195,8 +195,8 @@ fn write_large_native_archive(
                     "title": format!("Card {cards}"),
                     "fields": {},
                     "body": body,
-                    "createAt": 1,
-                    "updateAt": 1,
+                    "createdAt": 1,
+                    "updatedAt": 1,
                 }
             })
         );
@@ -329,16 +329,16 @@ async fn streaming_native_import_bounds_peak_memory_and_handles_out_of_order_par
         let lines = [
             json!({"type": "container", "data": {
                 "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
-                "title": "Out Of Order", "createAt": 1, "updateAt": 1
+                "title": "Out Of Order", "createdAt": 1, "updatedAt": 1
             }}),
             json!({"type": "block", "data": {
                 "id": "cm1", "containerId": "b1", "parentId": "c1", "type": "comment",
-                "title": "", "fields": {}, "createAt": 1, "updateAt": 1,
+                "title": "", "fields": {}, "createdAt": 1, "updatedAt": 1,
                 "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "before parent"}]}]}
             }}),
             json!({"type": "block", "data": {
                 "id": "c1", "containerId": "b1", "parentId": "", "type": "card",
-                "title": "Parent Card", "fields": {}, "createAt": 1, "updateAt": 1
+                "title": "Parent Card", "fields": {}, "createdAt": 1, "updatedAt": 1
             }}),
         ];
         for line in lines {
@@ -414,18 +414,18 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
     let big_text = "x".repeat(260 * 1024);
     let mut revisit_lines = vec![json!({"type": "container", "data": {
         "id": "b-rev", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
-        "title": "Revisit Spillover", "createAt": 1, "updateAt": 1
+        "title": "Revisit Spillover", "createdAt": 1, "updatedAt": 1
     }})];
     for i in 0..10 {
         revisit_lines.push(json!({"type": "block", "data": {
             "id": format!("cm-{i}"), "containerId": "b-rev", "parentId": "c-parent", "type": "comment",
-            "title": "", "fields": {}, "createAt": 1, "updateAt": 1,
+            "title": "", "fields": {}, "createdAt": 1, "updatedAt": 1,
             "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": big_text}]}]}
         }}));
     }
     revisit_lines.push(json!({"type": "block", "data": {
         "id": "c-parent", "containerId": "b-rev", "parentId": "", "type": "card",
-        "title": "Late Parent", "fields": {}, "createAt": 1, "updateAt": 1
+        "title": "Late Parent", "fields": {}, "createdAt": 1, "updatedAt": 1
     }}));
     let revisit_path = tmp.path().join("revisit.fvoci");
     write_zip_entries(
@@ -462,18 +462,18 @@ async fn streaming_native_import_handles_revisit_spillover_and_bounds_deep_rever
         .len();
     let mut deep_lines = vec![json!({"type": "container", "data": {
         "id": "b-deep", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
-        "title": "Too Deep Reverse", "createAt": 1, "updateAt": 1
+        "title": "Too Deep Reverse", "createdAt": 1, "updatedAt": 1
     }})];
     for i in (1..=45).rev() {
         deep_lines.push(json!({"type": "block", "data": {
             "id": format!("n-{i}"), "containerId": "b-deep", "parentId": format!("n-{}", i - 1),
             "type": "view", "title": format!("N{i}"), "fields": {"pad": big_text},
-            "createAt": 1, "updateAt": 1
+            "createdAt": 1, "updatedAt": 1
         }}));
     }
     deep_lines.push(json!({"type": "block", "data": {
         "id": "n-0", "containerId": "b-deep", "parentId": "", "type": "view",
-        "title": "Root", "fields": {}, "createAt": 1, "updateAt": 1
+        "title": "Root", "fields": {}, "createdAt": 1, "updatedAt": 1
     }}));
     let deep_path = tmp.path().join("deep-reverse.fvoci");
     write_zip_entries(
@@ -521,35 +521,35 @@ async fn streaming_native_import_handles_empty_board_id_attachments_and_cross_bo
     let b1_lines = jsonl_bytes(&[
         json!({"type": "container", "data": {
             "id": "", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
-            "title": "Empty ID Target", "createAt": 1, "updateAt": 1
+            "title": "Empty ID Target", "createdAt": 1, "updatedAt": 1
         }}),
         json!({"type": "block", "data": {
             "id": old_target_id, "containerId": "", "parentId": "", "type": "card",
-            "title": "Target", "fields": {}, "createAt": 1, "updateAt": 1
+            "title": "Target", "fields": {}, "createdAt": 1, "updatedAt": 1
         }}),
     ]);
     let b2_lines = jsonl_bytes(&[
         json!({"type": "container", "data": {
             "id": "b-src", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "kind": "board",
-            "title": "Attachment And CrossRef", "createAt": 1, "updateAt": 1
+            "title": "Attachment And CrossRef", "createdAt": 1, "updatedAt": 1
         }}),
         json!({"type": "block", "data": {
             "id": "card-a", "containerId": "b-src", "parentId": "", "type": "card",
-            "title": "First", "fields": {}, "createAt": 1, "updateAt": 1,
+            "title": "First", "fields": {}, "createdAt": 1, "updatedAt": 1,
             "body": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "reference", "attrs": {"id": old_target_id}}
             ]}]}
         }}),
         json!({"type": "block", "data": {
             "id": "card-b", "containerId": "b-src", "parentId": "", "type": "card",
-            "title": "Second", "fields": {}, "createAt": 1, "updateAt": 1,
+            "title": "Second", "fields": {}, "createdAt": 1, "updatedAt": 1,
             "body": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "reference", "attrs": {"id": old_target_id}}
             ]}]}
         }}),
         json!({"type": "block", "data": {
             "id": "att-1", "containerId": "b-src", "parentId": "card-a", "type": "attachment",
-            "title": "pic.png", "fields": {"fileId": "old.png"}, "createAt": 1, "updateAt": 1
+            "title": "pic.png", "fields": {"fileId": "old.png"}, "createdAt": 1, "updatedAt": 1
         }}),
     ]);
     let png_1x1: &[u8] = &[

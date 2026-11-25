@@ -34,7 +34,7 @@ fn registration(username: &str, browser: &str, expires_at: i64) -> Signup {
         language: String::new(),
         start: SignupStart::Organization("Ours".to_owned()),
         browser_hash: browser.to_owned(),
-        create_at: NOW,
+        created_at: NOW,
         expires_at,
     }
 }

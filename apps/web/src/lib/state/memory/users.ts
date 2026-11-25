@@ -51,8 +51,8 @@ export function eraseUser(world: World, userId: string): void {
     name: emptyName(),
     email: '',
     isAdmin: false,
-    createAt: 0,
-    updateAt: 0,
+    createdAt: 0,
+    updatedAt: 0,
   });
   world.workspaceMembers.delete(userId);
   world.settings.delete(userId);

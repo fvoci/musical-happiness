@@ -180,8 +180,8 @@ test('completes unit with interval suggestion, manages Today reviews, CRUDs pers
         actorId: '',
         doers: [],
         times: 1,
-        createAt: now,
-        updateAt: now,
+        createdAt: now,
+        updatedAt: now,
         readAt: 0,
       });
       world.notifications.set(dev.backend.userId, theirs);
@@ -261,8 +261,8 @@ test('isolates unjoined open-course reader and public shared links from reviews 
           properties: {},
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;
@@ -276,8 +276,8 @@ test('isolates unjoined open-course reader and public shared links from reviews 
             parentId: '',
             title: 'Public Lesson',
             order: 'a',
-            createAt: 1,
-            updateAt: 1,
+            createdAt: 1,
+            updatedAt: 1,
           },
         ],
       });
@@ -295,8 +295,8 @@ test('isolates unjoined open-course reader and public shared links from reviews 
           body: null,
           createdBy: '',
           modifiedBy: '',
-          createAt: 1,
-          updateAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       });
       return;

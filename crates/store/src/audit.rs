@@ -97,7 +97,7 @@ pub struct AuditEntry {
     /// Whom it was done to, a user; empty for an action that names nobody.
     pub subject_id: String,
     /// When, in milliseconds since the epoch; set when the record is written.
-    pub create_at: i64,
+    pub created_at: i64,
     /// The issuer a record of a provider's move names; empty for the others.
     pub detail: String,
     /// Who an identity a record of a move tied is: the email address its provider
@@ -114,7 +114,7 @@ impl std::fmt::Debug for AuditEntry {
             .field("action", &self.action)
             .field("target_id", &self.target_id)
             .field("subject_id", &self.subject_id)
-            .field("create_at", &self.create_at)
+            .field("created_at", &self.created_at)
             .field("detail", &self.detail)
             .finish_non_exhaustive()
     }
@@ -145,7 +145,7 @@ impl AuditEntry {
             action,
             target_id: target_id.to_owned(),
             subject_id: String::new(),
-            create_at: 0,
+            created_at: 0,
             detail: String::new(),
             identity: String::new(),
         }
@@ -201,10 +201,10 @@ impl Store {
     pub async fn get_audit_log(&self, workspace_id: &str) -> Result<Vec<AuditEntry>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT workspace_id, actor_id, action, target_id, subject_id, create_at, \
+                "SELECT workspace_id, actor_id, action, target_id, subject_id, created_at, \
                  actor_kind, detail FROM audit_log WHERE workspace_id = ",
             );
-            sql.bind(Id(workspace_id)).push(" ORDER BY create_at, id");
+            sql.bind(Id(workspace_id)).push(" ORDER BY created_at, id");
             scope
                 .fetch_all(sql)
                 .await?
@@ -216,7 +216,7 @@ impl Store {
                         action: action(row, 2)?,
                         target_id: row.id(3)?,
                         subject_id: row.id(4)?,
-                        create_at: row.int(5)?,
+                        created_at: row.int(5)?,
                         detail: row.text(7)?,
                         // Of the organization's records alone, which are no workspace's.
                         identity: String::new(),
@@ -246,7 +246,7 @@ impl Store {
             let mut sql = scope.sql(
                 "SELECT a.id, a.action, a.actor_id, actor.username, actor.display_name, \
                  a.subject_id, subject.username, subject.display_name, a.target_id, w.name, \
-                 a.create_at, a.actor_kind, a.detail, a.identity FROM audit_log AS a \
+                 a.created_at, a.actor_kind, a.detail, a.identity FROM audit_log AS a \
                  LEFT JOIN users AS actor ON actor.id = a.actor_id \
                  LEFT JOIN users AS subject ON subject.id = a.subject_id \
                  LEFT JOIN workspaces AS w ON w.id = a.target_id AND w.org_id = a.org_id \
@@ -262,7 +262,7 @@ impl Store {
                     sql.push(" AND a.workspace_id IS NULL");
                 }
             }
-            sql.push(" ORDER BY a.create_at DESC, a.id DESC");
+            sql.push(" ORDER BY a.created_at DESC, a.id DESC");
             if paging.per_page > 0 {
                 sql.push_bind(" LIMIT ", i64::from(paging.per_page))
                     .push_bind(" OFFSET ", paging.offset());
@@ -343,7 +343,7 @@ fn record(row: &Row, identities: Identities) -> Result<AuditRecord, StoreError> 
         target_id: row.id(8)?,
         // A board's identifier is no workspace's: the join finds none for it.
         target_name: (!target_name.is_empty()).then_some(target_name),
-        create_at: row.int(10)?,
+        created_at: row.int(10)?,
         detail: row.opt_text(12)?,
         identity: match identities {
             Identities::Told => row.opt_text(13)?,
@@ -380,7 +380,7 @@ async fn insert_entry(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
-         subject_id, create_at, actor_kind, detail, identity) VALUES (",
+         subject_id, created_at, actor_kind, detail, identity) VALUES (",
     );
     sql.bind(Id(&new_id()))
         .push_bind(", ", org)

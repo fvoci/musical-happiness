@@ -20,7 +20,7 @@ const IDENTITY: LinkedIdentity = {
   issuer: 'https://login.example.com/realm',
   subject: 'there',
   email: 'ada@example.com',
-  createAt: 1,
+  createdAt: 1,
   madeThisSession: false,
 };
 

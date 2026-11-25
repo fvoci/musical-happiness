@@ -19,7 +19,7 @@ it('says that an inline formula draft was lost when the room receives a new epoc
   const before = await other.card(board.boardId, summary.id);
   await other.writeCardBody(board.boardId, summary.id, {
     body: doc(paragraph(math('x'))),
-    readAt: before.updateAt,
+    readAt: before.updatedAt,
   });
   const card = await board.showCard(summary.id);
   const { container, unmount } = render(CardBody, { container: board, card });
@@ -41,7 +41,7 @@ it('says that an inline formula draft was lost when the room receives a new epoc
     const current = await other.card(board.boardId, summary.id);
     await other.writeCardBody(board.boardId, summary.id, {
       body: doc(paragraph(text('replacement from the API'))),
-      readAt: current.updateAt,
+      readAt: current.updatedAt,
     });
     await vi.waitFor(() => {
       expect(container.querySelector('.ProseMirror')?.textContent).toBe('replacement from the API');

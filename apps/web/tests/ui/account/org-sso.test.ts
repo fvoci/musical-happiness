@@ -15,8 +15,8 @@ const provider: OidcProvider = {
   ssoRequired: false,
   canRequireSso: false,
   redirectUri: 'https://app.example.test/api/v1/auth/oidc/callback/org',
-  createAt: 1,
-  updateAt: 1,
+  createdAt: 1,
+  updatedAt: 1,
   pending: null,
   former: null,
 };
@@ -30,7 +30,7 @@ function mount(value: OidcProvider | undefined = provider) {
   const onSignIn = vi.fn(() => Promise.resolve());
   const discard = vi.fn(() => Promise.resolve());
   const onTry = vi.fn(() => Promise.resolve());
-  const endFormer = vi.fn((_createAt: number) => Promise.resolve());
+  const endFormer = vi.fn((_createdAt: number) => Promise.resolve());
   const read = vi.fn(() => Promise.resolve(value));
   render(OrgSso, { read, save, remove, onSignIn, discard, onTry, endFormer });
   return { read, save, remove, onSignIn, discard, onTry, endFormer };
@@ -151,7 +151,7 @@ describe('the SSO settings', () => {
       issuer: provider.issuer,
       clientId: 'next-client',
       hasClientSecret: true,
-      createAt: 2,
+      createdAt: 2,
       bindsIdentityUntil: null,
     };
     const { save, onTry } = mount(enforced);
@@ -174,7 +174,7 @@ describe('the SSO settings', () => {
       issuer: provider.issuer,
       clientId: 'c',
       hasClientSecret: false,
-      createAt: 2,
+      createdAt: 2,
       bindsIdentityUntil: null,
     };
     const { discard } = mount({ ...provider, ssoRequired: true, pending });
@@ -188,7 +188,7 @@ describe('the SSO settings', () => {
   it('shows the previous provider until its day, and ends it early after asking', async () => {
     const former = {
       issuer: 'https://before.example.test',
-      createAt: Date.UTC(2026, 10, 1),
+      createdAt: Date.UTC(2026, 10, 1),
       expiresAt: Date.UTC(2026, 11, 1, 12),
     };
     const { read, endFormer } = mount({ ...provider, former });
@@ -206,13 +206,13 @@ describe('the SSO settings', () => {
     const dialog = await screen.findByTestId('confirm-dialog');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'End early' }));
     await screen.findByText("The previous provider's linking period was ended.");
-    expect(endFormer).toHaveBeenCalledExactlyOnceWith(former.createAt);
+    expect(endFormer).toHaveBeenCalledExactlyOnceWith(former.createdAt);
     expect(screen.queryByTestId('sso-former')).not.toBeInTheDocument();
   });
 
   it('reads the provider again when ending is refused: another one may be kept by now', async () => {
-    const former = { issuer: 'https://before.example.test', createAt: 1, expiresAt: 2 };
-    const next = { issuer: 'https://between.example.test', createAt: 3, expiresAt: 4 };
+    const former = { issuer: 'https://before.example.test', createdAt: 1, expiresAt: 2 };
+    const next = { issuer: 'https://between.example.test', createdAt: 3, expiresAt: 4 };
     const { read, endFormer } = mount({ ...provider, former });
     endFormer.mockRejectedValueOnce(new BackendError(409, {}));
     await fireEvent.click(await screen.findByTestId('sso-former-end'));
@@ -237,7 +237,7 @@ describe('the SSO settings', () => {
       issuer: 'https://next.example.test',
       clientId: 'client',
       hasClientSecret: true,
-      createAt: 2,
+      createdAt: 2,
       // Passed, by the server's clock: it answers none.
       bindsIdentityUntil: null,
     };
@@ -258,7 +258,7 @@ describe('the SSO settings', () => {
       issuer: 'https://next.example.test',
       clientId: 'client',
       hasClientSecret: true,
-      createAt: 2,
+      createdAt: 2,
       bindsIdentityUntil: null,
     };
     mount({ ...provider, pending: moving });
@@ -274,7 +274,7 @@ describe('the SSO settings', () => {
       issuer: 'https://next.example.test',
       clientId: 'client',
       hasClientSecret: true,
-      createAt: 2,
+      createdAt: 2,
       bindsIdentityUntil: until,
     };
     const { onTry } = mount({ ...enforced, pending: moving });
@@ -290,7 +290,7 @@ describe('the SSO settings', () => {
       issuer: provider.issuer,
       clientId: 'c',
       hasClientSecret: false,
-      createAt: 2,
+      createdAt: 2,
       bindsIdentityUntil: null,
     };
     mount({ ...provider, ssoRequired: true, pending });

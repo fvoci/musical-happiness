@@ -47,12 +47,12 @@ pub struct DueReviewCandidate {
     /// Scheduled calendar date (`YYYY-MM-DD`).
     pub scheduled_date: String,
     /// Creation time in milliseconds since the Unix epoch (used for keyset paging).
-    pub create_at: i64,
+    pub created_at: i64,
 }
 
 impl Store {
     /// Lists the calling learner's reviews for live units of `course_id`, ordered by
-    /// `scheduled_date ASC, create_at ASC, id ASC`.
+    /// `scheduled_date ASC, created_at ASC, id ASC`.
     ///
     /// # Errors
     ///
@@ -69,7 +69,7 @@ impl Store {
             let org = scope.org()?;
             let mut sql = scope.sql(
                 "SELECT ur.id, ur.unit_id, ur.container_id, ur.scheduled_date, \
-                 ur.completed_at, CAST(ur.interval_days AS BIGINT), ur.create_at, ur.update_at \
+                 ur.completed_at, CAST(ur.interval_days AS BIGINT), ur.created_at, ur.updated_at \
                  FROM unit_reviews AS ur \
                  JOIN blocks AS b ON b.id = ur.unit_id \
                  JOIN containers AS c ON c.id = b.container_id \
@@ -98,7 +98,7 @@ impl Store {
             if let Some(unit_id) = unit_id {
                 sql.push_bind(" AND ur.unit_id = ", Id(unit_id));
             }
-            sql.push(" ORDER BY ur.scheduled_date ASC, ur.create_at ASC, ur.id ASC");
+            sql.push(" ORDER BY ur.scheduled_date ASC, ur.created_at ASC, ur.id ASC");
             scope
                 .fetch_all(sql)
                 .await?
@@ -145,7 +145,7 @@ impl Store {
             if let Some(unit_id) = unit_id {
                 sql.push_bind(" AND ur.unit_id = ", Id(unit_id));
             }
-            sql.push(" ORDER BY COALESCE(ur.completed_at, ur.create_at) DESC, ur.create_at DESC, ur.id DESC");
+            sql.push(" ORDER BY COALESCE(ur.completed_at, ur.created_at) DESC, ur.created_at DESC, ur.id DESC");
             let mut latest = HashMap::new();
             for row in scope.fetch_all(sql).await? {
                 let unit = row.id(0)?;
@@ -221,7 +221,7 @@ impl Store {
             update
                 .changing_no_access()
                 .bind(now)
-                .push_bind(", update_at = ", now)
+                .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(review_id))
                 .push_bind(" AND container_id = ", Id(course_id))
                 .push_bind(" AND user_id = ", Id(user_id))
@@ -231,7 +231,7 @@ impl Store {
             }
             update.push(
                 " RETURNING id, unit_id, container_id, scheduled_date, completed_at, \
-                 CAST(interval_days AS BIGINT), create_at, update_at",
+                 CAST(interval_days AS BIGINT), created_at, updated_at",
             );
             let (review, transitioned) = match scope.fetch_optional(update).await? {
                 Some(row) => (review_from_row(&row)?, true),
@@ -292,7 +292,7 @@ impl Store {
 
     /// Lists the calling learner's pending reviews due on or before `today` across live
     /// courses of `workspace_id` in which the caller still holds active membership,
-    /// ordered by `scheduled_date ASC, create_at ASC, id ASC`.
+    /// ordered by `scheduled_date ASC, created_at ASC, id ASC`.
     ///
     /// # Errors
     ///
@@ -309,7 +309,7 @@ impl Store {
             let inherited = inherited_members_source(scope);
             let mut sql = scope.sql(
                 "SELECT ur.id, ur.unit_id, ur.container_id, c.title, b.title, \
-                 ur.scheduled_date, CAST(ur.interval_days AS BIGINT), ur.create_at, ur.update_at \
+                 ur.scheduled_date, CAST(ur.interval_days AS BIGINT), ur.created_at, ur.updated_at \
                  FROM unit_reviews AS ur \
                  JOIN blocks AS b ON b.id = ur.unit_id \
                  JOIN containers AS c ON c.id = b.container_id \
@@ -344,7 +344,7 @@ impl Store {
                 .push(" AS im WHERE im.container_id = c.id AND im.user_id = ur.user_id")
                 .push_bind(" AND im.org_id = ", org)
                 .push(&scope.same_organization(&[("im", "c")]))
-                .push("))) ORDER BY ur.scheduled_date ASC, ur.create_at ASC, ur.id ASC");
+                .push("))) ORDER BY ur.scheduled_date ASC, ur.created_at ASC, ur.id ASC");
             scope
                 .fetch_all(sql)
                 .await?
@@ -373,7 +373,7 @@ impl Store {
             let inherited = inherited_members_source(scope);
             let mut sql = scope.sql(
                 "SELECT ur.id, w.org_id, c.workspace_id, ur.container_id, ur.unit_id, \
-                 ur.user_id, ur.scheduled_date, ur.create_at \
+                 ur.user_id, ur.scheduled_date, ur.created_at \
                  FROM unit_reviews AS ur \
                  JOIN blocks AS b ON b.id = ur.unit_id \
                  JOIN containers AS c ON c.id = b.container_id \
@@ -412,16 +412,16 @@ impl Store {
                 )
                 .push(&scope.same_organization(&[("im", "c")]))
                 .push(")))");
-            if let Some((date, create_at, id)) = after {
+            if let Some((date, created_at, id)) = after {
                 sql.push_bind(" AND (ur.scheduled_date > ", date)
                     .push_bind(" OR (ur.scheduled_date = ", date)
-                    .push_bind(" AND (ur.create_at > ", create_at)
-                    .push_bind(" OR (ur.create_at = ", create_at)
+                    .push_bind(" AND (ur.created_at > ", created_at)
+                    .push_bind(" OR (ur.created_at = ", created_at)
                     .push_bind(" AND ur.id > ", Id(id))
                     .push("))))");
             }
             sql.push_bind(
-                " ORDER BY ur.scheduled_date ASC, ur.create_at ASC, ur.id ASC LIMIT ",
+                " ORDER BY ur.scheduled_date ASC, ur.created_at ASC, ur.id ASC LIMIT ",
                 limit,
             );
             scope
@@ -437,7 +437,7 @@ impl Store {
                         unit_id: row.id(4)?,
                         user_id: row.id(5)?,
                         scheduled_date: row.text(6)?,
-                        create_at: row.int(7)?,
+                        created_at: row.int(7)?,
                     })
                 })
                 .collect()
@@ -474,7 +474,7 @@ impl Store {
             let notif_id = new_id();
             let mut insert = scope.sql(
                 "INSERT INTO notifications (recipient_id, id, org_id, kind, source_id, \
-                 block_id, container_id, actor_id, made_by, create_at, update_at, times, \
+                 block_id, container_id, actor_id, made_by, created_at, updated_at, times, \
                  doers, counted, read_at) VALUES (",
             );
             insert
@@ -510,7 +510,7 @@ async fn insert_review(
     let mut sql = scope.sql(
         "INSERT INTO unit_reviews \
          (id, org_id, unit_id, container_id, user_id, scheduled_date, completed_at, \
-          interval_days, notified_at, create_at, update_at) VALUES (",
+          interval_days, notified_at, created_at, updated_at) VALUES (",
     );
     sql.changing_no_access()
         .bind(Id(&id))
@@ -526,7 +526,7 @@ async fn insert_review(
         .push_bind(", ", now)
         .push(
             ") RETURNING id, unit_id, container_id, scheduled_date, completed_at, \
-             CAST(interval_days AS BIGINT), create_at, update_at",
+             CAST(interval_days AS BIGINT), created_at, updated_at",
         );
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     review_from_row(&row)
@@ -574,7 +574,7 @@ async fn fetch_review_row(
 ) -> Result<UnitReview, StoreError> {
     let mut sql = scope.sql(
         "SELECT id, unit_id, container_id, scheduled_date, completed_at, \
-         CAST(interval_days AS BIGINT), create_at, update_at \
+         CAST(interval_days AS BIGINT), created_at, updated_at \
          FROM unit_reviews \
          WHERE id = ",
     );
@@ -599,8 +599,8 @@ fn review_from_row(row: &Row) -> Result<UnitReview, StoreError> {
         scheduled_date: row.text(3)?,
         completed_at: row.opt_int(4)?,
         interval_days: positive_u32(row.int(5)?),
-        create_at: row.int(6)?,
-        update_at: row.int(7)?,
+        created_at: row.int(6)?,
+        updated_at: row.int(7)?,
     })
 }
 
@@ -616,8 +616,8 @@ fn today_review_from_row(row: &Row, today: &str) -> Result<TodayReviewItem, Stor
         scheduled_date,
         interval_days: positive_u32(row.int(6)?),
         overdue_days: u32::try_from(overdue).unwrap_or(u32::MAX),
-        create_at: row.int(7)?,
-        update_at: row.int(8)?,
+        created_at: row.int(7)?,
+        updated_at: row.int(8)?,
     })
 }
 

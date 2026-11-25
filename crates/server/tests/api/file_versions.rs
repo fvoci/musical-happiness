@@ -113,8 +113,8 @@ async fn attach(ts: &TestServer, board_id: &str, file_id: &str) -> String {
         parent_id: String::new(),
         container_id: board_id.to_owned(),
         block_type: BlockType::Card,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let made: Vec<Block> = ts
@@ -130,8 +130,8 @@ async fn attach(ts: &TestServer, board_id: &str, file_id: &str) -> String {
         container_id: board_id.to_owned(),
         block_type: BlockType::Attachment,
         fields,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     ts.client
@@ -992,7 +992,7 @@ async fn the_versions_of_two_organizations_stay_apart() {
             name: name.to_owned(),
             extension: ".txt".to_owned(),
             size: 6,
-            create_at: 1,
+            created_at: 1,
             ..FileRecord::default()
         }
     };

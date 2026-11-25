@@ -704,15 +704,17 @@ async fn seed_pre_0058_boards(
     let before = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("the store opens the schema of before");
-    let (org_id, workspace_id) = common::organization(&before, "").await;
+    let (org_id, workspace_id) = common::pre0075_organization(&before, "").await;
     let before = before.for_org(&org_id).expect("an identifier");
     // The account is written in the columns of then: the store of now also asks of an
     // address what later migrations keep (`email_reverts`).
     let user_id = new_id();
     before
         .execute_unchecked(&format!(
-            "INSERT INTO users (id, username, email, password_hash, create_at, update_at) \
-             VALUES ('{user_id}', 'before', 'before@example.com', '', 1, 1)"
+            "INSERT INTO users (id, username, email, password_hash, {}, {}) \
+             VALUES ('{user_id}', 'before', 'before@example.com', '', 1, 1)",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ))
         .await
         .expect("the user is stored");
@@ -723,9 +725,11 @@ async fn seed_pre_0058_boards(
             .execute_unchecked(&format!(
                 "INSERT INTO containers \
                  (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-                  show_description, is_template, properties, card_properties, create_at, update_at) \
+                  show_description, is_template, properties, card_properties, {}, {}) \
                  VALUES ('{id}', '{workspace_id}', '{user_id}', '{user_id}', 'O', 'board', 'board', \
-                  '', '', false, false, '{{}}', '[]', 1, 1)"
+                  '', '', false, false, '{{}}', '[]', 1, 1)",
+                common::PRE0075_CREATE_COL,
+                common::PRE0075_UPDATE_COL,
             ))
             .await
             .expect("the pre-0058 board is stored");
@@ -758,9 +762,11 @@ async fn the_migration_numbers_the_cards_of_each_board_in_the_order_they_were_ma
         };
         format!(
             "INSERT INTO blocks (id, container_id, parent_id, created_by, modified_by, \
-             \"schema\", type, title, fields, create_at, update_at) VALUES ('{id}', '{on}', \
+             \"schema\", type, title, fields, {}, {}) VALUES ('{id}', '{on}', \
              {parent}, '{user_id}', '{user_id}', 1, '{block_type}', '{id}', '{fields}', {at}, \
-             {at});"
+             {at});",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         )
     };
     let no_template = r#"{"isTemplate": false}"#;

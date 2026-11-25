@@ -111,7 +111,7 @@ async fn a_body_written_while_a_body_is_written_is_not_written_over() {
                         .expect("a body")
                         .expect("not empty"),
                 ),
-                read_at: Some(read.update_at),
+                read_at: Some(read.updated_at),
                 ..fvoci_model::BlockPatch::default()
             },
             &e.user2,
@@ -162,7 +162,7 @@ async fn a_body_written_whole_over_a_log_not_written_yet_is_refused_until_read_a
     th.client
         .patch(
             &path,
-            &json!({"body": whole, "readAt": read_before.update_at}),
+            &json!({"body": whole, "readAt": read_before.updated_at}),
         )
         .await
         .check_status(reqwest::StatusCode::CONFLICT);
@@ -173,7 +173,7 @@ async fn a_body_written_whole_over_a_log_not_written_yet_is_refused_until_read_a
         "the log was written first"
     );
     th.client
-        .patch(&path, &json!({"body": whole, "readAt": read.update_at}))
+        .patch(&path, &json!({"body": whole, "readAt": read.updated_at}))
         .await
         .check_ok();
     let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
@@ -214,12 +214,12 @@ async fn a_batch_that_writes_a_body_whole_meets_the_open_document() {
     };
     let path = format!("{TEST_WS}/boards/{}/blocks", read_before.board_id);
     th.client
-        .patch(&path, &batch(read_before.update_at))
+        .patch(&path, &batch(read_before.updated_at))
         .await
         .check_status(reqwest::StatusCode::CONFLICT);
     let read = card(&th.client, &e.card_id).await;
     th.client
-        .patch(&path, &batch(read.update_at))
+        .patch(&path, &batch(read.updated_at))
         .await
         .check_no_content();
     assert!(told(&mut events, &e.card_id, DocChange::Replaced));
@@ -267,7 +267,7 @@ async fn a_batch_writes_the_body_of_the_card_its_patch_is_for() {
             &path,
             &json!({
                 "blockIds": [newer.id, older.card_id],
-                "blockPatches": [{"title": "x"}, {"body": whole, "readAt": read_before.update_at}],
+                "blockPatches": [{"title": "x"}, {"body": whole, "readAt": read_before.updated_at}],
             }),
         )
         .await
@@ -312,7 +312,7 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     th.client
         .patch(
             &format!("{TEST_WS}/boards-and-blocks"),
-            &patch(read_before.update_at),
+            &patch(read_before.updated_at),
         )
         .await
         .check_status(reqwest::StatusCode::CONFLICT);
@@ -320,7 +320,7 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     th.client
         .patch(
             &format!("{TEST_WS}/boards-and-blocks"),
-            &patch(read.update_at),
+            &patch(read.updated_at),
         )
         .await
         .check_ok();

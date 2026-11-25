@@ -48,7 +48,7 @@ async fn a_comment_has_no_file_block() {
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let comment = |body: &Value| {
         json!({"containerId": board.id, "parentId": card["id"], "type": "comment",
-               "createAt": 1, "updateAt": 1, "body": body})
+               "createdAt": 1, "updatedAt": 1, "body": body})
     };
     let refused = ts
         .client
@@ -83,7 +83,7 @@ async fn a_comment_has_no_file_block() {
         .await
         .created_json();
     let comment_id = made[0]["id"].as_str().expect("an id");
-    let patch = json!({"body": with_file(&file_id), "readAt": made[0]["updateAt"]});
+    let patch = json!({"body": with_file(&file_id), "readAt": made[0]["updatedAt"]});
     let refused = ts
         .client
         .patch(&format!("{blocks}/{comment_id}"), &patch)
@@ -128,9 +128,9 @@ async fn a_comment_has_no_file_block() {
     // is refused at its body for that first.
     let new_board = json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"});
     let new_card =
-        json!({"id": "c1", "containerId": "bd", "type": "card", "createAt": 1, "updateAt": 1});
+        json!({"id": "c1", "containerId": "bd", "type": "card", "createdAt": 1, "updatedAt": 1});
     let new_comment = json!({"id": "m1", "containerId": "bd", "parentId": "c1",
-        "type": "comment", "createAt": 1, "updateAt": 1, "body": with_file("7x.pdf")});
+        "type": "comment", "createdAt": 1, "updatedAt": 1, "body": with_file("7x.pdf")});
     let refused = ts
         .client
         .post(
@@ -168,7 +168,7 @@ async fn a_page_comment_or_an_archived_comment_has_no_file_block() {
         )
         .await
         .created_json();
-    let change = json!({"body": with_file(&wiki_file), "readAt": written["updateAt"]});
+    let change = json!({"body": with_file(&wiki_file), "readAt": written["updatedAt"]});
     let refused = ts
         .client
         .patch(
@@ -182,7 +182,7 @@ async fn a_page_comment_or_an_archived_comment_has_no_file_block() {
     let before = boards_of(&ts).await.len();
     let archived = json!({"type": "block", "data": {
         "id": "m2", "boardId": "b2", "parentId": "c2", "type": "comment", "title": "",
-        "createAt": 1, "updateAt": 1, "body": with_file("7x.pdf"),
+        "createdAt": 1, "updatedAt": 1, "body": with_file("7x.pdf"),
     }});
     let refused = import(
         &ts.client,
@@ -233,7 +233,7 @@ async fn a_page_names_no_file_of_another_container() {
     let page_id = page(&ts.client, &wiki_id, "", "Minutes").await;
     let path = format!("{TEST_WS}/wikis/{wiki_id}/pages/{page_id}");
     for elsewhere in [&board_file, &other_file] {
-        let read_at = ts.client.get(&path).await.value()["updateAt"].clone();
+        let read_at = ts.client.get(&path).await.value()["updatedAt"].clone();
         let refused = ts
             .client
             .patch(

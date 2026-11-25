@@ -918,7 +918,7 @@ mod tests {
         for statement in [
             "WITH gone AS (DELETE FROM blocks RETURNING id) SELECT id FROM gone",
             "DELETE FROM data_steps WHERE name = $1 RETURNING name",
-            "UPDATE users SET update_at = $1 RETURNING id",
+            "UPDATE users SET updated_at = $1 RETURNING id",
             "INSERT INTO containers (id) VALUES ($1) RETURNING id",
             "select 1",
             "SELECTED",

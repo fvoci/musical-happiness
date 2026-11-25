@@ -72,11 +72,11 @@ async fn a_page_is_made_read_changed_and_deleted() {
             body: None,
             created_by: me.clone(),
             modified_by: me,
-            create_at: page.create_at,
-            update_at: page.create_at,
+            created_at: page.created_at,
+            updated_at: page.created_at,
         }
     );
-    assert!(!page.order.is_empty() && page.create_at > 0, "{page:?}");
+    assert!(!page.order.is_empty() && page.created_at > 0, "{page:?}");
     let members: Vec<String> = made
         .value()
         .as_object()
@@ -88,7 +88,7 @@ async fn a_page_is_made_read_changed_and_deleted() {
         members,
         [
             "body",
-            "createAt",
+            "createdAt",
             "createdBy",
             "icon",
             "id",
@@ -96,7 +96,7 @@ async fn a_page_is_made_read_changed_and_deleted() {
             "order",
             "parentId",
             "title",
-            "updateAt",
+            "updatedAt",
             "wikiId",
         ]
     );
@@ -112,7 +112,7 @@ async fn a_page_is_made_read_changed_and_deleted() {
         (renamed.title.as_str(), renamed.icon.as_str()),
         ("Start here", "👋")
     );
-    assert!(renamed.update_at > page.update_at);
+    assert!(renamed.updated_at > page.updated_at);
     let plain: Page = client.patch(&at, &json!({"icon": ""})).await.ok_json();
     assert_eq!(
         (plain.title.as_str(), plain.icon.as_str()),
@@ -148,12 +148,12 @@ async fn the_body_of_a_page_is_written_whole_by_who_read_the_page_last() {
         &client.patch(&at, &json!({"body": body_of("x")})).await,
         "/readAt",
     );
-    let stale = json!({"body": body_of("stale"), "readAt": page.update_at});
+    let stale = json!({"body": body_of("stale"), "readAt": page.updated_at});
     client
         .patch(&at, &stale)
         .await
         .check_status(StatusCode::CONFLICT);
-    let written = json!({"body": body_of("Read me first"), "readAt": plain.update_at});
+    let written = json!({"body": body_of("Read me first"), "readAt": plain.updated_at});
     let written: Page = client.patch(&at, &written).await.ok_json();
     let read: Page = client.get(&at).await.ok_json();
     assert_eq!(read, written);
@@ -161,7 +161,7 @@ async fn the_body_of_a_page_is_written_whole_by_who_read_the_page_last() {
         serde_json::to_value(&read.body).expect("a body")["content"][0]["content"][0]["text"],
         "Read me first"
     );
-    let cleared = json!({"body": null, "readAt": read.update_at});
+    let cleared = json!({"body": null, "readAt": read.updated_at});
     let cleared: Page = client.patch(&at, &cleared).await.ok_json();
     assert_eq!(cleared.body, None);
 
@@ -286,7 +286,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
 
     // No block of a board is made a page, or becomes one.
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
-    let as_page = json!({"containerId": board.id, "type": "page", "createAt": 1, "updateAt": 1});
+    let as_page = json!({"containerId": board.id, "type": "page", "createdAt": 1, "updatedAt": 1});
     check_refused_at(&client.post(&blocks, &json!([as_page])).await, "/0/type");
     let becoming = client
         .patch(&format!("{blocks}/{card}"), &json!({"type": "page"}))
@@ -294,7 +294,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
     check_refused_at(&becoming, "/type");
     let with_board = json!({
         "containers": [{"id": "b", "visibility": "private"}],
-        "blocks": [{"id": "p", "containerId": "b", "type": "page", "createAt": 1, "updateAt": 1}],
+        "blocks": [{"id": "p", "containerId": "b", "type": "page", "createdAt": 1, "updatedAt": 1}],
     });
     let with_board = client
         .post(&format!("{TEST_WS}/boards-and-blocks"), &with_board)
@@ -303,7 +303,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
 
     // The page is no block and no card to the operations of boards, by its wiki or alone.
     let of_wiki = format!("{TEST_WS}/boards/{wiki_id}/blocks");
-    let a_card = json!([{"containerId": wiki_id, "type": "card", "createAt": 1, "updateAt": 1}]);
+    let a_card = json!([{"containerId": wiki_id, "type": "card", "createdAt": 1, "updatedAt": 1}]);
     for refused in [
         client.get(&of_wiki).await,
         client.post(&of_wiki, &a_card).await,

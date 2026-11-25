@@ -24,13 +24,13 @@ function card(
   id: string,
   title: string,
   properties: Record<string, PropertyValue> = {},
-  createAt = 1000,
+  createdAt = 1000,
 ): Card {
   const created = createCard();
   created.id = id;
   created.title = title;
-  created.createAt = createAt;
-  created.updateAt = createAt;
+  created.createdAt = createdAt;
+  created.updatedAt = createdAt;
   for (const [propertyId, value] of Object.entries(properties)) {
     setCardProperty(created, propertyId, value);
   }
@@ -228,9 +228,9 @@ describe('sorting by a property', () => {
 
   it('counts the newest comment as a change of the card', () => {
     const quiet = card('quiet', 'x');
-    quiet.updateAt = 3000;
+    quiet.updatedAt = 3000;
     const discussed = card('discussed', 'y');
-    discussed.updateAt = 1000;
+    discussed.updatedAt = 1000;
     expect(ids(sortCards([discussed, quiet], sortBy([['updated']])))).toBe('discussed quiet');
     // The server says when its last comment was posted.
     discussed.lastCommentAt = 9000;

@@ -34,7 +34,7 @@ pub(crate) async fn board_with_files(store: &Store, user_id: &str, names: &[&str
                 id: new_id(),
                 container_id: board_id.clone(),
                 stored_name: (*name).to_owned(),
-                create_at: 1,
+                created_at: 1,
                 path: format!("boards/{board_id}/{name}"),
                 name: "upload.png".to_owned(),
                 extension: ".png".to_owned(),
@@ -104,7 +104,7 @@ pub(crate) async fn type_body(store: &Store, card_id: &str, body: Option<Body>, 
         )
         .await
         .expect("logged");
-    let read_at = store.get_block(card_id).await.expect("the card").update_at;
+    let read_at = store.get_block(card_id).await.expect("the card").updated_at;
     let digest = fvoci_store::body_digest(body.as_ref());
     let as_read = crate::body_docs::as_read(store, card_id).await;
     store
@@ -170,7 +170,7 @@ async fn a_body_written_whole_keeps_the_body_before_and_the_body_after() {
     let versions = store.body_versions(&card_id).await.expect("the versions");
     assert_eq!(versions[1].editors, Vec::<String>::new(), "nobody known");
     assert_eq!(
-        versions[1].kept_at, made.update_at,
+        versions[1].kept_at, made.updated_at,
         "as of the card's change"
     );
     assert_eq!(versions[0].editors, std::slice::from_ref(&editor));
@@ -275,7 +275,7 @@ async fn a_version_names_who_wrote_the_body_since_the_one_before() {
     assert_eq!(keep(store, &card_id).await, None, "kept already");
     let versions = store.body_versions(&card_id).await.expect("the versions");
     assert_eq!(versions[0].editors, Vec::<String>::new());
-    assert_eq!(versions[0].kept_at, made.update_at);
+    assert_eq!(versions[0].kept_at, made.updated_at);
 
     // The editors whose updates were logged since, each once; no version until kept.
     for by in [&editor, &other, &editor] {
@@ -641,7 +641,7 @@ async fn a_body_is_kept_by_hand_unless_it_is_kept_already_or_was_lately() {
     let first_kept_at = versions[0].kept_at;
     assert_eq!(versions[0].editors, Vec::<String>::new(), "nobody is known");
     assert!(
-        versions[0].kept_at >= before && versions[0].kept_at >= made.update_at,
+        versions[0].kept_at >= before && versions[0].kept_at >= made.updated_at,
         "as of when it was asked for, not of the card's last change: {versions:?}"
     );
     assert_eq!(

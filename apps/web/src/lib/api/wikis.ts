@@ -58,8 +58,8 @@ export function pageOf(node: Schemas['PageNode'], wikiId: string): WikiPage {
     title: node.title,
     icon: node.icon,
     order: node.order,
-    createAt: node.createAt,
-    updateAt: node.updateAt,
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
   };
 }
 
@@ -86,8 +86,8 @@ export function pageOfBlock(block: Schemas['Block']): WikiPage {
       title: block.title,
       icon: typeof fields.icon === 'string' ? fields.icon : '',
       order: typeof fields.order === 'string' ? fields.order : '',
-      createAt: block.createAt,
-      updateAt: block.updateAt,
+      createdAt: block.createdAt,
+      updatedAt: block.updatedAt,
     },
     block.containerId,
   );

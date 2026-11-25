@@ -97,7 +97,7 @@ describe('a course in memory', () => {
       startDate: '2026-12-01',
       targetDate: '2026-12-14',
       studyDays: 31,
-      updateAt: 1,
+      updatedAt: 1,
     });
     await courses.putUnitProgress(made.course.id, u1.id, {
       completed: true,
@@ -330,7 +330,7 @@ describe('a course in memory', () => {
         await rejection(
           courses.patchUnit(made.course.id, ch1.id, {
             body: text('nope'),
-            readAt: chDetail.updateAt,
+            readAt: chDetail.updatedAt,
           }),
         )
       ).status,
@@ -341,7 +341,7 @@ describe('a course in memory', () => {
     expect(detail.body).toBeNull();
     const updated = await courses.patchUnit(made.course.id, u1.id, {
       body: text('Hello learners'),
-      readAt: detail.updateAt,
+      readAt: detail.updatedAt,
     });
     expect(updated.body).toEqual(text('Hello learners'));
     expect(
@@ -349,7 +349,7 @@ describe('a course in memory', () => {
         await rejection(
           courses.patchUnit(made.course.id, u1.id, {
             body: text('stale'),
-            readAt: detail.updateAt,
+            readAt: detail.updatedAt,
           }),
         )
       ).status,
@@ -476,7 +476,7 @@ describe('a course in memory', () => {
 
     const edited = await courses.patchComment(made.course.id, u.id, c1.id, {
       body: text('Edited note'),
-      readAt: c1.updateAt,
+      readAt: c1.updatedAt,
     });
     expect(edited.editedAt).toBeGreaterThan(0);
     expect(
@@ -484,7 +484,7 @@ describe('a course in memory', () => {
         await rejection(
           courses.patchComment(made.course.id, u.id, c1.id, {
             body: text('Stale'),
-            readAt: c1.updateAt,
+            readAt: c1.updatedAt,
           }),
         )
       ).status,
@@ -515,11 +515,11 @@ describe('a course in memory', () => {
 
     const v1 = await courses.patchUnit(made.course.id, u.id, {
       body: text('Draft one'),
-      readAt: u.updateAt,
+      readAt: u.updatedAt,
     });
     await courses.patchUnit(made.course.id, u.id, {
       body: text('Draft two'),
-      readAt: v1.updateAt,
+      readAt: v1.updatedAt,
     });
     const list = await courses.bodyVersions.list(made.course.id, u.id);
     expect(list.length).toBeGreaterThanOrEqual(2);
@@ -556,7 +556,7 @@ describe('a course in memory', () => {
           },
         ],
       },
-      readAt: u1.updateAt,
+      readAt: u1.updatedAt,
     });
 
     const resolved = await made.backend.references.resolve(made.workspaceId, [ch.id, u1.id, u2.id]);

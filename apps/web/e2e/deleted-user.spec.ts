@@ -19,7 +19,7 @@ interface Dev {
     usersById(
       workspaceId: string,
       ids: string[],
-    ): Promise<{ username: string; createAt: number; updateAt: number; deletedAt?: number }[]>;
+    ): Promise<{ username: string; createdAt: number; updatedAt: number; deletedAt?: number }[]>;
     searchUsers(workspaceId: string, query: string): Promise<unknown[]>;
   };
 }
@@ -51,7 +51,7 @@ test('what a deleted user wrote stays, under no name', async ({ page }) => {
   // Asked by identifier they are what is left of the account; asked by name, nobody.
   expect(place.left?.username).toBe('');
   // Nor when the account came or went.
-  expect([place.left?.createAt, place.left?.updateAt, place.left?.deletedAt]).toEqual([
+  expect([place.left?.createdAt, place.left?.updatedAt, place.left?.deletedAt]).toEqual([
     0,
     0,
     undefined,

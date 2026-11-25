@@ -518,7 +518,7 @@ async fn a_diary_has_no_link() {
     };
     let linked = system
         .execute_unchecked(&format!(
-            "INSERT INTO public_links ({}container_id, enabled, token, update_at) \
+            "INSERT INTO public_links ({}container_id, enabled, token, updated_at) \
              VALUES ({}'{diary_id}', true, 'token', 1)",
             org.0, org.1
         ))

@@ -317,7 +317,7 @@ impl App {
                 pkce_verifier: verifier.clone(),
                 org_id: org_id.to_owned(),
                 provider_id: stored.id.clone(),
-                create_at: now,
+                created_at: now,
                 expires_at: now.saturating_add(LOGIN_FLOW_LIFETIME_MILLIS),
                 purpose,
             })
@@ -368,7 +368,7 @@ impl App {
                 .await?
                 .and_then(|pending| {
                     let purpose = FlowPurpose::Trial {
-                        pending_at: pending.create_at,
+                        pending_at: pending.created_at,
                         user_id: user_id.to_owned(),
                         session_id: session_id.to_owned(),
                     };
@@ -581,7 +581,7 @@ impl App {
             .oidc_pending_provider()
             .await
             .map_err(|error| logged(&error, "reading the provider"))?
-            .filter(|pending| pending.create_at == *pending_at)
+            .filter(|pending| pending.created_at == *pending_at)
             .and_then(|pending| trying(&stored, &pending)))
     }
 

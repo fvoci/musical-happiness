@@ -278,7 +278,7 @@ async fn write_a_body(founder: &Client, at: &str, card: &Value) {
     founder
         .patch(
             &format!("{at}/cards/{}", text(card, "id")),
-            &json!({"readAt": card["updateAt"], "body": {"type": "doc", "content": [
+            &json!({"readAt": card["updatedAt"], "body": {"type": "doc", "content": [
                 {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]}]}}),
         )
         .await
@@ -443,7 +443,7 @@ async fn course_with_a_unit(
     let said = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
         {"type": "text", "text": format!("{name} unit comment")}]}]});
     let at_unit = format!("{at}/courses/{course}/units/{}", text(&unit, "id"));
-    let mut read_at = unit["updateAt"].clone();
+    let mut read_at = unit["updatedAt"].clone();
     let again = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
         {"type": "text", "text": format!("{name} unit body again")}]}]});
     for body in [said.clone(), again] {
@@ -451,7 +451,7 @@ async fn course_with_a_unit(
             .patch(&at_unit, &json!({"readAt": read_at, "body": body}))
             .await;
         written.check_ok();
-        read_at = written.value()["updateAt"].clone();
+        read_at = written.value()["updatedAt"].clone();
     }
     let unit = text(&unit, "id");
     let comment = founder
@@ -585,7 +585,7 @@ async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, St
     // Two bodies written to the page are two versions of it: the member reads the first
     // and goes back to it, which writes it to the page again.
     let at_page = format!("{at}/wikis/{wiki}/pages/{}", text(&page, "id"));
-    let mut read_at = page["updateAt"].clone();
+    let mut read_at = page["updatedAt"].clone();
     let again = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
         {"type": "text", "text": format!("{name} body again")}]}]});
     for body in [said.clone(), again] {
@@ -593,7 +593,7 @@ async fn wiki_with_a_page(founder: &Client, at: &str, name: &str) -> (String, St
             .patch(&at_page, &json!({"readAt": read_at, "body": body}))
             .await;
         written.check_ok();
-        read_at = written.value()["updateAt"].clone();
+        read_at = written.value()["updatedAt"].clone();
     }
     let page = text(&page, "id");
     let comment = founder

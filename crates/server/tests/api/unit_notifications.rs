@@ -158,7 +158,7 @@ async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
 
     let (open, _, open_unit) = make_course(&th.client, TEST_WS, "open").await;
     let open_path = format!("{TEST_WS}/courses/{open}/units/{open_unit}");
-    let read_at = th.client.get(&open_path).await.value()["updateAt"].clone();
+    let read_at = th.client.get(&open_path).await.value()["updatedAt"].clone();
     th.client
         .patch(
             &open_path,
@@ -185,7 +185,7 @@ async fn own_space_course_produces_zero_notifications_and_zero_outbox_rows() {
 
     let (course, _, unit) = make_course(&th.client, &own_ws, "private").await;
     let unit_path = format!("{own_ws}/courses/{course}/units/{unit}");
-    let read_at = th.client.get(&unit_path).await.value()["updateAt"].clone();
+    let read_at = th.client.get(&unit_path).await.value()["updatedAt"].clone();
     th.client
         .patch(
             &unit_path,

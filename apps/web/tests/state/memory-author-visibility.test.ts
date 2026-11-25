@@ -59,7 +59,7 @@ it('names the writer of a kept comment revision, including its readable trash hi
   const comment = await other.createComment(board.id, card.id, text('Earlier'));
   await backend.patchComment(board.id, comment.id, {
     body: text('Current'),
-    readAt: comment.updateAt,
+    readAt: comment.updatedAt,
   });
   const stored = world.blocks.get(comment.id);
   assert(stored);

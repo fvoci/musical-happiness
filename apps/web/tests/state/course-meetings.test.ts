@@ -88,8 +88,8 @@ describe('course meetings & exams API client', () => {
       hostId: null,
       notes: '',
       notifiedAt: null,
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
       attendance: [],
     };
     const sampleExam = {
@@ -99,8 +99,8 @@ describe('course meetings & exams API client', () => {
       examDate: null,
       maxScore: 100,
       description: '',
-      createAt: 1,
-      updateAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
       myScore: null,
       averageScore: null,
       scoreCount: 0,
@@ -120,10 +120,10 @@ describe('course meetings & exams API client', () => {
         return Promise.resolve([sampleExam] as T);
       }
       if (path.endsWith('/attendance/{userId}')) {
-        return Promise.resolve({ userId: 'u1', status: 'present', updateAt: 2 } as T);
+        return Promise.resolve({ userId: 'u1', status: 'present', updatedAt: 2 } as T);
       }
       if (path.endsWith('/my-score')) {
-        return Promise.resolve({ score: 88, note: 'good', updateAt: 3 } as T);
+        return Promise.resolve({ score: 88, note: 'good', updatedAt: 3 } as T);
       }
       if (path.includes('/exams')) return Promise.resolve(sampleExam as T);
       return Promise.resolve(sampleMeeting as T);
@@ -273,7 +273,7 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
       hostId: made.other.userId,
     });
 
-    // Exams ordering: examDate ASC NULLS LAST, createAt ASC.
+    // Exams ordering: examDate ASC NULLS LAST, createdAt ASC.
     const undated = await made.backend.course.exams.create(course.id, {
       title: 'Pop Quiz',
       maxScore: 50,

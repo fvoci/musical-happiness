@@ -407,27 +407,38 @@ async fn seed_pre_0062_versions(
     let before = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("opens schema at 61");
-    let (org1, default_ws1) = common::organization(&before, "org-one").await;
+    let (org1, default_ws1) = common::pre0075_organization(&before, "org-one").await;
     let org2 = if database.db_type() == DbType::Postgres {
-        Some(common::organization(&before, "org-two").await.0)
+        Some(common::pre0075_organization(&before, "org-two").await.0)
     } else {
         None
     };
     let scoped1 = before.for_org(&org1).expect("org1");
     let author = common::pre0072_user(&scoped1, &org1, &default_ws1, "mig62.author").await;
-    let ws1 = common::workspace(&scoped1).await;
+    let ws1 = common::pre0075_workspace(&scoped1, &org1).await;
     let board_id = new_id();
     scoped1
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-              show_description, is_template, properties, card_properties, create_at, update_at) \
+              show_description, is_template, properties, card_properties, {}, {}) \
              VALUES ('{board_id}', '{ws1}', '{author}', '{author}', 'O', 'board', 'board 0', \
-              '', '', false, false, '{{}}', '[]', 1, 1)"
+              '', '', false, false, '{{}}', '[]', 1, 1)",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ))
         .await
         .expect("pre-0062 board stored");
-    let card1 = card_with(&scoped1.telling_nobody(), &board_id, None, &author).await;
+    let mut card = fvoci_model::Block {
+        id: new_id(),
+        container_id: board_id.clone(),
+        block_type: fvoci_model::BlockType::Card,
+        title: "card".to_owned(),
+        number: Some(1),
+        ..fvoci_model::Block::default()
+    };
+    common::pre0075_insert_block(&scoped1, &mut card, &author).await;
+    let card1 = card.id;
     before.close().await;
 
     let empty_digest_hex: String =

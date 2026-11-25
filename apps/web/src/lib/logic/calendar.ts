@@ -129,7 +129,7 @@ export function cardDays(
   timeZone: string,
 ): { first: CalendarDate; last: CalendarDate } | undefined {
   if (!template) {
-    const day = dateOfInstant(card.createAt, timeZone);
+    const day = dateOfInstant(card.createdAt, timeZone);
     return { first: day, last: day };
   }
   const days = propertyBehavior(template.type).days;

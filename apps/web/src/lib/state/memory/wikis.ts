@@ -7,7 +7,7 @@
  * The rules are the server's (`crates/store/src/pages.rs`): a page goes below
  * a page of the same wiki or at its top, among its siblings where `after`
  * says (`orderBetween`); its pages are for the wiki's members, written by its
- * editors; a body is written with the `updateAt` it was read at (409 when the
+ * editors; a body is written with the `updatedAt` it was read at (409 when the
  * page changed since, what its room took counted first) and kept as a
  * version around the write, as a card's is; deleting a page takes every page
  * below it along, and their comments, and tells of the page alone; bringing
@@ -192,8 +192,8 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       description: draft.description ?? '',
       icon: draft.icon ?? '',
       cardProperties: [],
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     world.containers.set(wiki.id, wiki);
     world.members.set(wiki.id, [memberOf(wiki.id, userId, 'admin')]);
@@ -235,7 +235,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       if (!sibling) return [];
       sibling.fields = { ...sibling.fields, order };
       // As the server: the order alone, who changed it last stays.
-      sibling.updateAt = now;
+      sibling.updatedAt = now;
       return [sibling];
     });
     page.fields = { ...page.fields, order: place.order };
@@ -271,8 +271,8 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       title,
       fields: { icon },
       body: null,
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     const renumbered = this.#writePlace(page, place);
     this.#world.blocks.set(page.id, page);
@@ -292,7 +292,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     const place = tree.place(parentId, to.after, pageId);
     const renumbered = this.#writePlace(page, place);
     page.parentId = parentId;
-    page.updateAt = this.#world.now();
+    page.updatedAt = this.#world.now();
     page.modifiedBy = this.#host.userId;
     this.#tellPages(wikiId, [...renumbered, page]);
     return detailOf(page);
@@ -324,8 +324,8 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
         parentId: ids.get(source.parentId) ?? source.parentId,
         createdBy: userId,
         modifiedBy: userId,
-        createAt: now,
-        updateAt: now,
+        createdAt: now,
+        updatedAt: now,
       };
       return [made];
     });
@@ -351,14 +351,14 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     // What its room took is written into the page first: it counts against `readAt`.
     const body: DocNode | null | undefined =
       patch.body === undefined ? undefined : checkedWhole(this.#world, wikiId, pageId, patch.body);
-    if (patch.readAt !== undefined && patch.readAt !== page.updateAt) {
+    if (patch.readAt !== undefined && patch.readAt !== page.updatedAt) {
       throw new BackendError(409, { detail: 'the page changed since it was read' });
     }
     const write = (): void => {
       if (title !== undefined) page.title = title;
       if (icon !== undefined) page.fields = { ...page.fields, icon };
       if (body !== undefined) page.body = body;
-      page.updateAt = this.#world.now();
+      page.updatedAt = this.#world.now();
       page.modifiedBy = this.#host.userId;
     };
     // A body written whole is kept as a version, after the one it is written over.
@@ -435,7 +435,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     world.deletedBlocks.delete(pageId);
     const now = world.now();
     for (const block of blocks) {
-      [block.updateAt, block.modifiedBy] = [now, this.#host.userId];
+      [block.updatedAt, block.modifiedBy] = [now, this.#host.userId];
       world.blocks.set(block.id, block);
     }
     this.#tellPages(wikiId, [...renumbered, ...pages]);

@@ -346,7 +346,7 @@ async fn while_a_link_stands_nobody_else_takes_its_address() {
         language: String::new(),
         start: SignupStart::Alone,
         browser_hash: String::new(),
-        create_at: t0 + 1,
+        created_at: t0 + 1,
         expires_at: t0 + 1 + SIGNUP_LIFETIME_MILLIS,
     };
     assert!(matches!(
@@ -450,9 +450,9 @@ async fn an_address_somebody_else_has_clears_the_accounts_email_and_the_rest_is_
     test.teardown().await;
 }
 
-/// Reverting removes SSO identities linked strictly after the revert link's `create_at`
-/// (`create_at > link.create_at`) and keeps those linked at or before it
-/// (`create_at <= link.create_at`).
+/// Reverting removes SSO identities linked strictly after the revert link's `created_at`
+/// (`created_at > link.created_at`) and keeps those linked at or before it
+/// (`created_at <= link.created_at`).
 #[tokio::test]
 async fn identities_linked_after_the_revert_link_are_removed_and_earlier_ones_stay() {
     let test = common::setup().await;
@@ -497,7 +497,7 @@ async fn identities_linked_after_the_revert_link_are_removed_and_earlier_ones_st
     assert_eq!(
         left,
         ["before", "at-boundary"],
-        "identities linked at or before link.create_at stay; strictly later ones go"
+        "identities linked at or before link.created_at stay; strictly later ones go"
     );
     assert_eq!(
         store.identities_of_user(&bob.id).await.expect("read").len(),
@@ -516,16 +516,16 @@ fn oidc_provider(issuer: &str) -> StoredProvider {
         sealed_client_secret: String::new(),
         auto_join: true,
         enabled: true,
-        create_at: 0,
-        update_at: 0,
+        created_at: 0,
+        updated_at: 0,
         sso_required: false,
         revision: 0,
     }
 }
 
 /// Identities linked through `finish_oidc_link` after an email change in the very same
-/// millisecond — even after rapid changes that bumped `email_reverts.create_at` — still
-/// receive `create_at > link.create_at` and are removed when the link is used.
+/// millisecond — even after rapid changes that bumped `email_reverts.created_at` — still
+/// receive `created_at > link.created_at` and are removed when the link is used.
 #[tokio::test]
 async fn a_same_millisecond_oidc_link_after_a_change_is_removed_on_revert() {
     let test = common::setup().await;
@@ -584,7 +584,7 @@ async fn a_same_millisecond_oidc_link_after_a_change_is_removed_on_revert() {
 
 /// Even when an email change carries an earlier timestamp than an identity already tied
 /// to the account (lock contention or clock step-back), `email_revert::insert` clamps
-/// the revert link's `create_at` to at least that identity's `create_at` so pre-existing
+/// the revert link's `created_at` to at least that identity's `created_at` so pre-existing
 /// identities stay and any identity linked afterward is still bumped past it and removed.
 #[tokio::test]
 async fn an_identity_linked_before_a_stale_change_timestamp_stays_and_a_later_one_goes() {
@@ -693,7 +693,7 @@ async fn a_same_millisecond_carried_over_identity_after_a_change_is_removed_on_r
         email_unverified: false,
         name: "Ada".to_owned(),
         preferred_username: "ada".to_owned(),
-        create_at: now,
+        created_at: now,
         expires_at: now + 60_000,
     };
     assert!(

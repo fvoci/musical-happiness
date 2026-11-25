@@ -240,7 +240,7 @@ async fn sessions_until_made_again(th: &TestServer, e: &Editing, written: u64, e
     let collab = e.app.collab();
     let board_id = card(&th.client, &e.card_id).await.board_id;
     let comment = json!([{"containerId": board_id, "parentId": e.card_id, "type": "comment",
-                          "createAt": 1, "updateAt": 1, "body": paragraphs(&["a comment"])}]);
+                          "createdAt": 1, "updatedAt": 1, "body": paragraphs(&["a comment"])}]);
     th.client
         .post(&format!("{TEST_WS}/boards/{board_id}/blocks"), &comment)
         .await

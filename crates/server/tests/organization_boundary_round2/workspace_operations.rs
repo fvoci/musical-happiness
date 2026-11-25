@@ -395,7 +395,7 @@ async fn keep_a_diary(case: &mut Case) {
     let entries = format!("{diary}/entries");
     let made = ask(case, "createDiaryEntry", post.clone(), &entries, written).await;
     let entry = format!("{entries}/{}", case.remember(&made, "id"));
-    let body = json!({"readAt": made["updateAt"], "body": {
+    let body = json!({"readAt": made["updatedAt"], "body": {
         "type": "doc",
         "content": [{"type": "paragraph", "content": [{"type": "text", "text": title}]}],
     }});

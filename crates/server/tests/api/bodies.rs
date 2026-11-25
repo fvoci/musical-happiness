@@ -130,7 +130,7 @@ async fn a_card_is_made_with_its_body_and_listed_without_it() {
     th.teardown().await;
 }
 
-/// A body is changed with the `updateAt` of the card as the writer read it; with
+/// A body is changed with the `updatedAt` of the card as the writer read it; with
 /// another one the patch is refused and changes nothing.
 #[tokio::test]
 async fn a_body_is_changed_only_from_the_card_as_it_is() {
@@ -150,7 +150,7 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
         .client
         .patch(
             &path,
-            &json!({"body": document(), "readAt": created.update_at}),
+            &json!({"body": document(), "readAt": created.updated_at}),
         )
         .await
         .ok_json();
@@ -170,7 +170,7 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
         .client
         .patch(
             &path,
-            &json!({"body": null, "readAt": created.update_at, "title": "Stale"}),
+            &json!({"body": null, "readAt": created.updated_at, "title": "Stale"}),
         )
         .await;
     stale.check_status(StatusCode::CONFLICT);
@@ -186,7 +186,7 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
         .client
         .patch(
             &path,
-            &json!({"title": too_long, "readAt": created.update_at}),
+            &json!({"title": too_long, "readAt": created.updated_at}),
         )
         .await;
     invalid.check_status(StatusCode::BAD_REQUEST);
@@ -194,7 +194,7 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
     // `null` takes the body away; a title alone needs no `readAt`.
     let cleared: Card = th
         .client
-        .patch(&path, &json!({"body": null, "readAt": patched.update_at}))
+        .patch(&path, &json!({"body": null, "readAt": patched.updated_at}))
         .await
         .ok_json();
     assert_eq!(cleared.body, None);
@@ -238,7 +238,7 @@ async fn a_body_that_is_no_document_is_refused() {
             .client
             .patch(
                 &format!("{TEST_WS}/cards/{}", created.id),
-                &json!({"body": body, "readAt": created.update_at}),
+                &json!({"body": body, "readAt": created.updated_at}),
             )
             .await;
         check_refused_member(&response, place);
@@ -252,7 +252,7 @@ async fn a_body_that_is_no_document_is_refused() {
     th.teardown().await;
 }
 
-/// Every change of a card moves its `updateAt` on, so a `readAt` from before a change
+/// Every change of a card moves its `updatedAt` on, so a `readAt` from before a change
 /// is refused even when the change came in the same millisecond, and also when the
 /// patch carries no body.
 #[tokio::test]
@@ -276,21 +276,21 @@ async fn a_read_at_from_before_a_change_is_refused() {
         .client
         .patch(
             &path,
-            &json!({"body": document(), "readAt": created.update_at}),
+            &json!({"body": document(), "readAt": created.updated_at}),
         )
         .await
         .ok_json();
     assert!(
-        first.update_at > created.update_at,
+        first.updated_at > created.updated_at,
         "{} after {}",
-        first.update_at,
-        created.update_at
+        first.updated_at,
+        created.updated_at
     );
     let second = th
         .client
         .patch(
             &path,
-            &json!({"title": "Second", "readAt": created.update_at}),
+            &json!({"title": "Second", "readAt": created.updated_at}),
         )
         .await;
     second.check_status(StatusCode::CONFLICT);
@@ -302,7 +302,7 @@ async fn a_read_at_from_before_a_change_is_refused() {
         .client
         .patch(
             &block_path,
-            &json!({"title": "Stale", "readAt": created.update_at}),
+            &json!({"title": "Stale", "readAt": created.updated_at}),
         )
         .await;
     stale.check_status(StatusCode::CONFLICT);
@@ -310,7 +310,7 @@ async fn a_read_at_from_before_a_change_is_refused() {
         .client
         .patch(
             &block_path,
-            &json!({"body": null, "readAt": created.update_at}),
+            &json!({"body": null, "readAt": created.updated_at}),
         )
         .await;
     stale.check_status(StatusCode::CONFLICT);
@@ -374,7 +374,7 @@ async fn a_body_comes_back_from_the_trash_and_is_copied() {
 
 /// A card made through `createBlocks` with a body; `body` is that of the block.
 fn card_block(board_id: &str, body: &Value) -> Value {
-    json!({"id": "b1", "containerId": board_id, "type": "card", "createAt": 1, "updateAt": 1,
+    json!({"id": "b1", "containerId": board_id, "type": "card", "createdAt": 1, "updatedAt": 1,
            "body": body})
 }
 
@@ -411,7 +411,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let card_id = made[0]["id"].as_str().expect("an id").to_owned();
     assert_eq!(made[0]["body"], document(), "{made:?}");
     assert_eq!(listed(&th.client, &board.id, &card_id).await, (true, 2, 1));
-    // Changed with the `updateAt` it was read at, through each route of patches.
+    // Changed with the `updatedAt` it was read at, through each route of patches.
     let path = format!("{blocks}/{card_id}");
     let read = card(&th.client, &card_id).await;
     let response = th.client.patch(&path, &json!({"body": null})).await;
@@ -420,12 +420,12 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
         .client
         .patch(
             &path,
-            &json!({"body": {"type": "doc"}, "readAt": read.update_at}),
+            &json!({"body": {"type": "doc"}, "readAt": read.updated_at}),
         )
         .await;
     check_refused_member(&response, "body");
     th.client
-        .patch(&path, &json!({"body": null, "readAt": read.update_at}))
+        .patch(&path, &json!({"body": null, "readAt": read.updated_at}))
         .await
         .check_no_content();
     assert_eq!(listed(&th.client, &board.id, &card_id).await, (false, 0, 0));
@@ -433,14 +433,14 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
         .client
         .patch(
             &path,
-            &json!({"body": document(), "readAt": read.update_at}),
+            &json!({"body": document(), "readAt": read.updated_at}),
         )
         .await;
     stale.check_status(StatusCode::CONFLICT);
 
     let read = card(&th.client, &card_id).await;
     let batch = json!({"blockIds": [card_id],
-                       "blockPatches": [{"body": document(), "readAt": read.update_at}]});
+                       "blockPatches": [{"body": document(), "readAt": read.updated_at}]});
     th.client.patch(&blocks, &batch).await.check_no_content();
     assert_eq!(card(&th.client, &card_id).await.body, Some(document_body()));
     let batch = json!({"blockIds": [card_id], "blockPatches": [{"body": null}]});
@@ -452,7 +452,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let read = card(&th.client, &card_id).await;
     let request = json!({
         "containerIds": [board.id], "containerPatches": [{"title": "n"}],
-        "blockIds": [card_id], "blockPatches": [{"body": null, "readAt": read.update_at}],
+        "blockIds": [card_id], "blockPatches": [{"body": null, "readAt": read.updated_at}],
     });
     th.client
         .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
@@ -538,14 +538,14 @@ async fn files_of_a_body_are_files_of_its_board(kind: &str) {
         .client
         .patch(
             &format!("{TEST_WS}/cards/{}", created.id),
-            &json!({"body": with_node(kind, &elsewhere), "readAt": created.update_at}),
+            &json!({"body": with_node(kind, &elsewhere), "readAt": created.updated_at}),
         )
         .await;
     check_refused_member(&response, "body");
 
     // Each route of patches refuses it too.
     let block_path = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, created.id);
-    let patch = json!({"body": with_node(kind, &elsewhere), "readAt": created.update_at});
+    let patch = json!({"body": with_node(kind, &elsewhere), "readAt": created.updated_at});
     check_refused_member(&th.client.patch(&block_path, &patch).await, "body");
     let batch = json!({"blockIds": [created.id], "blockPatches": [patch]});
     check_refused_member(
@@ -610,7 +610,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
         ),
         (
             json!({"id": "t1", "containerId": board.id, "parentId": card_id, "type": "attachment",
-                   "createAt": 1, "updateAt": 1, "body": document()}),
+                   "createdAt": 1, "updatedAt": 1, "body": document()}),
             "0/body",
         ),
     ] {
@@ -732,8 +732,8 @@ async fn copies_of_a_body_show_copies_of_its_files(kind: &str) {
         "the stored copy is what was answered"
     );
     assert_eq!(
-        copy["updateAt"],
-        json!(stored.update_at),
+        copy["updatedAt"],
+        json!(stored.updated_at),
         "the answered copy is the stored one, to be edited from"
     );
 
@@ -759,7 +759,7 @@ async fn copies_of_a_body_show_copies_of_its_files(kind: &str) {
                 .await
                 .check_ok();
             let stored = card(&th.client, block["id"].as_str().expect("an id")).await;
-            assert_eq!(block["updateAt"], json!(stored.update_at), "{kind}");
+            assert_eq!(block["updatedAt"], json!(stored.updated_at), "{kind}");
         }
     }
     assert_eq!(
@@ -809,7 +809,7 @@ async fn a_copy_of_a_card_with_a_file_begins_with_one_version(kind: &str) {
     th.client
         .patch(
             &format!("{TEST_WS}/cards/{}", created.id),
-            &json!({"body": with_node(kind, &file_id), "readAt": created.update_at}),
+            &json!({"body": with_node(kind, &file_id), "readAt": created.updated_at}),
         )
         .await
         .check_ok();
@@ -919,8 +919,8 @@ async fn a_copy_of_a_card_with_an_attachment_below_it_begins_with_one_version() 
         container_id: board.id.clone(),
         block_type: fvoci_model::BlockType::Attachment,
         fields,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..fvoci_model::Block::default()
     };
     th.client
@@ -1080,7 +1080,7 @@ async fn a_comment_has_a_body() {
         .created_json();
     let comment = |body: &Value| {
         json!([{"id": "c1", "containerId": board.id, "parentId": card.id, "type": "comment",
-                "createAt": 1, "updateAt": 1, "body": body}])
+                "createdAt": 1, "updatedAt": 1, "body": body}])
     };
 
     check_refused_member(
@@ -1108,7 +1108,7 @@ async fn a_comment_has_a_body() {
     let stored = block_of(&th.client, &board.id, &comment_id).await;
     assert_eq!(stored["body"], with_image(&file_id), "{stored}");
 
-    // Changed with the `updateAt` it was read at.
+    // Changed with the `updatedAt` it was read at.
     let path = format!("{blocks}/{comment_id}");
     check_refused_member(
         &th.client.patch(&path, &json!({"body": document()})).await,
@@ -1117,7 +1117,7 @@ async fn a_comment_has_a_body() {
     th.client
         .patch(
             &path,
-            &json!({"body": document(), "readAt": stored["updateAt"]}),
+            &json!({"body": document(), "readAt": stored["updatedAt"]}),
         )
         .await
         .check_no_content();
@@ -1129,7 +1129,7 @@ async fn a_comment_has_a_body() {
     th.client
         .patch(
             &path,
-            &json!({"body": with_image(&file_id), "readAt": read["updateAt"]}),
+            &json!({"body": with_image(&file_id), "readAt": read["updatedAt"]}),
         )
         .await
         .check_no_content();
@@ -1147,7 +1147,7 @@ async fn a_comment_has_a_body() {
                 other.id, board.id
             ),
             &json!([{"id": "c2", "containerId": other.id, "parentId": other_card.id,
-                     "type": "comment", "createAt": 1, "updateAt": 1,
+                     "type": "comment", "createdAt": 1, "updatedAt": 1,
                      "body": with_image(&file_id)}]),
         )
         .await
@@ -1185,7 +1185,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
         .post(
             &blocks,
             &json!([{"id": "c1", "containerId": board.id, "parentId": card.id,
-                     "type": "comment", "createAt": 1, "updateAt": 1,
+                     "type": "comment", "createdAt": 1, "updatedAt": 1,
                      "body": with_image(&file_id)}]),
         )
         .await
@@ -1195,14 +1195,14 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
 
     let read = block_of(&th.client, &board.id, &comment_id).await;
     let batch = json!({"blockIds": [comment_id],
-                       "blockPatches": [{"body": document(), "readAt": read["updateAt"]}]});
+                       "blockPatches": [{"body": document(), "readAt": read["updatedAt"]}]});
     th.client.patch(&blocks, &batch).await.check_no_content();
     let read = block_of(&th.client, &board.id, &comment_id).await;
     assert_eq!(read["body"], document(), "{read}");
     let request = json!({
         "containerIds": [board.id], "containerPatches": [{"title": "n"}],
         "blockIds": [comment_id],
-        "blockPatches": [{"body": with_image(&file_id), "readAt": read["updateAt"]}],
+        "blockPatches": [{"body": with_image(&file_id), "readAt": read["updatedAt"]}],
     });
     th.client
         .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
@@ -1241,9 +1241,9 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
             &json!({
                 "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
                 "blocks": [
-                    {"id": "k1", "containerId": "bd", "type": "card", "createAt": 1, "updateAt": 1},
+                    {"id": "k1", "containerId": "bd", "type": "card", "createdAt": 1, "updatedAt": 1},
                     {"id": "m1", "containerId": "bd", "parentId": "k1", "type": "comment",
-                     "createAt": 1, "updateAt": 1, "body": document()},
+                     "createdAt": 1, "updatedAt": 1, "body": document()},
                 ],
             }),
         )
@@ -1296,7 +1296,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
         .created_json();
     let comment = |id: &str, body: &Value| {
         json!([{"id": id, "containerId": board.id, "parentId": card.id, "type": "comment",
-                "createAt": 1, "updateAt": 1, "body": body}])
+                "createdAt": 1, "updatedAt": 1, "body": body}])
     };
 
     let made: Vec<Value> = th
@@ -1311,7 +1311,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
     th.client2
         .patch(
             &format!("{blocks}/{comment_id}"),
-            &json!({"body": document(), "readAt": read["updateAt"]}),
+            &json!({"body": document(), "readAt": read["updatedAt"]}),
         )
         .await
         .check_no_content();
@@ -1356,7 +1356,7 @@ async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
         .post(
             &blocks,
             &json!([{"containerId": board.id, "parentId": card.id, "type": "comment",
-                     "createAt": 1, "updateAt": 1, "editedAt": 5, "body": paragraph_doc("first")}]),
+                     "createdAt": 1, "updatedAt": 1, "editedAt": 5, "body": paragraph_doc("first")}]),
         )
         .await
         .created_json();
@@ -1374,12 +1374,12 @@ async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
     th.client
         .patch(
             &format!("{blocks}/{comment_id}"),
-            &json!({"body": paragraph_doc("second"), "readAt": posted["updateAt"]}),
+            &json!({"body": paragraph_doc("second"), "readAt": posted["updatedAt"]}),
         )
         .await
         .check_no_content();
     let changed = block_of(&th.client, &board.id, &comment_id).await;
-    assert_eq!(changed["editedAt"], changed["updateAt"], "{changed}");
+    assert_eq!(changed["editedAt"], changed["updatedAt"], "{changed}");
     assert_eq!(changed["body"], paragraph_doc("second"));
     let versions = th.client.get(&versions_path).await.value();
     assert_eq!(
@@ -1388,7 +1388,7 @@ async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
             "version": 1,
             "body": paragraph_doc("first"),
             "writtenBy": me.id,
-            "writtenAt": posted["createAt"],
+            "writtenAt": posted["createdAt"],
         }]),
         "the text it was posted with"
     );

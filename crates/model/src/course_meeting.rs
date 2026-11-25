@@ -107,7 +107,7 @@ pub struct MeetingAttendance {
     /// Recorded attendance status.
     pub status: AttendanceStatus,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 /// A study meeting belonging to a course, together with its attendance records.
@@ -135,9 +135,9 @@ pub struct CourseMeeting {
     /// When the upcoming-meeting notification was sent, or `null` if not yet sent.
     pub notified_at: Option<i64>,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// Attendance records for this meeting, ordered by `userId`.
     pub attendance: Vec<MeetingAttendance>,
 }

@@ -746,7 +746,7 @@ fn build_comments(
     comments.sort_by_key(|(ts, _)| *ts);
 
     let mut blocks = Vec::new();
-    for (create_at, action) in comments {
+    for (created_at, action) in comments {
         let Some(card_ref) = action.data.card.as_ref() else {
             continue;
         };
@@ -798,7 +798,7 @@ fn build_comments(
             parent_id: parent_id.clone(),
             block_type: BlockType::Comment,
             body,
-            create_at,
+            created_at,
             schema: 1,
             ..Block::default()
         });

@@ -17,7 +17,7 @@ pub struct FileRecord {
     #[serde(skip)]
     pub stored_name: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Where the file lives in the file storage. Never sent to clients.
     #[serde(skip)]
     pub path: String,
@@ -44,7 +44,7 @@ impl Default for FileRecord {
             id: String::new(),
             container_id: String::new(),
             stored_name: String::new(),
-            create_at: 0,
+            created_at: 0,
             path: String::new(),
             name: String::new(),
             extension: String::new(),
@@ -150,7 +150,7 @@ mod tests {
             id: "abc".to_owned(),
             container_id: "board".to_owned(),
             stored_name: "random.png".to_owned(),
-            create_at: 1,
+            created_at: 1,
             path: "org/board/random".to_owned(),
             name: "picture.png".to_owned(),
             extension: ".png".to_owned(),
@@ -163,7 +163,7 @@ mod tests {
             encoded,
             json!({
                 "id": "abc",
-                "createAt": 1,
+                "createdAt": 1,
                 "name": "picture.png",
                 "extension": ".png",
                 "size": 4,

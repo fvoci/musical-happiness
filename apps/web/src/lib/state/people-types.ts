@@ -37,7 +37,7 @@ export interface Invitation {
   containerId?: string;
   createdBy: string;
   /** When it was made and when it ends, in milliseconds since the epoch. */
-  createAt: number;
+  createdAt: number;
   expiresAt: number;
   /** How often it was used. */
   uses: number;

@@ -30,7 +30,7 @@ use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, container_id, number, body";
+                             fields, created_at, updated_at, container_id, number, body";
 
 /// The columns a block is read with: [`BLOCK_COLUMNS`], and when its body was last
 /// changed if it is a comment with versions.
@@ -49,15 +49,15 @@ const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, b
 /// The columns of a listed block: [`BLOCK_COLUMNS`] with no body, and what a list says
 /// about the body in its place.
 const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, container_id, number, NULL, \
+                             fields, created_at, updated_at, container_id, number, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
 /// When the last comment on the block `blocks.id` was posted, zero for none: its
 /// comments (blocks of the type `comment` whose parent it is; deleted ones are in the
-/// trash) and their `create_at`, which writing a comment again does not change. Read
+/// trash) and their `created_at`, which writing a comment again does not change. Read
 /// after [`LISTED_BLOCK_COLUMNS`], at [`LISTED_LAST_COMMENT_AT`], and alone by
-/// [`Store::get_last_comment_at`]. `blocks_parent_type_create_at_idx` answers it.
-const LAST_COMMENT_AT_COLUMN: &str = "COALESCE((SELECT MAX(c.create_at) FROM blocks c \
+/// [`Store::get_last_comment_at`]. `blocks_parent_type_created_at_idx` answers it.
+const LAST_COMMENT_AT_COLUMN: &str = "COALESCE((SELECT MAX(c.created_at) FROM blocks c \
                                       WHERE c.parent_id = blocks.id AND c.type = 'comment'), 0)";
 
 /// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
@@ -80,7 +80,7 @@ const LISTED_BODY_TEXT: usize = 17;
 const LISTED_BODY: usize = 18;
 
 /// The order of every list of blocks.
-pub(crate) const OLDEST_FIRST: &str = " ORDER BY create_at, id";
+pub(crate) const OLDEST_FIRST: &str = " ORDER BY created_at, id";
 
 /// Which blocks [`Store::get_blocks`] returns. Unset members do not filter.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -279,7 +279,7 @@ impl Store {
         .await
     }
 
-    /// Returns when the last comment on a block was posted (its `create_at`); zero if
+    /// Returns when the last comment on a block was posted (its `created_at`); zero if
     /// it has none. Deleted comments are in the trash and do not count.
     ///
     /// # Errors
@@ -423,7 +423,7 @@ impl Store {
                             source,
                         })?;
                 }
-                let mut sql = scope.sql("UPDATE blocks SET update_at = update_at");
+                let mut sql = scope.sql("UPDATE blocks SET updated_at = updated_at");
                 push_body(&mut sql, body.as_ref(), BodyColumns::Assign)?;
                 sql.push_bind(" WHERE id = ", Id(&block_id))
                     .push_bind(" AND container_id = ", Id(container_id));
@@ -528,8 +528,8 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
         block_type: BlockType::from(row.text(5)?),
         title: row.text(6)?,
         fields: row.json_map(7, "fields")?,
-        create_at: row.int(8)?,
-        update_at: row.int(9)?,
+        created_at: row.int(8)?,
+        updated_at: row.int(9)?,
         // A block that exists is not deleted.
         deleted_at: None,
         container_id: row.id(10)?,
@@ -723,7 +723,7 @@ pub(crate) async fn insert_block_at(
     let parent = info_of_parent(scope, block).await?;
     let parent_type = parent.as_ref().map(|info| &info.block_type);
     let now = at.unwrap_or_else(now_millis);
-    block.update_at = now;
+    block.updated_at = now;
     block.deleted_at = None;
     user_id.clone_into(&mut block.modified_by);
 
@@ -746,10 +746,10 @@ pub(crate) async fn insert_block_at(
         if block.block_type != existing.block_type {
             scope.invalidate_visibility();
         }
-        // Every change of a block moves its `updateAt` on, also within one millisecond
+        // Every change of a block moves its `updatedAt` on, also within one millisecond
         // and when the clock steps back: a writer that read the block before this
         // change is told so (`readAt`).
-        block.update_at = now.max(existing.update_at.saturating_add(1));
+        block.updated_at = now.max(existing.updated_at.saturating_add(1));
         crate::diaries::stamp_entry_body_time(block, Some(&existing));
         // A block stays on its board: the update is keyed by the board too, and a block
         // of that identifier on another board is not this block.
@@ -761,7 +761,7 @@ pub(crate) async fn insert_block_at(
             .push_bind(", title = ", &block.title)
             .push_bind(", fields = ", Param::json(&block.fields)?)
             .push_bind(", number = ", card_numbers::number_param(block.number))
-            .push_bind(", update_at = ", block.update_at);
+            .push_bind(", updated_at = ", block.updated_at);
         push_body(&mut sql, block.body.as_ref(), BodyColumns::Assign)?;
         sql.push_bind(" WHERE id = ", Id(&block.id))
             .push_bind(" AND container_id = ", Id(&block.container_id));
@@ -773,7 +773,7 @@ pub(crate) async fn insert_block_at(
         }
         block.edited_at =
             if comment_versions::record_change(scope, &existing, block, user_id).await? {
-                block.update_at
+                block.updated_at
             } else {
                 existing.edited_at
             };
@@ -786,7 +786,7 @@ pub(crate) async fn insert_block_at(
         notification_noting::note_named(scope, block, Some(&existing), user_id, telling).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
-        block.create_at = now;
+        block.created_at = now;
         block.edited_at = 0;
         crate::diaries::stamp_entry_body_time(block, None);
         insert_block_row(scope, block, new_files).await?;
@@ -813,8 +813,8 @@ pub(crate) async fn insert_block_row(
         .push_bind(", ", block.block_type.as_str())
         .push_bind(", ", &block.title)
         .push_bind(", ", Param::json(&block.fields)?)
-        .push_bind(", ", block.create_at)
-        .push_bind(", ", block.update_at)
+        .push_bind(", ", block.created_at)
+        .push_bind(", ", block.updated_at)
         .push_bind(", ", Id(&block.container_id))
         .push_bind(", ", card_numbers::number_param(block.number));
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
@@ -952,7 +952,7 @@ pub(crate) async fn patch_block(
     let container_id = get_block(scope, block_id).await?.container_id;
     containers::lock_container(scope, &container_id).await?;
     let mut block = get_block(scope, block_id).await?;
-    let (min_read_at, stored_update_at) = crate::diaries::read_at_window(&block);
+    let (min_read_at, stored_updated_at) = crate::diaries::read_at_window(&block);
     // What the block was stored with before it was refused is not the patch's fault.
     block.drop_malformed_fields();
     patch
@@ -972,12 +972,12 @@ pub(crate) async fn patch_block(
             source,
         })?;
     if let Some(read_at) = patch.read_at
-        && !(min_read_at..=stored_update_at).contains(&read_at)
+        && !(min_read_at..=stored_updated_at).contains(&read_at)
     {
         return Err(StoreError::Stale {
             id: block.id,
             read_at,
-            update_at: stored_update_at,
+            updated_at: stored_updated_at,
         });
     }
     let how = Written {

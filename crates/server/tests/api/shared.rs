@@ -65,7 +65,7 @@ async fn fixture() -> Fixture {
     ts.client2
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &json!([{"id": "comment", "containerId": board.id, "parentId": card_id, "type": "comment", "title": "fine by me", "createAt": 1, "updateAt": 1}]),
+            &json!([{"id": "comment", "containerId": board.id, "parentId": card_id, "type": "comment", "title": "fine by me", "createdAt": 1, "updatedAt": 1}]),
         )
         .await
         .check_created();

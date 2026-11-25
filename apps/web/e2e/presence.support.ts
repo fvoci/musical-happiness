@@ -37,8 +37,8 @@ export async function othersArrive(page: Page, count: number): Promise<number> {
         id,
         username: `visitor${String(made)}`,
         email: `visitor${String(made)}@example.com`,
-        createAt: 0,
-        updateAt: 0,
+        createdAt: 0,
+        updatedAt: 0,
       });
     }
     const store = dev.workspace.board;

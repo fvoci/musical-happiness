@@ -205,8 +205,8 @@ export function memoryCreateCourseMeeting(
     hostId,
     notes,
     notifiedAt: null,
-    createAt: now,
-    updateAt: now,
+    createdAt: now,
+    updatedAt: now,
     attendance: [],
   };
   const existing = world.courseMeetings.get(courseId) ?? [];
@@ -253,7 +253,7 @@ export function memoryPatchCourseMeeting(
   if (hasPresenter) meeting.presenterId = nextPresenterId ?? null;
   if (hasHost) meeting.hostId = nextHostId ?? null;
   if (nextNotes !== undefined) meeting.notes = nextNotes;
-  meeting.updateAt = world.now();
+  meeting.updatedAt = world.now();
   return cloneMeeting(meeting);
 }
 
@@ -295,7 +295,7 @@ export function memoryPutMeetingAttendance(
   const row: MeetingAttendance = {
     userId: targetUserId,
     status: update.status,
-    updateAt: world.now(),
+    updatedAt: world.now(),
   };
   const index = meeting.attendance.findIndex((item) => item.userId === targetUserId);
   if (index === -1) meeting.attendance.push(row);

@@ -307,7 +307,7 @@ async fn handle_put_unit_schedule(
 /// overdue (`effectiveDate < today`) across all live courses in this workspace that the
 /// caller is enrolled in (direct membership or inherited group role), evaluated in the
 /// caller's configured `timeZone` (UTC when set to `auto`). `todayUnits` are ordered by
-/// course creation order (`createAt`, `courseId`) and then outline order within each
+/// course creation order (`createdAt`, `courseId`) and then outline order within each
 /// course; `overdueUnits` are ordered by `effectiveDate` ascending (oldest first), then
 /// course creation order, then outline order. Never includes private courses the caller
 /// is not enrolled in (even for workspace or organization admins) and never reads

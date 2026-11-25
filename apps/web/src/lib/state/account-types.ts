@@ -88,7 +88,7 @@ export interface LinkedIdentity {
   subject: string;
   /** The email address the provider gave when it was connected; empty for none. */
   email: string;
-  createAt: number;
+  createdAt: number;
   /** This session was made through a provider of this issuer: disconnecting it signs this session out. */
   madeThisSession: boolean;
 }

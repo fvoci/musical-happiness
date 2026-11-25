@@ -316,7 +316,7 @@ async fn one_orgs_file_reference_keeps_no_file_of_another_alive() {
         stored_name: "B-file.txt".to_owned(),
         name: "B-file.txt".to_owned(),
         path: "B/B-file.txt".to_owned(),
-        create_at: 1,
+        created_at: 1,
         ..FileRecord::default()
     };
     b.store
@@ -480,7 +480,7 @@ async fn an_upload_names_a_board_or_a_workspace_of_its_own_organization() {
         name: "upload.bin".to_owned(),
         size: 1,
         part_size: 1,
-        create_at: 1,
+        created_at: 1,
         expires_at: i64::MAX,
         ..Upload::default()
     };

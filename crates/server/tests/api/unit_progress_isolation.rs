@@ -87,7 +87,7 @@ fn assert_summary_has_no_personal_fields(raw_json: &str, unit_ids: &[&str]) {
         "completedAt",
         "plannedDate",
         "lastPosition",
-        "updateAt",
+        "updatedAt",
         SENTINEL_POSITION,
     ] {
         assert!(

@@ -159,7 +159,7 @@ test('unit comments, body versions (⌘S + restore), and [[ unit references on t
   ).json()) as Schemas['Unit'];
   const patched = await api.patch(`${at}/courses/${course.id}/units/${unit1.id}`, {
     data: {
-      readAt: freshUnit1.updateAt,
+      readAt: freshUnit1.updatedAt,
       body: {
         type: 'doc',
         content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Second draft body.' }] }],
@@ -259,7 +259,7 @@ test('public course link reader strips outside references & user identities, and
   // Body has: same-course unit ref, outside board card ref, and @mention of owner.
   const patched = await api.patch(`${at}/courses/${course.id}/units/${u1.id}`, {
     data: {
-      readAt: u1.updateAt,
+      readAt: u1.updatedAt,
       body: {
         type: 'doc',
         content: [

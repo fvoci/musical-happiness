@@ -30,7 +30,7 @@ async fn file_store() {
         id: new_id(),
         container_id: board_id.clone(),
         stored_name: "7salesreport.sales".to_owned(),
-        create_at: now_millis(),
+        created_at: now_millis(),
         name: "Dunder Mifflin Sales Report 2022".to_owned(),
         extension: ".sales".to_owned(),
         size: 112_233,
@@ -74,7 +74,7 @@ async fn file_record_stores_every_member() {
         id: new_id(),
         container_id: board_id.clone(),
         stored_name: "7abc.png".to_owned(),
-        create_at: 1_700_000_000_000,
+        created_at: 1_700_000_000_000,
         path: "boards/20240101/7abc.png".to_owned(),
         name: "picture.png".to_owned(),
         extension: ".png".to_owned(),
@@ -169,7 +169,7 @@ async fn a_file_is_found_through_its_own_board_only() {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
-        create_at: now_millis(),
+        created_at: now_millis(),
         path: format!("boards/{board_id}/{stored_name}"),
         name: uploaded_as.to_owned(),
         extension: ".png".to_owned(),
@@ -240,7 +240,7 @@ fn record_of(board_id: &str, stored_name: &str) -> FileRecord {
         id: new_id(),
         container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
-        create_at: now_millis(),
+        created_at: now_millis(),
         path: format!("boards/{board_id}/{stored_name}"),
         name: "upload.png".to_owned(),
         extension: ".png".to_owned(),
@@ -548,7 +548,7 @@ async fn a_restored_block_or_board_shows_its_files_again() {
     let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
     let mut old = record_of(board_id, "7old.png");
-    old.create_at = 1;
+    old.created_at = 1;
     store.save_file_record(&old).await.expect("an old file");
     for name in ["7shown.png", "7shown.pdf"] {
         store
@@ -683,7 +683,7 @@ async fn a_changed_comment_keeps_what_it_said_before() {
         .expect("the body is changed");
     let changed = store.get_block(id).await.expect("the comment");
     assert_eq!(
-        changed.edited_at, changed.update_at,
+        changed.edited_at, changed.updated_at,
         "when the body changed"
     );
     let versions = store.get_comment_versions(id).await.expect("the versions");
@@ -693,7 +693,7 @@ async fn a_changed_comment_keeps_what_it_said_before() {
         versions[0].written_by, author,
         "the text it was posted with"
     );
-    assert_eq!(versions[0].written_at, posted.create_at);
+    assert_eq!(versions[0].written_at, posted.created_at);
     // A body that stays makes none either.
     store
         .patch_block(id, &title_and_body(Some("v2")), &editor)

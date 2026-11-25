@@ -70,7 +70,7 @@ impl Store {
             sql.bind(Id(workspace_id))
                 .push_bind(" AND t.org_id = ", scope.org()?)
                 .push(" AND t.deleted_at IS NULL")
-                .push(" ORDER BY wm.create_at, wm.user_id");
+                .push(" ORDER BY wm.created_at, wm.user_id");
             scope
                 .fetch_all(sql)
                 .await?
@@ -327,7 +327,7 @@ async fn remove(
 /// The members of a workspace `t` of an organization; the workspace's identifier and
 /// the conditions on `t` follow. The name's columns, unqualified, are the user's alone.
 const SELECT_MEMBERS: &str = concat!(
-    "SELECT wm.user_id, u.username, u.display_name, wm.role, wm.create_at, wm.via_org_admin, ",
+    "SELECT wm.user_id, u.username, u.display_name, wm.role, wm.created_at, wm.via_org_admin, ",
     person_names::name_columns!(),
     " FROM workspace_members AS wm \
      JOIN workspaces AS t ON t.id = wm.workspace_id \
@@ -341,7 +341,7 @@ fn member_from_row(row: &Row) -> Result<WorkspaceMember, StoreError> {
         display_name: row.text(2)?,
         name: person_names::name_from_row(row, 6)?,
         role: role_from(&row.text(3)?)?,
-        create_at: row.int(4)?,
+        created_at: row.int(4)?,
         joined_as_org_admin: row.bool(5)?,
     })
 }

@@ -166,7 +166,7 @@ describe('diary entry manual body versions', () => {
     const created = await backend.diary.createEntry(diary.id, today);
     await backend.diary.patchEntry(diary.id, created.id, {
       body: text('morning walk'),
-      readAt: created.updateAt,
+      readAt: created.updatedAt,
     });
     await store.show(monthDayOf(today));
     const entry = store.day(today);
@@ -212,7 +212,7 @@ describe('diary readAt body timestamp comparison', () => {
     const entry = await diaries.createEntry(diary.id, today);
     const first = await diaries.patchEntry(diary.id, entry.id, {
       body: text('first body'),
-      readAt: entry.updateAt,
+      readAt: entry.updatedAt,
     });
 
     const t1 = world.now();
@@ -222,12 +222,12 @@ describe('diary readAt body timestamp comparison', () => {
       weather: 'sunny',
       place: 'park',
     });
-    expect(withMeta.updateAt).toBeGreaterThan(first.updateAt);
+    expect(withMeta.updatedAt).toBeGreaterThan(first.updatedAt);
 
     // Writing body with the pre-metadata readAt succeeds because the body did not change.
     const second = await diaries.patchEntry(diary.id, entry.id, {
       body: text('second body'),
-      readAt: first.updateAt,
+      readAt: first.updatedAt,
     });
     expect(second.body).toEqual(text('second body'));
     expect(second.mood).toBe('great');
@@ -236,16 +236,16 @@ describe('diary readAt body timestamp comparison', () => {
     const stale = await rejection(
       diaries.patchEntry(diary.id, entry.id, {
         body: text('stale write'),
-        readAt: first.updateAt,
+        readAt: first.updatedAt,
       }),
     );
     expect(stale.status).toBe(409);
 
-    // Another metadata-only edit still allows writing with either second.updateAt or afterMeta.updateAt.
+    // Another metadata-only edit still allows writing with either second.updatedAt or afterMeta.updatedAt.
     const afterMeta = await diaries.patchEntry(diary.id, entry.id, { weather: 'cloudy' });
     const third = await diaries.patchEntry(diary.id, entry.id, {
       body: text('third body'),
-      readAt: afterMeta.updateAt,
+      readAt: afterMeta.updatedAt,
     });
     expect(third.body).toEqual(text('third body'));
   });
@@ -276,7 +276,7 @@ describe('diary appendBody and empty-entry trash cleanup', () => {
       diaries.patchEntry(diary.id, entry.id, {
         body: text('replace'),
         appendBody: text('extra'),
-        readAt: second.updateAt,
+        readAt: second.updatedAt,
       }),
     );
     expect(both.status).toBe(400);
@@ -312,7 +312,7 @@ describe('diary appendBody and empty-entry trash cleanup', () => {
     const theirs = await device.diary.createEntry(diary.id, today);
     await device.diary.patchEntry(diary.id, theirs.id, {
       body: text('from laptop'),
-      readAt: theirs.updateAt,
+      readAt: theirs.updatedAt,
     });
     await vi.waitFor(() => {
       expect(store.entries[0]?.body).toEqual(text('from laptop'));

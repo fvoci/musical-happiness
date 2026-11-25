@@ -117,7 +117,7 @@ export class MemoryDiaries implements Diaries {
   #diariesIn(workspaceId: string): Container[] {
     return [...this.#world.containers.values()]
       .filter((board) => isDiary(board) && board.workspaceId === workspaceId)
-      .sort((first, second) => first.createAt - second.createAt);
+      .sort((first, second) => first.createdAt - second.createdAt);
   }
 
   /** The reader's diary; anything else is not there. */
@@ -175,8 +175,8 @@ export class MemoryDiaries implements Diaries {
       visibility: 'private',
       title: draft.title ?? '',
       cardProperties: [],
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     world.containers.set(diary.id, diary);
     world.members.set(diary.id, [memberOf(diary.id, userId, 'admin')]);
@@ -252,8 +252,8 @@ export class MemoryDiaries implements Diaries {
       fields: { date: day, mood: null, weather: '', place: '' },
       body: null,
       bodyUpdatedAt: now,
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     world.blocks.set(block.id, block);
     world.tellContainer(diaryId, changeOf(diaryId, block));
@@ -305,7 +305,7 @@ export class MemoryDiaries implements Diaries {
     }
     if (Object.keys(notes).length > 0) {
       block.fields = { ...block.fields, ...notes };
-      block.updateAt = this.#world.now();
+      block.updatedAt = this.#world.now();
       block.modifiedBy = this.#host.userId;
       this.#world.tellContainer(diaryId, changeOf(diaryId, block));
     }
@@ -323,7 +323,7 @@ export class MemoryDiaries implements Diaries {
       block.body = body;
       block.fields = { ...block.fields, ...notes };
       const now = this.#world.now();
-      block.updateAt = now;
+      block.updatedAt = now;
       if (changed) block.bodyUpdatedAt = now;
       block.modifiedBy = this.#host.userId;
     });
@@ -362,14 +362,14 @@ export class MemoryDiaries implements Diaries {
 }
 
 /**
- * Checks `readAt` against the entry's body change window `[bodyUpdatedAt, updateAt]`,
+ * Checks `readAt` against the entry's body change window `[bodyUpdatedAt, updatedAt]`,
  * so metadata-only patches (`mood`/`weather`/`place`) do not cause spurious 409s
  * while any actual body change rejects stale `readAt` values.
  */
 function checkReadAt(block: StoredBlock, readAt: number | undefined): void {
   if (readAt === undefined) return;
-  const bodyAt = block.bodyUpdatedAt ?? (block.body ? block.updateAt : block.createAt);
-  if (readAt < bodyAt || readAt > block.updateAt) {
+  const bodyAt = block.bodyUpdatedAt ?? (block.body ? block.updatedAt : block.createdAt);
+  if (readAt < bodyAt || readAt > block.updatedAt) {
     fail(409, 'the entry changed since it was read');
   }
 }

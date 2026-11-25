@@ -42,7 +42,7 @@ export function courseScheduleViewOf(view: Schemas['CourseScheduleView']): Cours
           startDate: view.schedule.startDate,
           targetDate: view.schedule.targetDate,
           studyDays: view.schedule.studyDays,
-          updateAt: view.schedule.updateAt,
+          updatedAt: view.schedule.updatedAt,
         }
       : null,
     today: view.today,

@@ -21,8 +21,8 @@ async fn moving_a_content_block_is_no_route() {
         container_id: board.id.clone(),
         parent_id: parent.to_owned(),
         block_type,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     let (card, first, second) = (new_id(), new_id(), new_id());

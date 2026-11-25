@@ -22,8 +22,8 @@ const SAMPLE_ENTRY: TimeEntry = {
   startedAt: 1_700_000_000_000,
   endedAt: null,
   note: '',
-  createAt: 1_700_000_000_000,
-  updateAt: 1_700_000_000_000,
+  createdAt: 1_700_000_000_000,
+  updatedAt: 1_700_000_000_000,
 };
 
 afterEach(() => {

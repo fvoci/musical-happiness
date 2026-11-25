@@ -31,8 +31,8 @@ async fn impostor_template(client: &Client) -> Container {
         parent_id: String::new(),
         block_type: BlockType::Card,
         title: "hijacked".to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Block::default()
     };
     client

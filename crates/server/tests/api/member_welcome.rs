@@ -35,7 +35,7 @@ async fn welcome_boards(store: &Store, user_id: &str) -> Vec<(String, String)> {
         .texts_unchecked(&format!(
             "SELECT CAST(id AS TEXT) || '|' || title FROM containers \
              WHERE CAST(created_by AS TEXT) = '{user_id}' AND is_template = false \
-             AND title IN ('{WELCOME_TITLE}', '{WELCOME_TITLE_KO}') ORDER BY create_at, id"
+             AND title IN ('{WELCOME_TITLE}', '{WELCOME_TITLE_KO}') ORDER BY created_at, id"
         ))
         .await
         .expect("the boards are read");

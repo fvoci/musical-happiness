@@ -73,7 +73,7 @@ fn subscription(block: &Block, user: &User) -> Subscription {
         block_id: block.id.clone(),
         user_id: user.id.clone(),
         notified_at: 0,
-        create_at: 0,
+        created_at: 0,
         deleted_at: None,
     }
 }
@@ -112,7 +112,7 @@ async fn create_subscription() {
                     .expect("create subscription should not error");
 
                 assert_ne!(sub_new.notified_at, 0);
-                assert_ne!(sub_new.create_at, 0);
+                assert_ne!(sub_new.created_at, 0);
                 assert_eq!(sub_new.deleted_at, None);
             }
         }
@@ -161,7 +161,7 @@ async fn create_subscription() {
             block_id: String::new(),
             user_id: String::new(),
             notified_at: 0,
-            create_at: 0,
+            created_at: 0,
             deleted_at: None,
         };
         let assert_invalid = |result: Result<Subscription, StoreError>| {
@@ -505,10 +505,10 @@ async fn resubscribing_keeps_the_stored_creation_time() {
         .await
         .expect("the user subscribes");
     assert_eq!(
-        first.notified_at, first.create_at,
+        first.notified_at, first.created_at,
         "a new subscription counts as notified when it was made"
     );
-    assert_ne!(first.create_at, 0, "stamped with the current time");
+    assert_ne!(first.created_at, 0, "stamped with the current time");
     assert_eq!(
         first.deleted_at, None,
         "a subscription that exists is not ended"
@@ -605,7 +605,7 @@ async fn subscriptions_of_a_subscriber_are_listed_oldest_first() {
     // Made at the same time, as far as the store knows: listed by block.
     common::execute_raw(
         &test.database_connection(),
-        "UPDATE subscriptions SET create_at = 1",
+        "UPDATE subscriptions SET created_at = 1",
     )
     .await;
     assert_eq!(
@@ -727,13 +727,13 @@ async fn subscribing_again_after_unsubscribing_starts_a_new_subscription() {
         .expect("the new subscription is found");
     assert_eq!(stored, second, "stored as the second subscription returned");
     assert!(
-        stored.create_at > first.create_at,
+        stored.created_at > first.created_at,
         "the creation time is the new one: {} after {}",
-        stored.create_at,
-        first.create_at
+        stored.created_at,
+        first.created_at
     );
     assert_eq!(
-        stored.notified_at, stored.create_at,
+        stored.notified_at, stored.created_at,
         "a new subscription counts as notified when it was made"
     );
     assert_eq!(
@@ -1234,6 +1234,14 @@ async fn insert_legacy_trashed_block(
     watched_by: serde_json::Value,
 ) {
     let mut payload = serde_json::to_value(block).expect("block serializes");
+    if let Some(obj) = payload.as_object_mut() {
+        if let Some(v) = obj.remove("createdAt") {
+            obj.insert(common::PRE0075_CREATE_KEY.to_owned(), v);
+        }
+        if let Some(v) = obj.remove("updatedAt") {
+            obj.insert(common::PRE0075_UPDATE_KEY.to_owned(), v);
+        }
+    }
     payload["fields"] = serde_json::json!({
         "note": "__RAW_NUL__",
         "watchedBy": [{"kept": true}]
@@ -1288,7 +1296,7 @@ struct Pre0069Fixture {
 }
 
 async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
-    let (org_a, ws_a) = common::organization(pre, "org-a").await;
+    let (org_a, ws_a) = common::pre0075_organization(pre, "org-a").await;
     let scoped_a = pre.for_org(&org_a).expect("org-a scope");
     let alice = common::pre0072_user(&scoped_a, &org_a, &ws_a, "alice").await;
     let bob = common::pre0072_user(&scoped_a, &org_a, &ws_a, "bob").await;
@@ -1297,9 +1305,11 @@ async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-              show_description, is_template, properties, card_properties, create_at, update_at) \
+              show_description, is_template, properties, card_properties, {}, {}) \
              VALUES ('{board_a_id}', '{ws_a}', '{alice}', '{alice}', 'O', 'board', 'board 0', \
-              '', '', false, false, '{{}}', '[]', 1, 1)"
+              '', '', false, false, '{{}}', '[]', 1, 1)",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ))
         .await
         .expect("pre-0069 board_a");
@@ -1312,29 +1322,34 @@ async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
         card_on(&board_a.id, &alice),
         card_on(&board_a.id, &alice),
     ];
-    common::insert_blocks(&scoped_a.telling_nobody(), &mut cards_a, &alice).await;
+    for card in &mut cards_a {
+        common::pre0075_insert_block(&scoped_a, card, &alice).await;
+    }
     let (live_a, trashed_mixed, trashed_non_user) =
         (cards_a[0].clone(), cards_a[1].clone(), cards_a[2].clone());
 
     scoped_a
         .execute_unchecked(&format!(
             "INSERT INTO subscriptions (block_type, block_id, subscriber_type, subscriber_id, \
-             notified_at, create_at) VALUES \
+             notified_at, {}) VALUES \
              ('card', '{}', 'user', '{alice}', 111, 222), \
              ('card', '{}', 'channel', '{bob}', 333, 444)",
-            live_a.id, live_a.id
+            common::PRE0075_CREATE_COL,
+            live_a.id,
+            live_a.id
         ))
         .await
         .expect("legacy subscriptions inserted in org-a");
 
+    let old_create_key = common::PRE0075_CREATE_KEY;
     insert_legacy_trashed_block(
         &scoped_a,
         &trashed_mixed,
         &alice,
         serde_json::json!([
-            {"blockType": "card", "subscriberType": "channel", "subscriberId": bob, "notifiedAt": 10, "createAt": 20},
-            {"blockType": "card", "subscriberType": "user", "subscriberId": alice, "notifiedAt": 30, "createAt": 40},
-            {"blockType": "c\"d", "subscriberType": "user", "subscriberId": bob, "notifiedAt": 50, "createAt": 60}
+            {"blockType": "card", "subscriberType": "channel", "subscriberId": bob, "notifiedAt": 10, (old_create_key): 20},
+            {"blockType": "card", "subscriberType": "user", "subscriberId": alice, "notifiedAt": 30, (old_create_key): 40},
+            {"blockType": "c\"d", "subscriberType": "user", "subscriberId": bob, "notifiedAt": 50, (old_create_key): 60}
         ]),
     )
     .await;
@@ -1343,7 +1358,7 @@ async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
         &trashed_non_user,
         &alice,
         serde_json::json!([
-            {"blockType": "card", "subscriberType": "channel", "subscriberId": alice, "notifiedAt": 70, "createAt": 80}
+            {"blockType": "card", "subscriberType": "channel", "subscriberId": alice, "notifiedAt": 70, (old_create_key): 80}
         ]),
     )
     .await;
@@ -1366,7 +1381,7 @@ async fn seed_pre_0069(pre: &Store) -> Pre0069Fixture {
 }
 
 async fn seed_pre_0069_second_org(pre: &Store, alice: &str) -> Pre0069SecondOrg {
-    let (org_b, ws_b) = common::organization(pre, "org-b").await;
+    let (org_b, ws_b) = common::pre0075_organization(pre, "org-b").await;
     let scoped_b = pre.for_org(&org_b).expect("org-b scope");
     let carol = common::pre0072_user(&scoped_b, &org_b, &ws_b, "carol").await;
     let board_b_id = new_id();
@@ -1374,9 +1389,11 @@ async fn seed_pre_0069_second_org(pre: &Store, alice: &str) -> Pre0069SecondOrg 
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-              show_description, is_template, properties, card_properties, create_at, update_at) \
+              show_description, is_template, properties, card_properties, {}, {}) \
              VALUES ('{board_b_id}', '{ws_b}', '{carol}', '{carol}', 'O', 'board', 'board 0', \
-              '', '', false, false, '{{}}', '[]', 1, 1)"
+              '', '', false, false, '{{}}', '[]', 1, 1)",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ))
         .await
         .expect("pre-0069 board_b");
@@ -1385,15 +1402,19 @@ async fn seed_pre_0069_second_org(pre: &Store, alice: &str) -> Pre0069SecondOrg 
         ..fvoci_model::Container::default()
     };
     let mut cards_b = vec![card_on(&board_b.id, &carol), card_on(&board_b.id, &carol)];
-    common::insert_blocks(&scoped_b.telling_nobody(), &mut cards_b, &carol).await;
+    for card in &mut cards_b {
+        common::pre0075_insert_block(&scoped_b, card, &carol).await;
+    }
     let (live_b, trashed_b) = (cards_b[0].clone(), cards_b[1].clone());
     scoped_b
         .execute_unchecked(&format!(
             "INSERT INTO subscriptions (block_type, block_id, subscriber_type, subscriber_id, \
-             notified_at, create_at) VALUES \
+             notified_at, {}) VALUES \
              ('card', '{}', 'user', '{carol}', 555, 666), \
              ('card', '{}', 'channel', '{alice}', 777, 888)",
-            live_b.id, live_b.id
+            common::PRE0075_CREATE_COL,
+            live_b.id,
+            live_b.id
         ))
         .await
         .expect("legacy subscriptions inserted in org-b");
@@ -1402,7 +1423,7 @@ async fn seed_pre_0069_second_org(pre: &Store, alice: &str) -> Pre0069SecondOrg 
         &trashed_b,
         &carol,
         serde_json::json!([
-            {"blockType": "card", "subscriberType": "user", "subscriberId": carol, "notifiedAt": 90, "createAt": 95}
+            {"blockType": "card", "subscriberType": "user", "subscriberId": carol, "notifiedAt": 90, (common::PRE0075_CREATE_KEY): 95}
         ]),
     )
     .await;
@@ -1479,7 +1500,7 @@ async fn assert_post_0069_org_a(post_a: &Store, fx: &Pre0069Fixture) {
             block_id: fx.live_a.id.clone(),
             user_id: fx.alice.clone(),
             notified_at: 111,
-            create_at: 222,
+            created_at: 222,
             deleted_at: None,
         }],
         "user subscription preserved losslessly"
@@ -1512,10 +1533,10 @@ async fn assert_post_0069_org_a(post_a: &Store, fx: &Pre0069Fixture) {
             block_id: fx.trashed_mixed.id.clone(),
             user_id: fx.alice.clone(),
             notified_at: 30,
-            create_at: 40,
+            created_at: 40,
             deleted_at: None,
         },
-        "restored alice watcher preserves create_at and block_type"
+        "restored alice watcher preserves created_at and block_type"
     );
     assert_eq!(
         post_a
@@ -1527,7 +1548,7 @@ async fn assert_post_0069_org_a(post_a: &Store, fx: &Pre0069Fixture) {
             block_id: fx.trashed_mixed.id.clone(),
             user_id: fx.bob.clone(),
             notified_at: 50,
-            create_at: 60,
+            created_at: 60,
             deleted_at: None,
         },
         "restored bob watcher preserves escaped block_type and timestamps"
@@ -1569,7 +1590,7 @@ async fn assert_post_0069_second_org(
             block_id: other.live_b.id.clone(),
             user_id: other.carol.clone(),
             notified_at: 555,
-            create_at: 666,
+            created_at: 666,
             deleted_at: None,
         }],
         "second organization's user subscription migrated"
@@ -1588,7 +1609,7 @@ async fn assert_post_0069_second_org(
             block_id: other.trashed_b.id.clone(),
             user_id: other.carol.clone(),
             notified_at: 90,
-            create_at: 95,
+            created_at: 95,
             deleted_at: None,
         },
         "second organization's trashed watcher migrated across org wall"

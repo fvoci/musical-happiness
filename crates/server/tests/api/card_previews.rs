@@ -48,10 +48,10 @@ async fn board_with_previewed_card(th: &TestServer) -> (Container, String, Strin
         paragraph("more"),
     ]});
     let with_body = json!({"id": new_id(), "containerId": board.id, "type": "card", "title": "with",
-                           "createAt": 1, "updateAt": 1, "body": body,
+                           "createdAt": 1, "updatedAt": 1, "body": body,
                            "fields": {"properties": {"owner": me.id}}});
     let without = json!({"id": new_id(), "containerId": board.id, "type": "card", "title": "without",
-                         "createAt": 1, "updateAt": 1});
+                         "createdAt": 1, "updatedAt": 1});
     th.client
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),

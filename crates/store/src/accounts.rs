@@ -332,8 +332,8 @@ pub(crate) async fn insert_account(
     if crate::email_revert::holds(scope, &user.email, None, now).await? {
         return Err(StoreError::Conflict(Taken::Email));
     }
-    user.create_at = now;
-    user.update_at = now;
+    user.created_at = now;
+    user.updated_at = now;
     user.deleted_at = None;
     user.is_admin = role == InstanceRole::Administrator;
     user.display_name = user.name.shown();
@@ -420,7 +420,7 @@ pub(crate) async fn join_organization(
     role: OrgRole,
 ) -> Result<bool, StoreError> {
     let mut sql =
-        scope.sql("INSERT INTO organization_members (org_id, user_id, role, create_at) VALUES (");
+        scope.sql("INSERT INTO organization_members (org_id, user_id, role, created_at) VALUES (");
     sql.bind(scope.org()?)
         .push_bind(", ", Id(user_id))
         .push_bind(", ", role.as_str())
@@ -444,7 +444,7 @@ pub(crate) async fn join_workspace(
     role: WorkspaceRole,
 ) -> Result<bool, StoreError> {
     let mut sql = scope.sql(
-        "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT t.id, ",
+        "INSERT INTO workspace_members (workspace_id, user_id, role, created_at) SELECT t.id, ",
     );
     sql.bind(Id(user_id))
         .push_bind(", ", role.as_str())
@@ -499,7 +499,7 @@ async fn name_organization(
     let now = now_millis();
     let mut sql = scope.sql("UPDATE organizations SET name = ");
     sql.bind(organization_name)
-        .push_bind(", update_at = ", now)
+        .push_bind(", updated_at = ", now)
         .push_bind(" WHERE id = ", scope.org()?)
         .push(" AND deleted_at IS NULL");
     if scope.execute(sql).await? == 0 {
@@ -507,7 +507,7 @@ async fn name_organization(
     }
     let mut sql = scope.sql("UPDATE workspaces SET name = ");
     sql.bind(organization_name)
-        .push_bind(", update_at = ", now)
+        .push_bind(", updated_at = ", now)
         .push_bind(
             " WHERE id = (SELECT default_workspace_id FROM organizations WHERE id = ",
             scope.org()?,

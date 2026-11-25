@@ -121,7 +121,7 @@ export class EntryStore {
         const held = this.entry;
         if (held?.id !== written.id) return;
         // An answer older than the entry held (its body written meanwhile) leaves it as it is.
-        this.entry = this.#notes.over(held.updateAt > written.updateAt ? held : written);
+        this.entry = this.#notes.over(held.updatedAt > written.updatedAt ? held : written);
         host.received(this.entry);
       },
       refused: (error) => {
@@ -171,7 +171,7 @@ export class EntryStore {
     if (entry.date !== this.date || this.#closed) return;
     const held = this.entry;
     // Read before what is held was: it is no news.
-    if (held?.id === entry.id && held.updateAt > entry.updateAt) return;
+    if (held?.id === entry.id && held.updatedAt > entry.updatedAt) return;
     // Another than the one held (deleted unheard, and the day written again elsewhere): its room is left.
     if (held && held.id !== entry.id) this.lose();
     const first = this.entry === undefined;

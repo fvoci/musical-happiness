@@ -730,6 +730,16 @@ pub async fn migrate_to_before_native_property_definitions(database: &TestDataba
     .await;
 }
 
+/// Brings a test database to the schema as a server left it before unified `created_at`
+/// and `updated_at` timestamps (migration 75): every migration up to 74.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_unified_timestamps(database: &TestDatabase) {
+    migrate_database(database, crate::schema::BEFORE_UNIFIED_TIMESTAMPS_VERSION).await;
+}
+
 /// Brings a test database to the schema as a server left it before the organization's
 /// management (migration 23): every migration before that one, and none of the changes
 /// of the data that follow the migrations.

@@ -248,7 +248,7 @@ async fn in_the_files(store: &Store, user_id: &str, board_id: &str, username: &s
         name: "upload.bin".to_owned(),
         size: 1,
         part_size: 1,
-        create_at: 1,
+        created_at: 1,
         expires_at: i64::MAX,
         ..Upload::default()
     };
@@ -391,7 +391,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
             block_id: comment.parent_id.clone(),
             user_id: user_id.clone(),
             notified_at: 0,
-            create_at: 0,
+            created_at: 0,
             deleted_at: None,
         })
         .await
@@ -902,11 +902,11 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
     // Each row is the first organization's: stored by its handle, with its org_id.
     let forgeries = [
         format!(
-            "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) \
+            "INSERT INTO workspace_members (workspace_id, user_id, role, created_at) \
              VALUES ('{their_workspace}', '{user_id}', 'admin', 0)"
         ),
         format!(
-            "INSERT INTO public_links (container_id, enabled, token, update_at) \
+            "INSERT INTO public_links (container_id, enabled, token, updated_at) \
              VALUES ('{their_board}', true, 'a-forged-token', 0)"
         ),
     ];

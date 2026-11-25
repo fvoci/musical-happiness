@@ -32,7 +32,7 @@ function card(id: string, title: string, after?: PropertyValue): Card {
   const made = createCard();
   made.id = id;
   made.title = title;
-  made.createAt = 1;
+  made.createdAt = 1;
   if (after !== undefined) setCardProperty(made, 'after', after);
   return made;
 }

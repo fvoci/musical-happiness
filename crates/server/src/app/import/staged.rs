@@ -401,20 +401,20 @@ fn stamp_container_and_blocks(
     container.workspace_id.clone_from(&options.workspace_id);
     container.created_by.clone_from(&options.modified_by);
     container.modified_by.clone_from(&options.modified_by);
-    if container.create_at == 0 {
-        container.create_at = now;
+    if container.created_at == 0 {
+        container.created_at = now;
     }
-    container.update_at = now;
+    container.updated_at = now;
     container.deleted_at = None;
 
     for block in blocks {
         block.container_id.clone_from(&container.id);
         block.created_by.clone_from(&options.modified_by);
         block.modified_by.clone_from(&options.modified_by);
-        if block.create_at == 0 {
-            block.create_at = now;
+        if block.created_at == 0 {
+            block.created_at = now;
         }
-        block.update_at = now;
+        block.updated_at = now;
         block.deleted_at = None;
     }
 }

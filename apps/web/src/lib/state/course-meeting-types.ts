@@ -37,7 +37,7 @@ export interface MeetingAttendance {
   /** Member user ID (retained as a tombstone if the account is erased). */
   userId: string;
   status: AttendanceStatus;
-  updateAt: number;
+  updatedAt: number;
 }
 
 /** A study meeting belonging to a course, together with its attendance records. */
@@ -52,8 +52,8 @@ export interface CourseMeeting {
   hostId: string | null;
   notes: string;
   notifiedAt: number | null;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
   /** Attendance records ordered by `userId ASC`. */
   attendance: MeetingAttendance[];
 }
@@ -92,7 +92,7 @@ export interface MeetingAttendanceUpdate {
 export interface MyExamScore {
   score: number;
   note: string;
-  updateAt: number;
+  updatedAt: number;
 }
 
 /** A course exam with the caller's own score and aggregate stats across active members. */
@@ -103,8 +103,8 @@ export interface CourseExam {
   examDate: string | null;
   maxScore: number;
   description: string;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
   /** Caller's own score row, or `null` if none / unjoined (never another member's score). */
   myScore: MyExamScore | null;
   /** Mean score across active enrolled members who recorded a score; `null` when `scoreCount === 0`. */
@@ -192,5 +192,5 @@ export function compareCourseExams(a: CourseExam, b: CourseExam): number {
     if (b.examDate === null) return -1;
     return a.examDate < b.examDate ? -1 : 1;
   }
-  return a.createAt - b.createAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  return a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }

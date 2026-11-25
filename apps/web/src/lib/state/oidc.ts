@@ -9,8 +9,8 @@ export interface OidcProvider {
   /** The current session was made through this enabled provider, as it is saved now. */
   canRequireSso: boolean;
   redirectUri: string;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
   /** Settings saved aside while single sign-on is required, until a sign-in through them. */
   pending: OidcPendingProvider | null;
   /** The provider moved away from, while members may still carry their accounts over from it. */
@@ -20,7 +20,7 @@ export interface OidcProvider {
 /** The provider before a move to another issuer: nobody signs in through it. */
 export interface OidcFormerProvider {
   issuer: string;
-  createAt: number;
+  createdAt: number;
   expiresAt: number;
 }
 
@@ -29,7 +29,7 @@ export interface OidcPendingProvider {
   issuer: string;
   clientId: string;
   hasClientSecret: boolean;
-  createAt: number;
+  createdAt: number;
   /**
    * For settings of another issuer: until when a sign-in through them from this
    * session, back by then, also connects an identity there that is nobody's yet to

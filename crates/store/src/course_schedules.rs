@@ -307,7 +307,7 @@ pub(crate) async fn fetch_course_schedule(
 ) -> Result<Option<CourseSchedule>, StoreError> {
     let mut sql = scope.sql(
         "SELECT cs.start_date, cs.target_date, CAST(cs.study_days AS BIGINT), \
-         cs.update_at \
+         cs.updated_at \
          FROM course_schedules AS cs \
          JOIN containers AS c ON c.id = cs.container_id \
          JOIN workspaces AS w ON w.id = c.workspace_id \
@@ -440,7 +440,7 @@ pub(crate) async fn upsert_schedule_row(
     let bits = i64::from(schedule.study_days.bits());
     let mut sql = scope.sql(
         "INSERT INTO course_schedules \
-         (container_id, start_date, target_date, study_days, update_at, org_id) VALUES (",
+         (container_id, start_date, target_date, study_days, updated_at, org_id) VALUES (",
     );
     sql.changing_no_access()
         .bind(Id(course_id))
@@ -456,8 +456,8 @@ pub(crate) async fn upsert_schedule_row(
              start_date = excluded.start_date, \
              target_date = excluded.target_date, \
              study_days = excluded.study_days, \
-             update_at = excluded.update_at \
-             RETURNING start_date, target_date, CAST(study_days AS BIGINT), update_at",
+             updated_at = excluded.updated_at \
+             RETURNING start_date, target_date, CAST(study_days AS BIGINT), updated_at",
     );
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     schedule_from_row(&row)
@@ -525,12 +525,12 @@ async fn assign_shared_unit_dates(
                 id: check.id.clone(),
                 source,
             })?;
-        let update_at = now.max(row.node.update_at.saturating_add(1));
+        let updated_at = now.max(row.node.updated_at.saturating_add(1));
         let mut sql = scope.sql("UPDATE blocks SET fields = ");
         sql.changing_no_access()
             .bind(Param::json(&check.fields)?)
             .push_bind(", modified_by = ", OptId(user_id))
-            .push_bind(", update_at = ", update_at)
+            .push_bind(", updated_at = ", updated_at)
             .push_bind(" WHERE id = ", Id(&check.id))
             .push_bind(" AND container_id = ", Id(course_id));
         scope.execute(sql).await?;
@@ -555,7 +555,7 @@ async fn upsert_planned_date_row(
     let mut sql = scope.sql(
         "INSERT INTO unit_progress \
          (unit_id, container_id, user_id, completed_at, planned_date, last_position, \
-          update_at, org_id) VALUES (",
+          updated_at, org_id) VALUES (",
     );
     sql.changing_no_access()
         .bind(Id(unit_id))
@@ -571,8 +571,8 @@ async fn upsert_planned_date_row(
         .push(
             " DO UPDATE SET container_id = excluded.container_id, \
              planned_date = excluded.planned_date, \
-             update_at = excluded.update_at \
-             RETURNING unit_id, completed_at, planned_date, last_position, update_at",
+             updated_at = excluded.updated_at \
+             RETURNING unit_id, completed_at, planned_date, last_position, updated_at",
         );
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     progress_from_row(&row)
@@ -596,7 +596,7 @@ async fn upsert_personal_planned_date_if_incomplete(
     let mut sql = scope.sql(
         "INSERT INTO unit_progress \
          (unit_id, container_id, user_id, completed_at, planned_date, last_position, \
-          update_at, org_id) VALUES (",
+          updated_at, org_id) VALUES (",
     );
     sql.changing_no_access()
         .bind(Id(unit_id))
@@ -612,7 +612,7 @@ async fn upsert_personal_planned_date_if_incomplete(
         .push(
             " DO UPDATE SET container_id = excluded.container_id, \
              planned_date = excluded.planned_date, \
-             update_at = excluded.update_at \
+             updated_at = excluded.updated_at \
              WHERE unit_progress.completed_at IS NULL",
         );
     scope.execute(sql).await?;
@@ -624,7 +624,7 @@ async fn fetch_course_node_rows(
     course_id: &str,
 ) -> Result<Vec<NodeRow>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT id, parent_id, type, title, fields, create_at, update_at FROM blocks \
+        "SELECT id, parent_id, type, title, fields, created_at, updated_at FROM blocks \
          WHERE container_id = ",
     );
     sql.bind(Id(course_id))
@@ -643,7 +643,7 @@ async fn fetch_course_nodes_locked(
     course_id: &str,
 ) -> Result<Vec<UnitNode>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT id, parent_id, type, title, fields, create_at, update_at FROM blocks \
+        "SELECT id, parent_id, type, title, fields, created_at, updated_at FROM blocks \
          WHERE container_id = ",
     );
     sql.bind(Id(course_id))
@@ -699,7 +699,7 @@ async fn fetch_enrolled_courses(
         )
         .push(" AND w.deleted_at IS NULL AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("w", "b")]))
-        .push(") ORDER BY b.create_at, b.id");
+        .push(") ORDER BY b.created_at, b.id");
     let containers = fetch_containers(scope, sql).await?;
     Ok(containers.into_iter().map(|c| (c.id, c.title)).collect())
 }
@@ -709,7 +709,7 @@ async fn fetch_nodes_for_courses(
     course_ids: &[&str],
 ) -> Result<HashMap<String, Vec<UnitNode>>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT id, parent_id, type, title, fields, create_at, update_at, container_id \
+        "SELECT id, parent_id, type, title, fields, created_at, updated_at, container_id \
          FROM blocks WHERE container_id IN (",
     );
     sql.bind_list(course_ids.iter().copied().map(Id))
@@ -733,7 +733,7 @@ async fn fetch_my_progress_for_courses(
     org: Param,
 ) -> Result<BTreeMap<String, UnitProgress>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT up.unit_id, up.completed_at, up.planned_date, up.last_position, up.update_at \
+        "SELECT up.unit_id, up.completed_at, up.planned_date, up.last_position, up.updated_at \
          FROM unit_progress AS up \
          WHERE up.user_id = ",
     );
@@ -761,8 +761,8 @@ fn node_row_from_row(row: &Row) -> Result<NodeRow, StoreError> {
         block_type: BlockType::from(row.text(2)?),
         title: row.text(3)?,
         fields: fields.clone(),
-        create_at: row.int(5)?,
-        update_at: row.int(6)?,
+        created_at: row.int(5)?,
+        updated_at: row.int(6)?,
         ..Block::default()
     });
     Ok(NodeRow { node, fields })
@@ -782,7 +782,7 @@ fn schedule_from_row(row: &Row) -> Result<CourseSchedule, StoreError> {
         start_date: row.text(0)?,
         target_date: row.text(1)?,
         study_days,
-        update_at: row.int(3)?,
+        updated_at: row.int(3)?,
     })
 }
 

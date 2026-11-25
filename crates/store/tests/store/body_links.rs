@@ -185,7 +185,7 @@ async fn a_typed_body_and_a_body_written_after_its_block_put_down_what_they_name
         "the body of a document, written to its block"
     );
     // The block holds the body already: written again as it is, the rows stay.
-    let read_at = store.get_block(&typed).await.expect("the card").update_at;
+    let read_at = store.get_block(&typed).await.expect("the card").updated_at;
     let digest = fvoci_store::body_digest(body_naming("typed", &[&target]).as_ref());
     let as_read = crate::body_docs::as_read(store, &typed).await;
     store
@@ -452,7 +452,7 @@ async fn a_title_is_found_past_the_blocks_read_at_once() {
     assert!(
         every
             .windows(2)
-            .all(|pair| pair[0].update_at >= pair[1].update_at),
+            .all(|pair| pair[0].updated_at >= pair[1].updated_at),
         "the one changed last first"
     );
     for nowhere in [&[][..], &[new_id().as_str()][..]] {

@@ -6,7 +6,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -20,7 +20,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Workspace board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -32,7 +32,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -46,7 +46,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "open",
       "workspaceId": "<id:1>"
     }
@@ -427,7 +427,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -441,7 +441,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Role board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "open",
       "workspaceId": "<id:1>"
     }
@@ -516,7 +516,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -530,7 +530,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Role board",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "open",
       "workspaceId": "<id:1>"
     }

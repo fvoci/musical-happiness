@@ -354,10 +354,10 @@ async fn watch(scope: &mut Scope<'_>, block_id: &str, users: &[&str]) -> Result<
     for batch in users.chunks(BATCH) {
         let mut sql = scope.sql(if postgres {
             "INSERT INTO subscriptions (org_id, block_type, block_id, \
-             user_id, notified_at, create_at) SELECT b.org_id, b.type, b.id, u.id, "
+             user_id, notified_at, created_at) SELECT b.org_id, b.type, b.id, u.id, "
         } else {
             "INSERT INTO subscriptions (block_type, block_id, \
-             user_id, notified_at, create_at) SELECT b.type, b.id, u.id, "
+             user_id, notified_at, created_at) SELECT b.type, b.id, u.id, "
         });
         sql.bind(now)
             .push_bind(", ", now)

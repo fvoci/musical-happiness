@@ -31,7 +31,7 @@ async fn changed_at(th: &TestServer, id: &str, at: i64) {
     th.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE blocks SET update_at = {at} WHERE id = '{id}'"
+            "UPDATE blocks SET updated_at = {at} WHERE id = '{id}'"
         ))
         .await
         .expect("the time of the change is set");

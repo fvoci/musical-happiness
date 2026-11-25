@@ -274,7 +274,7 @@ async fn handle_get_unit(
 /// `amountUnit`, `scheduledDate`, each clearable with `null`), for editors of the course.
 /// A chapter has no body or schedule fields: sending `body`, `amount`, `amountUnit`, or
 /// `scheduledDate` on a chapter is 400. A new body is sent with
-/// `readAt`, the `updateAt` of the unit as it was read: 409 if the unit has changed
+/// `readAt`, the `updatedAt` of the unit as it was read: 409 if the unit has changed
 /// since, and nothing is changed. Where the body is being edited together, what the
 /// editors typed is written to the unit first, so a writer who read it before is refused
 /// and reads it again. Where the node stands in the course does not change here.

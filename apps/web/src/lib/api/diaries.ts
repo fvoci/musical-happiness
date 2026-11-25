@@ -36,8 +36,8 @@ export function entryDetailOf(entry: Schemas['DiaryEntry']): DiaryEntryDetail {
     body: bodyOf(entry.body),
     createdBy: entry.createdBy,
     modifiedBy: entry.modifiedBy,
-    createAt: entry.createAt,
-    updateAt: entry.updateAt,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
   };
 }
 
@@ -56,8 +56,8 @@ export function entryOfBlock(block: Schemas['Block']): DiaryEntry {
     mood: MOODS.includes(text(fields.mood) as Mood) ? (fields.mood as Mood) : null,
     weather: text(fields.weather),
     place: text(fields.place),
-    createAt: block.createAt,
-    updateAt: block.updateAt,
+    createdAt: block.createdAt,
+    updatedAt: block.updatedAt,
   };
 }
 

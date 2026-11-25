@@ -70,9 +70,9 @@ pub struct Category {
     /// The identifier of the workspace the category belongs to.
     pub workspace_id: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; absent while not deleted.
     #[serde(
         default,
@@ -102,11 +102,11 @@ impl Category {
         if self.id.is_empty() {
             self.id = new_id();
         }
-        if self.create_at == 0 {
-            self.create_at = now;
+        if self.created_at == 0 {
+            self.created_at = now;
         }
-        if self.update_at == 0 {
-            self.update_at = self.create_at;
+        if self.updated_at == 0 {
+            self.updated_at = self.created_at;
         }
         if self.sort_order < 0 {
             self.sort_order = 0;

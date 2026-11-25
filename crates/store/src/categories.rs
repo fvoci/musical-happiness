@@ -14,7 +14,7 @@ use crate::error::StoreError;
 const CATEGORY_SORT_ORDER_GAP: i64 = 10;
 
 /// The columns of a category, in the order [`category_from_row`] reads them.
-const CATEGORY_COLUMNS: &str = "id, name, user_id, workspace_id, create_at, update_at, \
+const CATEGORY_COLUMNS: &str = "id, name, user_id, workspace_id, created_at, updated_at, \
                                 collapsed, sort_order, type";
 
 impl Store {
@@ -73,7 +73,7 @@ impl Store {
         self.with_write_conn(async |scope| {
             let mut sql = scope.sql("UPDATE categories SET ");
             sql.push_bind("name = ", &category.name)
-                .push_bind(", update_at = ", category.update_at)
+                .push_bind(", updated_at = ", category.updated_at)
                 .push_bind(", collapsed = ", category.collapsed)
                 .push_bind(" WHERE id = ", Id(&category.id));
             scope.execute(sql).await?;
@@ -162,8 +162,8 @@ fn category_from_row(row: &Row) -> Result<Category, StoreError> {
         name: row.text(1)?,
         user_id: row.id(2)?,
         workspace_id: row.id(3)?,
-        create_at: row.int(4)?,
-        update_at: row.int(5)?,
+        created_at: row.int(4)?,
+        updated_at: row.int(5)?,
         // A category that exists is not deleted.
         deleted_at: None,
         collapsed: row.bool(6)?,
@@ -195,7 +195,7 @@ pub(crate) async fn get_user_categories(
     ));
     sql.bind(Id(user_id))
         .push_bind(" AND workspace_id = ", Id(workspace_id))
-        .push(" ORDER BY sort_order, create_at, id");
+        .push(" ORDER BY sort_order, created_at, id");
     scope
         .fetch_all(sql)
         .await?
@@ -209,15 +209,15 @@ pub(crate) async fn create_category(
     category: &Category,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
-        "INSERT INTO categories (id, name, user_id, workspace_id, create_at, update_at, collapsed, \
+        "INSERT INTO categories (id, name, user_id, workspace_id, created_at, updated_at, collapsed, \
          sort_order, type) VALUES (",
     );
     sql.bind(Id(&category.id))
         .push_bind(", ", &category.name)
         .push_bind(", ", Id(&category.user_id))
         .push_bind(", ", Id(&category.workspace_id))
-        .push_bind(", ", category.create_at)
-        .push_bind(", ", category.update_at)
+        .push_bind(", ", category.created_at)
+        .push_bind(", ", category.updated_at)
         .push_bind(", ", category.collapsed)
         .push_bind(", ", category.sort_order)
         .push_bind(", ", category.category_type.as_str())

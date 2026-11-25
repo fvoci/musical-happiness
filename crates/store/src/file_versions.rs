@@ -264,7 +264,7 @@ struct Head {
     version: i64,
     path: String,
     size: i64,
-    create_at: i64,
+    created_at: i64,
     created_by: String,
     extension: String,
     /// The organization of the record, where the rows this handle writes must name it
@@ -273,7 +273,8 @@ struct Head {
 }
 
 impl Head {
-    const COLUMNS: &'static str = "name, id, version, path, size, create_at, created_by, extension";
+    const COLUMNS: &'static str =
+        "name, id, version, path, size, created_at, created_by, extension";
     /// Where the organization's column is read, when it is: after [`Self::COLUMNS`].
     const ORG_COLUMN: usize = 8;
 
@@ -315,7 +316,7 @@ impl Head {
                 version: row.int(2)?,
                 path: row.text(3)?,
                 size: row.int(4)?,
-                create_at: row.int(5)?,
+                created_at: row.int(5)?,
                 created_by: row.id(6)?,
                 extension: row.text(7)?,
                 org_id,
@@ -417,7 +418,7 @@ async fn versions_of(
             version: file.version,
             path: file.path.clone(),
             size: file.size,
-            created_at: file.create_at,
+            created_at: file.created_at,
             created_by: file.created_by.clone(),
             restored_from: None,
             is_current: true,
@@ -502,7 +503,7 @@ async fn write(
             version: file.version,
             path: &file.path,
             size: file.size,
-            created_at: file.create_at,
+            created_at: file.created_at,
             created_by: &file.created_by,
             restored_from: None,
         };

@@ -40,7 +40,7 @@ pub struct PublicLink {
     /// When the state last changed, in milliseconds since the Unix epoch. Zero, and
     /// left out of the JSON form, for a board that never had a public link.
     #[serde(skip_serializing_if = "is_zero")]
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 impl fmt::Debug for PublicLink {
@@ -50,7 +50,7 @@ impl fmt::Debug for PublicLink {
             .field("container_id", &self.container_id)
             .field("enabled", &self.enabled)
             .field("modified_by", &self.modified_by)
-            .field("update_at", &self.update_at)
+            .field("updated_at", &self.updated_at)
             .finish_non_exhaustive()
     }
 }

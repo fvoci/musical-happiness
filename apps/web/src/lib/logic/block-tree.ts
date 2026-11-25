@@ -37,8 +37,8 @@ export function duplicateBlockTree(
   const copies = blocks.map((block) => {
     const copy = normalizeBlock(block);
     copy.id = createId(idKindOfBlockType(copy.type));
-    copy.createAt = now;
-    copy.updateAt = now;
+    copy.createdAt = now;
+    copy.updatedAt = now;
     delete copy.deletedAt;
     idMap[block.id] = copy.id;
     return copy;

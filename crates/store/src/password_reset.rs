@@ -95,7 +95,7 @@ impl Store {
             change
                 .bind(password_hash)
                 .push_bind(", password_locked_at = ", 0_i64)
-                .push_bind(", update_at = ", now)
+                .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(&user_id));
             scope.execute(change).await?;
             sessions::delete_sessions_of_user(scope, &user_id).await?;

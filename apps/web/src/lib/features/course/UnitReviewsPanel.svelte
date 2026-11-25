@@ -55,10 +55,10 @@
   const completedReviews = $derived(unitReviews.filter((review) => review.completedAt !== null));
   const nextSuggested = $derived.by(() => {
     const latest = [...unitReviews].sort((a, b) => {
-      const aOrder = a.completedAt ?? a.createAt;
-      const bOrder = b.completedAt ?? b.createAt;
+      const aOrder = a.completedAt ?? a.createdAt;
+      const bOrder = b.completedAt ?? b.createdAt;
       if (aOrder !== bOrder) return bOrder - aOrder;
-      if (a.createAt !== b.createAt) return b.createAt - a.createAt;
+      if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
       return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
     })[0];
     return suggestedNextIntervalDays(latest?.intervalDays ?? null, intervals);

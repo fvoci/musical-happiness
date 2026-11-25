@@ -54,8 +54,8 @@ impl Hidden {
             container_id: board.id.clone(),
             parent_id: parent_id.to_owned(),
             block_type,
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Block::default()
         };
         let mut created: Vec<Block> = th
@@ -133,8 +133,8 @@ impl Hidden {
             container_id: own_board.id.clone(),
             parent_id: parent_id.to_owned(),
             block_type,
-            create_at: 1,
-            update_at: 1,
+            created_at: 1,
+            updated_at: 1,
             ..Block::default()
         };
         let mut created: Vec<Block> = th
@@ -346,7 +346,7 @@ fn content_cases() -> Vec<Case> {
             |h, i| format!("{TEST_WS}/boards/{}/blocks", h.board[i]),
             |h, i| {
                 json!([{
-                    "containerId": h.board[i], "type": "card", "createAt": 1, "updateAt": 1,
+                    "containerId": h.board[i], "type": "card", "createdAt": 1, "updatedAt": 1,
                 }])
             },
         ),
@@ -608,7 +608,7 @@ fn mixed_cases() -> Vec<Case> {
             },
             |h, i| {
                 json!([{
-                    "containerId": h.own_board, "type": "attachment", "createAt": 1, "updateAt": 1,
+                    "containerId": h.own_board, "type": "attachment", "createdAt": 1, "updatedAt": 1,
                     "fields": {"fileId": h.file[i]},
                 }])
             },

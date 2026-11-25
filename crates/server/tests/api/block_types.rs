@@ -44,7 +44,7 @@ async fn a_new_block_of_another_type_is_refused() {
                 &json!({
                     "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}],
                     "blocks": [{
-                        "id": "x1", "containerId": "b1", "type": name, "createAt": 1, "updateAt": 1,
+                        "id": "x1", "containerId": "b1", "type": name, "createdAt": 1, "updatedAt": 1,
                     }],
                 }),
             )

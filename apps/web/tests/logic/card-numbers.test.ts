@@ -15,13 +15,13 @@ import {
 import { searchFilterCards } from '$lib/logic/search.ts';
 import { createCard, type Card } from '$lib/logic/wire.ts';
 
-function card(id: string, title: string, number: number | undefined, updateAt = 1): Card {
+function card(id: string, title: string, number: number | undefined, updatedAt = 1): Card {
   const made = createCard();
   return {
     ...made,
     id,
     title,
-    updateAt,
+    updatedAt,
     ...(number === undefined ? {} : { number }),
   };
 }

@@ -175,9 +175,9 @@ export class OrgAdmin {
     }
   }
 
-  async endOidcFormer(createAt: number): Promise<void> {
+  async endOidcFormer(createdAt: number): Promise<void> {
     try {
-      await this.#api.endOidcFormer(this.orgId, createAt);
+      await this.#api.endOidcFormer(this.orgId, createdAt);
       this.#shell?.evictOrg?.(this.orgId);
     } finally {
       await this.load();

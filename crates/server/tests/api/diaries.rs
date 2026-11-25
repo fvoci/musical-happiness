@@ -58,7 +58,7 @@ fn body(text: &str) -> Value {
 
 /// Writes the body of the entry `made`, as who read it as it was made.
 async fn write_body(client: &Client, entry: &str, made: &Value, text: &str) -> Value {
-    let patch = json!({"readAt": made["updateAt"], "body": body(text)});
+    let patch = json!({"readAt": made["updatedAt"], "body": body(text)});
     let patched = client.patch(entry, &patch).await;
     patched.check_ok();
     patched.value()
@@ -405,7 +405,7 @@ async fn the_body_and_the_notes_are_written_together_or_not_at_all() {
     let made = written(client, &diary, &json!({"date": "2024-03-01"})).await;
     let entry = format!("{diary}/entries/{}", text_of(&made, "id"));
     let together = json!({
-        "readAt": made["updateAt"], "body": body("함께"), "mood": "good", "weather": "비",
+        "readAt": made["updatedAt"], "body": body("함께"), "mood": "good", "weather": "비",
     });
     let both = client.patch(&entry, &together).await.value();
     assert_eq!(
@@ -413,7 +413,7 @@ async fn the_body_and_the_notes_are_written_together_or_not_at_all() {
         (&body("함께"), &json!("good"), &json!("비"))
     );
     let stale = json!({
-        "readAt": made["updateAt"], "body": body("늦게"), "mood": "awful", "place": "집",
+        "readAt": made["updatedAt"], "body": body("늦게"), "mood": "awful", "place": "집",
     });
     client
         .patch(&entry, &stale)
@@ -474,7 +474,7 @@ async fn an_entry_is_changed_by_its_patch_and_keeps_its_day() {
     // The body, written whole by who read the entry as it is.
     let with_body = write_body(client, &entry, &read, "첫 줄").await;
     assert_eq!(with_body["body"], body("첫 줄"));
-    let stale = json!({"readAt": read["updateAt"], "body": body("늦은 줄")});
+    let stale = json!({"readAt": read["updatedAt"], "body": body("늦은 줄")});
     let late = client.patch(&entry, &stale).await;
     late.check_status(StatusCode::CONFLICT);
     write_body(client, &entry, &with_body, "둘째 줄").await;
@@ -884,9 +884,9 @@ async fn metadata_patches_do_not_conflict_with_conditional_body_writes() {
     let made = written(client, &diary, &json!({"date": "2024-05-01"})).await;
     let entry_id = text_of(&made, "id");
     let entry = format!("{diary}/entries/{entry_id}");
-    let t0 = made["updateAt"].as_i64().expect("t0");
+    let t0 = made["updatedAt"].as_i64().expect("t0");
 
-    // Metadata-only patches advance updateAt without advancing the body timestamp.
+    // Metadata-only patches advance updatedAt without advancing the body timestamp.
     for meta in [
         json!({"mood": "good"}),
         json!({"weather": "맑음"}),
@@ -895,8 +895,8 @@ async fn metadata_patches_do_not_conflict_with_conditional_body_writes() {
         client.patch(&entry, &meta).await.check_ok();
     }
     let after_meta = client.get(&entry).await.value();
-    let t_meta = after_meta["updateAt"].as_i64().expect("t_meta");
-    assert!(t_meta > t0, "metadata patches advanced updateAt");
+    let t_meta = after_meta["updatedAt"].as_i64().expect("t_meta");
+    assert!(t_meta > t0, "metadata patches advanced updatedAt");
 
     // Body write using pre-metadata readAt succeeds!
     let with_body = client
@@ -904,7 +904,7 @@ async fn metadata_patches_do_not_conflict_with_conditional_body_writes() {
         .await;
     with_body.check_ok();
     let with_body = with_body.value();
-    let t_body = with_body["updateAt"].as_i64().expect("t_body");
+    let t_body = with_body["updatedAt"].as_i64().expect("t_body");
     assert_eq!(with_body["mood"], "good");
     assert_eq!(with_body["weather"], "맑음");
     assert_eq!(with_body["place"], "서울");
@@ -914,7 +914,7 @@ async fn metadata_patches_do_not_conflict_with_conditional_body_writes() {
         .patch(&entry, &json!({"mood": "great"}))
         .await
         .value();
-    let t_meta2 = meta2["updateAt"].as_i64().expect("t_meta2");
+    let t_meta2 = meta2["updatedAt"].as_i64().expect("t_meta2");
     assert!(t_meta2 > t_body);
     let body2 = client
         .patch(
@@ -924,7 +924,7 @@ async fn metadata_patches_do_not_conflict_with_conditional_body_writes() {
         .await;
     body2.check_ok();
     let body2 = body2.value();
-    let t_body2 = body2["updateAt"].as_i64().expect("t_body2");
+    let t_body2 = body2["updatedAt"].as_i64().expect("t_body2");
 
     // Stale readAt from before the body write is still 409, as is a forged future readAt.
     client
@@ -1061,7 +1061,7 @@ async fn append_body_appends_atomically_coordinates_with_room_and_enforces_limit
     let both = client
         .patch(
             &entry,
-            &json!({"readAt": second.value()["updateAt"], "body": body("a"), "appendBody": body("b")}),
+            &json!({"readAt": second.value()["updatedAt"], "body": body("a"), "appendBody": body("b")}),
         )
         .await;
     both.check_bad_request();
@@ -1125,7 +1125,7 @@ async fn deleting_an_empty_entry_purges_it_while_non_empty_entries_go_to_trash()
     client
         .patch(
             &cleared_at,
-            &json!({"readAt": with_text["updateAt"], "body": Value::Null}),
+            &json!({"readAt": with_text["updatedAt"], "body": Value::Null}),
         )
         .await
         .check_ok();
@@ -1204,17 +1204,17 @@ fn two_diary_archive_with_files(
 
     let d1 = json!({"type": "container", "data": {
         "id": "d1", "workspaceId": own_ws, "visibility": "private", "kind": "diary", "title": "First",
-        "createAt": 1, "updateAt": 1, "fileNames": {"photo1.png": "photo1.png"},
+        "createdAt": 1, "updatedAt": 1, "fileNames": {"photo1.png": "photo1.png"},
     }});
     let e1 = json!({"type": "block", "data": {
         "id": "e1", "containerId": "d1", "parentId": "", "type": "entry", "title": "2024-08-01",
         "fields": {"date": "2024-08-01", "mood": "good"},
         "body": {"type": "doc", "content": [{"type": "image", "attrs": {"fileId": "photo1.png"}}]},
-        "createAt": 1, "updateAt": 1,
+        "createdAt": 1, "updatedAt": 1,
     }});
     let d2 = json!({"type": "container", "data": {
         "id": "d2", "workspaceId": own_ws, "visibility": "private", "kind": "diary", "title": "Second",
-        "createAt": 1, "updateAt": 1,
+        "createdAt": 1, "updatedAt": 1,
     }});
     let options =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
@@ -1327,7 +1327,7 @@ async fn assert_commit_time_diary_rollback(
         size: 12,
         container_id: d1.id.clone(),
         path: format!("{own_org_id}/{}/stored-photo1.png", d1.id),
-        create_at: 1,
+        created_at: 1,
         ..fvoci_model::FileRecord::default()
     };
     let mut blocks = vec![e1];
@@ -1414,7 +1414,7 @@ async fn multi_diary_archive_failure_rolls_back_all_diaries_and_staged_files() {
     let entry_line = |id: &str, date: &str| {
         json!({"type": "block", "data": {
             "id": id, "boardId": "d2", "parentId": "", "type": "entry", "title": date,
-            "fields": {"date": date}, "createAt": 1, "updateAt": 1,
+            "fields": {"date": date}, "createdAt": 1, "updatedAt": 1,
         }})
     };
 

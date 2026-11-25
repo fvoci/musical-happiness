@@ -145,7 +145,7 @@ pub struct WorkspaceMember {
     /// What the user is in the workspace.
     pub role: WorkspaceRole,
     /// When the user became a member, in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Whether this membership is a temporary joining as organization administrator.
     #[serde(default)]
     pub joined_as_org_admin: bool,

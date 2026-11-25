@@ -24,7 +24,7 @@ use crate::error::StoreError;
 use crate::users;
 
 const TIME_ENTRY_COLUMNS: &str = "id, org_id, workspace_id, container_id, block_id, target_kind, \
-     target_title, kind, started_at, ended_at, note, create_at, update_at";
+     target_title, kind, started_at, ended_at, note, created_at, updated_at";
 
 /// Single-row `SELECT` joining the user, organization, and SSO provider so session-wall
 /// visibility is evaluated atomically on the target row itself (O(1), fail-closed, zero
@@ -32,7 +32,7 @@ const TIME_ENTRY_COLUMNS: &str = "id, org_id, workspace_id, container_id, block_
 const VISIBLE_ENTRY_SELECT: &str = "\
     SELECT te.id, te.org_id, te.workspace_id, te.container_id, te.block_id, \
            te.target_kind, te.target_title, te.kind, te.started_at, te.ended_at, \
-           te.note, te.create_at, te.update_at, o.kind, o.deleted_at, p.id, \
+           te.note, te.created_at, te.updated_at, o.kind, o.deleted_at, p.id, \
            CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END \
     FROM time_entries AS te \
     JOIN users AS u ON u.id = te.user_id \
@@ -185,17 +185,17 @@ impl Store {
                 let mut stopped_visible = None;
                 if let Some(mut active) = select_active_with_visibility(scope, reader).await? {
                     let stop_at = now.max(active.entry.started_at);
-                    let stop_update_at = now.max(active.entry.update_at);
+                    let stop_updated_at = now.max(active.entry.updated_at);
                     stop_active_row(
                         scope,
                         &active.entry.id,
                         reader.user_id,
                         stop_at,
-                        stop_update_at,
+                        stop_updated_at,
                     )
                     .await?;
                     active.entry.ended_at = Some(stop_at);
-                    active.entry.update_at = stop_update_at;
+                    active.entry.updated_at = stop_updated_at;
                     if active.visible {
                         stopped_visible = Some(active.entry);
                     }
@@ -233,17 +233,17 @@ impl Store {
                     return Ok(None);
                 }
                 let stop_at = now.max(active.entry.started_at);
-                let stop_update_at = now.max(active.entry.update_at);
+                let stop_updated_at = now.max(active.entry.updated_at);
                 stop_active_row(
                     scope,
                     &active.entry.id,
                     reader.user_id,
                     stop_at,
-                    stop_update_at,
+                    stop_updated_at,
                 )
                 .await?;
                 active.entry.ended_at = Some(stop_at);
-                active.entry.update_at = stop_update_at;
+                active.entry.updated_at = stop_updated_at;
                 Ok(Some(active.entry))
             })
             .await
@@ -366,14 +366,14 @@ impl Store {
                 {
                     return Ok(TimeEntryPatchOutcome::EndedBeforeStarted);
                 }
-                entry.update_at = now.max(entry.update_at);
+                entry.updated_at = now.max(entry.updated_at);
                 let mut update = scope.sql("UPDATE time_entries SET kind = ");
                 update
                     .bind(entry.kind.as_str())
                     .push_bind(", started_at = ", entry.started_at)
                     .push_bind(", ended_at = ", Param::OptInt(entry.ended_at))
                     .push_bind(", note = ", entry.note.as_str())
-                    .push_bind(", update_at = ", entry.update_at)
+                    .push_bind(", updated_at = ", entry.updated_at)
                     .push_bind(" WHERE id = ", Id(&entry.id))
                     .push_bind(" AND user_id = ", Id(reader.user_id));
                 scope.execute(update).await?;
@@ -629,11 +629,11 @@ async fn stop_active_row(
     entry_id: &str,
     user_id: &str,
     ended_at: i64,
-    update_at: i64,
+    updated_at: i64,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE time_entries SET ended_at = ");
     sql.bind(ended_at)
-        .push_bind(", update_at = ", update_at)
+        .push_bind(", updated_at = ", updated_at)
         .push_bind(" WHERE id = ", Id(entry_id))
         .push_bind(" AND user_id = ", Id(user_id))
         .push(" AND ended_at IS NULL");
@@ -673,8 +673,8 @@ fn build_entry(
         started_at,
         ended_at,
         note: new.note.to_owned(),
-        create_at: now,
-        update_at: now,
+        created_at: now,
+        updated_at: now,
     }
 }
 
@@ -686,7 +686,7 @@ async fn insert_row(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "INSERT INTO time_entries (id, org_id, user_id, workspace_id, container_id, block_id, \
-         target_kind, target_title, kind, started_at, ended_at, note, create_at, update_at) \
+         target_kind, target_title, kind, started_at, ended_at, note, created_at, updated_at) \
          VALUES (",
     );
     sql.bind(Id(&entry.id))
@@ -704,8 +704,8 @@ async fn insert_row(
         .push_bind(", ", entry.started_at)
         .push_bind(", ", Param::OptInt(entry.ended_at))
         .push_bind(", ", entry.note.as_str())
-        .push_bind(", ", entry.create_at)
-        .push_bind(", ", entry.update_at)
+        .push_bind(", ", entry.created_at)
+        .push_bind(", ", entry.updated_at)
         .push(")");
     scope.execute(sql).await?;
     Ok(())
@@ -833,8 +833,8 @@ fn row_to_entry(row: &Row) -> Result<TimeEntry, StoreError> {
         started_at: row.int(8)?,
         ended_at: row.opt_int(9)?,
         note: row.text(10)?,
-        create_at: row.int(11)?,
-        update_at: row.int(12)?,
+        created_at: row.int(11)?,
+        updated_at: row.int(12)?,
     })
 }
 

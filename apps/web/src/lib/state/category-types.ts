@@ -15,8 +15,8 @@ export interface Category {
   containerIds: string[];
   /** Boards of this category the reader hid from the sidebar. */
   hiddenContainerIds: string[];
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface CategoryDraft {

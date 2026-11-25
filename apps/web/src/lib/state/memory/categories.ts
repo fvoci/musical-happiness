@@ -103,8 +103,8 @@ export class MemoryCategories {
       sortOrder: 0,
       containerIds: [],
       hiddenContainerIds: [],
-      createAt: now,
-      updateAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
     world.categories.set(userId, [...(world.categories.get(userId) ?? []), category]);
     this.#tell(workspaceId);
@@ -124,7 +124,7 @@ export class MemoryCategories {
       if (category.type !== 'system') category.name = patch.name;
     }
     if (patch.collapsed !== undefined) category.collapsed = patch.collapsed;
-    category.updateAt = this.#asker.world.now();
+    category.updatedAt = this.#asker.world.now();
     this.#tell(workspaceId);
     return copy(category);
   }

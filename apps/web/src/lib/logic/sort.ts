@@ -29,7 +29,7 @@ const byId: Comparator = (first, second) =>
 
 /** Oldest first; cards made in the same millisecond by identifier. */
 export const createdOrder: Comparator = (first, second) =>
-  Math.sign(first.createAt - second.createAt) || byId(first, second);
+  Math.sign(first.createdAt - second.createdAt) || byId(first, second);
 
 function titleComparator(collator: Intl.Collator): Comparator {
   return (first, second) => {
@@ -96,7 +96,7 @@ function sortKey(card: Card, template: PropertyTemplate, context: SortContext): 
 
   switch (template.type) {
     case 'createdTime':
-      return card.createAt;
+      return card.createdAt;
     case 'updatedTime':
       return cardUpdatedAt(card);
     case 'createdBy':

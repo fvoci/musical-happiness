@@ -97,8 +97,8 @@ async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscr
     let board = Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
         visibility: ContainerVisibility::Open,
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         ..Container::default()
     };
     let board: Container = client.create_board(&board).await.created_json();
@@ -281,8 +281,8 @@ async fn create_subscription_validation() {
             "unknown field `subscriberId`, expected one of `blockType`, `blockId`, `userId`",
         ),
         (
-            with("createAt", json!(6)),
-            "unknown field `createAt`, expected one of `blockType`, `blockId`, `userId`",
+            with("createdAt", json!(6)),
+            "unknown field `createdAt`, expected one of `blockType`, `blockId`, `userId`",
         ),
         // Nothing at all: everything missing is reported. `null` is no string.
         (json!({}), "3 members of the request were refused"),
@@ -353,9 +353,9 @@ async fn create_subscription_answer_and_subscribing_again() {
     let response = th.client.post(PATH, &request(&card.id, &me)).await;
     let first: Subscription = response.created_json();
     assert!(
-        first.create_at >= before,
+        first.created_at >= before,
         "created now: {}",
-        first.create_at
+        first.created_at
     );
     assert_eq!(
         response.value(),
@@ -363,8 +363,8 @@ async fn create_subscription_answer_and_subscribing_again() {
             "blockType": "card",
             "blockId": card.id,
             "userId": me,
-            "notifiedAt": first.create_at,
-            "createAt": first.create_at,
+            "notifiedAt": first.created_at,
+            "createdAt": first.created_at,
         }),
         "the answer"
     );
@@ -377,7 +377,7 @@ async fn create_subscription_answer_and_subscribing_again() {
     // and is marked as notified now.
     tokio::time::sleep(Duration::from_millis(5)).await;
     let second = subscribe(&th.client, &card.id, &me).await;
-    assert_eq!(second.create_at, first.create_at, "the same subscription");
+    assert_eq!(second.created_at, first.created_at, "the same subscription");
     assert!(second.notified_at > first.notified_at, "notified now");
     assert_eq!(
         subscriptions_of(&th.client, &me).await,
@@ -392,7 +392,7 @@ async fn create_subscription_answer_and_subscribing_again() {
     assert_eq!(subscriptions_of(&th.client, &me).await, [], "unsubscribed");
     tokio::time::sleep(Duration::from_millis(5)).await;
     let third = subscribe(&th.client, &card.id, &me).await;
-    assert!(third.create_at > first.create_at, "created anew");
+    assert!(third.created_at > first.created_at, "created anew");
     assert_eq!(
         subscriptions_of(&th.client, &me).await,
         std::slice::from_ref(&third),

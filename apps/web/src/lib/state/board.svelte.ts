@@ -647,7 +647,7 @@ export class BoardStore {
 
   /** As `take` (write.ts) does for cards and views. */
   #takeBoard(board: Container): void {
-    if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
+    if (!this.board || board.updatedAt >= this.board.updatedAt) this.board = board;
   }
 
   /**

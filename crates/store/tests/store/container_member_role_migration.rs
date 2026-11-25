@@ -61,9 +61,11 @@ async fn insert_pre0073_board(
         .execute_unchecked(&format!(
             "INSERT INTO containers \
              (id, workspace_id, created_by, modified_by, visibility, kind, title, description, \
-              icon, show_description, is_template, properties, card_properties, create_at, update_at) \
+              icon, show_description, is_template, properties, card_properties, {}, {}) \
              VALUES ('{board_id}', '{ws_id}', '{owner}', '{owner}', 'private', 'board', \
-              '{title}', '', '', false, false, '{{}}', '[]', 100, 200)"
+              '{title}', '', '', false, false, '{{}}', '[]', 100, 200)",
+            common::PRE0075_CREATE_COL,
+            common::PRE0075_UPDATE_COL,
         ))
         .await
         .expect("pre-0073 container inserted");
@@ -99,12 +101,13 @@ fn pre0073_trashed_member(container_id: &str, user_id: &str, flags: [bool; 4]) -
 
 async fn seed_org_a_edge_cases(
     scoped: &Store,
+    org_id: &str,
     ws_id: &str,
     admin_user: &str,
     viewer_user: &str,
     all_false_user: &str,
 ) -> (String, String, String) {
-    let edge_ws_id = common::workspace(scoped).await;
+    let edge_ws_id = common::pre0075_workspace(scoped, org_id).await;
 
     let (trashed_only_roleless, trashed_edge) = (new_id(), new_id());
     let (del_roleless, del_edge) = (new_id(), new_id());
@@ -143,8 +146,8 @@ async fn seed_org_a_edge_cases(
             "kind": "board",
             "title": title,
             "cardProperties": [],
-            "createAt": 100,
-            "updateAt": 200,
+            (common::PRE0075_CREATE_KEY): 100,
+            (common::PRE0075_UPDATE_KEY): 200,
             "deletedAt": at,
         })
         .to_string();
@@ -200,7 +203,9 @@ async fn seed_org_a_trash_and_prior(
         "plain trash description"
     };
     let trashed_doc = format!(
-        r#"{{"id":"{trashed_board}","workspaceId":"{ws_id}","createdBy":"{admin_user}","modifiedBy":"{admin_user}","visibility":"private","kind":"board","title":"Trashed Roles","description":"{desc}","cardProperties":[],"createAt":100,"updateAt":200,"deletedAt":300}}"#
+        r#"{{"id":"{trashed_board}","workspaceId":"{ws_id}","createdBy":"{admin_user}","modifiedBy":"{admin_user}","visibility":"private","kind":"board","title":"Trashed Roles","description":"{desc}","cardProperties":[],"{}":100,"{}":200,"deletedAt":300}}"#,
+        common::PRE0075_CREATE_KEY,
+        common::PRE0075_UPDATE_KEY,
     );
     let empty_doc = json!({
         "id": trashed_empty,
@@ -211,8 +216,8 @@ async fn seed_org_a_trash_and_prior(
         "kind": "board",
         "title": "Trashed Empty Members",
         "cardProperties": [],
-        "createAt": 100,
-        "updateAt": 200,
+        (common::PRE0075_CREATE_KEY): 100,
+        (common::PRE0075_UPDATE_KEY): 200,
         "deletedAt": 310,
     })
     .to_string();
@@ -266,15 +271,50 @@ async fn seed_org_a_trash_and_prior(
     (trashed_board, trashed_empty)
 }
 
+async fn seed_org_a_live_members(
+    scoped: &Store,
+    boards: (&str, &str, &str),
+    users: (&str, &str, &str, &str, &str, &str),
+) {
+    let (board_single, board_mixed, board_prior) = boards;
+    let (admin_user, editor_user, commenter_user, viewer_user, all_false_user, joined_org_admin) =
+        users;
+    for (uid, flags) in [
+        (admin_user, [true, false, false, false]),
+        (editor_user, [false, true, false, false]),
+        (commenter_user, [false, false, true, false]),
+        (viewer_user, [false, false, false, true]),
+        (all_false_user, [false, false, false, false]),
+    ] {
+        insert_pre0073_member(scoped, board_single, uid, flags).await;
+    }
+    for (uid, flags) in [
+        (admin_user, [true, true, true, true]),
+        (editor_user, [false, true, true, true]),
+        (commenter_user, [false, false, true, true]),
+        (viewer_user, [false, false, false, true]),
+        (all_false_user, [false, false, false, false]),
+        (joined_org_admin, [true, false, false, true]),
+    ] {
+        insert_pre0073_member(scoped, board_mixed, uid, flags).await;
+    }
+    for (uid, flags) in [
+        (admin_user, [true, true, false, false]),
+        (joined_org_admin, [true, false, false, false]),
+    ] {
+        insert_pre0073_member(scoped, board_prior, uid, flags).await;
+    }
+}
+
 async fn seed_org_a(pre: &Store) -> OrgAFixture {
-    let (org_id, ws_id) = common::organization(pre, "acme").await;
+    let (org_id, ws_id) = common::pre0075_organization(pre, "acme").await;
     let scoped = pre.for_org(&org_id).expect("org A handle");
-    let admin_user = common::user(&scoped, "alice-admin").await;
-    let editor_user = common::user(&scoped, "ed-editor").await;
-    let commenter_user = common::user(&scoped, "cam-commenter").await;
-    let viewer_user = common::user(&scoped, "vic-viewer").await;
-    let all_false_user = common::user(&scoped, "nil-flags").await;
-    let joined_org_admin = common::user(&scoped, "olivia-org-admin").await;
+    let admin_user = common::pre0072_user(&scoped, &org_id, &ws_id, "alice-admin").await;
+    let editor_user = common::pre0072_user(&scoped, &org_id, &ws_id, "ed-editor").await;
+    let commenter_user = common::pre0072_user(&scoped, &org_id, &ws_id, "cam-commenter").await;
+    let viewer_user = common::pre0072_user(&scoped, &org_id, &ws_id, "vic-viewer").await;
+    let all_false_user = common::pre0072_user(&scoped, &org_id, &ws_id, "nil-flags").await;
+    let joined_org_admin = common::pre0072_user(&scoped, &org_id, &ws_id, "olivia-org-admin").await;
 
     scoped
         .execute_unchecked(&format!(
@@ -302,34 +342,19 @@ async fn seed_org_a(pre: &Store) -> OrgAFixture {
     ] {
         insert_pre0073_board(&scoped, id, &ws_id, &admin_user, title).await;
     }
-
-    for (uid, flags) in [
-        (&admin_user, [true, false, false, false]),
-        (&editor_user, [false, true, false, false]),
-        (&commenter_user, [false, false, true, false]),
-        (&viewer_user, [false, false, false, true]),
-        (&all_false_user, [false, false, false, false]),
-    ] {
-        insert_pre0073_member(&scoped, &board_single, uid, flags).await;
-    }
-
-    for (uid, flags) in [
-        (&admin_user, [true, true, true, true]),
-        (&editor_user, [false, true, true, true]),
-        (&commenter_user, [false, false, true, true]),
-        (&viewer_user, [false, false, false, true]),
-        (&all_false_user, [false, false, false, false]),
-        (&joined_org_admin, [true, false, false, true]),
-    ] {
-        insert_pre0073_member(&scoped, &board_mixed, uid, flags).await;
-    }
-
-    for (uid, flags) in [
-        (&admin_user, [true, true, false, false]),
-        (&joined_org_admin, [true, false, false, false]),
-    ] {
-        insert_pre0073_member(&scoped, &board_prior, uid, flags).await;
-    }
+    seed_org_a_live_members(
+        &scoped,
+        (&board_single, &board_mixed, &board_prior),
+        (
+            &admin_user,
+            &editor_user,
+            &commenter_user,
+            &viewer_user,
+            &all_false_user,
+            &joined_org_admin,
+        ),
+    )
+    .await;
 
     let (trashed_board, trashed_empty) = seed_org_a_trash_and_prior(
         &scoped,
@@ -345,8 +370,15 @@ async fn seed_org_a(pre: &Store) -> OrgAFixture {
         ),
     )
     .await;
-    let (edge_ws_id, trashed_only_roleless, trashed_edge) =
-        seed_org_a_edge_cases(&scoped, &ws_id, &admin_user, &viewer_user, &all_false_user).await;
+    let (edge_ws_id, trashed_only_roleless, trashed_edge) = seed_org_a_edge_cases(
+        &scoped,
+        &org_id,
+        &ws_id,
+        &admin_user,
+        &viewer_user,
+        &all_false_user,
+    )
+    .await;
 
     OrgAFixture {
         org_id,
@@ -372,10 +404,10 @@ async fn seed_org_b(pre: &Store) -> Option<OrgBFixture> {
     if pre.db_type() != DbType::Postgres {
         return None;
     }
-    let (org_id, ws_id) = common::organization(pre, "beta").await;
+    let (org_id, ws_id) = common::pre0075_organization(pre, "beta").await;
     let scoped = pre.for_org(&org_id).expect("org B handle");
-    let bob = common::user(&scoped, "bob-beta").await;
-    let carol = common::user(&scoped, "carol-beta").await;
+    let bob = common::pre0072_user(&scoped, &org_id, &ws_id, "bob-beta").await;
+    let carol = common::pre0072_user(&scoped, &org_id, &ws_id, "carol-beta").await;
     scoped
         .execute_unchecked(&format!(
             "UPDATE workspace_members SET role = '{}' \
@@ -401,8 +433,8 @@ async fn seed_org_b(pre: &Store) -> Option<OrgBFixture> {
         "kind": "board",
         "title": "Org B Trashed",
         "cardProperties": [],
-        "createAt": 100,
-        "updateAt": 200,
+        (common::PRE0075_CREATE_KEY): 100,
+        (common::PRE0075_UPDATE_KEY): 200,
         "deletedAt": 400,
     })
     .to_string();

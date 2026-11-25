@@ -32,8 +32,8 @@ export interface WikiPage {
    * The backend makes it; the screens only sort by it.
    */
   order: string;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** A page read on its own: with its body and who made and last changed it. */
@@ -82,7 +82,7 @@ export interface PagePatch {
   icon?: string;
   /** A whole new body, sent with `readAt`. */
   body?: DocNode | null;
-  /** The `updateAt` the page was read at: a page changed since is refused (409) and left as it is. */
+  /** The `updatedAt` the page was read at: a page changed since is refused (409) and left as it is. */
   readAt?: number;
 }
 

@@ -107,6 +107,10 @@ pub(crate) const BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION: i64 = 72;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION: i64 = 73;
 
+/// The migration before unified `created_at` / `updated_at` timestamps (0075).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_UNIFIED_TIMESTAMPS_VERSION: i64 = 74;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -353,7 +357,7 @@ mod tests {
             "CREATE TABLE notes (id UUID PRIMARY KEY, container_id UUID REFERENCES containers (id));",
             "INSERT INTO data_steps (name) VALUES ('later');",
             "UPDATE users SET display_name = '' -- not from containers",
-            "UPDATE users SET update_at = (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT;",
+            "UPDATE users SET updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT;",
             "DELETE FROM sessions WHERE user_id IN (SELECT id FROM (SELECT id FROM users) AS u)",
         ] {
             assert_eq!(
@@ -543,5 +547,16 @@ mod tests {
             .expect("migration 74 is in the list");
         assert_eq!(step.version, 74);
         assert_eq!(step.description, "native property definitions and colors");
+    }
+
+    /// Migration 75 is unified `created_at` / `updated_at` timestamps, immediately following `BEFORE_UNIFIED_TIMESTAMPS_VERSION` (74).
+    #[test]
+    fn migration_75_is_unified_created_updated_timestamps() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_UNIFIED_TIMESTAMPS_VERSION + 1)
+            .expect("migration 75 is in the list");
+        assert_eq!(step.version, 75);
+        assert_eq!(step.description, "unified created updated timestamps");
     }
 }

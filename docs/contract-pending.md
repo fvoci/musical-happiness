@@ -46,7 +46,7 @@
 - `Card`에 `body`, `hasBody`, `tasksTotal`, `tasksDone`가 늘 있다. `getCard`와 `createCard`·`patchCard`의 답은 `body`에 문서를, `getCards`는 `body`에 `null`을 싣고 나머지 셋으로 본문이 있는지와 할 일 수를 알린다. 목록은 본문을 읽지 않고 저장할 때 센 열을 읽는다.
 - `Block`에 `body`가 늘 있다(없으면 `null`). WebSocket의 `blockChanged`도 `Block` 전체이므로 본문을 싣는다(`contracts/websocket.md`).
 - `createCard`가 `body`를 받는다. 빠졌거나 `null`이거나 빈 문서(빈 문단 하나)면 본문이 없다.
-- `patchCard`가 `body`와 `readAt`을 받는다. `body`가 빠지면 본문은 그대로, `null`이나 빈 문서면 지운다. **`body`를 보내려면 `readAt`(그 카드를 읽었을 때의 `updateAt`)이 있어야 한다.** 없으면 400이고 `errors`가 `readAt`의 자리를 가리킨다. `readAt`이 지금의 `updateAt`과 다르면 409(`conflict`)이고 아무것도 바뀌지 않는다. `readAt`은 `body` 없이 보내도 검사한다. 패치를 적용한 블록이 블록의 한도(제목, `fields`)를 넘으면 `readAt`을 보기 전에 400이다. 부모의 검사는 그 뒤라서, 부모가 틀리고 `readAt`도 낡았으면 409다.
+- `patchCard`가 `body`와 `readAt`을 받는다. `body`가 빠지면 본문은 그대로, `null`이나 빈 문서면 지운다. **`body`를 보내려면 `readAt`(그 카드를 읽었을 때의 `updatedAt`)이 있어야 한다.** 없으면 400이고 `errors`가 `readAt`의 자리를 가리킨다. `readAt`이 지금의 `updatedAt`과 다르면 409(`conflict`)이고 아무것도 바뀌지 않는다. `readAt`은 `body` 없이 보내도 검사한다. 패치를 적용한 블록이 블록의 한도(제목, `fields`)를 넘으면 `readAt`을 보기 전에 400이다. 부모의 검사는 그 뒤라서, 부모가 틀리고 `readAt`도 낡았으면 409다.
 - 검증은 허용 목록 판 2 전체다(tracer-bullet 2, 2026-11-11 05:29 KST): 노드와 마크의 종류, 속성과 그 값, 어느 노드가 어디에 올 수 있는지, 한도(4 MiB, 깊이 60, 노드 50,000). 길이는 UTF-16 코드 단위로 센다. 어느 문자열과 멤버 이름에도 U+0000이 있으면 거절한다(PostgreSQL의 `jsonb`가 담지 못한다. 웹앱의 검증기에는 아직 없는 규칙이다). 허용 목록을 통과한 문서가 빈 문단 하나뿐이면(`attrs`가 있어도) 본문이 없는 것이다. 어긋나면 400이고 `errors`가 `body`의 자리를 가리킨다. 다만 JSON이 128단보다 깊게 겹친 요청은 디코더가 먼저 거절해 `errors`가 없는 400이다(한도 60단의 본문은 JSON으로 122단까지라 늘 디코더를 지나고, 한도를 조금 넘는 본문은 어느 쪽에서든 400이다).
 - 서버가 저장할 때 `body_version`(2)과 검색용 평문 `body_text`를 함께 적는다. 평문은 문단·제목·코드 블록·수식 블록마다 한 줄이고 글자가 없는 블록의 줄은 뺀다. 줄바꿈(`hardBreak`)은 그 블록의 줄 안의 줄바꿈으로 남는다. 인라인 수식은 제자리에 원문으로 들어가고, 멘션은 아무것도 남기지 않는다(이름을 저장하지 않는다). 웹앱의 `plainText`는 멘션을 `@이름`으로 쓰므로 다르다. 평문의 앞부분은 `getCards?preview=true`의 `preview.text`로 나간다.
 - 블록의 경로(`createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`)도 카드의 본문을 받는다(tracer-bullet 2b, 2026-11-11 05:55 KST). 검증과 거절(400, `errors`: `body`의 자리)은 카드의 경로와 같다. 패치가 `body`를 바꾸려면(`null`도) `readAt`이 있어야 하고, 없으면 400이고 `errors`가 `readAt`의 자리를 가리킨다. **본문은 카드와 댓글만 갖는다.** 다른 블록에 본문이 있으면 400이고 `errors`가 `body`의 자리를 가리킨다.
@@ -55,7 +55,7 @@
 - **댓글의 이력(사용자 결정 2026-11-11 14:46 KST).** 댓글의 본문이 바뀔 때마다(어느 경로든, 본문이 같은 패치는 빼고) 서버가 그 전의 판을 남긴다. 본문이 바뀐 적 있는 댓글의 `Block`에는 `editedAt`(마지막으로 바뀐 시각)이 있고, 없으면 바뀐 적이 없다(클라이언트가 보낸 값은 무시한다). 판은 `getCommentVersions`(`GET /boards/{boardId}/blocks/{blockId}/versions`)로 읽는다: 지금의 것을 뺀 판들이 처음 것부터 `{version, body, writtenBy, writtenAt}`로 온다. 첫 판은 처음 쓴 글이고 쓴 사람은 댓글을 만든 사람이다. 보드의 구성원(보기 역할부터)만 읽고, 읽기 토큰으로는 읽지 못한다. 댓글이 휴지통에 있어도 읽는다. 댓글이 아닌 블록은 404다. 댓글마다 처음 판과 가장 새 판들을 합해 설정 `max_comment_versions`(기본 50)판까지 남긴다. 남은 판의 본문이 보이는 파일은 수거되지 않고, 댓글이 영구히 지워질 때 판도 지워진다. 내보내기·가져오기·복제는 판을 싣지 않는다(사용자가 확정, 2026-11-11 21:00 KST).
 - 카드를 복제하면(블록·보드 복제, 템플릿에서 보드 만들기) 본문의 이미지가 가리키는 파일도 복사되고, 복사본의 본문은 새 파일을 가리킨다.
 - `BlockPatch.readAt`은 지금 쓰인다: `patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`의 패치에 있으면 `patchCard`처럼 검사하고 어긋나면 409다.
-- 있는 블록을 고칠 때마다 `updateAt`이 앞의 값보다 커진다(같은 밀리초여도). `readAt`이 그 사이의 변경을 놓치지 않는다.
+- 있는 블록을 고칠 때마다 `updatedAt`이 앞의 값보다 커진다(같은 밀리초여도). `readAt`이 그 사이의 변경을 놓치지 않는다.
 - 휴지통에서 되살린 카드와 복제한 카드는 본문과 할 일 수를 그대로 갖는다.
 - **읽기 토큰의 독자와 사용자 ID(사용자 결정 2026-11-11 11:05, 14:25 KST).** 읽기 토큰으로 읽고 보드의 구성원(보기 역할부터)이 아닌 독자(세션이 없거나, 로그인했어도. 열린 보드의 워크스페이스 사용자도 토큰으로 읽으면 그렇다)에게 나가는 보드와 블록은 `createdBy`·`modifiedBy`가 비어 있고(결정 7), 카드와 댓글의 본문에서 모든 멘션의 `userId`가 빈 문자열이고, 보드의 사람 속성(`type`이 `person`, `multiPerson`, `createdBy`, `updatedBy`)이 가리키는 사람이 카드의 `fields.properties`와 뷰의 `fields.filter` 절에서 사람마다 빈 문자열이다(목록의 길이는 그대로). 카드의 값 가운데 보드가 정의하지 않은 속성의 것(지운 사람 속성이 남긴 것)은 빠지고, 사람 속성으로 묶은 뷰의 `visibleGroups`, `hiddenGroups`, `collapsedGroups`, `groupCalculations`에는 값 없는 묶음(`""`)만 남는다. HTTP(`getContainer`, `getBlocks`, `getCards`의 카드도 같다)와 WebSocket(`blockChanged`) 모두. 그 독자가 받는 응답 가운데 사용자 ID를 싣는 자리는 이것뿐이다(`getFile`, `getFileInfo`는 싣지 않는다). 사람 속성을 `text` 같은 다른 종류로 바꾸면 남은 값은 그 종류의 값으로 그대로 나간다. 이것은 나가는 모양일 뿐 저장되는 모양이 아니다. 허용 목록은 `userId`가 사용자 ID가 아닌 멘션을 받지 않으므로, 그 본문을 그대로 되돌려 쓰면 400이다(익명 독자는 쓰지 못하니 생기지 않는다). 화면은 빈 `userId`의 멘션을 "알 수 없는 사용자"로 그리면 된다. 보드의 있음은 읽기 토큰의 연결을 수로만 세고 그 연결에는 명단을 보내지 않는다(`contracts/websocket.md` 7절).
 
@@ -233,9 +233,9 @@
 | 워크스페이스의 `title`, `settings` | 값을 정하는 라우트가 없다. `getMyWorkspaces`는 `title`을 `name`이라 부른다 |
 | `ping`의 주소 | `/api/v1/ping` 아래에 있다. 아래 (2) |
 | 요청 스키마와 서버의 해석 | 서버는 계약의 요청 스키마보다 너그럽게 읽는다. 아래 (3) |
-| `NewBlock`의 `createAt`, `updateAt` | 필수이고 1 이상이어야 하지만 서버는 그 값을 쓰지 않는다 |
+| `NewBlock`의 `createdAt`, `updatedAt` | 필수이고 1 이상이어야 하지만 서버는 그 값을 쓰지 않는다 |
 | `NewCategory`, `CategoryUpdate`의 `userId`, `workspaceId`(와 고칠 때의 `id`) | 본문에도 있어야 하고 세션·경로의 값과 같아야 한다. 아래 (4) |
-| `createCategory`에 `createAt`, `updateAt`을 보내면 | 계약의 `NewCategory`에는 없지만 0이 아닌 값이 오면 서버가 그 값을 쓴다 |
+| `createCategory`에 `createdAt`, `updatedAt`을 보내면 | 계약의 `NewCategory`에는 없지만 0이 아닌 값이 오면 서버가 그 값을 쓴다 |
 | `NewBoard`의 `templateVersion` | 클라이언트가 정할 수 있다 |
 | `disableNotify` | 받지만 API로 보이는 효과가 없다(알림을 보내는 쪽이 아직 없다) |
 | 빈 목록을 넣는 `createBlocks` | 201과 `[]` |
@@ -287,10 +287,10 @@
 | A1 | 이름은 가정대로 `hasBody`, `tasksTotal`, `tasksDone`(`Card`) |
 | A2, H6 | **결정됨(11:05 KST), 구현됨.** `patchCard`의 `updatedProperties`는 보낸 값만 저장된 값에 합치고, 값을 지울 속성은 `deletedProperties`(속성 식별자의 목록)로 받는다(7절 (5)). 웹앱에 달라지는 것: (1) 읽은 뒤 값 전부를 `updatedProperties`로 보내도 저장은 되지만 그것으로 값이 지워지지 않는다. 빠진 속성은 그대로 남는다. 값을 지우려면 그 속성을 `deletedProperties`에 적는다. (2) 마지막 값을 `patchBlock`의 `updatedFields.properties`로 비우는 길은 필요 없다(그 길은 여전히 값 전체를 바꾼다). (3) 고친 속성만 보내면 남이 다른 속성을 고친 것을 덮지 않는다. 한 카드의 고치기를 차례로 보낼 까닭이 사라진다. 메시지(`blockChanged`)는 전처럼 합친 뒤의 블록 전체다 |
 | A3 | 본문은 `patchCard`(와 `patchBlock`)의 `body`로, 같은 라우트다. `body`에는 `readAt`이 있어야 하고, 제목·속성 패치에는 없어도 되지만 보내면 늘 비교한다 |
-| A4 | 409의 기준은 블록의 `updateAt` 하나다. 본문만의 판은 없다. 지금대로 둔다, 그 계획에서 다시 본다 |
+| A4 | 409의 기준은 블록의 `updatedAt` 하나다. 본문만의 판은 없다. 지금대로 둔다, 그 계획에서 다시 본다 |
 | A5 | 된다. `createCard`의 `NewCard`에 `body`가 있다 |
-| A8 | **결정됨.** 댓글은 카드의 `updateAt`을 올리지 않는다. 카드 목록·`getCard`·`patchCard`의 `lastCommentAt`이 마지막 댓글을 단 시각이다(없으면 0, 지운 댓글은 세지 않는다) |
-| B1, H4 | 댓글은 `type=comment`, `parentId`=같은 보드의 카드인 블록이고(위키에서는 같은 위키의 페이지: `getPageComments`와 그 조작. 고치고 지우고 홀로 지운 것을 되살리는 권한(`undeletePageComment`)은 카드의 것과 같다)(서버가 지킨다: 댓글 아래 블록 없음, 어기면 400, 되살리기는 409) `getBlocks?parentId=&type=comment`로 읽는다. 댓글도 카드와 같은 `body`를 가진다(1절). 쓰기는 `createBlocks`(댓글 권한부터)와 `patchBlock`·`patchBlocks`(`readAt`과 함께). **결정됨(14:25·22:13 KST), 구현됨**: 자기 댓글은 댓글 권한으로 글(`body`)을 고치고 지우고(`deleteBlock`) 자기가 지운 것을 되살리며(`undeleteBlock`), 남의 댓글과 남이 지운 자기 댓글은 보드 관리자만 한다(403, `access denied to change`·`delete`·`undelete other users' comments`, 남이 지운 자기 댓글은 `a comment somebody else deleted is brought back by the board's admins`). 묶음 길(`patchBoardsAndBlocks`, `deleteBoardsAndBlocks`)도 같다. 댓글을 옮기거나(`parentId`) 다른 종류로 바꾸는 패치는 편집자부터, 남이 만든 블록을 댓글로 바꾸는 패치는 관리자만이다. 되살리면 함께 지워진 것이 함께 오므로 지워진 맨 위의 블록이 정한다. 고친 사람과 시각은 댓글의 `modifiedBy`·`updateAt`이다 |
+| A8 | **결정됨.** 댓글은 카드의 `updatedAt`을 올리지 않는다. 카드 목록·`getCard`·`patchCard`의 `lastCommentAt`이 마지막 댓글을 단 시각이다(없으면 0, 지운 댓글은 세지 않는다) |
+| B1, H4 | 댓글은 `type=comment`, `parentId`=같은 보드의 카드인 블록이고(위키에서는 같은 위키의 페이지: `getPageComments`와 그 조작. 고치고 지우고 홀로 지운 것을 되살리는 권한(`undeletePageComment`)은 카드의 것과 같다)(서버가 지킨다: 댓글 아래 블록 없음, 어기면 400, 되살리기는 409) `getBlocks?parentId=&type=comment`로 읽는다. 댓글도 카드와 같은 `body`를 가진다(1절). 쓰기는 `createBlocks`(댓글 권한부터)와 `patchBlock`·`patchBlocks`(`readAt`과 함께). **결정됨(14:25·22:13 KST), 구현됨**: 자기 댓글은 댓글 권한으로 글(`body`)을 고치고 지우고(`deleteBlock`) 자기가 지운 것을 되살리며(`undeleteBlock`), 남의 댓글과 남이 지운 자기 댓글은 보드 관리자만 한다(403, `access denied to change`·`delete`·`undelete other users' comments`, 남이 지운 자기 댓글은 `a comment somebody else deleted is brought back by the board's admins`). 묶음 길(`patchBoardsAndBlocks`, `deleteBoardsAndBlocks`)도 같다. 댓글을 옮기거나(`parentId`) 다른 종류로 바꾸는 패치는 편집자부터, 남이 만든 블록을 댓글로 바꾸는 패치는 관리자만이다. 되살리면 함께 지워진 것이 함께 오므로 지워진 맨 위의 블록이 정한다. 고친 사람과 시각은 댓글의 `modifiedBy`·`updatedAt`이다 |
 | B2 | 블록에는 `fileId`뿐이다. 이름·크기·확장자는 `getFileInfo`(`FileInfo`). 종류(MIME)는 없다 |
 | B3 | 아니다. `completeUpload`·`uploadFile`은 파일만 만들고(`UploadedFile`의 `fileId`) 첨부 블록은 클라이언트가 만든다 |
 | B4 | 답(`UploadedFile`)은 `fileId`뿐이다. 이름·크기는 `getFileInfo` |

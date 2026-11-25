@@ -59,7 +59,7 @@ function valueOf(card: Card, property: PropertyTemplate): string | string[] | nu
     case 'createdBy':
       return card.createdBy;
     case 'createdTime':
-      return toTheMinute(card.createAt);
+      return toTheMinute(card.createdAt);
     case 'updatedBy':
       return card.modifiedBy;
     case 'updatedTime':

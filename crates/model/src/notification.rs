@@ -116,10 +116,10 @@ pub struct Notification {
     /// Its identifier.
     pub id: String,
     /// When it was made: when the first of it happened.
-    pub create_at: i64,
+    pub created_at: i64,
     /// When the latest of it happened; the notifications are listed by it, the
     /// newest first.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// When its reader read it; 0 until then, and again once more of it happens.
     pub read_at: i64,
     /// What it is about; `null` where its reader does not read that now (it is gone,

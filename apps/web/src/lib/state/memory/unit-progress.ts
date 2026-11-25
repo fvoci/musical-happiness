@@ -123,7 +123,7 @@ export function memoryPutUnitProgress(
     completedAt,
     plannedDate: existing?.plannedDate ?? null,
     lastPosition,
-    updateAt: now,
+    updatedAt: now,
   };
   byUnit.set(unitId, next);
   const result = copy(next);

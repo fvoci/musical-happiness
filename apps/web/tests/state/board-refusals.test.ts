@@ -69,7 +69,7 @@ it.each([false, true])(
       // A separate operation put a newer board version on screen directly.
       board.board = {
         ...shown,
-        updateAt: version.updateAt + 1,
+        updatedAt: version.updatedAt + 1,
         description: 'direct',
         title: titleChanged ? 'direct title' : shown.title,
       };
@@ -77,7 +77,7 @@ it.each([false, true])(
       await writing;
       expect(board.board.title).toBe(titleChanged ? 'direct title' : before);
       expect(board.board.description).toBe('direct');
-      expect(board.board.updateAt).toBe(version.updateAt + 1);
+      expect(board.board.updatedAt).toBe(version.updatedAt + 1);
     } finally {
       failed.release();
       workspace.close();

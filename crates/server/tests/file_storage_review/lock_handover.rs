@@ -132,7 +132,7 @@ async fn replace_as_the_next_server(next: &App, file: FileRecord) -> FileRecord 
     let replacement = FileRecord {
         id: new_id(),
         size: i64::try_from(size).expect("a small file"),
-        create_at: now_millis(),
+        created_at: now_millis(),
         ..file
     };
     assert!(

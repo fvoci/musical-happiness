@@ -62,7 +62,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -76,7 +76,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "cookies-alice"
     }
   },
@@ -86,7 +86,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -100,7 +100,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "cookies-alice"
     }
   },
@@ -110,7 +110,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "credentials": [],
       "customName": "",
       "displayName": "",
@@ -124,7 +124,7 @@
       "latinLastName": "",
       "nameShown": "name",
       "title": null,
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "username": "cookies-alice"
     }
   },
@@ -192,7 +192,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:1>",
       "description": "",
       "icon": "",
@@ -206,7 +206,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "made",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:2>"
     }
@@ -218,7 +218,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:1>",
       "description": "",
       "icon": "",
@@ -232,7 +232,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "made",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:2>"
     }
@@ -244,7 +244,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:1>",
       "description": "",
       "icon": "",
@@ -258,7 +258,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "made",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:2>"
     }

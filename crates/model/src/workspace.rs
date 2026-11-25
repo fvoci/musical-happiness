@@ -19,7 +19,7 @@ pub struct Workspace {
     /// The identifier of the user who last modified the workspace.
     pub modified_by: String,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// Whether the admins of the workspace's boards may invite guests to them.
     pub guest_invitations: bool,
 }
@@ -39,7 +39,7 @@ impl Default for Workspace {
             title: String::new(),
             settings: JsonMap::new(),
             modified_by: String::new(),
-            update_at: 0,
+            updated_at: 0,
             guest_invitations: true,
         }
     }

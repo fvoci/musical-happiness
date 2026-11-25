@@ -20,7 +20,7 @@ use crate::{directory, members, users_by_id};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
 pub(crate) const USER_COLUMNS: &str = concat!(
-    "id, username, email, password_hash, password_locked_at, create_at, update_at, deleted_at, \
+    "id, username, email, password_hash, password_locked_at, created_at, updated_at, deleted_at, \
      is_admin, display_name, ",
     person_names::name_columns!()
 );
@@ -71,7 +71,7 @@ const SEARCH_LIMIT: usize = 10;
 
 /// The order of a list of users: by when their accounts were made, and by identifier
 /// where that is the same.
-const OLDEST_FIRST: &str = " ORDER BY create_at, id";
+const OLDEST_FIRST: &str = " ORDER BY created_at, id";
 
 /// The condition that an account waits to be deleted: its person asked, and may still
 /// take the asking back (`account_deletion.rs`). Not once its erasing began.
@@ -319,7 +319,7 @@ impl Store {
                     }
                     let mut sql = scope.sql("UPDATE users SET is_admin = ");
                     sql.bind(is_admin)
-                        .push_bind(", update_at = ", now_millis())
+                        .push_bind(", updated_at = ", now_millis())
                         .push_bind(" WHERE id = ", Id(user_id));
                     scope.execute(sql).await?;
                     if follows {
@@ -366,7 +366,7 @@ impl Store {
         self.transaction(async |scope| {
             let mut sql = scope.sql("UPDATE users SET ");
             sql.push_bind("password_hash = ", password_hash)
-                .push_bind(", update_at = ", now_millis())
+                .push_bind(", updated_at = ", now_millis())
                 .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(user_id))
                 .push_bind(" AND password_hash = ", seen_password_hash)
                 .push_bind(" AND password_locked_at = ", 0_i64);
@@ -562,8 +562,8 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         email: row.text(2)?,
         password_hash: row.text(3)?,
         password_locked_at: row.int(4)?,
-        create_at: row.int(5)?,
-        update_at: row.int(6)?,
+        created_at: row.int(5)?,
+        updated_at: row.int(6)?,
         deleted_at: row.opt_int(7)?,
         is_admin: row.bool(8)?,
         display_name: row.text(9)?,
@@ -678,8 +678,8 @@ pub(crate) async fn insert_user_row(scope: &mut Scope<'_>, user: &User) -> Resul
         .push_bind(", ", &user.email)
         .push_bind(", ", &user.password_hash)
         .push_bind(", ", user.password_locked_at)
-        .push_bind(", ", user.create_at)
-        .push_bind(", ", user.update_at)
+        .push_bind(", ", user.created_at)
+        .push_bind(", ", user.updated_at)
         .push_bind(", ", Param::OptInt(user.deleted_at))
         .push_bind(", ", user.is_admin)
         .push_bind(", ", user.name.shown());
@@ -725,7 +725,7 @@ async fn update_password(
     let mut sql = scope.sql("UPDATE users SET ");
     sql.push_bind("password_hash = ", password_hash)
         .push_bind(", password_locked_at = ", 0_i64)
-        .push_bind(", update_at = ", now_millis())
+        .push_bind(", updated_at = ", now_millis())
         .push(" WHERE ");
     lookup.push_condition(&mut sql);
     if scope.execute(sql).await? == 0 {
@@ -753,7 +753,7 @@ pub(crate) async fn lock_password(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE users SET password_locked_at = ");
     sql.bind(now)
-        .push_bind(", update_at = ", now)
+        .push_bind(", updated_at = ", now)
         .push_bind(" WHERE password_hash <> '' AND id = ", Id(user_id));
     scope.execute(sql).await?;
     Ok(())
@@ -943,7 +943,7 @@ pub(crate) async fn follow_org_role(
     }
     let mut sql = scope.sql("UPDATE users SET is_admin = ");
     sql.bind(is_admin)
-        .push_bind(", update_at = ", now_millis())
+        .push_bind(", updated_at = ", now_millis())
         .push_bind(" WHERE id = ", Id(user_id))
         .push_bind(" AND is_admin <> ", is_admin);
     scope.execute(sql).await?;

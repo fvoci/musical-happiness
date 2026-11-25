@@ -189,7 +189,7 @@ fn overdue_units_do_not_auto_shift_and_personal_planned_date_overrides_shared() 
             completed_at: Some(1_000),
             planned_date: None,
             last_position: None,
-            update_at: 1_000,
+            updated_at: 1_000,
             suggested_next_interval_days: None,
         },
         UnitProgress {
@@ -197,7 +197,7 @@ fn overdue_units_do_not_auto_shift_and_personal_planned_date_overrides_shared() 
             completed_at: None,
             planned_date: Some("2026-11-26".to_owned()),
             last_position: None,
-            update_at: 1_000,
+            updated_at: 1_000,
             suggested_next_interval_days: None,
         },
     ];

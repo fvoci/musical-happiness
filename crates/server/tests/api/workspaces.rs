@@ -323,7 +323,7 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
     // The order of the list is by the age of the organization, not by its identifier:
     // made older than the server's, theirs comes first.
     let aged = theirs
-        .execute_unchecked("UPDATE organizations SET create_at = 1")
+        .execute_unchecked("UPDATE organizations SET created_at = 1")
         .await
         .expect("their organization is made the older");
     assert_eq!(aged, 1, "their organization, and no other");

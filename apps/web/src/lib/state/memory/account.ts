@@ -91,7 +91,7 @@ export function changeName(world: World, userId: string, patch: NameChange): Use
   if (JSON.stringify(name) === before) return user;
   user.name = name;
   user.displayName = shownName(name);
-  user.updateAt = world.now();
+  user.updatedAt = world.now();
   // Told to everybody here; each reads the person again, and the backend's rule of who
   // sees whom answers (the server tells only who sees them).
   world.tellUsers([...world.users.keys()], { kind: 'user', userId });

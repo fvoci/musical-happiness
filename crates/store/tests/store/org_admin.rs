@@ -74,7 +74,7 @@ fn file_of(board_id: &str, stored_name: &str) -> FileRecord {
         extension: ".png".to_owned(),
         size: 2048,
         path: format!("boards/{board_id}/{stored_name}"),
-        create_at: 1,
+        created_at: 1,
         ..FileRecord::default()
     }
 }
@@ -256,7 +256,7 @@ async fn a_record_of_the_audit_log_is_never_changed_or_removed() {
 
     for statement in [
         "UPDATE audit_log SET action = 'org_admin_left'",
-        "UPDATE audit_log SET create_at = 0",
+        "UPDATE audit_log SET created_at = 0",
         "DELETE FROM audit_log",
         "DELETE FROM audit_log WHERE workspace_id IS NULL",
     ] {
@@ -775,7 +775,7 @@ async fn the_instance_is_administered_through_its_own_organization_only() {
              WHERE org_id = '{other_org}' AND user_id = '{their_admin}'"
         ),
         format!(
-            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+            "INSERT INTO organization_members (org_id, user_id, role, created_at) \
              VALUES ('{other_org}', '{instance_admin}', 'member', 1)"
         ),
     ] {

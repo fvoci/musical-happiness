@@ -6,7 +6,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -20,7 +20,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Blocks",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -52,7 +52,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -67,12 +67,12 @@
         "schema": 1,
         "title": "First card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -81,12 +81,12 @@
         "schema": 1,
         "title": "Some text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -97,7 +97,7 @@
         "schema": 1,
         "title": "Board view",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -110,7 +110,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -125,12 +125,12 @@
         "schema": 1,
         "title": "First card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -139,12 +139,12 @@
         "schema": 1,
         "title": "Some text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -155,7 +155,7 @@
         "schema": 1,
         "title": "Board view",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -168,7 +168,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -183,7 +183,7 @@
         "schema": 1,
         "title": "First card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -196,7 +196,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -205,7 +205,7 @@
         "schema": 1,
         "title": "Some text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -218,7 +218,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -227,7 +227,7 @@
         "schema": 1,
         "title": "Some text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -240,7 +240,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -249,7 +249,7 @@
         "schema": 1,
         "title": "Some text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -269,7 +269,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -284,12 +284,12 @@
         "schema": 1,
         "title": "First card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -298,12 +298,12 @@
         "schema": 1,
         "title": "Some text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -314,7 +314,7 @@
         "schema": 1,
         "title": "Board view",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -327,7 +327,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -342,7 +342,7 @@
         "schema": 1,
         "title": "First card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -369,7 +369,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -384,12 +384,12 @@
         "schema": 1,
         "title": "First card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -398,12 +398,12 @@
         "schema": 1,
         "title": "Some text",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -414,7 +414,7 @@
         "schema": 1,
         "title": "Board view",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -503,16 +503,16 @@
     }
   },
   {
-    "name": "insert: no createAt",
+    "name": "insert: no createdAt",
     "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as blocks-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "a new block's createAt is 1 or more",
+      "detail": "a new block's createdAt is 1 or more",
       "errors": [
         {
-          "detail": "a new block's createAt is 1 or more",
-          "pointer": "/0/createAt",
+          "detail": "a new block's createdAt is 1 or more",
+          "pointer": "/0/createdAt",
           "reason": "invalid"
         }
       ],
@@ -524,16 +524,16 @@
     }
   },
   {
-    "name": "insert: no updateAt",
+    "name": "insert: no updatedAt",
     "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as blocks-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "a new block's updateAt is 1 or more",
+      "detail": "a new block's updatedAt is 1 or more",
       "errors": [
         {
-          "detail": "a new block's updateAt is 1 or more",
-          "pointer": "/0/updateAt",
+          "detail": "a new block's updatedAt is 1 or more",
+          "pointer": "/0/updatedAt",
           "reason": "invalid"
         }
       ],
@@ -616,7 +616,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:4>",
         "fields": {},
         "id": "<id:9>",
@@ -625,7 +625,7 @@
         "schema": 1,
         "title": "A comment",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -638,7 +638,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:10>",
@@ -648,7 +648,7 @@
         "schema": 1,
         "title": "Quiet card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -771,7 +771,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "extra": [
@@ -787,12 +787,12 @@
         "schema": 1,
         "title": "Card again",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:5>",
@@ -801,12 +801,12 @@
         "schema": 1,
         "title": "Text again",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -817,12 +817,12 @@
         "schema": 1,
         "title": "Board view",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:4>",
         "fields": {},
         "id": "<id:9>",
@@ -831,12 +831,12 @@
         "schema": 1,
         "title": "A comment",
         "type": "comment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:10>",
@@ -846,7 +846,7 @@
         "schema": 1,
         "title": "Quiet card",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -859,7 +859,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "extra": [
@@ -876,12 +876,12 @@
         "schema": 1,
         "title": "Card again",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:12>",
@@ -890,7 +890,7 @@
         "schema": 1,
         "title": "Text again",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -903,7 +903,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "extra": [
@@ -919,12 +919,12 @@
         "schema": 1,
         "title": "Card again",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:14>",
@@ -933,7 +933,7 @@
         "schema": 1,
         "title": "Text again",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -1056,7 +1056,7 @@
     "body": {
       "body": null,
       "containerId": "<id:3>",
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "fields": {
         "viewType": "board"
@@ -1067,7 +1067,7 @@
       "schema": 1,
       "title": "Board view",
       "type": "view",
-      "updateAt": "<ts>"
+      "updatedAt": "<ts>"
     }
   },
   {
@@ -1107,7 +1107,7 @@
       {
         "body": null,
         "containerId": "<id:3>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
@@ -1118,7 +1118,7 @@
         "schema": 1,
         "title": "Board view",
         "type": "view",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -1142,7 +1142,7 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "createAt": "<ts>",
+      "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",
       "icon": "",
@@ -1156,7 +1156,7 @@
       "showDescription": false,
       "templateVersion": 0,
       "title": "Order of a request",
-      "updateAt": "<ts>",
+      "updatedAt": "<ts>",
       "visibility": "private",
       "workspaceId": "<id:1>"
     }
@@ -1170,7 +1170,7 @@
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:16>",
@@ -1180,12 +1180,12 @@
         "schema": 0,
         "title": "Nameless one",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:17>",
@@ -1195,7 +1195,7 @@
         "schema": 0,
         "title": "Nameless two",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -1208,7 +1208,7 @@
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:18>",
@@ -1217,12 +1217,12 @@
         "schema": 1,
         "title": "Text of A",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -1236,12 +1236,12 @@
         "schema": 1,
         "title": "Card A",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:20>",
@@ -1250,12 +1250,12 @@
         "schema": 1,
         "title": "Text of B",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -1269,7 +1269,7 @@
         "schema": 1,
         "title": "Card B",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   },
@@ -1282,7 +1282,7 @@
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:16>",
@@ -1292,12 +1292,12 @@
         "schema": 0,
         "title": "Nameless one",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:17>",
@@ -1307,12 +1307,12 @@
         "schema": 0,
         "title": "Nameless two",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:18>",
@@ -1321,12 +1321,12 @@
         "schema": 1,
         "title": "Text of A",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -1340,12 +1340,12 @@
         "schema": 1,
         "title": "Card A",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
         "id": "<id:20>",
@@ -1354,12 +1354,12 @@
         "schema": 1,
         "title": "Text of B",
         "type": "attachment",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       },
       {
         "body": null,
         "containerId": "<id:15>",
-        "createAt": "<ts>",
+        "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
           "contentOrder": [
@@ -1373,7 +1373,7 @@
         "schema": 1,
         "title": "Card B",
         "type": "card",
-        "updateAt": "<ts>"
+        "updatedAt": "<ts>"
       }
     ]
   }

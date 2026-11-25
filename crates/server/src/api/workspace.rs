@@ -482,12 +482,12 @@ async fn handle_get_workspace_users(ws: InWorkspace, RawQuery(query): RawQuery) 
 /// tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
 /// last changed a card, block or comment of a board of the workspace they read, also
 /// after leaving the workspace. Oldest account first, not in the order of the request:
-/// by `createAt`, then by identifier.
+/// by `createdAt`, then by identifier.
 ///
 /// An account that was deleted is answered to whoever asks by its identifier, seen
 /// before or not, as what is left of it: the identifier, an empty `username`, `email`
 /// and `displayName`, every part of the name empty, no title nor credentials,
-/// `nameShown` `name`, `createAt` and `updateAt` both zero, and `deletedAt` absent: no
+/// `nameShown` `name`, `createdAt` and `updatedAt` both zero, and `deletedAt` absent: no
 /// time of the account is answered, neither when it went nor when it was asked to (the
 /// identifier is kept as it was made). The empty `username` is what tells it, not a
 /// time: a page shows a deleted user where it wrote or is mentioned.

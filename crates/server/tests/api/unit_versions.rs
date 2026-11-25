@@ -27,7 +27,7 @@ async fn write_bodies(client: &Client, course: &str, unit: &str, bodies: &[Value
     for body in bodies {
         let read = client.get(&at).await.value();
         client
-            .patch(&at, &json!({"readAt": read["updateAt"], "body": body}))
+            .patch(&at, &json!({"readAt": read["updatedAt"], "body": body}))
             .await
             .check_ok();
     }

@@ -12,7 +12,7 @@ import { documentBoundary } from './keyboard.support.ts';
 interface StoredCard {
   id: string;
   title: string;
-  updateAt: number;
+  updatedAt: number;
   body?: unknown;
   fields: { isTemplate?: boolean };
 }
@@ -106,7 +106,7 @@ async function writeBody(page: Page, place: Place, cardId: string, body: object)
     async ({ boardId, cardId: id, body: written }) => {
       const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
       const now = await dev.backend.card(boardId, id);
-      await dev.someoneElse().writeCardBody(boardId, id, { body: written, readAt: now.updateAt });
+      await dev.someoneElse().writeCardBody(boardId, id, { body: written, readAt: now.updatedAt });
     },
     { boardId: place.boardId, cardId, body },
   );

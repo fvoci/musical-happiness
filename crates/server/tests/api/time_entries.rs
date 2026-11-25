@@ -321,8 +321,8 @@ async fn seed_invalid_board_blocks(
                 "parentId": card_id,
                 "type": "comment",
                 "title": "a comment",
-                "createAt": 1,
-                "updateAt": 1,
+                "createdAt": 1,
+                "updatedAt": 1,
             }]),
         )
         .await
@@ -335,8 +335,8 @@ async fn seed_invalid_board_blocks(
                 "type": "view",
                 "title": "Board view",
                 "fields": {"viewType": "board"},
-                "createAt": 1,
-                "updateAt": 1,
+                "createdAt": 1,
+                "updatedAt": 1,
             }]),
         )
         .await

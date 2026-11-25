@@ -14,8 +14,8 @@ export function exampleBlock(id: string, type: Block['type'] = 'card'): Block {
     schema: 1,
     title: '',
     fields: {},
-    createAt: STORY_NOW,
-    updateAt: STORY_NOW,
+    createdAt: STORY_NOW,
+    updatedAt: STORY_NOW,
   };
 }
 

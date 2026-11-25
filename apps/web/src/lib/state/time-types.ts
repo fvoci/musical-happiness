@@ -25,8 +25,8 @@ export interface TimeEntry {
   /** `null` while the timer is actively running. */
   endedAt: number | null;
   note: string;
-  createAt: number;
-  updateAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** Result of starting a live timer, including any visible timer auto-stopped in the transaction. */

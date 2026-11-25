@@ -44,7 +44,7 @@ pub struct MyExamScore {
     /// Personal reflection note, at most 1000 characters; empty if unset.
     pub note: String,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
 }
 
 /// A course exam with the caller's own score (if any) and aggregate statistics across
@@ -65,9 +65,9 @@ pub struct CourseExam {
     /// Shared exam description, at most 5000 characters; empty if unset.
     pub description: String,
     /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
+    pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    pub update_at: i64,
+    pub updated_at: i64,
     /// The caller's own score row, or `null` if none (never another member's score).
     pub my_score: Option<MyExamScore>,
     /// Mean score across active enrolled course members who recorded a score when at least

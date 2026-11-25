@@ -319,13 +319,13 @@ async function openVersionBefore(page: Page, body: Locator): Promise<Locator> {
   await page.evaluate(
     async ([atBoard, atCard]) => {
       const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-      const { updateAt } = await dev.backend.card(atBoard, atCard);
+      const { updatedAt } = await dev.backend.card(atBoard, atCard);
       await dev.someoneElse().writeCardBody(atBoard, atCard, {
         body: {
           type: 'doc',
           content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New' }] }],
         },
-        readAt: updateAt,
+        readAt: updatedAt,
       });
     },
     [boardId, cardId] as const,

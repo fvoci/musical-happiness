@@ -112,7 +112,7 @@ pub(crate) async fn record_change(
     };
     let mut version = match newest {
         None => {
-            insert(scope, before, 1, &before.created_by, before.create_at).await?;
+            insert(scope, before, 1, &before.created_by, before.created_at).await?;
             1
         }
         Some((version, body)) if body != before.body => {
@@ -121,7 +121,7 @@ pub(crate) async fn record_change(
                 before,
                 version + 1,
                 &before.modified_by,
-                before.update_at,
+                before.updated_at,
             )
             .await?;
             version + 1
@@ -129,7 +129,7 @@ pub(crate) async fn record_change(
         Some((version, _)) => version,
     };
     version += 1;
-    insert(scope, after, version, user_id, after.update_at).await?;
+    insert(scope, after, version, user_id, after.updated_at).await?;
 
     // The one it has now and the newest earlier ones, and the first.
     let kept = i64::try_from(scope.comment_versions_kept()).unwrap_or(i64::MAX);

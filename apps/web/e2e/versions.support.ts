@@ -15,7 +15,7 @@ export interface DevBackend {
   boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   views(boardId: string): Promise<{ id: string; title: string }[]>;
   cards(boardId: string): Promise<{ id: string; title: string }[]>;
-  card(boardId: string, cardId: string): Promise<{ updateAt: number }>;
+  card(boardId: string, cardId: string): Promise<{ updatedAt: number }>;
   addMember(boardId: string, userId: string, role: 'admin'): Promise<unknown>;
   setMemberRole(boardId: string, userId: string, role: 'viewer' | 'admin'): Promise<unknown>;
   writeCardBody(boardId: string, cardId: string, write: object): Promise<unknown>;
@@ -96,7 +96,7 @@ export async function writtenWholeElsewhere(
       await dev.backend.addMember(at.boardId, otherId, 'admin');
       await dev.backend.setMemberRole(at.boardId, otherId, 'admin');
       const card = await other.card(at.boardId, at.cardId);
-      await other.writeCardBody(at.boardId, at.cardId, { body, readAt: card.updateAt });
+      await other.writeCardBody(at.boardId, at.cardId, { body, readAt: card.updatedAt });
     },
     { at: place, body: typeof text === 'string' ? paragraph(text) : text },
   );

@@ -143,8 +143,8 @@ pub(crate) fn view_block(board_id: &str) -> Block {
     Block {
         id: new_id(),
         container_id: board_id.to_owned(),
-        create_at: 1,
-        update_at: 1,
+        created_at: 1,
+        updated_at: 1,
         title: "View 1".to_owned(),
         block_type: BlockType::View,
         ..Block::default()
@@ -747,12 +747,12 @@ async fn create_board_wire_format() {
             "templateVersion": 0,
             "properties": {},
             "cardProperties": [],
-            "createAt": value["createAt"],
-            "updateAt": value["createAt"],
+            "createdAt": value["createdAt"],
+            "updatedAt": value["createdAt"],
         }),
         "the members of a board on the wire"
     );
-    assert!(value["createAt"].as_i64() > Some(0), "stamped: {value}");
+    assert!(value["createdAt"].as_i64() > Some(0), "stamped: {value}");
     th.teardown().await;
 }
 

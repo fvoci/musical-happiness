@@ -422,7 +422,7 @@ pub(crate) async fn work_on(store: &Store, board: &str, card: &str, user_id: &st
         ),
         format!(
             "INSERT INTO subscriptions (block_type, block_id, user_id, \
-             create_at) VALUES ('card', '{card}', '{user_id}', {T0})"
+             created_at) VALUES ('card', '{card}', '{user_id}', {T0})"
         ),
     ] {
         store
@@ -493,13 +493,13 @@ async fn leave_traces(test: &TestStore, founder: &str, leaver: &str, board: &str
             .to_owned(),
         format!(
             "INSERT INTO oidc_providers (id, org_id, issuer, client_id, client_secret, \
-             auto_join, enabled, create_at, update_at) VALUES ('{provider_id}', '{org}', \
+             auto_join, enabled, created_at, updated_at) VALUES ('{provider_id}', '{org}', \
              'https://provider.example', 'client', '', true, true, {T0}, {T0})",
             org = test.org_id
         ),
         format!(
             "INSERT INTO oidc_held_sign_ins (held_hash, org_id, provider_id, revision, issuer, \
-             subject, email, email_unverified, name, preferred_username, create_at, expires_at) \
+             subject, email, email_unverified, name, preferred_username, created_at, expires_at) \
              VALUES ('held', '{org}', '{provider_id}', 1, 'https://provider.example', \
              'somebody at the provider', 'Ünder-LEAVER-MAIL@example.com', false, 'Leaver Shown', \
              'leaver-name', {T0}, {later})",
@@ -508,7 +508,7 @@ async fn leave_traces(test: &TestStore, founder: &str, leaver: &str, board: &str
         ),
         format!(
             "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
-             subject_id, create_at, detail, identity) VALUES ('{id}', '{org}', '{leaver}', \
+             subject_id, created_at, detail, identity) VALUES ('{id}', '{org}', '{leaver}', \
              'person', 'oidc_identity_bound', '{org}', '{leaver}', {T0}, \
              'https://provider.example', 'leaver-at-the-provider@example.com')",
             id = new_id(),
@@ -516,7 +516,7 @@ async fn leave_traces(test: &TestStore, founder: &str, leaver: &str, board: &str
         ),
         // The link back to an address they had before.
         format!(
-            "INSERT INTO email_reverts (token_hash, user_id, email, create_at, expires_at) \
+            "INSERT INTO email_reverts (token_hash, user_id, email, created_at, expires_at) \
              VALUES ('back', '{leaver}', 'Earlier-Leaver-Mail@example.com', {T0}, {T0})"
         ),
     ] {
@@ -555,7 +555,7 @@ async fn leave_traces(test: &TestStore, founder: &str, leaver: &str, board: &str
         .expect("to the trash");
     test.execute_unchecked(&format!(
         "INSERT INTO uploads (id, user_id, container_id, name, size, content_type, part_size, \
-         create_at, expires_at, closed_at, multipart_id) VALUES ('an upload', '{leaver}', \
+         created_at, expires_at, closed_at, multipart_id) VALUES ('an upload', '{leaver}', \
          '{board}', 'a file', 1, 'text/plain', 1, {T0}, {later}, 0, '')",
         later = T0 + WAIT
     ))
@@ -925,7 +925,7 @@ async fn the_audit_log_gives_up_who_an_identity_is_and_nothing_else() {
     for user_id in [&leaver, &stays] {
         test.execute_unchecked(&format!(
             "INSERT INTO audit_log (id, org_id, actor_id, actor_kind, action, target_id, \
-             subject_id, create_at, identity) VALUES ('{id}', '{org}', '{user_id}', 'person', \
+             subject_id, created_at, identity) VALUES ('{id}', '{org}', '{user_id}', 'person', \
              'oidc_identity_bound', '{org}', '{user_id}', {T0}, 'who@example.com')",
             id = new_id(),
             org = test.org_id
@@ -973,7 +973,7 @@ async fn the_audit_log_gives_up_who_an_identity_is_and_nothing_else() {
         "actor_id = NULL, actor_kind = 'server'".to_owned(),
         "action = 'oidc_identity_carried_over'".to_owned(),
         format!("target_id = '{}'", new_id()),
-        "create_at = 1".to_owned(),
+        "created_at = 1".to_owned(),
         "detail = 'https://another.example'".to_owned(),
         format!("workspace_id = '{workspace}', action = 'org_admin_joined'"),
     ] {
@@ -1049,10 +1049,10 @@ async fn places_of_a_leaver(test: &TestStore, founder: &str) -> Places {
     for statement in [
         format!("UPDATE workspace_members SET via_org_admin = true WHERE user_id = '{founder}'"),
         format!(
-            "UPDATE workspace_members SET role = 'admin', create_at = 10 WHERE user_id = '{heir}'"
+            "UPDATE workspace_members SET role = 'admin', created_at = 10 WHERE user_id = '{heir}'"
         ),
         format!(
-            "UPDATE workspace_members SET role = 'admin', create_at = 20 \
+            "UPDATE workspace_members SET role = 'admin', created_at = 20 \
              WHERE user_id = '{younger}'"
         ),
     ] {
@@ -1468,7 +1468,7 @@ async fn the_audit_logs_guard_names_every_column_of_the_table() {
             "action",
             "actor_id",
             "actor_kind",
-            "create_at",
+            "created_at",
             "detail",
             "id",
             "identity",
@@ -1477,11 +1477,11 @@ async fn the_audit_logs_guard_names_every_column_of_the_table() {
             "target_id",
             "workspace_id"
         ],
-        "a new column of the audit log is added to the guard of migration 44 as well"
+        "a new column of the audit log is added to the guard of migration 75 as well"
     );
     for dialect in ["sqlite", "postgres"] {
         let guard = std::fs::read_to_string(format!(
-            "{}/schema/{dialect}/0044_audit_identity_erasure.sql",
+            "{}/schema/{dialect}/0075_unified_created_updated_timestamps.sql",
             env!("CARGO_MANIFEST_DIR")
         ))
         .expect("the migration");

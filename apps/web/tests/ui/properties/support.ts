@@ -73,8 +73,8 @@ export function testCard(): Card {
   card.title = 'A card';
   card.createdBy = 'user-1';
   card.modifiedBy = 'user-2';
-  card.createAt = at('Asia/Seoul', 2026, 3, 5, 9, 0);
-  card.updateAt = at('Asia/Seoul', 2026, 3, 6, 18, 30);
+  card.createdAt = at('Asia/Seoul', 2026, 3, 5, 9, 0);
+  card.updatedAt = at('Asia/Seoul', 2026, 3, 6, 18, 30);
   return card;
 }
 

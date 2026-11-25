@@ -43,7 +43,7 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
   ).json()) as Schemas['Card'];
   const written = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
     data: {
-      readAt: card.updateAt,
+      readAt: card.updatedAt,
       body: {
         type: 'doc',
         content: [
@@ -87,7 +87,7 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
     await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
   ).json()) as Schemas['Card'];
   const back = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
-    data: { readAt: now.updateAt, body },
+    data: { readAt: now.updatedAt, body },
   });
   expect(back.status()).toBe(400);
   expect(back.headers()['content-type']).toBe('application/problem+json');

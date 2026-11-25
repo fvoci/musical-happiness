@@ -325,7 +325,7 @@ async fn an_administrator_elsewhere(ts: &TestServer) -> (Client, String) {
     let theirs = store.for_org(&org_id).expect("an identifier");
     theirs
         .execute_unchecked(&format!(
-            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+            "INSERT INTO organization_members (org_id, user_id, role, created_at) \
              VALUES ('{org_id}', '{user_id}', 'admin', 1)"
         ))
         .await

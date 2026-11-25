@@ -24,7 +24,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// The notifications of the user
 ///
 /// One page of what the user of the session was told, in every organization the
-/// session opens, the newest first (by `updateAt`): that somebody mentioned them in a
+/// session opens, the newest first (by `updatedAt`): that somebody mentioned them in a
 /// card, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or
 /// commented on a card, a page or a unit they watch (`comment`; one named in that comment
 /// is told of the mention alone). Nobody is told of their own doing, nor of anything in a
@@ -93,7 +93,7 @@ async fn handle_get_unread_notifications(
 /// Mark every notification as read
 ///
 /// Marks as read every notification of the user of the session whose latest happened
-/// up to `through`, or up to now where that is left out: a client gives the `updateAt`
+/// up to `through`, or up to now where that is left out: a client gives the `updatedAt`
 /// of the newest it has shown, so that one that came or grew since stays unread. Those of an
 /// organization the session does not open (`getNotifications`) stay as they are.
 #[utoipa::path(

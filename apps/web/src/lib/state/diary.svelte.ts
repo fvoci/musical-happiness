@@ -154,12 +154,12 @@ export class DiaryStore implements EntryHost {
   #changed(entry: DiaryEntry): void {
     if (monthDayOf(entry.date) !== this.monthDay) return;
     const shown = this.entries.find((one) => one.id === entry.id);
-    if (shown && shown.updateAt >= entry.updateAt) return;
+    if (shown && shown.updatedAt >= entry.updatedAt) return;
     const asked = this.#deletions;
     void this.workspace.backend.diary?.entry(this.diaryId, entry.id).then(
       (detail) => {
         const now = this.entries.find((one) => one.id === detail.id);
-        if (now && now.updateAt > detail.updateAt) return;
+        if (now && now.updatedAt > detail.updatedAt) return;
         // Deleted after it was asked for: what it read is gone.
         if ((this.#goneAt.get(detail.id) ?? 0) > asked) return;
         this.received(detail);
@@ -183,7 +183,7 @@ export class DiaryStore implements EntryHost {
         // Deleted after it was asked for: what it read is gone.
         if ((this.#goneAt.get(still.id) ?? 0) > asked) return;
         const now = this.entries.find((one) => one.id === still.id);
-        if (now && now.updateAt > still.updateAt) return;
+        if (now && now.updatedAt > still.updatedAt) return;
         // Made after the read was asked: it is what the day has.
         this.received(still);
         this.#days.get(still.date)?.adopt(still);

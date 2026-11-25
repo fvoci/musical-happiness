@@ -15,7 +15,7 @@ use crate::db::{Id, Row, Scope};
 use crate::error::StoreError;
 
 /// The columns of a block as a reference shows it ([`shown_block`]): without its body.
-const SHOWN_COLUMNS: &str = "id, container_id, parent_id, type, title, fields, update_at, number";
+const SHOWN_COLUMNS: &str = "id, container_id, parent_id, type, title, fields, updated_at, number";
 
 /// How many blocks a search reads at a time while it looks for titles.
 const SEARCHED_AT_ONCE: u16 = 500;
@@ -34,7 +34,7 @@ fn shown_block(row: &Row) -> Result<Block, StoreError> {
         block_type: BlockType::from(row.text(3)?),
         title: row.text(4)?,
         fields: row.json_map(5, "fields")?,
-        update_at: row.int(6)?,
+        updated_at: row.int(6)?,
         number: crate::card_numbers::number_from_row(row, 7)?,
         ..Block::default()
     })
@@ -166,7 +166,7 @@ impl Store {
                 .bind(Id(target_id))
                 .push(" AND l.container_id IN (")
                 .bind_list(container_ids.iter().map(|id| Id(id)))
-                .push(")) ORDER BY create_at, id");
+                .push(")) ORDER BY created_at, id");
             if paging.per_page > 0 {
                 let offset = paging.offset();
                 sql.push_bind(" LIMIT ", i64::from(paging.per_page))
@@ -211,18 +211,18 @@ impl Store {
             let mut last: Option<(i64, String)> = None;
             loop {
                 let mut sql = select_named_on(scope, container_ids);
-                if let Some((update_at, id)) = &last {
-                    sql.push_bind(" AND (update_at < ", *update_at)
-                        .push_bind(" OR (update_at = ", *update_at)
+                if let Some((updated_at, id)) = &last {
+                    sql.push_bind(" AND (updated_at < ", *updated_at)
+                        .push_bind(" OR (updated_at = ", *updated_at)
                         .push_bind(" AND id > ", Id(id))
                         .push("))");
                 }
-                sql.push(" ORDER BY update_at DESC, id")
+                sql.push(" ORDER BY updated_at DESC, id")
                     .push_bind(" LIMIT ", i64::from(SEARCHED_AT_ONCE));
                 let rows = scope.fetch_all(sql).await?;
                 for row in &rows {
                     let block = shown_block(row)?;
-                    last = Some((block.update_at, block.id.clone()));
+                    last = Some((block.updated_at, block.id.clone()));
                     if !block.is_template() && title_has(&block.title, &words) {
                         found.push(block);
                         if found.len() == limit {

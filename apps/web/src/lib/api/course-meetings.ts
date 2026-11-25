@@ -27,7 +27,7 @@ function attendanceOf(row: Schemas['MeetingAttendance']): MeetingAttendance {
   return {
     userId: row.userId,
     status: row.status,
-    updateAt: row.updateAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -43,8 +43,8 @@ export function courseMeetingOf(meeting: Schemas['CourseMeeting']): CourseMeetin
     hostId: meeting.hostId ?? null,
     notes: meeting.notes,
     notifiedAt: meeting.notifiedAt ?? null,
-    createAt: meeting.createAt,
-    updateAt: meeting.updateAt,
+    createdAt: meeting.createdAt,
+    updatedAt: meeting.updatedAt,
     attendance: meeting.attendance.map(attendanceOf),
   };
 }
@@ -53,7 +53,7 @@ function myExamScoreOf(score: Schemas['MyExamScore']): MyExamScore {
   return {
     score: score.score,
     note: score.note,
-    updateAt: score.updateAt,
+    updatedAt: score.updatedAt,
   };
 }
 
@@ -65,8 +65,8 @@ export function courseExamOf(exam: Schemas['CourseExam']): CourseExam {
     examDate: exam.examDate ?? null,
     maxScore: exam.maxScore,
     description: exam.description,
-    createAt: exam.createAt,
-    updateAt: exam.updateAt,
+    createdAt: exam.createdAt,
+    updatedAt: exam.updatedAt,
     myScore: exam.myScore ? myExamScoreOf(exam.myScore) : null,
     averageScore: exam.averageScore ?? null,
     scoreCount: exam.scoreCount,

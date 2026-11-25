@@ -59,7 +59,7 @@ impl App {
         if existing.category_type == CategoryType::System {
             category.name = existing.name;
         }
-        category.update_at = now;
+        category.updated_at = now;
         self.store().update_category(&category).await?;
 
         let updated = self.store().get_category(&category.id).await?;

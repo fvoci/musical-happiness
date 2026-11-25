@@ -269,7 +269,7 @@ export class WikiStore {
 
   /** Shows `wiki` unless a newer one is shown: a reading may land after a change told meanwhile. */
   takeWiki(wiki: Container): void {
-    if (!this.wiki || this.wiki.updateAt <= wiki.updateAt) this.wiki = wiki;
+    if (!this.wiki || this.wiki.updatedAt <= wiki.updatedAt) this.wiki = wiki;
   }
 
   #apply(change: Change): void {

@@ -96,7 +96,11 @@ async fn a_writer_that_keeps_count_of_its_own_writes_is_let_through() {
     assert_eq!(seqs, [read.log_end + 1, read.log_end + 2]);
     known.log_end = seqs[1];
 
-    let read_at = store.get_block(&card_id).await.expect("the card").update_at;
+    let read_at = store
+        .get_block(&card_id)
+        .await
+        .expect("the card")
+        .updated_at;
     let writer = common::user(store, "ryan.howard").await;
     store
         .project_body(
@@ -313,7 +317,11 @@ async fn a_remake_after_another_wrote_the_body_to_the_card_is_refused() {
     let writer = common::user(store, "ryan.howard").await;
     let theirs = body_showing("the other's", &[]);
     let digest = body_digest(theirs.as_ref());
-    let read_at = store.get_block(&card_id).await.expect("the card").update_at;
+    let read_at = store
+        .get_block(&card_id)
+        .await
+        .expect("the card")
+        .updated_at;
     store
         .project_body(
             &card_id,
@@ -367,7 +375,7 @@ async fn a_body_is_not_written_to_a_card_the_other_holds_written() {
         .project_body(
             &card_id,
             None,
-            held.update_at,
+            held.updated_at,
             theirs.log_end,
             &unchanged,
             &writer,
@@ -376,7 +384,11 @@ async fn a_body_is_not_written_to_a_card_the_other_holds_written() {
         .await
         .expect("the other server marks the card as holding its body");
 
-    let read_at = store.get_block(&card_id).await.expect("the card").update_at;
+    let read_at = store
+        .get_block(&card_id)
+        .await
+        .expect("the card")
+        .updated_at;
     let ours = body_showing("with the first update", &[]);
     let written = store
         .project_body(
@@ -393,8 +405,8 @@ async fn a_body_is_not_written_to_a_card_the_other_holds_written() {
     written_since(written, &card_id);
     let left = store.get_block(&card_id).await.expect("the card");
     assert_eq!(
-        (left.body, left.update_at),
-        (held.body, held.update_at),
+        (left.body, left.updated_at),
+        (held.body, held.updated_at),
         "the card is as the other left it"
     );
     assert_eq!(
@@ -506,7 +518,7 @@ async fn a_write_of_no_document_is_not_found() {
         .project_body(
             &card_id,
             Some(body.clone()),
-            held.update_at,
+            held.updated_at,
             1,
             &body_digest(body.as_ref()),
             &author,
@@ -531,8 +543,8 @@ async fn a_write_of_no_document_is_not_found() {
     );
     let left = store.get_block(&card_id).await.expect("the card");
     assert_eq!(
-        (left.body, left.update_at),
-        (held.body, held.update_at),
+        (left.body, left.updated_at),
+        (held.body, held.updated_at),
         "the card is as it was"
     );
     test.teardown().await;

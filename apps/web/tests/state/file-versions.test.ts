@@ -65,7 +65,7 @@ describe('the versions of a file in memory', () => {
     expect(await versions.list(boardId, file.fileId)).toEqual([
       {
         version: 1,
-        createAt: world.files.get(file.fileId)?.createAt,
+        createdAt: world.files.get(file.fileId)?.createdAt,
         createdBy: backend.userId,
         size: 5,
         isCurrent: true,
@@ -223,7 +223,7 @@ describe('the versions of a file on the server', () => {
 
   const version = {
     version: 2,
-    createAt: 5,
+    createdAt: 5,
     createdBy: 'u1',
     size: 3,
     isCurrent: true,
