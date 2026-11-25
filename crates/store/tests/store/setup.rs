@@ -931,18 +931,25 @@ pub(crate) async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
 }
 
 async fn seed_legacy_content_block_types(conn: &str, ids: [&str; 4], trashed_h1_id: &str) {
-    let rewrite_trashed_h1 = match common::db_type() {
-        fvoci_store::DbType::Sqlite => format!(
-            "UPDATE deleted_blocks SET block = json_set(block, '$.type', 'h1') WHERE id = '{trashed_h1_id}'"
+    let (drop_check, rewrite_trashed_h1) = match common::db_type() {
+        fvoci_store::DbType::Sqlite => (
+            "",
+            format!(
+                "UPDATE deleted_blocks SET block = json_set(block, '$.type', 'h1') WHERE id = '{trashed_h1_id}'"
+            ),
         ),
-        fvoci_store::DbType::Postgres => format!(
-            "UPDATE deleted_blocks SET block = jsonb_set(block::jsonb, '{{type}}', '\"h1\"'::jsonb)::json WHERE id = '{trashed_h1_id}'"
+        fvoci_store::DbType::Postgres => (
+            "ALTER TABLE blocks DROP CONSTRAINT IF EXISTS blocks_type_check; ",
+            format!(
+                "UPDATE deleted_blocks SET block = jsonb_set(block::jsonb, '{{type}}', '\"h1\"'::jsonb)::json WHERE id = '{trashed_h1_id}'"
+            ),
         ),
     };
     common::execute_raw(
         conn,
         &format!(
-            "UPDATE blocks SET type = 'board' WHERE id = '{}'; \
+            "{drop_check}\
+             UPDATE blocks SET type = 'board' WHERE id = '{}'; \
              UPDATE blocks SET type = 'image' WHERE id = '{}'; \
              UPDATE blocks SET type = 'text' WHERE id = '{}'; \
              UPDATE blocks SET type = 'checkbox' WHERE id = '{}'; \

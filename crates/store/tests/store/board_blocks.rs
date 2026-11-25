@@ -44,10 +44,15 @@ async fn stored_legacy_board(
         user_id,
     )
     .await;
+    let drop_check = if common::db_type() == DbType::Postgres {
+        "ALTER TABLE blocks DROP CONSTRAINT IF EXISTS blocks_type_check; "
+    } else {
+        ""
+    };
     common::execute_raw(
         &test.database_connection(),
         &format!(
-            "UPDATE blocks SET type = 'board' WHERE id = '{}'",
+            "{drop_check}UPDATE blocks SET type = 'board' WHERE id = '{}'",
             legacy.id
         ),
     )

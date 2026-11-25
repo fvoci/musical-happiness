@@ -409,20 +409,33 @@ async fn board_changes_go_to_subscribed_members() {
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
     assert_eq!(message["block"]["title"], json!("A card"), "{message}");
 
-    th.app
-        .ws()
-        .broadcast_block_delete(ROOT_WORKSPACE_ID, &block.id, &board.id)
-        .await;
-    let message = member
-        .next_json(PATIENCE)
-        .await
-        .expect("the member is told");
-    assert_eq!(message["type"], json!("blockChanged"), "{message}");
-    assert_eq!(message["block"]["id"], json!(block.id), "{message}");
-    assert!(
-        message["block"]["deletedAt"].as_i64() > Some(0),
-        "a deletion carries its time: {message}"
-    );
+    for (gone_id, gone_type, expected_type) in [
+        (block.id.as_str(), block.block_type, "card"),
+        ("view-1", BlockType::View, "view"),
+    ] {
+        th.app
+            .ws()
+            .broadcast_block_delete(ROOT_WORKSPACE_ID, gone_id, &board.id, gone_type)
+            .await;
+        let message = member.next_json(PATIENCE).await.expect("member told");
+        assert_eq!(
+            (
+                &message["type"],
+                &message["block"]["id"],
+                &message["block"]["type"]
+            ),
+            (
+                &json!("blockChanged"),
+                &json!(gone_id),
+                &json!(expected_type)
+            ),
+            "{message}"
+        );
+        assert!(
+            message["block"]["deletedAt"].as_i64() > Some(0),
+            "{message}"
+        );
+    }
 
     // Removing a member tells the members and the removed user.
     th.app
@@ -1244,7 +1257,7 @@ async fn messages_match_the_websocket_contract() {
     contract_check.hear(&mut socket, "containerChanged").await;
     ws.broadcast_block_change(ROOT_WORKSPACE_ID, &block).await;
     contract_check.hear(&mut socket, "blockChanged").await;
-    ws.broadcast_block_delete(ROOT_WORKSPACE_ID, &block.id, &board.id)
+    ws.broadcast_block_delete(ROOT_WORKSPACE_ID, &block.id, &board.id, block.block_type)
         .await;
     contract_check.hear(&mut socket, "blockChanged").await;
     let admin = members

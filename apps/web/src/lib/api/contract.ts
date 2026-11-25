@@ -5354,8 +5354,9 @@ export interface paths {
          * @description Subscribes the user of the session to a block of a board, a page of a wiki, or a unit
          *     of a course they may read: whoever writes a card, a page or a unit watches it, and
          *     may stop and start again. A chapter of a course takes no subscriptions (404). A
-         *     `userId` that is not the user of the session is 403. The `blockType` is stored as it
-         *     is sent, and not compared with the block. Subscribing again is no error: the
+         *     `userId` that is not the user of the session is 403. The `blockType` must be a known
+         *     `BlockType` (400 otherwise), and is stored without comparing it with the block's own
+         *     type. Subscribing again is no error: the
          *     subscription stays as it was made, with its `blockType` and `createdAt`, and only its
          *     `notifiedAt` is set anew.
          */
@@ -6399,9 +6400,8 @@ export interface components {
         /**
          * @description The type of a block.
          *
-         *     A block of a board has one of four types (`BlockType::is_current`), a wiki has
-         *     pages (`crate::Page`) and comments, a diary has entries (`crate::DiaryEntry`),
-         *     and a course has chapters, units (`crate::Unit`) and comments on units.
+         *     A block of a board is `card`, `view`, `comment` or `attachment`, a wiki has `page`
+         *     and `comment`, a diary has `entry`, and a course has `chapter`, `unit` and `comment`.
          * @enum {string}
          */
         BlockType: "card" | "view" | "comment" | "attachment" | "page" | "entry" | "unit" | "chapter";

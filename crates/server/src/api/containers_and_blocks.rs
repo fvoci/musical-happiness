@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use axum::body::Bytes;
 use fvoci_model::{
-    Block, ContainersAndBlocks, DeleteContainersAndBlocks, PatchContainersAndBlocks,
+    Block, Container, ContainersAndBlocks, DeleteContainersAndBlocks, PatchContainersAndBlocks,
     generate_containers_and_blocks_ids,
 };
 
@@ -17,7 +17,7 @@ use super::contract::params::MemberWorkspaceId;
 use super::contract::tag;
 use super::workspace::InWorkspace;
 
-use super::blocks::{check_patch_block_types, new_block_problem, take_new_block_types};
+use super::blocks::{RawNewBlock, check_patch_block_types};
 use super::containers::{BoardObject, check_listed_boards};
 use super::{ApiResult, json_response, no_content};
 use super::{BlockAction, require_block_patch_permission, require_block_permission};
@@ -45,6 +45,13 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         handle_patch_containers_and_blocks,
         handle_delete_containers_and_blocks
     ))
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default)]
+struct RawContainersAndBlocks {
+    containers: Vec<Container>,
+    blocks: Vec<RawNewBlock>,
 }
 
 /// Make boards with their blocks
@@ -76,12 +83,11 @@ async fn handle_create_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Ap
     // Each board's type and minimum role are refused as `createBoard` refuses them.
     check_listed_boards(&object, "containers", BoardObject::Board)?;
     let bodies = take_block_bodies(objects_mut(&mut object, "blocks"), Some(BLOCKS));
-    let raw_types = take_new_block_types(objects_mut(&mut object, "blocks"));
-    let mut request: ContainersAndBlocks =
+    let mut raw: RawContainersAndBlocks =
         serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
     // The boards are new and have no files, so a body that names a file is refused, without
     // looking up anything the request names.
-    for (index, (block, body)) in request.blocks.iter_mut().zip(bodies?).enumerate() {
+    for (index, (block, body)) in raw.blocks.iter_mut().zip(bodies?).enumerate() {
         if body
             .as_ref()
             .is_some_and(|body| !body.file_ids().is_empty())
@@ -92,14 +98,14 @@ async fn handle_create_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Ap
             .with_field("body")
             .under(&element_pointer(Some(BLOCKS), index)));
         }
-        block.body = body;
+        block.set_body_unchecked(body);
     }
 
-    if request.containers.is_empty() {
+    if raw.containers.is_empty() {
         return Err(AppError::bad_request("at least one board is required"));
     }
 
-    for (index, container) in request.containers.iter_mut().enumerate() {
+    for (index, container) in raw.containers.iter_mut().enumerate() {
         ws.place_container(container, "workspaceId")
             .map_err(|error| error.under(&element_pointer(Some("/containers"), index)))?;
         if container.id.is_empty() {
@@ -108,31 +114,30 @@ async fn handle_create_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Ap
             ));
         }
     }
-    let container_ids: HashSet<&str> = request
+    let container_ids: HashSet<&str> = raw
         .containers
         .iter()
         .map(|container| container.id.as_str())
         .collect();
 
-    let problem = request.blocks.iter().zip(&raw_types).enumerate().find_map(
-        |(index, (block, &raw_type))| {
-            let on_board = |container_id: &str| container_ids.contains(container_id);
-            new_block_problem(
-                block,
-                raw_type,
-                on_board,
-                "the block is on no board of the request",
-            )
-            .map(|problem| (index, problem))
-        },
-    );
-    if let Some((index, (field, problem))) = problem {
-        return Err(AppError::bad_request(problem)
-            .with_field(field)
-            .under(&element_pointer(Some(BLOCKS), index)));
+    let mut blocks = Vec::with_capacity(raw.blocks.len());
+    for (index, raw_block) in raw.blocks.into_iter().enumerate() {
+        let on_board = |container_id: &str| container_ids.contains(container_id);
+        let block = raw_block
+            .into_block(on_board, "the block is on no board of the request")
+            .map_err(|(field, problem)| {
+                AppError::bad_request(problem)
+                    .with_field(field)
+                    .under(&element_pointer(Some(BLOCKS), index))
+            })?;
+        blocks.push(block);
     }
 
-    let request = generate_containers_and_blocks_ids(request).map_err(AppError::bad_request)?;
+    let request = generate_containers_and_blocks_ids(ContainersAndBlocks {
+        containers: raw.containers,
+        blocks,
+    })
+    .map_err(AppError::bad_request)?;
     // The store names a block it refuses by its identifier.
     let ids: Vec<String> = request
         .blocks

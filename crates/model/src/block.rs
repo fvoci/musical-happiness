@@ -35,9 +35,9 @@ pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The type of a block.
 ///
-/// A block of a board has one of four types ([`BlockType::is_current`]), a wiki has
-/// pages ([`crate::Page`]) and comments, a diary has entries ([`crate::DiaryEntry`]),
-/// and a course has chapters, units ([`crate::Unit`]) and comments on units.
+/// A block of a board is `card`, `view`, `comment` or `attachment`, a wiki has `page`
+/// and `comment`, a diary has `entry`, and a course has `chapter`, `unit` and `comment`.
+// See `BlockType::is_current`, `crate::Page`, `crate::DiaryEntry`, `crate::Unit`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
 )]
@@ -48,18 +48,23 @@ pub enum BlockType {
     Card,
     /// A board view.
     View,
-    /// A comment on a card, a page or a unit ([`BlockType::takes_comments`]).
+    /// A comment on a card, a page or a unit.
+    // See `BlockType::takes_comments`.
     Comment,
     /// A file attachment on a card.
     Attachment,
-    /// A page of a wiki ([`crate::Page`]).
+    /// A page of a wiki.
+    // See `crate::Page`.
     Page,
-    /// The entry of a day of a diary ([`crate::DiaryEntry`]).
+    /// The entry of a day of a diary.
+    // See `crate::DiaryEntry`.
     Entry,
-    /// A unit of a course ([`crate::Unit`]).
+    /// A unit of a course.
+    // See `crate::Unit`.
     Unit,
-    /// A chapter of a course ([`crate::Unit`]): a title-only heading at the top of the
-    /// course with no body and no room.
+    /// A chapter of a course: a title-only heading at the top of the course with no body
+    /// and no room.
+    // See `crate::Unit`.
     Chapter,
 }
 

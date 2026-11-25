@@ -397,11 +397,21 @@ impl App {
             .collect();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_delete(&container.workspace_id, &block.id, &block.container_id)
+                .broadcast_block_delete(
+                    &container.workspace_id,
+                    &block.id,
+                    &block.container_id,
+                    block.block_type,
+                )
                 .await;
             for child_id in &child_card_ids {
                 app.ws()
-                    .broadcast_block_delete(&container.workspace_id, child_id, &block.container_id)
+                    .broadcast_block_delete(
+                        &container.workspace_id,
+                        child_id,
+                        &block.container_id,
+                        BlockType::Card,
+                    )
                     .await;
             }
         });

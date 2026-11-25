@@ -33,10 +33,7 @@ INSERT INTO user_settings (
     time_zone,
     notify_mentions,
     notify_assignments,
-    notify_comments,
-    notify_reviews,
-    notify_meetings,
-    notify_due
+    notify_comments
 )
 SELECT
     p.user_id,
@@ -108,27 +105,6 @@ SELECT
     )
         WHEN 'false' THEN FALSE
         ELSE TRUE
-    END,
-    CASE COALESCE(
-        MAX(CASE WHEN p.name = 'notifyReviews' AND p.value IN ('true', 'false') THEN p.value END),
-        'true'
-    )
-        WHEN 'false' THEN FALSE
-        ELSE TRUE
-    END,
-    CASE COALESCE(
-        MAX(CASE WHEN p.name = 'notifyMeetings' AND p.value IN ('true', 'false') THEN p.value END),
-        'true'
-    )
-        WHEN 'false' THEN FALSE
-        ELSE TRUE
-    END,
-    CASE COALESCE(
-        MAX(CASE WHEN p.name = 'notifyDue' AND p.value IN ('true', 'false') THEN p.value END),
-        'true'
-    )
-        WHEN 'false' THEN FALSE
-        ELSE TRUE
     END
 FROM preferences AS p
 WHERE p.category = 'settings'
@@ -149,6 +125,10 @@ WHERE category = 'client';
 DROP TABLE preferences;
 
 ALTER TABLE blocks DROP COLUMN "schema";
+
+UPDATE subscriptions
+SET block_type = (SELECT b.type FROM blocks AS b WHERE b.id = subscriptions.block_id)
+WHERE block_type NOT IN ('card', 'view', 'comment', 'attachment', 'page', 'entry', 'unit', 'chapter');
 
 UPDATE deleted_blocks
 SET block = json_remove(block, '$.schema')
