@@ -81,7 +81,7 @@ export interface SeedTemplate {
     cardProperties: {
       id: string;
       name: string;
-      type: string;
+      type: PropertyType;
       options: PropertyTemplate['options'];
     }[];
   };
@@ -154,26 +154,6 @@ export function welcomeTemplate(world: World, userId: string): Container | undef
     candidates.find((board) => board.properties.templateLanguage === undefined)
   );
 }
-
-const KNOWN_TYPES: readonly PropertyType[] = [
-  'text',
-  'number',
-  'select',
-  'multiSelect',
-  'date',
-  'person',
-  'multiPerson',
-  'file',
-  'checkbox',
-  'url',
-  'email',
-  'phone',
-  'relation',
-  'createdTime',
-  'createdBy',
-  'updatedTime',
-  'updatedBy',
-];
 
 const paragraph = (text: string): DocNode => ({
   type: 'doc',
@@ -252,9 +232,7 @@ export function boardCardProperties(
   return cardProperties.map((property) => ({
     id: property.id,
     name: property.name,
-    type: KNOWN_TYPES.includes(property.type as PropertyType)
-      ? (property.type as PropertyType)
-      : 'unknown',
+    type: property.type,
     options: property.options.map((option) => ({ ...option })),
   }));
 }

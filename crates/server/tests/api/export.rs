@@ -569,6 +569,79 @@ async fn archives_of_the_former_formats_are_refused() {
     ts.teardown().await;
 }
 
+/// Version-1 `.fvoci` archives whose container line carries retired option shapes (`value`
+/// instead of `label`, or the retired color prefix) are refused as 400 bad requests rather
+/// than normalized through a legacy compatibility path.
+#[tokio::test]
+async fn archive_with_retired_card_property_option_shapes_is_refused() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let zip_of = |container_line: serde_json::Value| {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        writer.start_file("version.json", opts).expect("start");
+        writer
+            .write_all(br#"{"version":1,"date":1}"#)
+            .expect("write");
+        writer
+            .start_file("b1/container.jsonl", opts)
+            .expect("start");
+        writer
+            .write_all(format!("{container_line}\n").as_bytes())
+            .expect("write");
+        writer.finish().expect("finish").into_inner()
+    };
+    let retired_value_key = zip_of(serde_json::json!({
+        "type": "container",
+        "data": {
+            "id": "b1",
+            "workspaceId": TEST_WORKSPACE_ID,
+            "visibility": "private",
+            "title": "Retired Option Key",
+            "cardProperties": [{
+                "id": "status",
+                "name": "Status",
+                "type": "select",
+                "options": [{"id": "o1", "value": "Open", "color": "red"}],
+            }],
+            "createdAt": 1,
+            "updatedAt": 1,
+        }
+    }));
+    let retired_color_prefix = zip_of(serde_json::json!({
+        "type": "container",
+        "data": {
+            "id": "b1",
+            "workspaceId": TEST_WORKSPACE_ID,
+            "visibility": "private",
+            "title": "Retired Option Color",
+            "cardProperties": [{
+                "id": "status",
+                "name": "Status",
+                "type": "select",
+                "options": [{"id": "o1", "label": "Open", "color": concat!("prop", "ColorRed")}],
+            }],
+            "createdAt": 1,
+            "updatedAt": 1,
+        }
+    }));
+    let before = boards_of(&ts).await.len();
+    for (what, bytes) in [
+        ("retired option value key", retired_value_key),
+        ("retired option color prefix", retired_color_prefix),
+    ] {
+        let response = import(&ts.client, TEST_WORKSPACE_ID, &bytes).await;
+        response.check_bad_request();
+        assert_eq!(
+            response.problem_type(),
+            "/problems/bad-request",
+            "{what}: {}",
+            response.text()
+        );
+    }
+    assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
+    ts.teardown().await;
+}
+
 /// An archive carries the files that the images of bodies show, and an import points
 /// the bodies at the board's new files, under the names they were uploaded with. An
 /// image block without a file, which an export used to answer with 500, is exported as

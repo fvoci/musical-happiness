@@ -207,11 +207,11 @@ BEGIN
                 BEGIN
                     doc := safe::jsonb;
                 EXCEPTION WHEN invalid_text_representation OR untranslatable_character THEN
-                    RAISE WARNING '0075: skipped unreadable deleted_containers.container row %', r.id;
+                    RAISE WARNING '0075: skipped unreadable deleted_containers.files row %', r.id;
                     CONTINUE;
                 END;
             WHEN invalid_text_representation THEN
-                RAISE WARNING '0075: skipped unreadable deleted_containers.container row %', r.id;
+                RAISE WARNING '0075: skipped unreadable deleted_containers.files row %', r.id;
                 CONTINUE;
         END;
 
@@ -271,11 +271,11 @@ BEGIN
                 BEGIN
                     doc := safe::jsonb;
                 EXCEPTION WHEN invalid_text_representation OR untranslatable_character THEN
-                    RAISE WARNING '0075: skipped unreadable deleted_containers.container row %', r.id;
+                    RAISE WARNING '0075: skipped unreadable deleted_blocks.block row %', r.id;
                     CONTINUE;
                 END;
             WHEN invalid_text_representation THEN
-                RAISE WARNING '0075: skipped unreadable deleted_containers.container row %', r.id;
+                RAISE WARNING '0075: skipped unreadable deleted_blocks.block row %', r.id;
                 CONTINUE;
         END;
 

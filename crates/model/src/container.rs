@@ -665,7 +665,7 @@ impl ContainerPatch {
     /// new ones are appended. Deletions are applied before updates, so a definition listed
     /// in both is kept with its updated value, and then appears twice: once at its old
     /// position and once at the end. Whenever the patch touches card properties, existing
-    /// definitions without a string `id` are dropped.
+    /// definitions with an empty `id` are dropped.
     pub fn apply(&self, container: &mut Container) {
         if let Some(visibility) = self.visibility {
             container.visibility = visibility;

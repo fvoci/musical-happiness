@@ -52,7 +52,6 @@ const SHAPES: Record<PropertyType, Shape> = {
   email: 'text',
   phone: 'text',
   url: 'text',
-  unknown: 'text',
   select: 'option',
   multiSelect: 'options',
   person: 'person',

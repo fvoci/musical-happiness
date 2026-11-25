@@ -7,8 +7,9 @@
 //! nothing. The summary at the end gives each unit's time, names the tests that failed
 //! and prints the command that runs them again (`--unit`, and the names after `--`); the
 //! time file keeps the same ([`crate::times`]). `--database` takes one database, and
-//! `--part 2/4` the second of four parts of its units, weighed by the times of a time
-//! file given with `--times`, for machines that share a run.
+//! `--part 2/4` the second of four parts of its units (with `api` split in two), weighed
+//! by the times of a time file given with `--times` or built-in weights, for machines
+//! that share a run.
 //!
 //! The containers are prepared first unless the environment already names the services:
 //! `FVOCI_STORE_TEST_CONN_STRING` for PostgreSQL, `FVOCI_S3_TEST_ENDPOINT` together with
@@ -21,9 +22,11 @@
 
 mod harness;
 mod report;
+mod shards;
 mod units;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -31,6 +34,7 @@ use std::time::Instant;
 use anyhow::{Context as _, Result, bail};
 
 use self::report::UnitResult;
+pub(crate) use self::shards::base_name as base_unit_name;
 pub(crate) use self::units::Part;
 use self::units::{Services, Unit};
 use crate::containers;
@@ -249,7 +253,7 @@ impl Run<'_> {
     /// Runs the chosen units of `database`, all of them, after one build.
     fn database(&self, database: Database) -> Result<()> {
         let all = database.units(&self.metadata)?;
-        let chosen = self.choose(database, all.clone())?;
+        let mut chosen = self.choose(database, all.clone())?;
         let names: Vec<&str> = chosen.iter().map(|unit| unit.name.as_str()).collect();
         steps::say(&format!("    units: {}", names.join(", ")));
         if let Some(arguments) = build_arguments(database, &all, &chosen) {
@@ -267,12 +271,14 @@ impl Run<'_> {
             });
             built?;
         }
+        self.populate_subunit_filters(database, &mut chosen)?;
         let instead = match self.choice {
             Choice::Units { arguments, .. } => arguments.as_slice(),
             _ => &[],
         };
         let mut failed = Vec::new();
         for unit in &chosen {
+            ensure_subunit_filter(unit)?;
             let mut environment = self.backends.borrow_mut().environment(unit.services)?;
             environment.extend(self.test_threads.iter().cloned());
             let mut arguments: Vec<String> = ["test", "--locked", "--no-fail-fast"]
@@ -292,6 +298,7 @@ impl Run<'_> {
                 } else {
                     Scope::Chosen
                 },
+                expected_tests: unit.expected_tests,
                 run: ran,
             };
             if result.failed() {
@@ -325,8 +332,10 @@ impl Run<'_> {
         match self.choice {
             Choice::Every => Ok(all),
             Choice::Part { part, .. } => {
-                let seconds = times::unit_seconds(&self.weights, database.name());
-                Ok(units::partition(all, &seconds, *part))
+                let expanded = shards::expand_units(all, *part);
+                let recorded = times::unit_seconds(&self.weights, database.name());
+                let seconds = shards::weigh_units(&expanded, &recorded);
+                Ok(units::partition(expanded, &seconds, *part))
             }
             Choice::Units { names, .. } => {
                 if let Some(unknown) = names
@@ -347,6 +356,48 @@ impl Run<'_> {
             }
         }
     }
+
+    /// Queries `-- --list --format terse` for any split subunit in `chosen` (already
+    /// compiled by the build step), logs the slice count and list digest, and fills its
+    /// exact `libtest` filter and expected test count.
+    fn populate_subunit_filters(&self, database: Database, chosen: &mut [Unit]) -> Result<()> {
+        let mut listed: HashMap<Vec<String>, Vec<String>> = HashMap::new();
+        for unit in chosen {
+            let Some(slice) = unit.slice else {
+                continue;
+            };
+            if !listed.contains_key(&unit.targets) {
+                let fetched =
+                    shards::list_tests(self.root, &self.cargo, database.packages(), &unit.targets)?;
+                listed.insert(unit.targets.clone(), fetched);
+            }
+            if let Some(tests) = listed.get(&unit.targets) {
+                let prepared = shards::prepare_part(tests, slice);
+                steps::say(&format!(
+                    "    {}: {} of {} tests (list sha256 {})",
+                    unit.name,
+                    prepared.expected_tests,
+                    prepared.total_tests,
+                    &prepared.list_sha256[..12]
+                ));
+                unit.filter = prepared.filter;
+                unit.expected_tests = Some(prepared.expected_tests);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Refuses to run a split subunit whose `filter` was not populated first, so a bug never
+/// silently runs the whole binary in every shard.
+fn ensure_subunit_filter(unit: &Unit) -> Result<()> {
+    if unit.slice.is_some() && unit.filter.is_empty() {
+        bail!(
+            "subunit `{}` has no harness filter populated before running",
+            unit.name
+        );
+    }
+    Ok(())
 }
 
 /// The `cargo test --no-run` that builds what the chosen units run, if anything: all of
@@ -358,14 +409,17 @@ fn build_arguments(database: Database, all: &[Unit], chosen: &[Unit]) -> Option<
         .chain(database.packages())
         .map(|&argument| argument.to_owned())
         .collect();
-    if database != Database::S3 && chosen.len() == all.len() {
+    if database != Database::S3 && chosen == all {
         return Some(arguments);
     }
-    let targets: Vec<String> = chosen
-        .iter()
-        .filter(|unit| !unit.is_doc())
-        .flat_map(|unit| unit.targets.iter().cloned())
-        .collect();
+    let mut seen: Vec<&[String]> = Vec::new();
+    let mut targets = Vec::new();
+    for unit in chosen.iter().filter(|unit| !unit.is_doc()) {
+        if !seen.contains(&unit.targets.as_slice()) {
+            seen.push(&unit.targets);
+            targets.extend(unit.targets.iter().cloned());
+        }
+    }
     if targets.is_empty() {
         return None;
     }
@@ -589,6 +643,34 @@ mod tests {
             None,
             "documentation tests are built as they run"
         );
+        let two_units = named(&["api"]);
+        let halves = shards::expand_units(
+            two_units
+                .iter()
+                .filter(|unit| unit.name == "api")
+                .cloned()
+                .collect(),
+            "1/2".parse().expect("part"),
+        );
+        assert_eq!(
+            build_arguments(Database::Postgres, &two_units, &halves),
+            Some(
+                [
+                    "test",
+                    "--locked",
+                    "--no-run",
+                    "--package",
+                    "fvoci-store",
+                    "--package",
+                    "fvoci-server",
+                    "--test",
+                    "api",
+                ]
+                .map(str::to_owned)
+                .to_vec()
+            ),
+            "two subunits of api build `--test api` once"
+        );
     }
 
     #[test]
@@ -599,6 +681,7 @@ mod tests {
             database: "sqlite",
             unit: unit.to_owned(),
             scope: Scope::Chosen,
+            expected_tests: None,
             run: UnitRun {
                 succeeded: true,
                 interrupted: false,
@@ -674,5 +757,20 @@ mod tests {
             "they are ignored unless asked for"
         );
         assert_eq!(units[2].services, Services::PostgresS3);
+    }
+
+    #[test]
+    fn an_unpopulated_subunit_is_refused_before_running() {
+        let mut halves = shards::expand_units(named(&["api"]), "1/2".parse().expect("part"));
+        let api_half = halves
+            .iter_mut()
+            .find(|unit| unit.slice.is_some())
+            .expect("api/1");
+        assert!(
+            ensure_subunit_filter(api_half).is_err(),
+            "empty filter on a subunit fails fast"
+        );
+        api_half.filter = vec!["boards::".to_owned()];
+        assert!(ensure_subunit_filter(api_half).is_ok());
     }
 }

@@ -53,11 +53,6 @@ impl InferredKind {
             Self::Text => PropertyType::Text,
         }
     }
-
-    #[cfg(test)]
-    pub(crate) const fn wire_type(self) -> &'static str {
-        self.property_type().as_str()
-    }
 }
 
 /// One parsed data row of a Notion CSV database.

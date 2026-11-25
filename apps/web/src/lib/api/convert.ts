@@ -22,7 +22,6 @@ import {
   type ContainerMember,
   type ContainerPatch,
   type BoardView,
-  type PropertyTemplate,
 } from '../logic/wire.ts';
 import {
   BackendError,
@@ -342,21 +341,6 @@ export function publicLinkOf(link: Schemas['PublicLink']): PublicLink {
   return { enabled: link.enabled, token: link.token ?? '' };
 }
 
-function wireCardProperties(
-  templates: readonly PropertyTemplate[],
-  member: 'cardProperties' | 'updatedCardProperties' = 'cardProperties',
-): Schemas['CardPropertyDefinition'][] {
-  return templates.map((template) => {
-    if (template.type === 'unknown') {
-      throw new BackendError(400, {
-        detail: 'unknown card property type',
-        errors: [refusedMember(member, 'unknown card property type')],
-      });
-    }
-    return { ...template, type: template.type };
-  });
-}
-
 /**
  * A board and its first view, to be made in one request (`createBoardsAndBlocks`);
  * the workspace is the one of the request's path.
@@ -374,7 +358,7 @@ export function newBoardAndViewOf(
         title: draft.title,
         description: draft.description ?? '',
         icon: draft.icon ?? '',
-        cardProperties: wireCardProperties(draft.cardProperties ?? []),
+        cardProperties: draft.cardProperties ?? [],
       },
     ],
     blocks: [
@@ -407,10 +391,6 @@ export function containerPatchOf(patch: ContainerPatch): Schemas['ContainerPatch
   return {
     ...rest,
     ...(minimumRole === undefined ? {} : { minimumRole }),
-    ...(updatedCardProperties === undefined
-      ? {}
-      : {
-          updatedCardProperties: wireCardProperties(updatedCardProperties, 'updatedCardProperties'),
-        }),
+    ...(updatedCardProperties === undefined ? {} : { updatedCardProperties }),
   };
 }

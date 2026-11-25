@@ -31,6 +31,7 @@ DECLARE
     ];
     r RECORD;
     doc JSONB;
+    orig_defs JSONB;
     src_defs JSONB;
     norm_defs JSONB;
     def_elem JSONB;
@@ -56,7 +57,11 @@ BEGIN
           AND jsonb_array_length(card_properties) > 0
     LOOP
         norm_defs := '[]'::jsonb;
-        FOR def_elem IN SELECT value FROM jsonb_array_elements(r.card_properties) LOOP
+        FOR def_elem IN
+            SELECT elem.value
+            FROM jsonb_array_elements(r.card_properties) WITH ORDINALITY AS elem(value, ord)
+            ORDER BY elem.ord
+        LOOP
             IF jsonb_typeof(def_elem) <> 'object' THEN
                 CONTINUE;
             END IF;
@@ -70,7 +75,11 @@ BEGIN
             norm_opts := '[]'::jsonb;
             seen_opt_ids := ARRAY[]::TEXT[];
             IF jsonb_typeof(def_elem -> 'options') = 'array' THEN
-                FOR opt_elem IN SELECT value FROM jsonb_array_elements(def_elem -> 'options') LOOP
+                FOR opt_elem IN
+                    SELECT elem.value
+                    FROM jsonb_array_elements(def_elem -> 'options') WITH ORDINALITY AS elem(value, ord)
+                    ORDER BY elem.ord
+                LOOP
                     IF jsonb_typeof(opt_elem) <> 'object' THEN
                         CONTINUE;
                     END IF;
@@ -138,9 +147,11 @@ BEGIN
                 BEGIN
                     doc := safe::jsonb;
                 EXCEPTION WHEN invalid_text_representation OR untranslatable_character THEN
+                    RAISE WARNING '0074: skipped unreadable deleted_containers row %', r.id;
                     CONTINUE;
                 END;
             WHEN invalid_text_representation THEN
+                RAISE WARNING '0074: skipped unreadable deleted_containers row %', r.id;
                 CONTINUE;
         END;
 
@@ -148,14 +159,23 @@ BEGIN
             CONTINUE;
         END IF;
 
-        src_defs := doc -> 'cardProperties';
-        IF jsonb_typeof(src_defs) <> 'array' THEN
+        orig_defs := doc -> 'cardProperties';
+        IF jsonb_typeof(orig_defs) <> 'array' THEN
             norm_defs := '[]'::jsonb;
-        ELSIF jsonb_array_length(src_defs) = 0 THEN
+        ELSIF jsonb_array_length(orig_defs) = 0 THEN
             CONTINUE;
         ELSE
+            IF has_nul THEN
+                src_defs := replace(orig_defs::text, nul_sentinel, '')::jsonb;
+            ELSE
+                src_defs := orig_defs;
+            END IF;
             norm_defs := '[]'::jsonb;
-            FOR def_elem IN SELECT value FROM jsonb_array_elements(src_defs) LOOP
+            FOR def_elem IN
+                SELECT elem.value
+                FROM jsonb_array_elements(src_defs) WITH ORDINALITY AS elem(value, ord)
+                ORDER BY elem.ord
+            LOOP
                 IF jsonb_typeof(def_elem) <> 'object' THEN
                     CONTINUE;
                 END IF;
@@ -169,7 +189,11 @@ BEGIN
                 norm_opts := '[]'::jsonb;
                 seen_opt_ids := ARRAY[]::TEXT[];
                 IF jsonb_typeof(def_elem -> 'options') = 'array' THEN
-                    FOR opt_elem IN SELECT value FROM jsonb_array_elements(def_elem -> 'options') LOOP
+                    FOR opt_elem IN
+                        SELECT elem.value
+                        FROM jsonb_array_elements(def_elem -> 'options') WITH ORDINALITY AS elem(value, ord)
+                        ORDER BY elem.ord
+                    LOOP
                         IF jsonb_typeof(opt_elem) <> 'object' THEN
                             CONTINUE;
                         END IF;
@@ -210,12 +234,9 @@ BEGIN
                     jsonb_build_object('id', prop_id, 'name', prop_name, 'type', prop_type, 'options', norm_opts)
                 );
             END LOOP;
-            IF has_nul THEN
-                norm_defs := replace(norm_defs::text, nul_sentinel, '')::jsonb;
-            END IF;
         END IF;
 
-        IF norm_defs IS DISTINCT FROM src_defs THEN
+        IF norm_defs IS DISTINCT FROM orig_defs THEN
             doc := jsonb_set(doc, '{cardProperties}', norm_defs);
             IF has_nul THEN
                 rewritten := replace(doc::text, nul_sentinel, '\u0000')::json;

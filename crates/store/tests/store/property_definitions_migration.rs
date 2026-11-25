@@ -208,17 +208,38 @@ async fn seed_org_a_trash(
     alice: &str,
 ) -> (String, String) {
     let ws_nul = common::pre0075_workspace(scoped, org_id).await;
-    let (trashed_nul, trashed_restorable) = (new_id(), new_id());
-    let (del_1, del_2) = (new_id(), new_id());
+    let (trashed_nul, trashed_restorable, trashed_unreadable) = (new_id(), new_id(), new_id());
+    let (del_1, del_2, del_3) = (new_id(), new_id(), new_id());
     let desc = if scoped.db_type() == DbType::Postgres {
         r"nul:\u0000 literal:\\u0000"
     } else {
         "plain trashed description"
     };
-    let props_str = pre0074_all_kinds_and_colors_json().to_string();
+    let mut nul_props = pre0074_all_kinds_and_colors_json();
+    if scoped.db_type() == DbType::Postgres {
+        nul_props
+            .as_array_mut()
+            .expect("array")
+            .push(serde_json::json!({
+                "id": "p-nul-opts",
+                "name": "NulOpts",
+                "type": "select",
+                "options": [
+                    {"id": "__NUL__", "value": "DroppedEmpty", "color": "red"},
+                    {"id": "a", "value": "First", "color": "blue"},
+                    {"id": "a__NUL__", "value": "DroppedDuplicate", "color": "green"}
+                ]
+            }));
+    }
+    let props_str = nul_props.to_string().replace("__NUL__", r"\u0000");
     let nul_doc = format!(
         r#"{{"id":"{trashed_nul}","workspaceId":"{ws_nul}","createdBy":"{alice}","modifiedBy":"{alice}","visibility":"private","kind":"board","title":"Trashed NUL","description":"{desc}","cardProperties":{props_str},"{PRE0075_CREATE_KEY}":100,"{PRE0075_UPDATE_KEY}":200,"deletedAt":300}}"#
     );
+    let unreadable_doc = if scoped.db_type() == DbType::Postgres {
+        format!(r#"{{"id":"{trashed_unreadable}","cardProperties":[],"bad":"\ud800"}}"#)
+    } else {
+        r#"{"cardProperties": [not-valid-json"#.to_owned()
+    };
     let restorable_doc = json!({
         "id": trashed_restorable,
         "workspaceId": ws_id,
@@ -241,6 +262,13 @@ async fn seed_org_a_trash(
 
     for (id, target_ws, at, del_id, doc) in [
         (&trashed_nul, ws_nul.as_str(), 300_i64, &del_1, &nul_doc),
+        (
+            &trashed_unreadable,
+            ws_nul.as_str(),
+            305_i64,
+            &del_3,
+            &unreadable_doc,
+        ),
         (&trashed_restorable, ws_id, 310_i64, &del_2, &restorable_doc),
     ] {
         let members = json!([{
@@ -454,6 +482,16 @@ async fn assert_org_a_trash(scoped: &Store, fx: &OrgAFixture) {
         assert_eq!(
             decoded_nul.description, "nul:\0 literal:\\u0000",
             "PostgreSQL NUL vs literal backslash-u0000 preserved"
+        );
+        let nul_opts = decoded_nul
+            .card_properties
+            .iter()
+            .find(|def| def.id == "p-nul-opts")
+            .expect("p-nul-opts present after migration");
+        assert_eq!(
+            nul_opts.options,
+            vec![PropertyOption::new("a", "First", PropertyColor::Blue)],
+            "NUL stripped before option id emptiness and duplicate checks"
         );
     }
 
