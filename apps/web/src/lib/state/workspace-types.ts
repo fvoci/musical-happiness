@@ -1,5 +1,6 @@
 /** A workspace of the reader's, as their list has it (part of `backend.ts`). */
 import type { WorkspaceRole } from './people-types.ts';
+import type { BackendError } from './problems.ts';
 
 /**
  * What the organization of a workspace is: `personal` for the reader's own
@@ -60,3 +61,9 @@ export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut' |
 /** What failed in the workspace, as a key the shell has a message for. */
 export type ProblemAction =
   'load' | 'save' | 'undo' | 'export' | 'import' | 'movePage' | 'moveUnit';
+
+export interface Problem {
+  id: number;
+  action: ProblemAction;
+  error: BackendError | undefined;
+}

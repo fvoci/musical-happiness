@@ -155,6 +155,42 @@
 </AlertDialog.Root>
 
 <AlertDialog.Root
+  open={saving.name === 'confirm'}
+  onOpenChange={(open) => {
+    if (!open) session.dismiss();
+  }}
+>
+  <AlertDialog.Content data-testid="file-editor-confirm" class="data-[size=default]:sm:max-w-lg">
+    <AlertDialog.Header>
+      <AlertDialog.Title>{m.file_editor_confirm_title()}</AlertDialog.Title>
+      <AlertDialog.Description>{m.file_editor_confirm_description()}</AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel class="roomy:min-h-touch">{m.shared_cancel()}</AlertDialog.Cancel>
+      <AlertDialog.Action
+        variant="outline"
+        class="roomy:min-h-touch"
+        data-testid="file-editor-confirm-apart"
+        onclick={() => {
+          session.saveApart();
+        }}
+      >
+        {m.file_version_save_apart()}
+      </AlertDialog.Action>
+      <AlertDialog.Action
+        class="roomy:min-h-touch"
+        data-testid="file-editor-confirm-version"
+        onclick={() => {
+          session.confirmSave();
+        }}
+      >
+        {m.file_editor_save_as_version()}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root
   open={saving.name === 'stale'}
   onOpenChange={(open) => {
     if (!open) session.dismiss();

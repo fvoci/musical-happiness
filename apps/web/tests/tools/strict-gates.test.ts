@@ -28,7 +28,11 @@ import {
   readSvelteVersion,
   svelteFiles,
 } from '../../tools/lint/autofixer.ts';
-import { noBrowserDialogs } from '../../tools/lint/dialogs.ts';
+import {
+  checkDialogs,
+  findDialogDisableViolations,
+  noBrowserDialogs,
+} from '../../tools/lint/dialogs.ts';
 import { checkViewport, findViewportViolations, viewportFiles } from '../../tools/lint/viewport.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -107,6 +111,22 @@ describe('browser modal dialog gate (noBrowserDialogs + eslint.config.js)', () =
     expect(lintDialogs('src/app/App.ts', attemptedBypass)).toEqual(
       expect.arrayContaining([expect.stringContaining('fvoci-dialogs/no-dialog-disable:1:')]),
     );
+
+    // Out-of-band pure text check also blocks silencing `fvoci-dialogs/no-dialog-disable`
+    // itself or using bare `eslint-disable` comments.
+    const selfDisableBypass = [
+      '// eslint-disable-line fvoci-dialogs/no-dialog-disable, no-restricted-globals',
+      "confirm('blocked outside eslint too');",
+      '/* eslint-disable */',
+      '<!-- eslint-disable -->',
+    ].join('\n');
+    expect(findDialogDisableViolations('src/app/App.svelte', selfDisableBypass)).toEqual([
+      'src/app/App.svelte:1: do not silence `fvoci-dialogs/no-dialog-disable` with `eslint-disable`; replace native browser dialogs with app UI',
+      'src/app/App.svelte:1: do not silence `no-restricted-globals` with `eslint-disable`; replace native browser dialogs with app UI',
+      'src/app/App.svelte:3: bare `eslint-disable` without rule names is forbidden; name the exact non-protected rule being disabled',
+      'src/app/App.svelte:4: bare `eslint-disable` without rule names is forbidden; name the exact non-protected rule being disabled',
+    ]);
+    expect(checkDialogs(ROOT).problems).toEqual([]);
   });
 
   it('allows local functions, props, parameters, and methods named confirm, alert, or prompt', () => {
@@ -158,35 +178,41 @@ describe('browser modal dialog gate (noBrowserDialogs + eslint.config.js)', () =
 });
 
 describe('viewport height gate (viewport.ts)', () => {
-  it('flags 100vh (including Tailwind _ calc and 100.0vh), h-screen, min-h-screen, and max-h-screen', () => {
+  it('flags 100vh/100lvh, h-screen/h-lvh variants, and static vh/lvh inside CSS math functions', () => {
     expect(
       findViewportViolations(
         'src/styles/app.css',
-        '.shell { height: 100vh; min-height: 100.0vh; }\n',
+        '.shell { height: 100vh; min-height: 100.0vh; max-height: 100lvh; }\n',
       ),
     ).toEqual([
       'src/styles/app.css:1: `100vh` uses the static viewport height; use `100dvh` (or `h-dvh`) instead',
       'src/styles/app.css:1: `100.0vh` uses the static viewport height; use `100dvh` (or `h-dvh`) instead',
+      'src/styles/app.css:1: `100lvh` uses the static viewport height; use `100dvh` (or `h-dvh`) instead',
     ]);
     expect(
       findViewportViolations(
         'src/app/Shell.svelte',
-        '<div class="flex h-screen md:min-h-screen !max-h-screen h-[100VH] h-[calc(100vh_-_2rem)] min-h-[min(40rem,_100vh)]"></div>\n',
+        '<div class="flex h-screen md:min-h-screen !max-h-screen h-lvh min-h-lvh max-h-lvh h-[100VH] h-[calc(100vh_-_2rem)] min-h-[min(40rem,_100vh)] max-h-[calc(80vh_-_1rem)] h-[clamp(10rem,_90lvh,_40rem)]"></div>\n',
       ),
     ).toEqual([
       'src/app/Shell.svelte:1: `h-screen` maps to `100vh`; use `h-dvh` (`100dvh`) instead',
       'src/app/Shell.svelte:1: `min-h-screen` maps to `100vh`; use `min-h-dvh` (`100dvh`) instead',
       'src/app/Shell.svelte:1: `max-h-screen` maps to `100vh`; use `max-h-dvh` (`100dvh`) instead',
+      'src/app/Shell.svelte:1: `h-lvh` maps to `100lvh`; use `h-dvh` (`100dvh`) instead',
+      'src/app/Shell.svelte:1: `min-h-lvh` maps to `100lvh`; use `min-h-dvh` (`100dvh`) instead',
+      'src/app/Shell.svelte:1: `max-h-lvh` maps to `100lvh`; use `max-h-dvh` (`100dvh`) instead',
       'src/app/Shell.svelte:1: `100VH` uses the static viewport height; use `100dvh` (or `h-dvh`) instead',
       'src/app/Shell.svelte:1: `100vh` uses the static viewport height; use `100dvh` (or `h-dvh`) instead',
       'src/app/Shell.svelte:1: `100vh` uses the static viewport height; use `100dvh` (or `h-dvh`) instead',
+      'src/app/Shell.svelte:1: `80vh` uses a static viewport height inside a CSS math expression; use `80dvh` instead',
+      'src/app/Shell.svelte:1: `90lvh` uses a static viewport height inside a CSS math expression; use `90dvh` instead',
     ]);
   });
 
   it('allows dynamic viewport units and unrelated -screen names', () => {
     const clean = [
       '<main class="grid min-h-dvh h-dvh max-h-dvh w-screen touch-screen splash-screen search-screen">',
-      '  <div style="height: 100dvh; min-height: 100svh; max-height: 100lvh; width: 2100vh; top: 0.100vh"></div>',
+      '  <div style="height: 100dvh; min-height: 100svh; max-height: min(18rem, 50dvh); width: 2100vh; top: 0.100vh"></div>',
       '</main>',
     ].join('\n');
     expect(findViewportViolations('src/app/Clean.svelte', clean)).toEqual([]);

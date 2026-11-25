@@ -130,11 +130,8 @@ describe('a registration that waits for its address', () => {
 
 describe('the page of the confirmation link', () => {
   it('is a route of its own under the deployment path', () => {
-    expect(parseRoute('/boards/verify-email', 'boards')).toMatchObject({
-      emailVerify: true,
-      unknown: false,
-    });
-    expect(parseRoute('/verify-email/secret', '').unknown).toBe(true);
+    expect(parseRoute('/boards/verify-email', 'boards')).toEqual({ kind: 'emailVerify' });
+    expect(parseRoute('/verify-email/secret', '').kind).toBe('unknown');
   });
 
   it('says the confirmation came through, sent once for the token', async () => {

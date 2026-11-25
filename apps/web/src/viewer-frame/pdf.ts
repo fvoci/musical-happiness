@@ -63,6 +63,7 @@ async function open(bytes: ArrayBuffer): Promise<PDFDocumentProxy> {
     ...BUNDLED_DATA_OPTIONS,
     enableXfa: false,
     stopAtErrors: false,
+    ...({ isEvalSupported: false } as Record<string, unknown>),
   });
   try {
     return await task.promise;

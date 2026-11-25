@@ -245,6 +245,7 @@ export const LAYERS: Readonly<Record<string, number>> = {
   utils: 0,
   keys: 0,
   'theme.svelte': 0,
+  'chunk-reload.svelte': 0,
   save: 0,
   regional: 1,
   'display.svelte': 1,

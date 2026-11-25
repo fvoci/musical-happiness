@@ -7,7 +7,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import GuestInvite from '$lib/features/shell/GuestInvite.svelte';
-import { BackendError, type Invitation, type People, type Workspace } from '$lib/state/index.ts';
+import { BackendError, Workspace, type Invitation, type People } from '$lib/state/index.ts';
+import { MemoryBackend } from '$lib/state/memory/backend.ts';
+import { seedWorld } from '$lib/state/memory/seed.ts';
 
 afterEach(cleanup);
 
@@ -34,16 +36,26 @@ const LINKS: Invitation[] = [
 function mount(read: People['invitations']) {
   const revokeInvitation = vi.fn<People['revokeInvitation']>(() => Promise.resolve());
   const invitations = vi.fn(read);
-  const people = {
+  const people: People = {
+    members: () => Promise.resolve([]),
+    setRole: () => Promise.reject(new Error('unused')),
+    removeMember: () => Promise.resolve(),
     invitations,
     revokeInvitation,
+    inviteMembers: () => Promise.reject(new Error('unused')),
     inviteGuest: vi.fn<People['inviteGuest']>(() => Promise.reject(new Error('not here'))),
-  } as unknown as People;
-  const workspace = {
-    info: { id: 'w1', title: 'Acme', role: 'admin' },
-    locale: 'en',
-    regional: { timeZone: 'UTC', hourCycle: 'h23' },
-  } as unknown as Workspace;
+    guestInvitations: () => Promise.resolve(true),
+    setGuestInvitations: () => Promise.resolve(true),
+  };
+  const { world, readerId } = seedWorld([]);
+  const workspace = new Workspace({
+    backend: new MemoryBackend(world, readerId),
+    locale: () => 'en',
+  });
+  workspace.status = 'ready';
+  workspace.workspaces = [{ id: 'w1', title: 'Acme', role: 'admin' }];
+  workspace.info = { id: 'w1', title: 'Acme', role: 'admin' };
+  workspace.settings = { ...workspace.settings, timeZone: 'UTC', hourCycle: 'h23' };
   render(GuestInvite, {
     props: {
       workspace,
@@ -51,7 +63,7 @@ function mount(read: People['invitations']) {
       containerId: 'b1',
     },
   });
-  return { invitations, revokeInvitation };
+  return { invitations, revokeInvitation, workspace };
 }
 
 describe('the guest links of a shared board', () => {

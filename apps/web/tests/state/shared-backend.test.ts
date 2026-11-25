@@ -91,6 +91,25 @@ describe('the backend of a public link', () => {
     for (const refusal of refusals) expect(isBackendError(refusal) && refusal.status).toBe(403);
     expect(sent).toEqual([]);
   });
+
+  it('memoizes initial container and cards reads across probes and reference resolution', async () => {
+    const sent = serve(BOARD);
+    const backend = new SharedBackend('', 'b1', 't');
+    const [first, second] = await Promise.all([backend.container('b1'), backend.container('b1')]);
+    expect(first.id).toBe('b1');
+    expect(second.id).toBe('b1');
+    expect(sent.map((one) => one.url)).toEqual(['/api/v1/shared/b1?readToken=t']);
+
+    const cardsSent = serve([]);
+    const cardsBackend = new SharedBackend('', 'b1', 't');
+    await Promise.all([
+      cardsBackend.cards('b1'),
+      cardsBackend.references.resolve(SHARED_PLACE, ['c1']),
+    ]);
+    expect(cardsSent.filter((one) => one.url.startsWith('/api/v1/shared/b1/cards'))).toHaveLength(
+      1,
+    );
+  });
 });
 
 describe('the backend of a wiki’s public link', () => {

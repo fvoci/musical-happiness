@@ -813,7 +813,7 @@ test('the window changes size under an open card: the text, the caret, the focus
 
   // A comment that is being written, then the caret in the middle of what was typed into the body.
   await commentField(page).fill('half a comment');
-  await editor.click();
+  await editor.locator('p').first().click();
   await documentBoundary(page, 'start');
   await page.keyboard.type('ABCDEF ');
   for (let step = 0; step < 4; step += 1) await page.keyboard.press('ArrowLeft');

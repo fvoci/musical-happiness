@@ -12,15 +12,54 @@ export interface PresencePlace {
   readonly containerId: string;
 }
 
+export const EMPTY_PEOPLE: readonly PresentPerson[] = Object.freeze([]);
+
+function samePeople(a: readonly PresentPerson[] | undefined, b: readonly PresentPerson[]): boolean {
+  return a?.length === b.length && a.every((person, at) => person === b[at]);
+}
+
 export class ContainerPresence {
   readonly #place: PresencePlace;
   snapshot = $state.raw<PresenceSnapshot>(EMPTY_PRESENCE);
   #active = false;
   #hidden = false;
   #cardId: string | undefined;
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- snapshot memo cache, not read directly
+  #previousByCard = new Map<string, readonly PresentPerson[]>();
+
+  /**
+   * Pre-indexed viewers per card (§1.2.1): avoids O(N × P) array allocations across
+   * cards and preserves array identity for cards whose viewers did not change.
+   */
+  readonly byCard = $derived.by<ReadonlyMap<string, readonly PresentPerson[]>>(() => {
+    const meId = this.#place.workspace.me?.id;
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- immutable derived snapshot map
+    const grouped = new Map<string, PresentPerson[]>();
+    for (const person of this.snapshot.people) {
+      if (person.userId === meId) continue;
+      for (const id of person.cardIds) {
+        const list = grouped.get(id);
+        if (list) list.push(person);
+        else grouped.set(id, [person]);
+      }
+    }
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- immutable derived snapshot map
+    const next = new Map<string, readonly PresentPerson[]>();
+    for (const [id, list] of grouped) {
+      const previous = this.#previousByCard.get(id);
+      next.set(id, samePeople(previous, list) && previous ? previous : Object.freeze(list));
+    }
+    this.#previousByCard = next;
+    return next;
+  });
 
   constructor(place: PresencePlace) {
     this.#place = place;
+  }
+
+  /** Viewers on `cardId`, returning the frozen `EMPTY_PEOPLE` singleton when none (§1.2.1). */
+  forCard(cardId: string): readonly PresentPerson[] {
+    return this.byCard.get(cardId) ?? EMPTY_PEOPLE;
   }
 
   /**

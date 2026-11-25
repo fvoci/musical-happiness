@@ -9,17 +9,6 @@
  * picture that goes into the page is built anew, element by element, from
  * the lists in this file. What is not on a list is not copied.
  *
- * What cannot get through, whatever the library does:
- *
- * - scripts, and any attribute that holds a script (`on…`);
- * - links (`<a>` is dropped; what it holds is kept);
- * - anything that names an address outside the picture: `<image>`,
- *   `<feImage>`, `href` and `xlink:href` other than `#name`, `url(…)` other
- *   than `url(#name)` in attributes and styles, `@import`, `@font-face`;
- * - `<foreignObject>` and with it every HTML element;
- * - style rules that reach outside the picture (every selector has to start
- *   with the identifier of the picture).
- *
  * THIS IS THE ONE FILE of the read-only view that turns a string into
  * elements (the parser below). tests/editor/render-imports.test.ts names it
  * as the exception and keeps every other file free of such calls.
@@ -27,222 +16,93 @@
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
-/** What a picture may be made of. Everything else is dropped with what it holds. */
-const ELEMENTS = new Set([
-  'svg',
-  'g',
-  'defs',
-  'symbol',
-  'marker',
-  'clipPath',
-  'mask',
-  'pattern',
-  'linearGradient',
-  'radialGradient',
-  'stop',
-  'path',
-  'rect',
-  'circle',
-  'ellipse',
-  'line',
-  'polyline',
-  'polygon',
-  'text',
-  'tspan',
-  'textPath',
-  'title',
-  'desc',
-  'switch',
-  'use',
-  'style',
-  // Filters that work on the picture itself. `feImage` fetches and is not here.
-  'filter',
-  'feDropShadow',
-  'feGaussianBlur',
-  'feOffset',
-  'feMerge',
-  'feMergeNode',
-  'feFlood',
-  'feComposite',
-  'feColorMatrix',
-  'feBlend',
-]);
+/** What a picture may be made of. Everything else (`feImage`, `foreignObject`, `script`) is dropped. */
+const ELEMENTS = new Set(
+  [
+    'svg g defs symbol marker clipPath mask pattern linearGradient radialGradient stop',
+    'path rect circle ellipse line polyline polygon text tspan textPath title desc switch use style',
+    'filter feDropShadow feGaussianBlur feOffset feMerge feMergeNode feFlood feComposite feColorMatrix feBlend',
+  ]
+    .join(' ')
+    .split(' '),
+);
 
-/**
- * By the name a parser may give instead: one that does not know a newer
- * element leaves its name in lower case (`fedropshadow`).
- */
 const ELEMENT_NAMES = new Map(Array.from(ELEMENTS, (name) => [name.toLowerCase(), name]));
-
-/** Dropped, but what they hold is kept in their place: a link around a label. */
 const UNWRAPPED = new Set(['a']);
-
-/** The elements that may point at another element of the same picture, with `#name`. */
 const REFERENCING = new Set(['use', 'textPath', 'linearGradient', 'radialGradient', 'pattern']);
 
-const ATTRIBUTES = new Set([
-  'class',
-  'id',
-  'role',
-  'style',
-  'xml:space',
-  'data-look',
-  // Geometry
-  'viewBox',
-  'preserveAspectRatio',
-  'width',
-  'height',
-  'x',
-  'y',
-  'x1',
-  'y1',
-  'x2',
-  'y2',
-  'cx',
-  'cy',
-  'r',
-  'rx',
-  'ry',
-  'dx',
-  'dy',
-  'd',
-  'points',
-  'transform',
-  'transform-origin',
-  'pathLength',
-  'rotate',
-  'textLength',
-  'lengthAdjust',
-  'startOffset',
-  // Markers, gradients, patterns, clipping
-  'markerWidth',
-  'markerHeight',
-  'markerUnits',
-  'refX',
-  'refY',
-  'orient',
-  'gradientUnits',
-  'gradientTransform',
-  'spreadMethod',
-  'fx',
-  'fy',
-  'offset',
-  'patternUnits',
-  'patternContentUnits',
-  'patternTransform',
-  'clipPathUnits',
-  'maskUnits',
-  'maskContentUnits',
-  // Filters
-  'filterUnits',
-  'primitiveUnits',
-  'stdDeviation',
-  'flood-color',
-  'flood-opacity',
-  'in',
-  'in2',
-  'result',
-  'mode',
-  'operator',
-  'k1',
-  'k2',
-  'k3',
-  'k4',
-  'type',
-  'values',
-  // Presentation
-  'fill',
-  'fill-opacity',
-  'fill-rule',
-  'stroke',
-  'stroke-width',
-  'stroke-opacity',
-  'stroke-dasharray',
-  'stroke-dashoffset',
-  'stroke-linecap',
-  'stroke-linejoin',
-  'stroke-miterlimit',
-  'opacity',
-  'color',
-  'stop-color',
-  'stop-opacity',
-  'clip-path',
-  'clip-rule',
-  'mask',
-  'filter',
-  'marker-start',
-  'marker-mid',
-  'marker-end',
-  'overflow',
-  'visibility',
-  'display',
-  'vector-effect',
-  'shape-rendering',
-  'paint-order',
-  // Text
-  'font-family',
-  'font-size',
-  'font-style',
-  'font-weight',
-  'font-variant',
-  'text-anchor',
-  'text-decoration',
-  'dominant-baseline',
-  'alignment-baseline',
-  'baseline-shift',
-  'letter-spacing',
-  'word-spacing',
-  'writing-mode',
-]);
+const ATTRIBUTES = new Set(
+  [
+    'class id role style xml:space data-look viewBox preserveAspectRatio width height',
+    'x y x1 y1 x2 y2 cx cy r rx ry dx dy d points transform transform-origin pathLength rotate',
+    'textLength lengthAdjust startOffset markerWidth markerHeight markerUnits refX refY orient',
+    'gradientUnits gradientTransform spreadMethod fx fy offset patternUnits patternContentUnits patternTransform',
+    'clipPathUnits maskUnits maskContentUnits filterUnits primitiveUnits stdDeviation flood-color flood-opacity',
+    'in in2 result mode operator k1 k2 k3 k4 type values fill fill-opacity fill-rule',
+    'stroke stroke-width stroke-opacity stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin stroke-miterlimit',
+    'opacity color stop-color stop-opacity clip-path clip-rule mask filter marker-start marker-mid marker-end',
+    'overflow visibility display vector-effect shape-rendering paint-order',
+    'font-family font-size font-style font-weight font-variant text-anchor text-decoration',
+    'dominant-baseline alignment-baseline baseline-shift letter-spacing word-spacing writing-mode',
+  ]
+    .join(' ')
+    .split(' '),
+);
 
-/** A name that can be pointed at: letters, digits and a few signs, nothing that could end a `url(…)`. */
-const NAME = /^[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}$/u;
-/** `#name`, the only kind of reference there is. */
-const LOCAL_REFERENCE = /^#[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}$/u;
-/** `url(#name)`, bare or quoted. */
-const LOCAL_URL = /url\(\s*(["']?)#[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}\1\s*\)/giu;
+const CSS_FUNCTIONS = new Set(
+  [
+    'rgb rgba hsl hsla var calc min max clamp translate translatex translatey',
+    'rotate scale scalex scaley skewx skewy matrix drop-shadow brightness cubic-bezier steps url',
+  ]
+    .join(' ')
+    .split(' '),
+);
 
 /**
- * The functions a style value or a presentation attribute may call. A
- * function that is not here (`image-set`, `src`, `element`, `attr`, …) makes
- * the whole value unusable; `url` is here and is checked separately.
+ * Presentation, typography, sizing, and animation properties a diagram may set.
+ * Layout/overlay properties (`position`, `inset`, `top`, `left`, `z-index`,
+ * `pointer-events`, `cursor`, `content`, `background*`, `mask-image`) are excluded.
  */
-const CSS_FUNCTIONS = new Set([
-  'rgb',
-  'rgba',
-  'hsl',
-  'hsla',
-  'var',
-  'calc',
-  'min',
-  'max',
-  'clamp',
-  'translate',
-  'translatex',
-  'translatey',
-  'rotate',
-  'scale',
-  'scalex',
-  'scaley',
-  'skewx',
-  'skewy',
-  'matrix',
-  'drop-shadow',
-  'brightness',
-  'url',
-]);
+const CSS_PROPERTIES = new Set(
+  [
+    'alignment-baseline animation animation-delay animation-direction animation-duration',
+    'animation-fill-mode animation-iteration-count animation-name animation-play-state animation-timing-function',
+    'baseline-shift clip-path clip-rule color display dominant-baseline fill fill-opacity fill-rule',
+    'filter flood-color flood-opacity font font-family font-size font-style font-variant font-weight',
+    'height letter-spacing lighting-color line-height marker marker-end marker-mid marker-start mask',
+    'max-height max-width min-height min-width opacity overflow paint-order shape-rendering',
+    'stop-color stop-opacity stroke stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin',
+    'stroke-miterlimit stroke-opacity stroke-width text-anchor text-decoration',
+    'transform transform-box transform-origin transition vector-effect visibility white-space width word-spacing writing-mode',
+  ]
+    .join(' ')
+    .split(' '),
+);
+
+const ANIMATION_KEYWORDS = new Set(
+  [
+    'alternate alternate-reverse auto backwards both ease ease-in ease-in-out ease-out forwards',
+    'infinite inherit initial linear none normal paused reverse revert running step-end step-start unset',
+  ]
+    .join(' ')
+    .split(' '),
+);
+
+const NAME = /^[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}$/u;
+const LOCAL_REFERENCE = /^#[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}$/u;
+const LOCAL_URL = /url\(\s*(["']?)#[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,199}\1\s*\)/giu;
 
 const MAX_DEPTH = 64;
 const MAX_ELEMENTS = 50_000;
 const MAX_ATTRIBUTE_LENGTH = 200_000;
 
-/**
- * Whether a style value (or the value of a presentation attribute) can be
- * used as it is: it calls only the functions above, every `url(…)` in it
- * points into the picture, and it holds nothing that could hide either from
- * this check (an escape, a comment) or start something else (a block, an
- * at-rule, markup).
- */
+export interface SafeSvgOptions {
+  /** The document the picture is built in; the page's own unless given. */
+  document?: Document | undefined;
+  /** When given, the root `<svg>` must carry this exact `id`. */
+  expectedId?: string | undefined;
+}
+
 export function isSafeCssValue(value: string): boolean {
   if (value.length > MAX_ATTRIBUTE_LENGTH) return false;
   if (/[\\<>@{}]/.test(value) || value.includes('/*')) return false;
@@ -251,7 +111,6 @@ export function isSafeCssValue(value: string): boolean {
     const name = /([\w-]+)\s*$/.exec(value.slice(0, at))?.[1];
     if (name === undefined || !CSS_FUNCTIONS.has(name.toLowerCase())) return false;
   }
-  // Whatever `url(` is left once the references into the picture are taken out is one too many.
   return !/url\s*\(/i.test(value.replace(LOCAL_URL, ''));
 }
 
@@ -289,100 +148,181 @@ export function safeDeclarations(block: string): [string, string][] {
     const property = declaration.slice(0, colon).trim();
     const value = declaration.slice(colon + 1).trim();
     if (!/^-{0,2}[A-Za-z][\w-]*$/.test(property) || value === '') continue;
-    if (isSafeCssValue(value)) kept.push([property, value]);
+    const allowed = property.startsWith('--') || CSS_PROPERTIES.has(property.toLowerCase());
+    if (allowed && isSafeCssValue(value)) kept.push([property, value]);
   }
   return kept;
 }
 
-const serialise = (declarations: [string, string][]): string =>
-  declarations.map(([property, value]) => `${property}:${value}`).join(';');
-
-/** Whether a selector starts with the scope and goes on as a selector does. */
-function isScoped(selector: string, scope: string): boolean {
-  if (!selector.startsWith(scope)) return false;
-  const next = selector.charAt(scope.length);
-  return next === '' || /[\s.>:[+~]/.test(next);
+function scopeAnimationValue(property: string, value: string, prefix: string): string {
+  const lower = property.toLowerCase();
+  if (lower !== 'animation' && lower !== 'animation-name') return value;
+  return splitTopLevel(value, ',')
+    .map((part) =>
+      part.replace(/(^|\s)([A-Za-z_][\w-]*)(?=$|\s|!)/g, (whole, lead: string, token: string) => {
+        if (ANIMATION_KEYWORDS.has(token.toLowerCase()) || token.startsWith(`${prefix}-`)) {
+          return whole;
+        }
+        return `${lead}${prefix}-${token}`;
+      }),
+    )
+    .join(',');
 }
 
+const serialise = (declarations: [string, string][], prefix?: string): string =>
+  declarations
+    .map(([property, value]) => {
+      const scoped = prefix ? scopeAnimationValue(property, value, prefix) : value;
+      return `${property}:${scoped}`;
+    })
+    .join(';');
+
 /**
- * The rules of a style sheet that can be used. Kept are style rules whose
- * every selector starts with `scope` (so that nothing outside the picture is
- * styled), with the declarations that pass `safeDeclarations`, and keyframes.
- * Every other at-rule is dropped, `@import` and `@font-face` among them. A
- * sheet that holds an escape or markup is dropped whole: an escape can spell
- * a name this check looks for.
+ * Whether a selector stays strictly inside `scope`: no braces/at-rules/semicolons,
+ * and no sibling combinators (`+`, `~`) that could reach outside the `<svg>`.
  */
+function isScoped(selector: string, scope: string): boolean {
+  if (!selector.startsWith(scope)) return false;
+  let depth = 0;
+  let quote = '';
+  for (let i = scope.length; i < selector.length; i += 1) {
+    const ch = selector.charAt(i);
+    if (quote !== '') {
+      if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(' || ch === '[') depth += 1;
+    else if (ch === ')' || ch === ']') {
+      depth -= 1;
+      if (depth < 0) return false;
+    } else if (depth === 0 && (ch === '+' || ch === '~')) {
+      return false;
+    }
+    if (ch === '{' || ch === '}' || ch === ';' || ch === '@') return false;
+  }
+  if (depth !== 0 || quote !== '') return false;
+  const next = selector.charAt(scope.length);
+  return next === '' || /[\s.>:[[]/.test(next);
+}
+
+function scopedKeyframes(prelude: string, body: string, prefix: string): string | undefined {
+  const keyframes = /^@(?:-webkit-)?keyframes\s+([A-Za-z_][\w-]*)$/.exec(prelude);
+  if (!keyframes?.[1]) return undefined;
+  const rawName = keyframes[1];
+  const scopedName = rawName.startsWith(`${prefix}-`) ? rawName : `${prefix}-${rawName}`;
+  const steps: string[] = [];
+  let inner = 0;
+  while (inner < body.length) {
+    const stepOpen = body.indexOf('{', inner);
+    const stepClose = body.indexOf('}', stepOpen);
+    if (stepOpen === -1 || stepClose === -1) break;
+    const step = body.slice(inner, stepOpen).trim();
+    const declarations = safeDeclarations(body.slice(stepOpen + 1, stepClose));
+    if (/^(from|to|\d{1,3}(\.\d+)?%)(\s*,\s*(from|to|\d{1,3}(\.\d+)?%))*$/.test(step)) {
+      steps.push(`${step}{${serialise(declarations, prefix)}}`);
+    }
+    inner = stepClose + 1;
+  }
+  return `@keyframes ${scopedName}{${steps.join('')}}`;
+}
+
+function blockAt(text: string, open: number): { body: string; end: number } | undefined {
+  let depth = 0;
+  let quote = '';
+  for (let index = open; index < text.length; index += 1) {
+    const character = text.charAt(index);
+    if (quote !== '') {
+      if (character === quote) quote = '';
+    } else if (character === '"' || character === "'") quote = character;
+    else if (character === '{') depth += 1;
+    else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) return { body: text.slice(open + 1, index), end: index + 1 };
+    }
+  }
+  return undefined;
+}
+
 export function safeStyleSheet(css: string, scope: string): string {
-  if (css.includes('\\') || css.includes('<')) return '';
+  if (css.includes('\\') || css.includes('<') || !scope.startsWith('#')) return '';
+  const prefix = scope.slice(1);
   const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
   const rules: string[] = [];
   let at = 0;
-
-  /** The block that opens at `open`, without its braces, and where it ends. */
-  function blockAt(open: number): { body: string; end: number } | undefined {
-    let depth = 0;
-    let quote = '';
-    for (let index = open; index < text.length; index += 1) {
-      const character = text.charAt(index);
-      if (quote !== '') {
-        if (character === quote) quote = '';
-      } else if (character === '"' || character === "'") quote = character;
-      else if (character === '{') depth += 1;
-      else if (character === '}') {
-        depth -= 1;
-        if (depth === 0) return { body: text.slice(open + 1, index), end: index + 1 };
-      }
-    }
-    return undefined;
-  }
-
   while (at < text.length) {
     const open = text.indexOf('{', at);
     const semicolon = text.indexOf(';', at);
     if (open === -1) break;
     if (semicolon !== -1 && semicolon < open) {
-      // A statement without a block (an at-rule that ends in a semicolon): skipped.
       at = semicolon + 1;
       continue;
     }
     const prelude = text.slice(at, open).trim();
-    const block = blockAt(open);
+    const block = blockAt(text, open);
     if (!block) break;
     at = block.end;
-
     if (prelude.startsWith('@')) {
-      const keyframes = /^@(?:-webkit-)?keyframes\s+([A-Za-z_][\w-]*)$/.exec(prelude);
-      if (!keyframes?.[1]) continue;
-      const steps: string[] = [];
-      let inner = 0;
-      while (inner < block.body.length) {
-        const stepOpen = block.body.indexOf('{', inner);
-        const stepClose = block.body.indexOf('}', stepOpen);
-        if (stepOpen === -1 || stepClose === -1) break;
-        const step = block.body.slice(inner, stepOpen).trim();
-        const declarations = safeDeclarations(block.body.slice(stepOpen + 1, stepClose));
-        if (/^(from|to|\d{1,3}(\.\d+)?%)(\s*,\s*(from|to|\d{1,3}(\.\d+)?%))*$/.test(step)) {
-          steps.push(`${step}{${serialise(declarations)}}`);
-        }
-        inner = stepClose + 1;
-      }
-      rules.push(`@keyframes ${keyframes[1]}{${steps.join('')}}`);
+      const rule = scopedKeyframes(prelude, block.body, prefix);
+      if (rule) rules.push(rule);
       continue;
     }
-
-    // No nesting and no at-rules inside a style rule.
     if (block.body.includes('{') || block.body.includes('@')) continue;
     const selectors = splitTopLevel(prelude, ',').map((selector) => selector.trim());
     if (selectors.some((selector) => !isScoped(selector, scope))) continue;
     const declarations = safeDeclarations(block.body);
-    if (declarations.length > 0) rules.push(`${selectors.join(',')}{${serialise(declarations)}}`);
+    if (declarations.length > 0) {
+      rules.push(`${selectors.join(',')}{${serialise(declarations, prefix)}}`);
+    }
   }
   return rules.join('\n');
 }
 
-export interface SafeSvgOptions {
-  /** The document the picture is built in; the page's own unless given. */
-  document?: Document | undefined;
+function isInnerScopedId(id: string, rootId: string): boolean {
+  return (
+    NAME.test(id) &&
+    id.length > rootId.length + 1 &&
+    (id.startsWith(`${rootId}-`) || id.startsWith(`${rootId}_`))
+  );
+}
+
+function copySvgAttributes(
+  source: Element,
+  target: Element,
+  rootId: string,
+  isRoot: boolean,
+  copiedIds: Set<string>,
+): void {
+  for (const { name, value } of Array.from(source.attributes)) {
+    if (value.length > MAX_ATTRIBUTE_LENGTH) continue;
+    if (name === 'href' || name === 'xlink:href') {
+      if (REFERENCING.has(source.localName) && LOCAL_REFERENCE.test(value)) {
+        target.setAttribute('href', value);
+      }
+      continue;
+    }
+    if (/^aria-[a-z]+$/.test(name)) {
+      target.setAttribute(name, value);
+      continue;
+    }
+    if (!ATTRIBUTES.has(name)) continue;
+    if (name === 'id') {
+      if (isRoot ? value === rootId : isInnerScopedId(value, rootId)) {
+        target.setAttribute('id', value);
+        copiedIds.add(value);
+      }
+    } else if (name === 'style') {
+      const style = (target as SVGElement).style;
+      for (const [property, declared] of safeDeclarations(value)) {
+        const important = /\s*!important$/i.test(declared);
+        style.setProperty(
+          property,
+          declared.replace(/\s*!important$/i, ''),
+          important ? 'important' : '',
+        );
+      }
+    } else if (isSafeCssValue(value)) {
+      target.setAttribute(name, value);
+    }
+  }
 }
 
 /**
@@ -391,55 +331,20 @@ export interface SafeSvgOptions {
  */
 export function safeSvg(markup: string, options: SafeSvgOptions = {}): SVGSVGElement | undefined {
   const page = options.document ?? document;
-  // A document of its own: nothing in it runs, loads or is styled.
   const parsed = new DOMParser().parseFromString(markup, 'text/html');
   const root = parsed.body.firstElementChild;
   if (parsed.body.children.length !== 1 || !root) return undefined;
   if (root.localName !== 'svg' || root.namespaceURI !== SVG_NAMESPACE) return undefined;
-  // Every direct child is counted, even when dropped, and the root counts too.
-  // Refuse a tree that is already too wide before rebuilding any of its shapes.
   if (root.childElementCount >= MAX_ELEMENTS) return undefined;
   const rootId = root.getAttribute('id') ?? '';
   if (!NAME.test(rootId)) return undefined;
+  if (options.expectedId !== undefined && rootId !== options.expectedId) return undefined;
   const scope = `#${rootId}`;
 
   const seen = { count: 0, tooLarge: false };
+  const copiedIds = new Set<string>([rootId]);
 
-  function copyAttributes(source: Element, target: Element): void {
-    for (const { name, value } of Array.from(source.attributes)) {
-      if (value.length > MAX_ATTRIBUTE_LENGTH) continue;
-      if (name === 'href' || name === 'xlink:href') {
-        // Only into the picture itself, and only where that means "use that element".
-        if (REFERENCING.has(source.localName) && LOCAL_REFERENCE.test(value))
-          target.setAttribute('href', value);
-        continue;
-      }
-      if (/^aria-[a-z]+$/.test(name)) {
-        target.setAttribute(name, value);
-        continue;
-      }
-      if (!ATTRIBUTES.has(name)) continue;
-      if (name === 'id') {
-        if (NAME.test(value)) target.setAttribute('id', value);
-      } else if (name === 'style') {
-        // Through the style object, one property at a time, so that this
-        // also works where a policy forbids style attributes set from markup.
-        const style = (target as SVGElement).style;
-        for (const [property, declared] of safeDeclarations(value)) {
-          const important = /\s*!important$/i.test(declared);
-          style.setProperty(
-            property,
-            declared.replace(/\s*!important$/i, ''),
-            important ? 'important' : '',
-          );
-        }
-      } else if (isSafeCssValue(value)) {
-        target.setAttribute(name, value);
-      }
-    }
-  }
-
-  function copy(source: Element, depth: number): Node | undefined {
+  function copy(source: Element, depth: number, isRoot = false): Node | undefined {
     if (seen.tooLarge) return undefined;
     seen.count += 1;
     if (seen.count > MAX_ELEMENTS || depth > MAX_DEPTH) {
@@ -456,14 +361,13 @@ export function safeSvg(markup: string, options: SafeSvgOptions = {}): SVGSVGEle
     if (name === undefined) return undefined;
 
     const target = page.createElementNS(SVG_NAMESPACE, name);
-    copyAttributes(source, target);
+    copySvgAttributes(source, target, rootId, isRoot, copiedIds);
     if (name === 'style') {
       const rules = safeStyleSheet(source.textContent, scope);
       if (rules === '') return undefined;
       target.append(page.createTextNode(rules));
       return target;
     }
-    // A reference that points nowhere draws nothing; without it the element has no use.
     if (name === 'use' && !target.hasAttribute('href')) return undefined;
     copyChildren(source, target, depth);
     return target;
@@ -476,11 +380,18 @@ export function safeSvg(markup: string, options: SafeSvgOptions = {}): SVGSVGEle
         const copied = copy(child as Element, depth + 1);
         if (copied) target.append(copied);
       }
-      // Comments, processing instructions and the rest are not copied.
     }
   }
 
-  const picture = copy(root, 1);
+  const picture = copy(root, 1, true);
   if (seen.tooLarge || !picture) return undefined;
-  return picture as SVGSVGElement;
+  const svgElement = picture as SVGSVGElement;
+  for (const referencing of Array.from(svgElement.querySelectorAll('[href]'))) {
+    const href = referencing.getAttribute('href') ?? '';
+    if (!href.startsWith('#') || !copiedIds.has(href.slice(1))) {
+      if (referencing.localName === 'use') referencing.remove();
+      else referencing.removeAttribute('href');
+    }
+  }
+  return svgElement;
 }

@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 import { BODY_FIELD } from '../../editor/body-editor.ts';
 import { bodyExtensions } from '../../editor/extensions.ts';
 import { bodyOfDoc, readBodyOfDoc } from '../../editor/room-body.ts';
+import { sameDocNode } from '../../editor/same-doc.ts';
 import { emptyDoc, type DocNode } from '../../editor/schema.ts';
 
 import type { StoredCard } from './world.ts';
@@ -38,7 +39,7 @@ export const readBodyOf = readBodyOfDoc;
 /** Whether a body read from a document is `stored`, read as a document made from it would hold it. */
 export function sameBody(read: DocNode | null, stored: DocNode | null): boolean {
   const made = documentOf(stored);
-  const same = JSON.stringify(read) === JSON.stringify(bodyOf(made));
+  const same = sameDocNode(read, bodyOf(made) ?? null);
   made.destroy();
   return same;
 }

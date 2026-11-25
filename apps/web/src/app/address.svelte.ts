@@ -5,34 +5,46 @@
  * entered is the one to come back to on this browser. Called while the app's
  * component is made: the effects are that component's.
  */
-import type { Workspace } from '$lib/state/index.ts';
+import { isOpen, type Workspace } from '$lib/state/index.ts';
 
 import { rememberWorkspace } from './last-workspace.ts';
-import type { Router } from './router.svelte.ts';
+import { workspaceIdOf, type Router } from './router.svelte.ts';
 
 export function followAddress(routerOf: () => Router, shown: () => Workspace | undefined): void {
   // The root address: to the workspace the reader starts in, in its place.
   $effect(() => {
     const [router, workspace] = [routerOf(), shown()];
-    if (workspace?.status !== 'ready' || router.route.unknown || router.route.workspaceId) return;
-    if (router.route.invitation !== undefined || router.route.orgId) return;
-    if (router.route.meTime) {
+    const route = router.route;
+    if (workspace?.status !== 'ready') return;
+    if (route.kind === 'meTime') {
       if (!workspace.asked) {
         const chosen = workspace.firstChoice();
         if (chosen) void workspace.enter(chosen);
       }
       return;
     }
+    if (route.kind !== 'home') return;
     const chosen = workspace.firstChoice();
     if (chosen) router.go({ workspaceId: chosen }, { replace: true });
   });
 
-  // Another workspace in the address: it is entered.
+  // Another workspace in the address (or returning via Back after /org changes): entered.
+  let checkedWorkspaces: Workspace['workspaces'] | undefined;
   $effect(() => {
     const workspace = shown();
-    const asked = routerOf().route.workspaceId;
-    if (workspace?.status === 'ready' && asked && asked !== workspace.asked) {
-      void workspace.enter(asked);
+    const asked = workspaceIdOf(routerOf().route);
+    if (workspace?.status !== 'ready' || !asked) return;
+    const workspacesChanged = workspace.workspaces !== checkedWorkspaces;
+    checkedWorkspaces = workspace.workspaces;
+    const listed = workspace.workspaces.find((one) => one.id === asked);
+    const stale =
+      workspacesChanged &&
+      (listed
+        ? (isOpen(listed) && workspace.entered === 'missing') ||
+          (!isOpen(listed) && workspace.entered === 'ready')
+        : workspace.entered === 'ready');
+    if (asked !== workspace.asked || stale) {
+      void workspace.enter(asked, stale);
     }
   });
 

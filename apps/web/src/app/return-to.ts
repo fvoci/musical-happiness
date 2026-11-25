@@ -6,6 +6,8 @@
  * Only a path of this site is kept and taken, and only for a while: a
  * sign-in that never came back does not send a later visit somewhere old.
  */
+import { buildUrl } from '$lib/logic/urls.ts';
+
 import { parseRoute, type Router } from './router.svelte.ts';
 
 const KEY = 'fvoci:return-to';
@@ -52,9 +54,13 @@ export function resume(router: Router, cameBack: URLSearchParams): void {
   if (cameBack.has('oidc_linked') || cameBack.has('account_leaving')) {
     history.replaceState(null, '', location.pathname);
   }
-  const { unknown, workspaceId, orgId: organization } = router.route;
-  if (kept === undefined || unknown || workspaceId || organization) return;
+  if (kept === undefined || router.route.kind !== 'home') return;
   const route = parseRoute(kept, router.basePath);
-  if (route.invitation !== undefined) location.replace(router.inviteHref(route.invitation));
-  else if (!route.unknown) router.go(route, { replace: true });
+  if (route.kind === 'invite') {
+    location.replace(
+      route.invitation ? router.inviteHref(route.invitation) : buildUrl('/invite', router.basePath),
+    );
+  } else if (route.kind !== 'unknown') {
+    router.go(route, { replace: true });
+  }
 }

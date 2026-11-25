@@ -41,7 +41,18 @@
     flushSync(() => {
       openIn = viewId;
     });
-    field?.focus();
+    // Force layout recalc after removing `hidden` so WebKit treats the input as focusable at once.
+    field?.getBoundingClientRect();
+    field?.focus({ preventScroll: true });
+    queueMicrotask(() => {
+      if (
+        shown &&
+        field &&
+        (document.activeElement === document.body || document.activeElement === trigger)
+      ) {
+        field.focus({ preventScroll: true });
+      }
+    });
   }
 
   function close(): void {
@@ -49,7 +60,13 @@
       search = '';
       openIn = undefined;
     });
-    trigger?.focus();
+    trigger?.getBoundingClientRect();
+    trigger?.focus({ preventScroll: true });
+    queueMicrotask(() => {
+      if (!shown && trigger && document.activeElement === document.body) {
+        trigger.focus({ preventScroll: true });
+      }
+    });
   }
 
   /** Escape closes the field; in the whole row, so does the focus leaving it empty. */

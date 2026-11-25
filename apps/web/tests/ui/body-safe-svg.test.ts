@@ -92,13 +92,15 @@ describe('a picture that is fine', () => {
     const sheet = element.querySelector('style')?.textContent ?? '';
     expect(sheet).toContain('#pic .node rect{fill:#eee;stroke:rgb(0,0,0);stroke-width:1px}');
     expect(sheet).toContain('#pic .edge{stroke:url(#pic-gradient)}');
-    expect(sheet).toContain('@keyframes dash{to{stroke-dashoffset:0}}');
+    expect(sheet).toContain('@keyframes pic-dash{to{stroke-dashoffset:0}}');
     expect(text).not.toContain('xmlns:xlink');
   });
 
-  it('is built in the document it is asked to be built in', () => {
+  it('is built in the document it is asked to be built in and enforces expectedId when given', () => {
     const other = document.implementation.createHTMLDocument('');
     expect(safeSvg(svg('<rect></rect>'), { document: other })?.ownerDocument).toBe(other);
+    expect(safeSvg(svg('<rect></rect>'), { expectedId: 'pic' })).toBeDefined();
+    expect(safeSvg(svg('<rect></rect>'), { expectedId: 'doc-diagram-9' })).toBeUndefined();
   });
 });
 
@@ -380,15 +382,25 @@ describe('a hostile picture', () => {
     expect(element.querySelector('switch > text')?.textContent).toBe('plain');
   });
 
-  it('drops only the identifier that is not a plain name', () => {
+  it('keeps only inner identifiers prefixed under the root id, and drops dangling #href references', () => {
     const { element } = filtered(
       svg(
-        '<rect id="ok-1"></rect><rect id="가나_다"></rect><rect id="a b"></rect><rect id="x)y"></rect>',
+        '<defs><g id="pic-ok-1"></g><g id="pic_가나"></g></defs>' +
+          '<rect id="app"></rect><rect id="a b"></rect><rect id="x)y"></rect>' +
+          '<use href="#pic-ok-1"></use><use href="#outside-page-id"></use>' +
+          '<linearGradient id="pic-g" href="#outside-grad"></linearGradient>',
       ),
     );
     expect(
+      Array.from(element.querySelectorAll('defs > g')).map((g) => g.getAttribute('id')),
+    ).toEqual(['pic-ok-1', 'pic_가나']);
+    expect(
       Array.from(element.querySelectorAll('rect')).map((rect) => rect.getAttribute('id')),
-    ).toEqual(['ok-1', '가나_다', null, null]);
+    ).toEqual([null, null, null]);
+    expect(Array.from(element.querySelectorAll('use')).map((u) => u.getAttribute('href'))).toEqual([
+      '#pic-ok-1',
+    ]);
+    expect(element.querySelector('linearGradient')?.hasAttribute('href')).toBe(false);
   });
 });
 
@@ -402,6 +414,10 @@ describe('style rules', () => {
         '#pic:hover{opacity:0.9}',
         '#pic [data-look="neo"].node rect{stroke:red}',
         'body{display:none}',
+        '#pic ~ *{display:none}',
+        '#pic + *{display:none}',
+        '#pic .a + .b{fill:red}',
+        '#pic a } body{display:none}',
         '#pic .a, body .b{fill:red}',
         '#picture .a{fill:red}',
         '.node{fill:red}',
@@ -434,18 +450,20 @@ describe('style rules', () => {
     );
   });
 
-  it('keeps keyframes and drops every other at-rule', () => {
+  it('scopes keyframes under the picture id and drops every other at-rule', () => {
     const sheet = safeStyleSheet(
       `@charset "utf-8";@import "${EVIL}/x.css";@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}` +
         `@-webkit-keyframes dash{0%,50%{opacity:0}to{opacity:1;background:url(${EVIL}/k.png)}}` +
+        `@keyframes spin{to{transform:rotate(360deg)}}` +
         `@font-face{font-family:x;src:url(${EVIL}/f.woff2)}@media print{#pic{display:none}}@layer a{#pic{fill:red}}@page{margin:0}` +
-        '#pic .a{animation:dash 1s linear infinite}',
+        '#pic .a{animation:dash 1s linear infinite;animation-name:spin}',
       '#pic',
     );
     expect(sheet.split('\n')).toEqual([
-      '@keyframes edge-animation-frame{from{stroke-dashoffset:0}}',
-      '@keyframes dash{0%,50%{opacity:0}to{opacity:1}}',
-      '#pic .a{animation:dash 1s linear infinite}',
+      '@keyframes pic-edge-animation-frame{from{stroke-dashoffset:0}}',
+      '@keyframes pic-dash{0%,50%{opacity:0}to{opacity:1}}',
+      '@keyframes pic-spin{to{transform:rotate(360deg)}}',
+      '#pic .a{animation:pic-dash 1s linear infinite;animation-name:pic-spin}',
     ]);
   });
 
@@ -514,9 +532,11 @@ describe('style values', () => {
     expect(isSafeCssValue(value)).toBe(false);
   });
 
-  it('reads declarations past quotes and brackets', () => {
+  it('reads declarations past quotes and brackets and drops layout/overlay properties', () => {
     expect(
-      safeDeclarations('font-family: "a;b", serif; fill: rgb(1, 2, 3); : x; nope; --x: 1; 9bad: 1'),
+      safeDeclarations(
+        'font-family: "a;b", serif; fill: rgb(1, 2, 3); : x; nope; --x: 1; 9bad: 1; position: fixed; inset: 0; z-index: 9999; pointer-events: all',
+      ),
     ).toEqual([
       ['font-family', '"a;b", serif'],
       ['fill', 'rgb(1, 2, 3)'],

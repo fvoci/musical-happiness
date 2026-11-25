@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { routeOfPlace } from '../../../src/app/places.ts';
 import { referencePlaces } from '../../../src/app/reference-places.ts';
 import { Router } from '../../../src/app/router.svelte.ts';
-import SharedCourse from '../../../src/app/SharedCourse.svelte';
+import SharedTreeReader from '../../../src/app/SharedTreeReader.svelte';
 import type { Backend, CourseUnit, CourseUnitDetail } from '$lib/state/index.ts';
 
 afterEach(cleanup);
@@ -35,8 +35,7 @@ describe('unit reference places and notification links', () => {
     };
     expect(places.href(linked)).toBe(`/w/${WS}/courses/${COURSE}/${U2}`);
     places.open(linked);
-    expect(router.route.courseId).toBe(COURSE);
-    expect(router.route.unitId).toBe(U2);
+    expect(router.route).toMatchObject({ kind: 'course', courseId: COURSE, unitId: U2 });
 
     const notified = routeOfPlace(router, {
       kind: 'unit',
@@ -132,7 +131,7 @@ describe('SharedCourse public reader', () => {
       },
     } as unknown as Backend;
 
-    render(SharedCourse, { backend, courseId: COURSE, router });
+    render(SharedTreeReader, { kind: 'course', backend, containerId: COURSE, router });
 
     await waitFor(() => {
       expect(screen.getByTestId('unit-title')).toHaveTextContent('Lesson 1');

@@ -77,7 +77,7 @@ get along, so we shut typescript up by casting `value` to `never`.
 				<CalendarPrevButton variant={buttonVariant} />
 				<CalendarNextButton variant={buttonVariant} />
 			</CalendarNav>
-			{#each months as month, monthIndex (month)}
+			{#each months as month, monthIndex (month.value.toString())}
 				<CalendarMonth>
 					<CalendarHeader>
 						<CalendarCaption
@@ -103,9 +103,9 @@ get along, so we shut typescript up by casting `value` to `never`.
 							</CalendarGridRow>
 						</CalendarGridHead>
 						<CalendarGridBody>
-							{#each month.weeks as weekDates (weekDates)}
+							{#each month.weeks as weekDates, weekIndex (weekIndex)}
 								<CalendarGridRow class="mt-2 w-full">
-									{#each weekDates as date (date)}
+									{#each weekDates as date (date.toString())}
 										<CalendarCell {date} month={month.value}>
 											{#if day}
 												{@render day({

@@ -1,38 +1,15 @@
 /**
  * The server's changes as they happen (`contracts/websocket.md`): one
  * WebSocket per page, subscribed to the workspace the reader is in
- * (`enter`: the one the address names), its messages turned
- * into the screens' changes (`Change`) and handed to whoever listens to that
- * board or to the reader's own things.
+ * (`enter`: the one the address names), its messages turned into `Change`
+ * values and handed to listeners of that container or the reader's own state.
  *
- * The server answers no command and does not send again what a connection
- * missed. So a connection that drops is opened again after a wait that
- * grows (it shrinks back once a connection has held), and every listener is
- * then told to read again (`resync`): what happened in between is not
- * known. The browser saying it is online again, or the reader signing in
- * (`restart`), opens it at once; the browser saying it is offline drops it
- * at once, and so does a `ping` nothing answers in time (`live-heartbeat.ts`:
- * a connection that died says nothing for a long while otherwise). Nothing
- * is opened before a workspace is entered; entering another one moves the
- * subscription over to it.
- *
- * Members and categories come in pieces, and being added to a board or
- * taken off one sends no message of the board. So a member message has the
- * board's listeners read its members, and a member or category message has
- * the reader's own listeners read the sidebar again (`resync`, gathered).
- *
- * Access taken back ends the subscription, not the connection
- * (`workspaceUnsubscribed`): it is asked again, which takes the new role or
- * is refused, and the listeners read again.
- *
- * What the reader was told changed (`notificationsChanged`, whatever
- * workspace is followed) is told to the reader's own listeners, who read it
- * again.
- *
- * The rooms of the bodies edited together use the same connection
- * (`live-rooms.ts`): an open room keeps it open as a listener does, and
- * hears when it comes and goes. Their binary frames come on it too.
+ * Reconnection uses exponential backoff (`WAITS`, with jitter on `1013`),
+ * resets after `STEADY`, and broadcasts `resync` so missed updates are re-read.
+ * Binary Yjs room frames (`live-rooms.ts`) and presence (`live-presence.ts`)
+ * share the same connection.
  */
+import type { Container } from '../logic/wire.ts';
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
 import type { BodySummary } from '../state/body-summary.ts';
 
@@ -58,6 +35,10 @@ type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
 export interface LiveReads {
   /** A board's or a wiki's members: a message carries one member, the screens want them all. */
   members(containerId: string): Promise<Members>;
+  /** Records the workspace of a newly created/restored container heard on WS (`W1.2`). */
+  learnContainer?(container: Container): void;
+  /** Records a live view/comment block heard on WS so 1-round-trip patches stay current. */
+  learnBlock?(block: ChangedBlock): void;
 }
 
 interface Listening {
@@ -384,55 +365,17 @@ export class LiveChanges {
       this.#tellSelf({ kind: 'user', userId: message.userId });
     } else if (message.type === 'containerChanged' && 'container' in message) {
       const { container } = message;
-      // A deleted board or wiki carries only its identifier and times.
-      const change: Change =
-        container.deletedAt === undefined
-          ? { kind: 'container', container: containerOf(container) }
-          : { kind: 'containerDeleted', containerId: container.id };
+      let change: Change;
+      if (container.deletedAt === undefined) {
+        const converted = containerOf(container);
+        this.#reads.learnContainer?.(converted);
+        change = { kind: 'container', container: converted };
+      } else {
+        change = { kind: 'containerDeleted', containerId: container.id };
+      }
       this.#tellContainer(container.id, change, true);
     } else if (message.type === 'blockChanged' && 'block' in message) {
-      const { block, summary } = message;
-      if (block.deletedAt !== undefined) {
-        // Only the block deleted is told, not what went with it.
-        this.#tellContainer(
-          block.containerId,
-          { kind: 'blocksDeleted', containerId: block.containerId, blockIds: [block.id] },
-          false,
-        );
-        return;
-      }
-      if (block.type === 'page') {
-        this.#tellContainer(
-          block.containerId,
-          { kind: 'pages', containerId: block.containerId, pages: [pageOfBlock(block)] },
-          false,
-        );
-        return;
-      }
-      if (block.type === 'entry') {
-        this.#tellContainer(
-          block.containerId,
-          { kind: 'entries', containerId: block.containerId, entries: [entryOfBlock(block)] },
-          false,
-        );
-        return;
-      }
-      if (block.type === 'unit' || block.type === 'chapter') {
-        this.#tellContainer(
-          block.containerId,
-          { kind: 'units', containerId: block.containerId, units: [unitOfBlock(block)] },
-          false,
-        );
-        return;
-      }
-      const changed = changedBlock(block, summary);
-      if (changed) {
-        this.#tellContainer(
-          block.containerId,
-          { kind: 'blocks', containerId: block.containerId, blocks: [changed] },
-          false,
-        );
-      }
+      this.#receiveBlock(message.block, message.summary);
     } else if (
       (message.type === 'containerMemberChanged' || message.type === 'containerMemberRemoved') &&
       'member' in message
@@ -464,6 +407,50 @@ export class LiveChanges {
         this.#tellContainer(containerId, { kind: 'containerDeleted', containerId }, false);
       }
       // Anything else: the next message, or the next reading, brings them.
+    }
+  }
+
+  #receiveBlock(block: Schemas['Block'], summary: BodySummary | undefined): void {
+    if (block.deletedAt !== undefined) {
+      this.#tellContainer(
+        block.containerId,
+        { kind: 'blocksDeleted', containerId: block.containerId, blockIds: [block.id] },
+        false,
+      );
+      return;
+    }
+    if (block.type === 'page') {
+      this.#tellContainer(
+        block.containerId,
+        { kind: 'pages', containerId: block.containerId, pages: [pageOfBlock(block)] },
+        false,
+      );
+      return;
+    }
+    if (block.type === 'entry') {
+      this.#tellContainer(
+        block.containerId,
+        { kind: 'entries', containerId: block.containerId, entries: [entryOfBlock(block)] },
+        false,
+      );
+      return;
+    }
+    if (block.type === 'unit' || block.type === 'chapter') {
+      this.#tellContainer(
+        block.containerId,
+        { kind: 'units', containerId: block.containerId, units: [unitOfBlock(block)] },
+        false,
+      );
+      return;
+    }
+    const changed = changedBlock(block, summary);
+    if (changed) {
+      this.#reads.learnBlock?.(changed);
+      this.#tellContainer(
+        block.containerId,
+        { kind: 'blocks', containerId: block.containerId, blocks: [changed] },
+        false,
+      );
     }
   }
 

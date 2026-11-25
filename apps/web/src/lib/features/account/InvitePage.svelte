@@ -31,6 +31,7 @@
   import { Label } from '$lib/ui/label/index.js';
 
   import type { WaitingAccount } from '$lib/state/email-verification.ts';
+  import { forgetInviteToken } from '../../../app/fragment-token.ts';
   import AccountFields from './AccountFields.svelte';
   import CheckMailPage from './CheckMailPage.svelte';
   import ResendLink from './ResendLink.svelte';
@@ -80,14 +81,20 @@
 
   /** What the link shows; `undefined` for one that lets nobody in. */
   const shown = $derived(
-    preview(token).then(
-      (found) => ({ found, failed: false }),
-      (error: unknown) => ({
-        found: undefined,
-        // Anything but "no such link" may pass: the page offers to try again.
-        failed: !(isBackendError(error) && error.reason === 'invitation_unavailable'),
-      }),
-    ),
+    token === ''
+      ? Promise.resolve({ found: undefined, failed: false })
+      : preview(token).then(
+          (found) => ({ found, failed: false }),
+          (error: unknown) => {
+            const unavailable = isBackendError(error) && error.reason === 'invitation_unavailable';
+            if (unavailable) forgetInviteToken();
+            return {
+              found: undefined,
+              // Anything but "no such link" may pass: the page offers to try again.
+              failed: !unavailable,
+            };
+          },
+        ),
   );
 
   let mode = $state<'register' | 'signIn'>('register');
@@ -132,6 +139,7 @@
         unconfirmed = login.trim();
       }
       if (isBackendError(error) && error.reason === 'invitation_unavailable') {
+        forgetInviteToken();
         gone = true;
         return;
       }
@@ -153,7 +161,10 @@
   /** Shows where an account that has one was let in. */
   function letIn(accepted: AcceptedInvitation | 'waiting'): void {
     // Who is signed in is let in at once: only a new account waits.
-    if (accepted !== 'waiting') onJoined(accepted);
+    if (accepted !== 'waiting') {
+      forgetInviteToken();
+      onJoined(accepted);
+    }
   }
 
   /** Joins as whoever is signed in. */
@@ -192,6 +203,7 @@
         login = name;
         mode = 'signIn';
         await onSignIn(name, password);
+        forgetInviteToken();
         onJoined(accepted);
       });
     }
@@ -217,6 +229,7 @@
 
   function switchTo(next: 'register' | 'signIn'): void {
     mode = next;
+    signedIn = false;
     problem = undefined;
     fieldProblems = {};
   }
@@ -237,7 +250,11 @@
 {#snippet invitedTo(found: InvitationPreview)}
   <p class="text-lg font-medium" data-testid="invite-summary">
     {#if found.containerTitle !== undefined}
-      {(found.containerKind === 'wiki' ? m.invite_summary_wiki : m.invite_summary_board)({
+      {(found.containerKind === 'wiki'
+        ? m.invite_summary_wiki
+        : found.containerKind === 'course'
+          ? m.invite_summary_course
+          : m.invite_summary_board)({
         inviter: found.inviterName,
         workspace: found.workspaceName || m.invite_workspace_unnamed(),
         board: found.containerTitle || m.invite_board_untitled(),
@@ -369,9 +386,11 @@
                   id="account-login"
                   name="login"
                   bind:value={login}
+                  oninput={() => {
+                    signedIn = false;
+                  }}
                   autocomplete="username"
                   required
-                  disabled={signedIn}
                   aria-invalid={fieldProblems.login ? 'true' : undefined}
                   aria-describedby={fieldProblems.login ? 'account-login-problem' : undefined}
                   class="roomy:h-touch roomy:text-base"
@@ -385,9 +404,11 @@
                   name="password"
                   type="password"
                   bind:value={password}
+                  oninput={() => {
+                    signedIn = false;
+                  }}
                   autocomplete="current-password"
                   required
-                  disabled={signedIn}
                   aria-invalid={fieldProblems.password ? 'true' : undefined}
                   aria-describedby={fieldProblems.password ? 'account-password-problem' : undefined}
                   class="roomy:h-touch roomy:text-base"

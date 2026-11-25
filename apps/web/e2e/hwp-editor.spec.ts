@@ -57,11 +57,12 @@ for (const [name, sample, mimeType] of [
     await expect(editor(page)).toHaveAttribute('data-dirty', 'false');
     await expect(page.getByTestId('file-editor-losses')).toHaveCount(0);
 
-    // The focus is back in the document: typed again and saved with the key, the next version.
+    // The focus is back in the document: typed again and saved with the key, confirmed in the parent, the next version.
     await expect(page.getByTestId('file-editor-frame')).toBeFocused();
     await page.keyboard.type('!');
     await expect(editor(page)).toHaveAttribute('data-dirty', 'true');
     await page.keyboard.press('Control+s');
+    await page.getByTestId('file-editor-confirm-version').click();
     await expect(said(page)).toHaveText('Saved as version 3.');
 
     // Closed, the viewer shows the file as it is now: the newest version, with the edit.

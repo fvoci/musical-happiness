@@ -87,21 +87,21 @@ export type {
   DiaryRun,
   Mood,
 } from './diary-types.ts';
-export type { PageComments } from './page-comments.svelte.ts';
+export { CollaborativeBodyState, settleActiveBodies } from './collab-body.svelte.ts';
+export { CommentThreadStore } from './comment-thread.svelte.ts';
+export type { CommentThreadStore as PageComments } from './comment-thread.svelte.ts';
 export { WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';
 export { createWiki } from './wiki-parts.ts';
-export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
-export { CourseStore, type CourseLooks } from './course.svelte.ts';
+export { CourseStore, type CourseLooks, type CourseStoreTab } from './course.svelte.ts';
 export { CourseMeetingsState, type CourseEventWriteResult } from './course-meetings.svelte.ts';
 export { CourseScheduleState, type ScheduleWriteResult } from './course-schedule.svelte.ts';
 export { DeviceToday } from './device-today.svelte.ts';
 export { LearningTodayStore } from './learning-today.svelte.ts';
 export { syncDeviceTimeZone } from './time-zone-sync.ts';
 export { UnitStore } from './unit.svelte.ts';
-export type { UnitComments } from './unit-comments.svelte.ts';
+export type { CommentThreadStore as UnitComments } from './comment-thread.svelte.ts';
 export { createCourse, createCourseFromTemplate } from './course-parts.ts';
-export { shownCourse } from './shown-course.svelte.ts';
 export {
   AMOUNT_UNITS,
   ATTENDANCE_STATUSES,
@@ -270,6 +270,7 @@ export type {
 } from './time-types.ts';
 export {
   Workspace,
+  type ActiveContainer,
   type LoadStatus,
   type Problem,
   type ProblemAction,

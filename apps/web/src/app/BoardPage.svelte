@@ -9,13 +9,10 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
 
+  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
   import CardDialog from '$lib/features/card/CardDialog.svelte';
   import ViewHeader from '$lib/features/view-header/ViewHeader.svelte';
-  import Calendar from '$lib/features/views/calendar/Calendar.svelte';
-  import Gallery from '$lib/features/views/gallery/Gallery.svelte';
-  import Gantt from '$lib/features/views/gantt/Gantt.svelte';
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
-  import Table from '$lib/features/views/table/Table.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { focusAdrift } from '$lib/layout/focus.ts';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
@@ -29,33 +26,51 @@
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import LazyView from './LazyView.svelte';
   import ManagedContainer from './ManagedContainer.svelte';
   import { referencePlaces } from './reference-places.ts';
-  import type { Router } from './router.svelte.ts';
+  import { cardIdOf, isSharedRoute, workspaceIdOf, type Router } from './router.svelte.ts';
   import TimeTargetControl from './TimeTargetControl.svelte';
+
+  const tableChunk = new LazyChunk(() => import('$lib/features/views/table/Table.svelte'));
+  const galleryChunk = new LazyChunk(() => import('$lib/features/views/gallery/Gallery.svelte'));
+  const ganttChunk = new LazyChunk(() => import('$lib/features/views/gantt/Gantt.svelte'));
+  const calendarChunk = new LazyChunk(() => import('$lib/features/views/calendar/Calendar.svelte'));
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
-  // Where the references in the bodies of this workspace lead, by the app's one router:
-  // the board page and the wiki page each say so, and neither takes it back.
   $effect.pre(() => {
     referenceTitles(workspace).places = referencePlaces(router);
   });
 
+  const routeBoardId = $derived(
+    router.route.kind === 'board' || router.route.kind === 'shared'
+      ? router.route.boardId
+      : undefined,
+  );
+  const routeViewId = $derived(
+    router.route.kind === 'board' || router.route.kind === 'shared'
+      ? router.route.viewId
+      : undefined,
+  );
+  const routeCardId = $derived(cardIdOf(router.route));
+  const routeWorkspaceId = $derived(workspaceIdOf(router.route));
+  const routeReadToken = $derived(
+    router.route.kind === 'shared' ? router.route.readToken : undefined,
+  );
+
   // Open the board the address names.
   $effect(() => {
-    const boardId = router.route.boardId;
+    const boardId = routeBoardId;
     if (boardId && workspace.board?.boardId !== boardId) void workspace.openBoard(boardId);
   });
 
-  const board = $derived(
-    workspace.board?.boardId === router.route.boardId ? workspace.board : undefined,
-  );
-  const view = $derived(board?.view(router.route.viewId));
+  const board = $derived(workspace.board?.boardId === routeBoardId ? workspace.board : undefined);
+  const view = $derived(board?.view(routeViewId));
 
   // The card the reader is on, before the visit starts: the visit is told once, with it.
   $effect(() => {
-    if (board) boardPresence(board).setCard(router.route.cardId);
+    if (board) boardPresence(board).setCard(routeCardId);
   });
   $effect(() => {
     const shown = board;
@@ -86,10 +101,10 @@
   // names the view shown now.
   $effect(() => {
     if (board?.status !== 'ready' || view) return;
-    if (router.route.viewId && board.revalidating) return;
+    if (routeViewId && board.revalidating) return;
     const first = board.orderedViews[0];
     if (!first) return;
-    const went = shownId !== undefined && router.route.viewId === shownId;
+    const went = shownId !== undefined && routeViewId === shownId;
     router.go({ ...router.route, viewId: first.id }, { replace: true });
     if (went) void tick().then(focusViews);
   });
@@ -108,14 +123,9 @@
     if (viewId) search = '';
   });
 
-  const cards = $derived(board && view ? board.cardsOf(view, search) : []);
+  const filteredCards = $derived(board && view ? board.filteredCardsOf(view) : []);
+  const cards = $derived(board ? board.narrowCards(filteredCards, search) : []);
 
-  // Primitive route parts so opening or closing a card (`router.route.cardId`) does not
-  // re-evaluate `cardHref` for every row of a large view.
-  const routeWorkspaceId = $derived(router.route.workspaceId);
-  const routeBoardId = $derived(router.route.boardId);
-  const routeViewId = $derived(router.route.viewId);
-  const routeReadToken = $derived(router.route.readToken);
   const cardHref = (cardId: string): string =>
     router.href({
       workspaceId: routeWorkspaceId,
@@ -148,6 +158,12 @@
     if (card) openCard(card.id);
   }
 </script>
+
+<svelte:window
+  onpagehide={() => {
+    void board?.openCard?.settleBody();
+  }}
+/>
 
 {#if !board || board.status === 'idle' || board.status === 'loading'}
   <div class="grid h-full place-items-center p-6">
@@ -206,19 +222,35 @@
       {#if view.fields.viewType === 'board'}
         <Kanban {board} {view} {cards} {cardHref} onOpenCard={openCard} />
       {:else if view.fields.viewType === 'table'}
-        <Table {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+        <LazyView chunk={tableChunk}>
+          {#snippet children(Table)}
+            <Table {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+          {/snippet}
+        </LazyView>
       {:else if view.fields.viewType === 'gallery'}
-        <Gallery {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+        <LazyView chunk={galleryChunk}>
+          {#snippet children(Gallery)}
+            <Gallery {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+          {/snippet}
+        </LazyView>
       {:else if view.fields.viewType === 'gantt'}
         <!-- Another Gantt view starts with today in sight: where it is scrolled to is not this one's. -->
-        {#key view.id}
-          <Gantt {board} {view} {cards} {cardHref} onOpenCard={openCard} />
-        {/key}
+        <LazyView chunk={ganttChunk}>
+          {#snippet children(Gantt)}
+            {#key view.id}
+              <Gantt {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+            {/key}
+          {/snippet}
+        </LazyView>
       {:else}
         <!-- Another calendar view starts at today: its month and day are not this one's. -->
-        {#key view.id}
-          <Calendar {board} {view} {cards} {cardHref} onOpenCard={openCard} />
-        {/key}
+        <LazyView chunk={calendarChunk}>
+          {#snippet children(Calendar)}
+            {#key view.id}
+              <Calendar {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+            {/key}
+          {/snippet}
+        </LazyView>
       {/if}
     </div>
   </div>
@@ -226,14 +258,14 @@
     {board}
     {view}
     {cardHref}
-    cardId={router.route.cardId}
+    cardId={routeCardId}
     onOpenCard={openCard}
     onClose={() => {
       router.closeCard();
     }}
   >
     {#snippet headerActions(card: CardStore)}
-      {#if !router.route.shared && workspace.backend.time && workspace.me?.id && !board.board?.isTemplate && card.summary && !card.summary.fields.isTemplate && !card.missing}
+      {#if !isSharedRoute(router.route) && workspace.backend.time && workspace.me?.id && !board.board?.isTemplate && card.summary && !card.summary.fields.isTemplate && !card.missing}
         <TimeTargetControl
           {workspace}
           workspaceId={board.board?.workspaceId}

@@ -196,15 +196,21 @@ describe('an invitation accepted', () => {
   it('leads to its wiki at a wiki’s address, and to its board at a board’s', () => {
     const workspaceId = 'w';
     expect(acceptedRoute({ workspaceId, containerId: 'a', containerKind: 'wiki' })).toEqual({
+      kind: 'wiki',
       workspaceId,
       wikiId: 'a',
     });
     expect(acceptedRoute({ workspaceId, containerId: 'b', containerKind: 'board' })).toEqual({
+      kind: 'board',
       workspaceId,
       boardId: 'b',
     });
     // An answer that does not say: a board's address, which says what there is to say.
-    expect(acceptedRoute({ workspaceId, containerId: 'c' })).toEqual({ workspaceId, boardId: 'c' });
-    expect(acceptedRoute({ workspaceId })).toEqual({ workspaceId });
+    expect(acceptedRoute({ workspaceId, containerId: 'c' })).toEqual({
+      kind: 'board',
+      workspaceId,
+      boardId: 'c',
+    });
+    expect(acceptedRoute({ workspaceId })).toEqual({ kind: 'workspace', workspaceId });
   });
 });

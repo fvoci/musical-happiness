@@ -5,6 +5,7 @@
  * (`backend.ts`) adds live changes and the remaining board writes.
  */
 import type { FileDetails } from '../editor/files.ts';
+import { isFileId } from '../editor/schema.ts';
 import type { Container } from '../logic/wire.ts';
 import {
   BackendError,
@@ -251,7 +252,14 @@ export class ServerRequests extends AccountRequests implements TrashReads {
 
   /** The file's bytes, from the page's own origin: the session's cookie goes along. */
   fileUrl(containerId: string, fileId: string): string | undefined {
-    return this.inWorkspaceUrl('/containers/{containerId}/files/{fileId}', { containerId, fileId });
+    if (!isFileId(fileId)) return undefined;
+    const workspaceId = this.#placeOf(containerId) || this.#workspaceId;
+    if (!workspaceId) return undefined;
+    return this.#http.url(underWorkspace('/containers/{containerId}/files/{fileId}'), {
+      workspaceId,
+      containerId,
+      fileId,
+    });
   }
 
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {

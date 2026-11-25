@@ -146,7 +146,8 @@ describe('an open card', () => {
       expect(card.room?.status).toBe('joined');
     });
     expect(card.lost).toEqual(['document_reset']);
-    expect(bodyOf(card.room?.doc ?? doc)).toEqual(text('theirs'));
+    const currentRoom = card.room as { doc?: Y.Doc } | undefined;
+    expect(bodyOf(currentRoom?.doc ?? doc)).toEqual(text('theirs'));
     card.dismissLost();
     expect(card.lost).toEqual([]);
     card.close();

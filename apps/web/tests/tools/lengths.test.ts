@@ -1,10 +1,8 @@
 /**
- * The limits on the length of files and functions (tools/lint/lengths.ts):
- * what is measured, and how the measure is held against the list of
- * exceptions as upper-bound ceilings.
+ * Zero-exception limits on the length of files and functions (`tools/lint/lengths.ts`).
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -12,7 +10,6 @@ import { Linter } from 'eslint';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  EXCEPTIONS,
   MAX_FILE_LINES,
   MAX_FUNCTION_LINES,
   check,
@@ -22,18 +19,10 @@ import {
   measure,
   measuredFiles,
   measuringConfig,
-  parseExceptions,
-  raised,
-  renderExceptions,
-  rewrite,
   type Length,
 } from '../../tools/lint/lengths.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
-/**
- * Time for a test that starts ESLint or Node several times: far more than it
- * takes, so that a busy machine does not fail it.
- */
 const SLOW = 120_000;
 
 function file(name: string, lines: number): Length {
@@ -44,128 +33,28 @@ function fn(name: string, lines: number, at = 1, inFile = 'src/a.ts'): Length {
   return { kind: 'function', file: inFile, name, lines, at };
 }
 
-/** The functions ESLint finds in `code`, as `name lines`. */
 function functions(filename: string, code: string): string[] {
   const linter = new Linter({ cwd: ROOT });
   const found = linter.verify(code, measuringConfig, { filename: path.join(ROOT, filename) });
   return functionsOf(filename, found).map((length) => `${length.name ?? ''} ${length.lines}`);
 }
 
-/** A function declaration of `lines` lines. */
 function long(name: string, lines: number): string {
   return [`function ${name}() {`, ...Array<string>(lines - 2).fill('  // …'), '}'].join('\n');
 }
 
-describe('the list of exceptions', () => {
-  it('lets what is within its limit pass without a line', () => {
+describe('zero-exception length judgment', () => {
+  it('passes files and functions within their limits', () => {
     const measured = [file('src/a.ts', MAX_FILE_LINES), fn('short', MAX_FUNCTION_LINES)];
-    expect(judge(measured, '')).toEqual([]);
+    expect(judge(measured)).toEqual([]);
   });
 
-  it('refuses a long file and a long function that are not listed', () => {
+  it('refuses any file over 500 lines or function over 100 lines', () => {
     const measured = [file('src/a.ts', MAX_FILE_LINES + 1), fn('grown', 101, 7)];
-    expect(judge(measured, '# nothing\n')).toEqual([
+    expect(judge(measured)).toEqual([
       'src/a.ts:1: src/a.ts has 501 lines, the limit is 500',
       'src/a.ts:7: src/a.ts: function grown has 101 lines, the limit is 100',
     ]);
-  });
-
-  it('enforces listed ceilings as upper bounds and allows shorter code', () => {
-    const list = 'file 600 src/a.ts\nfunction 150 src/a.ts draw\n';
-    expect(judge([file('src/a.ts', 600), fn('draw', 150)], list)).toEqual([]);
-    expect(judge([file('src/a.ts', 601), fn('draw', 151, 9)], list)).toEqual([
-      'src/a.ts:1: src/a.ts has 601 lines, its ceiling is 600',
-      'src/a.ts:9: src/a.ts: function draw has 151 lines, its ceiling is 150',
-    ]);
-    expect(judge([file('src/a.ts', 599), fn('draw', 149, 9)], list)).toEqual([]);
-    expect(judge([file('src/a.ts', 500), fn('draw', 100, 9)], list)).toEqual([]);
-    expect(judge([file('src/a.ts', 400), fn('draw', 50, 9)], list)).toEqual([]);
-  });
-
-  it('refuses a line whose file or function is gone', () => {
-    const list = 'file 600 src/gone.ts\nfunction 150 src/a.ts renamed\n';
-    expect(judge([file('src/a.ts', 10), fn('other', 10)], list)).toEqual([
-      `${EXCEPTIONS}: src/gone.ts is not in the code: remove its line (600)`,
-      `${EXCEPTIONS}: src/a.ts: function renamed is not in the code: remove its line (150)`,
-    ]);
-  });
-
-  it('tells two functions of one name apart by their lengths', () => {
-    const list = 'function 150 src/a.ts <anonymous>\nfunction 120 src/a.ts <anonymous>\n';
-    const two = (first: number, second: number): Length[] => [
-      fn('<anonymous>', first, 1),
-      fn('<anonymous>', second, 200),
-      fn('<anonymous>', 3, 400),
-    ];
-    expect(judge(two(120, 150), list)).toEqual([]);
-    expect(judge(two(110, 140), list)).toEqual([]);
-    expect(judge(two(50, 90), list)).toEqual([]);
-    expect(judge(two(121, 150), list)).toEqual([
-      'src/a.ts:1: src/a.ts: function <anonymous> has 121 lines, its ceiling is 120',
-    ]);
-    expect(judge(two(121, 140), list)).toEqual([
-      'src/a.ts:1: src/a.ts: function <anonymous> has 121 lines, its ceiling is 120',
-    ]);
-    expect(judge(two(150, 150), list)).toEqual([
-      'src/a.ts:200: src/a.ts: function <anonymous> has 150 lines, its ceiling is 120',
-    ]);
-    expect(judge([fn('<anonymous>', 150, 1)], list)).toEqual([
-      `${EXCEPTIONS}: src/a.ts: function <anonymous> is not in the code: remove its line (120)`,
-    ]);
-    expect(judge([fn('<anonymous>', 50, 1)], list)).toEqual([
-      `${EXCEPTIONS}: src/a.ts: function <anonymous> is not in the code: remove its line (120)`,
-    ]);
-    expect(judge([...two(120, 150), fn('<anonymous>', 101, 600)], list)).toEqual([
-      'src/a.ts:600: src/a.ts: function <anonymous> has 101 lines, the limit is 100',
-    ]);
-  });
-
-  it('is written from what was measured, and what it writes passes', () => {
-    const measured = [
-      file('src/b.ts', 700),
-      file('src/a.ts', 20),
-      fn('seed', 223, 1, 'src/b.ts'),
-      fn('seed/forEach()', 139, 30, 'src/b.ts'),
-      fn('seed/forEach()', 180, 300, 'src/b.ts'),
-      fn('small', 5, 2, 'src/b.ts'),
-    ];
-    const list = renderExceptions(measured);
-    expect(list.split('\n').filter((line) => line !== '' && !line.startsWith('#'))).toEqual([
-      'file 700 src/b.ts',
-      'function 223 src/b.ts seed',
-      'function 180 src/b.ts seed/forEach()',
-      'function 139 src/b.ts seed/forEach()',
-    ]);
-    expect(judge(measured, list)).toEqual([]);
-    expect(() => renderExceptions([file('src/my file.ts', 501)])).toThrow(
-      'has a space in its path',
-    );
-  });
-
-  it('says what a rewriting raised', () => {
-    const before = 'file 600 src/a.ts\nfunction 150 src/a.ts draw\n';
-    const after = 'file 700 src/a.ts\nfunction 140 src/a.ts draw\nfunction 101 src/a.ts add\n';
-    expect(raised(before, after)).toEqual([
-      'raised: src/a.ts: 600 -> 700',
-      'added: src/a.ts: function add: 101',
-    ]);
-  });
-
-  it('refuses a line it cannot read, and one that is not needed', () => {
-    for (const line of [
-      'file src/a.ts',
-      'file many src/a.ts',
-      'file 600 src/a.ts extra',
-      'function 150 src/a.ts',
-      'function 150 src/a.ts a b',
-      'module 600 src/a.ts',
-    ]) {
-      expect(() => parseExceptions(line), line).toThrow('expected `file lines path`');
-    }
-    expect(() => parseExceptions('file 500 src/a.ts')).toThrow('within the limit of 500');
-    expect(() => parseExceptions('file 499 src/a.ts')).toThrow('within the limit of 500');
-    expect(() => parseExceptions('function 100 src/a.ts f')).toThrow('within the limit of 100');
-    expect(() => parseExceptions('function 99 src/a.ts f')).toThrow('within the limit of 100');
   });
 });
 
@@ -193,7 +82,7 @@ describe('what is measured', () => {
     const found = linter.verify(`/* eslint-disable */\n${planted}\n`, measuringConfig, {
       filename: path.join(ROOT, 'src/a.ts'),
     });
-    expect(judge(functionsOf('src/a.ts', found), '')).toEqual([
+    expect(judge(functionsOf('src/a.ts', found))).toEqual([
       'src/a.ts:2: src/a.ts: function planted has 120 lines, the limit is 100',
     ]);
   });
@@ -315,7 +204,7 @@ describe('the files that are measured', () => {
   const tooLong = 'export {};\n'.repeat(MAX_FILE_LINES + 1);
 
   it(
-    'are the sources under src, without what a tool writes',
+    'are the sources under src, without what a tool writes, enforced with zero exceptions',
     async () => {
       write('src/main.ts', 'export const a = 1;\n');
       write('src/lib/state/board.svelte.ts', `${long('planted', 101)}\n`);
@@ -339,46 +228,13 @@ describe('the files that are measured', () => {
         'src/lib/plain.js:1: src/lib/plain.js: function plain has 101 lines, the limit is 100',
         'src/lib/state/board.svelte.ts:1: src/lib/state/board.svelte.ts: function planted has 101 lines, the limit is 100',
       ];
-      expect(judge(await measure(root), '')).toEqual(planted);
-
-      // The check and the rewriting, against a list on disk.
-      write(EXCEPTIONS, '');
+      expect(judge(await measure(root))).toEqual(planted);
       expect((await check(root)).problems).toEqual(planted);
-      const { list, raised: wentUp } = await rewrite(root);
-      expect(readFileSync(path.join(root, EXCEPTIONS), 'utf8')).toBe(list);
-      expect(wentUp).toEqual([
-        'added: src/lib/long.ts: 501',
-        'added: src/lib/plain.js: function plain: 101',
-        'added: src/lib/state/board.svelte.ts: function planted: 101',
-      ]);
-      expect(list.split('\n').filter((line) => /^(file|function) /.test(line))).toEqual([
-        'file 501 src/lib/long.ts',
-        'function 101 src/lib/plain.js plain',
-        'function 101 src/lib/state/board.svelte.ts planted',
-      ]);
-      expect((await check(root)).problems).toEqual([]);
-      write('src/lib/plain.js', `${long('plain', 102)}\n`);
-      expect((await check(root)).problems).toEqual([
-        'src/lib/plain.js:1: src/lib/plain.js: function plain has 102 lines, its ceiling is 101',
-      ]);
 
-      write('src/lib/long.ts', 'export {};\n'.repeat(MAX_FILE_LINES + 5));
-      await rewrite(root);
-      write('src/lib/long.ts', 'export {};\n'.repeat(MAX_FILE_LINES + 2));
+      write('src/lib/long.ts', 'export {};\n'.repeat(MAX_FILE_LINES));
       write('src/lib/plain.js', `${long('plain', 100)}\n`);
+      write('src/lib/state/board.svelte.ts', `${long('planted', 100)}\n`);
       expect((await check(root)).problems).toEqual([]);
-
-      const { list: tightened } = await rewrite(root);
-      expect(tightened.split('\n').filter((line) => /^(file|function) /.test(line))).toEqual([
-        'file 502 src/lib/long.ts',
-        'function 101 src/lib/state/board.svelte.ts planted',
-      ]);
-      expect((await check(root)).problems).toEqual([]);
-
-      rmSync(path.join(root, 'src/lib/long.ts'));
-      expect((await check(root)).problems).toEqual([
-        `${EXCEPTIONS}: src/lib/long.ts is not in the code: remove its line (502)`,
-      ]);
     },
     SLOW,
   );
@@ -400,16 +256,14 @@ describe('the files that are measured', () => {
 
 describe('the check as a command', () => {
   it(
-    'takes no argument, so that no argument of `check` reaches a mode that writes',
+    'takes no argument',
     () => {
-      const before = readFileSync(path.join(ROOT, EXCEPTIONS), 'utf8');
       const result = spawnSync(process.execPath, ['tools/lint/check-lengths.ts', '--measure'], {
         cwd: ROOT,
         encoding: 'utf8',
       });
       expect(result.status).toBe(2);
       expect(result.stderr).toContain('no arguments');
-      expect(readFileSync(path.join(ROOT, EXCEPTIONS), 'utf8')).toBe(before);
     },
     SLOW,
   );

@@ -32,9 +32,21 @@ function accountOf(account: NewAccount): Schemas['NewAccount'] {
 
 export class AccountRequests {
   readonly #http: Http;
+  #userId: string | undefined;
 
   constructor(http: Http) {
     this.#http = http;
+  }
+
+  /** Clears the cached signed-in user ID on sign-in or sign-out (§1.3.5). */
+  protected forgetCachedUser(): void {
+    this.#userId = undefined;
+  }
+
+  /** Returns the signed-in user's ID, reusing the last `me()` result when known (§1.3.5). */
+  protected async currentUserId(): Promise<string> {
+    if (this.#userId !== undefined) return this.#userId;
+    return (await this.me()).id;
   }
 
   async register(registration: Registration, language = ''): Promise<Registered> {
@@ -189,6 +201,7 @@ export class AccountRequests {
   /** The reader, with what only they are told of their account: its address, whether it has a password. */
   async me(): Promise<User> {
     const me = await this.#http.request<Schemas['Me']>('/api/v1/users/me');
+    this.#userId = me.id;
     const { email, pendingEmail, hasPassword } = me;
     return { ...userOf(me), email, pendingEmail: pendingEmail ?? undefined, hasPassword };
   }

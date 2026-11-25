@@ -32,6 +32,8 @@ import {
 } from '@tiptap/pm/transform';
 import { ySyncPluginKey } from '@tiptap/y-tiptap';
 
+import { checkSubtreeAttrs } from './content-check-attrs.ts';
+
 interface ContentCheckTracker {
   /** Whether at least one full `doc.check()` has passed on the current document. */
   checkedFull: boolean;
@@ -197,17 +199,20 @@ export function checkChangedContent(tr: Transaction, options?: { full?: boolean 
   const { doc } = tr;
   if (options?.full || doc.marks.length > 0) {
     doc.check();
+    checkSubtreeAttrs(doc);
     return;
   }
 
   const collected = changedRangesOf(tr);
   if (collected === 'full') {
     doc.check();
+    checkSubtreeAttrs(doc);
     return;
   }
 
   if (collected.docAttrsChanged && !checkDocAttrs(doc)) {
     doc.check();
+    checkSubtreeAttrs(doc);
     return;
   }
 
@@ -237,6 +242,7 @@ export function checkChangedContent(tr: Transaction, options?: { full?: boolean 
         );
       }
       child.check();
+      checkSubtreeAttrs(child);
     }
   }
 }

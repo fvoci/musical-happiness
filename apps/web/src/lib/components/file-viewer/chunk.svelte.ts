@@ -11,6 +11,8 @@
  */
 import type { Component } from 'svelte';
 
+import { noteChunkFailure } from '$lib/chunk-reload.svelte.ts';
+
 import type FileEditor from './FileEditor.svelte';
 import type FileViewer from './FileViewer.svelte';
 
@@ -33,7 +35,10 @@ class Chunk<T extends Component<any>> {
         this.component = module.default;
         return true;
       })
-      .catch(() => false)
+      .catch(() => {
+        void noteChunkFailure();
+        return false;
+      })
       .finally(() => {
         this.#loading = undefined;
       });
