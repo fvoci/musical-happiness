@@ -225,12 +225,7 @@ async fn assert_trello_board_properties(ts: &TestServer) -> Container {
     let prop_types: Vec<(&str, &str)> = board
         .card_properties
         .iter()
-        .map(|prop| {
-            (
-                prop["name"].as_str().unwrap_or(""),
-                prop["type"].as_str().unwrap_or(""),
-            )
-        })
+        .map(|prop| (prop.name.as_str(), prop.property_type.as_str()))
         .collect();
     assert_eq!(
         prop_types,
@@ -241,9 +236,7 @@ async fn assert_trello_board_properties(ts: &TestServer) -> Container {
         ],
         "board card properties created for lists, labels, and due dates"
     );
-    let status_opts = board.card_properties[0]["options"]
-        .as_array()
-        .expect("status options");
+    let status_opts = &board.card_properties[0].options;
     assert_eq!(
         status_opts.len(),
         2,
@@ -267,7 +260,7 @@ async fn assert_trello_cards_and_comments(
         .iter()
         .find(|b| b.block_type == BlockType::Card && b.title == "Ship v1 release")
         .expect("Ship v1 release card stored");
-    let due_id = board.card_properties[2]["id"].as_str().expect("due id");
+    let due_id = board.card_properties[2].id.as_str();
     assert_eq!(
         ship_card.fields["properties"][due_id]["from"], "2026-06-01",
         "start date stored on card"
@@ -624,7 +617,7 @@ async fn assert_notion_board(ts: &TestServer, txt_bytes: &[u8]) {
     let inferred: HashSet<&str> = board
         .card_properties
         .iter()
-        .filter_map(|p| p.get("type").and_then(Value::as_str))
+        .map(|p| p.property_type.as_str())
         .collect();
     for expected in [
         "select",

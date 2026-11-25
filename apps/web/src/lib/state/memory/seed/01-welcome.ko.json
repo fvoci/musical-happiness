@@ -17,18 +17,18 @@
         "options": [
           {
             "id": "de9f9830-d321-5ea0-93eb-75474b12a7a9",
-            "value": "읽어 볼 것",
-            "color": "propColorGray"
+            "label": "읽어 볼 것",
+            "color": "gray"
           },
           {
             "id": "ffe5f982-6255-5683-8eec-59f68f1bc939",
-            "value": "해 보는 중",
-            "color": "propColorBlue"
+            "label": "해 보는 중",
+            "color": "blue"
           },
           {
             "id": "b85715c5-85df-5e1c-b84a-7e6135ad4606",
-            "value": "해 봤어요",
-            "color": "propColorGreen"
+            "label": "해 봤어요",
+            "color": "green"
           }
         ]
       },
@@ -39,28 +39,28 @@
         "options": [
           {
             "id": "d9774bd7-74f8-54db-b3cc-cd275479abe9",
-            "value": "보드",
-            "color": "propColorBlue"
+            "label": "보드",
+            "color": "blue"
           },
           {
             "id": "bdc2ac7b-dd27-5112-8c19-fac84dc54503",
-            "value": "본문",
-            "color": "propColorPurple"
+            "label": "본문",
+            "color": "purple"
           },
           {
             "id": "3f2385b2-9b0d-5aa6-aaef-87834c60a36b",
-            "value": "파일",
-            "color": "propColorOrange"
+            "label": "파일",
+            "color": "orange"
           },
           {
             "id": "e6a530b5-a4cd-5d31-b3d8-1bd2bafad7f0",
-            "value": "위키",
-            "color": "propColorGreen"
+            "label": "위키",
+            "color": "green"
           },
           {
             "id": "4f67cfad-2507-5e05-8267-bc7815d86019",
-            "value": "함께 쓰기",
-            "color": "propColorPink"
+            "label": "함께 쓰기",
+            "color": "pink"
           }
         ]
       },

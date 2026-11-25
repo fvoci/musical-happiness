@@ -29,7 +29,7 @@ function template(type: PropertyType, options: string[] = []): PropertyTemplate 
     id: ID,
     name: 'Stage',
     type,
-    options: options.map((value) => ({ id: `id-${value}`, value, color: 'propColorBlue' })),
+    options: options.map((label) => ({ id: `id-${label}`, label, color: 'blue' })),
   };
 }
 
@@ -63,7 +63,7 @@ describe('a name for a new property', () => {
   });
 
   it('gives a new option the default colour', () => {
-    expect(newOption('Later')).toMatchObject({ value: 'Later', color: 'propColorDefault' });
+    expect(newOption('Later')).toMatchObject({ label: 'Later', color: 'default' });
   });
 });
 
@@ -79,7 +79,7 @@ describe('changing the kind of a property', () => {
   it('turns texts into options of a select, one option for the same text', () => {
     const cards = [cardWith('a', 'Now'), cardWith('b', 'Later'), cardWith('c', ' Now ')];
     const plan = planTypeChange(template('text'), 'select', cards);
-    expect(plan.template.options.map((option) => option.value)).toEqual(['Now', 'Later']);
+    expect(plan.template.options.map((option) => option.label)).toEqual(['Now', 'Later']);
     const [now, later] = plan.template.options;
     expect(plan.values.get('a')).toBe(now?.id);
     expect(plan.values.get('b')).toBe(later?.id);

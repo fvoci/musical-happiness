@@ -56,8 +56,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Kickoff Checklist" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Kickoff Checklist"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -73,7 +80,9 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
@@ -88,7 +97,9 @@
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
@@ -103,7 +114,9 @@
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
@@ -137,8 +150,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Concept Comparison Table" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Concept Comparison Table"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -158,15 +178,14 @@
                   {
                     "type": "tableHeader",
                     "content": [
-                      { "type": "paragraph", "content": [{ "type": "text", "text": "Concept" }] }
-                    ]
-                  },
-                  {
-                    "type": "tableHeader",
-                    "content": [
                       {
                         "type": "paragraph",
-                        "content": [{ "type": "text", "text": "Key Summary" }]
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Concept"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -175,7 +194,26 @@
                     "content": [
                       {
                         "type": "paragraph",
-                        "content": [{ "type": "text", "text": "Common Pitfalls" }]
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Key Summary"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableHeader",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Common Pitfalls"
+                          }
+                        ]
                       }
                     ]
                   }
@@ -189,7 +227,12 @@
                     "content": [
                       {
                         "type": "paragraph",
-                        "content": [{ "type": "text", "text": "Core Principle" }]
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Core Principle"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -213,7 +256,10 @@
                       {
                         "type": "paragraph",
                         "content": [
-                          { "type": "text", "text": "Flag edge cases that are easy to miss" }
+                          {
+                            "type": "text",
+                            "text": "Flag edge cases that are easy to miss"
+                          }
                         ]
                       }
                     ]
@@ -228,7 +274,12 @@
                     "content": [
                       {
                         "type": "paragraph",
-                        "content": [{ "type": "text", "text": "Applied Pattern" }]
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Applied Pattern"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -238,7 +289,10 @@
                       {
                         "type": "paragraph",
                         "content": [
-                          { "type": "text", "text": "List the step-by-step order used in problems" }
+                          {
+                            "type": "text",
+                            "text": "List the step-by-step order used in problems"
+                          }
                         ]
                       }
                     ]
@@ -280,8 +334,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Solution Walkthrough Notes" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Solution Walkthrough Notes"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -358,15 +419,33 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Practice Session Routine" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Practice Session Routine"
+              }
+            ]
           },
           {
             "type": "paragraph",
             "content": [
-              { "type": "text", "text": "When a concept feels fuzzy, revisit " },
-              { "type": "reference", "attrs": { "id": "c8000002-0000-4000-8000-000000000002" } },
-              { "type": "text", "text": " and track any missed items in the checklist below." }
+              {
+                "type": "text",
+                "text": "When a concept feels fuzzy, revisit "
+              },
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "c8000002-0000-4000-8000-000000000002"
+                }
+              },
+              {
+                "type": "text",
+                "text": " and track any missed items in the checklist below."
+              }
             ]
           },
           {
@@ -374,24 +453,34 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
                     "content": [
-                      { "type": "text", "text": "Complete 5 warm-up problems with a timer" }
+                      {
+                        "type": "text",
+                        "text": "Complete 5 warm-up problems with a timer"
+                      }
                     ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
                     "content": [
-                      { "type": "text", "text": "Solve 10 applied problems and grade your answers" }
+                      {
+                        "type": "text",
+                        "text": "Solve 10 applied problems and grade your answers"
+                      }
                     ]
                   }
                 ]
@@ -417,8 +506,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "Mistake Log Table" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Mistake Log Table"
+              }
+            ]
           },
           {
             "type": "table",
@@ -429,13 +525,15 @@
                   {
                     "type": "tableHeader",
                     "content": [
-                      { "type": "paragraph", "content": [{ "type": "text", "text": "Item" }] }
-                    ]
-                  },
-                  {
-                    "type": "tableHeader",
-                    "content": [
-                      { "type": "paragraph", "content": [{ "type": "text", "text": "Root Cause" }] }
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Item"
+                          }
+                        ]
+                      }
                     ]
                   },
                   {
@@ -443,7 +541,26 @@
                     "content": [
                       {
                         "type": "paragraph",
-                        "content": [{ "type": "text", "text": "Retry Criterion" }]
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Root Cause"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableHeader",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Retry Criterion"
+                          }
+                        ]
                       }
                     ]
                   }
@@ -457,7 +574,12 @@
                     "content": [
                       {
                         "type": "paragraph",
-                        "content": [{ "type": "text", "text": "Sample item" }]
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "Sample item"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -467,7 +589,10 @@
                       {
                         "type": "paragraph",
                         "content": [
-                          { "type": "text", "text": "Missed one constraint during calculation" }
+                          {
+                            "type": "text",
+                            "text": "Missed one constraint during calculation"
+                          }
                         ]
                       }
                     ]
@@ -495,17 +620,26 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "Retry missed problems one day later" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Retry missed problems one day later"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",

@@ -23,18 +23,18 @@
         "options": [
           {
             "id": "8d8c49d8-5af2-5e17-98f6-ef47e28bfc86",
-            "value": "Weekly",
-            "color": "propColorBlue"
+            "label": "Weekly",
+            "color": "blue"
           },
           {
             "id": "60f8c38a-eb64-5e69-aa71-7123eec67916",
-            "value": "Review",
-            "color": "propColorPurple"
+            "label": "Review",
+            "color": "purple"
           },
           {
             "id": "2621fbac-f4ab-5533-803b-008e30a3fb04",
-            "value": "One to one",
-            "color": "propColorGreen"
+            "label": "One to one",
+            "color": "green"
           }
         ]
       },

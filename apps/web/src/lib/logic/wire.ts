@@ -20,6 +20,8 @@ import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } 
 import { diagnostics } from './diagnostics.ts';
 import { encodeBase32 } from './base32.ts';
 export { encodeBase32 } from './base32.ts';
+import { type PropertyColor } from './property-colors.ts';
+export { DEFAULT_PROPERTY_COLOR, PROPERTY_COLORS, type PropertyColor } from './property-colors.ts';
 import type { RelationLink } from './relations.ts';
 export * from './relations.ts';
 import { optionalViewFields, type OptionalViewFields } from './view-members.ts';
@@ -508,8 +510,8 @@ export type PropertyType =
 
 export interface PropertyOption {
   id: string;
-  value: string;
-  color: string;
+  label: string;
+  color: PropertyColor;
 }
 
 /** The definition of one card property of a board. */

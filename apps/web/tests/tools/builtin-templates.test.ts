@@ -109,7 +109,7 @@ function texts(template: BuiltinTemplate): [where: string, text: string][] {
       [`the property ${property.id}`, property.name],
       ...property.options.map((option): [string, string] => [
         `the option ${option.id}`,
-        option.value,
+        option.label,
       ]),
     ]),
     ...template.views.map((view): [string, string] => [`the view ${view.id}`, view.title]),

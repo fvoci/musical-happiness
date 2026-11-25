@@ -68,6 +68,7 @@ mod page_trash;
 mod pages;
 mod password_reset;
 mod person_names;
+mod property_definitions_migration;
 mod public_links;
 mod registration;
 mod restored_boards;

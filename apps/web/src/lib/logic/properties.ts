@@ -129,7 +129,7 @@ const displaySelect: Display = (stored, card, template, context) => {
   if (!option) {
     diagnostics.report(`invalid select option ${String(value)} on card "${card.title}"`);
   }
-  return option?.value || (context.unknownOption ?? '(Unknown)');
+  return option?.label || (context.unknownOption ?? '(Unknown)');
 };
 
 const displayMultiSelect: Display = (stored, card, template) => {
@@ -139,7 +139,7 @@ const displayMultiSelect: Display = (stored, card, template) => {
   if (options.length === 0) {
     diagnostics.report(`invalid multi-select options ${String(value)} on card "${card.title}"`);
   }
-  return options.map((option) => option.value);
+  return options.map((option) => option.label);
 };
 
 /**

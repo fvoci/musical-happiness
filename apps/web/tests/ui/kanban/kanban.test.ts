@@ -39,8 +39,11 @@ describe('the names of columns while dragging', () => {
 
   it('make the visible columns the lists of a sortable', () => {
     const groups = [
-      { option: { id: 'todo', value: 'To do', color: '' }, cards: [card('a'), card('b')] },
-      { option: { id: '', value: 'No status', color: '' }, cards: [] },
+      {
+        option: { id: 'todo', label: 'To do', color: 'default' as const },
+        cards: [card('a'), card('b')],
+      },
+      { option: { id: '', label: 'No status', color: 'default' as const }, cards: [] },
     ];
     expect(cardLists(groups)).toEqual([
       { id: columnIdOf('todo'), items: ['a', 'b'] },
@@ -160,7 +163,7 @@ describe('the columns of a view', () => {
 
 describe('the columns as drawn while one is dragged', () => {
   const groups = ['a', 'b', 'c'].map((id) => ({
-    option: { id, value: id, color: '' },
+    option: { id, label: id, color: 'default' as const },
     cards: [],
   }));
   const drawn = (drag: Parameters<typeof drawnColumns>[1]): string[] =>

@@ -149,7 +149,7 @@ describe('a multi-select property, opened', () => {
 });
 
 describe('creating an option from a multi-select property', () => {
-  const created: PropertyOption = { id: 'option-new', value: 'Blocked', color: 'propColorDefault' };
+  const created: PropertyOption = { id: 'option-new', label: 'Blocked', color: 'default' };
 
   it('asks the caller for the option and adds it to the value', async () => {
     const onCreateOption = vi.fn((_name: string) => created);
@@ -185,7 +185,7 @@ describe('the settings of an option of a multi-select property', () => {
     await open();
     await fireEvent.click(settingsButton('In progress'));
     await fireEvent.click(screen.getByRole('radio', { name: 'Pink' }));
-    expect(onRecolorOption).toHaveBeenCalledExactlyOnceWith(OPTIONS[1], 'propColorPink');
+    expect(onRecolorOption).toHaveBeenCalledExactlyOnceWith(OPTIONS[1], 'pink');
   });
 
   it('report a new name', async () => {
@@ -203,8 +203,8 @@ describe('the settings of an option of a multi-select property', () => {
 describe('a multi-select property with many options', () => {
   const options: PropertyOption[] = Array.from({ length: 120 }, (_, index) => ({
     id: `option-${index}`,
-    value: `Tag ${index}`,
-    color: 'propColorDefault',
+    label: `Tag ${index}`,
+    color: 'default',
   }));
 
   it('shows a long value and finds an option by typing', async () => {

@@ -24,6 +24,7 @@ import {
   TITLE_COLUMN_ID,
   type BoardView,
   type Card,
+  type PropertyColor,
   type PropertyTemplate,
   type PropertyValue,
 } from '$lib/logic/wire.ts';
@@ -310,13 +311,13 @@ export class TableController {
 
   /** What a group is called: its option, the person, or "No Status". */
   groupName(group: BoardGroup): string {
-    if (group.option.id === '' || !this.groupBy) return group.option.value;
-    if (!PERSON_KINDS.includes(this.groupBy.type)) return group.option.value;
+    if (group.option.id === '' || !this.groupBy) return group.option.label;
+    if (!PERSON_KINDS.includes(this.groupBy.type)) return group.option.label;
     return this.#board.workspace.userName(group.option.id) ?? m['centerPanel.unknown-user']();
   }
 
   /** The colour of a group's chip; undefined for a group that is not an option. */
-  groupColor(group: BoardGroup): string | undefined {
+  groupColor(group: BoardGroup): PropertyColor | undefined {
     if (group.option.id === '' || !this.groupBy) return undefined;
     return PERSON_KINDS.includes(this.groupBy.type) ? undefined : group.option.color;
   }

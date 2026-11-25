@@ -10,9 +10,9 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockType, JsonMap, RELATION_LIMIT, RelationError, RelationProblem,
-    check_relation_value, relation_link_card, relation_links_to_value, relation_property_ids,
-    tidy_copied_relations, validate_card_property_kinds,
+    Block, BlockError, BlockType, CardPropertyDefinition, JsonMap, RELATION_LIMIT, RelationError,
+    RelationProblem, check_relation_value, relation_link_card, relation_links_to_value,
+    relation_property_ids, tidy_copied_relations, validate_card_property_kinds,
 };
 use serde_json::Value;
 
@@ -207,7 +207,7 @@ async fn types_on_board(
 /// ([`Block::drop_malformed_fields`]), the values of cards that no longer fit their
 /// board's definitions, as [`fvoci_model::clear_values_of_another_kind`] does, and of
 /// relation values what a write would refuse ([`tidy_copied_relations`]).
-pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[JsonMap]) {
+pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[CardPropertyDefinition]) {
     for block in blocks {
         block.drop_malformed_fields();
         let id = block.id.clone();
@@ -226,7 +226,7 @@ pub(crate) async fn keep_cards_of_board(
     scope: &mut Scope<'_>,
     blocks: &mut [Block],
     board_id: &str,
-    definitions: &[JsonMap],
+    definitions: &[CardPropertyDefinition],
 ) -> Result<(), StoreError> {
     let relations = relation_property_ids(definitions);
     let relation_values = |block: &Block| -> Vec<String> {

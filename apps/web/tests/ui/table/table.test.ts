@@ -15,9 +15,9 @@ import { openFirstBoard, setup, settle } from '../../state/support.ts';
 
 import TableHarness from './TableHarness.svelte';
 
-const OPTIONS = [
-  { id: 'todo', value: 'To do', color: 'propColorBlue' },
-  { id: 'done', value: 'Done', color: 'propColorGreen' },
+const OPTIONS: SeedTemplate['board']['cardProperties'][number]['options'] = [
+  { id: 'todo', label: 'To do', color: 'blue' },
+  { id: 'done', label: 'Done', color: 'green' },
 ];
 
 /** A board with one table view: a select, a text, a number and a checkbox column, three cards. */

@@ -216,7 +216,7 @@ export function optionCallbacks(board: BoardStore, propertyId: string): Required
       return option;
     },
     onRenameOption: (option, name) => {
-      void withOptions(replace(option, { value: name }), 'renameOption');
+      void withOptions(replace(option, { label: name }), 'renameOption');
     },
     onRecolorOption: (option, color) => {
       void withOptions(replace(option, { color }), 'recolorOption');

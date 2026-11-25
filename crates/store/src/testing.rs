@@ -716,6 +716,20 @@ pub async fn migrate_to_before_container_member_role_enum(database: &TestDatabas
     .await;
 }
 
+/// Brings a test database to the schema as a server left it before native property
+/// definitions and lowercase colors (migration 74): every migration up to 73.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_native_property_definitions(database: &TestDatabase) {
+    migrate_database(
+        database,
+        crate::schema::BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION,
+    )
+    .await;
+}
+
 /// Brings a test database to the schema as a server left it before the organization's
 /// management (migration 23): every migration before that one, and none of the changes
 /// of the data that follow the migrations.

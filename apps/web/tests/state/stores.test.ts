@@ -351,7 +351,7 @@ describe('a board', () => {
     expect(board.cardsOf(view).map((card) => card.title)).toEqual(['Alpha', 'Beta', 'Gamma']);
     expect(board.cardsOf(view, 'gam').map((card) => card.title)).toEqual(['Gamma']);
     const groups = board.groupsOf(view, board.cardsOf(view), (name) => `No ${name}`);
-    expect(groups.visible.map((group) => [group.option.value, group.cards.length])).toEqual([
+    expect(groups.visible.map((group) => [group.option.label, group.cards.length])).toEqual([
       ['To do', 2],
       ['Doing', 1],
       ['Done', 0],
@@ -610,10 +610,7 @@ describe('changing views and the board', () => {
         template.id === STATUS
           ? {
               ...template,
-              options: [
-                ...template.options,
-                { id: 'later', value: 'Later', color: 'propColorGray' },
-              ],
+              options: [...template.options, { id: 'later', label: 'Later', color: 'gray' }],
             }
           : template,
       ),

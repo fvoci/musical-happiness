@@ -582,14 +582,19 @@ async fn a_card_given_is_noted_for_whom_it_takes_and_a_quiet_handle_notes_nothin
     let store = &test.store;
     let (_, writer, named) = board_and_two(store).await;
     let other = common::user(store, &format!("o{}", &new_id()[24..])).await;
-    let card_properties = [
-        json!({"id": "owner", "name": "Owner", "type": "person", "options": []}),
-        json!({"id": "helpers", "name": "Helpers", "type": "multiPerson", "options": []}),
-        json!({"id": "note", "name": "Note", "type": "text", "options": []}),
-    ]
-    .into_iter()
-    .map(|definition| definition.as_object().expect("an object").clone())
-    .collect();
+    let card_properties = vec![
+        fvoci_model::CardPropertyDefinition::new(
+            "owner",
+            "Owner",
+            fvoci_model::PropertyType::Person,
+        ),
+        fvoci_model::CardPropertyDefinition::new(
+            "helpers",
+            "Helpers",
+            fvoci_model::PropertyType::MultiPerson,
+        ),
+        fvoci_model::CardPropertyDefinition::new("note", "Note", fvoci_model::PropertyType::Text),
+    ];
     let mut board = Container {
         id: new_id(),
         workspace_id: common::workspace(store).await,
@@ -672,13 +677,16 @@ async fn watchers(store: &Store, block_id: &str) -> Vec<String> {
 
 /// A board with an `owner` person property, created by `writer`.
 async fn board_with_owner_property(store: &Store, writer: &str) -> Container {
-    let definition = json!({"id": "owner", "name": "Owner", "type": "person", "options": []});
     let mut board = Container {
         id: new_id(),
         workspace_id: common::workspace(store).await,
         visibility: ContainerVisibility::Open,
         created_by: writer.to_owned(),
-        card_properties: vec![definition.as_object().expect("an object").clone()],
+        card_properties: vec![fvoci_model::CardPropertyDefinition::new(
+            "owner",
+            "Owner",
+            fvoci_model::PropertyType::Person,
+        )],
         ..Container::default()
     };
     store

@@ -51,9 +51,9 @@ const status: PropertyTemplate = {
   name: 'Status',
   type: 'select',
   options: [
-    { id: 'todo', value: 'To do', color: '' },
-    { id: 'doing', value: 'In progress', color: '' },
-    { id: 'done', value: 'Done', color: '' },
+    { id: 'todo', label: 'To do', color: 'default' },
+    { id: 'doing', label: 'In progress', color: 'default' },
+    { id: 'done', label: 'Done', color: 'default' },
   ],
 };
 const tags: PropertyTemplate = {
@@ -61,8 +61,8 @@ const tags: PropertyTemplate = {
   name: 'Tags',
   type: 'multiSelect',
   options: [
-    { id: 't1', value: 'Urgent', color: '' },
-    { id: 't2', value: 'Backend work', color: '' },
+    { id: 't1', label: 'Urgent', color: 'default' },
+    { id: 't2', label: 'Backend work', color: 'default' },
   ],
 };
 const notes: PropertyTemplate = { id: 'notes', name: 'Notes', type: 'text', options: [] };
@@ -129,7 +129,7 @@ describe('groups of a board view', () => {
 
   it('puts the cards without a value first, then the options in the order of the view', () => {
     const groups = getVisibleAndHiddenGroups(cards, ['done', 'todo'], [], status, noValue);
-    expect(groups.visible.map((group) => [group.option.value, ids(group.cards)])).toEqual([
+    expect(groups.visible.map((group) => [group.option.label, ids(group.cards)])).toEqual([
       ['No Status', 'c d'],
       ['Done', 'b'],
       ['To do', 'a'],
@@ -171,8 +171,8 @@ describe('groups of a board view', () => {
     const people = [card('1', '1', { owner: 'ann' }), card('2', '2'), card('3', '3')];
     const groups = getVisibleAndHiddenGroups(people, [], [], owner, noValue);
     expect(groups.visible.map((group) => [group.option, ids(group.cards)])).toEqual([
-      [{ id: '', value: 'No Owner', color: '' }, '2 3'],
-      [{ id: 'ann', value: 'ann', color: '' }, '1'],
+      [{ id: '', label: 'No Owner', color: 'default' }, '2 3'],
+      [{ id: 'ann', label: 'ann', color: 'default' }, '1'],
     ]);
   });
 
@@ -200,7 +200,7 @@ describe('groups of a board view', () => {
     const first = card('1', '1');
     first.createdBy = 'ann';
     const groups = getVisibleAndHiddenGroups([first, card('2', '2')], [], [], by, noValue);
-    expect(groups.visible.map((group) => [group.option.value, ids(group.cards)])).toEqual([
+    expect(groups.visible.map((group) => [group.option.label, ids(group.cards)])).toEqual([
       ['No Created by', '2'],
       ['ann', '1'],
     ]);

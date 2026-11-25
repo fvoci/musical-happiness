@@ -7,8 +7,8 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    Container, ContainerError, ContainerKind, ContainerKinds, ContainerMember, ContainerPatch,
-    ContainerRole, ContainerVisibility, JsonMap, MinimumRole,
+    CardPropertyDefinition, Container, ContainerError, ContainerKind, ContainerKinds,
+    ContainerMember, ContainerPatch, ContainerRole, ContainerVisibility, MinimumRole,
 };
 use serde_json::Value;
 
@@ -468,19 +468,14 @@ fn minimum_role_from_text(text: &str) -> Result<MinimumRole, StoreError> {
         })
 }
 
-/// Reads the card property definitions of a board. JSON `null` reads as no definitions,
-/// and a `null` definition as an empty one.
-fn card_properties_from_json(value: Value) -> Result<Vec<JsonMap>, StoreError> {
-    let definitions: Option<Vec<Option<JsonMap>>> =
+/// Reads the card property definitions of a board. JSON `null` reads as no definitions.
+fn card_properties_from_json(value: Value) -> Result<Vec<CardPropertyDefinition>, StoreError> {
+    let definitions: Option<Vec<CardPropertyDefinition>> =
         serde_json::from_value(value).map_err(|error| StoreError::Corrupt {
             column: "card_properties",
             reason: error.to_string(),
         })?;
-    Ok(definitions
-        .unwrap_or_default()
-        .into_iter()
-        .map(Option::unwrap_or_default)
-        .collect())
+    Ok(definitions.unwrap_or_default())
 }
 
 pub(crate) async fn find_container(

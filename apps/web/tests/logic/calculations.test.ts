@@ -109,14 +109,14 @@ describe('components/calculations/calculation logic', () => {
       name: '',
       options: [
         {
-          color: 'propColorYellow',
+          color: 'yellow',
           id: 'option_id_1',
-          value: 'Option 1',
+          label: 'Option 1',
         },
         {
-          color: 'propColorBlue',
+          color: 'blue',
           id: 'option_id_2',
-          value: 'Option 2',
+          label: 'Option 2',
         },
       ],
     },
@@ -126,19 +126,19 @@ describe('components/calculations/calculation logic', () => {
       name: '',
       options: [
         {
-          color: 'propColorYellow',
+          color: 'yellow',
           id: 'option_id_1',
-          value: 'Option 1',
+          label: 'Option 1',
         },
         {
-          color: 'propColorBlue',
+          color: 'blue',
           id: 'option_id_2',
-          value: 'Option 2',
+          label: 'Option 2',
         },
         {
-          color: 'propColorBlue',
+          color: 'blue',
           id: 'option_id_3',
-          value: 'Option 3',
+          label: 'Option 3',
         },
       ],
     },

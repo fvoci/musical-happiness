@@ -25,7 +25,7 @@ type Digest = [u8; 32];
 /// The banned words: the number of letters of each and its digest in hexadecimal.
 ///
 /// A word is added by its digest alone: `printf %s <the word in lowercase> | sha256sum`.
-const BANNED: [(usize, &str); 9] = [
+const BANNED: [(usize, &str); 10] = [
     (
         12,
         "4a7fed951cb0747c34015743118c82a0363a486c87f76acec059bc6cfb91ec60",
@@ -41,6 +41,10 @@ const BANNED: [(usize, &str); 9] = [
     (
         10,
         "51276467ed49274be5648cc47cbae3755b37f45a65b87d5ebe36b57742ee2e9c",
+    ),
+    (
+        9,
+        "842a2f40f327b6b111b4191409c96309cc17ecb8a3a71f8335e7985b8426d430",
     ),
     (
         7,
@@ -427,6 +431,8 @@ mod tests {
             concat!("Ground", "Zero"),
             concat!("haf", "gufa-staging"),
             concat!("HAF", "GUFA"),
+            concat!("prop", "ColorDefault"),
+            concat!("prop", "color"),
         ] {
             assert!(reading.finds_in(text), "{text:?} must be caught");
         }

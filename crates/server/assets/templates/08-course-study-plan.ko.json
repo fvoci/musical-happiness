@@ -56,8 +56,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "시작 전 점검 목록" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "시작 전 점검 목록"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -73,31 +80,52 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "이번 과정에서 꼭 익힐 핵심 목표 3가지 적기" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "이번 과정에서 꼭 익힐 핵심 목표 3가지 적기"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "교재나 강의 자료의 전체 목차 확인하기" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "교재나 강의 자료의 전체 목차 확인하기"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "공통 일정과 학습 요일이 내 생활 패턴과 맞는지 확인하기" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "공통 일정과 학습 요일이 내 생활 패턴과 맞는지 확인하기"
+                      }
+                    ]
                   }
                 ]
               }
@@ -122,8 +150,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "개념 비교 표" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "개념 비교 표"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -142,15 +177,45 @@
                 "content": [
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "개념" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "개념"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "핵심 요약" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "핵심 요약"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "자주 틀리는 점" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "자주 틀리는 점"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               },
@@ -159,15 +224,45 @@
                 "content": [
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "기본 원리" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "기본 원리"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "정의와 성립 조건을 한 문장으로 적습니다" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "정의와 성립 조건을 한 문장으로 적습니다"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "예외 조건을 빼먹지 않도록 표시합니다" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "예외 조건을 빼먹지 않도록 표시합니다"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               },
@@ -176,15 +271,45 @@
                 "content": [
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "응용 패턴" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "응용 패턴"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "실제 문제에 적용하는 순서를 적습니다" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "실제 문제에 적용하는 순서를 적습니다"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "비슷한 패턴과 구분하는 기준을 남깁니다" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "비슷한 패턴과 구분하는 기준을 남깁니다"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               }
@@ -209,8 +334,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "풀이 흐름 메모" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "풀이 흐름 메모"
+              }
+            ]
           },
           {
             "type": "paragraph",
@@ -229,7 +361,12 @@
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "문제 조건에서 주어진 값과 구해야 할 값을 먼저 분리합니다." }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "문제 조건에서 주어진 값과 구해야 할 값을 먼저 분리합니다."
+                      }
+                    ]
                   }
                 ]
               },
@@ -238,7 +375,12 @@
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "중간 계산이나 근거를 생략하지 않고 차례로 적습니다." }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "중간 계산이나 근거를 생략하지 않고 차례로 적습니다."
+                      }
+                    ]
                   }
                 ]
               },
@@ -247,7 +389,12 @@
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "풀이를 마친 뒤 다른 접근법이 있는지 한 줄로 비교합니다." }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "풀이를 마친 뒤 다른 접근법이 있는지 한 줄로 비교합니다."
+                      }
+                    ]
                   }
                 ]
               }
@@ -272,15 +419,33 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "연습 문제 진행 방법" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "연습 문제 진행 방법"
+              }
+            ]
           },
           {
             "type": "paragraph",
             "content": [
-              { "type": "text", "text": "개념이 헷갈릴 때는 먼저 정리한 " },
-              { "type": "reference", "attrs": { "id": "c8000002-0000-4000-8000-000000000002" } },
-              { "type": "text", "text": " 단원을 다시 열어 확인하고, 틀린 문항 번호를 아래 목록에 남깁니다." }
+              {
+                "type": "text",
+                "text": "개념이 헷갈릴 때는 먼저 정리한 "
+              },
+              {
+                "type": "reference",
+                "attrs": {
+                  "id": "c8000002-0000-4000-8000-000000000002"
+                }
+              },
+              {
+                "type": "text",
+                "text": " 단원을 다시 열어 확인하고, 틀린 문항 번호를 아래 목록에 남깁니다."
+              }
             ]
           },
           {
@@ -288,21 +453,35 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "기초 문항 5개 시간 재며 풀기" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "기초 문항 5개 시간 재며 풀기"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "응용 문항 10개 풀고 채점하기" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "응용 문항 10개 풀고 채점하기"
+                      }
+                    ]
                   }
                 ]
               }
@@ -327,8 +506,15 @@
         "content": [
           {
             "type": "heading",
-            "attrs": { "level": 2 },
-            "content": [{ "type": "text", "text": "오답 원인 기록 표" }]
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "오답 원인 기록 표"
+              }
+            ]
           },
           {
             "type": "table",
@@ -338,15 +524,45 @@
                 "content": [
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "문항" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "문항"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "틀린 까닭" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "틀린 까닭"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableHeader",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "다시 풀기 기준" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "다시 풀기 기준"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               },
@@ -355,15 +571,45 @@
                 "content": [
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "예시 문항" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "예시 문항"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "조건 하나를 빠뜨리고 계산함" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "조건 하나를 빠뜨리고 계산함"
+                          }
+                        ]
+                      }
+                    ]
                   },
                   {
                     "type": "tableCell",
-                    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "해설 없이 처음부터 끝까지 설명 가능할 것" }] }]
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "해설 없이 처음부터 끝까지 설명 가능할 것"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               }
@@ -374,21 +620,35 @@
             "content": [
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "틀린 문항을 하루 뒤 다시 풀어 보기" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "틀린 문항을 하루 뒤 다시 풀어 보기"
+                      }
+                    ]
                   }
                 ]
               },
               {
                 "type": "taskItem",
-                "attrs": { "checked": false },
+                "attrs": {
+                  "checked": false
+                },
                 "content": [
                   {
                     "type": "paragraph",
-                    "content": [{ "type": "text", "text": "가장 어려웠던 개념을 자기 말로 세 줄 요약하기" }]
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "가장 어려웠던 개념을 자기 말로 세 줄 요약하기"
+                      }
+                    ]
                   }
                 ]
               }

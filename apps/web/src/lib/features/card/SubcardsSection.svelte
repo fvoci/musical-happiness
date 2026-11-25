@@ -262,7 +262,7 @@
 
             {#if statusOpt}
               <span class="shrink-0">
-                <OptionChip name={statusOpt.value} color={statusOpt.color} />
+                <OptionChip name={statusOpt.label} color={statusOpt.color} />
               </span>
             {:else if done}
               <span

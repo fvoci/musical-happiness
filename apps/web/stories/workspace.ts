@@ -73,8 +73,8 @@ export function exampleWorkspace({
         name: 'Status · 상태',
         type: 'select',
         options: [
-          { id: 'todo', value: 'To do · 할 일', color: 'propColorBlue' },
-          { id: 'done', value: 'Done · 완료', color: 'propColorGreen' },
+          { id: 'todo', label: 'To do · 할 일', color: 'blue' },
+          { id: 'done', label: 'Done · 완료', color: 'green' },
         ],
       },
     ],

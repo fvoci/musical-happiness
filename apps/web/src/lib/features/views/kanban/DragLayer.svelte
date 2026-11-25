@@ -116,7 +116,7 @@
   >
     <div class="flex min-h-10 items-center gap-2 pt-1 pl-3 roomy:min-h-12">
       {#if isOption && column.option.id !== ''}
-        <OptionChip name={column.option.value} color={column.option.color} />
+        <OptionChip name={column.option.label} color={column.option.color} />
       {:else}
         <span class="truncate text-sm font-medium">{columnName}</span>
       {/if}

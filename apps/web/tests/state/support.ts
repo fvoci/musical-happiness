@@ -27,9 +27,9 @@ export const SMALL: SeedTemplate = {
         name: 'Status',
         type: 'select',
         options: [
-          { id: 'todo', value: 'To do', color: 'propColorBlue' },
-          { id: 'doing', value: 'Doing', color: 'propColorYellow' },
-          { id: 'done', value: 'Done', color: 'propColorGreen' },
+          { id: 'todo', label: 'To do', color: 'blue' },
+          { id: 'doing', label: 'Doing', color: 'yellow' },
+          { id: 'done', label: 'Done', color: 'green' },
         ],
       },
       { id: OWNER, name: 'Owner', type: 'person', options: [] },

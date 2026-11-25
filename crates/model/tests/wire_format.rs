@@ -1,11 +1,12 @@
 //! Pins the JSON form of the wire types, and what decoding takes and refuses.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Card, Category, CategoryContainerMetadata,
-    CategoryContainers, CategoryType, ClientConfig, Container, ContainerKind, ContainerMember,
-    ContainerMemberPatch, ContainerPatch, ContainerRole, ContainerVisibility, Credential,
-    InvalidInput, LoginRequest, MinimumRole, NameShown, OrgWorkspace, PatchContainersAndBlocks,
-    PersonName, Problem, PublicLink, Subscriber, Subscription, Title, User, UserPreferencesPatch,
+    Block, BlockPatch, BlockPatchBatch, BlockType, Card, CardPropertyDefinition, Category,
+    CategoryContainerMetadata, CategoryContainers, CategoryType, ClientConfig, Container,
+    ContainerKind, ContainerMember, ContainerMemberPatch, ContainerPatch, ContainerRole,
+    ContainerVisibility, Credential, InvalidInput, LoginRequest, MinimumRole, NameShown,
+    OrgWorkspace, PatchContainersAndBlocks, PersonName, Problem, PropertyColor, PropertyOption,
+    PropertyType, PublicLink, Subscriber, Subscription, Title, User, UserPreferencesPatch,
     Workspace,
 };
 use serde_json::{Value, json};
@@ -229,8 +230,12 @@ fn container_json_members() {
         is_builtin: false,
         template_version: 6,
         properties: serde_json::from_value(json!({ "k": "v" })).expect("object"),
-        card_properties: serde_json::from_value(json!([{ "id": "p1", "name": "Status" }]))
-            .expect("list of objects"),
+        card_properties: vec![CardPropertyDefinition {
+            id: "p1".to_owned(),
+            name: "Status".to_owned(),
+            property_type: PropertyType::Select,
+            options: vec![PropertyOption::new("o1", "Open", PropertyColor::Blue)],
+        }],
         create_at: 1,
         update_at: 2,
         deleted_at: None,
@@ -239,7 +244,13 @@ fn container_json_members() {
         "id": "b1", "workspaceId": "0", "createdBy": "u1", "modifiedBy": "u1",
         "visibility": "private", "kind": "board", "minimumRole": "commenter", "title": "Roadmap", "description": "d",
         "icon": "🚀", "showDescription": true, "isTemplate": false, "isBuiltin": false, "templateVersion": 6,
-        "properties": { "k": "v" }, "cardProperties": [{ "id": "p1", "name": "Status" }],
+        "properties": { "k": "v" },
+        "cardProperties": [{
+            "id": "p1",
+            "name": "Status",
+            "type": "select",
+            "options": [{ "id": "o1", "label": "Open", "color": "blue" }]
+        }],
         "createAt": 1, "updateAt": 2
     });
     assert_eq!(to_json(&board), want);
@@ -333,13 +344,20 @@ fn container_patch_apply_merges_card_properties_in_order() {
     );
     assert_eq!(
         to_json(&board.card_properties),
-        json!([{ "id": "b", "name": "B2" }, { "id": "c", "name": "C" }, { "id": "d", "name": "D" }])
+        json!([
+            { "id": "b", "name": "B2", "type": "text", "options": [] },
+            { "id": "c", "name": "C", "type": "text", "options": [] },
+            { "id": "d", "name": "D", "type": "text", "options": [] }
+        ])
     );
 }
 
 #[test]
 fn container_patch_without_card_property_changes_keeps_them_untouched() {
-    let card_properties = json!([{ "name": "no id" }, { "id": "a" }]);
+    let card_properties = json!([
+        { "id": "", "name": "no id", "type": "text", "options": [] },
+        { "id": "a", "name": "", "type": "text", "options": [] }
+    ]);
     let mut board = Container {
         card_properties: serde_json::from_value(card_properties.clone()).expect("list"),
         ..Container::default()
@@ -359,12 +377,14 @@ fn container_patch_without_card_property_changes_keeps_them_untouched() {
 #[test]
 fn container_patch_deleting_and_updating_a_card_property_keeps_one() {
     let mut board = Container {
-        card_properties: serde_json::from_value(json!([{ "id": "a", "v": 1 }, { "id": "b" }]))
-            .expect("list"),
+        card_properties: serde_json::from_value(
+            json!([{ "id": "a", "name": "v1" }, { "id": "b" }]),
+        )
+        .expect("list"),
         ..Container::default()
     };
     let patch: ContainerPatch = serde_json::from_value(json!({
-        "updatedCardProperties": [{ "id": "a", "v": 2 }],
+        "updatedCardProperties": [{ "id": "a", "name": "v2" }],
         "deletedCardProperties": ["a"]
     }))
     .expect("decodes");
@@ -373,7 +393,10 @@ fn container_patch_deleting_and_updating_a_card_property_keeps_one() {
 
     assert_eq!(
         to_json(&board.card_properties),
-        json!([{ "id": "a", "v": 2 }, { "id": "b" }]),
+        json!([
+            { "id": "a", "name": "v2", "type": "text", "options": [] },
+            { "id": "b", "name": "", "type": "text", "options": [] }
+        ]),
         "one definition per identifier"
     );
 }
@@ -932,6 +955,21 @@ fn null_is_refused_for_members_that_are_not_nullable() {
         &json!({ "username": "u", "password": "p" }),
         &[],
         "a login request",
+    );
+    refuses_null_members::<CardPropertyDefinition>(
+        &json!({
+            "id": "p1",
+            "name": "Status",
+            "type": "select",
+            "options": [{ "id": "o1", "label": "Open", "color": "green" }],
+        }),
+        &[],
+        "a card property definition",
+    );
+    refuses_null_members::<PropertyOption>(
+        &json!({ "id": "o1", "label": "Open", "color": "green" }),
+        &["id", "label"],
+        "a property option",
     );
 
     // A member that may be null is none when it is.

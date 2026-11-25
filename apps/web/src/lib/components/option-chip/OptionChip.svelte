@@ -8,12 +8,12 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { cn } from '$lib/utils.js';
 
-  import { optionFill } from './colors.ts';
+  import { optionFill, type OptionColor } from './colors.ts';
 
   interface Props {
     name: string;
-    /** A colour name such as `propColorBrown`. */
-    color: string;
+    /** A colour name such as `brown`. */
+    color: OptionColor;
     onRemove?: () => void;
     class?: string;
   }

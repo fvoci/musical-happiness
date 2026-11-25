@@ -169,8 +169,8 @@ describe('board tests', () => {
         options: [
           {
             id: 'opt',
-            value: 'val',
-            color: 'propColorYellow',
+            label: 'val',
+            color: 'yellow',
           },
         ],
       });
@@ -186,9 +186,9 @@ describe('board tests', () => {
               name: 'property-name',
               options: [
                 {
-                  color: 'propColorYellow',
+                  color: 'yellow',
                   id: 'opt',
-                  value: 'val',
+                  label: 'val',
                 },
               ],
               type: 'select',
@@ -213,8 +213,8 @@ describe('board tests', () => {
         options: [
           {
             id: 'opt',
-            value: 'val',
-            color: 'propColorYellow',
+            label: 'val',
+            color: 'yellow',
           },
         ],
       } as PropertyTemplate;
@@ -235,9 +235,9 @@ describe('board tests', () => {
               name: 'property-name',
               options: [
                 {
-                  color: 'propColorYellow',
+                  color: 'yellow',
                   id: 'opt',
-                  value: 'val',
+                  label: 'val',
                 },
               ],
               type: 'select',
@@ -254,9 +254,9 @@ describe('board tests', () => {
               name: 'a-different-name',
               options: [
                 {
-                  color: 'propColorYellow',
+                  color: 'yellow',
                   id: 'opt',
-                  value: 'val',
+                  label: 'val',
                 },
               ],
               type: 'select',
@@ -275,8 +275,8 @@ describe('board tests', () => {
         options: [
           {
             id: 'opt',
-            value: 'val',
-            color: 'propColorYellow',
+            label: 'val',
+            color: 'yellow',
           },
         ],
       } as PropertyTemplate;
@@ -290,8 +290,8 @@ describe('board tests', () => {
           options: [
             {
               id: 'another-opt',
-              value: 'val',
-              color: 'propColorBrown',
+              label: 'val',
+              color: 'brown',
             },
           ],
         },
@@ -308,9 +308,9 @@ describe('board tests', () => {
               name: 'property-name',
               options: [
                 {
-                  color: 'propColorYellow',
+                  color: 'yellow',
                   id: 'opt',
-                  value: 'val',
+                  label: 'val',
                 },
               ],
               type: 'select',
@@ -327,9 +327,9 @@ describe('board tests', () => {
               name: 'property-name',
               options: [
                 {
-                  color: 'propColorBrown',
+                  color: 'brown',
                   id: 'another-opt',
-                  value: 'val',
+                  label: 'val',
                 },
               ],
               type: 'select',

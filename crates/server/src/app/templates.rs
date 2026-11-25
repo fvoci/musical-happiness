@@ -24,7 +24,7 @@ use super::loose_objects::Written;
 use crate::error::AppError;
 
 /// The current version of the built-in templates. Raising it stores them again.
-const DEFAULT_TEMPLATE_VERSION: i64 = 11;
+const DEFAULT_TEMPLATE_VERSION: i64 = 12;
 
 /// The longest the storing of one file of the templates may take. The files are a few
 /// kilobytes each, and a server does not serve, nor a request for a first board that
@@ -174,7 +174,7 @@ struct TemplateBoard {
     icon: String,
     show_description: bool,
     #[serde(default)]
-    card_properties: Vec<fvoci_model::JsonMap>,
+    card_properties: Vec<fvoci_model::CardPropertyDefinition>,
 }
 
 /// A file that the bodies of a template show.

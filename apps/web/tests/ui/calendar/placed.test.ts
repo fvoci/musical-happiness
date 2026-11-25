@@ -17,7 +17,7 @@ const status: PropertyTemplate = {
   id: 'status',
   name: 'Status',
   type: 'select',
-  options: [{ id: 'doing', value: 'Doing', color: 'propColorBlue' }],
+  options: [{ id: 'doing', label: 'Doing', color: 'blue' }],
 };
 const owner: PropertyTemplate = { id: 'owner', name: 'Owner', type: 'person', options: [] };
 const days = ['2026-11-12', '2026-11-13', '2026-11-14'] as CalendarDate[];

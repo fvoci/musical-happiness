@@ -37,7 +37,7 @@ describe('the property a view groups by', () => {
     expect(shown.fields.groupBy).toBeUndefined();
     expect(board.groupingOf(shown)?.id).toBe(STATUS);
     const groups = board.groupsOf(shown, board.cardsOf(shown), (name) => `No ${name}`);
-    expect(groups.visible.map((group) => [group.option.value, group.cards.length])).toEqual([
+    expect(groups.visible.map((group) => [group.option.label, group.cards.length])).toEqual([
       ['To do', 2],
       ['Doing', 1],
       ['Done', 0],

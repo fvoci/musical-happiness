@@ -45,8 +45,8 @@ async fn get_templates_returns_the_built_in_templates() {
         "all are open"
     );
     assert!(
-        boards.iter().all(|board| board.template_version >= 8),
-        "all are at least the current version"
+        boards.iter().all(|board| board.template_version == 12),
+        "all are at the current version (12)"
     );
     assert!(
         boards
@@ -1011,9 +1011,8 @@ async fn a_board_made_from_a_template_has_its_own_files_and_names_its_own_cards(
     let relation = welcome
         .card_properties
         .iter()
-        .find(|property| property.get("type") == Some(&json!("relation")))
-        .and_then(|property| property.get("id"))
-        .and_then(Value::as_str)
+        .find(|property| property.property_type == fvoci_model::PropertyType::Relation)
+        .map(|property| property.id.as_str())
         .expect("the welcome board has a card relation");
     let arranging = &cards["Filter, sort and group"];
     let links = arranging.fields["properties"][relation]

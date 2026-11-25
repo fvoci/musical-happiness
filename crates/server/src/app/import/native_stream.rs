@@ -14,10 +14,10 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader};
 
 use fvoci_model::{
-    ArchiveLine, BODY_MAX_BYTES, Block, BlockError, BlockType, Container, ContainerKind,
-    ContainerMember, ContainersAndBlocksError, CourseScheduleUpdate, DiaryDate, JsonMap,
-    RelationProperties, UnmatchedRelation, ValidatedCourseSchedule, collect_block_references,
-    new_id, rewrite_block_ids,
+    ArchiveLine, BODY_MAX_BYTES, Block, BlockError, BlockType, CardPropertyDefinition, Container,
+    ContainerKind, ContainerMember, ContainersAndBlocksError, CourseScheduleUpdate, DiaryDate,
+    PropertyType, RelationProperties, UnmatchedRelation, ValidatedCourseSchedule,
+    collect_block_references, new_id, rewrite_block_ids,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -104,7 +104,7 @@ pub(super) struct BoardWritePlan {
 pub(super) struct StreamPlan {
     pub(super) container_new_ids: Vec<String>,
     pub(super) block_container_idx: Vec<Option<u32>>,
-    pub(super) card_properties: HashMap<String, Vec<JsonMap>>,
+    pub(super) card_properties: HashMap<String, Vec<CardPropertyDefinition>>,
     pub(super) new_block_ids: Vec<Option<String>>,
     pub(super) renamed: HashMap<String, String>,
     pub(super) card_boards: HashMap<String, String>,
@@ -366,7 +366,7 @@ impl ScanAccum {
         let has_rel = container
             .card_properties
             .iter()
-            .any(|prop| prop.get("type").and_then(Value::as_str) == Some("relation"));
+            .any(|prop| prop.property_type == PropertyType::Relation);
         self.container_has_relations.push(has_rel);
         self.containers.push(container);
         Ok(())
@@ -651,7 +651,10 @@ fn validate_kept_structure(
 
 /// Clears card property values that do not match their definition and tidies copied
 /// relation values on a single block.
-pub(super) fn clear_block_values_of_another_kind(block: &mut Block, definitions: &[JsonMap]) {
+pub(super) fn clear_block_values_of_another_kind(
+    block: &mut Block,
+    definitions: &[CardPropertyDefinition],
+) {
     let id = block.id.clone();
     if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
         fvoci_model::clear_values_of_another_kind(values, definitions);
@@ -683,7 +686,7 @@ pub(super) fn build_write_plan(
     let mut old_to_new_container: HashMap<String, String> =
         HashMap::with_capacity(containers.len());
     let mut container_new_ids: Vec<String> = Vec::with_capacity(containers.len());
-    let mut card_properties: HashMap<String, Vec<JsonMap>> =
+    let mut card_properties: HashMap<String, Vec<CardPropertyDefinition>> =
         HashMap::with_capacity(containers.len());
     let mut relations = RelationProperties::new();
     for container in &mut containers {
@@ -864,7 +867,7 @@ fn simulated_staged_file_names(
 struct StreamPlanSnapshot {
     container_new_ids: Vec<String>,
     block_container_idx: Vec<Option<u32>>,
-    card_properties: HashMap<String, Vec<JsonMap>>,
+    card_properties: HashMap<String, Vec<CardPropertyDefinition>>,
     new_block_ids: Vec<Option<String>>,
     renamed: HashMap<String, String>,
     card_boards: HashMap<String, String>,

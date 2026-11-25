@@ -17,28 +17,28 @@
         "options": [
           {
             "id": "611cf64d-c9cd-516f-b30d-b7dde77c1e76",
-            "value": "Idea",
-            "color": "propColorGray"
+            "label": "Idea",
+            "color": "gray"
           },
           {
             "id": "522aec7a-93a0-5890-a880-05a834d0f399",
-            "value": "Drafting",
-            "color": "propColorYellow"
+            "label": "Drafting",
+            "color": "yellow"
           },
           {
             "id": "51117d36-696b-5660-b735-d12d330a65c2",
-            "value": "In review",
-            "color": "propColorPurple"
+            "label": "In review",
+            "color": "purple"
           },
           {
             "id": "e10523e9-db55-5cbb-960b-d88cedfaf2d1",
-            "value": "Scheduled",
-            "color": "propColorBlue"
+            "label": "Scheduled",
+            "color": "blue"
           },
           {
             "id": "9fbe9f25-85b1-5b41-8ce0-0d26f659836d",
-            "value": "Published",
-            "color": "propColorGreen"
+            "label": "Published",
+            "color": "green"
           }
         ]
       },
@@ -49,18 +49,18 @@
         "options": [
           {
             "id": "a91e6e13-e04e-5959-9226-4717c208be2e",
-            "value": "Blog post",
-            "color": "propColorBlue"
+            "label": "Blog post",
+            "color": "blue"
           },
           {
             "id": "26edc147-a209-58da-bd18-b3a78105c333",
-            "value": "Video",
-            "color": "propColorRed"
+            "label": "Video",
+            "color": "red"
           },
           {
             "id": "e2c158c6-4929-5af7-9cc1-e7671d56a02b",
-            "value": "Newsletter",
-            "color": "propColorOrange"
+            "label": "Newsletter",
+            "color": "orange"
           }
         ]
       },
@@ -71,23 +71,23 @@
         "options": [
           {
             "id": "4526d59f-d2bd-5fe6-b998-1bad43e8375e",
-            "value": "Blog",
-            "color": "propColorBlue"
+            "label": "Blog",
+            "color": "blue"
           },
           {
             "id": "9d466a47-418d-5dc0-99a8-ccc717713c1b",
-            "value": "Mail",
-            "color": "propColorOrange"
+            "label": "Mail",
+            "color": "orange"
           },
           {
             "id": "07ceb846-e0bc-58a0-8ca0-82b572209906",
-            "value": "Social",
-            "color": "propColorPink"
+            "label": "Social",
+            "color": "pink"
           },
           {
             "id": "005e6add-23c6-57ed-922b-a0f8ac8e007e",
-            "value": "Video channel",
-            "color": "propColorRed"
+            "label": "Video channel",
+            "color": "red"
           }
         ]
       },

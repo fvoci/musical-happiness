@@ -106,7 +106,7 @@ describe('a lost answer on the real server (found by a review of b0dec09e)', () 
         ...current,
         cardProperties: [
           ...current.cardProperties,
-          { ...added, options: [{ id: 'o', value: 'One', color: 'propColorRed' }] },
+          { ...added, options: [{ id: 'o', label: 'One', color: 'red' }] },
         ],
       }));
       expect(board.board?.cardProperties.map((property) => property.id)).toContain('added');

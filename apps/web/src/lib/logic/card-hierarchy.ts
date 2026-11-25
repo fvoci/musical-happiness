@@ -261,7 +261,7 @@ export function statusPropertyOf(
   const namedStatus = selects.find((template) => STATUS_NAME_PATTERN.test(template.name));
   if (namedStatus) return namedStatus;
   const doneSelect = selects.find((template) =>
-    template.options.some((option) => isDoneOptionLabel(option.value)),
+    template.options.some((option) => isDoneOptionLabel(option.label)),
   );
   if (doneSelect) return doneSelect;
   const checkboxes = properties.filter((template) => template.type === 'checkbox');
@@ -288,15 +288,15 @@ function isCompletedWith(
   if (prop.type === 'checkbox') return cardProperty(card, prop.id) === 'true';
   const chosen = statusOptionOf(card, prop);
   if (!chosen) return false;
-  if (isDoneOptionLabel(chosen.value)) return true;
-  return !hasKeywordOption && chosen.color === 'propColorGreen';
+  if (isDoneOptionLabel(chosen.label)) return true;
+  return !hasKeywordOption && chosen.color === 'green';
 }
 
 /** Whether `card` counts as completed according to the board's status or checkbox property. */
 export function isCardCompleted(card: Card, properties: readonly PropertyTemplate[]): boolean {
   const prop = statusPropertyOf(properties);
   const hasKeywordOption =
-    prop?.type === 'select' && prop.options.some((option) => isDoneOptionLabel(option.value));
+    prop?.type === 'select' && prop.options.some((option) => isDoneOptionLabel(option.label));
   return isCompletedWith(card, prop, hasKeywordOption);
 }
 
@@ -311,7 +311,7 @@ export function subcardProgress(
   if (total === 0) return { done: 0, total: 0, percent: 0 };
   const prop = statusPropertyOf(properties);
   const hasKeywordOption =
-    prop?.type === 'select' && prop.options.some((option) => isDoneOptionLabel(option.value));
+    prop?.type === 'select' && prop.options.some((option) => isDoneOptionLabel(option.label));
   let done = 0;
   for (const child of children) {
     if (isCompletedWith(child, prop, hasKeywordOption)) done += 1;

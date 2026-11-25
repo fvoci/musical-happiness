@@ -6,7 +6,13 @@ import type { Presentation } from '$lib/components/picker-surface/presentation.t
 import type { PersonName } from '$lib/logic/person-names.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import type { UserNames } from '$lib/logic/users.ts';
-import type { Card, PropertyOption, PropertyTemplate, PropertyValue } from '$lib/logic/wire.ts';
+import type {
+  Card,
+  PropertyColor,
+  PropertyOption,
+  PropertyTemplate,
+  PropertyValue,
+} from '$lib/logic/wire.ts';
 
 /** A person who can be the value of a person property. */
 export interface PropertyUser extends UserNames {
@@ -27,8 +33,8 @@ export interface OptionCallbacks {
    */
   onCreateOption?: (name: string) => PropertyOption | Promise<PropertyOption>;
   onRenameOption?: (option: PropertyOption, name: string) => void;
-  /** `color` is a colour name such as `propColorBrown`. */
-  onRecolorOption?: (option: PropertyOption, color: string) => void;
+  /** `color` is a colour name such as `brown`. */
+  onRecolorOption?: (option: PropertyOption, color: PropertyColor) => void;
   onDeleteOption?: (option: PropertyOption) => void;
 }
 

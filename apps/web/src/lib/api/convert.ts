@@ -117,7 +117,7 @@ export function containerOf(board: Schemas['Container']): Container {
     isBuiltin: board.isBuiltin,
     templateVersion: board.templateVersion,
     properties: board.properties as Container['properties'],
-    cardProperties: board.cardProperties as unknown as PropertyTemplate[],
+    cardProperties: board.cardProperties,
     createAt: board.createAt,
     updateAt: board.updateAt,
     ...(board.deletedAt === undefined ? {} : { deletedAt: board.deletedAt }),
@@ -342,6 +342,21 @@ export function publicLinkOf(link: Schemas['PublicLink']): PublicLink {
   return { enabled: link.enabled, token: link.token ?? '' };
 }
 
+function wireCardProperties(
+  templates: readonly PropertyTemplate[],
+  member: 'cardProperties' | 'updatedCardProperties' = 'cardProperties',
+): Schemas['CardPropertyDefinition'][] {
+  return templates.map((template) => {
+    if (template.type === 'unknown') {
+      throw new BackendError(400, {
+        detail: 'unknown card property type',
+        errors: [refusedMember(member, 'unknown card property type')],
+      });
+    }
+    return { ...template, type: template.type };
+  });
+}
+
 /**
  * A board and its first view, to be made in one request (`createBoardsAndBlocks`);
  * the workspace is the one of the request's path.
@@ -359,7 +374,7 @@ export function newBoardAndViewOf(
         title: draft.title,
         description: draft.description ?? '',
         icon: draft.icon ?? '',
-        cardProperties: (draft.cardProperties ?? []) as unknown as Record<string, unknown>[],
+        cardProperties: wireCardProperties(draft.cardProperties ?? []),
       },
     ],
     blocks: [
@@ -394,6 +409,8 @@ export function containerPatchOf(patch: ContainerPatch): Schemas['ContainerPatch
     ...(minimumRole === undefined ? {} : { minimumRole }),
     ...(updatedCardProperties === undefined
       ? {}
-      : { updatedCardProperties: updatedCardProperties as unknown as Record<string, unknown>[] }),
+      : {
+          updatedCardProperties: wireCardProperties(updatedCardProperties, 'updatedCardProperties'),
+        }),
   };
 }

@@ -77,10 +77,10 @@ async fn insert_board(scoped: &Store, board_id: &str, workspace_id: &str, user_i
     let is_builtin = user_id.is_none();
     let card_props = json!([
         {"id": "p-status", "name": "Status", "type": "select", "options": [
-            {"id": "opt-a", "value": "Todo", "color": "propColorBlue"},
-            {"id": "opt-b", "value": "Doing", "color": "propColorYellow"},
-            {"id": "opt-c", "value": "Done", "color": "propColorGreen"},
-            {"id": "opt-d", "value": "Blocked", "color": "propColorRed"},
+            {"id": "opt-a", "value": "Todo", "color": concat!("prop", "ColorBlue")},
+            {"id": "opt-b", "value": "Doing", "color": concat!("prop", "ColorYellow")},
+            {"id": "opt-c", "value": "Done", "color": concat!("prop", "ColorGreen")},
+            {"id": "opt-d", "value": "Blocked", "color": concat!("prop", "ColorRed")},
         ]},
         {"id": "p-due", "name": "Due", "type": "date", "options": []},
         {"id": "p-est", "name": "Estimate", "type": "number", "options": []},

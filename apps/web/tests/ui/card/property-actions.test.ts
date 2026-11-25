@@ -343,7 +343,7 @@ describe('the options of a select, as its editor reports them', () => {
   it('makes an option and hands it back for the value', async () => {
     const { board, stored, definition } = await open();
     const option = await optionCallbacks(board, STATUS).onCreateOption('Blocked');
-    expect(option).toMatchObject({ value: 'Blocked', color: 'propColorDefault' });
+    expect(option).toMatchObject({ label: 'Blocked', color: 'default' });
     expect(definition(STATUS)?.options.at(-1)).toEqual(option);
     expect((await stored())[0]?.options.at(-1)).toEqual(option);
   });
@@ -360,12 +360,12 @@ describe('the options of a select, as its editor reports them', () => {
     const todo = definition(STATUS)?.options[0];
     if (!todo) throw new Error('no option');
     callbacks.onRenameOption(todo, 'Next');
-    callbacks.onRecolorOption(todo, 'propColorRed');
+    callbacks.onRecolorOption(todo, 'red');
     await settle();
     expect(definition(STATUS)?.options[0]).toEqual({
       id: 'todo',
-      value: 'Next',
-      color: 'propColorRed',
+      label: 'Next',
+      color: 'red',
     });
     callbacks.onDeleteOption(todo);
     await settle();

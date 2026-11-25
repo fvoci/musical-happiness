@@ -41,7 +41,7 @@ describe('a select property, closed', () => {
     expect(button()).toHaveAccessibleName('My select In progress');
     expect(within(button()).getByText('In progress').closest('[data-color]')).toHaveAttribute(
       'data-color',
-      'propColorBlue',
+      'blue',
     );
   });
 
@@ -123,8 +123,8 @@ describe('a select property, opened', () => {
 
   it('narrows a list of Korean names by typed Hangul', async () => {
     const options: PropertyOption[] = [
-      { id: 'a', value: '진행 중', color: 'propColorBlue' },
-      { id: 'b', value: '완료', color: 'propColorGreen' },
+      { id: 'a', label: '진행 중', color: 'blue' },
+      { id: 'b', label: '완료', color: 'green' },
     ];
     const { onChange } = mount(templateOf('select', { options }), '');
     await open();
@@ -174,7 +174,7 @@ describe('a select property, opened', () => {
 });
 
 describe('creating an option from a select property', () => {
-  const created: PropertyOption = { id: 'option-new', value: 'Blocked', color: 'propColorDefault' };
+  const created: PropertyOption = { id: 'option-new', label: 'Blocked', color: 'default' };
 
   it('offers to create a name that no option has', async () => {
     mount('select', '', { onCreateOption: () => created });
@@ -342,7 +342,7 @@ describe('the settings of an option', () => {
       'Red',
     ]);
     await fireEvent.click(screen.getByRole('radio', { name: 'Brown' }));
-    expect(reported.onRecolorOption).toHaveBeenCalledExactlyOnceWith(OPTIONS[2], 'propColorBrown');
+    expect(reported.onRecolorOption).toHaveBeenCalledExactlyOnceWith(OPTIONS[2], 'brown');
     // The colour it already has is not reported again.
     await fireEvent.click(screen.getByRole('radio', { name: 'Green' }));
     expect(reported.onRecolorOption).toHaveBeenCalledTimes(1);
@@ -374,7 +374,7 @@ describe('the settings of an option', () => {
     await open();
     await fireEvent.click(settingsButton('Done'));
     const options = OPTIONS.map((existing) =>
-      existing.id === 'option-3' ? { ...existing, color: 'propColorRed' } : existing,
+      existing.id === 'option-3' ? { ...existing, color: 'red' as const } : existing,
     );
     await mounted.setProps({ template: templateOf('select', { options }) });
     expect(screen.getByRole('radio', { name: 'Red' })).toBeChecked();
@@ -385,8 +385,8 @@ describe('the settings of an option', () => {
 describe('a select property with many options', () => {
   const options: PropertyOption[] = Array.from({ length: 200 }, (_, index) => ({
     id: `option-${index}`,
-    value: `Option ${index}`,
-    color: 'propColorDefault',
+    label: `Option ${index}`,
+    color: 'default',
   }));
 
   it('lists them all and finds one by typing', async () => {

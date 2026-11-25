@@ -13,8 +13,8 @@
 )]
 
 use fvoci_model::{
-    Body, CardOpen, CategoryType, ContainerRole, ContainerVisibility, Credential, Density,
-    HourCycle, JsonMap, MinimumRole, NameShown, Theme, Title, WeekStart,
+    Body, CardOpen, CardPropertyDefinition, CategoryType, ContainerRole, ContainerVisibility,
+    Credential, Density, HourCycle, JsonMap, MinimumRole, NameShown, Theme, Title, WeekStart,
 };
 use utoipa::ToSchema;
 
@@ -97,8 +97,8 @@ pub(crate) struct NewBoard {
     properties: Option<JsonMap>,
     /// The property definitions of the board's cards, in display order. Each needs a
     /// non-empty `id` that no other has.
-    #[schema(value_type = Option<Vec<Object>>, nullable = false)]
-    card_properties: Option<Vec<JsonMap>>,
+    #[schema(nullable = false)]
+    card_properties: Option<Vec<CardPropertyDefinition>>,
 }
 
 /// A block to insert.

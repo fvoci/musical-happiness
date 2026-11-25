@@ -41,7 +41,7 @@ export function createTestBoard(): Container {
       id: `property${index}`,
       name: `Property ${index}`,
       type: 'select',
-      options: [{ id: 'value1', value: 'value 1', color: 'propColorBrown' }],
+      options: [{ id: 'value1', label: 'value 1', color: 'brown' }],
     });
   }
   return board;

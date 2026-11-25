@@ -17,18 +17,18 @@
         "options": [
           {
             "id": "ebedfa40-68d0-568e-9e1a-104287dbdea9",
-            "value": "알고리즘",
-            "color": "propColorBlue"
+            "label": "알고리즘",
+            "color": "blue"
           },
           {
             "id": "460518d8-9623-5542-9c4d-fc7b09aea48d",
-            "value": "통계",
-            "color": "propColorGreen"
+            "label": "통계",
+            "color": "green"
           },
           {
             "id": "e7efe65c-9889-52d3-84d7-659723d95602",
-            "value": "데이터베이스",
-            "color": "propColorOrange"
+            "label": "데이터베이스",
+            "color": "orange"
           }
         ]
       },
@@ -39,18 +39,18 @@
         "options": [
           {
             "id": "76becd23-173b-5eca-904f-db235ae038ce",
-            "value": "시험에 나옴",
-            "color": "propColorRed"
+            "label": "시험에 나옴",
+            "color": "red"
           },
           {
             "id": "ae07b99f-4e99-5e9c-810d-c99b6f2af3c0",
-            "value": "증명",
-            "color": "propColorPurple"
+            "label": "증명",
+            "color": "purple"
           },
           {
             "id": "71f4bc57-1be4-551a-849f-02ced414a6f6",
-            "value": "연습 문제",
-            "color": "propColorYellow"
+            "label": "연습 문제",
+            "color": "yellow"
           }
         ]
       },
@@ -61,18 +61,18 @@
         "options": [
           {
             "id": "e847feb0-bb42-5225-8a22-9bcd6d23ebea",
-            "value": "처음 봄",
-            "color": "propColorGray"
+            "label": "처음 봄",
+            "color": "gray"
           },
           {
             "id": "839fa6a7-39f8-5487-90d4-d074af5da0ba",
-            "value": "헷갈림",
-            "color": "propColorYellow"
+            "label": "헷갈림",
+            "color": "yellow"
           },
           {
             "id": "a2ffcd87-ae02-59e5-9193-cb1c8e8d4a86",
-            "value": "익숙함",
-            "color": "propColorGreen"
+            "label": "익숙함",
+            "color": "green"
           }
         ]
       },

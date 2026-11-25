@@ -295,9 +295,9 @@ fn required_of(schemas: &Value, schema: &Value) -> Vec<String> {
 #[test]
 fn what_is_always_there_is_what_the_server_writes() {
     use fvoci_model::{
-        Block, Card, Category, CategoryContainerMetadata, CategoryContainers, ClientConfig,
-        Container, ContainerMember, ContainersAndBlocks, FileRecord, PublicLink, Subscription,
-        User, Workspace,
+        Block, Card, CardPropertyDefinition, Category, CategoryContainerMetadata,
+        CategoryContainers, ClientConfig, Container, ContainerMember, ContainersAndBlocks,
+        FileRecord, PropertyOption, PublicLink, Subscription, User, Workspace,
     };
 
     let text = document().expect("the document");
@@ -306,6 +306,10 @@ fn what_is_always_there_is_what_the_server_writes() {
     let written = [
         ("Block", sent(&Block::default())),
         ("Card", sent(&Card::default())),
+        (
+            "CardPropertyDefinition",
+            sent(&CardPropertyDefinition::default()),
+        ),
         ("Category", sent(&Category::default())),
         (
             "CategoryContainerMetadata",
@@ -324,6 +328,7 @@ fn what_is_always_there_is_what_the_server_writes() {
         ),
         ("ContainersAndBlocks", sent(&ContainersAndBlocks::default())),
         ("FileRecord", sent(&FileRecord::default())),
+        ("PropertyOption", sent(&PropertyOption::default())),
         ("PublicLink", sent(&PublicLink::default())),
         ("Subscription", sent(&Subscription::default())),
         ("Workspace", sent(&Workspace::default())),
@@ -343,7 +348,8 @@ fn what_is_always_there_is_what_the_server_writes() {
 #[test]
 fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
     use fvoci_model::{
-        CardOpen, ContainerRole, Density, HourCycle, Theme, UserSettings, WeekStart,
+        CardOpen, ContainerRole, Density, HourCycle, PropertyColor, PropertyType, Theme,
+        UserSettings, WeekStart,
     };
 
     let text = document().expect("the document");
@@ -354,6 +360,8 @@ fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
         ("ContainerRole", ContainerRole::WORDS),
         ("Density", Density::WORDS),
         ("HourCycle", HourCycle::WORDS),
+        ("PropertyColor", PropertyColor::WORDS),
+        ("PropertyType", PropertyType::WORDS),
         ("Theme", Theme::WORDS),
         ("WeekStart", WeekStart::WORDS),
     ] {

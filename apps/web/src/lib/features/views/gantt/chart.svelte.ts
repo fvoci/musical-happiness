@@ -35,7 +35,7 @@ import {
   type Scale,
 } from '$lib/logic/gantt.ts';
 import type { GanttZoom } from '$lib/logic/view-members.ts';
-import type { BoardView, Card, PropertyTemplate } from '$lib/logic/wire.ts';
+import type { BoardView, Card, PropertyColor, PropertyTemplate } from '$lib/logic/wire.ts';
 import type { BoardStore } from '$lib/state/index.ts';
 
 import { Placed } from '../calendar/placed.ts';
@@ -100,7 +100,7 @@ export interface GroupLine {
   /** What the group is called: the option, the person, or "No Status". */
   name: string;
   /** The colour name of the option; undefined for a group that is not an option. */
-  color: string | undefined;
+  color: PropertyColor | undefined;
   /** How many cards of the group have a bar. */
   count: number;
 }
@@ -228,7 +228,7 @@ export class GanttChart {
   #groupName(option: BoardGroup['option']): string {
     return this.#person(option.id)
       ? (this.#board.workspace.userName(option.id) ?? m['centerPanel.unknown-user']())
-      : option.value;
+      : option.label;
   }
 
   /** The name of the group each card is in; none where the view is not grouped. */

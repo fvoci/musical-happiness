@@ -3,12 +3,11 @@
 
 use fvoci_model::{
     Block, BlockType, Container, ContainerError, ContainerKind, ContainerKinds, ContainerPatch,
-    ContainerSearchField, ContainerVisibility, JsonMap, MinimumRole, WorkspaceRole, new_id,
+    ContainerSearchField, ContainerVisibility, MinimumRole, WorkspaceRole, new_id,
 };
 use fvoci_store::{DbType, PublicContainers, Store, StoreError};
-use serde_json::json;
 
-use crate::boards::{new_board, object};
+use crate::boards::new_board;
 use crate::common;
 
 /// Stores a private board of `kind` with `user_id` as its administrator.
@@ -99,7 +98,11 @@ async fn a_wiki_is_no_template_and_has_no_card_properties() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let property: JsonMap = object(json!({"id": "status", "name": "Status", "type": "text"}));
+    let property = fvoci_model::CardPropertyDefinition::new(
+        "status",
+        "Status",
+        fvoci_model::PropertyType::Text,
+    );
     let wiki = || Container {
         kind: ContainerKind::Wiki,
         ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)
@@ -150,7 +153,8 @@ async fn a_wiki_is_no_template_and_has_no_card_properties() {
     );
 
     // Courses may be templates, but card properties are still refused.
-    let course_prop: JsonMap = object(json!({"id": "level", "name": "Level", "type": "text"}));
+    let course_prop =
+        fvoci_model::CardPropertyDefinition::new("level", "Level", fvoci_model::PropertyType::Text);
     let course = || Container {
         kind: ContainerKind::Course,
         ..new_board(&new_id(), &workspace_id, ContainerVisibility::Open)

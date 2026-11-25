@@ -15,25 +15,68 @@ use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::export::import;
 
-/// Card property definitions that are malformed, each with what is wrong with it.
-fn malformed_definitions() -> Vec<(&'static str, Value)> {
+/// Card property definitions with missing/empty IDs (semantic validation failures).
+fn id_missing_definitions() -> Vec<(&'static str, Value)> {
     vec![
         ("no id", json!({"name": "Status", "type": "select"})),
         ("an empty id", json!({"id": "", "name": "Status"})),
+        (
+            "an option with an empty id",
+            json!({"id": "p1", "type": "select", "options": [{"id": "", "label": "Open"}]}),
+        ),
+        (
+            "two options with the same id",
+            json!({"id": "p1", "type": "select", "options": [
+                {"id": "o1", "label": "Open"},
+                {"id": "o1", "label": "Closed"},
+            ]}),
+        ),
+    ]
+}
+
+/// Card property definitions whose wire shape, property type, or option fields/colors
+/// violate the static [`CardPropertyDefinition`] contract.
+fn wire_invalid_definitions() -> Vec<(&'static str, Value)> {
+    vec![
         ("a number as id", json!({"id": 7, "name": "Status"})),
         ("a number as name", json!({"id": "p1", "name": 7})),
         ("a list as type", json!({"id": "p1", "type": ["select"]})),
+        ("an unknown type", json!({"id": "p1", "type": "unknown"})),
+        (
+            "an unknown definition field",
+            json!({"id": "p1", "propertyType": "date"}),
+        ),
         (
             "options that are no list",
             json!({"id": "p1", "options": "none"}),
+        ),
+        (
+            "options that are null",
+            json!({"id": "p1", "options": null}),
         ),
         (
             "an option that is no object",
             json!({"id": "p1", "options": ["a"]}),
         ),
         (
-            "an option with a number as value",
-            json!({"id": "p1", "options": [{"id": "o1", "value": 1, "color": "red"}]}),
+            "an option with legacy value key instead of label",
+            json!({"id": "p1", "options": [{"id": "o1", "value": "Open", "color": "red"}]}),
+        ),
+        (
+            "an option with legacy value key alongside label",
+            json!({"id": "p1", "options": [{"id": "o1", "label": "Open", "value": "Legacy", "color": "red"}]}),
+        ),
+        (
+            "an option with legacy prefixed color",
+            json!({"id": "p1", "options": [{"id": "o1", "label": "Open", "color": concat!("prop", "ColorRed")}]}),
+        ),
+        (
+            "an option with an unknown color",
+            json!({"id": "p1", "options": [{"id": "o1", "label": "Open", "color": "neon"}]}),
+        ),
+        (
+            "an option with a number as label",
+            json!({"id": "p1", "options": [{"id": "o1", "label": 1, "color": "red"}]}),
         ),
     ]
 }
@@ -124,10 +167,19 @@ async fn blocks_of(client: &Client, board_id: &str) -> Vec<Block> {
 async fn a_board_with_a_malformed_card_property_definition_is_not_created() {
     let th = Setup::native().start().await.init_basic().await;
 
-    for (what, definition) in malformed_definitions() {
+    for (what, definition) in id_missing_definitions() {
         // Among well-formed ones, too.
         let response = new_board(&th.client, json!([{"id": "ok"}, definition])).await;
         check_refused(&response, what);
+    }
+    for (what, definition) in wire_invalid_definitions() {
+        let response = new_board(&th.client, json!([{"id": "ok"}, definition])).await;
+        assert_eq!(
+            response.status,
+            StatusCode::BAD_REQUEST,
+            "{what}: {}",
+            response.text()
+        );
     }
     let not_objects = new_board(&th.client, json!(["p1"])).await;
     assert_eq!(
@@ -146,7 +198,7 @@ async fn a_board_patch_with_a_malformed_card_property_definition_changes_nothing
     let (board, _card) = board_with_card(&th).await;
     let path = format!("{TEST_WS}/containers/{}", board.id);
 
-    for (what, definition) in malformed_definitions() {
+    for (what, definition) in id_missing_definitions() {
         let response = th
             .client
             .patch(
@@ -155,6 +207,21 @@ async fn a_board_patch_with_a_malformed_card_property_definition_changes_nothing
             )
             .await;
         check_refused(&response, what);
+    }
+    for (what, definition) in wire_invalid_definitions() {
+        let response = th
+            .client
+            .patch(
+                &path,
+                &json!({"title": "renamed", "updatedCardProperties": [{"id": "p2"}, definition]}),
+            )
+            .await;
+        assert_eq!(
+            response.status,
+            StatusCode::BAD_REQUEST,
+            "{what}: {}",
+            response.text()
+        );
     }
     let stored: Container = th.client.get(&path).await.ok_json();
     assert_eq!(
@@ -171,19 +238,28 @@ async fn a_board_patch_with_a_malformed_card_property_definition_changes_nothing
 #[tokio::test]
 async fn well_formed_card_property_definitions_are_stored_as_sent() {
     let th = Setup::native().start().await.init_basic().await;
-    let definitions = json!([
+    let sent = json!([
         {"id": "p1"},
         {"id": "p2", "name": "Status", "type": "select", "options": [
-            {"id": "o1", "value": "Open", "color": "propColorRed"},
-            {"id": "o2", "value": ""},
+            {"id": "o1", "label": "Open", "color": "red"},
+            {"id": "o2", "label": ""},
         ]},
-        {"id": "p3", "name": "", "type": "text", "options": null, "extra": {"kept": [1, true]}},
+        {"id": "p3", "name": "", "type": "text", "options": []},
+    ]);
+    let expected = json!([
+        {"id": "p1", "name": "", "type": "text", "options": []},
+        {"id": "p2", "name": "Status", "type": "select", "options": [
+            {"id": "o1", "label": "Open", "color": "red"},
+            {"id": "o2", "label": "", "color": "default"},
+        ]},
+        {"id": "p3", "name": "", "type": "text", "options": []},
     ]);
 
-    let board: Value = new_board(&th.client, definitions.clone())
-        .await
-        .created_json();
-    assert_eq!(board["cardProperties"], definitions, "created as sent");
+    let board: Value = new_board(&th.client, sent).await.created_json();
+    assert_eq!(
+        board["cardProperties"], expected,
+        "created as normalized CardPropertyDefinition"
+    );
 
     let added = json!({"id": "p4", "name": "Owner", "type": "person", "options": []});
     let patched: Value = th

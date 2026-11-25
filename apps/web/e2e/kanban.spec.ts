@@ -696,7 +696,7 @@ test.describe('the menu of a column', () => {
     await page.getByRole('radio', { name: 'Purple' }).click();
     await expect(column(page, 'Waiting').locator('h3 [data-slot="option-chip"]')).toHaveAttribute(
       'data-color',
-      'propColorPurple',
+      'purple',
     );
 
     await page.getByRole('button', { name: 'Show No Status' }).click();

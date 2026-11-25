@@ -52,7 +52,7 @@ interface DevBackend {
     fields: { icon?: string; properties: Record<string, unknown> };
   }>;
   container(containerId: string): Promise<{
-    cardProperties: { id: string; name: string; type: string; options: { value: string }[] }[];
+    cardProperties: { id: string; name: string; type: string; options: { label: string }[] }[];
   }>;
   patchCard(boardId: string, cardId: string, patch: object): Promise<unknown>;
   writeCardBody(boardId: string, cardId: string, write: object): Promise<unknown>;
@@ -455,7 +455,7 @@ test('a property is added, named, changed to another kind after a warning, and d
   page,
 }) => {
   const place = await openWelcomeCard(page);
-  const definitions = (): Promise<{ name: string; type: string; options: { value: string }[] }[]> =>
+  const definitions = (): Promise<{ name: string; type: string; options: { label: string }[] }[]> =>
     page.evaluate(
       async ({ boardId }) => (await window.fvociDev.backend.container(boardId)).cardProperties,
       place,
@@ -499,7 +499,7 @@ test('a property is added, named, changed to another kind after a warning, and d
   await expect(property(page, 'Notes')).toHaveAttribute('data-property-type', 'select');
   await expect(property(page, 'Notes').locator('dd')).toContainText('Remember this');
   await expect
-    .poll(async () => (await definitions()).at(-1)?.options.map((option) => option.value))
+    .poll(async () => (await definitions()).at(-1)?.options.map((option) => option.label))
     .toEqual(['Remember this']);
 
   // To a date: nothing of an option can be a date. The reader is told, and may still say no.

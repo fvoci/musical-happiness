@@ -616,8 +616,8 @@ async fn assert_post0070_containers_and_trash(migrated: &Store, fx: &Pre0070Fixt
         "open board visibility migrated"
     );
     assert_eq!(
-        board.card_properties[0]["type"],
-        json!("select"),
+        board.card_properties[0].property_type,
+        fvoci_model::PropertyType::Select,
         "nested card_properties.type preserved"
     );
 
@@ -704,8 +704,8 @@ async fn assert_post0070_trash_rows(post_a: &Store, fx: &Pre0070Fixture) {
             "PG trashed container NUL vs literal escape decoded"
         );
         assert_eq!(
-            decoded.card_properties[0]["type"],
-            json!("multiSelect"),
+            decoded.card_properties[0].property_type,
+            fvoci_model::PropertyType::MultiSelect,
             "PG trashed container card_properties decoded"
         );
     } else {
@@ -719,8 +719,8 @@ async fn assert_post0070_trash_rows(post_a: &Store, fx: &Pre0070Fixture) {
             "trashed private board visibility restored"
         );
         assert_eq!(
-            restored_priv.card_properties[0]["type"],
-            json!("multiSelect"),
+            restored_priv.card_properties[0].property_type,
+            fvoci_model::PropertyType::MultiSelect,
             "trashed private board card_properties preserved"
         );
     }
@@ -735,8 +735,8 @@ async fn assert_post0070_trash_rows(post_a: &Store, fx: &Pre0070Fixture) {
         "trashed open board visibility restored"
     );
     assert_eq!(
-        restored_open.card_properties[0]["type"],
-        json!("select"),
+        restored_open.card_properties[0].property_type,
+        fvoci_model::PropertyType::Select,
         "trashed open board card_properties preserved"
     );
     assert_eq!(
@@ -947,8 +947,8 @@ async fn assert_post0070_rls(migrated: &Store, fx: &Pre0070Fixture, other: &Pre0
         "org-b trashed board visibility restored"
     );
     assert_eq!(
-        restored_b.card_properties[0]["type"],
-        json!("select"),
+        restored_b.card_properties[0].property_type,
+        fvoci_model::PropertyType::Select,
         "org-b trashed board card_properties preserved"
     );
 }

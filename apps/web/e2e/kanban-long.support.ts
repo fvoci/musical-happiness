@@ -26,7 +26,7 @@ interface Backend {
   boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   users(workspaceId: string): Promise<{ id: string }[]>;
   container(containerId: string): Promise<{
-    cardProperties: { id: string; name: string; options: { id: string; value: string }[] }[];
+    cardProperties: { id: string; name: string; options: { id: string; label: string }[] }[];
   }>;
   cards(boardId: string): Promise<{ id: string; title: string }[]>;
   createCard(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
@@ -79,7 +79,7 @@ export async function makeLongColumn(
       const phase = named('Phase');
       const owner = named('Owner');
       const period = named('Period');
-      const columnId = status.options.find((option) => option.value === columnName)?.id;
+      const columnId = status.options.find((option) => option.label === columnName)?.id;
       if (!columnId) throw new Error(`no status "${columnName}"`);
       const day = (offset: number): string =>
         new Date(Date.UTC(2026, 10, 1) + offset * 86_400_000).toISOString().slice(0, 10);

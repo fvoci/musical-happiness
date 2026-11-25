@@ -548,7 +548,11 @@ async fn patch_container() {
         let board_id = new_id();
         let properties = object(json!({ "prop1": "val1" }));
         // Card property definitions require an `id`.
-        let card_properties = vec![object(json!({ "id": "prop2", "name": "val2" }))];
+        let card_properties = vec![fvoci_model::CardPropertyDefinition::new(
+            "prop2",
+            "val2",
+            fvoci_model::PropertyType::Text,
+        )];
 
         let mut board = Container {
             properties: properties.clone(),
@@ -605,9 +609,12 @@ async fn patch_removes_one_card_property_and_updates_another(
     user_id: &str,
 ) {
     let board_id = new_id();
-    let prop1 = object(json!({ "id": "prop1", "value": "val1" }));
-    let prop2 = object(json!({ "id": "prop2", "value": "val2" }));
-    let prop3 = object(json!({ "id": "prop3", "value": "val3" }));
+    let prop1 =
+        fvoci_model::CardPropertyDefinition::new("prop1", "val1", fvoci_model::PropertyType::Text);
+    let prop2 =
+        fvoci_model::CardPropertyDefinition::new("prop2", "val2", fvoci_model::PropertyType::Text);
+    let prop3 =
+        fvoci_model::CardPropertyDefinition::new("prop3", "val3", fvoci_model::PropertyType::Text);
     let card_properties = vec![prop1, prop2, prop3.clone()];
 
     let mut board = Container {
@@ -627,7 +634,11 @@ async fn patch_removes_one_card_property_and_updates_another(
         "the card properties"
     );
 
-    let new_prop1 = object(json!({ "id": "prop1", "value": "newval1" }));
+    let new_prop1 = fvoci_model::CardPropertyDefinition::new(
+        "prop1",
+        "newval1",
+        fvoci_model::PropertyType::Text,
+    );
     let patch = ContainerPatch {
         updated_card_properties: vec![new_prop1.clone()],
         deleted_card_properties: vec!["prop2".to_owned()],
@@ -638,7 +649,10 @@ async fn patch_removes_one_card_property_and_updates_another(
         .await
         .expect("the patch is applied");
     // Compare definitions without regard to order.
-    let by_property_id = |a: &JsonMap, b: &JsonMap| a["id"].as_str().cmp(&b["id"].as_str());
+    let by_property_id = |a: &fvoci_model::CardPropertyDefinition,
+                          b: &fvoci_model::CardPropertyDefinition| {
+        a.id.cmp(&b.id)
+    };
     let mut expected = vec![new_prop1, prop3];
     expected.sort_by(by_property_id);
     let mut got = patched_board.card_properties;
@@ -709,7 +723,11 @@ async fn undelete_container() {
             show_description: true,
             is_template: false,
             properties: object(json!({ "prop_1": "value_1" })),
-            card_properties: vec![object(json!({ "id": "prop_1", "name": "value_1" }))],
+            card_properties: vec![fvoci_model::CardPropertyDefinition::new(
+                "prop_1",
+                "value_1",
+                fvoci_model::PropertyType::Text,
+            )],
             ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
         };
         test.insert_container(&mut board, &user_id)
@@ -752,11 +770,7 @@ async fn undelete_container() {
         assert!(!board.is_template, "the board is no template");
         assert_eq!(board.properties["prop_1"], json!("value_1"), "a property");
         assert_eq!(1, board.card_properties.len(), "the card properties");
-        assert_eq!(
-            board.card_properties[0]["name"],
-            json!("value_1"),
-            "a card property"
-        );
+        assert_eq!(board.card_properties[0].name, "value_1", "a card property");
     }
 
     // "existing id multiple times"
@@ -1592,12 +1606,18 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
     let board_id = new_id();
-    let well_formed = vec![object(
-        json!({ "id": "p1", "name": "Status", "options": [] }),
+    let well_formed = vec![fvoci_model::CardPropertyDefinition::new(
+        "p1",
+        "Status",
+        fvoci_model::PropertyType::Text,
     )];
 
     let mut malformed = Container {
-        card_properties: vec![object(json!({ "name": "no id" }))],
+        card_properties: vec![fvoci_model::CardPropertyDefinition::new(
+            "",
+            "no id",
+            fvoci_model::PropertyType::Text,
+        )],
         ..new_board(&board_id, &workspace_id, ContainerVisibility::Open)
     };
     let error = test
@@ -1627,17 +1647,20 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
 
     let patch = ContainerPatch {
         title: Some("renamed".to_owned()),
-        updated_card_properties: vec![object(json!({ "id": "p2", "options": "none" }))],
+        updated_card_properties: vec![
+            fvoci_model::CardPropertyDefinition::new("p2", "One", fvoci_model::PropertyType::Text),
+            fvoci_model::CardPropertyDefinition::new("p2", "Two", fvoci_model::PropertyType::Text),
+        ],
         ..ContainerPatch::default()
     };
     let error = test
         .patch_container(&board_id, &patch, &user_id)
         .await
-        .expect_err("options that are no list");
+        .expect_err("duplicate property id");
     assert!(
         error
             .to_string()
-            .contains("options of card property \"p2\""),
+            .contains("two card property definitions have the id \"p2\""),
         "got {error}"
     );
     let stored = test.get_container(&board_id).await.unwrap();
@@ -1775,7 +1798,11 @@ impl FullBoard {
             show_description: true,
             minimum_role: MinimumRole::Commenter,
             properties: object(json!({ "color": "blue" })),
-            card_properties: vec![object(json!({ "id": "status", "name": "Status" }))],
+            card_properties: vec![fvoci_model::CardPropertyDefinition::new(
+                "status",
+                "Status",
+                fvoci_model::PropertyType::Text,
+            )],
             ..new_board(&new_id(), &workspace_id, ContainerVisibility::Private)
         };
         store
@@ -3562,8 +3589,12 @@ async fn joining_at_once_makes_one_membership() {
 // -- writes of one board at once ----------------------------------------------------------
 
 /// A definition of a card property with the given identifier.
-fn card_property(id: &str) -> JsonMap {
-    object(json!({ "id": id, "name": format!("Property {id}"), "type": "text" }))
+fn card_property(id: &str) -> fvoci_model::CardPropertyDefinition {
+    fvoci_model::CardPropertyDefinition::new(
+        id,
+        format!("Property {id}"),
+        fvoci_model::PropertyType::Text,
+    )
 }
 
 /// The identifiers of the card property definitions of a board, in their order.
@@ -3571,7 +3602,7 @@ fn card_property_ids(board: &Container) -> Vec<&str> {
     board
         .card_properties
         .iter()
-        .filter_map(|definition| definition.get("id").and_then(Value::as_str))
+        .map(|definition| definition.id.as_str())
         .collect()
 }
 
@@ -3933,12 +3964,16 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         is_builtin: false,
         template_version: 3,
         properties: object(json!({ "color": "blue" })),
-        card_properties: vec![object(json!({
-            "id": "status",
-            "name": "Status",
-            "type": "select",
-            "options": [{ "id": "open", "value": "Open", "color": "propColorGreen" }],
-        }))],
+        card_properties: vec![fvoci_model::CardPropertyDefinition {
+            id: "status".to_owned(),
+            name: "Status".to_owned(),
+            property_type: fvoci_model::PropertyType::Select,
+            options: vec![fvoci_model::PropertyOption::new(
+                "open",
+                "Open",
+                fvoci_model::PropertyColor::Green,
+            )],
+        }],
         create_at: 0,
         update_at: 0,
         deleted_at: None,
