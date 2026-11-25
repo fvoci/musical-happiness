@@ -48,10 +48,7 @@ async fn board_of_user1(th: &TestServer, board_type: ContainerVisibility, title:
 }
 
 fn viewer(board_id: &str, user_id: &str) -> ContainerMember {
-    ContainerMember {
-        role: fvoci_model::ContainerRole::Viewer,
-        ..member(board_id, user_id)
-    }
+    member(board_id, user_id, fvoci_model::ContainerRole::Viewer)
 }
 
 #[tokio::test]
@@ -121,10 +118,7 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
     let th = Setup::native().start().await.init_basic().await;
     let guest = guest_of_the_workspace(&th).await;
     let board = board_of_user1(&th, ContainerVisibility::Private, "Guest's board").await;
-    let as_admin = ContainerMember {
-        role: fvoci_model::ContainerRole::Admin,
-        ..member(&board, &guest)
-    };
+    let as_admin = member(&board, &guest, fvoci_model::ContainerRole::Admin);
 
     let added_as_admin = th.client.add_member(&as_admin).await;
     let stored_before = th
@@ -147,10 +141,7 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
     let elsewhere = board_of_user1(&th, ContainerVisibility::Private, "Not the guest's").await;
     let not_on_board = update_member(
         &th.client,
-        &ContainerMember {
-            role: fvoci_model::ContainerRole::Admin,
-            ..member(&elsewhere, &guest)
-        },
+        &member(&elsewhere, &guest, fvoci_model::ContainerRole::Admin),
     )
     .await;
     // Who has left the workspace keeps a role that is changed no more.
@@ -169,10 +160,7 @@ async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() 
         .expect("the leaver leaves the workspace");
     let raised = update_member(
         &th.client,
-        &ContainerMember {
-            role: fvoci_model::ContainerRole::Admin,
-            ..member(&board, &leaver)
-        },
+        &member(&board, &leaver, fvoci_model::ContainerRole::Admin),
     )
     .await;
     th.teardown().await;
@@ -205,10 +193,7 @@ async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored(
     // admin of the board before being made a guest would have it.
     th.app
         .store()
-        .save_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Admin,
-            ..member(&board, &guest)
-        })
+        .save_member(&member(&board, &guest, fvoci_model::ContainerRole::Admin))
         .await
         .expect("an admin role is stored");
 

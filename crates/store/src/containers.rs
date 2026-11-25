@@ -259,12 +259,7 @@ impl Store {
             hold_container(scope, container_id).await?;
             let container = get_container(scope, container_id).await?;
             let minimum = ContainerRole::from(container.minimum_role);
-            let with_minimum = ContainerMember {
-                container_id: container_id.to_owned(),
-                user_id: user_id.to_owned(),
-                role: minimum,
-                ..ContainerMember::default()
-            };
+            let with_minimum = ContainerMember::new(container_id, user_id, minimum);
             match find_member(scope, container_id, user_id).await? {
                 None => {
                     save_member(scope, &with_minimum)
@@ -675,12 +670,7 @@ pub(crate) async fn insert_container_with_admin(
     insert_container(scope, container, user_id).await?;
     // Its admin is its creator (`user_id`, or the stored one of a board that existed).
     members::hold_creator(scope, &container.workspace_id, &container.created_by).await?;
-    let member = ContainerMember {
-        container_id: container.id.clone(),
-        user_id: container.created_by.clone(),
-        role: ContainerRole::Admin,
-        ..ContainerMember::default()
-    };
+    let member = ContainerMember::new(&container.id, &container.created_by, ContainerRole::Admin);
     save_member(scope, &member).await?;
     Ok(member)
 }

@@ -559,7 +559,8 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
         container_id: board_id,
         user_id: guest.clone(),
         role: fvoci_model::ContainerRole::Viewer,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     })
     .await
     .expect("the guest is put on the board");

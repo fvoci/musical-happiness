@@ -612,12 +612,11 @@ async fn add_creator_admins(
         // As in `insert_container_with_admin`, the administrator is the board's creator:
         // `user_id` for a new board, the stored creator for one that existed.
         members::hold_creator(scope, &container.workspace_id, &container.created_by).await?;
-        let member = ContainerMember {
-            container_id: container.id.clone(),
-            user_id: container.created_by.clone(),
-            role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
-        };
+        let member = ContainerMember::new(
+            &container.id,
+            &container.created_by,
+            fvoci_model::ContainerRole::Admin,
+        );
         containers::save_member(scope, &member).await?;
         members.push(member);
     }

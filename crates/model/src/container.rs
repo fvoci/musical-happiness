@@ -225,14 +225,12 @@ impl From<ContainerKind> for ContainerKinds {
     PartialOrd,
     Ord,
     Hash,
-    Default,
     Serialize,
     Deserialize,
     utoipa::ToSchema,
 )]
 pub enum ContainerRole {
     /// May view the board.
-    #[default]
     #[serde(rename = "viewer")]
     Viewer,
     /// May also comment on cards.
@@ -744,7 +742,7 @@ fn property_id(property: &JsonMap) -> Option<String> {
 }
 
 /// A user's membership of a board.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerMember {
     /// The identifier of the board.
@@ -769,6 +767,22 @@ pub struct ContainerMember {
 }
 
 impl ContainerMember {
+    /// A direct membership of `user_id` on `container_id` with `role`.
+    #[must_use]
+    pub fn new(
+        container_id: impl Into<String>,
+        user_id: impl Into<String>,
+        role: ContainerRole,
+    ) -> Self {
+        Self {
+            container_id: container_id.into(),
+            user_id: user_id.into(),
+            role,
+            synthetic: false,
+            inherited_role: None,
+        }
+    }
+
     /// The effective role the membership grants: the higher of its `role` and any
     /// `inherited_role`.
     #[must_use]
@@ -783,6 +797,28 @@ impl ContainerMember {
     #[must_use]
     pub fn with_role(self, role: ContainerRole) -> Self {
         Self { role, ..self }
+    }
+}
+
+/// A `(container_id, user_id)` pair naming a person on a board without a role,
+/// carried when a membership ends or a group's board reach is rechecked.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberRef {
+    /// The identifier of the board.
+    pub container_id: String,
+    /// The identifier of the user.
+    pub user_id: String,
+}
+
+impl MemberRef {
+    /// Names `user_id` on `container_id`.
+    #[must_use]
+    pub fn new(container_id: impl Into<String>, user_id: impl Into<String>) -> Self {
+        Self {
+            container_id: container_id.into(),
+            user_id: user_id.into(),
+        }
     }
 }
 

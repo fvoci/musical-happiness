@@ -314,7 +314,14 @@ fn what_is_always_there_is_what_the_server_writes() {
         ("CategoryContainers", sent(&CategoryContainers::default())),
         ("ClientConfig", sent(&ClientConfig::default())),
         ("Container", sent(&Container::default())),
-        ("ContainerMember", sent(&ContainerMember::default())),
+        (
+            "ContainerMember",
+            sent(&ContainerMember::new(
+                "",
+                "",
+                fvoci_model::ContainerRole::Viewer,
+            )),
+        ),
         ("ContainersAndBlocks", sent(&ContainersAndBlocks::default())),
         ("FileRecord", sent(&FileRecord::default())),
         ("PublicLink", sent(&PublicLink::default())),

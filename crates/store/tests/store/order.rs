@@ -221,7 +221,8 @@ async fn memberships_come_by_identifier() {
             container_id: board_id.to_owned(),
             user_id: user_id.to_owned(),
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         store
             .save_member(&member)
@@ -553,7 +554,8 @@ async fn board_administered_by(
                 } else {
                     fvoci_model::ContainerRole::Editor
                 },
-                ..ContainerMember::default()
+                synthetic: false,
+                inherited_role: None,
             })
             .await
             .expect("the membership is saved");

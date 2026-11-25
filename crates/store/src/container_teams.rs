@@ -1,7 +1,7 @@
 //! Assigning workspace groups to boards, with authorization and audit in the transaction.
 
 use fvoci_model::{
-    AuditAction, Container, ContainerMember, ContainerRole, ContainerTeam, ContainerVisibility,
+    AuditAction, Container, ContainerRole, ContainerTeam, ContainerVisibility, MemberRef,
     MinimumRole, WorkspaceRole,
 };
 
@@ -61,7 +61,7 @@ impl Store {
         team_id: &str,
         role: Option<MinimumRole>,
         by: &str,
-    ) -> Result<Vec<ContainerMember>, StoreError> {
+    ) -> Result<Vec<MemberRef>, StoreError> {
         self.transaction(async |scope| {
             org_admin::hold_organization_row(scope).await?;
             if !workspace_membership::hold_workspace(scope, workspace_id).await? {
@@ -80,13 +80,9 @@ impl Store {
                 return Ok(Vec::new());
             }
             let users = people(scope, team_id).await?;
-            let changes: Vec<ContainerMember> = users
+            let changes: Vec<MemberRef> = users
                 .iter()
-                .map(|user_id| ContainerMember {
-                    container_id: container_id.to_owned(),
-                    user_id: user_id.clone(),
-                    ..ContainerMember::default()
-                })
+                .map(|user_id| MemberRef::new(container_id, user_id))
                 .collect();
             if let Some(role) = role {
                 record_new_access(scope, &container, &users, by).await?;
@@ -229,7 +225,7 @@ pub(crate) async fn affected(
     scope: &mut Scope<'_>,
     team_id: &str,
     only_user: Option<&str>,
-) -> Result<Vec<ContainerMember>, StoreError> {
+) -> Result<Vec<MemberRef>, StoreError> {
     let mut sql = scope.sql("SELECT bt.container_id, tm.user_id FROM container_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE bt.team_id = ");
     sql.bind(Id(team_id))
         .push_bind(" AND bt.org_id = ", scope.org()?);
@@ -241,13 +237,7 @@ pub(crate) async fn affected(
         .fetch_all(sql)
         .await?
         .iter()
-        .map(|row| {
-            Ok(ContainerMember {
-                container_id: row.id(0)?,
-                user_id: row.id(1)?,
-                ..ContainerMember::default()
-            })
-        })
+        .map(|row| Ok(MemberRef::new(row.id(0)?, row.id(1)?)))
         .collect()
 }
 
@@ -257,7 +247,7 @@ pub(crate) async fn joining(
     team_id: &str,
     user_id: &str,
     by: &str,
-) -> Result<Vec<ContainerMember>, StoreError> {
+) -> Result<Vec<MemberRef>, StoreError> {
     let mut sql = scope.sql("SELECT container_id FROM container_teams WHERE team_id = ");
     sql.bind(Id(team_id))
         .push_bind(" AND org_id = ", scope.org()?)
@@ -269,11 +259,7 @@ pub(crate) async fn joining(
         containers::hold_container(scope, &container_id).await?;
         let container = containers::get_container(scope, &container_id).await?;
         record_new_access(scope, &container, &[user_id.to_owned()], by).await?;
-        changes.push(ContainerMember {
-            container_id,
-            user_id: user_id.to_owned(),
-            ..ContainerMember::default()
-        });
+        changes.push(MemberRef::new(container_id, user_id));
     }
     Ok(changes)
 }
@@ -288,7 +274,7 @@ pub(crate) enum TemplateAccess {
 /// Removing one source preserves subscriptions while another reading permission remains.
 pub(crate) async fn end_lost_subscriptions(
     scope: &mut Scope<'_>,
-    changes: &[ContainerMember],
+    changes: &[MemberRef],
     template_access: TemplateAccess,
 ) -> Result<(), StoreError> {
     for member in changes {
@@ -308,7 +294,7 @@ pub(crate) async fn end_lost_subscriptions(
 
 async fn reads_template(
     scope: &mut Scope<'_>,
-    member: &ContainerMember,
+    member: &MemberRef,
     access: TemplateAccess,
 ) -> Result<bool, StoreError> {
     if matches!(access, TemplateAccess::Ending) {

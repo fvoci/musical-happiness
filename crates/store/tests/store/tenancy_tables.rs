@@ -358,7 +358,8 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
             container_id: board_id.clone(),
             user_id: user_id.clone(),
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("a member is stored");
@@ -366,7 +367,8 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         container_id: board_id.clone(),
         user_id: user_id.clone(),
         role: fvoci_model::ContainerRole::Viewer,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     let entry = AuditEntry::new(
         &board.workspace_id,

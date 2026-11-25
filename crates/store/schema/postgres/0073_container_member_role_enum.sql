@@ -1,9 +1,19 @@
 -- Single `role` enum (`admin`, `editor`, `commenter`, `viewer`) on `container_members`,
 -- `deleted_containers.members` snapshots, and `workspace_members.prior_container_roles`.
+-- Legacy rows and snapshot entries where every `scheme_*` flag was false held no role
+-- and are pruned rather than elevated to `viewer`.
 --
 -- `container_members`, `deleted_containers`, and `workspace_members` are behind the
 -- organization wall, so the system scope is required to reach every organization's rows.
 SELECT set_config('fvoci.system', 'on', true);
+
+DELETE FROM container_members
+WHERE NOT (
+    COALESCE(scheme_admin, false)
+    OR COALESCE(scheme_editor, false)
+    OR COALESCE(scheme_commenter, false)
+    OR COALESCE(scheme_viewer, false)
+);
 
 ALTER TABLE container_members ADD COLUMN role TEXT;
 
@@ -47,14 +57,21 @@ BEGIN
         has_nul := false;
         BEGIN
             doc := r.raw::jsonb;
-        EXCEPTION WHEN untranslatable_character THEN
-            has_nul := true;
-            bs_sentinel := '__FVOCI_BS_' || md5(r.raw) || '__';
-            nul_sentinel := '__FVOCI_NUL_' || md5(r.raw) || '__';
-            safe := replace(r.raw, '\\', bs_sentinel);
-            safe := replace(safe, '\u0000', nul_sentinel);
-            safe := replace(safe, bs_sentinel, '\\');
-            doc := safe::jsonb;
+        EXCEPTION
+            WHEN untranslatable_character THEN
+                has_nul := true;
+                bs_sentinel := '__FVOCI_BS_' || md5(r.raw) || '__';
+                nul_sentinel := '__FVOCI_NUL_' || md5(r.raw) || '__';
+                safe := replace(r.raw, '\\', bs_sentinel);
+                safe := replace(safe, '\u0000', nul_sentinel);
+                safe := replace(safe, bs_sentinel, '\\');
+                BEGIN
+                    doc := safe::jsonb;
+                EXCEPTION WHEN invalid_text_representation OR untranslatable_character THEN
+                    CONTINUE;
+                END;
+            WHEN invalid_text_representation THEN
+                CONTINUE;
         END;
 
         IF jsonb_typeof(doc) <> 'array' OR jsonb_array_length(doc) = 0 THEN
@@ -75,7 +92,10 @@ BEGIN
                    OR item ? 'schemeEditor'
                    OR item ? 'schemeCommenter'
                    OR item ? 'schemeViewer'
-                   OR NOT (item ? 'role')
+                   OR NOT (
+                       jsonb_typeof(item -> 'role') = 'string'
+                       AND (item ->> 'role') IN ('admin', 'editor', 'commenter', 'viewer')
+                   )
                )
             THEN
                 IF jsonb_typeof(item -> 'role') = 'string'
@@ -88,8 +108,11 @@ BEGIN
                     role_val := 'editor';
                 ELSIF item -> 'schemeCommenter' = 'true'::jsonb THEN
                     role_val := 'commenter';
-                ELSE
+                ELSIF item -> 'schemeViewer' = 'true'::jsonb THEN
                     role_val := 'viewer';
+                ELSE
+                    changed := true;
+                    CONTINUE;
                 END IF;
                 item := (item - 'schemeAdmin' - 'schemeEditor' - 'schemeCommenter' - 'schemeViewer')
                     || jsonb_build_object('role', role_val);
@@ -120,7 +143,7 @@ BEGIN
     LOOP
         BEGIN
             doc := r.raw::jsonb;
-        EXCEPTION WHEN others THEN
+        EXCEPTION WHEN invalid_text_representation OR untranslatable_character THEN
             CONTINUE;
         END;
 
@@ -146,8 +169,11 @@ BEGIN
                     role_val := 'editor';
                 ELSIF (item -> 1 -> 2) = 'true'::jsonb THEN
                     role_val := 'commenter';
-                ELSE
+                ELSIF (item -> 1 -> 3) = 'true'::jsonb THEN
                     role_val := 'viewer';
+                ELSE
+                    changed := true;
+                    CONTINUE;
                 END IF;
                 item := jsonb_build_array(item -> 0, to_jsonb(role_val));
                 changed := true;

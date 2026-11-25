@@ -106,7 +106,7 @@ pub use comment_version::CommentVersion;
 pub use container::{
     Container, ContainerError, ContainerKind, ContainerKinds, ContainerMember,
     ContainerMemberPatch, ContainerPatch, ContainerRole, ContainerSearchField, ContainerVisibility,
-    MinimumRole, ParseContainerKindError, ParseContainerSearchFieldError,
+    MemberRef, MinimumRole, ParseContainerKindError, ParseContainerSearchFieldError,
     ParseContainerVisibilityError,
 };
 pub use container_teams::{ContainerTeam, ContainerTeamRole};

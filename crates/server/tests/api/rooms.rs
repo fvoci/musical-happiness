@@ -560,7 +560,8 @@ pub(crate) async fn give_in(
         container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
         role: role.parse().expect("a valid role"),
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     let is_member = th
         .app
@@ -1032,7 +1033,8 @@ async fn a_card_of_another_organization_is_reached_through_its_workspace_only() 
         container_id: board_id,
         user_id: user1,
         role: fvoci_model::ContainerRole::Editor,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     theirs.save_member(&member).await.expect("invited");
     let joined = peer.joined(&workspace_id, &theirs_card.id).await;

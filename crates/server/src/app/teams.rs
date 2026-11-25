@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use super::App;
 use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
-use fvoci_model::{ContainerMember, Team, is_id, team_name};
+use fvoci_model::{ContainerMember, MemberRef, Team, is_id, team_name};
 use fvoci_store::{StoreError, Taken};
 
 /// A store's refusal of a team name another team of the workspace has, as the problem
@@ -197,7 +197,7 @@ impl App {
     /// Rechecks the card rooms of the boards whose team roles changed, for the people
     /// those roles reach, before the change is answered, then asks their clients to
     /// read the boards' members again, in the background.
-    async fn tell_team_changes(&self, workspace_id: &str, changes: Vec<ContainerMember>) {
+    async fn tell_team_changes(&self, workspace_id: &str, changes: Vec<MemberRef>) {
         if changes.is_empty() {
             return;
         }

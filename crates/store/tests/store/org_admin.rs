@@ -312,7 +312,8 @@ async fn leaving_a_workspace_joined_gives_back_what_one_was() {
         container_id: taken.clone(),
         user_id: admin.clone(),
         role: fvoci_model::ContainerRole::Viewer,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     test.add_member_recorded(
         &as_viewer,
@@ -548,7 +549,8 @@ async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
         container_id: read.clone(),
         user_id: admin.clone(),
         role: fvoci_model::ContainerRole::Viewer,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     test.add_member(&as_viewer).await.expect("a viewer of it");
 
@@ -602,7 +604,8 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
         container_id: read.clone(),
         user_id: admin.clone(),
         role: fvoci_model::ContainerRole::Viewer,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     test.add_member(&as_viewer).await.expect("a viewer of it");
     let theirs_before = private_board(&test, &workspace, &admin).await;
@@ -695,7 +698,8 @@ async fn who_administers_no_more_changes_nothing() {
                 container_id: board.clone(),
                 user_id: former.clone(),
                 role: fvoci_model::ContainerRole::Viewer,
-                ..ContainerMember::default()
+                synthetic: false,
+                inherited_role: None,
             },
             &AuditEntry::new(
                 &workspace,
@@ -1004,7 +1008,8 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         container_id: made.clone(),
         user_id: user_id.to_owned(),
         role: fvoci_model::ContainerRole::Admin,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     let added = test
         .add_member_asked(&as_admin(&accomplice), stale)
@@ -1036,7 +1041,8 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         container_id: theirs.clone(),
         user_id: accomplice.clone(),
         role: fvoci_model::ContainerRole::Viewer,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     assert_eq!(
         test.add_member_asked(&viewer, holds)

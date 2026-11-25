@@ -9,8 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use fvoci_model::{
-    ContainerMember, ContainerVisibility, LinkedIdentity, OidcProvider, OidcStart, OrgRole,
-    WorkspaceRole,
+    ContainerVisibility, LinkedIdentity, OidcProvider, OidcStart, OrgRole, WorkspaceRole,
 };
 use fvoci_store::Identity;
 use reqwest::StatusCode;
@@ -488,10 +487,11 @@ async fn a_guest_carries_their_account_over_and_keeps_their_boards() {
     let invited = board("Invited").await;
     let other = board("Not invited").await;
     ts.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..member(&invited, &guest)
-        })
+        .add_member(&member(
+            &invited,
+            &guest,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .check_ok();
     let before = place_of(&ts, &org_id, &guest).await;

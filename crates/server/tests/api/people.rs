@@ -132,10 +132,11 @@ async fn a_guest_sees_who_is_on_its_boards() {
         .await
         .created_json();
     th.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..member(&board.id, &guest)
-        })
+        .add_member(&member(
+            &board.id,
+            &guest,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .check_ok();
 
@@ -175,10 +176,11 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
         .await
         .created_json();
     th.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Editor,
-            ..member(&board.id, &leaver)
-        })
+        .add_member(&member(
+            &board.id,
+            &leaver,
+            fvoci_model::ContainerRole::Editor,
+        ))
         .await
         .check_ok();
     th.client2
@@ -267,10 +269,11 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
         .await
         .created_json();
     th.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..member(&shared.id, &guest)
-        })
+        .add_member(&member(
+            &shared.id,
+            &guest,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .check_ok();
     // On this board the third user is a viewer; a request without a role is refused and
@@ -285,10 +288,11 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
         .await
         .created_json();
     th.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..member(&other_board.id, &third)
-        })
+        .add_member(&member(
+            &other_board.id,
+            &third,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .check_ok();
     th.client
@@ -347,15 +351,30 @@ async fn a_guest_editing_an_open_board_adds_nobody() {
         .await
         .created_json();
     th.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Editor,
-            ..member(&board.id, &guest)
-        })
+        .add_member(&member(
+            &board.id,
+            &guest,
+            fvoci_model::ContainerRole::Editor,
+        ))
         .await
         .check_ok();
 
-    let added = th.client2.add_member(&member(&board.id, &third)).await;
-    let nobody = th.client2.add_member(&member(&board.id, UNKNOWN_ID)).await;
+    let added = th
+        .client2
+        .add_member(&member(
+            &board.id,
+            &third,
+            fvoci_model::ContainerRole::Viewer,
+        ))
+        .await;
+    let nobody = th
+        .client2
+        .add_member(&member(
+            &board.id,
+            UNKNOWN_ID,
+            fvoci_model::ContainerRole::Viewer,
+        ))
+        .await;
     th.teardown().await;
 
     added.check_forbidden();
@@ -534,14 +553,15 @@ async fn a_guest_names_who_wrote_on_its_board_and_finds_them_nowhere() {
         th.client
             .add_member_in(
                 ROOT_WORKSPACE_ID,
-                &ContainerMember {
-                    role: if editor {
+                &member(
+                    &board.id,
+                    user_id,
+                    if editor {
                         fvoci_model::ContainerRole::Editor
                     } else {
                         fvoci_model::ContainerRole::Viewer
                     },
-                    ..member(&board.id, user_id)
-                },
+                ),
             )
             .await
             .check_ok();

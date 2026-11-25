@@ -166,7 +166,8 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
         container_id: board.id.clone(),
         user_id: admin,
         role: fvoci_model::ContainerRole::Editor,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     th.client
         .add_member_in(&workspace, &as_editor)

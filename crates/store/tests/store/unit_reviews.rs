@@ -65,7 +65,8 @@ async fn save_role(store: &Store, course_id: &str, user_id: &str, role: Option<C
                 container_id: course_id.to_owned(),
                 user_id: user_id.to_owned(),
                 role,
-                ..ContainerMember::default()
+                synthetic: false,
+                inherited_role: None,
             };
             store.save_member(&member).await.expect("member saved");
         }

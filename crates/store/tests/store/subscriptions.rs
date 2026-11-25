@@ -1069,7 +1069,8 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
             container_id: board_id.clone(),
             user_id: user.id.clone(),
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         store
             .save_member(&member)
@@ -1160,7 +1161,8 @@ async fn remove_member_ends_subscriptions_only_when_it_removes() {
             container_id: board_id.clone(),
             user_id: user.id.clone(),
             role,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         store
             .save_member(&member)

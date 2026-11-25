@@ -2,7 +2,7 @@
 
 use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID};
-use fvoci_model::{Container, ContainerMember, ContainerVisibility};
+use fvoci_model::{Container, ContainerVisibility};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -35,7 +35,8 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
             container_id: theirs.id.clone(),
             user_id: th.client.me().await.id,
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("user1 edits their board");

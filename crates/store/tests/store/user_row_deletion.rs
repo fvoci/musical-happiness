@@ -110,7 +110,8 @@ async fn give_belongings(
         container_id: block.container_id.clone(),
         user_id: user_id.to_owned(),
         role: fvoci_model::ContainerRole::Editor,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     store
         .save_member(&member)
@@ -407,7 +408,8 @@ async fn what_comes_back_from_the_trash_forgets_a_creator_whose_row_is_gone() {
             container_id: board_of_gone.id.clone(),
             user_id: user_id.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         store
             .save_member(&member)

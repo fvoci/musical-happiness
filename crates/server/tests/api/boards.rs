@@ -98,27 +98,17 @@ pub(crate) async fn stored_user(th: &TestServer, username: &str) -> String {
     user.id
 }
 
-pub(crate) fn member(board_id: &str, user_id: &str) -> ContainerMember {
-    ContainerMember {
-        container_id: board_id.to_owned(),
-        user_id: user_id.to_owned(),
-        ..ContainerMember::default()
-    }
+pub(crate) fn member(board_id: &str, user_id: &str, role: ContainerRole) -> ContainerMember {
+    ContainerMember::new(board_id, user_id, role)
 }
 
 pub(crate) fn editor(board_id: &str, user_id: &str) -> ContainerMember {
-    ContainerMember {
-        role: ContainerRole::Editor,
-        ..member(board_id, user_id)
-    }
+    ContainerMember::new(board_id, user_id, ContainerRole::Editor)
 }
 
 /// A membership as a viewer and nothing else.
 fn viewer(board_id: &str, user_id: &str) -> ContainerMember {
-    ContainerMember {
-        role: ContainerRole::Viewer,
-        ..member(board_id, user_id)
-    }
+    ContainerMember::new(board_id, user_id, ContainerRole::Viewer)
 }
 
 /// `th.Server.App().AddMemberToBoard(member)`
@@ -191,11 +181,10 @@ pub(crate) async fn update_member(client: &Client, member: &ContainerMember) -> 
         .await
 }
 
-pub(crate) async fn delete_member(client: &Client, member: &ContainerMember) -> ApiResponse {
+pub(crate) async fn delete_member(client: &Client, board_id: &str, user_id: &str) -> ApiResponse {
     client
         .delete(&format!(
-            "{TEST_WS}/containers/{}/members/{}",
-            member.container_id, member.user_id
+            "{TEST_WS}/containers/{board_id}/members/{user_id}"
         ))
         .await
 }
@@ -1684,10 +1673,7 @@ async fn get_members_for_container_should_correctly_return_board_members_for_a_v
     assert_eq!(
         members,
         vec![
-            ContainerMember {
-                role: ContainerRole::Admin,
-                ..member(&board.id, &user1.id)
-            },
+            member(&board.id, &user1.id, ContainerRole::Admin),
             editor(&board.id, &user2.id),
         ],
         "the admin and the editor"
@@ -1878,10 +1864,7 @@ async fn add_member_should_always_add_a_new_member_as_given_board_role() {
         &user1.id,
     )
     .await;
-    let new_member = ContainerMember {
-        role: ContainerRole::Commenter,
-        ..member(&board.id, &user2.id)
-    };
+    let new_member = member(&board.id, &user2.id, ContainerRole::Commenter);
 
     let added: ContainerMember = th.client.add_member(&new_member).await.ok_json();
 
@@ -1965,10 +1948,7 @@ async fn add_member_validates_the_body() {
         .ok_json();
     assert_eq!(
         added,
-        ContainerMember {
-            role: ContainerRole::Commenter,
-            ..member(&board.id, &user2.id)
-        },
+        member(&board.id, &user2.id, ContainerRole::Commenter),
         "the rest of the body is ignored"
     );
 
@@ -2024,10 +2004,7 @@ async fn add_member_as_admin_needs_the_permission_to_manage_roles() {
     // The attack: the editor adds an accomplice as admin.
     let response = th
         .client2
-        .add_member(&ContainerMember {
-            role: ContainerRole::Admin,
-            ..member(&board.id, &user3.id)
-        })
+        .add_member(&member(&board.id, &user3.id, ContainerRole::Admin))
         .await;
     response.check_forbidden();
     assert_eq!(
@@ -2044,17 +2021,14 @@ async fn add_member_as_admin_needs_the_permission_to_manage_roles() {
         .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_forbidden();
-    delete_member(&client3, &member(&board.id, &user1.id))
+    delete_member(&client3, &board.id, &user1.id)
         .await
         .check_forbidden();
 
     // Naming an existing member with the admin role is refused as well, not answered
     // with that membership.
     th.client2
-        .add_member(&ContainerMember {
-            role: ContainerRole::Admin,
-            ..member(&board.id, &user2.id)
-        })
+        .add_member(&member(&board.id, &user2.id, ContainerRole::Admin))
         .await
         .check_forbidden();
 
@@ -2085,10 +2059,7 @@ async fn add_member_by_an_editor_of_an_open_board_and_as_admin_by_an_admin_still
     let user4 = client4.me().await;
     let added: ContainerMember = th
         .client
-        .add_member(&ContainerMember {
-            role: ContainerRole::Admin,
-            ..member(&board.id, &user4.id)
-        })
+        .add_member(&member(&board.id, &user4.id, ContainerRole::Admin))
         .await
         .ok_json();
     assert_eq!(
@@ -2251,14 +2222,7 @@ async fn add_member_permissions_by_board_type_and_role() {
     .await;
 
     // A commenter of an open board.
-    add_member(
-        &th,
-        &ContainerMember {
-            role: ContainerRole::Commenter,
-            ..member(&open.id, &user2.id)
-        },
-    )
-    .await;
+    add_member(&th, &member(&open.id, &user2.id, ContainerRole::Commenter)).await;
     th.client2
         .add_member(&editor(&open.id, &user3.id))
         .await
@@ -2341,14 +2305,7 @@ async fn add_member_to_container_return_existing_non_synthetic_membership_if_any
     .await;
     let existing = add_member(&th, &editor(&board.id, &user)).await;
 
-    let answered = add_member(
-        &th,
-        &ContainerMember {
-            role: ContainerRole::Admin,
-            ..member(&board.id, &user)
-        },
-    )
-    .await;
+    let answered = add_member(&th, &member(&board.id, &user, ContainerRole::Admin)).await;
 
     assert_eq!(answered, existing, "the existing membership, unchanged");
     assert_eq!(
@@ -2429,10 +2386,7 @@ async fn update_member_should_correctly_update_a_member_for_a_valid_board() {
     .await;
     let added = add_member(&th, &editor(&board.id, &user2.id)).await;
     assert_eq!(added.role, ContainerRole::Editor, "an editor");
-    let update = ContainerMember {
-        role: ContainerRole::Admin,
-        ..member(&board.id, &user2.id)
-    };
+    let update = member(&board.id, &user2.id, ContainerRole::Admin);
 
     let updated: ContainerMember = update_member(&th.client, &update).await.ok_json();
 
@@ -2546,10 +2500,7 @@ async fn update_member_checks() {
         .ok_json();
     assert_eq!(
         updated,
-        ContainerMember {
-            role: ContainerRole::Admin,
-            ..member(&board.id, &user2.id)
-        },
+        member(&board.id, &user2.id, ContainerRole::Admin),
         "the path decides whose membership it is"
     );
 
@@ -2582,7 +2533,7 @@ async fn delete_member_a_non_authenticated_user_should_be_rejected() {
     )
     .await;
 
-    let response = delete_member(&th.anonymous(), &member(&board.id, &user1.id)).await;
+    let response = delete_member(&th.anonymous(), &board.id, &user1.id).await;
 
     response.check_unauthorized();
     th.teardown().await;
@@ -2600,7 +2551,7 @@ async fn delete_member_a_user_without_permissions_should_be_rejected() {
     )
     .await;
 
-    let response = delete_member(&th.client2, &member(&board.id, &user1.id)).await;
+    let response = delete_member(&th.client2, &board.id, &user1.id).await;
 
     response.check_forbidden();
     assert_eq!(
@@ -2618,7 +2569,7 @@ async fn delete_member_non_existing_board() {
     let user1 = th.client.me().await;
 
     for board_id in [UNKNOWN_ID, "non-existent-board-id"] {
-        let response = delete_member(&th.client, &member(board_id, &user1.id)).await;
+        let response = delete_member(&th.client, board_id, &user1.id).await;
         response.check_error(StatusCode::NOT_FOUND, "board not found");
     }
     th.teardown().await;
@@ -2647,7 +2598,7 @@ async fn delete_member_admin_removing_a_user() {
     let user2 = th.client2.me().await;
     let board = private_board_with_users(&th).await;
 
-    let response = delete_member(&th.client, &member(&board.id, &user2.id)).await;
+    let response = delete_member(&th.client, &board.id, &user2.id).await;
 
     response.check_no_content();
     assert_eq!(members_of(&th, &board.id).await.len(), 1, "one member left");
@@ -2661,7 +2612,7 @@ async fn delete_member_user_removing_themselves() {
     let user2 = th.client2.me().await;
     let board = private_board_with_users(&th).await;
 
-    let response = delete_member(&th.client2, &member(&board.id, &user2.id)).await;
+    let response = delete_member(&th.client2, &board.id, &user2.id).await;
 
     response.check_forbidden();
     assert_eq!(members_of(&th, &board.id).await.len(), 2, "still two");
@@ -2675,7 +2626,7 @@ async fn delete_member_a_non_admin_user_should_not_be_able_to_remove_another_use
     let user1 = th.client.me().await;
     let board = private_board_with_users(&th).await;
 
-    let response = delete_member(&th.client2, &member(&board.id, &user1.id)).await;
+    let response = delete_member(&th.client2, &board.id, &user1.id).await;
 
     response.check_forbidden();
     assert_eq!(members_of(&th, &board.id).await.len(), 2, "still two");
@@ -2694,7 +2645,7 @@ async fn delete_member_should_not_leave_a_board_without_any_admin() {
     )
     .await;
 
-    let response = delete_member(&th.client, &member(&board.id, &user1.id)).await;
+    let response = delete_member(&th.client, &board.id, &user1.id).await;
 
     // The request is fine; the state of the board stands against it.
     response.check_error(StatusCode::CONFLICT, "cannot leave a board with no admins");
@@ -2705,7 +2656,7 @@ async fn delete_member_should_not_leave_a_board_without_any_admin() {
 
     // Removing a user who is not a member is idempotent and succeeds.
     for no_member in [UNKNOWN_ID, "no-such-user"] {
-        delete_member(&th.client, &member(&board.id, no_member))
+        delete_member(&th.client, &board.id, no_member)
             .await
             .check_no_content();
     }

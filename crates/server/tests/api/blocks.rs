@@ -81,7 +81,8 @@ async fn add_member_in_store(th: &TestServer, board_id: &str, client: &Client, r
             Role::Commenter => fvoci_model::ContainerRole::Commenter,
             Role::Viewer => fvoci_model::ContainerRole::Viewer,
         },
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     th.app
         .store()

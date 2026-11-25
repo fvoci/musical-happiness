@@ -378,7 +378,8 @@ async fn removing_workspace_membership_stops_websocket_content_from_that_organiz
             user_id: user_id.clone(),
             container_id: board.id.clone(),
             role: fvoci_model::ContainerRole::Viewer,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("initial board membership");

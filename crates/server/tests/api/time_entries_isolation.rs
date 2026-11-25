@@ -85,7 +85,8 @@ async fn add_container_role_in(
             MemberRole::Editor => fvoci_model::ContainerRole::Editor,
             MemberRole::Viewer => fvoci_model::ContainerRole::Viewer,
         },
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     owner.add_member_in(workspace_id, &member).await.check_ok();
 }

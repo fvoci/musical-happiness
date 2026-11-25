@@ -345,7 +345,8 @@ async fn a_board_passed_to_the_workspace_admin_lets_them_write_at_once() {
         } else {
             fvoci_model::ContainerRole::Viewer
         },
-        ..fvoci_model::ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     // The other user is the board's only admin; the first a viewer of it.
     give(&th, &t.board_id, &other, "viewer").await;

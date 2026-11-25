@@ -107,12 +107,7 @@ async fn give_back_roles_in_the_trash(
         }
         members.retain(|member| member.user_id != user_id);
         if let Some(HeldRole(_, role)) = given_back {
-            members.push(ContainerMember {
-                container_id: container_id.clone(),
-                user_id: user_id.to_owned(),
-                role: *role,
-                ..ContainerMember::default()
-            });
+            members.push(ContainerMember::new(&container_id, user_id, *role));
         }
         let mut sql = scope.sql("UPDATE deleted_containers SET members = ");
         sql.bind(Param::json(&members)?)

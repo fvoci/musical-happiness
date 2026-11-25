@@ -919,12 +919,7 @@ pub(crate) async fn undelete_container(
         && members::has_no_admin(scope, container_id).await?
         && members::works_in(scope, &container.workspace_id, user_id).await?
     {
-        let admin = ContainerMember {
-            container_id: container_id.to_owned(),
-            user_id: user_id.to_owned(),
-            ..ContainerMember::default()
-        }
-        .with_role(fvoci_model::ContainerRole::Admin);
+        let admin = ContainerMember::new(container_id, user_id, fvoci_model::ContainerRole::Admin);
         containers::save_member(scope, &admin).await?;
     }
     crate::container_team_trash::restore(scope, &container, user_id).await?;

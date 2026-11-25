@@ -190,7 +190,7 @@ async fn trashing_one_workspace_leaves_a_members_other_subscription_open() {
 #[tokio::test]
 async fn a_guest_member_of_a_template_board_reads_its_blocks() {
     use crate::common::{TEST_WORKSPACE_ID, TEST_WS};
-    use fvoci_model::{Container, ContainerMember, ContainerVisibility, WorkspaceRole};
+    use fvoci_model::{Container, ContainerVisibility, WorkspaceRole};
 
     let ts = Setup::native().start().await.init_basic().await;
     let guest = ts.client2.me().await.id;
@@ -216,10 +216,11 @@ async fn a_guest_member_of_a_template_board_reads_its_blocks() {
         .await
         .created_json();
     ts.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..crate::boards::member(&template.id, &guest)
-        })
+        .add_member(&crate::boards::member(
+            &template.id,
+            &guest,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .check_ok();
     let at = format!("{TEST_WS}/containers/{}", template.id);

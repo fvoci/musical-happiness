@@ -3,7 +3,7 @@
 //! its member: making themselves one is recorded.
 
 use fvoci_model::AuditAction;
-use fvoci_model::{Container, ContainerMember, ContainerVisibility, WorkspaceRole};
+use fvoci_model::{Container, ContainerVisibility, WorkspaceRole};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -129,10 +129,11 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     }
     let added = th
         .client2
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..member(&board.id, &third)
-        })
+        .add_member(&member(
+            &board.id,
+            &third,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await;
     let deleted = th
         .client2
@@ -214,10 +215,7 @@ async fn a_workspace_admin_who_makes_themselves_a_member_reads_the_board_and_is_
     let th = Setup::native().start().await.init_basic().await;
     let admin = workspace_admin(&th).await;
     let (board, card_id) = private_board_with_a_card(&th).await;
-    let as_viewer = ContainerMember {
-        role: fvoci_model::ContainerRole::Viewer,
-        ..member(&board.id, &admin)
-    };
+    let as_viewer = member(&board.id, &admin, fvoci_model::ContainerRole::Viewer);
 
     th.client2.add_member(&as_viewer).await.check_ok();
     let card = th.client2.get(&format!("{TEST_WS}/cards/{card_id}")).await;
@@ -368,10 +366,11 @@ async fn a_workspace_admin_who_joins_an_open_board_is_not_recorded() {
 
     let added = th
         .client2
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..member(&board.id, &admin)
-        })
+        .add_member(&member(
+            &board.id,
+            &admin,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await;
     let recorded = th
         .app

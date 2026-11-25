@@ -8,7 +8,7 @@
 //! they need not be identifiers.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Container, ContainerKinds, ContainerMember, ContainerPatch,
+    Block, BlockPatch, BlockType, Container, ContainerKinds, ContainerPatch, ContainerRole,
     ContainerVisibility, ContainersAndBlocks, DeleteContainersAndBlocks, PatchContainersAndBlocks,
     new_id,
 };
@@ -363,10 +363,11 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         let members = members_of(&th, &board.id).await;
         assert_eq!(
             members,
-            vec![ContainerMember {
-                role: fvoci_model::ContainerRole::Admin,
-                ..member(&board.id, &user1.id)
-            }],
+            vec![member(
+                &board.id,
+                &user1.id,
+                fvoci_model::ContainerRole::Admin
+            )],
             "the creator administers the board"
         );
     }
@@ -987,10 +988,7 @@ async fn patch_boards_and_blocks_checks() {
 
     // An editor patches board properties and blocks, but not the board type.
     th.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Editor,
-            ..member(first_id, &user2.id)
-        })
+        .add_member(&member(first_id, &user2.id, ContainerRole::Editor))
         .await
         .check_ok();
     let response = patch(
@@ -1049,10 +1047,7 @@ async fn patch_boards_and_blocks_checks() {
 
     // A commenter patches nothing.
     th.app
-        .update_container_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Commenter,
-            ..member(first_id, &user2.id)
-        })
+        .update_container_member(&member(first_id, &user2.id, ContainerRole::Commenter))
         .await
         .expect("user2 becomes a commenter");
     patch(

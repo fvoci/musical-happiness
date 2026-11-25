@@ -110,6 +110,22 @@ struct UpdateMemberMessage<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct RemovedMemberRef<'a> {
+    container_id: &'a str,
+    user_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveMemberMessage<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    workspace_id: &'a str,
+    member: RemovedMemberRef<'a>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct UpdateCategoryMessage<'a> {
     #[serde(rename = "type")]
     kind: &'static str,
@@ -197,6 +213,7 @@ macro_rules! outgoing {
 outgoing!(
     UpdateContainerMessage,
     UpdateMemberMessage,
+    RemoveMemberMessage,
     UpdateUserMessage,
     UpdateCategoryMessage,
     CategoryReorderMessage,
@@ -699,15 +716,13 @@ impl Hub {
         container_id: &str,
         user_id: &str,
     ) {
-        let member = ContainerMember {
-            user_id: user_id.to_owned(),
-            container_id: container_id.to_owned(),
-            ..ContainerMember::default()
-        };
-        let message = UpdateMemberMessage {
+        let message = RemoveMemberMessage {
             kind: "containerMemberRemoved",
             workspace_id,
-            member: &member,
+            member: RemovedMemberRef {
+                container_id,
+                user_id,
+            },
         };
         let recipients = self.workspace_listeners(workspace_id);
         self.send(

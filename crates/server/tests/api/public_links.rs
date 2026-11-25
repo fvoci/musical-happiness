@@ -365,7 +365,8 @@ async fn sharing_needs_the_permission_to_share_the_board() {
         container_id: board.id.clone(),
         user_id: other.id.clone(),
         role: fvoci_model::ContainerRole::Editor,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     th.app
         .store()

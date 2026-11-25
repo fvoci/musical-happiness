@@ -721,7 +721,8 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
                 container_id: board.id.clone(),
                 user_id: third.me().await.id,
                 role: fvoci_model::ContainerRole::Editor,
-                ..fvoci_model::ContainerMember::default()
+                synthetic: false,
+                inherited_role: None,
             },
         )
         .await
@@ -1015,7 +1016,8 @@ async fn a_link_for_a_guest_lets_in_while_its_maker_may_still_invite() {
         } else {
             fvoci_model::ContainerRole::Editor
         },
-        ..fvoci_model::ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     let third_id = third.me().await.id;
     let maker_id = th.client2.me().await.id;

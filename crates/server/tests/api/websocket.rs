@@ -1428,7 +1428,8 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
                     container_id: board.id.clone(),
                     user_id: user.clone(),
                     role: role.parse().expect("a valid role"),
-                    ..fvoci_model::ContainerMember::default()
+                    synthetic: false,
+                    inherited_role: None,
                 },
             )
             .await

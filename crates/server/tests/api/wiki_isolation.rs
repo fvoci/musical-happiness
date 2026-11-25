@@ -103,7 +103,8 @@ pub(crate) async fn put_on(admin: &Client, wiki_id: &str, user_id: &str, role: &
         container_id: wiki_id.to_owned(),
         user_id: user_id.to_owned(),
         role: role.parse().expect("a valid role"),
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     let path = format!("{TEST_WS}/containers/{wiki_id}/members");
     admin.post(&path, &member).await.check_ok();
@@ -233,7 +234,8 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
         container_id: wiki.clone(),
         user_id: user1,
         role: fvoci_model::ContainerRole::Editor,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     theirs.save_member(&member).await.expect("invited");
     assert_eq!(

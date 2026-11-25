@@ -488,12 +488,7 @@ async fn hand_over(
             continue;
         }
         let had_a_role = find_member(scope, container_id, by).await?.is_some();
-        let admin = ContainerMember {
-            container_id: container_id.clone(),
-            user_id: by.to_owned(),
-            ..ContainerMember::default()
-        }
-        .with_role(ContainerRole::Admin);
+        let admin = ContainerMember::new(container_id, by, ContainerRole::Admin);
         save_member(scope, &admin).await?;
         if !had_a_role {
             let entry = AuditEntry::new(

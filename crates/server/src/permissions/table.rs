@@ -568,9 +568,8 @@ fn a_guest_sees_of_the_people_who_is_on_its_boards() {
 fn effective_role_takes_the_higher_of_direct_and_inherited_role() {
     use fvoci_model::{ContainerMember, MinimumRole};
     let member = |role, inherited_role| ContainerMember {
-        role,
         inherited_role,
-        ..ContainerMember::default()
+        ..ContainerMember::new("", "", role)
     };
     assert_eq!(
         super::role_of(&member(ContainerRole::Viewer, None)),

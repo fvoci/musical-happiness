@@ -730,7 +730,8 @@ async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
             container_id: read_by_all.id.clone(),
             user_id: client.me().await.id,
             role: fvoci_model::ContainerRole::Viewer,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         let saved = ts.app.store().save_member(&member).await;
         saved.expect("a viewer of the board");
@@ -1372,7 +1373,8 @@ async fn a_board_read_by(ts: &TestServer, clients: &[&Client]) {
             container_id: board.id.clone(),
             user_id: client.me().await.id,
             role: fvoci_model::ContainerRole::Viewer,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         let saved = ts.app.store().save_member(&member).await;
         saved.expect("a viewer of the board");
@@ -1490,7 +1492,8 @@ async fn a_role_on_a_board_of_a_space_opens_nothing_to_another_account() {
             container_id: board.clone(),
             user_id: colleague_id.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         let planted = space.app.store().save_member(&member).await;
         planted.expect("a row past every door");

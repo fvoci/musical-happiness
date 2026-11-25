@@ -1188,7 +1188,8 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
             container_id: board.id.clone(),
             user_id: user_id.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("the user is on a board of a workspace they are not in");

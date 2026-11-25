@@ -3,9 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{
-    Category, Container, ContainerMember, ContainerVisibility, ContainersAndBlocks, new_id,
-};
+use fvoci_model::{Category, Container, ContainerVisibility, ContainersAndBlocks, new_id};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -232,10 +230,7 @@ async fn member_changes_are_broadcast() {
 
     update_member(
         &th.client,
-        &ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..member(&board.id, &user2.id)
-        },
+        &member(&board.id, &user2.id, fvoci_model::ContainerRole::Viewer),
     )
     .await
     .check_ok();
@@ -244,7 +239,7 @@ async fn member_changes_are_broadcast() {
         .await;
     assert_eq!(message["member"]["role"], json!("viewer"), "{message}");
 
-    delete_member(&th.client, &member(&board.id, &user2.id))
+    delete_member(&th.client, &board.id, &user2.id)
         .await
         .check_no_content();
     for socket in [&mut socket1, &mut socket2] {

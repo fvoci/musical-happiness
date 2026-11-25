@@ -344,7 +344,8 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
             container_id: their_board.clone(),
             user_id: user1.clone(),
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("the user is put on their board");

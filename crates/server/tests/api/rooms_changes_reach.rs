@@ -109,7 +109,8 @@ async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
             container_id: t.board_id.clone(),
             user_id: user.clone(),
             role: fvoci_model::ContainerRole::Viewer,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("the member is made a reader in the store alone");

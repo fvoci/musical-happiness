@@ -102,7 +102,8 @@ async fn second_editor(ts: &TestServer, board_id: &str) {
             container_id: board_id.to_owned(),
             user_id: user.id,
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .check_ok();
@@ -498,7 +499,8 @@ async fn a_completion_without_the_permission_throws_the_upload_away() {
             container_id: board.id.clone(),
             user_id: editor.id.clone(),
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .check_ok();

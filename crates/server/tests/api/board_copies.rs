@@ -1,8 +1,7 @@
 //! Copies of boards and templates (`duplicateContainer`).
 
 use fvoci_model::{
-    Block, BlockType, Category, Container, ContainerMember, ContainerVisibility,
-    ContainersAndBlocks, new_id,
+    Block, BlockType, Category, Container, ContainerVisibility, ContainersAndBlocks, new_id,
 };
 use fvoci_store::{BlockFilter, DuplicateAs};
 use reqwest::StatusCode;
@@ -497,10 +496,7 @@ async fn duplicate_container_permissions_and_parameters() {
     insert_block(&th, view_block(&private.id), &user1.id).await;
     add_member(
         &th,
-        &ContainerMember {
-            role: fvoci_model::ContainerRole::Viewer,
-            ..member(&private.id, &user2.id)
-        },
+        &member(&private.id, &user2.id, fvoci_model::ContainerRole::Viewer),
     )
     .await;
     let copy: ContainersAndBlocks = duplicate_board(&th.client2, &private.id, "")

@@ -486,12 +486,7 @@ pub(crate) async fn let_in(
             let_in_as_member(scope, &link.workspace_id, user_id).await
         }
         (WorkspaceRole::Guest, Some(container_id), Some(container_role)) => {
-            let guest = ContainerMember {
-                container_id: container_id.clone(),
-                user_id: user_id.to_owned(),
-                ..ContainerMember::default()
-            }
-            .with_role(container_role);
+            let guest = ContainerMember::new(container_id, user_id, container_role);
             let let_in = let_in_as_guest(scope, &link.workspace_id, guest).await?;
             // Whom a manager who does not read the board puts on it is on the
             // record, by a link as by adding them.

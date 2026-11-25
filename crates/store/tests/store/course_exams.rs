@@ -32,7 +32,8 @@ async fn enroll(store: &Store, course_id: &str, user_id: &str) {
             container_id: course_id.to_owned(),
             user_id: user_id.to_owned(),
             role: fvoci_model::ContainerRole::Viewer,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("enrolled");

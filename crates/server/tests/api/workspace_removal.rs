@@ -118,7 +118,8 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
             container_id: board.id.clone(),
             user_id: user2.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("a second admin is stored");
@@ -157,10 +158,11 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
         .await
         .created_json();
     th.client
-        .add_member(&ContainerMember {
-            role: fvoci_model::ContainerRole::Editor,
-            ..crate::boards::member(&board.id, &user2)
-        })
+        .add_member(&crate::boards::member(
+            &board.id,
+            &user2,
+            fvoci_model::ContainerRole::Editor,
+        ))
         .await
         .check_ok();
     let archive = th
@@ -211,10 +213,11 @@ async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
             .await
             .created_json();
         th.client
-            .add_member(&ContainerMember {
-                role: fvoci_model::ContainerRole::Editor,
-                ..crate::boards::member(&board.id, &user2)
-            })
+            .add_member(&crate::boards::member(
+                &board.id,
+                &user2,
+                fvoci_model::ContainerRole::Editor,
+            ))
             .await
             .check_ok();
         boards.push(board);
@@ -222,7 +225,11 @@ async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
     // A former member of the workspace is omitted from the exported archive.
     th.app
         .store()
-        .save_member(&crate::boards::member(&boards[1].id, &third))
+        .save_member(&crate::boards::member(
+            &boards[1].id,
+            &third,
+            fvoci_model::ContainerRole::Viewer,
+        ))
         .await
         .expect("a membership of a third user");
     remove_from_the_test_workspace(&th, &third).await;

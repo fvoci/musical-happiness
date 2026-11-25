@@ -861,7 +861,8 @@ async fn save_member() {
             user_id: user_id.clone(),
             container_id: board_id.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
 
         test.save_member(&member)
@@ -887,7 +888,8 @@ async fn save_member() {
             user_id: user_id.clone(),
             container_id: board_id.clone(),
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
 
         test.save_member(&member)
@@ -947,7 +949,8 @@ async fn get_member_for_container() {
             user_id: user_id.clone(),
             container_id: board_id.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member)
             .await
@@ -994,7 +997,8 @@ async fn get_members_for_container() {
             container_id: board_id_1.clone(),
             user_id: user_id_1.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member1).await.expect("member 1 is saved");
 
@@ -1002,7 +1006,8 @@ async fn get_members_for_container() {
             container_id: board_id_1.clone(),
             user_id: user_id_2.clone(),
             role: fvoci_model::ContainerRole::Editor,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member2).await.expect("member 2 is saved");
 
@@ -1010,7 +1015,8 @@ async fn get_members_for_container() {
             container_id: board_id_2.clone(),
             user_id: user_id_3.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member3).await.expect("member 3 is saved");
 
@@ -1077,7 +1083,8 @@ async fn delete_member() {
             user_id: user_id.clone(),
             container_id: board_id.clone(),
             role: fvoci_model::ContainerRole::Admin,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         };
         test.save_member(&member)
             .await
@@ -1270,7 +1277,8 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
         container_id: board_id.clone(),
         user_id: user_id.clone(),
         role: fvoci_model::ContainerRole::Admin,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     test.save_member(&member)
         .await
@@ -1650,7 +1658,8 @@ fn admin_of(board_id: &str, user_id: &str) -> ContainerMember {
         container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
         role: fvoci_model::ContainerRole::Admin,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     }
 }
 
@@ -1660,7 +1669,8 @@ fn editor_of(board_id: &str, user_id: &str) -> ContainerMember {
         container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
         role: fvoci_model::ContainerRole::Editor,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     }
 }
 
@@ -2936,7 +2946,8 @@ async fn concurrent_add_member_calls_end_in_one_membership_and_one_of_them_added
                 container_id: board_id.clone(),
                 user_id: user_id.clone(),
                 role,
-                ..ContainerMember::default()
+                synthetic: false,
+                inherited_role: None,
             };
             let store = test.store.clone();
             adders.spawn(async move {
@@ -3380,7 +3391,8 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
                 container_id: board_id.clone(),
                 user_id: user_id.clone(),
                 role: ContainerRole::Viewer,
-                ..ContainerMember::default()
+                synthetic: false,
+                inherited_role: None,
             })
             .await
             .expect("lowered to viewer");
@@ -3426,7 +3438,8 @@ async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
             container_id: board_id.clone(),
             user_id: user_id.clone(),
             role: before,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("the member is stored");
@@ -4003,7 +4016,10 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .find(|member| member.user_id == author_id)
         .expect("the author is a member");
     assert_eq!(
-        members_at_their_default(all_flags, &ContainerMember::default()),
+        members_at_their_default(
+            all_flags,
+            &ContainerMember::new("", "", fvoci_model::ContainerRole::Viewer),
+        ),
         Vec::<String>::new(),
         "of the membership: {all_flags:?}"
     );

@@ -180,7 +180,8 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
             container_id: board.id.clone(),
             user_id: user,
             role: fvoci_model::ContainerRole::Viewer,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("a viewer invitation");

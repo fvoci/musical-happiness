@@ -629,12 +629,7 @@ async fn leave_workspace(
             left.without_admin.push(container_id.clone());
         }
         if alone && let Some(heir_id) = &heir {
-            let admin = ContainerMember {
-                container_id: container_id.clone(),
-                user_id: heir_id.clone(),
-                ..ContainerMember::default()
-            }
-            .with_role(ContainerRole::Admin);
+            let admin = ContainerMember::new(container_id, heir_id, ContainerRole::Admin);
             save_member(scope, &admin).await?;
             let entry = AuditEntry::by(
                 actor,

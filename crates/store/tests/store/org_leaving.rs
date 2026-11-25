@@ -86,12 +86,11 @@ async fn course_with_progress(
         .expect("course stored");
     if learner != owner {
         store
-            .save_member(&ContainerMember {
-                container_id: course.id.clone(),
-                user_id: learner.to_owned(),
-                role: fvoci_model::ContainerRole::Viewer,
-                ..ContainerMember::default()
-            })
+            .save_member(&ContainerMember::new(
+                &course.id,
+                learner,
+                fvoci_model::ContainerRole::Viewer,
+            ))
             .await
             .expect("learner enrolled");
     }

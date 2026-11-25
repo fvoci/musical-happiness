@@ -119,7 +119,8 @@ async fn a_former_non_author_is_not_discoverable_through_a_stale_board_role() {
             container_id: board.id,
             user_id: leaver.clone(),
             role: fvoci_model::ContainerRole::Viewer,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .check_ok();

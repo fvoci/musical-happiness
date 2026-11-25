@@ -56,7 +56,8 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
         container_id: board.id.clone(),
         user_id: manager.clone(),
         role: ContainerRole::Viewer,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     th.app
         .remove_team_member(ROOT_WORKSPACE_ID, &team.id, &manager, &manager)
@@ -118,7 +119,8 @@ async fn stale_invitation(th: &TestServer, manager: &str, board_id: &str, team_i
             container_id: board_id.to_owned(),
             user_id: colleague.clone(),
             role: ContainerRole::Viewer,
-            ..ContainerMember::default()
+            synthetic: false,
+            inherited_role: None,
         })
         .await
         .expect("store a colleague viewer on the board");
@@ -154,7 +156,8 @@ async fn stale_invitation(th: &TestServer, manager: &str, board_id: &str, team_i
         container_id: board_id.to_owned(),
         user_id: colleague,
         role: ContainerRole::Editor,
-        ..ContainerMember::default()
+        synthetic: false,
+        inherited_role: None,
     };
     assert!(
         th.app

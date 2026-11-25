@@ -143,12 +143,8 @@ impl App {
             .recheck_access(self, AccessScope::organization().of_user(user_id))
             .await;
         for passed in &left.handed_over {
-            let admin = ContainerMember {
-                container_id: passed.container_id.clone(),
-                user_id: passed.heir_id.clone(),
-                ..ContainerMember::default()
-            }
-            .with_role(ContainerRole::Admin);
+            let admin =
+                ContainerMember::new(&passed.container_id, &passed.heir_id, ContainerRole::Admin);
             self.broadcast_member_change_in_background(passed.workspace_id.clone(), admin);
             self.collab()
                 .recheck_access(

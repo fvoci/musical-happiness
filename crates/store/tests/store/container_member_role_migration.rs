@@ -1,7 +1,8 @@
 //! Migration `0073` (`container_member_role_enum`) exercised on a populated SQLite and
 //! PostgreSQL database seeded at version `0072` with legacy 4-boolean rows across
 //! `container_members`, `deleted_containers.members`, and
-//! `workspace_members.prior_container_roles`.
+//! `workspace_members.prior_container_roles`, including roleless `[false; 4]` pruning
+//! and malformed/heterogeneous JSON edge cases.
 
 use fvoci_model::{ContainerKinds, ContainerMember, ContainerRole, OrgRole, WorkspaceRole, new_id};
 use fvoci_store::{DbType, Store};
@@ -24,11 +25,14 @@ const KEY_VIEWER: &str = concat!("scheme", "Viewer");
 struct OrgAFixture {
     org_id: String,
     ws_id: String,
+    edge_ws_id: String,
     board_single: String,
     board_mixed: String,
     board_prior: String,
     trashed_board: String,
     trashed_empty: String,
+    trashed_only_roleless: String,
+    trashed_edge: String,
     admin_user: String,
     editor_user: String,
     commenter_user: String,
@@ -93,13 +97,101 @@ fn pre0073_trashed_member(container_id: &str, user_id: &str, flags: [bool; 4]) -
     })
 }
 
+async fn seed_org_a_edge_cases(
+    scoped: &Store,
+    ws_id: &str,
+    admin_user: &str,
+    viewer_user: &str,
+    all_false_user: &str,
+) -> (String, String, String) {
+    let edge_ws_id = common::workspace(scoped).await;
+
+    let (trashed_only_roleless, trashed_edge) = (new_id(), new_id());
+    let (del_roleless, del_edge) = (new_id(), new_id());
+    for (id, at, del_id, title, members) in [
+        (
+            &trashed_only_roleless,
+            320_i64,
+            &del_roleless,
+            "Only Roleless",
+            json!([pre0073_trashed_member(
+                &trashed_only_roleless,
+                all_false_user,
+                [false, false, false, false]
+            )])
+            .to_string(),
+        ),
+        (
+            &trashed_edge,
+            330_i64,
+            &del_edge,
+            "Heterogeneous Array",
+            json!([
+                "stray-text",
+                pre0073_trashed_member(&trashed_edge, all_false_user, [false, false, false, false]),
+                pre0073_trashed_member(&trashed_edge, viewer_user, [false, false, false, true]),
+            ])
+            .to_string(),
+        ),
+    ] {
+        let doc = json!({
+            "id": id,
+            "workspaceId": edge_ws_id,
+            "createdBy": admin_user,
+            "modifiedBy": admin_user,
+            "visibility": "private",
+            "kind": "board",
+            "title": title,
+            "cardProperties": [],
+            "createAt": 100,
+            "updateAt": 200,
+            "deletedAt": at,
+        })
+        .to_string();
+        scoped
+            .execute_unchecked(&format!(
+                "INSERT INTO deleted_containers \
+                 (id, workspace_id, deleted_at, deleted_by, deletion_id, container, members, files, places) \
+                 VALUES ('{id}', '{edge_ws_id}', {at}, '{admin_user}', '{del_id}', '{doc}', '{members}', '[]', '[]')"
+            ))
+            .await
+            .expect("edge deleted_container seeded");
+    }
+
+    // Empty-string malformed JSON and heterogeneous array in `prior_container_roles`.
+    scoped
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET prior_container_roles = '' \
+             WHERE workspace_id = '{ws_id}' AND user_id = '{all_false_user}'"
+        ))
+        .await
+        .expect("empty prior_container_roles seeded");
+    let mixed_prior = json!([
+        "stray-text",
+        ["b-roleless", [false, false, false, false]],
+        ["b-viewer", [false, false, false, true]],
+    ])
+    .to_string();
+    scoped
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET prior_container_roles = '{mixed_prior}' \
+             WHERE workspace_id = '{ws_id}' AND user_id = '{viewer_user}'"
+        ))
+        .await
+        .expect("mixed prior_container_roles seeded");
+
+    (edge_ws_id, trashed_only_roleless, trashed_edge)
+}
+
 async fn seed_org_a_trash_and_prior(
     scoped: &Store,
     ws_id: &str,
-    board_prior: &str,
-    users: (&str, &str, &str, &str, &str),
+    boards: (&str, &str),
+    users: (&str, &str, &str, &str, &str, &str),
 ) -> (String, String) {
-    let (admin_user, editor_user, commenter_user, all_false_user, joined_org_admin) = users;
+    let (board_single, board_prior) = boards;
+    let (admin_user, editor_user, commenter_user, viewer_user, all_false_user, joined_org_admin) =
+        users;
     let (trashed_board, trashed_empty) = (new_id(), new_id());
     let (del_1, del_2) = (new_id(), new_id());
     let desc = if scoped.db_type() == DbType::Postgres {
@@ -128,6 +220,7 @@ async fn seed_org_a_trash_and_prior(
         pre0073_trashed_member(&trashed_board, admin_user, [true, true, false, false]),
         pre0073_trashed_member(&trashed_board, editor_user, [false, true, false, true]),
         pre0073_trashed_member(&trashed_board, commenter_user, [false, false, true, false]),
+        pre0073_trashed_member(&trashed_board, viewer_user, [false, false, false, true]),
         pre0073_trashed_member(&trashed_board, all_false_user, [false, false, false, false]),
         pre0073_trashed_member(
             &trashed_board,
@@ -159,6 +252,7 @@ async fn seed_org_a_trash_and_prior(
     let prior = json!([
         [board_prior, [false, false, true, false]],
         [&trashed_board, [false, true, false, true]],
+        [board_single, [false, false, false, false]],
     ])
     .to_string();
     scoped
@@ -223,49 +317,48 @@ async fn seed_org_a(pre: &Store) -> OrgAFixture {
         (&admin_user, [true, true, true, true]),
         (&editor_user, [false, true, true, true]),
         (&commenter_user, [false, false, true, true]),
-        (&viewer_user, [false, false, false, false]),
+        (&viewer_user, [false, false, false, true]),
+        (&all_false_user, [false, false, false, false]),
         (&joined_org_admin, [true, false, false, true]),
     ] {
         insert_pre0073_member(&scoped, &board_mixed, uid, flags).await;
     }
 
-    insert_pre0073_member(
-        &scoped,
-        &board_prior,
-        &admin_user,
-        [true, true, false, false],
-    )
-    .await;
-    insert_pre0073_member(
-        &scoped,
-        &board_prior,
-        &joined_org_admin,
-        [true, false, false, false],
-    )
-    .await;
+    for (uid, flags) in [
+        (&admin_user, [true, true, false, false]),
+        (&joined_org_admin, [true, false, false, false]),
+    ] {
+        insert_pre0073_member(&scoped, &board_prior, uid, flags).await;
+    }
 
     let (trashed_board, trashed_empty) = seed_org_a_trash_and_prior(
         &scoped,
         &ws_id,
-        &board_prior,
+        (&board_single, &board_prior),
         (
             &admin_user,
             &editor_user,
             &commenter_user,
+            &viewer_user,
             &all_false_user,
             &joined_org_admin,
         ),
     )
     .await;
+    let (edge_ws_id, trashed_only_roleless, trashed_edge) =
+        seed_org_a_edge_cases(&scoped, &ws_id, &admin_user, &viewer_user, &all_false_user).await;
 
     OrgAFixture {
         org_id,
         ws_id,
+        edge_ws_id,
         board_single,
         board_mixed,
         board_prior,
         trashed_board,
         trashed_empty,
+        trashed_only_roleless,
+        trashed_edge,
         admin_user,
         editor_user,
         commenter_user,
@@ -335,6 +428,70 @@ async fn seed_org_b(pre: &Store) -> Option<OrgBFixture> {
         bob,
         carol,
     })
+}
+
+async fn assert_edge_cases(scoped: &Store, org_a: &OrgAFixture) {
+    let _ = &org_a.edge_ws_id;
+    let roleless_only = scoped
+        .texts_unchecked(&format!(
+            "SELECT CAST(members AS TEXT) FROM deleted_containers WHERE id = '{}'",
+            org_a.trashed_only_roleless
+        ))
+        .await
+        .expect("roleless-only trashed members");
+    assert_eq!(
+        serde_json::from_str::<Value>(&roleless_only[0]).expect("json"),
+        json!([]),
+        "roleless-only snapshot becomes empty array"
+    );
+
+    let edge_members = scoped
+        .texts_unchecked(&format!(
+            "SELECT CAST(members AS TEXT) FROM deleted_containers WHERE id = '{}'",
+            org_a.trashed_edge
+        ))
+        .await
+        .expect("edge trashed members");
+    assert_eq!(
+        serde_json::from_str::<Value>(&edge_members[0]).expect("json"),
+        json!([
+            "stray-text",
+            {
+                "containerId": org_a.trashed_edge,
+                "userId": org_a.viewer_user,
+                "role": "viewer",
+            }
+        ]),
+        "string element preserved and roleless object pruned in deleted_containers.members"
+    );
+
+    let empty_prior = scoped
+        .texts_unchecked(&format!(
+            "SELECT prior_container_roles FROM workspace_members \
+             WHERE workspace_id = '{}' AND user_id = '{}'",
+            org_a.ws_id, org_a.all_false_user
+        ))
+        .await
+        .expect("empty-string prior_container_roles");
+    assert_eq!(
+        empty_prior,
+        [""],
+        "malformed empty-string prior_container_roles is skipped without aborting"
+    );
+
+    let mixed_prior = scoped
+        .texts_unchecked(&format!(
+            "SELECT prior_container_roles FROM workspace_members \
+             WHERE workspace_id = '{}' AND user_id = '{}'",
+            org_a.ws_id, org_a.viewer_user
+        ))
+        .await
+        .expect("mixed prior_container_roles");
+    assert_eq!(
+        serde_json::from_str::<Value>(&mixed_prior[0]).expect("json"),
+        json!(["stray-text", ["b-viewer", "viewer"]]),
+        "string element preserved and roleless entry pruned in prior_container_roles"
+    );
 }
 
 async fn assert_catalog_and_constraints(
@@ -414,11 +571,156 @@ async fn assert_catalog_and_constraints(
     );
 }
 
+async fn assert_org_a_live(scoped_a: &Store, org_a: &OrgAFixture) {
+    // 1. Verify single-flag `container_members` conversions and pruning of `[false; 4]`.
+    for (uid, expected) in [
+        (&org_a.admin_user, ContainerRole::Admin),
+        (&org_a.editor_user, ContainerRole::Editor),
+        (&org_a.commenter_user, ContainerRole::Commenter),
+        (&org_a.viewer_user, ContainerRole::Viewer),
+    ] {
+        let member = scoped_a
+            .get_member_for_container(&org_a.board_single, uid)
+            .await
+            .expect("single-board member");
+        assert_eq!(member.role, expected, "board_single user {uid}");
+    }
+    assert!(
+        scoped_a
+            .get_member_for_container(&org_a.board_single, &org_a.all_false_user)
+            .await
+            .expect_err("roleless [false; 4] row on board_single must be pruned")
+            .is_not_found(),
+        "all_false_user must not be elevated to viewer on board_single"
+    );
+
+    // 2. Verify multi-flag precedence (`admin > editor > commenter > viewer`) and pruning.
+    for (uid, expected) in [
+        (&org_a.admin_user, ContainerRole::Admin),
+        (&org_a.editor_user, ContainerRole::Editor),
+        (&org_a.commenter_user, ContainerRole::Commenter),
+        (&org_a.viewer_user, ContainerRole::Viewer),
+        (&org_a.joined_org_admin, ContainerRole::Admin),
+    ] {
+        let member = scoped_a
+            .get_member_for_container(&org_a.board_mixed, uid)
+            .await
+            .expect("mixed-board member");
+        assert_eq!(member.role, expected, "board_mixed user {uid}");
+    }
+    assert!(
+        scoped_a
+            .get_member_for_container(&org_a.board_mixed, &org_a.all_false_user)
+            .await
+            .expect_err("roleless [false; 4] row on board_mixed must be pruned")
+            .is_not_found(),
+        "all_false_user must not be elevated to viewer on board_mixed"
+    );
+}
+
+async fn assert_org_a_trash(scoped_a: &Store, org_a: &OrgAFixture) {
+    // 3. Verify `deleted_containers.members` raw JSON has zero legacy keys and no roleless
+    //    entry, plus trash admin filtering (`get_deleted_containers`).
+    let raw_trash_members = scoped_a
+        .texts_unchecked(&format!(
+            "SELECT CAST(members AS TEXT) FROM deleted_containers WHERE id = '{}'",
+            org_a.trashed_board
+        ))
+        .await
+        .expect("raw trashed members");
+    for key in [KEY_ADMIN, KEY_EDITOR, KEY_COMMENTER, KEY_VIEWER] {
+        assert!(
+            !raw_trash_members[0].contains(key),
+            "retired key {key} still present in deleted_containers.members: {}",
+            raw_trash_members[0]
+        );
+    }
+    assert!(
+        !raw_trash_members[0].contains(&org_a.all_false_user),
+        "roleless snapshot member must be pruned from deleted_containers.members: {}",
+        raw_trash_members[0]
+    );
+    let empty_trash_members = scoped_a
+        .texts_unchecked(&format!(
+            "SELECT CAST(members AS TEXT) FROM deleted_containers WHERE id = '{}'",
+            org_a.trashed_empty
+        ))
+        .await
+        .expect("empty trashed members");
+    assert_eq!(
+        serde_json::from_str::<Value>(&empty_trash_members[0]).expect("json"),
+        json!([]),
+        "empty trashed members stay empty"
+    );
+    assert_edge_cases(scoped_a, org_a).await;
+
+    let admin_trash = scoped_a
+        .get_deleted_containers(
+            &org_a.ws_id,
+            Some(&org_a.admin_user),
+            None,
+            ContainerKinds::BOARDS,
+        )
+        .await
+        .expect("admin trash");
+    assert_eq!(admin_trash.len(), 1, "admin sees trashed_board");
+    assert_eq!(
+        admin_trash[0].container.id, org_a.trashed_board,
+        "trashed_board id"
+    );
+
+    let editor_trash = scoped_a
+        .get_deleted_containers(
+            &org_a.ws_id,
+            Some(&org_a.editor_user),
+            None,
+            ContainerKinds::BOARDS,
+        )
+        .await
+        .expect("editor trash");
+    assert!(editor_trash.is_empty(), "non-admin sees no trashed board");
+}
+
+async fn assert_org_b(post: &Store, org_b: Option<&OrgBFixture>) {
+    let Some(b) = org_b else {
+        return;
+    };
+    let scoped_b = post.for_org(&b.org_id).expect("scoped org B");
+    assert_eq!(
+        scoped_b
+            .get_member_for_container(&b.live_board, &b.bob)
+            .await
+            .expect("bob")
+            .role,
+        ContainerRole::Admin,
+        "org B bob admin"
+    );
+    assert_eq!(
+        scoped_b
+            .get_member_for_container(&b.live_board, &b.carol)
+            .await
+            .expect("carol")
+            .role,
+        ContainerRole::Commenter,
+        "org B carol commenter"
+    );
+    scoped_b
+        .undelete_container(&b.trashed_board, &b.bob)
+        .await
+        .expect("org B trashed board restored");
+    assert_eq!(
+        scoped_b
+            .get_member_for_container(&b.trashed_board, &b.carol)
+            .await
+            .expect("carol restored")
+            .role,
+        ContainerRole::Editor,
+        "org B carol restored editor"
+    );
+    let _ = &b.ws_id;
+}
+
 #[tokio::test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "end-to-end verification of 0072 -> 0073 across live members, trash snapshots, prior roles, and RLS"
-)]
 async fn migration_0073_converts_scheme_booleans_to_role_enum_across_tables_and_snapshots() {
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_container_member_role_enum(&database).await;
@@ -437,89 +739,11 @@ async fn migration_0073_converts_scheme_booleans_to_role_enum_across_tables_and_
         .expect("migrate to 0073");
     let scoped_a = post.for_org(&org_a.org_id).expect("scoped org A");
 
-    // 1. Verify single-flag and all-false `container_members` conversions.
-    for (uid, expected) in [
-        (&org_a.admin_user, ContainerRole::Admin),
-        (&org_a.editor_user, ContainerRole::Editor),
-        (&org_a.commenter_user, ContainerRole::Commenter),
-        (&org_a.viewer_user, ContainerRole::Viewer),
-        (&org_a.all_false_user, ContainerRole::Viewer),
-    ] {
-        let member = scoped_a
-            .get_member_for_container(&org_a.board_single, uid)
-            .await
-            .expect("single-board member");
-        assert_eq!(member.role, expected, "board_single user {uid}");
-    }
+    assert_org_a_live(&scoped_a, &org_a).await;
+    assert_org_a_trash(&scoped_a, &org_a).await;
 
-    // 2. Verify multi-flag precedence (`admin > editor > commenter > viewer`).
-    for (uid, expected) in [
-        (&org_a.admin_user, ContainerRole::Admin),
-        (&org_a.editor_user, ContainerRole::Editor),
-        (&org_a.commenter_user, ContainerRole::Commenter),
-        (&org_a.viewer_user, ContainerRole::Viewer),
-        (&org_a.joined_org_admin, ContainerRole::Admin),
-    ] {
-        let member = scoped_a
-            .get_member_for_container(&org_a.board_mixed, uid)
-            .await
-            .expect("mixed-board member");
-        assert_eq!(member.role, expected, "board_mixed user {uid}");
-    }
-
-    // 3. Verify `deleted_containers.members` raw JSON has zero legacy keys, plus trash
-    //    admin filtering (`get_deleted_containers`).
-    let raw_trash_members = scoped_a
-        .texts_unchecked(&format!(
-            "SELECT CAST(members AS TEXT) FROM deleted_containers WHERE id = '{}'",
-            org_a.trashed_board
-        ))
-        .await
-        .expect("raw trashed members");
-    for key in [KEY_ADMIN, KEY_EDITOR, KEY_COMMENTER, KEY_VIEWER] {
-        assert!(
-            !raw_trash_members[0].contains(key),
-            "retired key {key} still present in deleted_containers.members: {}",
-            raw_trash_members[0]
-        );
-    }
-    let empty_trash_members = scoped_a
-        .texts_unchecked(&format!(
-            "SELECT CAST(members AS TEXT) FROM deleted_containers WHERE id = '{}'",
-            org_a.trashed_empty
-        ))
-        .await
-        .expect("empty trashed members");
-    assert_eq!(
-        serde_json::from_str::<Value>(&empty_trash_members[0]).expect("json"),
-        json!([])
-    );
-
-    let admin_trash = scoped_a
-        .get_deleted_containers(
-            &org_a.ws_id,
-            Some(&org_a.admin_user),
-            None,
-            ContainerKinds::BOARDS,
-        )
-        .await
-        .expect("admin trash");
-    assert_eq!(admin_trash.len(), 1);
-    assert_eq!(admin_trash[0].container.id, org_a.trashed_board);
-
-    let editor_trash = scoped_a
-        .get_deleted_containers(
-            &org_a.ws_id,
-            Some(&org_a.editor_user),
-            None,
-            ContainerKinds::BOARDS,
-        )
-        .await
-        .expect("editor trash");
-    assert!(editor_trash.is_empty(), "non-admin sees no trashed board");
-
-    // 4. Verify `workspace_members.prior_container_roles` conversion by ending the org
-    //    admin's joining and restoring `trashed_board`.
+    // 4. Verify `workspace_members.prior_container_roles` conversion and roleless pruning
+    //    by ending the org admin's joining and restoring `trashed_board`.
     assert!(
         scoped_a
             .leave_workspace_as_org_admin(&org_a.ws_id, &org_a.joined_org_admin)
@@ -531,14 +755,21 @@ async fn migration_0073_converts_scheme_booleans_to_role_enum_across_tables_and_
         .get_member_for_container(&org_a.board_prior, &org_a.joined_org_admin)
         .await
         .expect("prior role on live board restored");
-    assert_eq!(prior_restored.role, ContainerRole::Commenter);
-    assert!(
-        scoped_a
-            .get_member_for_container(&org_a.board_mixed, &org_a.joined_org_admin)
-            .await
-            .expect_err("role gained during joining removed")
-            .is_not_found()
+    assert_eq!(
+        prior_restored.role,
+        ContainerRole::Commenter,
+        "prior commenter role"
     );
+    for ungranted in [&org_a.board_single, &org_a.board_mixed] {
+        assert!(
+            scoped_a
+                .get_member_for_container(ungranted, &org_a.joined_org_admin)
+                .await
+                .expect_err("roleless prior entry and joining-only role must not grant access")
+                .is_not_found(),
+            "joined_org_admin must have no role on {ungranted}"
+        );
+    }
 
     scoped_a
         .undelete_container(&org_a.trashed_board, &org_a.admin_user)
@@ -548,7 +779,7 @@ async fn migration_0073_converts_scheme_booleans_to_role_enum_across_tables_and_
         (&org_a.admin_user, ContainerRole::Admin),
         (&org_a.editor_user, ContainerRole::Editor),
         (&org_a.commenter_user, ContainerRole::Commenter),
-        (&org_a.all_false_user, ContainerRole::Viewer),
+        (&org_a.viewer_user, ContainerRole::Viewer),
         (&org_a.joined_org_admin, ContainerRole::Editor),
     ] {
         let member = scoped_a
@@ -557,49 +788,21 @@ async fn migration_0073_converts_scheme_booleans_to_role_enum_across_tables_and_
             .expect("restored member");
         assert_eq!(
             member,
-            ContainerMember {
-                container_id: org_a.trashed_board.clone(),
-                user_id: uid.clone(),
-                role: expected,
-                synthetic: false,
-                inherited_role: None,
-            }
+            ContainerMember::new(&org_a.trashed_board, uid, expected),
+            "restored member {uid}"
         );
     }
+    assert!(
+        scoped_a
+            .get_member_for_container(&org_a.trashed_board, &org_a.all_false_user)
+            .await
+            .expect_err("pruned snapshot member must not return on restore")
+            .is_not_found(),
+        "all_false_user must not become viewer after undelete_container"
+    );
 
     // 5. Verify second organization on PostgreSQL (system scope across forced RLS).
-    if let Some(b) = &org_b {
-        let scoped_b = post.for_org(&b.org_id).expect("scoped org B");
-        assert_eq!(
-            scoped_b
-                .get_member_for_container(&b.live_board, &b.bob)
-                .await
-                .expect("bob")
-                .role,
-            ContainerRole::Admin
-        );
-        assert_eq!(
-            scoped_b
-                .get_member_for_container(&b.live_board, &b.carol)
-                .await
-                .expect("carol")
-                .role,
-            ContainerRole::Commenter
-        );
-        scoped_b
-            .undelete_container(&b.trashed_board, &b.bob)
-            .await
-            .expect("org B trashed board restored");
-        assert_eq!(
-            scoped_b
-                .get_member_for_container(&b.trashed_board, &b.carol)
-                .await
-                .expect("carol restored")
-                .role,
-            ContainerRole::Editor
-        );
-        let _ = &b.ws_id;
-    }
+    assert_org_b(&post, org_b.as_ref()).await;
 
     let extra_user = common::user(&scoped_a, "constraint-probe").await;
     assert_catalog_and_constraints(&database, &scoped_a, &org_a.board_prior, &extra_user).await;
