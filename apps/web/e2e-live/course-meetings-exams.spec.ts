@@ -181,7 +181,9 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     await adaExam.getByTestId('exam-my-note-input').fill('ADA_PRIVATE_REFLECTION');
     await adaExam.getByTestId('exam-my-score-save').click();
     await expect(adaExam.getByTestId('exam-my-score-saved')).toContainText('80 / 100');
-    await expect(adaExam.getByTestId('exam-average')).toContainText('Requires 2+ other scores');
+    await expect(adaExam.getByTestId('exam-average')).toContainText(
+      'Shown once the results are published',
+    );
     await expect(adaExam.getByTestId('exam-score-count')).toContainText('1 submitted');
 
     // Bora comes back to the window, which reads the exams again: the first one, Ada's, brings

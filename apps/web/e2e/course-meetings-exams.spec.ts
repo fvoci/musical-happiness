@@ -200,7 +200,9 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
   await examCard.getByTestId('exam-my-note-input').fill('Need more practice on TLBs');
   await examCard.getByTestId('exam-my-score-save').click();
   await expect(examCard.getByTestId('exam-my-score-saved')).toContainText('85 / 100');
-  await expect(examCard.getByTestId('exam-average')).toContainText('Requires 2+ other scores');
+  await expect(examCard.getByTestId('exam-average')).toContainText(
+    'Shown once the results are published',
+  );
   await expect(examCard.getByTestId('exam-score-count')).toContainText('2 submitted');
   await expect(examCard).not.toContainText('OTHER_SECRET_NOTE');
 
@@ -220,6 +222,12 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
   const refreshedCard = page.getByTestId('exam-card').first();
   await expect(refreshedCard.getByTestId('exam-average')).toContainText('90 / 100');
   await expect(refreshedCard.getByTestId('exam-score-count')).toContainText('3 submitted');
+  // Who manages the course publishes the results from five scores on.
+  await expect(refreshedCard.getByTestId('exam-results-published')).toHaveCount(0);
+  await expect(refreshedCard.getByTestId('exam-publish')).toBeDisabled();
+  await expect(refreshedCard.getByTestId('exam-results')).toContainText(
+    'Can be published from 5 scores',
+  );
   await expect(refreshedCard).not.toContainText('THIRD_SECRET_NOTE');
 
   // Trigger `meeting_upcoming` notification and click it from the bell -> opens Meetings tab & focuses meeting!

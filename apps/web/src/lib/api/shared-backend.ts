@@ -211,6 +211,7 @@ export class SharedBackend implements Backend {
       delete: refused,
       putMyScore: refused,
       deleteMyScore: refused,
+      setResultsPublished: refused,
     },
   };
   readonly #http: Http;

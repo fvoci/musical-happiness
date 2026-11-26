@@ -59,6 +59,28 @@ function checkMaxScore(value: number): number {
 }
 
 const MIN_OTHER_SCORERS_FOR_AVERAGE = 2;
+/** The fewest scores a snapshot of the results is published of, as the server's. */
+const FEWEST_PUBLISHED = 5;
+
+/** The scores of the course's active members for the exam: their sum and count, and how many are another's than `callerId`. */
+function scoresOf(
+  world: World,
+  courseId: string,
+  examId: string,
+  callerId: string,
+): { sum: number; count: number; others: number } {
+  let sum = 0;
+  let count = 0;
+  let others = 0;
+  for (const memberId of activeMemberIds(world, courseId)) {
+    const score = world.examScores.get(memberId)?.get(examId);
+    if (score === undefined) continue;
+    sum += score.score;
+    count += 1;
+    if (memberId !== callerId) others += 1;
+  }
+  return { sum, count, others };
+}
 
 function buildExamView(
   world: World,
@@ -66,34 +88,51 @@ function buildExamView(
   courseId: string,
   exam: StoredCourseExam,
 ): CourseExam {
-  const active = activeMemberIds(world, courseId);
-  const enrolled = active.has(callerId);
-  if (!enrolled) {
-    return {
-      ...copy(exam),
-      myScore: null,
-      averageScore: null,
-      scoreCount: 0,
-    };
+  const { published, ...stored } = exam;
+  const unpublished = { resultsPublishedAt: null, publishedScoreBucket: null };
+  if (!activeMemberIds(world, courseId).has(callerId)) {
+    return { ...copy(stored), myScore: null, averageScore: null, scoreCount: 0, ...unpublished };
   }
   const myRaw = world.examScores.get(callerId)?.get(exam.id);
-  let sum = 0;
-  let count = 0;
-  let others = 0;
-  for (const memberId of active) {
-    const score = world.examScores.get(memberId)?.get(exam.id);
-    if (score !== undefined) {
-      sum += score.score;
-      count += 1;
-      if (memberId !== callerId) others += 1;
-    }
+  const { sum, count, others } = scoresOf(world, courseId, exam.id, callerId);
+  const told = published
+    ? {
+        averageScore: published.average,
+        resultsPublishedAt: published.at,
+        publishedScoreBucket: published.bucket,
+      }
+    : {
+        averageScore: count > 0 && others >= MIN_OTHER_SCORERS_FOR_AVERAGE ? sum / count : null,
+        ...unpublished,
+      };
+  return { ...copy(stored), myScore: myRaw ? copy(myRaw) : null, scoreCount: count, ...told };
+}
+
+/** Publishes the snapshot of the results, for an admin of the course, of five scores or more; or takes it back. */
+export function memorySetExamResultsPublished(
+  world: World,
+  userId: string,
+  courseId: string,
+  examId: string,
+  publish: boolean,
+): CourseExam {
+  if (memberRole(world, userId, courseId, 'course') !== 'admin') {
+    fail(403, 'access denied to the course');
   }
-  return {
-    ...copy(exam),
-    myScore: myRaw ? copy(myRaw) : null,
-    averageScore: count > 0 && others >= MIN_OTHER_SCORERS_FOR_AVERAGE ? sum / count : null,
-    scoreCount: count,
+  const exam = findExam(world, courseId, examId);
+  if (!publish) {
+    delete exam.published;
+    return buildExamView(world, userId, courseId, exam);
+  }
+  const { sum, count } = scoresOf(world, courseId, examId, userId);
+  if (exam.published) fail(409, 'the results are published');
+  if (count < FEWEST_PUBLISHED) fail(409, 'too few scores to publish');
+  exam.published = {
+    at: Date.now(),
+    average: Math.round((sum / count) * 10) / 10,
+    bucket: Math.floor(count / FEWEST_PUBLISHED) * FEWEST_PUBLISHED,
   };
+  return buildExamView(world, userId, courseId, exam);
 }
 
 function findExam(world: World, courseId: string, examId: string): StoredCourseExam {
@@ -266,6 +305,10 @@ export function memoryCourseExams(host: WikiHost, enter: () => Promise<void>): C
     async deleteMyScore(courseId, examId) {
       await enter();
       memoryDeleteMyExamScore(host.world, host.userId, courseId, examId);
+    },
+    async setResultsPublished(courseId, examId, published) {
+      await enter();
+      return memorySetExamResultsPublished(host.world, host.userId, courseId, examId, published);
     },
   };
 }

@@ -1,19 +1,18 @@
 <!--
   Exams tab of a course: exam list ordered by `examDate ASC NULLS LAST`,
-  aggregate course average and submission count across active members, editor
-  CRUD dialog, and strictly personal score editor (`ExamMyScorePanel`).
+  what is told of everybody's scores (`ExamResults`: the published snapshot
+  and how many scored), editor CRUD dialog, and strictly personal score editor
+  (`ExamMyScorePanel`).
 
   Privacy invariant: no other member's individual score UI ever exists here,
   and this tab is never mounted on public share links (`/shared/...`).
 -->
 <script lang="ts">
-  import BarChart3Icon from '@lucide/svelte/icons/bar-chart-3';
   import CalendarIcon from '@lucide/svelte/icons/calendar';
   import LockIcon from '@lucide/svelte/icons/lock';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
-  import UsersIcon from '@lucide/svelte/icons/users';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -25,6 +24,7 @@
 
   import CourseExamDialog from './CourseExamDialog.svelte';
   import ExamMyScorePanel from './ExamMyScorePanel.svelte';
+  import ExamResults from './ExamResults.svelte';
   import { formatScore } from './course-meeting-labels.ts';
 
   interface Props {
@@ -179,34 +179,7 @@
             </p>
           {/if}
 
-          <div class="flex flex-wrap items-center gap-2">
-            <span
-              class="inline-flex items-center gap-1.5 rounded-md border bg-muted/60 px-2.5 py-1 text-xs font-medium tabular-nums"
-              data-testid="exam-average"
-            >
-              <BarChart3Icon class="size-3.5 text-muted-foreground" aria-hidden="true" />
-              <span class="text-muted-foreground">{m.course_exams_average()}:</span>
-              <span>
-                {#if exam.averageScore !== null}
-                  {m.course_exams_average_value({
-                    average: formatScore(exam.averageScore, locale),
-                    max: maxLabel,
-                  })}
-                {:else if exam.scoreCount > 0}
-                  {m.course_exams_average_hidden()}
-                {:else}
-                  {m.course_exams_average_empty()}
-                {/if}
-              </span>
-            </span>
-            <span
-              class="inline-flex items-center gap-1.5 rounded-md border bg-muted/60 px-2.5 py-1 text-xs font-medium text-muted-foreground tabular-nums"
-              data-testid="exam-score-count"
-            >
-              <UsersIcon class="size-3.5" aria-hidden="true" />
-              {m.course_exams_score_count({ count: exam.scoreCount })}
-            </span>
-          </div>
+          <ExamResults {course} {exam} />
 
           {#if course.canTrackProgress}
             <ExamMyScorePanel {course} {exam} />

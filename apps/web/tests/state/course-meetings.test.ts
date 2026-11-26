@@ -104,6 +104,8 @@ describe('course meetings & exams API client', () => {
       myScore: null,
       averageScore: null,
       scoreCount: 0,
+      resultsPublishedAt: null,
+      publishedScoreBucket: null,
     };
     const request: WikiRequest = <T>(
       path: string,
@@ -357,6 +359,17 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
     expect(adminExams[0]?.scoreCount).toBe(3);
     expect(viewerExams[0]?.averageScore).toBe(90);
     expect(viewerExams[0]?.scoreCount).toBe(3);
+    expect(adminExams[0]?.resultsPublishedAt).toBeNull();
+
+    // A snapshot of the results is published by an admin of the course alone, of five scores or more.
+    const notAdmin = await rejection(
+      made.other.course.exams.setResultsPublished(course.id, midterm.id, true),
+    );
+    expect(notAdmin.status).toBe(403);
+    const tooFew = await rejection(
+      made.backend.course.exams.setResultsPublished(course.id, midterm.id, true),
+    );
+    expect(tooFew.status).toBe(409);
 
     // CourseStore + CourseMeetingsState refreshes aggregates immediately after save/delete.
     const store = new CourseStore(made.workspace, course.id);

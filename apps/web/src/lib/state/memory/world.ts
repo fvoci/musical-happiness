@@ -43,6 +43,8 @@ export interface StoredCourseExam {
   description: string;
   createdAt: number;
   updatedAt: number;
+  /** The snapshot of the results a manager published: when, its rounded mean, and how many had scored, counted down to fives. */
+  published?: { at: number; average: number; bucket: number };
 }
 
 /** A view, card, comment or attachment as the world stores it. */

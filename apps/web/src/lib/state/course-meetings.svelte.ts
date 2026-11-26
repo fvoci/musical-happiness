@@ -321,6 +321,36 @@ export class CourseMeetingsState {
     }
   }
 
+  /**
+   * Publishes the snapshot of an exam's results, or takes it back: for who
+   * manages the course. Refused (409: too few scores, or too few new ones since
+   * the last), it says so (`refused`), and the exam stays as it was; any other
+   * failure is reported as a write's.
+   */
+  async setResultsPublished(
+    examId: string,
+    published: boolean,
+  ): Promise<'done' | 'refused' | 'failed'> {
+    if (!this.#host.canEdit() || this.busy) return 'failed';
+    this.busy = true;
+    try {
+      const updated = await this.#host
+        .courses()
+        .exams.setResultsPublished(this.#host.courseId, examId, published, this.workspaceId);
+      if (this.#host.isClosed()) return 'failed';
+      this.#examsVersion += 1;
+      this.#examsReads += 1;
+      this.exams = this.exams.map((item) => (item.id === examId ? updated : item));
+      return 'done';
+    } catch (error) {
+      if (isBackendError(error) && error.status === 409) return 'refused';
+      if (!this.#host.isClosed()) this.#host.workspace.report('save', error);
+      return 'failed';
+    } finally {
+      this.busy = false;
+    }
+  }
+
   async deleteExam(examId: string): Promise<boolean> {
     if (!this.#host.canEdit() || this.busy) return false;
     this.busy = true;

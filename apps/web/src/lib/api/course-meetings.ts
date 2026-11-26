@@ -70,6 +70,8 @@ export function courseExamOf(exam: Schemas['CourseExam']): CourseExam {
     myScore: exam.myScore ? myExamScoreOf(exam.myScore) : null,
     averageScore: exam.averageScore ?? null,
     scoreCount: exam.scoreCount,
+    resultsPublishedAt: exam.resultsPublishedAt ?? null,
+    publishedScoreBucket: exam.publishedScoreBucket ?? null,
   };
 }
 
@@ -273,6 +275,22 @@ export async function deleteMyExamScore(
   );
 }
 
+export async function setExamResultsPublished(
+  request: WikiRequest,
+  workspaceId: string | undefined,
+  courseId: string,
+  examId: string,
+  published: boolean,
+): Promise<CourseExam> {
+  const exam = await request<Schemas['CourseExam']>(
+    '/courses/{courseId}/exams/{examId}/results-publication',
+    { courseId, examId },
+    { method: published ? 'POST' : 'DELETE' },
+    workspaceId,
+  );
+  return courseExamOf(exam);
+}
+
 export function serverCourseMeetings(request: WikiRequest): CourseMeetingsApi {
   return {
     list: (courseId, workspaceId) => listCourseMeetings(request, workspaceId, courseId),
@@ -300,5 +318,7 @@ export function serverCourseExams(request: WikiRequest): CourseExamsApi {
       putMyExamScore(request, workspaceId, courseId, examId, update),
     deleteMyScore: (courseId, examId, workspaceId) =>
       deleteMyExamScore(request, workspaceId, courseId, examId),
+    setResultsPublished: (courseId, examId, published, workspaceId) =>
+      setExamResultsPublished(request, workspaceId, courseId, examId, published),
   };
 }
