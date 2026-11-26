@@ -7,6 +7,8 @@ use super::{Case, files};
 pub(super) async fn exercise(case: &mut Case) {
     let workspace = case.workspace.clone();
     case.present("getWorkspace", &[], &workspace).await;
+    case.run("getAccountToday", &[], json!({})).await;
+    case.run("getWorkspaceToday", &[], json!({})).await;
     let made = case
         .run(
             "createBoard",
@@ -23,7 +25,7 @@ pub(super) async fn exercise(case: &mut Case) {
     categories(case, &board).await;
     let audited = people(case, &board).await;
     subscriptions(case, &card).await;
-    files::exercise(case, &board).await;
+    files::exercise(case, &board, &card).await;
     bulk(case).await;
     templates(case).await;
     case.run("deleteContainer", &[("boardId", &board)], json!({}))
@@ -58,6 +60,19 @@ async fn boards(case: &mut Case, board: &str) {
     let at = &[("boardId", board)];
     case.present("getWorkspaceBoards", &[], board).await;
     case.present("getContainer", at, board).await;
+    case.run("getMyContainerPermissions", at, json!({})).await;
+    let ws = case.workspace.clone();
+    let copied_ws = case
+        .run(
+            "copyContainerToWorkspace",
+            at,
+            json!({"targetWorkspaceId": ws, "title": format!("secret {} ws copy", case.label)}),
+        )
+        .await
+        .value();
+    let ws_copy = case.remember(&copied_ws["container"], "id");
+    case.run("deleteContainer", &[("boardId", &ws_copy)], json!({}))
+        .await;
     case.run(
         "patchContainer",
         at,
@@ -586,7 +601,82 @@ async fn cards(case: &mut Case, board: &str) -> String {
         "deleted card is visible in its trash"
     );
     case.run("restoreBlock", card_at, json!({})).await;
+    board_views_and_card_ops(case, board, &card).await;
+    card_comments(case, board, &card).await;
     card
+}
+
+async fn board_views_and_card_ops(case: &mut Case, board: &str, card: &str) {
+    let at = &[("boardId", board)];
+    let created_view = case
+        .run(
+            "createBoardView",
+            at,
+            json!({"title": format!("secret {} view", case.label), "viewType": "board"}),
+        )
+        .await
+        .value();
+    let view = case.remember(&created_view["view"], "id");
+    let of_view = &[("boardId", board), ("viewId", view.as_str())];
+    let dup_view = case
+        .run(
+            "duplicateBoardView",
+            of_view,
+            json!({"title": format!("secret {} view copy", case.label)}),
+        )
+        .await
+        .value();
+    let dup_view_id = case.remember(&dup_view["view"], "id");
+    case.run(
+        "moveBoardView",
+        &[("boardId", board), ("viewId", dup_view_id.as_str())],
+        json!({"after": ""}),
+    )
+    .await;
+    case.run("moveViewCards", of_view, json!({"cardIds": [card]}))
+        .await;
+    let dup_card = case
+        .run(
+            "duplicateCard",
+            &[("boardId", board), ("cardId", card)],
+            json!({}),
+        )
+        .await
+        .value();
+    let dup_card_id = case.remember(&dup_card, "id");
+    case.run("batchDeleteCards", at, json!({"cardIds": [dup_card_id]}))
+        .await;
+    case.run("batchRestoreCards", at, json!({"cardIds": [dup_card_id]}))
+        .await;
+    case.run("batchDeleteCards", at, json!({"cardIds": [dup_card_id]}))
+        .await;
+}
+
+async fn card_comments(case: &mut Case, board: &str, card: &str) {
+    let of_card = &[("boardId", board), ("cardId", card)];
+    let said = |text: String| {
+        json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": text}]}]})
+    };
+    let body = said(format!("secret {} card comment", case.label));
+    let made = case
+        .run("createCardComment", of_card, json!({ "body": body }))
+        .await
+        .value();
+    let comment = case.remember(&made, "id");
+    case.present("getCardComments", of_card, &comment).await;
+    let of_comment = &[
+        ("boardId", board),
+        ("cardId", card),
+        ("commentId", comment.as_str()),
+    ];
+    let change =
+        json!({"body": said("changed card comment".to_owned()), "readAt": made["updatedAt"]});
+    case.run("patchCardComment", of_comment, change).await;
+    case.run("getCardCommentVersions", of_comment, json!({}))
+        .await;
+    case.run("deleteCardComment", of_comment, json!({})).await;
+    case.run("restoreCardComment", of_comment, json!({})).await;
 }
 
 async fn categories(case: &mut Case, board: &str) {
@@ -603,8 +693,20 @@ async fn categories(case: &mut Case, board: &str) {
     let category = case.remember(&created, "id");
     let at = &[("categoryId", category.as_str())];
     case.run("updateCategory", at, json!({"id": category, "name": "Renamed category", "userId": case.user, "workspaceId": case.workspace})).await;
+    case.run(
+        "patchCategory",
+        at,
+        json!({"name": "Patched category", "collapsed": false}),
+    )
+    .await;
     let board_at = &[("categoryId", category.as_str()), ("boardId", board)];
     case.run("setContainerCategory", board_at, json!({})).await;
+    case.run(
+        "putCategoryContainer",
+        &[("categoryId", category.as_str()), ("containerId", board)],
+        json!({"hidden": false}),
+    )
+    .await;
     case.run("hideContainer", board_at, json!({})).await;
     case.run("unhideContainer", board_at, json!({})).await;
     case.run("reorderCategoryContainers", at, json!([board]))

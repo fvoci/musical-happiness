@@ -1,17 +1,41 @@
 //! Query-target hiding, invited-guest read boundaries, and removed pre-workspace paths.
 
+use std::io::{Cursor, Read as _};
+
 use fvoci_model::{
     Container, ContainerMember, ContainerVisibility, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::DbType;
 use reqwest::StatusCode;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::super::common::{
     Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, ROOT_WS, Setup, UNKNOWN_ID,
 };
 use super::super::{answer, db_type_of_the_tests};
 use super::{REACHED_BY_ITEM, WORKSPACE_ROUTES, fill_with_nothing};
+
+pub(in super::super) fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("an export is a ZIP");
+    let mut entries = Vec::new();
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index).expect("an entry");
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).expect("the entry contents");
+        if entry.name().expect("an entry name") == "version.json" {
+            let mut header: Value = serde_json::from_slice(&bytes).expect("the archive header");
+            assert!(header["date"].is_number(), "an export timestamp is present");
+            header["date"] = json!(0);
+            bytes = serde_json::to_vec(&header).expect("the normalized header");
+        }
+        entries.push((
+            entry.name().expect("a UTF-8 entry name").into_owned(),
+            bytes,
+        ));
+    }
+    entries.sort();
+    entries
+}
 
 pub(super) async fn compare_query_targets(client: &Client, own: &Container, hidden: &Container) {
     for (path, absent) in [
@@ -270,7 +294,7 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     }
     ts.teardown().await;
     assert_eq!(
-        count, 58,
+        count, 74,
         "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));

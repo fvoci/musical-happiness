@@ -4,7 +4,6 @@
 mod extra;
 
 use std::collections::BTreeSet;
-use std::io::{Cursor, Read as _};
 
 use fvoci_model::{
     Block, BlockType, CategoryContainers, Container, ContainerMember, ContainerVisibility,
@@ -591,6 +590,89 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "putUnitSchedule",
     ),
     ("GET", "/learning/today", "getWorkspaceLearningToday"),
+    ("GET", "/today", "getWorkspaceToday"),
+    (
+        "GET",
+        "/containers/{containerId}/my-permissions",
+        "getMyContainerPermissions",
+    ),
+    (
+        "POST",
+        "/containers/{containerId}/copy-to-workspace",
+        "copyContainerToWorkspace",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/duplicate",
+        "duplicateCard",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/batch-delete",
+        "batchDeleteCards",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/batch-restore",
+        "batchRestoreCards",
+    ),
+    ("POST", "/boards/{boardId}/views", "createBoardView"),
+    (
+        "POST",
+        "/boards/{boardId}/views/{viewId}/move",
+        "moveBoardView",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/views/{viewId}/duplicate",
+        "duplicateBoardView",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/views/{viewId}/card-moves",
+        "moveViewCards",
+    ),
+    (
+        "GET",
+        "/boards/{boardId}/cards/{cardId}/comments",
+        "getCardComments",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/comments",
+        "createCardComment",
+    ),
+    (
+        "PATCH",
+        "/boards/{boardId}/cards/{cardId}/comments/{commentId}",
+        "patchCardComment",
+    ),
+    (
+        "DELETE",
+        "/boards/{boardId}/cards/{cardId}/comments/{commentId}",
+        "deleteCardComment",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/comments/{commentId}/restore",
+        "restoreCardComment",
+    ),
+    (
+        "GET",
+        "/boards/{boardId}/cards/{cardId}/comments/{commentId}/versions",
+        "getCardCommentVersions",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/attachments",
+        "createCardAttachment",
+    ),
+    ("PATCH", "/categories/{categoryId}", "patchCategory"),
+    (
+        "PUT",
+        "/categories/{categoryId}/containers/{containerId}",
+        "putCategoryContainer",
+    ),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -731,6 +813,22 @@ const REACHED_BY_ITEM: &[&str] = &[
     "completeUpload",
     "putUploadPart",
     "getWorkspaceUser",
+    "getMyContainerPermissions",
+    "copyContainerToWorkspace",
+    "duplicateCard",
+    "batchDeleteCards",
+    "batchRestoreCards",
+    "createBoardView",
+    "moveBoardView",
+    "duplicateBoardView",
+    "moveViewCards",
+    "getCardComments",
+    "createCardComment",
+    "patchCardComment",
+    "deleteCardComment",
+    "restoreCardComment",
+    "getCardCommentVersions",
+    "createCardAttachment",
 ];
 
 #[test]
@@ -769,27 +867,7 @@ pub(super) fn fill_with_nothing(suffix: &str) -> String {
     filled
 }
 
-pub(super) fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("an export is a ZIP");
-    let mut entries = Vec::new();
-    for index in 0..zip.len() {
-        let mut entry = zip.by_index(index).expect("an entry");
-        let mut bytes = Vec::new();
-        entry.read_to_end(&mut bytes).expect("the entry contents");
-        if entry.name().expect("an entry name") == "version.json" {
-            let mut header: Value = serde_json::from_slice(&bytes).expect("the archive header");
-            assert!(header["date"].is_number(), "an export timestamp is present");
-            header["date"] = json!(0);
-            bytes = serde_json::to_vec(&header).expect("the normalized header");
-        }
-        entries.push((
-            entry.name().expect("a UTF-8 entry name").into_owned(),
-            bytes,
-        ));
-    }
-    entries.sort();
-    entries
-}
+pub(super) use extra::archive_entries;
 
 /// Who asks: somebody who is no member of the hidden workspace, a guest of it, or
 /// somebody who is no member of it and only a guest where they work, the root
@@ -1397,6 +1475,7 @@ impl Items<'_> {
             .replace("{workspaceId}", workspace)
             .replace("{containerId}", &pick(&self.board.id, UNKNOWN_ID))
             .replace("{boardId}", &pick(&self.board.id, UNKNOWN_ID))
+            .replace("{viewId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{cardId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{blockId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{wikiId}", &pick(&self.page.container_id, UNKNOWN_ID))
@@ -1483,6 +1562,12 @@ pub(super) async fn compare_resource_routes(
                 }
                 "reorderCardProperties" | "createBlocks" => json!([]),
                 "createCard" => json!({"title": "new card"}),
+                "createBoardView" => json!({"title": "new view", "viewType": "board"}),
+                "batchDeleteCards" | "batchRestoreCards" | "moveViewCards" => {
+                    json!({"cardIds": [block(absent)]})
+                }
+                "createCardAttachment" => json!({"fileId": "missing-file"}),
+                "copyContainerToWorkspace" => json!({"targetWorkspaceId": workspace}),
                 "createUnit" => json!({"title": "new unit"}),
                 "moveUnit" => json!({"parentId": ""}),
                 "createCourseMeeting" => {

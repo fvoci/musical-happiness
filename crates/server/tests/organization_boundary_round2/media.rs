@@ -42,10 +42,11 @@ async fn upload(app: &App, user: &str, board: &str, bytes: &[u8]) -> Upload {
     upload
 }
 
-async fn attachment(app: &App, user: &str, board: &str, name: &str) {
+async fn attachment(app: &App, user: &str, board: &str, card: &str, name: &str) {
     let mut block = Block {
         id: new_id(),
         container_id: board.to_owned(),
+        parent_id: card.to_owned(),
         block_type: BlockType::Attachment,
         fields: json!({"fileId": name}).as_object().expect("fields").clone(),
         ..Block::default()
@@ -197,8 +198,8 @@ impl Scene {
             .complete_upload(&ub)
             .await
             .expect("B's untouched parts are completed");
-        attachment(&ts.app, user, &a.id, &name_a).await;
-        attachment(b_app, user, &b.id, &name_b).await;
+        attachment(&ts.app, user, &a.id, &self.card_a.id, &name_a).await;
+        attachment(b_app, user, &b.id, &self.card_b.id, &name_b).await;
         (name_a, name_b)
     }
     /// The key of each organization's file begins with that organization and its board,
