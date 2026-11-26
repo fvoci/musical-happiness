@@ -686,7 +686,7 @@ pub(crate) async fn sign_in_under_way(store: &Store, name: &str) {
             .await
             .expect("asked")
             .expect("another provider is stored, and the one before kept")
-            .0
+            .provider
     };
     store
         .put_oidc_pending_provider(

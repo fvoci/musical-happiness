@@ -430,7 +430,8 @@ export class ServerBlocks {
   }
 
   async createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {
-    const request: Schemas['NewCardAttachment'] = { fileId: file.fileId };
+    // The name it is shown under, which an edit kept apart has of its own.
+    const request: Schemas['NewCardAttachment'] = { fileId: file.fileId, title: file.name };
     const made = await this.#inWorkspace<Schemas['Block']>(
       '/boards/{boardId}/cards/{cardId}/attachments',
       { boardId, cardId },

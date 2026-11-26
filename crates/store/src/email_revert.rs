@@ -11,6 +11,17 @@ use crate::{Store, StoreError, oidc_identities, password_reset, sessions, signup
 /// for, in milliseconds: as long as a change of address waits to be confirmed.
 pub const EMAIL_REVERT_LIFETIME_MILLIS: i64 = EMAIL_CHANGE_LIFETIME_MILLIS;
 
+/// What a link back to an address came to: the account it gave the address back to, and
+/// the account's sessions, which ended.
+#[must_use = "close the connections of the sessions it ended with Hub::close"]
+#[derive(Debug, PartialEq, Eq)]
+pub struct EmailRevert {
+    /// The account and its address.
+    pub reverted: EmailReverted,
+    /// Its sessions, all of which ended.
+    pub ended: sessions::SessionsEnded,
+}
+
 /// An account a link gave its address back to, for what follows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmailReverted {
@@ -47,7 +58,7 @@ impl Store {
         &self,
         digest: &str,
         now: i64,
-    ) -> Result<Option<(EmailReverted, sessions::SessionsEnded)>, StoreError> {
+    ) -> Result<Option<EmailRevert>, StoreError> {
         let known = self
             .with_conn(async |scope| Ok(find(scope, digest, now).await?.is_some()))
             .await?;
@@ -86,8 +97,8 @@ impl Store {
             password_reset::end_links_of_user(scope, &link.user_id).await?;
             users::lock_password(scope, &link.user_id, now).await?;
             let ended = sessions::delete_sessions_of_user(scope, &link.user_id).await?;
-            Ok(Some((
-                EmailReverted {
+            Ok(Some(EmailRevert {
+                reverted: EmailReverted {
                     user_id: link.user_id,
                     username,
                     before,
@@ -95,7 +106,7 @@ impl Store {
                     unlinked_identities,
                 },
                 ended,
-            )))
+            }))
         })
         .await
     }

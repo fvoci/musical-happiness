@@ -347,7 +347,7 @@ async fn reset_user_password_deletes_the_sessions_of_that_user_only() {
         open(store, &session_of(user), digest).await;
     }
 
-    let (reset, _) = store
+    let fvoci_store::PasswordSet { user_id: reset, .. } = store
         .reset_user_password("alice", "new-hash")
         .await
         .expect("the password is set");

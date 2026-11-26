@@ -17,6 +17,7 @@ import {
   ADMIN,
   boardPath,
   invitation,
+  madeABoard,
   makeBoard,
   person,
   register,
@@ -103,10 +104,7 @@ test('the organization’s administrator makes a workspace, joins it, switches t
   await expect(sidebar(page).getByTestId('workspace-switcher')).toContainText(name);
   await picture(page, 'switcher');
 
-  const made = page.waitForResponse(
-    (answer) =>
-      /\/api\/v1\/w\/[^/]+\/containers-and-blocks$/.test(answer.url()) && answer.status() === 201,
-  );
+  const made = page.waitForResponse(madeABoard);
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await made;

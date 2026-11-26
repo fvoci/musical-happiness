@@ -44,7 +44,7 @@ async fn shared_views_hide_people_after_their_property_is_deleted() {
                     "visibleGroups": [person, ""],
                     "hiddenGroups": [person],
                     "collapsedGroups": [person],
-                    "groupCalculations": {(person.clone()): {"calculation": "count"}},
+                    "groupCalculations": {(person.clone()): {"calculation": "count", "propertyId": "owner"}},
                 },
             }]),
         )

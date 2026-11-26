@@ -30,7 +30,7 @@ test('a card without a date is given one from "No date" with the keys alone, and
 }, info) => {
   await openCalendar(page, info);
   const button = page.getByTestId('calendar-undated');
-  await expect(button).toHaveAccessibleName('No date: 5');
+  await expect(button).toHaveAccessibleName('No date: 8');
   await button.focus();
   await page.keyboard.press('Enter');
   const list = page.getByTestId('undated-list');
@@ -57,12 +57,12 @@ test('a card without a date is given one from "No date" with the keys alone, and
   await expect
     .poll(() => dueOf(page, 'Describe cards with properties'))
     .toEqual({ from: '2026-11-17' });
-  await expect(button).toHaveAccessibleName('No date: 4');
+  await expect(button).toHaveAccessibleName('No date: 7');
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 17, 2 cards/);
 
   await page.keyboard.press(await primaryKey(page, 'z'));
   await expect.poll(() => dueOf(page, 'Describe cards with properties')).toBeNull();
-  await expect(button).toHaveAccessibleName('No date: 5');
+  await expect(button).toHaveAccessibleName('No date: 8');
   // "Filter, sort and group" stays: the 12th to the 24th.
   await expect(dayButton(page, '2026-11-17')).toHaveAccessibleName(/November 17, 1 card$/);
 });

@@ -262,14 +262,14 @@ impl App {
         address: Option<IpAddr>,
     ) -> Result<Option<String>, AppError> {
         let _attempt = self.admit_registration(address)?;
-        let (reverted, ended) = self
+        let fvoci_store::EmailRevert { reverted, ended } = self
             .store()
             .revert_email_change(&token_digest(token), now_millis())
             .await?
             .ok_or_else(|| {
                 AppError::bad_request("the link is invalid or expired").with_field("token")
             })?;
-        self.ws().close(ended);
+        self.ws().close(ended.into_scope());
         tracing::info!(
             user_id = %reverted.user_id,
             restored = reverted.restored.is_some(),

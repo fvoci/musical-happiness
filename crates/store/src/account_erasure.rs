@@ -35,7 +35,7 @@ use crate::audit::{self, AuditActor, AuditEntry};
 use crate::containers::{delete_member, find_member, save_member};
 use crate::db::{DeletedContainersHeld, Dialect, Id, LockRank, OrganizationHeld, Param, Scope};
 use crate::error::StoreError;
-use crate::sessions::{self, SessionsEnded};
+use crate::sessions::{self, EndedSessionScope, SessionsEnded};
 use crate::trash::{self, Purged, TrashedRoles};
 use crate::{
     Store, email_revert, link_locks, members, org_admin, password_reset, users,
@@ -76,17 +76,28 @@ pub struct HandedOver {
     pub heir_id: String,
 }
 
+/// What went with an organization that went with the account of its only person: its
+/// boards, blocks and files, and the sessions made through its provider.
+#[must_use = "close the connections of the sessions it ended with Hub::close"]
+#[derive(Debug, PartialEq, Eq)]
+pub struct RemovedOrganization {
+    /// Its boards and blocks, and their files.
+    pub purged: Purged,
+    /// The sessions made through its provider, which went with it.
+    pub ended: SessionsEnded,
+}
+
 /// What an account's leaving an organization came to: as it is erased, or of its own
 /// accord ([`Store::leave_organization`]), which removes nothing and keeps nothing for a
 /// newcomer.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct LeftFrom {
     /// The workspaces the account left, in use or in the trash.
     pub left: Vec<String>,
     /// The boards that passed to somebody else, for the account was their only admin.
     pub handed_over: Vec<HandedOver>,
     /// What went with the organization, if it went: `None` for one that stays.
-    pub removed: Option<Purged>,
+    pub removed: Option<RemovedOrganization>,
     /// Whether the organization was to go and stays, in use again, because somebody
     /// came into it after it was put out of use: it has no administrator then, and
     /// neither the provider's settings nor the links it had (they went when it was put
@@ -181,6 +192,8 @@ impl Store {
                 }
                 let mut standing =
                     account_deletion::standing(scope, user_id, Held::Yes(held_instance)).await?;
+                // Whoever is on their way into an organization that is to go is in it
+                // before it is asked once more who is.
                 let (alone_in, joined) = {
                     let mut alone_in = Vec::new();
                     let mut joined = Vec::new();
@@ -204,6 +217,7 @@ impl Store {
                 let Some(ended) = mark(scope, user_id, now, erasing).await? else {
                     return Ok(ErasureStart::Waits);
                 };
+                // The account's own space goes with it whoever is in it.
                 for organization in standing.alone_in.iter().chain(&standing.own_space) {
                     put_out_of_use(scope, &organization.id, now).await?;
                 }
@@ -313,11 +327,16 @@ impl Store {
                     erased.removed = Some(remove_organization(scope, held_org).await?);
                     return Ok(erased);
                 }
+                // Somebody came in between the question and the mark: the
+                // organization is theirs to keep.
                 put_back_in_use(scope).await?;
                 erased.kept_for_newcomer = true;
             }
             leave_every_workspace(scope, user_id, actor, &mut erased).await?;
             leave_organization(scope, held_org, user_id).await?;
+            // Who made the organization is nobody's to know once the account is gone: an
+            // erased account makes none, and is counted none. One that leaves of its own
+            // accord is counted still.
             let mut sql =
                 scope.sql("UPDATE organizations SET created_by = NULL WHERE created_by = ");
             sql.bind(Id(user_id)).push_bind(" AND id = ", Id(&org_id));
@@ -436,7 +455,9 @@ const PERSONAL_DELETES: [&str; 19] = [
 ];
 
 /// Marks the account as being erased from `now`, puts it out of use if it was in use,
-/// and ends its sessions and credentials.
+/// and ends its sessions and credentials. Returns the sessions it ended, or `None`
+/// where it marked nothing: an account that is no more to be erased, its asking taken
+/// back since it was read, which the statement waits for and sees.
 async fn mark(
     scope: &mut Scope<'_>,
     user_id: &str,
@@ -674,7 +695,8 @@ struct LeftWorkspace {
 }
 
 /// Takes the places the user filed the boards of a workspace under out of what its
-/// boards in the trash would come back with (`deleted_containers.places`).
+/// boards in the trash would come back with (`deleted_containers.places`): the places
+/// are theirs alone, and go with them. The caller holds the boards in the trash.
 async fn forget_places_in_the_trash<'c>(
     scope: &mut Scope<'c>,
     _held: DeletedContainersHeld<'c>,
@@ -728,7 +750,11 @@ async fn heir_in(
 /// Removes what the user still has in the scope's organization once they are out of
 /// its workspaces: a role left on a board of a workspace they had left before, what
 /// they follow there, the membership of the organization, and the links they made
-/// that nobody used.
+/// that nobody used. A link another was made like stays, and so do those made like it
+/// that were used and the registrations made by them, which the schema would take
+/// along: such a link lets nobody in, for its maker is no member of the organization.
+/// The caller holds the organization's row, as whoever holds several of its links does
+/// (`link_locks`).
 pub(crate) async fn leave_organization<'c>(
     scope: &mut Scope<'c>,
     _held: OrganizationHeld<'c>,
@@ -743,6 +769,7 @@ pub(crate) async fn leave_organization<'c>(
         .bind(scope.org()?)
         .push(")");
     scope.execute(sql).await?;
+    // Also what they followed without a role: a page of a wiki open to its workspace.
     let mut sql = scope.sql("DELETE FROM subscriptions WHERE user_id = ");
     sql.bind(Id(user_id))
         .push(
@@ -756,6 +783,9 @@ pub(crate) async fn leave_organization<'c>(
     trash::forget_watcher_of_organization(scope, user_id).await?;
     crate::unit_progress::forget_user_in_organization(scope, user_id).await?;
     crate::course_exams::forget_user_in_organization(scope, user_id).await?;
+    // Serialize with concurrent `start_time_entry` / `create_time_entry` / personal review
+    // and note writes (which hold `users`) so an in-flight write cannot insert an orphan
+    // after we clear rows.
     crate::users::hold_user_for_cleanup(scope, user_id).await?;
     crate::unit_reviews::forget_user_in_organization(scope, user_id).await?;
     let mut due_sql = scope.sql("DELETE FROM card_due_notices WHERE user_id = ");
@@ -771,6 +801,8 @@ pub(crate) async fn leave_organization<'c>(
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
     scope.execute(sql).await?;
+    // Twice: the links made like another for the recipients of its mail first, and then
+    // the link they were made like, once none is left of them.
     for _ in 0..2 {
         let mut sql = scope.sql("DELETE FROM invitations WHERE uses = 0 AND created_by = ");
         sql.bind(Id(user_id))
@@ -785,11 +817,16 @@ pub(crate) async fn leave_organization<'c>(
 const UNLIKE_ANY: &str = " AND NOT EXISTS (SELECT 1 FROM invitations AS made_like \
                           WHERE made_like.parent_id = invitations.id)";
 
-/// Removes the scope's organization and everything in it.
+/// Removes the scope's organization and everything in it: each of its workspaces as a
+/// workspace goes for good (`org_admin::remove_workspace`), the sessions made through
+/// its provider, which it names, and with its row what hangs from it (its members, its
+/// links, its provider settings and its audit log: the schema lets a record go once
+/// its organization is not there). What the search server and the file storage are
+/// still to be told (`search_outbox`, `loose_objects`) stays until they were.
 async fn remove_organization<'c>(
     scope: &mut Scope<'c>,
     held_org: OrganizationHeld<'c>,
-) -> Result<Purged, StoreError> {
+) -> Result<RemovedOrganization, StoreError> {
     let mut sql = scope.sql("UPDATE organizations SET default_workspace_id = NULL WHERE id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
@@ -814,13 +851,28 @@ async fn remove_organization<'c>(
     let mut sql = scope.sql("DELETE FROM time_entries WHERE org_id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
+    let mut sql = scope.sql("SELECT id FROM sessions WHERE login_org_id = ");
+    sql.bind(scope.org()?);
+    let sessions: Vec<String> = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.id(0))
+        .collect::<Result<_, _>>()?;
     let mut sql = scope.sql("DELETE FROM sessions WHERE login_org_id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
     let mut sql = scope.sql("DELETE FROM organizations WHERE id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
-    Ok(removed)
+    Ok(RemovedOrganization {
+        purged: removed,
+        ended: if sessions.is_empty() {
+            SessionsEnded::none()
+        } else {
+            SessionsEnded::new(EndedSessionScope::Sessions(sessions))
+        },
+    })
 }
 
 /// Whether the account still has a place in an organization, whichever.
@@ -857,7 +909,8 @@ async fn addresses_of(scope: &mut Scope<'_>, user_id: &str) -> Result<Vec<String
 }
 
 /// Holds the row of each organization that has a link mailed to one of the addresses,
-/// in the order of their identifiers.
+/// in the order of their identifiers: the caller holds the turn, and holds the links
+/// after this.
 async fn hold_organizations_of_links_to(
     scope: &mut Scope<'_>,
     _turn: link_locks::Turn,

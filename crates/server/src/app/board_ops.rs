@@ -2,12 +2,13 @@
 //! batch card delete/restore, fractional-indexed board views, verified card attachments,
 //! and blank board scaffolding.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockType, BoardLocale, BoardViewDuplicate, BoardViewMove, BoardViewWrite, Card,
-    CardMovesRequest, CardMovesResult, Container, ContainerKind, JsonMap, NewBoardView,
-    NewCardAttachment, RestoredCards, ViewType, default_blank_board_scaffolding,
+    BlankBoardScaffolding, Block, BlockType, BoardLocale, BoardViewDuplicate, BoardViewMove,
+    BoardViewWrite, Card, CardMovesRequest, CardMovesResult, Container, ContainerKind,
+    ContainersAndBlocks, JsonMap, NewBoardView, NewCardAttachment, PAGE_ORDER_FIELD, RestoredCards,
+    ViewType, default_blank_board_scaffolding, new_id, place_view_at,
 };
 use fvoci_store::DuplicateAs;
 use serde_json::{Value, json};
@@ -105,16 +106,17 @@ impl App {
             .first()
             .ok_or_else(|| AppError::not_found("card"))?
             .clone();
-        let card = self.card_of_block(&root).await?;
-
+        // The copy is stored: its members and the webhooks are told before the answer is
+        // read back, which may still fail.
         let app = self.clone();
         let ws_id = container.workspace_id;
         self.spawn_background(async move {
             for block in &stored {
                 app.ws().broadcast_block_change(&ws_id, block).await;
+                app.tell_webhooks(block);
             }
         });
-        Ok(card)
+        self.card_of_block(&root).await
     }
 
     /// Atomically moves `1..=200` cards in `view_id` of `board_id`, acquiring the
@@ -351,7 +353,7 @@ impl App {
         let attachment = {
             let _structure = self.collab().changing_structure(self, board_id).await;
             self.store_telling(notification)
-                .create_card_attachment(board_id, card_id, &request.file_id, user_id)
+                .create_card_attachment(board_id, card_id, request, user_id)
                 .await?
         };
         log_notification(notification, ChangeAction::Add, &attachment.id);
@@ -371,19 +373,20 @@ impl App {
 pub enum BoardScaffolding {
     /// Leave properties and views empty.
     None,
-    /// Seed localized `status`/`assignee`/`due` properties plus Kanban and Table views.
+    /// Seed localized `status`/`assignee`/`due` properties and a first kanban view.
     Default,
 }
 
 impl App {
     /// Creates a new board container, optionally seeding default `status`/`assignee`/`due`
-    /// properties, `done_when`, `due_date_property_id`, and an initial Kanban view via
-    /// [`App::create_board_view`].
+    /// properties, `done_when`, `due_date_property_id`, and a first kanban view, the board
+    /// and the view in one transaction. A template, or a board that names its properties,
+    /// is made as it is.
     ///
     /// # Errors
     ///
     /// Returns the errors of [`App::create_container_with_admin`] or
-    /// [`App::create_board_view`].
+    /// [`App::create_containers_and_blocks_with_admin`].
     pub async fn create_board_maybe_scaffolded(
         &self,
         mut container: Container,
@@ -403,40 +406,30 @@ impl App {
         } else {
             BoardLocale::English
         };
-        let (props, done_when, due_id) = default_blank_board_scaffolding(locale);
-        let visible_groups: Vec<String> =
-            props[0].options.iter().map(|opt| opt.id.clone()).collect();
-        let assignee_id = props[1].id.clone();
-        let status_id = done_when.property_id.clone();
+        let scaffold = default_blank_board_scaffolding(locale);
         if container.due_date_property_id.is_none() {
-            container.due_date_property_id = Some(due_id.clone());
+            container.due_date_property_id = Some(scaffold.due.id.clone());
         }
         if container.done_when.is_none() {
-            container.done_when = Some(done_when);
+            container.done_when = Some(scaffold.done_when.clone());
         }
-        container.card_properties = props;
-
-        let created = self.create_container_with_admin(container, user_id).await?;
-        let mut fields = JsonMap::new();
-        fields.insert("groupBy".to_owned(), Value::String(status_id));
-        fields.insert("visibleGroups".to_owned(), json!(visible_groups));
-        fields.insert("hiddenGroups".to_owned(), json!([""]));
-        fields.insert("shownProperties".to_owned(), json!([assignee_id, due_id]));
-        let initial_view = NewBoardView {
-            title: if locale == BoardLocale::Korean {
-                "보드"
-            } else {
-                "Board"
-            }
-            .to_owned(),
-            view_type: ViewType::Board,
-            after: None,
-            fields: Some(fields),
-        };
-        let _ = self
-            .create_board_view(&created.id, &initial_view, user_id)
+        container.card_properties = scaffold.properties();
+        container.id = new_id();
+        let view = first_view_of_scaffold(&container.id, &scaffold, locale);
+        // The board and its first view are one transaction: no board is left without it.
+        let made = self
+            .create_containers_and_blocks_with_admin(
+                ContainersAndBlocks {
+                    containers: vec![container],
+                    blocks: vec![view],
+                },
+                user_id,
+            )
             .await?;
-        Ok(created)
+        made.containers
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::internal("the scaffolded board was not made"))
     }
 
     fn broadcast_view_write(&self, workspace_id: String, write: &BoardViewWrite) {
@@ -456,11 +449,79 @@ impl App {
     }
 }
 
+/// The first view of a scaffolded board `board_id`: a kanban grouped by its status, of
+/// the cards that have one, showing who each is given to and when it is due. Its title
+/// is the one the web app gives the first view of a board it makes.
+fn first_view_of_scaffold(
+    board_id: &str,
+    scaffold: &BlankBoardScaffolding,
+    locale: BoardLocale,
+) -> Block {
+    let visible_groups: Vec<&str> = scaffold
+        .status
+        .options
+        .iter()
+        .map(|option| option.id.as_str())
+        .collect();
+    let (order, _) = place_view_at(&[], 0);
+    let mut fields = JsonMap::new();
+    fields.insert(
+        "viewType".to_owned(),
+        Value::String(ViewType::Board.as_str().to_owned()),
+    );
+    fields.insert(
+        "groupBy".to_owned(),
+        Value::String(scaffold.status.id.clone()),
+    );
+    fields.insert("visibleGroups".to_owned(), json!(visible_groups));
+    fields.insert("hiddenGroups".to_owned(), json!([""]));
+    fields.insert(
+        "shownProperties".to_owned(),
+        json!([scaffold.assignee.id, scaffold.due.id]),
+    );
+    fields.insert(PAGE_ORDER_FIELD.to_owned(), Value::String(order));
+    Block {
+        id: new_id(),
+        container_id: board_id.to_owned(),
+        block_type: BlockType::View,
+        title: match locale {
+            BoardLocale::Korean => "보드 뷰",
+            BoardLocale::English => "Board view",
+        }
+        .to_owned(),
+        fields,
+        ..Block::default()
+    }
+}
+
+/// Gives copied `blocks` the files their copies were written to (`file_map`, from the
+/// stored name of the original to that of the copy). An attachment whose file was not
+/// copied goes, and out of the `contentOrder` of the block that lists it: a copy never
+/// names a file of the card it was made from, nor an empty one.
+///
+/// # Errors
+///
+/// Returns a bad request if a body grows past its size limit.
 pub(super) fn remap_copied_block_files(
-    blocks: &mut [Block],
+    blocks: &mut Vec<Block>,
     file_map: &HashMap<String, String>,
 ) -> Result<(), AppError> {
+    let mut dropped = HashSet::new();
+    blocks.retain(|block| {
+        let unmapped = block
+            .attachment_file()
+            .is_some_and(|file| !file_map.contains_key(file));
+        if unmapped {
+            dropped.insert(block.id.clone());
+        }
+        !unmapped
+    });
     for block in blocks.iter_mut() {
+        if !dropped.is_empty()
+            && let Some(Value::Array(order)) = block.fields.get_mut("contentOrder")
+        {
+            order.retain(|item| item.as_str().is_none_or(|id| !dropped.contains(id)));
+        }
         if block
             .body
             .as_ref()
@@ -475,8 +536,11 @@ pub(super) fn remap_copied_block_files(
                     .map_err(|error| AppError::from_body_error("body", error))?;
             }
         }
-        if let Some(old_file_id) = block.attachment_file() {
-            let new_name = file_map.get(old_file_id).cloned().unwrap_or_default();
+        if let Some(new_name) = block
+            .attachment_file()
+            .and_then(|old| file_map.get(old))
+            .cloned()
+        {
             block
                 .fields
                 .insert("fileId".to_owned(), Value::String(new_name));

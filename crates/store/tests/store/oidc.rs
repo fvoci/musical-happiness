@@ -198,7 +198,10 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         sso_required: false,
         revision: 0,
     };
-    let (none_read, _) = test
+    let fvoci_store::ProviderPut {
+        provider: none_read,
+        ..
+    } = test
         .put_oidc_provider_as_read(&provider("first", ""), None, &new_id(), Duration::ZERO)
         .await
         .expect("stored")

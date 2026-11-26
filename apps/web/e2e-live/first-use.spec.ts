@@ -16,6 +16,7 @@ import { boardLink, sidebar } from '../e2e/shell.support.ts';
 
 import {
   ADMIN,
+  madeABoard,
   ORG_NAME,
   person,
   placeOf,
@@ -134,9 +135,7 @@ test('somebody starts an organization, and a second person comes in by its link 
   await look(koreanPage, 'the sign-in page of a server with its organization, in Korean');
 
   // The first board, made in the organization's space: open to it from the start.
-  const made = page.waitForResponse(
-    (answer) => answer.url().endsWith('/containers-and-blocks') && answer.status() === 201,
-  );
+  const made = page.waitForResponse(madeABoard);
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await made;
@@ -149,7 +148,8 @@ test('somebody starts an organization, and a second person comes in by its link 
   await expect(share.getByTestId('share-open')).toBeChecked();
   await look(page, 'the first board, shared with the workspace');
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'New card in No Status' }).click();
+  // Its first view is grouped by its "Status", without the column of cards that have none.
+  await page.getByRole('button', { name: 'New card in To do' }).click();
   await page.getByTestId('card-title').fill('Book the venue');
   await page.goBack();
   await expect(page.getByText('Book the venue')).toBeVisible();

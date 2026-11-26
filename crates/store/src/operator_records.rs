@@ -9,7 +9,7 @@ use fvoci_model::{AuditAction, OrgKind};
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
-use crate::sessions::SessionsEnded;
+use crate::sessions::PasswordSet;
 use crate::{Store, directory, password_reset, users};
 
 impl Store {
@@ -28,17 +28,17 @@ impl Store {
         &self,
         username: &str,
         password_hash: &str,
-    ) -> Result<(String, SessionsEnded), StoreError> {
+    ) -> Result<PasswordSet, StoreError> {
         self.system()
             .transaction(async |scope| {
-                let (user_id, ended) =
-                    users::reset_password(scope, username, password_hash).await?;
-                if let Some(space) = directory::space_of(scope, &user_id).await? {
+                let set = users::reset_password(scope, username, password_hash).await?;
+                let user_id = &set.user_id;
+                if let Some(space) = directory::space_of(scope, user_id).await? {
                     scope.invalidate_visibility_of(&space)?;
                 }
-                record_in_organizations_of(scope, &user_id, AuditAction::PasswordSetByOperator)
+                record_in_organizations_of(scope, user_id, AuditAction::PasswordSetByOperator)
                     .await?;
-                Ok((user_id, ended))
+                Ok(set)
             })
             .await
     }

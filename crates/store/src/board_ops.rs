@@ -6,9 +6,9 @@ use std::collections::{BTreeSet, HashSet};
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, BoardViewDuplicate, BoardViewMove, BoardViewWrite,
     CardMovesRequest, ContainerKind, FileRecord, JsonMap, MAX_CARD_BATCH, NewBoardView,
-    PAGE_ORDER_FIELD, PropertyChanges, RefusalReason, Refusals, RelationProperties,
-    UnmatchedRelation, drop_malformed_view_fields, is_id, new_id, place_view_at, renew_block_ids,
-    sort_board_views,
+    NewCardAttachment, PAGE_ORDER_FIELD, PropertyChanges, RefusalReason, Refusals,
+    RelationProperties, UnmatchedRelation, drop_malformed_view_fields, is_id, new_id,
+    place_view_at, renew_block_ids, sort_board_views,
 };
 use serde_json::Value;
 
@@ -458,20 +458,22 @@ impl Store {
     }
 
     /// Creates a verified `BlockType::Attachment` on live card `card_id` of `board_id`
-    /// by locking and verifying that `file_id` (matched by `files.id` or `files.name`)
-    /// belongs to `board_id`, setting trusted filename and byte size from `files`.
+    /// by locking and verifying that `request.file_id` (matched by `files.id` or
+    /// `files.name`) belongs to `board_id`, setting the byte size from `files`, and the
+    /// title from the request or, failing a name there, from `files`.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if `board_id` or `card_id` is not a live card on
-    /// `board_id`, and [`StoreError::Refused`] if `file_id` does not belong to `board_id`.
+    /// `board_id`, and [`StoreError::Refused`] if the file does not belong to `board_id`.
     pub async fn create_card_attachment(
         &self,
         board_id: &str,
         card_id: &str,
-        file_id: &str,
+        request: &NewCardAttachment,
         user_id: &str,
     ) -> Result<Block, StoreError> {
+        let file_id = request.file_id.as_str();
         if file_id.trim().is_empty() {
             let mut refused = Refusals::new();
             refused.refuse("fileId", RefusalReason::Required, "fileId is required");
@@ -492,7 +494,11 @@ impl Store {
                 parent_id: card.id,
                 container_id: board_id.to_owned(),
                 block_type: BlockType::Attachment,
-                title: file.name,
+                title: request
+                    .title
+                    .clone()
+                    .filter(|title| !title.trim().is_empty())
+                    .unwrap_or(file.name),
                 fields,
                 ..Block::default()
             };

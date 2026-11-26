@@ -8712,6 +8712,11 @@ export interface components {
         NewCardAttachment: {
             /** @description Uploaded file identifier belonging to the same board (`files.id`). */
             fileId: string;
+            /**
+             * @description The name the attachment is shown under, such as that of an edit kept as a file of
+             *     its own beside the one it was made from; the file's name when left out or blank.
+             */
+            title: string | null;
         };
         /** @description A comment to write on a card. */
         NewCardComment: {

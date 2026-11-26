@@ -11,7 +11,7 @@ use fvoci_model::{LoginOrigin, Session};
 use crate::Store;
 use crate::db::{Dialect, Id, LockRank, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
-use crate::oidc::Identity;
+use crate::oidc::{Identity, StoredProvider};
 
 /// The columns a session is stored with, in the order it is stored in.
 const STORED_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id, \
@@ -22,7 +22,72 @@ const STORED_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at,
 /// statement sets it ([`Store::confirm_session_password`]).
 const CONFIRMED_COLUMN: &str = "password_confirmed_at";
 
-pub use fvoci_model::{EndedSessionScope, SessionsEnded};
+pub use fvoci_model::EndedSessionScope;
+
+/// The witness of the sessions an operation of the store ended, returned by every
+/// operation that ends any, so that its caller closes the connections made with them
+/// (`Hub::close`). Only the store makes one.
+#[must_use = "close the connections of the sessions it ended with Hub::close"]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SessionsEnded(Option<Box<EndedSessionScope>>);
+
+/// The account whose password was set anew, and its sessions that ended with the old
+/// password.
+#[must_use = "close the connections of the sessions it ended with Hub::close"]
+#[derive(Debug, PartialEq, Eq)]
+pub struct PasswordSet {
+    /// The account.
+    pub user_id: String,
+    /// Its sessions, all of which ended.
+    pub ended: SessionsEnded,
+}
+
+/// A provider as it was stored in place of the one before, and the sessions that ended
+/// with the one before: those made through it, when the issuer changed.
+#[must_use = "close the connections of the sessions it ended with Hub::close"]
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProviderPut {
+    /// The provider as stored.
+    pub provider: StoredProvider,
+    /// The sessions that ended with the provider before.
+    pub ended: SessionsEnded,
+}
+
+impl SessionsEnded {
+    /// The witness of the sessions of `scope`.
+    pub(crate) fn new(scope: EndedSessionScope) -> Self {
+        match scope {
+            EndedSessionScope::None => Self(None),
+            other => Self(Some(Box::new(other))),
+        }
+    }
+
+    /// The witness that no session ended.
+    pub(crate) const fn none() -> Self {
+        Self(None)
+    }
+
+    /// The sessions that ended.
+    #[must_use]
+    pub fn scope(&self) -> &EndedSessionScope {
+        self.0.as_deref().unwrap_or(&EndedSessionScope::None)
+    }
+
+    /// The sessions that ended, for closing their connections.
+    #[must_use]
+    pub fn into_scope(self) -> EndedSessionScope {
+        self.0.map_or(EndedSessionScope::None, |boxed| *boxed)
+    }
+
+    /// The identifiers of the sessions that ended, when they are named one by one.
+    #[must_use]
+    pub fn session_ids(&self) -> &[String] {
+        match self.scope() {
+            EndedSessionScope::Sessions(ids) => ids,
+            _ => &[],
+        }
+    }
+}
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of

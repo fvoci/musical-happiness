@@ -121,7 +121,12 @@ JOIN containers AS c ON c.id = b.container_id AND c.org_id = b.org_id
 CROSS JOIN LATERAL jsonb_array_elements(
     CASE WHEN jsonb_typeof(c.card_properties) = 'array' THEN c.card_properties ELSE '[]'::jsonb END
 ) AS prop(val)
-CROSS JOIN LATERAL json_array_elements(b.fields -> 'properties' -> (prop.val ->> 'id')) AS item(val)
+-- The argument holds no value of another kind: what filters it below is not sure to be
+-- asked first.
+CROSS JOIN LATERAL json_array_elements(
+    CASE WHEN json_typeof(b.fields -> 'properties' -> (prop.val ->> 'id')) = 'array'
+        THEN b.fields -> 'properties' -> (prop.val ->> 'id') ELSE '[]'::json END
+) AS item(val)
 JOIN users AS u ON u.id::text = (item.val #>> '{}')
 WHERE b.type = 'card'
   AND b.fields::text !~ '\\u0000'
@@ -153,7 +158,7 @@ WITH board_due_prop AS (
             LIMIT 1
         ) AS prop_id
     FROM containers AS c
-    WHERE c.kind = 'board'
+    WHERE c.kind = 'board' AND c.is_template = FALSE
 ),
 card_due_raw AS (
     SELECT
@@ -172,25 +177,30 @@ card_due_raw AS (
       AND COALESCE(b.fields ->> 'isTemplate', 'false') <> 'true'
       AND json_typeof(b.fields -> 'properties') = 'object'
       AND json_typeof(b.fields -> 'properties' -> dp.prop_id) = 'object'
+),
+-- A day as it is written, or a time in milliseconds of at most 15 digits, which a bigint
+-- holds: CASE asks the pattern before the cast. Of a time, only one in the years 1 to
+-- 9999 is taken, as the server takes it.
+card_due AS (
+    SELECT
+        r.block_id,
+        r.org_id,
+        CASE WHEN json_typeof(r.target) = 'string' AND (r.target #>> '{}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            THEN r.target #>> '{}' END AS day,
+        CASE WHEN json_typeof(r.target) = 'number' AND (r.target::text) ~ '^-?[0-9]{1,15}$'
+            THEN (r.target::text)::bigint END AS millis
+    FROM card_due_raw AS r
 )
 UPDATE blocks AS b
-SET due_at = CASE
-        WHEN json_typeof(r.target) = 'string' AND (r.target #>> '{}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-            THEN r.target #>> '{}'
-        WHEN json_typeof(r.target) = 'number' AND (r.target::text) ~ '^-?[0-9]+$'
-            THEN to_char(to_timestamp(((r.target::text)::bigint) / 1000.0) AT TIME ZONE 'UTC', 'YYYY-MM-DD')
-    END,
-    due_millis = CASE
-        WHEN json_typeof(r.target) = 'number' AND (r.target::text) ~ '^-?[0-9]+$'
-            THEN (r.target::text)::bigint
-    END
-FROM card_due_raw AS r
-WHERE b.id = r.block_id
-  AND b.org_id = r.org_id
-  AND (
-      (json_typeof(r.target) = 'string' AND (r.target #>> '{}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-      OR (json_typeof(r.target) = 'number' AND (r.target::text) ~ '^-?[0-9]+$')
-  );
+SET due_at = COALESCE(
+        d.day,
+        to_char(to_timestamp(d.millis / 1000.0) AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+    ),
+    due_millis = d.millis
+FROM card_due AS d
+WHERE b.id = d.block_id
+  AND b.org_id = d.org_id
+  AND (d.day IS NOT NULL OR d.millis BETWEEN -62135596800000 AND 253402300799999);
 
 -- Widen `audit_log` actions (`container_copied_out`, `copy_out_disabled`, `copy_out_enabled`).
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_action_check;

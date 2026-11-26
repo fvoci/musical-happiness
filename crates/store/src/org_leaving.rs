@@ -23,7 +23,7 @@ use crate::error::StoreError;
 use crate::{directory, org_admin, users};
 
 /// What became of an account's asking to leave the handle's organization.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Departure {
     /// It is out of the organization: what it left there.
     Left(LeftFrom),
@@ -51,7 +51,7 @@ pub enum DepartureRefused {
 }
 
 /// What became of an administrator's taking a member out of the handle's organization.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MemberRemoval {
     /// The member is out of the organization: what they left there.
     Removed(LeftFrom),
@@ -137,6 +137,8 @@ impl Store {
     /// [`StoreError::Database`] if a statement fails; nothing is changed then.
     pub async fn leave_organization(&self, user_id: &str) -> Result<Departure, StoreError> {
         self.transaction(async |scope| {
+            // The instance's row first, as a change of who administers the instance
+            // takes it, then the organization's, as a change of its roles does.
             let held_instance = users::lock_instance(scope).await?;
             let held_org = org_admin::hold_organization_row(scope).await?;
             if !is_shared_and_in_use(scope).await? {
@@ -152,6 +154,10 @@ impl Store {
             if let Some(refused) = standing_refusal(scope, user_id, role, standing).await? {
                 return Ok(Departure::Refused(refused.into()));
             }
+            // The administrators of the server's own organization are the server's for
+            // now (`members::follow_instance_role`): who leaves it, as who is made its
+            // member, does not run the server, or they would make anybody its
+            // administrator again from outside it.
             if standing == InstanceStanding::InstanceOrg
                 && !users::follow_org_role(scope, held_instance, user_id, OrgRole::Member).await?
             {

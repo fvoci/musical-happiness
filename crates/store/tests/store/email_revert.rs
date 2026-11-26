@@ -85,7 +85,7 @@ async fn revert(store: &Store, back: &str, now: i64) -> Option<EmailReverted> {
         .revert_email_change(back, now)
         .await
         .expect("used")
-        .map(|(reverted, _)| reverted)
+        .map(|revert| revert.reverted)
 }
 
 /// A confirmed change leaves one link back to the address before, under its digest.
@@ -654,12 +654,12 @@ async fn a_same_millisecond_carried_over_identity_after_a_change_is_removed_on_r
     let old_issuer = "https://old-idp.example.test";
     let new_issuer = "https://new-idp.example.test";
     let actor = new_id();
-    let (old, _) = store
+    let fvoci_store::ProviderPut { provider: old, .. } = store
         .put_oidc_provider_as_read(&oidc_provider(old_issuer), None, &actor, Duration::ZERO)
         .await
         .expect("asked")
         .expect("stored");
-    let (new, _) = store
+    let fvoci_store::ProviderPut { provider: new, .. } = store
         .put_oidc_provider_as_read(
             &oidc_provider(new_issuer),
             Some(&old),
@@ -841,7 +841,7 @@ async fn a_locked_password_proves_nothing_until_a_new_one_is_set() {
     moved(store, &bo.id, "bo@new.example.test", "bo's back", T0).await;
     revert(store, "bo's back", T0 + 1).await.expect("used");
     assert!(user(store, &bo.id).await.password_is_locked());
-    let (_, _) = store
+    let _ = store
         .reset_user_password(&bo.username, "the operator's")
         .await
         .expect("set");

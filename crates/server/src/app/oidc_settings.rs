@@ -87,7 +87,10 @@ impl App {
         // Decided from the provider as it was read; the store takes the change only if
         // that is still the provider, so no other change slips between the two.
         sso::check_change(session, existing.as_ref(), &next)?;
-        let (stored, ended) = self
+        let fvoci_store::ProviderPut {
+            provider: stored,
+            ended,
+        } = self
             .store()
             .put_oidc_provider_as_read(
                 &next,
@@ -102,7 +105,7 @@ impl App {
                 AppError::conflict("the provider was changed meanwhile; read it and try again")
             })?;
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
-        self.ws().close(ended);
+        self.ws().close(ended.into_scope());
         sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
         if stored.sso_required {
             if !existing
@@ -129,7 +132,7 @@ impl App {
     pub async fn delete_oidc_provider(&self, actor_id: &str) -> Result<(), AppError> {
         match self.store().delete_oidc_provider(actor_id).await? {
             Removal::Removed { ended, .. } => {
-                self.ws().close(ended);
+                self.ws().close(ended.into_scope());
                 tracing::info!("the provider of an organization was removed");
             }
             Removal::NoneThere => {}

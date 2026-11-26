@@ -301,7 +301,7 @@ impl App {
             .delete_session(session_id)
             .await
             .map_err(|error| AppError::from(error).context("unable to delete the session"))?;
-        self.ws().close(ended);
+        self.ws().close(ended.into_scope());
         Ok(())
     }
 
@@ -392,9 +392,8 @@ impl App {
             .map(super::language::Language::tag)
             .or(accept_language);
         let Some(name) = request.organization() else {
-            drop(attempt);
             return self
-                .sign_up_alone(request, preferred_language, address)
+                .sign_up_alone(request, preferred_language, attempt)
                 .await;
         };
         let mut user = self.new_account(&request.account(), None).await?;
@@ -443,14 +442,15 @@ impl App {
 
     /// Makes the account of somebody who signs up without naming an organization: the
     /// account and its own space. Not on a server that takes one organization, where
-    /// who is not its first user gets in by an invitation.
+    /// who is not its first user gets in by an invitation. `attempt` is the turn
+    /// [`App::sign_up_with_language`] was given: one registration is counted once
+    /// against where it comes from, and the turn is held until the user is stored.
     async fn sign_up_alone(
         &self,
         request: &RegisterRequest,
         preferred_language: Option<&str>,
-        address: Option<IpAddr>,
+        attempt: crate::auth::limiter::Attempt,
     ) -> Result<User, AppError> {
-        let attempt = self.admit_registration(address)?;
         self.require_organization_of_first(request).await?;
         if !self.config().takes_several_organizations() {
             return Err(AppError::invitation_required());
@@ -560,11 +560,11 @@ impl App {
         username: &str,
         password: &str,
     ) -> Result<(), AppError> {
-        let (_, ended) = self
+        let set = self
             .store()
             .reset_user_password(username, &self.hash(password).await?)
             .await?;
-        self.ws().close(ended);
+        self.ws().close(set.ended.into_scope());
         Ok(())
     }
 
@@ -619,7 +619,7 @@ impl App {
                 "the password was changed in the meantime; sign in again",
             ));
         };
-        self.ws().close(ended);
+        self.ws().close(ended.into_scope());
         self.ws().session_goes_on_under(&session.id, &token);
         Ok(token)
     }
@@ -670,7 +670,7 @@ impl App {
             return Err(has_one());
         };
         tracing::info!(user_id = %user.id, "an account without a password was given one");
-        self.ws().close(ended);
+        self.ws().close(ended.into_scope());
         self.ws().session_goes_on_under(&session.id, &token);
         self.shut_own_space_to(session).await;
         Ok(token)

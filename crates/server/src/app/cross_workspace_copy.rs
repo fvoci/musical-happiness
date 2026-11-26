@@ -8,21 +8,17 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockType, Body, CardPropertyDefinition, Container, ContainerKind,
-    ContainerKinds, ContainerMember, ContainerVisibility, ContainersAndBlocks,
-    CopiedContainerResult, CopyContainerToWorkspaceRequest, CourseScheduleUpdate, OrgKind,
-    PageNode, PageTree, PropertyType, Renewed, Session, TEMPLATE_SCHEDULE_PROPERTY,
-    ValidatedCourseSchedule, WorkspaceMember, WorkspaceRole, add_days,
-    clear_values_of_another_kind, date_property_ids, is_id, move_dates,
+    Block, BlockError, BlockType, Container, ContainerKind, ContainerKinds, ContainerMember,
+    ContainerVisibility, ContainersAndBlocks, CopiedContainerResult,
+    CopyContainerToWorkspaceRequest, CourseScheduleUpdate, OrgKind, PageNode, PageTree, Renewed,
+    Session, TEMPLATE_SCHEDULE_PROPERTY, ValidatedCourseSchedule, WorkspaceRole, add_days, is_id,
     renew_containers_and_blocks_ids_told,
 };
 use fvoci_store::{CopyChanges, StreamBatch, StreamCreateError};
-use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::accept_language::Reader;
 use super::container_copies::{counted_as, titles_in};
-use super::language::Language;
 use super::loose_objects::WrittenPlace;
 use super::pages::refused_without_member;
 use super::templates::{TEMPLATE_MARKS, changes_of_copy};
@@ -30,6 +26,10 @@ use super::{App, MAX_REFERENCE_IDS};
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 use crate::metrics::{ContainerWork, CourseSource};
+
+mod sanitize;
+
+use sanitize::{build_member_name_map, sanitize_copied_blocks};
 
 const COPY_STREAM_BATCH: usize = 64;
 
@@ -81,34 +81,27 @@ impl App {
                 &session.user_id,
             )
             .await?;
-        let result = self
-            .stage_and_commit_workspace_copy(
-                &auth.source_app,
-                &auth.target_app,
-                &auth.target_org_id,
-                &auth.target_ws_id,
-                &session.user_id,
-                request.title.as_deref(),
-                accept_language,
-                snapshot,
-            )
-            .await?;
-        if auth.source_org_id != auth.target_org_id
-            && auth.source_kind == OrgKind::Shared
-            && let Err(error) = auth
-                .source_org_app
+        // A copy out of a shared organization is recorded before it is made, in the
+        // organization it leaves: what cannot be recorded is not copied out, and a copy
+        // that fails afterwards stays recorded. An entry too many is the safer error, for
+        // the entry may be all that organization keeps of what left it.
+        if auth.source_org_id != auth.target_org_id && auth.source_kind == OrgKind::Shared {
+            auth.source_org_app
                 .store()
                 .record_container_copied_out(&session.user_id, container_id, &auth.target_org_id)
-                .await
-        {
-            tracing::error!(
-                container_id,
-                target_org_id = %auth.target_org_id,
-                %error,
-                "failed to record container_copied_out audit entry"
-            );
+                .await?;
         }
-        Ok(result)
+        self.stage_and_commit_workspace_copy(
+            &auth.source_app,
+            &auth.target_app,
+            &auth.target_org_id,
+            &auth.target_ws_id,
+            &session.user_id,
+            request.title.as_deref(),
+            accept_language,
+            snapshot,
+        )
+        .await
     }
 
     async fn authorize_workspace_copy(
@@ -222,14 +215,30 @@ impl App {
                 }
             }
         }
+        // A reference to something outside the copy becomes its title, as the copier is
+        // told it: of a board, wiki or course they are a member of, as only a member
+        // copies out (never of a diary, nor of an open board they only read).
         let ref_app = source_org_app
             .clone()
             .in_workspace(source_ws_id)
-            .reaching(ContainerKinds::EVERY);
+            .reaching(ContainerKinds::SHARED);
+        let mut membership: HashMap<String, bool> = HashMap::new();
         let mut external_titles = HashMap::new();
         for chunk in external_ref_ids.chunks(MAX_REFERENCE_IDS) {
             for linked in ref_app.resolve_references(user_id, chunk).await? {
-                external_titles.insert(linked.id, linked.title);
+                let member = if let Some(member) = membership.get(&linked.container_id) {
+                    *member
+                } else {
+                    let member = ref_app
+                        .container_access(user_id, &linked.container_id)
+                        .await?
+                        .is_some_and(|access| access.has_membership());
+                    membership.insert(linked.container_id.clone(), member);
+                    member
+                };
+                if member {
+                    external_titles.insert(linked.id, linked.title);
+                }
             }
         }
 
@@ -283,6 +292,8 @@ impl App {
         let (mut containers, mut blocks, all_copies, new_container_id) =
             renew_copied_stream(prepared, snapshot.blocks)?;
         let referenced_files = collect_referenced_files(&blocks);
+        // Read before any file is written: nothing written is left to the housekeeping.
+        let present_users = target_present_users(target_app, target_ws_id, user_id).await?;
         let (file_map, staged_files, written_places) = target_app
             .pre_copy_files_to_container(
                 source_app,
@@ -297,7 +308,6 @@ impl App {
             .iter()
             .filter(|fid| !file_map.contains_key(fid.as_str()))
             .count();
-        let present_users = target_present_users(target_app, target_ws_id, user_id).await?;
         if let Err(error) = sanitize_copied_blocks(
             &mut blocks,
             &containers[0],
@@ -428,13 +438,22 @@ async fn finish_workspace_copy(
         .into_iter()
         .next()
         .ok_or_else(|| AppError::internal("missing committed container"))?;
-    target_app
+    // The copy is committed: a sidebar that could not file it is no failure of the copy,
+    // which would be made twice if the caller were told to try again.
+    if let Err(error) = target_app
         .add_containers_to_default_category(
             user_id,
             target_ws_id,
             std::slice::from_ref(&created_container.id),
         )
-        .await?;
+        .await
+    {
+        tracing::error!(
+            %error,
+            container_id = %created_container.id,
+            "the copied container was not filed under the default category"
+        );
+    }
     target_app
         .metrics()
         .container_copied(ContainerWork::Duplicate, counted_as(kind));
@@ -552,323 +571,6 @@ fn collect_referenced_files(blocks: &[Block]) -> Vec<String> {
         }
     }
     files
-}
-
-fn build_member_name_map(members: &[WorkspaceMember]) -> HashMap<String, String> {
-    members
-        .iter()
-        .map(|m| {
-            let label = if m.display_name.trim().is_empty() {
-                m.username.clone()
-            } else {
-                m.display_name.clone()
-            };
-            (m.user_id.clone(), label)
-        })
-        .collect()
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "single pass over copied blocks remaps files, references, mentions, dates, and people"
-)]
-fn sanitize_copied_blocks(
-    blocks: &mut Vec<Block>,
-    container: &Container,
-    file_map: &HashMap<String, String>,
-    all_copies: &HashMap<String, String>,
-    external_titles: &HashMap<String, String>,
-    member_names: &HashMap<String, String>,
-    present_users: &HashSet<String>,
-    days_later: i64,
-    language: Language,
-    user_id: &str,
-    now: i64,
-) -> Result<(), AppError> {
-    let mut dropped_attachment_ids = HashSet::new();
-    blocks.retain_mut(|block| {
-        if block.block_type != BlockType::Attachment {
-            return true;
-        }
-        let Some(old_file) = block.attachment_file().map(str::to_owned) else {
-            dropped_attachment_ids.insert(block.id.clone());
-            return false;
-        };
-        let Some(new_file) = file_map.get(&old_file) else {
-            dropped_attachment_ids.insert(block.id.clone());
-            return false;
-        };
-        block
-            .fields
-            .insert("fileId".to_owned(), Value::String(new_file.clone()));
-        block.fields.remove("attachmentId");
-        true
-    });
-
-    let date_props = date_property_ids(&container.card_properties);
-    let untitled = match language {
-        Language::Korean => "제목 없음",
-        Language::English => "Untitled",
-    };
-
-    for block in blocks.iter_mut() {
-        block.drop_malformed_fields();
-        if !dropped_attachment_ids.is_empty()
-            && let Some(Value::Array(order)) = block.fields.get_mut("contentOrder")
-        {
-            order.retain(|item| {
-                item.as_str()
-                    .is_none_or(|id| !dropped_attachment_ids.contains(id))
-            });
-        }
-        if block.block_type == BlockType::Card {
-            sanitize_card_properties(
-                &mut block.fields,
-                &container.card_properties,
-                &date_props,
-                present_users,
-                days_later,
-            );
-            block.number = None;
-        } else if block.block_type == BlockType::Unit && days_later != 0 {
-            shift_copied_unit_date(&mut block.fields, days_later);
-        } else if block.block_type == BlockType::View {
-            sanitize_view_people(&mut block.fields, &container.card_properties, present_users);
-        }
-
-        if let Some(body) = block.body.take() {
-            block.body = sanitize_copied_body(
-                body,
-                file_map,
-                all_copies,
-                external_titles,
-                member_names,
-                present_users,
-                untitled,
-            )?;
-        }
-        user_id.clone_into(&mut block.created_by);
-        user_id.clone_into(&mut block.modified_by);
-        block.created_at = now;
-        block.updated_at = now;
-        block.deleted_at = None;
-        block.edited_at = 0;
-        block.validate().map_err(AppError::from)?;
-    }
-    Ok(())
-}
-
-fn sanitize_card_properties(
-    fields: &mut fvoci_model::JsonMap,
-    definitions: &[CardPropertyDefinition],
-    date_props: &HashSet<String>,
-    present_users: &HashSet<String>,
-    days_later: i64,
-) {
-    let Some(Value::Object(values)) = fields.get_mut("properties") else {
-        return;
-    };
-    clear_values_of_another_kind(values, definitions);
-    if days_later != 0 && !date_props.is_empty() {
-        move_dates(values, date_props, days_later);
-    }
-    for def in definitions {
-        match def.property_type {
-            PropertyType::CreatedTime
-            | PropertyType::UpdatedTime
-            | PropertyType::CreatedBy
-            | PropertyType::UpdatedBy => {
-                values.remove(&def.id);
-            }
-            PropertyType::Person => {
-                let keep = values
-                    .get(&def.id)
-                    .and_then(Value::as_str)
-                    .is_some_and(|uid| present_users.contains(uid));
-                if !keep {
-                    values.remove(&def.id);
-                }
-            }
-            PropertyType::MultiPerson => {
-                if let Some(Value::Array(items)) = values.get_mut(&def.id) {
-                    items.retain(|v| v.as_str().is_some_and(|uid| present_users.contains(uid)));
-                    if items.is_empty() {
-                        values.remove(&def.id);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn shift_copied_unit_date(fields: &mut fvoci_model::JsonMap, days_later: i64) {
-    if let Some(day) = fields
-        .get(fvoci_model::UNIT_SCHEDULED_DATE_FIELD)
-        .and_then(Value::as_str)
-        .and_then(|d| add_days(d, days_later))
-    {
-        fields.insert(
-            fvoci_model::UNIT_SCHEDULED_DATE_FIELD.to_owned(),
-            Value::String(day),
-        );
-    }
-}
-
-fn sanitize_view_people(
-    fields: &mut fvoci_model::JsonMap,
-    definitions: &[CardPropertyDefinition],
-    present_users: &HashSet<String>,
-) {
-    let person_ids: HashSet<&str> = definitions
-        .iter()
-        .filter(|d| {
-            matches!(
-                d.property_type,
-                PropertyType::Person
-                    | PropertyType::MultiPerson
-                    | PropertyType::CreatedBy
-                    | PropertyType::UpdatedBy
-            )
-        })
-        .map(|d| d.id.as_str())
-        .collect();
-    if person_ids.is_empty() {
-        return;
-    }
-    if let Some(Value::Object(filter)) = fields.get_mut("filter")
-        && let Some(Value::Array(filters)) = filter.get_mut("filters")
-    {
-        for entry in filters.iter_mut().filter_map(Value::as_object_mut) {
-            let is_person = entry
-                .get("propertyId")
-                .and_then(Value::as_str)
-                .is_some_and(|id| person_ids.contains(id));
-            if is_person && let Some(Value::Array(vals)) = entry.get_mut("values") {
-                vals.retain(|v| {
-                    v.as_str()
-                        .is_some_and(|uid| uid == "me" || present_users.contains(uid))
-                });
-            }
-        }
-    }
-}
-
-fn sanitize_copied_body(
-    body: Body,
-    file_map: &HashMap<String, String>,
-    all_copies: &HashMap<String, String>,
-    external_titles: &HashMap<String, String>,
-    member_names: &HashMap<String, String>,
-    present_users: &HashSet<String>,
-    untitled: &str,
-) -> Result<Option<Body>, AppError> {
-    let Some(renamed) = body.with_files_renamed(|old| file_map.get(old).cloned()) else {
-        return Ok(None);
-    };
-    let mut doc = renamed.document().clone();
-    rewrite_body_nodes(
-        &mut doc,
-        all_copies,
-        external_titles,
-        member_names,
-        present_users,
-        untitled,
-    );
-    Body::parse(doc).map_err(|error| AppError::from_body_error("body", error))
-}
-
-fn rewrite_body_nodes(
-    node: &mut Value,
-    all_copies: &HashMap<String, String>,
-    external_titles: &HashMap<String, String>,
-    member_names: &HashMap<String, String>,
-    present_users: &HashSet<String>,
-    untitled: &str,
-) {
-    let kind = node.get("type").and_then(Value::as_str).unwrap_or("");
-    if kind == "reference" {
-        let target_id = node
-            .get("attrs")
-            .and_then(|a| a.get("id"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if let Some(new_id) = all_copies.get(target_id) {
-            if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
-                attrs.insert("id".to_owned(), Value::String(new_id.clone()));
-            }
-        } else {
-            let raw_title = external_titles
-                .get(target_id)
-                .map_or("", String::as_str)
-                .replace('\0', "");
-            let label = if raw_title.trim().is_empty() {
-                untitled
-            } else {
-                raw_title.as_str()
-            };
-            *node = json!({ "type": "text", "text": label });
-        }
-        return;
-    }
-    if kind == "mention" {
-        let uid = node
-            .get("attrs")
-            .and_then(|a| a.get("userId"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if !present_users.contains(uid) {
-            let name = member_names
-                .get(uid)
-                .map_or("user", String::as_str)
-                .replace('\0', "");
-            let clean = if name.trim().is_empty() {
-                "user"
-            } else {
-                name.trim()
-            };
-            *node = json!({ "type": "text", "text": format!("@{clean}") });
-        }
-        return;
-    }
-    if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
-        for child in children.iter_mut() {
-            rewrite_body_nodes(
-                child,
-                all_copies,
-                external_titles,
-                member_names,
-                present_users,
-                untitled,
-            );
-        }
-        coalesce_adjacent_plain_text(children);
-    }
-}
-
-fn coalesce_adjacent_plain_text(children: &mut Vec<Value>) {
-    let mut merged: Vec<Value> = Vec::with_capacity(children.len());
-    for child in children.drain(..) {
-        let plain_text = if child.get("type").and_then(Value::as_str) == Some("text")
-            && child.get("marks").is_none()
-        {
-            child.get("text").and_then(Value::as_str).map(str::to_owned)
-        } else {
-            None
-        };
-        if let Some(next_str) = plain_text
-            && let Some(prev) = merged.last_mut()
-            && prev.get("type").and_then(Value::as_str) == Some("text")
-            && prev.get("marks").is_none()
-            && let Some(obj) = prev.as_object_mut()
-            && let Some(Value::String(existing)) = obj.get_mut("text")
-        {
-            existing.push_str(&next_str);
-            continue;
-        }
-        merged.push(child);
-    }
-    *children = merged;
 }
 
 fn order_parents_before_children(blocks: Vec<Block>, container_id: &str) -> Vec<Block> {

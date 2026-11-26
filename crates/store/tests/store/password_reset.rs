@@ -165,7 +165,7 @@ async fn setting_a_password_any_way_revokes_every_earlier_reset_credential() {
         .await
         .expect("consumed");
     assert_eq!(
-        ended.as_ref().map(|(id, _)| id.as_str()),
+        ended.as_ref().map(|set| set.user_id.as_str()),
         Some(account.id.as_str())
     );
     assert!(

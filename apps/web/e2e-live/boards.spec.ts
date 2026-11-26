@@ -9,6 +9,7 @@ import { ON_A_VIEW } from '../e2e/address.ts';
 import { boardLink, boardMenu, chooseFromMenu, sidebar } from '../e2e/shell.support.ts';
 
 import {
+  madeABoard,
   person,
   placeOf,
   putAwayWelcomeBoard,
@@ -47,10 +48,9 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await page.goto('/');
   await signInOnPage(page, owner);
 
-  // "Add board", an empty one: the board and a kanban grouped by its "Status", made together.
-  const made = page.waitForResponse(
-    (answer) => answer.url().endsWith('/containers-and-blocks') && answer.status() === 201,
-  );
+  // "Add board", an empty one: the board, its "Status", "Assignee" and "Due date", and a
+  // kanban grouped by its "Status", made together by the server.
+  const made = page.waitForResponse(madeABoard);
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await made;

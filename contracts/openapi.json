@@ -4301,10 +4301,18 @@
           "fileId": {
             "description": "Uploaded file identifier belonging to the same board (`files.id`).",
             "type": "string"
+          },
+          "title": {
+            "description": "The name the attachment is shown under, such as that of an edit kept as a file of\nits own beside the one it was made from; the file's name when left out or blank.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
-          "fileId"
+          "fileId",
+          "title"
         ],
         "type": "object"
       },

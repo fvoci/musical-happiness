@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use fvoci_model::{ContainerKinds, TimeZone, add_days, day_at};
-use fvoci_store::Tenant;
+use fvoci_store::{DueSoonCardCandidate, Tenant};
 use tokio::fs;
 
 use super::App;
@@ -254,69 +254,82 @@ impl App {
             .ok_or_else(|| AppError::internal("current timestamp is outside supported years"))?;
         let max_due_at = add_days(&utc_day, 2).unwrap_or(utc_day);
 
-        let mut user_days: HashMap<String, (String, TimeZone)> = HashMap::new();
+        let mut cursor: Option<(String, String, String)> = None;
         let mut sent = 0_u64;
 
         for _ in 0..REVIEW_NOTIFY_MAX_ROUNDS {
+            let after = cursor
+                .as_ref()
+                .map(|(due_at, card, user)| (due_at.as_str(), card.as_str(), user.as_str()));
             let batch = app
                 .store()
-                .due_soon_card_candidates("0001-01-01", &max_due_at, REVIEW_NOTIFY_ROUND)
+                .due_soon_card_candidates(&max_due_at, after, REVIEW_NOTIFY_ROUND)
                 .await?;
-            if batch.is_empty() {
+            let Some(last) = batch.last() else {
                 break;
-            }
+            };
+            // The next round starts after the last one asked of: who is passed over now
+            // (not yet due in their own day, or not reading the board) holds up no one.
+            cursor = Some((
+                last.due_at.clone(),
+                last.card_id.clone(),
+                last.user_id.clone(),
+            ));
             let reached_limit =
                 i64::try_from(batch.len()).unwrap_or(i64::MAX) >= REVIEW_NOTIFY_ROUND;
-            let mut progress = 0_u64;
             for candidate in &batch {
-                let (soon_day, tz) = if let Some(cached) = user_days.get(&candidate.user_id) {
-                    cached.clone()
-                } else {
-                    let today = app.user_today(&candidate.user_id, now).await?;
-                    let soon = add_days(&today, 1).unwrap_or(today);
-                    let settings = app.store().get_user_settings(&candidate.user_id).await?;
-                    let pair = (soon, settings.time_zone);
-                    user_days.insert(candidate.user_id.clone(), pair.clone());
-                    pair
-                };
-                let effective_due = match candidate.due_millis {
-                    Some(ms) => day_at(ms, &tz)
-                        .or_else(|| day_at(ms, &TimeZone::default()))
-                        .unwrap_or_else(|| candidate.due_at.clone()),
-                    None => candidate.due_at.clone(),
-                };
-                if effective_due > soon_day {
-                    continue;
-                }
-                let readable = app
-                    .in_organization(&candidate.org_id)?
-                    .in_workspace(&candidate.workspace_id)
-                    .reaching(ContainerKinds::BOARDS)
-                    .container_access(&candidate.user_id, &candidate.board_id)
-                    .await?
-                    .is_some_and(|access| {
-                        access.grant.reads_on_joining() && !access.container.is_template
-                    });
-                if !readable {
-                    continue;
-                }
-                if app
-                    .store()
-                    .notify_due_soon_card(candidate, now, MOST_NOTIFICATIONS_PER_USER)
-                    .await?
-                {
+                if app.notify_due_soon_card(candidate, now).await? {
                     sent += 1;
-                    progress += 1;
-                    app.ws()
-                        .notifications_changed(&candidate.user_id, &[&candidate.org_id])
-                        .await;
                 }
             }
-            if !reached_limit || progress == 0 {
+            if !reached_limit {
                 break;
             }
         }
         Ok(sent)
+    }
+
+    /// Tells `candidate.user_id` that the card is due soon, if it is due by tomorrow in
+    /// their own day (the zone the candidate carries) and they read its board. Whether
+    /// they were told.
+    async fn notify_due_soon_card(
+        &self,
+        candidate: &DueSoonCardCandidate,
+        now: i64,
+    ) -> Result<bool, AppError> {
+        let tz: TimeZone = candidate.user_time_zone.parse().unwrap_or_default();
+        let today = day_at(now, &tz)
+            .or_else(|| day_at(now, &TimeZone::default()))
+            .ok_or_else(|| AppError::internal("current timestamp is outside supported years"))?;
+        let soon_day = add_days(&today, 1).unwrap_or(today);
+        let effective_due = match candidate.due_millis {
+            Some(ms) => day_at(ms, &tz)
+                .or_else(|| day_at(ms, &TimeZone::default()))
+                .unwrap_or_else(|| candidate.due_at.clone()),
+            None => candidate.due_at.clone(),
+        };
+        if effective_due > soon_day {
+            return Ok(false);
+        }
+        let readable = self
+            .in_organization(&candidate.org_id)?
+            .in_workspace(&candidate.workspace_id)
+            .reaching(ContainerKinds::BOARDS)
+            .container_access(&candidate.user_id, &candidate.board_id)
+            .await?
+            .is_some_and(|access| access.grant.reads_on_joining() && !access.container.is_template);
+        if !readable
+            || !self
+                .store()
+                .notify_due_soon_card(candidate, now, MOST_NOTIFICATIONS_PER_USER)
+                .await?
+        {
+            return Ok(false);
+        }
+        self.ws()
+            .notifications_changed(&candidate.user_id, &[&candidate.org_id])
+            .await;
+        Ok(true)
     }
 
     /// Housekeeping entry point for [`App::notify_due_soon_cards`].

@@ -208,6 +208,8 @@ impl Store {
         actor_id: &str,
     ) -> Result<OrgRoleChange, StoreError> {
         self.transaction(async |scope| {
+            // The instance's row first, as a change of who administers the instance
+            // takes it: the two are one role for now (`members::follow_instance_role`).
             let held_instance = users::lock_instance(scope).await?;
             let the_instances = directory::is_the_instances_organization(scope).await?;
             let (org, _) = held_by_admin(scope, actor_id).await?;
@@ -220,6 +222,11 @@ impl Store {
             if current == OrgRole::Admin && !another_admin(scope, user_id).await? {
                 return Ok(OrgRoleChange::LastAdmin);
             }
+            // The administrators of the instance's own organization are the
+            // instance's for now (`members::follow_instance_role`): who becomes one
+            // administers the instance, and who stops does not, or they would make
+            // themselves, or anybody, its administrator again past this log. Of
+            // another organization, a role is that organization's alone.
             if the_instances && !users::follow_org_role(scope, held_instance, user_id, role).await?
             {
                 return Ok(OrgRoleChange::LastAdmin);
@@ -416,7 +423,11 @@ impl Store {
         deleted_before: i64,
     ) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
+            // The organization's first, as deleting a board takes it before the board's:
+            // with a joining of the workspace that ends meanwhile (`joinings`). Its row
+            // alone: an organization no longer in use still has its trash emptied.
             let held_org = hold_organization_row(scope).await?;
+            // Held against a restoration under way, which then finds nothing to restore.
             scope.record_lock(LockRank::Workspace, workspace_id);
             let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
             sql.bind(Id(workspace_id))
