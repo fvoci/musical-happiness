@@ -67,9 +67,17 @@ export class PageStore implements OpenHierarchyNode {
         create: (body) =>
           this.wiki.writeJoined(() => this.#wikis.createComment(this.#wikiId, this.pageId, body)),
         patch: (commentId, write) =>
-          this.#wikis.patchComment(this.#wikiId, this.pageId, commentId, write),
-        remove: (commentId) => this.#wikis.deleteComment(this.#wikiId, this.pageId, commentId),
-        restore: (commentId) => this.#wikis.restoreComment(this.#wikiId, this.pageId, commentId),
+          this.wiki.writeJoined(() =>
+            this.#wikis.patchComment(this.#wikiId, this.pageId, commentId, write),
+          ),
+        remove: (commentId) =>
+          this.wiki.writeJoined(() =>
+            this.#wikis.deleteComment(this.#wikiId, this.pageId, commentId),
+          ),
+        restore: (commentId) =>
+          this.wiki.writeJoined(() =>
+            this.#wikis.restoreComment(this.#wikiId, this.pageId, commentId),
+          ),
         versions: (commentId) => this.#wikis.commentVersions(this.#wikiId, this.pageId, commentId),
       },
     });
@@ -255,7 +263,7 @@ export class PageStore implements OpenHierarchyNode {
 
   uploadFile(file: File): Promise<string> {
     return this.#bodyUploads.run(file, (options) =>
-      this.wiki.workspace.backend.upload(this.#wikiId, file, options),
+      this.wiki.writeJoined(() => this.wiki.workspace.backend.upload(this.#wikiId, file, options)),
     );
   }
 }

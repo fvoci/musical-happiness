@@ -242,7 +242,14 @@ export {
   type ReferencePlaces,
 } from './reference-titles.svelte.ts';
 export type { LinkedBlock } from './references.ts';
-export { byCreation, byTitle, openToJoinOf, type SidebarCategory } from './order.ts';
+export { noteMembership, readerOf } from './memberships.svelte.ts';
+export {
+  byCreation,
+  byTitle,
+  openToJoinOf,
+  type SidebarCategory,
+  type SidebarReader,
+} from './order.ts';
 export {
   TRANSFER_STAYS,
   UploadKept,

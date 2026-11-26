@@ -33,6 +33,7 @@
   import type { Container } from '$lib/logic/wire.ts';
   import {
     openToJoinOf,
+    readerOf,
     type Category,
     type SidebarCategory,
     type Workspace,
@@ -135,9 +136,9 @@
     workspace.categories.some((category) => category.hiddenContainerIds.includes(containerId));
 
   const titleOf = shownTitle;
-  /** The open ones the reader has neither made nor joined: at the foot, folded. */
+  /** The open ones the reader has neither made nor joined: at the foot, folded. None to a guest. */
   const openToJoin = $derived(
-    openToJoinOf(workspace.categories, workspace.containers, workspace.locale, workspace.me?.id),
+    openToJoinOf(workspace.categories, workspace.containers, workspace.locale, readerOf(workspace)),
   );
   const listedContainer = (id: string): Container | undefined =>
     workspace.containers.find((container) => container.id === id);
@@ -181,8 +182,6 @@
     // The reader's setting decides whether a lifted board buzzes.
     pointer: readerPointer,
   });
-
-  /** Whether the list of hidden boards is open. */
 
   const drag = $derived(sortable.active);
   const lifted = $derived(drag ? listedContainer(drag.itemId) : undefined);
