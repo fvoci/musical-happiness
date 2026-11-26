@@ -198,6 +198,7 @@ describe('a row of a card that was found', () => {
         id: 'row',
         href: '/w/x/boards/b/-/c12',
         container: 'Board',
+        locale: 'en',
         active: false,
         onGo: () => undefined,
         onPoint: () => undefined,

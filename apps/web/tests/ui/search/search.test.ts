@@ -313,6 +313,7 @@ describe('a row of what was found', () => {
         id: 'row',
         href: '/w/x/boards/b/-/c',
         container: 'Board',
+        locale: 'en',
         active: true,
         onGo: () => undefined,
         onPoint: () => undefined,
@@ -330,6 +331,25 @@ describe('a row of what was found', () => {
     ]);
   });
 
+  it('names a diary entry by its day, as the reader reads a day', () => {
+    const { container } = render(SearchHitRow, {
+      props: {
+        hit: { ...hit('e', '2026-11-21'), kind: 'entry', containerKind: 'diary' },
+        id: 'row',
+        href: '/w/x/diaries/d/11-21',
+        container: 'Journal',
+        locale: 'en',
+        active: false,
+        onGo: () => undefined,
+        onPoint: () => undefined,
+      },
+    });
+    expect(container.querySelector('[data-hit-title]')?.textContent).toBe(
+      'Saturday, November 21, 2026',
+    );
+    expect(container.querySelector('[role="option"]')?.textContent).toContain('Diary entry:');
+  });
+
   it('goes on a plain click, and leaves a click for a new tab to the browser', () => {
     const onGo = vi.fn();
     const { container } = render(SearchHitRow, {
@@ -338,6 +358,7 @@ describe('a row of what was found', () => {
         id: 'row',
         href: '/somewhere',
         container: '',
+        locale: 'en',
         active: false,
         onGo,
         onPoint: () => undefined,
