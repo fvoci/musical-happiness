@@ -164,7 +164,11 @@ describe('a move', () => {
     const shown = ['Alpha', 'Beta', 'Board', 'Delta', 'Gamma'];
     expect(titles(board)).toEqual(shown);
     // The word of the first move, late: it would put Delta back at the end.
-    world.tellContainer(board.boardId, { kind: 'blocks', blocks: [afterFirst] });
+    world.tellContainer(board.boardId, {
+      kind: 'blocks',
+      containerId: board.boardId,
+      blocks: [afterFirst],
+    });
     await settle();
     expect(titles(board)).toEqual(shown);
     await second;
@@ -182,6 +186,7 @@ describe('a move', () => {
     const moving = moveView(board, idOf(board, 'Delta'), 1);
     world.tellContainer(board.boardId, {
       kind: 'blocks',
+      containerId: board.boardId,
       // Renamed by somebody else after the move is stored: the newer version.
       blocks: [{ ...gamma, title: 'Gamma renamed', updatedAt: Date.now() + 60_000 }],
     });
