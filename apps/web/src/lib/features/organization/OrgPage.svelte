@@ -3,8 +3,8 @@
   only: the workspaces (`OrgWorkspaces.svelte`), its single sign-on
   (`OrgSso.svelte`, one line until it is set up), the members and their roles,
   its policies (`OrgPolicy.svelte`: its name, and the switches of the public
-  links, of copying out and of personal API tokens under single sign-on), the
-  members' tokens that reach it
+  links, of copying out and, while it takes its single sign-on alone, of
+  personal API tokens), the members' tokens that reach it
   (`OrgApiTokens.svelte`), and what was done to the organization.
   An administrator manages here; what is in a workspace they read by joining
   it. A refused change is told in a line at the top; the lists show what the

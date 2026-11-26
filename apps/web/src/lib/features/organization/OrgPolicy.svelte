@@ -1,9 +1,12 @@
 <!--
   The organization's policies, together: its name, whether its boards may be
-  read by a public link, whether its containers may be copied out of it, and
-  whether personal API tokens open it while it takes its single sign-on alone.
-  Each is sent as it is changed; the switches are drawn anew with what the
-  server has after each change, so one that was refused flips back.
+  read by a public link, whether its containers may be copied out of it, and,
+  only while it takes its single sign-on alone (`admin.ssoRequired`), whether
+  personal API tokens open it then; without that they open it as any session
+  does, and there is nothing to switch. Each is sent as it is changed; the
+  switches are drawn anew with what the server has after each change, so one
+  that was refused flips back. A name being typed stays through the other
+  changes, and through a refusal of it.
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -15,9 +18,11 @@
   let { admin }: { admin: OrgAdmin } = $props();
 
   const uid = $props.id();
+  /** The name the server has: the same after a change of something else, read anew. */
+  const named = $derived(admin.organization?.name ?? '');
   /** What the field holds: the name the server has, until it is typed over. */
-  let name = $derived(admin.organization?.name ?? '');
-  const renamed = $derived(name.trim() !== (admin.organization?.name ?? ''));
+  let name = $derived(named);
+  const renamed = $derived(name.trim() !== named);
 </script>
 
 {#snippet policy(
@@ -58,7 +63,7 @@
         id="{uid}-name"
         bind:value={name}
         maxlength={100}
-        autocomplete="organization"
+        autocomplete="off"
         disabled={admin.busy}
         class="text-base md:text-sm roomy:h-touch"
         data-testid="org-name"
@@ -88,11 +93,13 @@
     'org-allow-copy-out',
     (on) => admin.setAllowCopyOut(on),
   )}
-  {@render policy(
-    m.org_api_tokens_allow(),
-    m.org_api_tokens_allow_hint(),
-    admin.organization?.allowApiTokens ?? false,
-    'org-allow-api-tokens',
-    (on) => admin.setAllowApiTokens(on),
-  )}
+  {#if admin.ssoRequired}
+    {@render policy(
+      m.org_api_tokens_allow(),
+      m.org_api_tokens_allow_hint(),
+      admin.organization?.allowApiTokens ?? false,
+      'org-allow-api-tokens',
+      (on) => admin.setAllowApiTokens(on),
+    )}
+  {/if}
 </section>

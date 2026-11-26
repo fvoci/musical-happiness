@@ -24,6 +24,13 @@ export class OrganizationNames {
       : (this.#organizations.find((one) => one.id === orgId)?.name ?? '');
   }
 
+  /** Takes a name the organization was given here, at once: the list is not read again for it. */
+  renamed(orgId: string, name: string): void {
+    this.#organizations = this.#organizations.map((one) =>
+      one.id === orgId ? { ...one, name } : one,
+    );
+  }
+
   /** Reads the names for the organizations of `workspaces`, unless they were read for those. */
   follow(workspaces: readonly WorkspaceInfo[]): void {
     const key = workspaces

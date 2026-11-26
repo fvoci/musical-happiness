@@ -7,6 +7,7 @@
   import OrgPage from '$lib/features/organization/OrgPage.svelte';
   import type { Workspace, WorkspaceInfo } from '$lib/state/index.ts';
   import { OrgAdmin } from '$lib/state/org-admin.svelte.ts';
+  import { organizationNames } from '$lib/state/organization-names.svelte.ts';
   import type { Organizations } from '$lib/state/organization.ts';
 
   import NotFound from './NotFound.svelte';
@@ -25,8 +26,25 @@
   let { workspace, organizations, orgId, router, openWorkspaces, onSso, onOpenLinked }: Props =
     $props();
 
+  /** The workspace, told what the screen changed; a new name too, for the names the app shows. */
   const orgAdmin = $derived(
-    organizations ? new OrgAdmin(organizations, orgId, workspace) : undefined,
+    organizations
+      ? new OrgAdmin(organizations, orgId, {
+          report: (action, error) => {
+            workspace.report(action, error);
+          },
+          evictWorkspace: (workspaceId) => {
+            workspace.evictWorkspace(workspaceId);
+          },
+          evictOrg: (id) => {
+            workspace.evictOrg(id);
+          },
+          reloadWorkspaces: () => workspace.reloadWorkspaces(),
+          renamedOrganization: (id, name) => {
+            organizationNames(workspace).renamed(id, name);
+          },
+        })
+      : undefined,
   );
 
   $effect(() => {
