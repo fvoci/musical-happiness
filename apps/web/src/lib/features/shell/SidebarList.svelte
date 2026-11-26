@@ -402,6 +402,7 @@
       label={m.shell_open_to_join({ count: openToJoin.length })}
       containers={openToJoin}
       {containerId}
+      unfoldWhenActive
       locale={workspace.locale}
       {containerHref}
       {onOpenContainer}

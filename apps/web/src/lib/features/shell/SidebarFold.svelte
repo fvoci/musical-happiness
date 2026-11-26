@@ -2,8 +2,10 @@
   A folded list at the foot of the sidebar, named with how many it holds: the
   boards hidden from it, or the open ones the reader has neither made nor
   joined. Unfolded, a link to each, with a command at its end where there is
-  one (`tool`). It is unfolded while it holds the container shown, until it is
-  folded by hand.
+  one (`tool`). It is folded until it is unfolded by hand; one that unfolds by
+  itself (`unfoldWhenActive`) is unfolded while it holds the container shown,
+  until it is folded by hand. The hidden boards are not: a board hidden as it
+  is shown leaves the sidebar, as any other does.
 -->
 <script lang="ts">
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -25,6 +27,8 @@
     containerHref: (container: Container) => string;
     onOpenContainer: (container: Container) => void;
     tool?: Snippet<[Container]>;
+    /** Unfolded by itself while it holds the container shown, until it is folded by hand. */
+    unfoldWhenActive?: boolean;
   }
 
   let {
@@ -36,11 +40,14 @@
     containerHref,
     onOpenContainer,
     tool,
+    unfoldWhenActive = false,
   }: Props = $props();
 
   let folded = $state<boolean | undefined>(undefined);
   const open = $derived(
-    folded === undefined ? containers.some((one) => one.id === containerId) : !folded,
+    folded === undefined
+      ? unfoldWhenActive && containers.some((one) => one.id === containerId)
+      : !folded,
   );
 
   function follow(event: MouseEvent, container: Container): void {
