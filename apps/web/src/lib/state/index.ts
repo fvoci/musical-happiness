@@ -114,7 +114,11 @@ export { CourseScheduleState, type ScheduleWriteResult } from './course-schedule
 export { DeviceToday } from './device-today.svelte.ts';
 export { LearningTodayStore } from './learning-today.svelte.ts';
 export { TodayHubStore, type TodayBoard, type TodayDiary } from './today-hub.svelte.ts';
-export { syncDeviceTimeZone } from './time-zone-sync.ts';
+export {
+  chooseTimeZone,
+  followsDeviceTimeZone,
+  syncDeviceTimeZone,
+} from './time-zone-sync.svelte.ts';
 export { UnitStore } from './unit.svelte.ts';
 export type { CommentThreadStore as UnitComments } from './comment-thread.svelte.ts';
 export { createCourse } from './course-parts.ts';

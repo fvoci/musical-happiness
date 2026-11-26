@@ -254,13 +254,15 @@ test('time zone: picked from a list that can be searched; a refused change goes 
   page,
 }) => {
   await openApp(page);
-  // Left to follow the device, the zone is the device's once the space is ready.
+  // Left to follow the device, the server has the device's zone once the space is ready, and
+  // "Automatic" is what is chosen still.
   const device = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   await expect.poll(async () => (await stored(page)).timeZone).toBe(device);
   await openSettings(page);
   const button = setting(page, 'timeZone').getByRole('button');
-  await expect(button).toContainText(device);
-  await expect(button).toHaveAccessibleName(new RegExp(`^Time zone ${device}`));
+  const automatic = `Automatic (${device})`;
+  await expect(button).toContainText(automatic);
+  await expect(button).toHaveAccessibleName(`Time zone ${automatic}`);
 
   await button.click();
   const search = page.getByRole('combobox', { name: 'Search time zones' });
@@ -288,11 +290,17 @@ test('time zone: picked from a list that can be searched; a refused change goes 
   await expect(button).toContainText('Asia/Tokyo');
   expect((await stored(page)).timeZone).toBe('Asia/Tokyo');
 
-  // "Automatic" is the first of the list.
+  // "Automatic" is the first of the list: the server is told the device's zone, and it stays
+  // chosen through a reload.
   await button.click();
   await page.getByRole('option', { name: /^Automatic \(/ }).click();
-  await expect(button).toContainText('Automatic (');
-  await expect.poll(async () => (await stored(page)).timeZone).toBe('auto');
+  await expect(button).toContainText(automatic);
+  await expect.poll(async () => (await stored(page)).timeZone).toBe(device);
+  await page.reload();
+  await expect(page.getByTestId('board-page')).toBeVisible();
+  await openSettings(page);
+  await expect(setting(page, 'timeZone').getByRole('button')).toContainText(automatic);
+  expect((await stored(page)).timeZone).toBe(device);
 });
 
 test('language: the page loads again in the chosen one, and the device remembers', async ({
