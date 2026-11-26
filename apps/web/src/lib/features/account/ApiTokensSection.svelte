@@ -197,11 +197,14 @@
         {copied === 'command' ? m.account_api_tokens_copied() : m.account_api_tokens_copy()}
       </Button>
       <p id="{uid}-raw" class="text-sm font-medium">{m.account_api_tokens_token()}</p>
-      <div class="flex min-w-0 flex-wrap items-center gap-2">
+      <div
+        role="group"
+        aria-labelledby="{uid}-raw"
+        class="flex min-w-0 flex-wrap items-center gap-2"
+      >
         <code
           class="min-w-0 flex-1 overflow-x-auto rounded bg-muted p-2 font-mono text-xs break-all"
           translate="no"
-          aria-labelledby="{uid}-raw"
           data-testid="api-token-raw">{issued.token}</code
         >
         <Button
