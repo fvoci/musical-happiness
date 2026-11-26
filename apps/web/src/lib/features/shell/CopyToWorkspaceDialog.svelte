@@ -8,7 +8,10 @@
   An organization that keeps its containers in (`allowCopyOut` off) lets them
   be copied only into its own workspaces. Where that is known (to an
   administrator who read its settings, or from a copy it refused), the places
-  outside it cannot be chosen, and the dialog says why.
+  outside it cannot be chosen, and the dialog says why, once: after a refusal
+  that one line is what is announced. What a refusal taught lasts while the
+  dialog is open; opened again, it tries again, as the switch may be back on.
+  A workspace the reader is a guest of takes no copy, and is not offered.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -18,8 +21,9 @@
   import type { Container } from '$lib/logic/wire.ts';
   import {
     copyOutPlace,
+    copyPlaces,
+    forgetCopyRefusal,
     isBackendError,
-    isOpen,
     isOwnSpace,
     keepsCopiesIn,
     noteCopyOut,
@@ -44,18 +48,20 @@
   let chosenId = $state('');
   let busy = $state(false);
   let errorMessage = $state<string | undefined>(undefined);
+  /** The last copy was refused as going out of the organization: the line about it is news. */
+  let refused = $state(false);
 
   const source = $derived(
     workspace.workspaces.find((ws) => ws.id === container?.workspaceId) ?? workspace.info,
   );
-  const places = $derived(
-    workspace.workspaces.filter(isOpen).filter((ws) => ws.id !== container?.workspaceId),
-  );
+  const places = $derived(copyPlaces(workspace.workspaces, container?.workspaceId));
   /** The source keeps its containers in, as far as is known: only its own workspaces take a copy. */
   const keptIn = $derived(source !== undefined && keepsCopiesIn(copyOutPlace(source)));
   const outside = (ws: WorkspaceInfo): boolean =>
     source !== undefined && copyOutPlace(ws) !== copyOutPlace(source);
   const allowed = $derived(places.filter((ws) => !keptIn || !outside(ws)));
+  /** The line that says why: where a place cannot be chosen, or after a refusal. */
+  const showsKept = $derived(keptIn && (allowed.length < places.length || refused));
   /**
    * The place chosen, or the first allowed while the one chosen is not (any
    * longer); none while none is allowed, when the list shows the first, which
@@ -77,6 +83,8 @@
       chosenId = '';
       busy = false;
       errorMessage = undefined;
+      refused = false;
+      if (source) forgetCopyRefusal(copyOutPlace(source));
     });
   }
 
@@ -85,6 +93,7 @@
     if (!container || !targetId || busy) return;
     busy = true;
     errorMessage = undefined;
+    refused = false;
     try {
       const out = await workspace.copyContainerToWorkspace(container.id, {
         targetWorkspaceId: targetId,
@@ -94,8 +103,13 @@
       onCopied(out.container);
     } catch (error) {
       if (isBackendError(error) && error.reason === 'copy_out_disabled') {
-        if (source) noteCopyOut(copyOutPlace(source), false);
-        errorMessage = m.shell_copy_to_workspace_disabled();
+        // Said by the line about the organization, once; without a source there is no such line.
+        if (source) {
+          noteCopyOut(copyOutPlace(source), false, 'refused');
+          refused = true;
+        } else {
+          errorMessage = m.shell_copy_to_workspace_disabled();
+        }
       } else if (
         isBackendError(error) &&
         (error.status === 413 || error.reason === 'storage_full')
@@ -136,7 +150,7 @@
             id="{uid}-target"
             data-testid="copy-to-workspace-target"
             class="h-9 w-full min-w-0 truncate rounded-md border border-input-border bg-background px-3 text-base md:text-sm roomy:h-touch"
-            aria-describedby={keptIn ? `${uid}-kept` : undefined}
+            aria-describedby={showsKept ? `${uid}-kept` : undefined}
             bind:value={
               () => targetId || (places[0]?.id ?? ''), (next: string) => (chosenId = next)
             }
@@ -148,10 +162,11 @@
         </div>
       {/if}
 
-      {#if keptIn && allowed.length < places.length}
+      {#if showsKept}
         <p
           id="{uid}-kept"
           class="text-sm text-muted-foreground"
+          role={refused ? 'alert' : undefined}
           data-testid="copy-to-workspace-kept"
         >
           {m.shell_copy_to_workspace_kept()}

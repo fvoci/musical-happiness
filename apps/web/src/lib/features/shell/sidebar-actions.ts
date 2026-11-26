@@ -19,7 +19,7 @@ import Trash2Icon from '@lucide/svelte/icons/trash-2';
 import type { MenuAction } from '$lib/components/menu/actions.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import type { Container } from '$lib/logic/wire.ts';
-import { isOpen, type Category, type Workspace } from '$lib/state/index.ts';
+import { copyPlaces, type Category, type Workspace } from '$lib/state/index.ts';
 
 import { exportAction } from './container-export.ts';
 import { categoryOrderAfterStep, moveToEnd } from './sidebar-logic.ts';
@@ -147,9 +147,7 @@ export function containerActions(
   const unjoined = container.id === menus.containerId && menus.openContainerJoinable === true;
   const saving = unjoined ? [] : [exportAction(workspace, container, moves.length > 0)];
   if (menus.guest) return saving;
-  const hasOtherWorkspace = workspace.workspaces
-    .filter(isOpen)
-    .some((ws) => ws.id !== container.workspaceId);
+  const hasOtherWorkspace = copyPlaces(workspace.workspaces, container.workspaceId).length > 0;
   return [
     ...moves,
     ...saving,
