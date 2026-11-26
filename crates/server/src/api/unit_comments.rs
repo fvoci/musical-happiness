@@ -10,8 +10,8 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::comments::{
-    CommentParentKind, CommenterOf, create_comment_on, created_comment, delete_comment_on,
-    existing_comment_on, find_live_comment_on, get_comment_versions_on, list_comments_on,
+    CommentParentKind, CommenterOf, comments_on, create_comment_on, created_comment,
+    delete_comment_on, existing_comment_on, find_live_comment_on, get_comment_versions_on,
     patch_comment_on, restore_comment_on,
 };
 use super::contract::params::{CourseId, MemberWorkspaceId, UnitCommentId, UnitId};
@@ -112,15 +112,31 @@ async fn handle_get_unit_comments(
     Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {
+    Ok(json_response(
+        &unit_comments(&ws, &course_id, &unit_id).await?,
+    ))
+}
+
+/// The comments on the unit `unit_id` of the course `course_id`, as `getUnitComments`
+/// lists them.
+///
+/// # Errors
+///
+/// As `getUnitComments` answers.
+pub(super) async fn unit_comments(
+    ws: &InWorkspace,
+    course_id: &str,
+    unit_id: &str,
+) -> Result<Vec<Block>, AppError> {
     let unit = content_unit_with_permission(
-        &ws,
-        &course_id,
-        &unit_id,
+        ws,
+        course_id,
+        unit_id,
         ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
-    list_comments_on(&ws, &course_id, &unit.id).await
+    comments_on(ws, course_id, &unit.id).await
 }
 
 /// Write a comment on a unit

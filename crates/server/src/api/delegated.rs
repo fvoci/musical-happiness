@@ -1,5 +1,7 @@
 //! The routes a personal API token is sent to: those that say so by their extractor,
-//! [`Delegated`], and no other.
+//! [`Delegated`], and the MCP server, which takes a token and nothing else
+//! ([`crate::api::mcp::TokenCaller`]) and enters a workspace for each tool as
+//! [`Delegated`] does for a route; no other.
 //!
 //! Every extractor of a workspace takes a session alone ([`Admits::Sessions`]): a token
 //! is refused where a session is looked up (403, reason `token_forbidden_endpoint`).
@@ -20,9 +22,11 @@ use crate::app::App;
 use crate::error::AppError;
 
 /// The operations that take a personal API token, by their `operationId`, with the
-/// scope a token needs for each: those whose handler takes [`Delegated`], as a test of
-/// the sources holds it. The contract says it of each of them.
-pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 72] = [
+/// scope a token needs for each: those whose handler takes [`Delegated`], and the MCP
+/// server (`postMcp`), which a token of either scope is sent to and whose tools each ask
+/// for their own; as a test of the sources holds it. The contract says it of each of
+/// them.
+pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 74] = [
     ("appendCardMarkdown", ApiTokenScope::Write),
     ("completeUpload", ApiTokenScope::Write),
     ("createCard", ApiTokenScope::Write),
@@ -73,6 +77,7 @@ pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 72] = [
     ("getWorkspace", ApiTokenScope::Read),
     ("getWorkspaceBoards", ApiTokenScope::Read),
     ("getWorkspaceLearningToday", ApiTokenScope::Read),
+    ("getWorkspaceOverview", ApiTokenScope::Read),
     ("getWorkspaceToday", ApiTokenScope::Read),
     ("getWorkspaceUser", ApiTokenScope::Read),
     ("getWorkspaceUsers", ApiTokenScope::Read),
@@ -88,6 +93,7 @@ pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 72] = [
     ("patchPageComment", ApiTokenScope::Write),
     ("patchUnit", ApiTokenScope::Write),
     ("patchUnitComment", ApiTokenScope::Write),
+    ("postMcp", ApiTokenScope::Read),
     ("putUnitProgress", ApiTokenScope::Write),
     ("putUploadPart", ApiTokenScope::Write),
     ("resolveReferences", ApiTokenScope::Read),

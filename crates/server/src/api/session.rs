@@ -181,12 +181,7 @@ pub(crate) async fn caller_of(
             .get::<ClientAddress>()
             .and_then(|ClientAddress(address)| *address);
         let caller = app.caller_by_token(token, address).await?;
-        let covered = caller
-            .delegation()
-            .is_some_and(|delegation| delegation.scope.covers(needed));
-        if !covered {
-            return Err(api_token::reads_only());
-        }
+        caller.require_scope(needed)?;
         return Ok(caller);
     }
     session_of(app, headers, extensions).await.map(Caller::from)

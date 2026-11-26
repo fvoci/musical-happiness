@@ -138,7 +138,7 @@ pub(super) const READ_DENIED: &str = "access denied to fetch unit";
 
 /// Returns the unit or chapter of the course for a handler of
 /// `/courses/{courseId}/units/{unitId}`, if the user has the permission on the course.
-async fn unit_with_permission(
+pub(super) async fn unit_with_permission(
     ws: &InWorkspace,
     course_id: &str,
     unit_id: &str,
@@ -183,15 +183,28 @@ async fn handle_get_unit_tree(
     Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
+    Ok(json_response(&unit_tree_read(&ws, &course_id).await?))
+}
+
+/// The chapters and units of the course `course_id` without their bodies, as
+/// `getUnitTree` lists them.
+///
+/// # Errors
+///
+/// As `getUnitTree` answers.
+pub(super) async fn unit_tree_read(
+    ws: &InWorkspace,
+    course_id: &str,
+) -> Result<Vec<UnitNode>, AppError> {
     require_container_permission(
         &ws.app,
         &ws.caller.user_id,
-        &course_id,
+        course_id,
         ContainerPermission::View,
         "access denied to fetch units",
     )
     .await?;
-    Ok(json_response(&ws.app.unit_tree(&course_id).await?))
+    ws.app.unit_tree(course_id).await
 }
 
 /// Make a unit or chapter
@@ -230,20 +243,34 @@ async fn handle_create_unit(
     Path((_, course_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
+    Ok(created(&create_unit_from(&ws, &course_id, &body).await?))
+}
+
+/// Makes the unit or chapter `body` describes, as `createUnit` takes it, in the course
+/// `course_id`.
+///
+/// # Errors
+///
+/// As `createUnit` answers.
+pub(super) async fn create_unit_from(
+    ws: &InWorkspace,
+    course_id: &str,
+    body: &Bytes,
+) -> Result<Unit, AppError> {
     let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
-        &course_id,
+        course_id,
         ContainerPermission::ManageCards,
         "access denied to create unit",
     )
     .await?;
-    let new: NewUnit = decode_object(&body)?;
+    let new: NewUnit = decode_object(body)?;
     new.check_request()?;
-    let unit = ws.app.create_unit(&course_id, &new, user_id).await?;
+    let unit = ws.app.create_unit(course_id, &new, user_id).await?;
     tracing::debug!(course_id, unit_id = %unit.id, user_id, "CreateUnit");
-    Ok(created(&unit))
+    Ok(unit)
 }
 
 /// A unit or chapter
@@ -297,16 +324,33 @@ async fn handle_patch_unit(
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
+    Ok(json_response(
+        &patch_unit_from(&ws, &course_id, &unit_id, &body).await?,
+    ))
+}
+
+/// Changes the unit or chapter `unit_id` of the course `course_id` as `body` says, as
+/// `patchUnit` takes it.
+///
+/// # Errors
+///
+/// As `patchUnit` answers.
+pub(super) async fn patch_unit_from(
+    ws: &InWorkspace,
+    course_id: &str,
+    unit_id: &str,
+    body: &Bytes,
+) -> Result<Unit, AppError> {
     let user_id = ws.caller.user_id.as_str();
     let unit = unit_with_permission(
-        &ws,
-        &course_id,
-        &unit_id,
+        ws,
+        course_id,
+        unit_id,
         ContainerPermission::ManageCards,
         "access denied to patch unit",
     )
     .await?;
-    let (mut patch, document): (UnitPatch, _) = decode_with_document(&body)?;
+    let (mut patch, document): (UnitPatch, _) = decode_with_document(body)?;
     patch.body = document;
     let kind = UnitKind::of_block(&unit.block_type).unwrap_or_default();
     if kind == UnitKind::Chapter && !patch.body.is_keep() {
@@ -314,7 +358,7 @@ async fn handle_patch_unit(
     }
     patch.check_request_for(kind)?;
     ws.app
-        .check_body_files(&course_id, patch.body.new_body())
+        .check_body_files(course_id, patch.body.new_body())
         .await?;
     let patched = ws
         .app
@@ -327,7 +371,7 @@ async fn handle_patch_unit(
         )
         .await?;
     tracing::debug!(course_id, unit_id, user_id, "PatchUnit");
-    Ok(json_response(&Unit::from(patched)))
+    Ok(Unit::from(patched))
 }
 
 /// Move a unit or chapter

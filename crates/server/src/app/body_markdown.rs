@@ -10,7 +10,7 @@ mod write;
 
 use std::collections::{BTreeSet, HashMap};
 
-use fvoci_model::{Body, BodyChange, Card, RefusalReason, Refusals, is_id};
+use fvoci_model::{Body, BodyChange, Card, ComplexBlock, RefusalReason, Refusals, is_id};
 use serde_json::Value;
 
 use super::App;
@@ -79,6 +79,17 @@ fn markdown_nodes(markdown: &str, field: &str) -> Result<Vec<Value>, AppError> {
         .nodes)
 }
 
+/// A body in Markdown ([`App::body_in_markdown`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BodyInMarkdown {
+    /// The Markdown.
+    pub markdown: String,
+    /// The blocks the Markdown does not hold as they are, in the order of the body: a
+    /// body that has any is not written whole from its Markdown
+    /// (`complex_blocks_use_append`).
+    pub complex_blocks: Vec<ComplexBlock>,
+}
+
 /// Reads Markdown into a body, `None` for Markdown that says nothing.
 ///
 /// # Errors
@@ -87,6 +98,20 @@ fn markdown_nodes(markdown: &str, field: &str) -> Result<Vec<Value>, AppError> {
 fn markdown_body(markdown: &str, field: &str) -> Result<Option<Body>, AppError> {
     let nodes = markdown_nodes(markdown, field)?;
     blocks_to_body(nodes).map_err(|error| error.with_field(field))
+}
+
+/// The text of a comment, read of `markdown`, as a comment's body is written.
+///
+/// # Errors
+///
+/// Returns 400 or 413 at `field` for Markdown that is no body, and 400 at `field` for
+/// Markdown that says nothing, as for a comment sent without its text.
+pub(crate) fn comment_text_of_markdown(markdown: &str, field: &str) -> Result<Body, AppError> {
+    markdown_body(markdown, field)?.ok_or_else(|| {
+        let mut refusals = Refusals::new();
+        refusals.refuse(field, RefusalReason::Required, "a comment has a text");
+        refusals.into()
+    })
 }
 
 /// The identifiers a document names, of files and of people.
@@ -144,6 +169,31 @@ impl App {
         Ok(names)
     }
 
+    /// `body`, a body of the board `container_id` (a card's, a page's, a unit's or a
+    /// comment's), in Markdown, with the blocks the Markdown does not hold as they are;
+    /// no body is empty Markdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if a file or a person cannot be read.
+    pub async fn body_in_markdown(
+        &self,
+        container_id: &str,
+        body: Option<&Body>,
+    ) -> Result<BodyInMarkdown, AppError> {
+        let written = match body {
+            Some(body) => {
+                let names = self.names_in(container_id, body.document()).await?;
+                body_to_markdown(body.document(), &names)
+            }
+            None => body_to_markdown(&Value::Null, &Names::default()),
+        };
+        Ok(BodyInMarkdown {
+            markdown: written.markdown,
+            complex_blocks: written.complex,
+        })
+    }
+
     /// Gives `card` its body in Markdown, in place of the body, with the blocks the
     /// Markdown does not hold as they are.
     ///
@@ -151,15 +201,10 @@ impl App {
     ///
     /// Returns the store's error if a file or a person cannot be read.
     pub async fn put_card_in_markdown(&self, card: &mut Card) -> Result<(), AppError> {
-        let written = match card.body.take() {
-            Some(body) => {
-                let names = self.names_in(&card.board_id, body.document()).await?;
-                body_to_markdown(body.document(), &names)
-            }
-            None => body_to_markdown(&Value::Null, &Names::default()),
-        };
-        card.has_complex_blocks = Some(!written.complex.is_empty());
-        card.complex_blocks = Some(written.complex);
+        let body = card.body.take();
+        let written = self.body_in_markdown(&card.board_id, body.as_ref()).await?;
+        card.has_complex_blocks = Some(!written.complex_blocks.is_empty());
+        card.complex_blocks = Some(written.complex_blocks);
         card.body_markdown = Some(written.markdown);
         Ok(())
     }

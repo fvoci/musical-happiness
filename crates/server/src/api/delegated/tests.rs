@@ -9,7 +9,8 @@ use fvoci_model::ApiTokenScope;
 use super::TOKEN_OPERATIONS;
 
 /// The operations of the handlers under `api/` whose arguments take `Delegated<Read`
-/// or `Delegated<Write`, by their `operationId`.
+/// or `Delegated<Write`, by their `operationId`, and the one that takes a token alone
+/// (`TokenCaller`), whose tools ask for a scope each: of either scope.
 fn delegated_in_sources() -> BTreeMap<String, ApiTokenScope> {
     let api = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api");
     let mut found = BTreeMap::new();
@@ -30,13 +31,14 @@ fn delegated_in_sources() -> BTreeMap<String, ApiTokenScope> {
                 let operation = &rest[..rest.find('"').expect("the name ends")];
                 let handler = &rest[rest.find("async fn ").expect("a handler follows")..];
                 let arguments = &handler[..handler.find("->").expect("the handler answers")];
-                let scope = if arguments.contains("Delegated<Read") {
-                    ApiTokenScope::Read
-                } else if arguments.contains("Delegated<Write") {
-                    ApiTokenScope::Write
-                } else {
-                    continue;
-                };
+                let scope =
+                    if arguments.contains("Delegated<Read") || arguments.contains("TokenCaller") {
+                        ApiTokenScope::Read
+                    } else if arguments.contains("Delegated<Write") {
+                        ApiTokenScope::Write
+                    } else {
+                        continue;
+                    };
                 found.insert(operation.to_owned(), scope);
             }
         }

@@ -25,16 +25,27 @@ fn problem_response(problem: &Problem) -> Response {
     response
 }
 
+/// Marks an error answered in the format of the protocol it is of, which is left as
+/// it is: the JSON-RPC error with which the MCP server answers a body that is no
+/// message of it, as that protocol has it answered.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SpokenInItsProtocol;
+
 /// Answers in the API's own format what was refused before a handler ran, by the
 /// framework: a parameter of the path that is no text, for one. Such an answer comes
 /// with the framework's words as plain text; it becomes the problem of its status,
 /// with words of this server, and keeps its other headers. A status the API has no
-/// kind for becomes 400 if it is the client's and 500 if not.
+/// kind for becomes 400 if it is the client's and 500 if not. An error marked
+/// [`SpokenInItsProtocol`] is left as it is.
 pub(crate) async fn problems_only(request: Request, next: Next) -> Response {
     let response = next.run(request).await;
     let status = response.status();
     let is_error = status.is_client_error() || status.is_server_error();
-    if !is_error || response.extensions().get::<ReportedError>().is_some() {
+    let extensions = response.extensions();
+    if !is_error
+        || extensions.get::<ReportedError>().is_some()
+        || extensions.get::<SpokenInItsProtocol>().is_some()
+    {
         return response;
     }
     let kind = ErrorKind::of_status(status.as_u16()).unwrap_or(if status.is_client_error() {

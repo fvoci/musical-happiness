@@ -9,7 +9,7 @@ use fvoci_model::{ApiTokenScope, Session};
 use fvoci_store::{ByAgent, LiveApiToken, Making};
 
 use super::{App, Asker};
-use crate::auth::api_token::{Delegation, USE_RECORDING_INTERVAL_MILLIS};
+use crate::auth::api_token::{self, Delegation, USE_RECORDING_INTERVAL_MILLIS};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::{now_millis, secret};
 use crate::error::AppError;
@@ -59,6 +59,20 @@ impl Caller {
             token_id: &delegation.token_id,
             token_name: &delegation.name,
         })
+    }
+
+    /// Refuses a caller who came with a personal API token that does not cover
+    /// `needed`; a session covers all.
+    ///
+    /// # Errors
+    ///
+    /// Returns 403 with the reason `token_scope_insufficient` for a token that reads
+    /// only, asked to write.
+    pub fn require_scope(&self, needed: ApiTokenScope) -> Result<(), AppError> {
+        match self.delegation() {
+            Some(delegation) if !delegation.scope.covers(needed) => Err(api_token::reads_only()),
+            _ => Ok(()),
+        }
     }
 
     /// The caller as the rule of what opens what asks of them.

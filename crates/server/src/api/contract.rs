@@ -67,6 +67,11 @@ reaches an organization that takes only sessions made through its provider), and
 what ends its owner's sessions: a password changed, set or reset, an identity unlinked, the \
 provider it was made through changed or removed, the account put out of use.
 
+An agent may instead speak the Model Context Protocol to `POST /api/v1/mcp` (`postMcp`), \
+which takes a token and nothing else: its tools read and write as the operations above do, \
+for the same token, with the same limits and refusals, and a token that reads only is told \
+of no tool that writes.
+
 ## Requests that change something
 
 Every request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header \
@@ -377,6 +382,13 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Subscription", Members::AllBut(&["deletedAt"])),
     ("WelcomeBoard", Members::All),
     ("Workspace", Members::All),
+    ("WorkspaceOverview", Members::All),
+    ("OverviewWorkspace", Members::All),
+    ("OverviewPerson", Members::All),
+    (
+        "OverviewContainer",
+        Members::AllBut(&["myRole", "cardProperties"]),
+    ),
     ("Team", Members::All),
     ("TeamMember", Members::All),
     ("TeamName", Members::AsWritten),

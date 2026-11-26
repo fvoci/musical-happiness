@@ -39,6 +39,7 @@ mod invitation_mail;
 mod invitations;
 mod limits;
 mod lists;
+mod mcp;
 mod members;
 mod notifications;
 mod oidc;
@@ -47,6 +48,7 @@ mod onboarding;
 mod org;
 mod org_admin;
 mod organizations;
+mod overview;
 mod page_comments;
 mod page_versions;
 mod password_reset;
@@ -164,6 +166,7 @@ fn routes() -> Routes {
         .merge(card_comments::routes())
         .merge(card_markdown::routes())
         .merge(lists::routes())
+        .merge(mcp::routes())
         .merge(cards::routes())
         .merge(today::routes())
         .merge(trash::routes())
@@ -183,6 +186,7 @@ fn routes() -> Routes {
         .merge(org::routes())
         .merge(org_admin::routes())
         .merge(organizations::routes())
+        .merge(overview::routes())
         .merge(references::routes())
         .merge(search::routes())
         .merge(content_search::routes())
