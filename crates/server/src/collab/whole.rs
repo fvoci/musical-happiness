@@ -205,7 +205,7 @@ impl Collab {
             return Ok(());
         }
         for (card_id, _) in held {
-            if self.has_editors(app, card_id).await {
+            if self.has_editors(app, card_id) {
                 return Err(AppError::conflict(
                     "people edit the body now: add Markdown after it instead",
                 )

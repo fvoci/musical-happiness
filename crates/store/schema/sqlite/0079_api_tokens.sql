@@ -26,8 +26,9 @@ CREATE INDEX api_tokens_origin_provider_idx
 CREATE TABLE api_token_workspaces (
     org_id TEXT NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
     token_id TEXT NOT NULL REFERENCES api_tokens (id) ON DELETE CASCADE,
-    workspace_id TEXT NOT NULL REFERENCES workspaces (id) ON DELETE CASCADE,
-    PRIMARY KEY (token_id, workspace_id)
+    workspace_id TEXT NOT NULL,
+    PRIMARY KEY (token_id, workspace_id),
+    FOREIGN KEY (workspace_id, org_id) REFERENCES workspaces (id, org_id) ON DELETE CASCADE
 );
 CREATE INDEX api_token_workspaces_workspace_idx ON api_token_workspaces (org_id, workspace_id);
 
