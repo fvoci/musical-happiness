@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use crate::api_tokens::agent_writing;
 use crate::body_versions::{lines, versions};
-use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS};
+use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
 use crate::rooms::paragraphs;
 
 /// The cause of each version, and the token named by it, the newest first.
@@ -143,9 +143,8 @@ async fn a_page_an_agent_writes_whole_is_kept_as_its_version() {
     th.teardown().await;
 }
 
-#[tokio::test]
-async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_not() {
-    let th = Setup::native().start().await.init_basic().await;
+/// A board of the test workspace with a card on it, and the path of the card's comments.
+async fn a_card_to_comment_on(th: &TestServer) -> (String, Value, String) {
     let board = th
         .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerVisibility::Open)
         .await;
@@ -162,6 +161,18 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
         board.id,
         card["id"].as_str().expect("an id")
     );
+    (board.id, card, comments)
+}
+
+fn id_of(comment: &Value) -> String {
+    comment["id"].as_str().expect("an id").to_owned()
+}
+
+/// Who writes a comment's text signs it: an agent by its token's name, a person by none.
+#[tokio::test]
+async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_not() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (_, _, comments) = a_card_to_comment_on(&th).await;
     let agent = agent_writing(&th, &th.client).await;
     let text = paragraphs(&["a word"]);
     let by_agent: Value = agent
@@ -182,7 +193,6 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
     assert_eq!(listed[0]["fields"]["agentTokenName"], "agent");
 
     // The agent writes the person's text over: the comment is the agent's.
-    let id_of = |comment: &Value| comment["id"].as_str().expect("an id").to_owned();
     let rewritten: Value = agent
         .patch(
             &format!("{comments}/{}", id_of(&by_person)),
@@ -194,29 +204,62 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
         rewritten["fields"]["agentTokenName"], "agent",
         "{rewritten}"
     );
-    // What a person sends of the name is no one's word: it is the server's to say.
-    let comment_block = |comment: &Value| fvoci_model::Block {
-        id: id_of(comment),
-        container_id: board.id.clone(),
+    // The person writes the agent's text over: the comment is theirs.
+    let rewritten: Value = th
+        .client
+        .patch(
+            &format!("{comments}/{}", id_of(&by_agent)),
+            &json!({"body": paragraphs(&["my word"]), "readAt": by_agent["updatedAt"]}),
+        )
+        .await
+        .ok_json();
+    assert!(
+        rewritten["fields"].get("agentTokenName").is_none(),
+        "{rewritten}"
+    );
+
+    th.teardown().await;
+}
+
+/// What a writer sends of the name through the block routes is no one's word: setting it,
+/// dropping it, or making a comment with it changes nothing.
+#[tokio::test]
+async fn what_a_writer_sends_of_an_agents_name_on_a_comment_changes_nothing() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (board_id, card, comments) = a_card_to_comment_on(&th).await;
+    let agent = agent_writing(&th, &th.client).await;
+    let text = paragraphs(&["a word"]);
+    let by_agent: Value = agent
+        .post(&comments, &json!({"body": text}))
+        .await
+        .created_json();
+    let by_person: Value = th
+        .client
+        .post(&comments, &json!({"body": text}))
+        .await
+        .created_json();
+    for (comment, patch) in [
+        (&by_agent, json!({"deletedFields": ["agentTokenName"]})),
+        (
+            &by_person,
+            json!({"updatedFields": {"agentTokenName": "forged"}}),
+        ),
+    ] {
+        th.client
+            .patch(
+                &crate::blocks::block_path(&board_id, &id_of(comment)),
+                &patch,
+            )
+            .await
+            .check_no_content();
+    }
+    let on_card = fvoci_model::Block {
+        id: id_of(&card),
+        container_id: board_id.clone(),
         ..fvoci_model::Block::default()
     };
-    th.client
-        .patch(
-            &crate::blocks::block_path(&board.id, &id_of(&by_agent)),
-            &json!({"updatedFields": {"agentTokenName": "forged"}}),
-        )
-        .await
-        .check_no_content();
-    th.client
-        .patch(
-            &crate::blocks::block_path(&board.id, &id_of(&by_person)),
-            &json!({"deletedFields": ["agentTokenName"]}),
-        )
-        .await
-        .check_no_content();
-    let mut forged =
-        crate::blocks::child_of(&comment_block(&card), fvoci_model::BlockType::Comment, "");
-    forged.body = fvoci_model::Body::parse(text.clone()).expect("a body");
+    let mut forged = crate::blocks::child_of(&on_card, fvoci_model::BlockType::Comment, "");
+    forged.body = fvoci_model::Body::parse(text).expect("a body");
     forged
         .fields
         .insert("agentTokenName".to_owned(), json!("forged"));
@@ -233,21 +276,8 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
         .collect();
     assert_eq!(
         names,
-        [&json!("agent"), &json!("agent"), &Value::Null],
+        [&json!("agent"), &Value::Null, &Value::Null],
         "{listed:?}"
-    );
-    // The person writes the agent's text over: the comment is theirs.
-    let rewritten: Value = th
-        .client
-        .patch(
-            &format!("{comments}/{}", id_of(&by_agent)),
-            &json!({"body": paragraphs(&["my word"]), "readAt": listed[0]["updatedAt"]}),
-        )
-        .await
-        .ok_json();
-    assert!(
-        rewritten["fields"].get("agentTokenName").is_none(),
-        "{rewritten}"
     );
 
     th.teardown().await;
