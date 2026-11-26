@@ -58,7 +58,8 @@
           ? LockIcon
           : UsersRoundIcon,
       checked: line.workspace.id === current,
-      ...(line.heading === undefined ? {} : { heading: line.heading, separated: true }),
+      ...(line.heading === undefined ? {} : { heading: line.heading }),
+      ...(line.separated ? { separated: true } : {}),
       ...ariaLabelOf(line),
       run: () => {
         if (line.workspace.id !== current) onSwitch(line.workspace.id);
