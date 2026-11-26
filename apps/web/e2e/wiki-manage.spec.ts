@@ -541,10 +541,10 @@ test.describe('screens', () => {
       // "New wiki", as it asks.
       await showSidebar(page);
       await sidebar(page).getByTestId('add-board').click();
-      await page.getByTestId('template-picker').getByTestId('new-wiki').click();
-      await page.getByTestId('new-wiki-title').fill('팀 안내서');
+      const picker = page.getByTestId('template-picker');
+      await picker.getByTestId('new-title').fill('팀 안내서');
       await shot('new-wiki-dialog');
-      await page.getByTestId('new-wiki-create').click();
+      await picker.getByTestId('new-wiki').click();
       await expect(page).toHaveURL(ON_A_WIKI);
       await expect(page.getByTestId('wiki-empty')).toBeVisible();
       // The sidebar's drawer, which made the wiki, has slid all the way out.

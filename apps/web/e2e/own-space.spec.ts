@@ -85,11 +85,10 @@ test('the own space starts empty, keeps what is made in it, and shows nothing of
   // Nobody else is there to find a wiki: it is not asked.
   await showSidebar(page);
   await sidebar(page).getByTestId('add-board').click();
-  await page.getByTestId('template-picker').getByTestId('new-wiki').click();
-  const naming = page.getByTestId('new-wiki-dialog');
-  await expect(naming.getByRole('radio')).toHaveCount(0);
-  await naming.getByTestId('new-wiki-title').fill('Notes of mine');
-  await naming.getByTestId('new-wiki-create').click();
+  const picker = page.getByTestId('template-picker');
+  await expect(picker.getByRole('radio')).toHaveCount(0);
+  await picker.getByTestId('new-title').fill('Notes of mine');
+  await picker.getByTestId('new-wiki').click();
   await expect(page).toHaveURL(ON_A_WIKI);
   await showSidebar(page);
   await expect(sidebar(page).getByRole('link')).toHaveCount(2);

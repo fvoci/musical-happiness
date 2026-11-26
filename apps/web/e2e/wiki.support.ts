@@ -31,11 +31,10 @@ export const wikiScreen = (page: Page): Locator => page.getByTestId('wiki-screen
 export async function newWiki(page: Page, title: string, open = true): Promise<string> {
   await showSidebar(page);
   await sidebar(page).getByTestId('add-board').click();
-  await page.getByTestId('template-picker').getByTestId('new-wiki').click();
-  const dialog = page.getByTestId('new-wiki-dialog');
-  await dialog.getByTestId('new-wiki-title').fill(title);
-  await dialog.getByTestId(open ? 'new-wiki-open' : 'new-wiki-private').check();
-  await dialog.getByTestId('new-wiki-create').click();
+  const picker = page.getByTestId('template-picker');
+  await picker.getByTestId('new-title').fill(title);
+  await picker.getByTestId(open ? 'new-visibility-open' : 'new-visibility-private').check();
+  await picker.getByTestId('new-wiki').click();
   await expect(page).toHaveURL(ON_A_WIKI);
   await expect(wikiScreen(page)).toBeVisible();
   return wikiPlaceOf(page.url()).wikiId;

@@ -40,7 +40,7 @@ test('the shared workspace has no diary; the own space has one way in, made as i
   await expect(sidebar(page).getByTestId('open-diary')).toHaveCount(0);
   await sidebar(page).getByTestId('add-board').click();
   await expect(page.getByTestId('template-picker')).toBeVisible();
-  await expect(page.getByTestId('template-picker')).not.toContainText(/diary/iu);
+  await expect(page.getByTestId('template-picker').getByTestId('new-diary')).toHaveCount(0);
   await page.keyboard.press('Escape');
 
   await switchTo(page, 'My space');

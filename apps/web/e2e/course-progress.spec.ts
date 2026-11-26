@@ -68,10 +68,9 @@ async function hideTree(page: Page): Promise<void> {
 async function newCourse(page: Page, title: string): Promise<string> {
   await showSidebar(page);
   await sidebar(page).getByTestId('add-board').click();
-  await page.getByTestId('template-picker').getByTestId('new-course').click();
-  const dialog = page.getByTestId('new-course-dialog');
-  await dialog.getByTestId('new-course-title').fill(title);
-  await dialog.getByTestId('new-course-create').click();
+  const picker = page.getByTestId('template-picker');
+  await picker.getByTestId('new-title').fill(title);
+  await picker.getByTestId('new-course').click();
   await expect(page).toHaveURL(ON_A_COURSE);
   await expect(page.getByTestId('course-screen')).toBeVisible();
   const match = new RegExp(`/courses/(${ID})`).exec(new URL(page.url()).pathname);

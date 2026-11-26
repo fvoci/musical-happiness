@@ -26,12 +26,13 @@
   import { page, pane } from '$lib/layout/room.svelte.ts';
   import {
     createCourse,
-    createCourseFromTemplate,
+    createFromTemplate,
     createWiki,
     isGuest,
+    newDiary,
     whileHere,
-    type CourseDraft,
-    type WikiDraft,
+    type ContainerDraft,
+    type NewKind,
   } from '$lib/state/index.ts';
   import type { AuditRecord } from '$lib/state/organization.ts';
 
@@ -195,35 +196,34 @@
   }
 
   let picking = $state(false);
-  let namingWiki = $state(false);
-  let namingCourse = $state(false);
   const addBoard = (): void => {
     picking = true;
   };
-  async function addEmptyBoard(): Promise<void> {
+  /** Makes a new board, wiki, course or diary as the window of new things asked, and opens it. */
+  async function addNew(kind: NewKind, draft: ContainerDraft): Promise<void> {
+    const made = await whileHere(workspace, () => makeNew(kind, draft));
+    if (made) openContainer(made);
+  }
+  function makeNew(kind: NewKind, draft: ContainerDraft): Promise<Container | undefined> {
+    switch (kind) {
+      case 'board':
+        return workspace.createBoard(
+          { ...draft, scaffold: true },
+          m['View.NewBoardTitle'](),
+          m.shell_new_board_status(),
+        );
+      case 'wiki':
+        return createWiki(workspace, draft);
+      case 'course':
+        return createCourse(workspace, { ...draft, minimumRole: 'commenter' });
+      case 'diary':
+        return newDiary(workspace, draft.title);
+    }
+  }
+  async function addFromTemplate(template: Container, draft: ContainerDraft): Promise<void> {
     const made = await whileHere(workspace, () =>
-      workspace.createBoard(
-        { title: '', scaffold: true },
-        m['View.NewBoardTitle'](),
-        m.shell_new_board_status(),
-      ),
+      createFromTemplate(workspace, template.id, draft),
     );
-    if (made) openContainer(made);
-  }
-  async function addWiki(draft: WikiDraft): Promise<void> {
-    const made = await whileHere(workspace, () => createWiki(workspace, draft));
-    if (made) openContainer(made);
-  }
-  async function addCourse(draft: CourseDraft, templateId?: string): Promise<void> {
-    const made = await whileHere(workspace, () =>
-      templateId
-        ? createCourseFromTemplate(workspace, templateId, draft)
-        : createCourse(workspace, draft),
-    );
-    if (made) openContainer(made);
-  }
-  async function addBoardFromTemplate(template: Container): Promise<void> {
-    const made = await whileHere(workspace, () => workspace.duplicateContainer(template.id));
     if (made) openContainer(made);
   }
 
@@ -349,8 +349,6 @@
 <ShellDialogs
   {workspace}
   bind:picking
-  bind:namingWiki
-  bind:namingCourse
   bind:settingsOpen
   bind:recordsOpen
   {worksHere}
@@ -363,9 +361,8 @@
   {accountSettings}
   {containerHref}
   onOpenContainer={openContainer}
-  onEmptyBoard={() => void addEmptyBoard()}
-  onFromTemplate={(template: Container) => void addBoardFromTemplate(template)}
-  onAddWiki={(draft: WikiDraft) => void addWiki(draft)}
-  onAddCourse={(draft: CourseDraft, templateId?: string) => void addCourse(draft, templateId)}
+  onCreate={(kind: NewKind, draft: ContainerDraft) => void addNew(kind, draft)}
+  onFromTemplate={(template: Container, draft: ContainerDraft) =>
+    void addFromTemplate(template, draft)}
   {readRecords}
 />

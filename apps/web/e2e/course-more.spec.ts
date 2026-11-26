@@ -75,16 +75,15 @@ async function newCourse(
 ): Promise<string> {
   await showSidebar(page);
   await sidebar(page).getByTestId('add-board').click();
-  await page.getByTestId('template-picker').getByTestId('new-course').click();
-  const dialog = page.getByTestId('new-course-dialog');
-  await expect(dialog).toBeVisible();
+  const picker = page.getByTestId('template-picker');
+  await expect(picker).toBeVisible();
+  await picker.getByTestId('new-title').fill(title);
   if (!options.ownSpace) {
-    await dialog
-      .getByTestId(options.open === false ? 'new-course-private' : 'new-course-open')
+    await picker
+      .getByTestId(options.open === false ? 'new-visibility-private' : 'new-visibility-open')
       .check();
   }
-  await dialog.getByTestId('new-course-title').fill(title);
-  await dialog.getByTestId('new-course-create').click();
+  await picker.getByTestId('new-course').click();
   await expect(page).toHaveURL(ON_A_COURSE);
   return coursePlaceOf(page.url()).courseId;
 }

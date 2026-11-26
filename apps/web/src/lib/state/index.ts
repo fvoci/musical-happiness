@@ -90,7 +90,7 @@ export { CardPreviews } from './card-previews.svelte.ts';
 export { type CommentEdit } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';
 export { PageStore } from './page.svelte.ts';
-export { DiaryStore, firstDiary } from './diary.svelte.ts';
+export { DiaryStore, firstDiary, newDiary } from './diary.svelte.ts';
 export { EntryStore } from './entry.svelte.ts';
 export { DiaryCalendar } from './diary-calendar.svelte.ts';
 export { MOODS, NOTE_MAX_CHARS } from './diary-types.ts';
@@ -117,7 +117,8 @@ export { TodayHubStore } from './today-hub.svelte.ts';
 export { syncDeviceTimeZone } from './time-zone-sync.ts';
 export { UnitStore } from './unit.svelte.ts';
 export type { CommentThreadStore as UnitComments } from './comment-thread.svelte.ts';
-export { createCourse, createCourseFromTemplate } from './course-parts.ts';
+export { createCourse } from './course-parts.ts';
+export { createFromTemplate, type ContainerDraft, type NewKind } from './new-container.ts';
 export {
   AMOUNT_UNITS,
   ATTENDANCE_STATUSES,
