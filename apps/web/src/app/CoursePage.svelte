@@ -68,8 +68,10 @@
   );
 
   const course = $derived(courseId ? new CourseStore(workspace, courseId) : undefined);
+  // Named here alone, by the unit shown (the course's first where the address names none).
   nameWindow(() => {
-    const unit = unitId ? course?.unit(unitId) : undefined;
+    const open = course?.openUnit;
+    const unit = open && course.unit(open.unitId);
     return [
       unit && (unit.title || m.course_unit_untitled()),
       course?.course && (course.course.title || m.course_untitled()),

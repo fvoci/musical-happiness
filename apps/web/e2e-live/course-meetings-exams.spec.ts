@@ -184,9 +184,11 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     await expect(adaExam.getByTestId('exam-average')).toContainText('Requires 2+ other scores');
     await expect(adaExam.getByTestId('exam-score-count')).toContainText('1 submitted');
 
-    // Bora switches to Exams tab: as a non-manager learner with < 5 scorers, bucketed count is 0
-    // so Bora cannot even tell whether Ada submitted (`No scores yet`), and saves own score (100).
-    await boraPage.reload();
+    // Bora comes back to the window, which reads the exams again: the first one, Ada's, brings
+    // its tab with no reload. Bora switches to it: as a non-manager learner with < 5 scorers,
+    // bucketed count is 0 so Bora cannot even tell whether Ada submitted (`No scores yet`), and
+    // saves own score (100).
+    await boraPage.evaluate(() => window.dispatchEvent(new Event('focus')));
     await boraPage.getByTestId('course-tab-exams').click();
     const boraExam = boraPage.getByTestId('exam-card').first();
     await expect(boraExam.getByTestId('exam-average')).toContainText('No scores yet');

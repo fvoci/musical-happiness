@@ -385,3 +385,33 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
   await expect(page.getByTestId('course-exams-tab')).toHaveCount(0);
   expect(forbiddenCalls).toEqual([]);
 });
+
+test('the first exam somebody else makes brings its tab as the reader comes back to the window', async ({
+  page,
+}) => {
+  await openApp(page);
+  const courseId = await page.evaluate(async (wsId) => {
+    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+    const course = await dev.backend.course.createCourse(wsId, {
+      title: 'Compilers',
+      visibility: 'open',
+    });
+    await dev.backend.course.createUnit(course.id, { kind: 'unit', title: 'Parsing' });
+    return course.id;
+  }, WORKSPACE);
+  await goInside(page, `/w/${WORKSPACE}/courses/${courseId}`);
+  await expect(page.getByTestId('course-screen')).toBeVisible();
+  await expect(page.getByTestId('course-tabs')).toHaveCount(0);
+
+  // Made elsewhere (the server tells nobody of exams): no tab while the reader is away.
+  await page.evaluate(async (id) => {
+    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+    await dev.backend.course.exams.create(id, { title: 'Final', maxScore: 50 });
+  }, courseId);
+  await expect(page.getByTestId('course-tabs')).toHaveCount(0);
+
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByTestId('course-tab-exams')).toBeVisible();
+  await expect(page.getByTestId('course-tab-units')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('course-tab-meetings')).toHaveCount(0);
+});
