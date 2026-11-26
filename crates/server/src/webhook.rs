@@ -117,7 +117,9 @@ impl Webhook {
             match http.post(url).json(block).send().await {
                 Ok(response) => {
                     let status = response.status();
-                    // Read a bounded slice or drop if non-2xx; redirects are never followed.
+                    // Drain at most 64 KiB so short acknowledgements can reuse the
+                    // connection without buffering unbounded response bodies; redirects
+                    // are never followed.
                     if status.is_redirection() {
                         tracing::warn!(
                             host,
@@ -126,7 +128,7 @@ impl Webhook {
                         );
                         continue;
                     }
-                    let _ = response.bytes().await;
+                    drain_bounded(response).await;
                     tracing::debug!(host, "webhook.NotifyUpdate");
                 }
                 Err(error) => {
@@ -141,6 +143,17 @@ impl Webhook {
                     }
                 }
             }
+        }
+    }
+}
+
+async fn drain_bounded(mut response: reqwest::Response) {
+    const MAX_DRAIN_BYTES: usize = 64 * 1024;
+    let mut drained = 0usize;
+    while let Ok(Some(chunk)) = response.chunk().await {
+        drained = drained.saturating_add(chunk.len());
+        if drained >= MAX_DRAIN_BYTES {
+            break;
         }
     }
 }

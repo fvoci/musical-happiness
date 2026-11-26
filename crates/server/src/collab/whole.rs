@@ -26,23 +26,23 @@ pub(super) enum DueVersion {
 
 /// The cards and pages whose bodies a batch of patches writes: of `blocks`, those
 /// read for `block_ids`, the ones whose body has a room and whose patch (at the same
-/// place as their identifier) sets a body.
+/// place as their identifier) sets a body, paired as `(block_id, container_id)`.
 #[must_use]
 pub fn cards_written_whole(
     blocks: &[Block],
     block_ids: &[String],
     patches: &[BlockPatch],
-) -> Vec<String> {
+) -> Vec<(String, String)> {
     block_ids
         .iter()
         .zip(patches)
-        .filter(|(block_id, patch)| {
-            !patch.body.is_keep()
-                && blocks
-                    .iter()
-                    .any(|block| &block.id == *block_id && block.block_type.has_room())
+        .filter(|(_, patch)| !patch.body.is_keep())
+        .filter_map(|(block_id, _)| {
+            blocks
+                .iter()
+                .find(|block| &block.id == block_id && block.block_type.has_room())
+                .map(|block| (block.id.clone(), block.container_id.clone()))
         })
-        .map(|(block_id, _)| block_id.clone())
         .collect()
 }
 
@@ -73,7 +73,7 @@ impl Collab {
     pub async fn write_whole<R, W, F>(
         &self,
         app: &App,
-        card_ids: Vec<String>,
+        cards: Vec<(String, String)>,
         write: W,
     ) -> Result<R, AppError>
     where
@@ -82,9 +82,10 @@ impl Collab {
         F: Future<Output = Result<R, AppError>> + Send + 'static,
     {
         let (collab, app_of_task) = (self.clone(), app.clone());
-        let task = app.spawn_tracked(async move {
-            collab.write_whole_held(&app_of_task, card_ids, write).await
-        });
+        let task =
+            app.spawn_tracked(
+                async move { collab.write_whole_held(&app_of_task, cards, write).await },
+            );
         task.await.map_err(|error| {
             AppError::internal(format_args!("the write of whole bodies ended: {error}"))
         })?
@@ -93,19 +94,26 @@ impl Collab {
     async fn write_whole_held<R, W, F>(
         &self,
         app: &App,
-        mut card_ids: Vec<String>,
+        mut cards: Vec<(String, String)>,
         write: W,
     ) -> Result<R, AppError>
     where
         W: FnOnce(App) -> F,
         F: Future<Output = Result<R, AppError>>,
     {
-        card_ids.sort();
-        card_ids.dedup();
-        let mut with_containers = Vec::with_capacity(card_ids.len());
+        cards.sort_by(|a, b| a.0.cmp(&b.0));
+        cards.dedup_by(|a, b| a.0 == b.0);
+        let mut with_containers = Vec::with_capacity(cards.len());
         let mut container_ids = BTreeSet::new();
-        for card_id in card_ids {
-            let container_id = self.slot_container_id(app, &card_id).await?;
+        for (card_id, caller_container_id) in cards {
+            let container_id = match self.existing_slot_container_id(app, &card_id) {
+                Some(existing) if !existing.is_empty() => existing,
+                _ if !caller_container_id.is_empty() => caller_container_id,
+                _ => match app.store().find_any_block_container_id(&card_id).await? {
+                    Some(found) => found,
+                    None => return Err(AppError::not_found("card")),
+                },
+            };
             container_ids.insert(container_id.clone());
             with_containers.push((card_id, container_id));
         }

@@ -29,8 +29,83 @@ pub(crate) enum Deletion {
 #[derive(Debug)]
 #[must_use = "the gates are let go when this is dropped"]
 pub(crate) struct StructureChange {
-    _structures: Vec<OwnedRwLockReadGuard<()>>,
-    _held: Vec<OwnedRwLockReadGuard<()>>,
+    _structures: Vec<ContainerReadGuard>,
+    _held: Vec<ContainerReadGuard>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum LockMap {
+    Gates,
+    Structures,
+}
+
+impl LockMap {
+    fn of(self, inner: &super::Inner) -> &std::sync::Mutex<super::ContainerLocks> {
+        match self {
+            Self::Gates => &inner.gates,
+            Self::Structures => &inner.structures,
+        }
+    }
+}
+
+/// Tracks one reference to a per-container [`RwLock`] and removes its map entry on drop
+/// when no other caller holds or waits on that key (`strong_count == 2` while the map
+/// mutex is held).
+#[derive(Debug)]
+struct TrackedLock {
+    inner: Arc<super::Inner>,
+    which: LockMap,
+    key: (Tenant, String),
+    lock: Arc<RwLock<()>>,
+}
+
+impl TrackedLock {
+    async fn read_owned(self) -> ContainerReadGuard {
+        let guard = Arc::clone(&self.lock).read_owned().await;
+        ContainerReadGuard {
+            _guard: guard,
+            _tracked: self,
+        }
+    }
+
+    async fn write_owned(self) -> ContainerWriteGuard {
+        let guard = Arc::clone(&self.lock).write_owned().await;
+        ContainerWriteGuard {
+            _guard: guard,
+            _tracked: self,
+        }
+    }
+}
+
+impl Drop for TrackedLock {
+    fn drop(&mut self) {
+        let mut map = self
+            .which
+            .of(&self.inner)
+            .lock()
+            .expect("container locks are not poisoned");
+        // The map entry plus `self.lock`: nobody else holds or waits on this `RwLock`,
+        // and nobody can clone it out of the map while `map` is locked.
+        if Arc::strong_count(&self.lock) == 2 {
+            map.remove(&self.key);
+        }
+    }
+}
+
+/// Self-pruning read guard for a container gate or structure lock; `_guard` drops before
+/// `_tracked` in declaration order so the `RwLock` permit is released first.
+#[derive(Debug)]
+pub(super) struct ContainerReadGuard {
+    _guard: OwnedRwLockReadGuard<()>,
+    _tracked: TrackedLock,
+}
+
+/// Self-pruning write guard for a container gate or structure lock; `_guard` drops
+/// before `_tracked` in declaration order so the `RwLock` permit is released first.
+#[derive(Debug)]
+struct ContainerWriteGuard {
+    _guard: OwnedRwLockWriteGuard<()>,
+    _tracked: TrackedLock,
 }
 
 impl Collab {
@@ -78,36 +153,43 @@ impl Collab {
         }
     }
 
+    fn tracked_lock(&self, which: LockMap, tenant: Tenant, container_id: &str) -> TrackedLock {
+        debug_assert!(
+            !container_id.is_empty(),
+            "container lock key requires a non-empty container_id"
+        );
+        let key = (tenant, container_id.to_owned());
+        let lock = {
+            let mut map = which
+                .of(&self.inner)
+                .lock()
+                .expect("container locks are not poisoned");
+            Arc::clone(map.entry(key.clone()).or_default())
+        };
+        TrackedLock {
+            inner: Arc::clone(&self.inner),
+            which,
+            key,
+            lock,
+        }
+    }
+
     /// The gate of a container's documents: document work reads it, a deletion writes
     /// it. Neither organizations nor unrelated containers wait for each other's
     /// deletions.
-    fn gate(&self, tenant: Tenant, container_id: &str) -> Arc<RwLock<()>> {
-        let mut gates = self.inner.gates.lock().expect("the gates are not poisoned");
-        Arc::clone(gates.entry((tenant, container_id.to_owned())).or_default())
+    fn gate(&self, tenant: Tenant, container_id: &str) -> TrackedLock {
+        self.tracked_lock(LockMap::Gates, tenant, container_id)
     }
 
     /// The structure lock of a container: `changing_structure` reads it and the
     /// `Deletion::Block` fast-path writes it so a room-bearing block cannot move under a
     /// non-room block between the fast-path check and the deletion.
-    fn structure(&self, tenant: Tenant, container_id: &str) -> Arc<RwLock<()>> {
-        let mut structures = self
-            .inner
-            .structures
-            .lock()
-            .expect("the structures are not poisoned");
-        Arc::clone(
-            structures
-                .entry((tenant, container_id.to_owned()))
-                .or_default(),
-        )
+    fn structure(&self, tenant: Tenant, container_id: &str) -> TrackedLock {
+        self.tracked_lock(LockMap::Structures, tenant, container_id)
     }
 
     /// Taken before any slot of the container, never while one is held.
-    pub(super) async fn reading(
-        &self,
-        tenant: Tenant,
-        container_id: &str,
-    ) -> OwnedRwLockReadGuard<()> {
+    pub(super) async fn reading(&self, tenant: Tenant, container_id: &str) -> ContainerReadGuard {
         self.gate(tenant, container_id).read_owned().await
     }
 
@@ -116,7 +198,7 @@ impl Collab {
         &self,
         tenant: Tenant,
         container_ids: &BTreeSet<String>,
-    ) -> Vec<OwnedRwLockReadGuard<()>> {
+    ) -> Vec<ContainerReadGuard> {
         let mut guards = Vec::with_capacity(container_ids.len());
         for id in container_ids {
             guards.push(self.reading(tenant, id).await);
@@ -124,11 +206,7 @@ impl Collab {
         guards
     }
 
-    async fn writing(
-        &self,
-        tenant: Tenant,
-        container_ids: &[String],
-    ) -> Vec<OwnedRwLockWriteGuard<()>> {
+    async fn writing(&self, tenant: Tenant, container_ids: &[String]) -> Vec<ContainerWriteGuard> {
         let sorted: BTreeSet<&str> = container_ids.iter().map(String::as_str).collect();
         let mut guards = Vec::with_capacity(sorted.len());
         for id in sorted {
@@ -172,6 +250,21 @@ impl Collab {
             .expect("the deletion pause is not poisoned") =
             Some((stage, Arc::clone(&waiting), Arc::clone(&go)));
         (waiting, go)
+    }
+
+    /// Returns `(gates_len, structures_len, has_empty_container_key)` across `gates`,
+    /// `structures`, and `slots` for lock-pruning and key-hygiene tests.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn lock_and_slot_stats(&self) -> (usize, usize, bool) {
+        let gates = self.inner.gates.lock().expect("gates");
+        let structures = self.inner.structures.lock().expect("structures");
+        let slots = self.inner.slots.lock().expect("slots");
+        let has_empty = gates.keys().any(|(_, c)| c.is_empty())
+            || structures.keys().any(|(_, c)| c.is_empty())
+            || slots.values().any(|(c, _)| c.is_empty());
+        (gates.len(), structures.len(), has_empty)
     }
 
     #[cfg(feature = "test-util")]
@@ -260,7 +353,8 @@ impl Collab {
         };
         for card_id in &pending {
             let container_id = match self.slot_container_id(app, card_id).await {
-                Ok(container_id) => container_id,
+                Ok(Some(container_id)) => container_id,
+                Ok(None) => continue,
                 Err(error) => {
                     tracing::error!(%error, card_id, "cannot find a deleted card's container; its log keeps it");
                     continue;
@@ -367,5 +461,86 @@ impl Deletion {
         cards.sort();
         cards.dedup();
         Ok(cards)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fvoci_model::new_id;
+    use fvoci_store::Tenant;
+
+    use super::Collab;
+    use crate::collab::worker::WorkerCommand;
+    use crate::config::collab::CollabSettings;
+
+    fn test_collab() -> Collab {
+        let settings = CollabSettings {
+            worker_command: Some(WorkerCommand {
+                program: std::path::PathBuf::from("/bin/true"),
+                args: Vec::new(),
+            }),
+            ..CollabSettings::default()
+        };
+        Collab::new(&settings).expect("collab")
+    }
+
+    #[tokio::test]
+    async fn container_gate_and_structure_maps_prune_when_guards_and_cancelled_waiters_drop() {
+        let collab = test_collab();
+        let tenant = Tenant::org(&new_id()).expect("tenant");
+        let c1 = new_id();
+        let c2 = new_id();
+
+        let r1 = collab.reading(tenant, &c1).await;
+        let r2 = collab.reading(tenant, &c1).await;
+        let s1 = collab.structure(tenant, &c1).read_owned().await;
+        let w2 = collab.writing(tenant, std::slice::from_ref(&c2)).await;
+
+        assert_eq!(collab.inner.gates.lock().expect("gates").len(), 2);
+        assert_eq!(collab.inner.structures.lock().expect("structures").len(), 1);
+
+        // Start and cancel a waiter while `w2` holds the write lock on `c2`.
+        let cancelled = tokio::time::timeout(
+            std::time::Duration::from_millis(5),
+            collab.reading(tenant, &c2),
+        )
+        .await;
+        assert!(cancelled.is_err(), "read waiter must block behind write");
+
+        drop(r1);
+        assert_eq!(
+            collab.inner.gates.lock().expect("gates").len(),
+            2,
+            "c1 gate remains while r2 still holds it"
+        );
+        drop(r2);
+        assert_eq!(
+            collab.inner.gates.lock().expect("gates").len(),
+            1,
+            "c1 gate pruned once last reader drops"
+        );
+        drop(w2);
+        assert!(
+            collab.inner.gates.lock().expect("gates").is_empty(),
+            "c2 gate pruned even after a cancelled waiter"
+        );
+        drop(s1);
+        assert!(
+            collab
+                .inner
+                .structures
+                .lock()
+                .expect("structures")
+                .is_empty(),
+            "c1 structure lock pruned once last guard drops"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "non-empty container_id")]
+    fn empty_container_id_lock_key_is_rejected() {
+        let collab = test_collab();
+        let tenant = Tenant::org(&new_id()).expect("tenant");
+        let _ = collab.gate(tenant, "");
     }
 }

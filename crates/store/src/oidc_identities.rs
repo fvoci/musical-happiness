@@ -237,7 +237,7 @@ impl Store {
         identity: Identity<'_>,
         provider_email: &str,
     ) -> Result<(), StoreError> {
-        self.add_identity_at(user_id, identity, provider_email, crate::db::now_millis())
+        self.add_identity_at(user_id, identity, provider_email, self.now_millis())
             .await
     }
 

@@ -145,6 +145,17 @@ SET org_id = COALESCE(
 )
 WHERE org_id = '';
 
+-- Rows still left with `org_id = ''` after backfilling point to a course that no longer
+-- exists in either `containers` or `deleted_containers`; drop those orphans before
+-- installing the course child triggers. `containers.kind` is immutable after creation
+-- (`ContainerError::KindChanges` in Rust), so the triggers guard child writes.
+DELETE FROM unit_progress WHERE org_id = '';
+DELETE FROM unit_reviews WHERE org_id = '';
+DELETE FROM unit_notes WHERE org_id = '';
+DELETE FROM course_meetings WHERE org_id = '';
+DELETE FROM course_exams WHERE org_id = '';
+DELETE FROM exam_scores WHERE org_id = '';
+
 CREATE TRIGGER unit_progress_course_of_its_organization
 BEFORE INSERT ON unit_progress
 WHEN NOT EXISTS (

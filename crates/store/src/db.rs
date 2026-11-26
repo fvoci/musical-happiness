@@ -29,11 +29,6 @@ pub enum Dialect {
     Postgres,
 }
 
-/// Returns the current time in milliseconds since the Unix epoch.
-pub(crate) fn now_millis() -> i64 {
-    crate::clock::system_millis()
-}
-
 /// Compile-time-checked SQL text fragment built exclusively from `'static` SQL pieces
 /// and validated table aliases. Prevents accidental `format!` runtime interpolation into
 /// SQL statements (`H-6`).
@@ -492,7 +487,8 @@ impl<'c> Scope<'c> {
 
     /// Current monotonic time in milliseconds since the Unix epoch.
     pub(crate) fn now_millis(&self) -> i64 {
-        self.clock.map_or_else(now_millis, Clock::now_millis)
+        self.clock
+            .map_or_else(crate::clock::system_millis, Clock::now_millis)
     }
 
     pub(crate) fn is_wall_open(&self) -> bool {

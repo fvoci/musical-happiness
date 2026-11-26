@@ -12,10 +12,21 @@ use fvoci_model::{
     MeetingAttendance, MyExamScore, RefusalReason, Refusals, ValidatedMyExamScore,
     ValidatedNewExam, ValidatedNewMeeting,
 };
-use fvoci_store::ExamScoreOutcome;
+use fvoci_store::{ExamScoreOutcome, ExamViewer};
 
-use super::App;
+use super::{App, ContainerAccess};
 use crate::error::AppError;
+use crate::permissions::ContainerPermission;
+
+fn exam_viewer<'a>(access: &ContainerAccess, caller_id: &'a str) -> ExamViewer<'a> {
+    if !access.has_membership() {
+        ExamViewer::Unjoined
+    } else if access.grant.allows(ContainerPermission::ManageRoles) {
+        ExamViewer::Manager(caller_id)
+    } else {
+        ExamViewer::Learner(caller_id)
+    }
+}
 
 /// Lead time before a meeting's start during which an upcoming reminder is sent (24 hours).
 pub const MEETING_REMINDER_WINDOW_MILLIS: i64 = 24 * 60 * 60 * 1000;
@@ -102,8 +113,8 @@ impl App {
             .await?)
     }
 
-    /// Lists all exams of `course_id` with `caller_user_id`'s own score (if enrolled) and
-    /// aggregate averages/counts across active enrolled course members.
+    /// Lists all exams of `course_id` for `caller_id` under `access` with personal score
+    /// isolation and role-appropriate aggregate counts/snapshots.
     ///
     /// # Errors
     ///
@@ -111,12 +122,11 @@ impl App {
     pub async fn list_course_exams(
         &self,
         course_id: &str,
-        caller_user_id: Option<&str>,
+        access: &ContainerAccess,
+        caller_id: &str,
     ) -> Result<Vec<CourseExam>, AppError> {
-        Ok(self
-            .store()
-            .list_course_exams(course_id, caller_user_id)
-            .await?)
+        let viewer = exam_viewer(access, caller_id);
+        Ok(self.store().list_course_exams(course_id, viewer).await?)
     }
 
     /// Creates a new exam on `course_id`.
@@ -141,12 +151,14 @@ impl App {
         &self,
         course_id: &str,
         exam_id: &str,
-        caller_user_id: Option<&str>,
+        access: &ContainerAccess,
+        caller_id: &str,
         change: &CourseExamChange,
     ) -> Result<CourseExam, AppError> {
+        let viewer = exam_viewer(access, caller_id);
         Ok(self
             .store()
-            .patch_course_exam(course_id, exam_id, caller_user_id, change)
+            .patch_course_exam(course_id, exam_id, viewer, change)
             .await?)
     }
 
@@ -164,17 +176,19 @@ impl App {
     /// # Errors
     ///
     /// Returns 404 if the course or exam does not exist, 409 if fewer than 5 active
-    /// enrolled members have scored or fewer than 3 net scorers changed since the previous
-    /// publication, and the store's error on failure.
+    /// enrolled members have scored or if already published and fewer than 3 net scorers
+    /// changed since the previous publication, and the store's error on failure.
     pub async fn publish_course_exam_results(
         &self,
         course_id: &str,
         exam_id: &str,
-        caller_user_id: Option<&str>,
+        access: &ContainerAccess,
+        caller_id: &str,
     ) -> Result<CourseExam, AppError> {
+        let viewer = exam_viewer(access, caller_id);
         match self
             .store()
-            .publish_course_exam_results(course_id, exam_id, caller_user_id)
+            .publish_course_exam_results(course_id, exam_id, viewer)
             .await?
         {
             Ok(exam) => Ok(exam),
@@ -191,11 +205,13 @@ impl App {
         &self,
         course_id: &str,
         exam_id: &str,
-        caller_user_id: Option<&str>,
+        access: &ContainerAccess,
+        caller_id: &str,
     ) -> Result<CourseExam, AppError> {
+        let viewer = exam_viewer(access, caller_id);
         Ok(self
             .store()
-            .unpublish_course_exam_results(course_id, exam_id, caller_user_id)
+            .unpublish_course_exam_results(course_id, exam_id, viewer)
             .await?)
     }
 

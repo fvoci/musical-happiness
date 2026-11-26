@@ -245,11 +245,11 @@ async fn exam_scores_never_leak_across_roles_admins_orgs_guests_or_public_links(
     assert!((saved.score - 95.0).abs() < 1e-9);
     assert_eq!(saved.note, SECRET_SCORE_NOTE);
 
-    // With only 1 scorer (Alice = 95), other enrolled viewers see `scoreCount = 1` and
-    // `averageScore = None` (single-scorer k-anonymity), while unjoined readers see 0 / None.
+    // With only 1 scorer (Alice = 95), course manager Bob sees exact `scoreCount = 1`,
+    // non-manager enrolled viewers see bucketed `scoreCount = 0`, and nobody sees an average.
     for (label, client, expected_count) in [
         ("course admin Bob", &a.bob, 1_u32),
-        ("invited guest", &a.guest, 1_u32),
+        ("invited guest", &a.guest, 0_u32),
         ("unjoined workspace admin", &a.ws_admin, 0_u32),
         ("unjoined member", &a.unjoined, 0_u32),
     ] {
@@ -316,12 +316,16 @@ async fn assert_k_anonymity_api_progression(ts: &TestServer, a: &IsolationActors
             .await
             .check_ok();
     }
-    for (label, viewer) in [("Alice", &a.alice), ("Bob", &a.bob), ("Guest", &a.guest)] {
+    for (label, viewer, expected_count) in [
+        ("Alice", &a.alice, 0_u32),
+        ("Bob", &a.bob, 3_u32),
+        ("Guest", &a.guest, 0_u32),
+    ] {
         let exams: Vec<CourseExam> = viewer
             .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
             .await
             .ok_json();
-        assert_eq!(exams[0].score_count, 3, "{label}");
+        assert_eq!(exams[0].score_count, expected_count, "{label}");
         assert_eq!(exams[0].average_score, None, "{label} unpublished");
         assert_eq!(exams[0].results_published_at, None, "{label}");
         assert_eq!(exams[0].published_score_bucket, None, "{label}");
@@ -418,18 +422,28 @@ async fn assert_post_publish_freeze_and_unpublish(
         .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
         .await
         .ok_json();
-    assert_eq!(frozen[0].score_count, 6, "live count 6");
+    assert_eq!(
+        frozen[0].score_count, 5,
+        "learner sees bucketed count 5, never exact 6"
+    );
     assert!(
         (frozen[0].average_score.expect("frozen avg") - 86.3).abs() < 1e-9,
         "snapshot average frozen at 86.3"
     );
+    let bob_frozen: Vec<CourseExam> = a
+        .bob
+        .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
+        .await
+        .ok_json();
+    assert_eq!(bob_frozen[0].score_count, 6, "manager sees exact count 6");
     assert_eq!(
         a.bob.post(pub_path, &json!({})).await.status,
         StatusCode::CONFLICT,
         "republish requires >= 3 net scorer delta"
     );
 
-    // Unpublish clears snapshot fields back to None.
+    // Unpublishing hides the snapshot, and immediately re-publishing with 6 scorers
+    // (delta 1 < 3) restores the frozen 5-scorer snapshot (86.3) rather than recomputing.
     let unpublished: CourseExam = a.bob.delete(pub_path).await.ok_json();
     assert_eq!(unpublished.average_score, None, "unpublished average None");
     assert_eq!(
@@ -440,6 +454,17 @@ async fn assert_post_publish_freeze_and_unpublish(
         unpublished.published_score_bucket, None,
         "unpublished bucket None"
     );
+    let restored: CourseExam = a.bob.post(pub_path, &json!({})).await.ok_json();
+    assert!(
+        (restored.average_score.expect("restored frozen avg") - 86.3).abs() < 1e-9,
+        "unpublish + publish with delta < 3 restores frozen 86.3 without recomputing"
+    );
+    assert_eq!(
+        restored.published_score_bucket,
+        Some(5),
+        "restored frozen bucket remains 5"
+    );
+    let _ = a.bob.delete(pub_path).await.ok_json::<CourseExam>();
 }
 
 async fn assert_removed_public_cross_org_and_own_space(ts: &TestServer, a: &IsolationActors) {

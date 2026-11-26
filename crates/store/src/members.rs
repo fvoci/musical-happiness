@@ -6,7 +6,7 @@
 use fvoci_model::{ContainerKinds, ContainerRole, ContainerVisibility, OrgRole, WorkspaceRole};
 
 use crate::audit::AuditActor;
-use crate::db::{Dialect, Id, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Scope, Sql};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
 use crate::{Store, container_kinds, org_admin};
@@ -110,7 +110,7 @@ impl Store {
             );
             sql.bind(Id(user_id))
                 .push_bind(", ", role.as_str())
-                .push_bind(", ", now_millis())
+                .push_bind(", ", scope.now_millis())
                 .push_bind(" FROM workspaces WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NULL");
@@ -133,7 +133,7 @@ async fn add_organization_member(
     sql.bind(scope.org()?)
         .push_bind(", ", Id(user_id))
         .push_bind(", ", role.as_str())
-        .push_bind(", ", now_millis())
+        .push_bind(", ", scope.now_millis())
         .push(")");
     scope.execute(sql).await?;
     Ok(())

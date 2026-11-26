@@ -184,8 +184,9 @@ impl App {
                 patch.clone(),
                 modified_by.to_owned(),
             );
+            let cards = vec![(entry_id.clone(), diary_id.clone())];
             self.collab()
-                .write_whole(self, vec![entry_id.clone()], async move |app| {
+                .write_whole(self, cards, async move |app| {
                     app.store()
                         .patch_diary_entry(&diary_id, &entry_id, &patch, &modified_by)
                         .await

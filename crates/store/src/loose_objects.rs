@@ -13,7 +13,7 @@ use fvoci_model::{FileKey, FileRecord};
 
 use crate::SYSTEM_ORG_ID;
 use crate::Store;
-use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, OptId, Row, Scope};
 use crate::error::StoreError;
 use crate::files;
 
@@ -101,7 +101,7 @@ impl Store {
                 scope.sql("INSERT INTO loose_objects (path, state, created_at, retry_at) VALUES (");
             sql.bind(path)
                 .push_bind(", ", LooseState::Writing.as_str())
-                .push_bind(", ", now_millis())
+                .push_bind(", ", scope.now_millis())
                 .push_bind(", ", doom_at)
                 .push(")");
             scope.execute(sql).await?;

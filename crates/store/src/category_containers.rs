@@ -14,7 +14,7 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::categories::get_user_categories;
-use crate::db::{Dialect, Id, Scope, now_millis};
+use crate::db::{Dialect, Id, Scope};
 use crate::error::StoreError;
 
 impl Store {
@@ -195,7 +195,7 @@ pub(crate) async fn add_update_category_container(
         return Ok(());
     }
 
-    let now = now_millis();
+    let now = scope.now_millis();
     let mut sql = scope.sql("INSERT INTO category_containers (id, user_id, category_id, container_id, created_at, updated_at, sort_order, \
          hidden) VALUES ");
     for (index, container_id) in container_ids.into_iter().enumerate() {
@@ -307,7 +307,7 @@ pub(crate) async fn put_back(
             None => return Ok(()),
         }
     };
-    let now = now_millis();
+    let now = scope.now_millis();
     let mut sql = scope.sql(
         "INSERT INTO category_containers \
          (id, user_id, category_id, container_id, created_at, updated_at, sort_order, hidden) VALUES (",

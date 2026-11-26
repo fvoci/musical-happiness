@@ -131,7 +131,8 @@ pub use container_membership::Standing;
 pub use containers::{ContainerAccessFacts, Joined, MemberChange, PublicContainers};
 pub use containers_and_blocks::{StreamBatch, StreamCreateError};
 pub use course_exams::{
-    ExamPublishError, ExamScoreOutcome, MIN_SCORER_DELTA_TO_REPUBLISH, MIN_SCORERS_TO_PUBLISH,
+    ExamPublishError, ExamScoreOutcome, ExamViewer, MIN_SCORER_DELTA_TO_REPUBLISH,
+    MIN_SCORERS_TO_PUBLISH,
 };
 pub use course_meetings::{MeetingNotificationPlace, MeetingNotified};
 pub use courses::{UnitRestore, UnitWrite};

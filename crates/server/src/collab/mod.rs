@@ -329,7 +329,10 @@ impl Collab {
     {
         let (collab, app_of_task, card_id) = (self.clone(), app.clone(), card_id.to_owned());
         let task = app.spawn_tracked(async move {
-            let container_id = collab.slot_container_id(&app_of_task, &card_id).await?;
+            let container_id = collab
+                .slot_container_id(&app_of_task, &card_id)
+                .await?
+                .ok_or_else(|| AppError::not_found("card"))?;
             let _gate = collab
                 .reading(app_of_task.store().tenant(), &container_id)
                 .await;

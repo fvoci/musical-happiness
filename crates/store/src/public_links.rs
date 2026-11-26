@@ -9,7 +9,7 @@ use fvoci_model::{PublicLink, PublicLinkChange};
 
 use crate::Store;
 use crate::containers;
-use crate::db::{Id, OptId, Scope, now_millis};
+use crate::db::{Id, OptId, Scope};
 use crate::error::StoreError;
 
 impl Store {
@@ -59,7 +59,7 @@ impl Store {
                 enabled: change != PublicLinkChange::Off,
                 token,
                 modified_by: user_id.to_owned(),
-                updated_at: now_millis(),
+                updated_at: scope.now_millis(),
             };
             upsert_public_link(scope, &public_link).await?;
             Ok(public_link)

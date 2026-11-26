@@ -422,7 +422,11 @@ async fn deleting_a_card_with_unwritten_updates_surfaces_not_found_not_unavailab
     );
 
     let write_error = collab
-        .write_whole(&e.app, vec![e.card_id.clone()], |_app| async { Ok(()) })
+        .write_whole(
+            &e.app,
+            vec![(e.card_id.clone(), String::new())],
+            |_app| async { Ok(()) },
+        )
         .await
         .expect_err("deleted card cannot be written whole");
     assert!(
@@ -430,6 +434,37 @@ async fn deleting_a_card_with_unwritten_updates_surfaces_not_found_not_unavailab
         "expected 404 NotFound from write_whole, got {:?} (reason {:?}): {write_error}",
         write_error.kind(),
         write_error.reason()
+    );
+
+    // Unknown card IDs return 404 without creating an empty `""` gate or slot key, and
+    // once idle `gates` and `structures` prune back to empty.
+    let missing_id = fvoci_model::new_id();
+    assert!(
+        collab
+            .open(&e.app, &missing_id)
+            .await
+            .unwrap_err()
+            .is_not_found(),
+        "opening missing card must return 404"
+    );
+    assert!(
+        collab
+            .write_whole(&e.app, vec![(missing_id, String::new())], |_app| async {
+                Ok(())
+            })
+            .await
+            .unwrap_err()
+            .is_not_found(),
+        "writing missing card must return 404"
+    );
+    drop(editor);
+    e.app
+        .finish_background(std::time::Duration::from_secs(2))
+        .await;
+    assert_eq!(
+        collab.lock_and_slot_stats(),
+        (0, 0, false),
+        "gates and structures must prune to empty and never insert an empty container key"
     );
     th.teardown().await;
 }

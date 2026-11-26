@@ -183,6 +183,22 @@ async fn seed_pre0077_org_rows(pre: &Store, fx: &Pre0077Fixture) {
             .await
             .expect("seed pre-0077 org");
     }
+    seed_pre0077_sqlite_orphan(pre.db_type(), &scoped, verified_user).await;
+}
+
+async fn seed_pre0077_sqlite_orphan(db: DbType, scoped: &Store, verified_user: &str) {
+    if db == DbType::Sqlite {
+        let orphan_course = new_id();
+        let orphan_unit = new_id();
+        scoped
+            .execute_unchecked(&format!(
+                "INSERT INTO unit_progress \
+                 (container_id, unit_id, user_id, org_id, completed_at, last_position, updated_at) \
+                 VALUES ('{orphan_course}', '{orphan_unit}', '{verified_user}', '', 1000, '', 1000)"
+            ))
+            .await
+            .expect("seed pre-0077 sqlite orphan unit_progress");
+    }
 }
 
 fn build_pre0077_trashed_docs(db: DbType, fx: &Pre0077Fixture) -> (String, String, String, String) {
@@ -338,7 +354,15 @@ async fn migration_0077_backfills_derived_columns_aligns_visibility_default_and_
     // 4. `containers.visibility` default parity (`'private'`) and index checks.
     assert_visibility_default_and_indexes(&sys).await;
 
-    // 5. Course child integrity triggers allow live & trashed courses and reject boards/missing.
+    // 5. Course child integrity triggers allow live & trashed courses and reject boards/missing,
+    // and SQLite orphan rows with `org_id = ''` were removed during 0077.
+    if migrated.db_type() == DbType::Sqlite {
+        let orphans = scoped
+            .texts_unchecked("SELECT container_id FROM unit_progress WHERE org_id = ''")
+            .await
+            .expect("check sqlite orphan cleanup");
+        assert!(orphans.is_empty(), "0077 must delete orphan org_id='' rows");
+    }
     assert_course_child_triggers(&scoped, &fx).await;
 
     migrated.close().await;

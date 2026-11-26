@@ -639,8 +639,8 @@ fn cuts_inside_a_run_of_values_are_charged_more_than_inside_letters() {
 /// The library walks the blocks of a client from the start of each range of its
 /// deletions to its end, in the order the ranges are written: ranges that go back or
 /// overlap make it walk the same blocks again and again, and are refused. Ranges in
-/// order are taken, also where one ends where the next begins. A client named twice is
-/// read as the library reads it: the second time alone.
+/// order are taken, also where one ends where the next begins. Naming the same client
+/// more than once in the delete set is refused during wire scanning before decoding.
 #[test]
 fn deletions_of_a_client_that_go_back_or_overlap_are_refused() {
     const LETTERS: u64 = 1000;
@@ -674,16 +674,16 @@ fn deletions_of_a_client_that_go_back_or_overlap_are_refused() {
     refused(vec![(WRITER, vec![(20, 1), (10, 1)])]);
     refused(vec![(WRITER, vec![(2, LETTERS); 1000])]);
 
-    let left = taken(vec![
-        (WRITER, vec![(2, LETTERS); 1000]),
-        (WRITER, vec![(10, 1)]),
-    ])
-    .expect("the second alone is read");
-    assert_eq!(left, 999);
-    refused(vec![
-        (WRITER, vec![(10, 1)]),
-        (WRITER, vec![(20, 1), (10, 1)]),
-    ]);
+    for duplicate_client in [
+        vec![(WRITER, vec![(2, LETTERS); 1000]), (WRITER, vec![(10, 1)])],
+        vec![(WRITER, vec![(10, 1)]), (WRITER, vec![(20, 1), (10, 1)])],
+    ] {
+        let result = taken(duplicate_client.clone());
+        assert!(
+            matches!(result, Err(TakeError::Update(UpdateError::Unreadable(_)))),
+            "duplicate delete-set client must be refused at scan: {duplicate_client:?} -> {result:?}"
+        );
+    }
 }
 
 /// A document of `children` empty paragraphs typed by `client` one after the other:

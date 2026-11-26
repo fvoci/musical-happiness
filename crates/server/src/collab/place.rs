@@ -261,20 +261,16 @@ pub(super) fn key_of(tenant: Tenant, card_id: &str) -> String {
 impl Collab {
     /// Resolves the `container_id` of `card_id`, checking the in-memory `slots` table
     /// first and falling back to a lightweight store lookup across live and deleted
-    /// blocks.
+    /// blocks. Returns `Ok(None)` if no such block exists.
     pub(super) async fn slot_container_id(
         &self,
         app: &App,
         card_id: &str,
-    ) -> Result<String, AppError> {
+    ) -> Result<Option<String>, AppError> {
         if let Some(container_id) = self.existing_slot_container_id(app, card_id) {
-            return Ok(container_id);
+            return Ok(Some(container_id));
         }
-        Ok(app
-            .store()
-            .find_any_block_container_id(card_id)
-            .await?
-            .unwrap_or_default())
+        Ok(app.store().find_any_block_container_id(card_id).await?)
     }
 
     /// Returns the `container_id` of `card_id` if a slot currently exists in memory.
@@ -288,6 +284,10 @@ impl Collab {
 
     /// The slot of a card of `app`'s organization in `container_id`, held.
     pub(super) async fn slot_in(&self, app: &App, card_id: &str, container_id: &str) -> Held {
+        debug_assert!(
+            !container_id.is_empty(),
+            "slot_in requires a non-empty container_id"
+        );
         let tenant = app.store().tenant();
         let key = key_of(tenant, card_id);
         loop {
@@ -310,16 +310,10 @@ impl Collab {
                         })),
                     )
                 });
-                if entry.0.is_empty() && !container_id.is_empty() {
-                    container_id.clone_into(&mut entry.0);
-                }
                 Arc::clone(&entry.1)
             };
-            let mut slot = shared.lock_owned().await;
+            let slot = shared.lock_owned().await;
             if !slot.retired {
-                if slot.container_id.is_empty() && !container_id.is_empty() {
-                    container_id.clone_into(&mut slot.container_id);
-                }
                 return slot;
             }
         }

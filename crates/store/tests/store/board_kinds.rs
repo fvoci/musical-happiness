@@ -686,7 +686,7 @@ async fn assert_course_learning_counts(
     );
     assert_eq!(
         usize::try_from(
-            test.list_course_exams(course_id, Some(exam_viewer))
+            test.list_course_exams(course_id, fvoci_store::ExamViewer::Manager(exam_viewer))
                 .await
                 .expect("exams")[0]
                 .score_count

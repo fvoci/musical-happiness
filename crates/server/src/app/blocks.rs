@@ -158,10 +158,10 @@ impl App {
         if block.block_type.has_room() {
             // A card stored again writes its body whole, around its document.
             let (mut stored, modified_by) = (block.clone(), modified_by.to_owned());
-            let card_ids = vec![block.id.clone()];
+            let cards = vec![(block.id.clone(), block.container_id.clone())];
             *block = self
                 .collab()
-                .write_whole(self, card_ids, async move |app| {
+                .write_whole(self, cards, async move |app| {
                     app.store_telling(notification)
                         .insert_block(&mut stored, &modified_by)
                         .await?;
@@ -223,12 +223,12 @@ impl App {
         let container = self.store().get_container(&container_id).await?;
 
         // Store all blocks atomically so a failure leaves none persisted.
-        let card_ids: Vec<String> = blocks
+        let cards: Vec<(String, String)> = blocks
             .iter()
             .filter(|block| block.block_type.has_room())
-            .map(|block| block.id.clone())
+            .map(|block| (block.id.clone(), container_id.clone()))
             .collect();
-        if card_ids.is_empty() {
+        if cards.is_empty() {
             let _structure = self.collab().changing_structure(self, &container_id).await;
             self.store_telling(notification)
                 .insert_blocks(blocks, modified_by)
@@ -238,7 +238,7 @@ impl App {
             let (mut stored, modified_by) = (blocks.to_vec(), modified_by.to_owned());
             let stored = self
                 .collab()
-                .write_whole(self, card_ids, async move |app| {
+                .write_whole(self, cards, async move |app| {
                     app.store_telling(notification)
                         .insert_blocks(&mut stored, &modified_by)
                         .await?;
@@ -288,9 +288,9 @@ impl App {
             // A whole body is written around the document of a body edited together.
             let (block_id, patch, modified_by) =
                 (block_id.to_owned(), patch.clone(), modified_by.to_owned());
-            let card_ids = vec![block_id.clone()];
+            let cards = vec![(block_id.clone(), old_block.container_id.clone())];
             self.collab()
-                .write_whole(self, card_ids, async move |app| {
+                .write_whole(self, cards, async move |app| {
                     Ok(app
                         .store_telling(notification)
                         .patch_block(&block_id, &patch, &modified_by)

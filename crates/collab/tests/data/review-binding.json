@@ -2,8 +2,8 @@
   "description": "Additional normal-body vectors from review_binding.mjs using the locked yjs and y-tiptap versions; no editor rendering or repair oracle.",
   "versions": {
     "yjs": "13.6.33",
-    "@tiptap/y-tiptap": "3.3.0",
-    "@tiptap/pm": "3.34.0"
+    "@tiptap/y-tiptap": "3.3.1",
+    "@tiptap/pm": "3.35.0"
   },
   "cases": [
     {
@@ -3179,7 +3179,7 @@
           {
             "type": "image",
             "attrs": {
-              "fileId": "😀é.png",
+              "fileId": "unicode-image.png",
               "alt": "😀é한글𝒳👩‍👩‍👧‍👦\r\n\t  "
             }
           },
@@ -3193,7 +3193,7 @@
           {
             "type": "file",
             "attrs": {
-              "fileId": "😀é.pdf"
+              "fileId": "unicode-doc.pdf"
             }
           },
           {
@@ -3273,7 +3273,7 @@
           {
             "type": "image",
             "attrs": {
-              "fileId": "😀é.png",
+              "fileId": "unicode-image.png",
               "alt": "😀é한글𝒳👩‍👩‍👧‍👦\r\n\t  "
             }
           },
@@ -3287,7 +3287,7 @@
           {
             "type": "file",
             "attrs": {
-              "fileId": "😀é.pdf"
+              "fileId": "unicode-doc.pdf"
             }
           },
           {
@@ -3323,7 +3323,7 @@
           }
         ]
       },
-      "update": "AR4BAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQE58J+YgGXMgeGEkuGFoeGGq+q4gPCdkrPwn5Gp4oCN8J+RqeKAjfCfkafigI3wn5GmDQoJ4oCo4oCpKAABAAVsZXZlbAF9A4cBAAMJcGFyYWdyYXBoBwABHQMKaW5saW5lTWF0aCgAAR4FbGF0ZXgBdznwn5iAZcyB4YSS4YWh4Yar6riA8J2Ss/CfkanigI3wn5Gp4oCN8J+Rp+KAjfCfkaYNCgnigKjigKmHAR4DB21lbnRpb24oAAEgBnVzZXJJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMocBIAMJcmVmZXJlbmNlKAABIgJpZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYjAwMocBHQMJYmxvY2tNYXRoKAABJAVsYXRleAF3OfCfmIBlzIHhhJLhhaHhhqvquIDwnZKz8J+RqeKAjfCfkanigI3wn5Gn4oCN8J+Rpg0KCeKAqOKAqYcBJAMFaW1hZ2UoAAEmBmZpbGVJZAF3C/CfmIBlzIEucG5nKAABJgNhbHQBdznwn5iAZcyB4YSS4YWh4Yar6riA8J2Ss/CfkanigI3wn5Gp4oCN8J+Rp+KAjfCfkaYNCgnigKjigKmHASYDBWltYWdlKAABKQZmaWxlSWQBdw1lbXB0eS1hbHQucG5nKAABKQNhbHQBdwCHASkDBGZpbGUoAAEsBmZpbGVJZAF3C/CfmIBlzIEucGRmhwEsAwljb2RlQmxvY2sHAAEuBgQAAS8kZ3JhcGggVEQKIEFbIvCfmIBlzIEiXS0tPkJbIu2VnOq4gCJdKAABLghsYW5ndWFnZQF3B21lcm1haWSHAS4DCWNvZGVCbG9ja4cBTgMLb3JkZXJlZExpc3QHAAFPAwhsaXN0SXRlbQcAAVADCXBhcmFncmFwaCgAAU8Fc3RhcnQBfQEA"
+      "update": "AR4BAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQE58J+YgGXMgeGEkuGFoeGGq+q4gPCdkrPwn5Gp4oCN8J+RqeKAjfCfkafigI3wn5GmDQoJ4oCo4oCpKAABAAVsZXZlbAF9A4cBAAMJcGFyYWdyYXBoBwABHQMKaW5saW5lTWF0aCgAAR4FbGF0ZXgBdznwn5iAZcyB4YSS4YWh4Yar6riA8J2Ss/CfkanigI3wn5Gp4oCN8J+Rp+KAjfCfkaYNCgnigKjigKmHAR4DB21lbnRpb24oAAEgBnVzZXJJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMocBIAMJcmVmZXJlbmNlKAABIgJpZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYjAwMocBHQMJYmxvY2tNYXRoKAABJAVsYXRleAF3OfCfmIBlzIHhhJLhhaHhhqvquIDwnZKz8J+RqeKAjfCfkanigI3wn5Gn4oCN8J+Rpg0KCeKAqOKAqYcBJAMFaW1hZ2UoAAEmBmZpbGVJZAF3EXVuaWNvZGUtaW1hZ2UucG5nKAABJgNhbHQBdznwn5iAZcyB4YSS4YWh4Yar6riA8J2Ss/CfkanigI3wn5Gp4oCN8J+Rp+KAjfCfkaYNCgnigKjigKmHASYDBWltYWdlKAABKQZmaWxlSWQBdw1lbXB0eS1hbHQucG5nKAABKQNhbHQBdwCHASkDBGZpbGUoAAEsBmZpbGVJZAF3D3VuaWNvZGUtZG9jLnBkZocBLAMJY29kZUJsb2NrBwABLgYEAAEvJGdyYXBoIFRECiBBWyLwn5iAZcyBIl0tLT5CWyLtlZzquIAiXSgAAS4IbGFuZ3VhZ2UBdwdtZXJtYWlkhwEuAwljb2RlQmxvY2uHAU4DC29yZGVyZWRMaXN0BwABTwMIbGlzdEl0ZW0HAAFQAwlwYXJhZ3JhcGgoAAFPBXN0YXJ0AX0BAA=="
     }
   ]
 }

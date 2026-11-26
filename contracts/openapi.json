@@ -16525,7 +16525,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/exams": {
       "get": {
-        "description": "Returns every exam of the course ordered by `examDate` ascending (exams without a date\nlast), then by `createdAt` and `id`. Enrolled members receive `scoreCount` across active\nenrolled course members, `myScore` containing only the caller's own score, and — once a\ncourse manager publishes a result snapshot (`publishCourseExamResults`) — the frozen\ncoarse snapshot (`averageScore` rounded to one decimal place, `resultsPublishedAt`, and\n`publishedScoreBucket` rounded down to a multiple of 5). Before publication,\n`averageScore` is `null` for every role (including admins) so individual scores cannot be\nrecovered by differencing. Unjoined readers receive `myScore: null`,\n`averageScore: null`, and `scoreCount: 0`. Another member's individual score or note is\nnever returned under any role.",
+        "description": "Returns every exam of the course ordered by `examDate` ascending (exams without a date\nlast), then by `createdAt` and `id`. Enrolled course managers (`ManageRoles`) receive\nthe exact `scoreCount` across active enrolled course members; other enrolled members\nreceive `scoreCount` rounded down to a multiple of `5` so single-student score\nsubmissions are not exposed. Every enrolled member receives `myScore` containing only\ntheir own score and — once a course manager publishes a result snapshot\n(`publishCourseExamResults`) — the frozen coarse snapshot (`averageScore` rounded to\none decimal place, `resultsPublishedAt`, and `publishedScoreBucket` rounded down to a\nmultiple of `5`). Before publication, `averageScore` is `null` for every role\n(including admins). Unjoined readers receive `myScore: null`, `averageScore: null`,\nand `scoreCount: 0`. Another member's individual score or note is never returned under\nany role.",
         "operationId": "listCourseExams",
         "parameters": [
           {
@@ -16886,7 +16886,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/exams/{examId}/results-publication": {
       "delete": {
-        "description": "Clears the published result snapshot on the exam so `averageScore`,\n`resultsPublishedAt`, and `publishedScoreBucket` return to `null`. Requires course role\nmanagement (`ManageRoles`).",
+        "description": "Hides the published result snapshot on the exam so `averageScore`,\n`resultsPublishedAt`, and `publishedScoreBucket` return to `null` while retaining the\nsnapshot baseline against republication differencing. Requires course role management\n(`ManageRoles`).",
         "operationId": "unpublishCourseExamResults",
         "parameters": [
           {
@@ -16945,7 +16945,7 @@
         ]
       },
       "post": {
-        "description": "Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and\n`publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course\nrole management (`ManageRoles`), at least 5 active enrolled scorers, and — when\nrepublishing an already-published exam — a net scorer count change of at least 3 since\nthe previous snapshot (`409` otherwise).",
+        "description": "Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and\n`publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course\nrole management (`ManageRoles`) and at least 5 active enrolled scorers. When a previous\nsnapshot exists, recomputing requires a net scorer count change of at least 3 (`409`\nif already published; restores the frozen snapshot without recomputing if currently\nunpublished).",
         "operationId": "publishCourseExamResults",
         "parameters": [
           {
