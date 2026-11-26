@@ -38,6 +38,8 @@ pub struct Asked {
     pub(super) text: String,
     pub(super) kind: Option<SearchKind>,
     pub(super) limit: usize,
+    /// The one container searched, of those the user reads; all of them if none.
+    pub(super) within: Option<String>,
 }
 
 /// What of a search's parameters is out of bounds.
@@ -70,7 +72,18 @@ impl Asked {
             text: text.to_owned(),
             kind,
             limit,
+            within: None,
         })
+    }
+
+    /// The same search of the container `container_id` alone, if the user reads it:
+    /// the `limit` is of its hits, and a container the user does not read has none.
+    #[must_use]
+    pub fn within(self, container_id: &str) -> Self {
+        Self {
+            within: Some(container_id.to_owned()),
+            ..self
+        }
     }
 
     /// If the query is `#12` (or `#0012` normalized to `12`) and the requested kind
@@ -145,6 +158,7 @@ impl App {
             .await?
             .into_iter()
             .map(|container| container.id)
+            .filter(|id| asked.within.as_ref().is_none_or(|within| within == id))
             .collect();
         if theirs.is_empty() {
             return Ok(Vec::new());

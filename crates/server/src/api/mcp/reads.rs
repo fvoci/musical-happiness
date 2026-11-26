@@ -94,7 +94,11 @@ pub(super) struct ListedComment {
 }
 
 /// `value` as JSON.
-fn to_json(value: &impl Serialize) -> Result<Value, AppError> {
+///
+/// # Errors
+///
+/// Returns a failure of the server if it cannot be written as JSON.
+pub(super) fn to_json(value: &impl Serialize) -> Result<Value, AppError> {
     serde_json::to_value(value)
         .map_err(|error| AppError::internal(format_args!("an answer as JSON: {error}")))
 }
@@ -177,10 +181,7 @@ pub(super) async fn search(
         kind: text(arguments.kind.map(ContentKind::as_str)),
         limit: text(arguments.limit),
     };
-    let mut hits = search_content(&ws, &query).await?;
-    if let Some(container_id) = &arguments.container_id {
-        hits.retain(|hit| hit.container_id == *container_id);
-    }
+    let hits = search_content(&ws, &query, arguments.container_id.as_deref()).await?;
     Ok(json!({ "hits": hits }))
 }
 
@@ -228,7 +229,13 @@ fn in_markdown(mut item: Value, written: BodyInMarkdown) -> Value {
         );
         members.insert(
             "complexBlocks".to_owned(),
-            serde_json::to_value(written.complex_blocks).unwrap_or_default(),
+            Value::Array(
+                written
+                    .complex_blocks
+                    .iter()
+                    .filter_map(|block| serde_json::to_value(block).ok())
+                    .collect(),
+            ),
         );
     }
     item
@@ -473,10 +480,13 @@ pub(super) async fn get_outline(
     )
     .await?;
     let container_id = arguments.container_id.as_str();
+    // Which it is is told only of one the caller reads: of any other, the answer is
+    // that there is none, as the routes answer.
     let kind = ws
         .app
         .container_access(&ws.caller.user_id, container_id)
         .await?
+        .filter(|access| access.grant.allows(ContainerPermission::View))
         .map(|access| access.container.kind);
     match kind {
         Some(ContainerKind::Wiki) => {
@@ -490,7 +500,7 @@ pub(super) async fn get_outline(
             let progress = my_progress_in(&ws, container_id).await?;
             Ok(json!({ "kind": "course", "units": units, "myProgress": progress }))
         }
-        _ => Err(AppError::not_found("wiki or course").into()),
+        _ => Err(AppError::not_found("board").into()),
     }
 }
 

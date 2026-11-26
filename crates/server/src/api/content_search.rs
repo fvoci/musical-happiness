@@ -78,11 +78,11 @@ async fn handle_search_content(
     Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     QueryParams(query): QueryParams<ContentSearchQuery>,
 ) -> ApiResult {
-    Ok(json_response(&search_content(&ws, &query).await?))
+    Ok(json_response(&search_content(&ws, &query, None).await?))
 }
 
 /// What `query` finds in the workspace `ws` was entered for, as
-/// `searchWorkspaceContent` finds it.
+/// `searchWorkspaceContent` finds it: in the container `within` alone if one is given.
 ///
 /// # Errors
 ///
@@ -90,6 +90,7 @@ async fn handle_search_content(
 pub(super) async fn search_content(
     ws: &InWorkspace,
     query: &ContentSearchQuery,
+    within: Option<&str>,
 ) -> Result<Vec<SearchHit>, AppError> {
     let kind = match query.kind.as_str() {
         "" => None,
@@ -106,6 +107,10 @@ pub(super) async fn search_content(
             AskedError::LimitOutOfRange => "limit",
         })
     })?;
+    let asked = match within {
+        Some(container_id) => asked.within(container_id),
+        None => asked,
+    };
     let found = ws
         .app
         .search_workspace(&ws.caller.user_id, &ws.workspace_id, &asked)

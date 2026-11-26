@@ -90,7 +90,7 @@
         "description": "A search of what a workspace says.",
         "properties": {
           "containerId": {
-            "description": "Only what is in this board, wiki or course: the hits of the workspace that are\nelsewhere are left out of the `limit`'s worth found.",
+            "description": "Only what is in this board, wiki or course: the `limit` is of its hits.",
             "type": [
               "string",
               "null"

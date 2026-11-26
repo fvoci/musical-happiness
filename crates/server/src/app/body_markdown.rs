@@ -259,6 +259,28 @@ impl App {
         container_id: &str,
         markdown: &str,
     ) -> Result<(), AppError> {
+        let nodes = self.markdown_to_append(container_id, markdown).await?;
+        let by = Appender {
+            user_id: &caller.user_id,
+            agent: caller.agent(),
+        };
+        self.collab().append(self, block_id, by, &nodes).await
+    }
+
+    /// The nodes `markdown` adds after the last of a body of the container
+    /// `container_id`, checked as [`Self::append_markdown`] checks them before it
+    /// writes: so that what is to be added after other changes is refused before them.
+    ///
+    /// # Errors
+    ///
+    /// Returns 400 at `/markdown` for Markdown that adds nothing, nests too deep or
+    /// names a file the container does not have, and 413 for a body that would be
+    /// larger than it may.
+    pub async fn markdown_to_append(
+        &self,
+        container_id: &str,
+        markdown: &str,
+    ) -> Result<Vec<Value>, AppError> {
         let nodes = markdown_nodes(markdown, "markdown")?;
         let Some(added) =
             blocks_to_body(nodes.clone()).map_err(|error| error.with_field("markdown"))?
@@ -274,10 +296,6 @@ impl App {
         self.check_body_files(container_id, Some(&added))
             .await
             .map_err(|error| error.moved("/body", "/markdown"))?;
-        let by = Appender {
-            user_id: &caller.user_id,
-            agent: caller.agent(),
-        };
-        self.collab().append(self, block_id, by, &nodes).await
+        Ok(nodes)
     }
 }

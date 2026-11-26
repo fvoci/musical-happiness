@@ -67,8 +67,7 @@ pub(super) struct SearchArguments {
     #[serde(default)]
     #[schema(inline)]
     pub(super) kind: Option<ContentKind>,
-    /// Only what is in this board, wiki or course: the hits of the workspace that are
-    /// elsewhere are left out of the `limit`'s worth found.
+    /// Only what is in this board, wiki or course: the `limit` is of its hits.
     #[serde(default)]
     pub(super) container_id: Option<String>,
     /// How many hits at most, 1 to 50; 20 if left out.

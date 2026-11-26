@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::api_tokens_diaries::{Space, WORD, a_space_with_a_diary};
 use crate::common::{
     ApiResponse, Client, HIDDEN_WORKSPACE_ID, PASSWORD, ROOT_WORKSPACE_ID, Setup,
-    TEST_WORKSPACE_ID, TEST_WS, TestServer,
+    TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
 };
 use crate::diaries::last_of;
 use crate::workspaces::another_organization;
@@ -400,7 +400,7 @@ async fn a_token_lists_the_workspaces_it_was_given_and_reaches_no_diary() {
     let entry_id = last_of(&entry).to_owned();
     // Given the space alone, the token lists it alone: not the workspaces its owner
     // works in and it was not given, nor one they are not in.
-    assert_eq!(listed(&agent).await, [own.clone()]);
+    assert_eq!(listed(&agent).await, std::slice::from_ref(&own));
     let both: IssuedApiToken = th
         .client
         .post(
@@ -484,28 +484,119 @@ async fn a_token_lists_the_workspaces_it_was_given_and_reaches_no_diary() {
 
     // A workspace of another organization its owner is let into is not the token's.
     if fvoci_store::testing::db_type_of_the_tests() == DbType::Postgres {
-        let (store, their_workspace, _) = another_organization(&th).await;
-        let user = th.client.me().await.id;
-        store
-            .add_organization_member(&user, OrgRole::Member)
-            .await
-            .expect("the user joins their organization");
-        store
-            .add_workspace_member(&their_workspace, &user, WorkspaceRole::Member)
-            .await
-            .expect("the user is let into their workspace");
-        let theirs = format!("/w/{their_workspace}/boards");
-        th.client.get(&theirs).await.check_ok();
-        assert_eq!(listed(&agent).await, [own.clone()]);
-        assert!(!listed(&both).await.contains(&their_workspace));
-        let problem = refused(
-            &both,
-            "get_workspace_overview",
-            &json!({"workspaceId": their_workspace}),
-        )
-        .await;
-        assert_eq!(problem["status"], 404, "{problem}");
+        check_another_organization_is_not_reached(&th, &agent, &both, &own).await;
     }
 
     th.teardown().await;
+}
+
+/// Lets the owner of `agent` and `both` into a workspace of another organization, and
+/// checks that neither token lists or enters it.
+async fn check_another_organization_is_not_reached(
+    th: &TestServer,
+    agent: &Client,
+    both: &Client,
+    own: &str,
+) {
+    let (store, their_workspace, _) = another_organization(th).await;
+    let user = th.client.me().await.id;
+    store
+        .add_organization_member(&user, OrgRole::Member)
+        .await
+        .expect("the user joins their organization");
+    store
+        .add_workspace_member(&their_workspace, &user, WorkspaceRole::Member)
+        .await
+        .expect("the user is let into their workspace");
+    let theirs = format!("/w/{their_workspace}/boards");
+    th.client.get(&theirs).await.check_ok();
+    assert_eq!(listed(agent).await, [own], "the space alone still");
+    assert!(
+        !listed(both).await.contains(&their_workspace),
+        "their workspace is not the token's"
+    );
+    let problem = refused(
+        both,
+        "get_workspace_overview",
+        &json!({"workspaceId": their_workspace}),
+    )
+    .await;
+    assert_eq!(problem["status"], 404, "{problem}");
+}
+
+#[tokio::test]
+async fn an_outline_tells_nothing_of_what_the_caller_does_not_read() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let theirs: Value = ts
+        .client2
+        .post(
+            &format!("{TEST_WS}/wikis"),
+            &json!({"title": "theirs", "visibility": "private"}),
+        )
+        .await
+        .created_json();
+    let agent = agent_of(&ts, &ts.client, "read", &[TEST_WORKSPACE_ID]).await;
+    let outline =
+        |container_id: &str| json!({"workspaceId": TEST_WORKSPACE_ID, "containerId": container_id});
+    let private = refused(
+        &agent,
+        "get_outline",
+        &outline(theirs["id"].as_str().expect("an id")),
+    )
+    .await;
+    let unknown = refused(&agent, "get_outline", &outline(UNKNOWN_ID)).await;
+    for problem in [&private, &unknown] {
+        assert_eq!(problem["status"], 404, "{problem}");
+    }
+    assert_eq!(private["detail"], unknown["detail"], "{private} {unknown}");
+
+    ts.teardown().await;
+}
+
+#[tokio::test]
+async fn a_search_of_one_container_counts_its_hits_alone() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let one = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
+        .await;
+    let many = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
+        .await;
+    let card = |title: &str| json!({"title": title});
+    for _ in 0..3 {
+        ts.client
+            .post(
+                &format!("{TEST_WS}/boards/{}/cards", many.id),
+                &card("lantern lantern lantern"),
+            )
+            .await
+            .check_created();
+    }
+    let alone: Value = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", one.id),
+            &card("a lantern"),
+        )
+        .await
+        .created_json();
+    assert!(
+        ts.app
+            .finish_background(std::time::Duration::from_secs(5))
+            .await,
+        "the background work ends"
+    );
+    let agent = agent_of(&ts, &ts.client, "read", &[TEST_WORKSPACE_ID]).await;
+    let found = called(
+        &agent,
+        "search_workspace",
+        &json!({"workspaceId": TEST_WORKSPACE_ID, "q": "lantern", "containerId": one.id,
+                "limit": 1}),
+    )
+    .await;
+    let hits = found["hits"].as_array().expect("hits");
+    assert_eq!(hits.len(), 1, "{found}");
+    assert_eq!(hits[0]["id"], alone["id"], "{found}");
+
+    ts.teardown().await;
 }

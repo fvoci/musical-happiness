@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use crate::api_tokens::agent_writing;
 use crate::body_versions::versions;
-use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS};
+use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, UNKNOWN_ID};
 use crate::mcp::{agent_of, call, called, refused};
 use crate::rooms::{QUIET, paragraphs, two_in_a_room};
 
@@ -179,6 +179,25 @@ async fn a_page_is_made_written_and_added_to_as_the_agents_and_commented_on() {
     )
     .await;
     assert_eq!(problem["status"], 409, "{problem}");
+    // As what is added to it, and nothing is.
+    let problem = refused(
+        &agent,
+        "save_page_or_unit",
+        &page(json!({"id": page_id, "appendMarkdown": "late", "readAt": made["updatedAt"]})),
+    )
+    .await;
+    assert_eq!(problem["status"], 409, "{problem}");
+    let read = called(
+        &agent,
+        "get_item",
+        &json!({"workspaceId": TEST_WORKSPACE_ID, "kind": "page", "containerId": wiki,
+                "id": page_id}),
+    )
+    .await;
+    assert!(
+        !read["item"]["bodyMarkdown"].to_string().contains("late"),
+        "{read}"
+    );
 
     let comment = json!({"workspaceId": TEST_WORKSPACE_ID, "kind": "page",
                          "containerId": wiki, "itemId": page_id});
@@ -264,6 +283,87 @@ async fn progress_is_recorded_in_a_course_the_caller_joined_and_refused_in_one_t
     )
     .await;
     assert_eq!(result["isError"], false, "{result}");
+
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn what_a_tool_refuses_it_writes_nothing_of() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerVisibility::Private)
+        .await;
+    let course = container(&th.client, "courses", "private").await;
+    let agent = agent_writing(&th, &th.client).await;
+
+    // A page whose body names a file its wiki does not have is not made.
+    let wiki = container(&th.client, "wikis", "private").await;
+    let problem = refused(
+        &agent,
+        "save_page_or_unit",
+        &json!({"workspaceId": TEST_WORKSPACE_ID, "kind": "page", "containerId": wiki,
+                "title": "half", "bodyMarkdown": format!("[gone](fvoci-file://{UNKNOWN_ID})")}),
+    )
+    .await;
+    assert_eq!(problem["status"], 400, "{problem}");
+    let outline = called(
+        &agent,
+        "get_outline",
+        &json!({"workspaceId": TEST_WORKSPACE_ID, "containerId": wiki}),
+    )
+    .await;
+    assert_eq!(outline["pages"], json!([]), "no page was made: {outline}");
+    // A card made with what is added is made with it as its body; one that is there is
+    // not renamed when what it would add is refused.
+    let made = called(
+        &agent,
+        "save_card",
+        &json!({"workspaceId": TEST_WORKSPACE_ID, "boardId": board.id, "title": "kept",
+                "appendMarkdown": "made with it"}),
+    )
+    .await;
+    check_says(&made["bodyMarkdown"], &["made with it"]);
+    let problem = refused(
+        &agent,
+        "save_card",
+        &json!({"workspaceId": TEST_WORKSPACE_ID, "cardId": made["id"], "title": "renamed",
+                "appendMarkdown": "   "}),
+    )
+    .await;
+    assert_eq!(problem["status"], 400, "{problem}");
+    let card: Value = th
+        .client
+        .get(&format!(
+            "{TEST_WS}/cards/{}",
+            made["id"].as_str().expect("an id")
+        ))
+        .await
+        .ok_json();
+    assert_eq!(card["title"], "kept", "{card}");
+
+    // A chapter has no body: one is not made with one.
+    for body in [json!({"bodyMarkdown": "x"}), json!({"appendMarkdown": "x"})] {
+        let mut arguments = json!({"workspaceId": TEST_WORKSPACE_ID, "kind": "unit",
+                                   "containerId": course, "unitKind": "chapter",
+                                   "title": "Part one"});
+        arguments
+            .as_object_mut()
+            .expect("an object")
+            .extend(body.as_object().expect("an object").clone());
+        let problem = refused(&agent, "save_page_or_unit", &arguments).await;
+        assert_eq!(problem["status"], 400, "{body}: {problem}");
+    }
+    let outline = called(
+        &agent,
+        "get_outline",
+        &json!({"workspaceId": TEST_WORKSPACE_ID, "containerId": course}),
+    )
+    .await;
+    assert_eq!(
+        outline["units"],
+        json!([]),
+        "no chapter was made: {outline}"
+    );
 
     th.teardown().await;
 }
