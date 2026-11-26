@@ -4,11 +4,15 @@
  * layer sits below the app's popover components and cannot use them.
  *
  * The cursor stays in the editor; the list is driven from there. The arrow
- * keys move through it, Enter or Tab takes the entry, Escape closes it. It
- * is placed again whenever the editor reports the cursor's rectangle anew,
- * which it does on every change and when the window is resized.
+ * keys move through it, Enter or Tab takes the entry, Escape closes it. A
+ * key that an input method is composing with (the Enter that ends a Korean
+ * syllable) is the input method's, never the list's. It is placed again
+ * whenever the editor reports the cursor's rectangle anew, which it does on
+ * every change and when the window is resized.
  */
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
+
+import { isComposing } from '$lib/keys.ts';
 
 import type { SuggestionEntry, SuggestionRenderer } from './extensions.ts';
 
@@ -107,7 +111,7 @@ class SuggestionList {
   };
 
   onKeyDown = ({ event }: SuggestionKeyDownProps): boolean => {
-    if (!this.#list || this.#entries.length === 0) return false;
+    if (!this.#list || this.#entries.length === 0 || isComposing(event)) return false;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       const step = event.key === 'ArrowDown' ? 1 : -1;
       this.#active = (this.#active + step + this.#entries.length) % this.#entries.length;

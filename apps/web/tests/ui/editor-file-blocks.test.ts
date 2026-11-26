@@ -417,11 +417,11 @@ describe('the slash menu', () => {
       this.dispatchEvent(new Event('change'));
     });
     editor.commands.focus();
-    editor.commands.insertContent('/');
+    editor.commands.insertContent('/image');
     await vi.waitFor(() => {
       expect(
         document.querySelector('[data-suggestions="slash"] [role="option"]')?.textContent,
-      ).toBe('File');
+      ).toBe('File or image');
     });
     expect(press(editor, 'Enter')).toBe(true);
     expect(asked).toHaveBeenCalledTimes(1);
@@ -432,8 +432,21 @@ describe('the slash menu', () => {
 
   it('is not offered in code or after anything but a space, and offers no file without uploads', async () => {
     const uploadFile = vi.fn((_file: File) => Promise.resolve('7x.pdf'));
+    const blocks = [
+      'Heading 1',
+      'Heading 2',
+      'Heading 3',
+      'To-do list',
+      'Bulleted list',
+      'Numbered list',
+      'Quote',
+      'Code block',
+      'Formula block',
+      'Divider',
+    ];
     for (const [body, props, offered] of [
-      [doc(paragraph()), {}, ['Table']],
+      [doc(paragraph()), {}, [...blocks, 'Table']],
+      [doc(paragraph()), { uploadFile }, [...blocks, 'Table', 'File or image']],
       [doc(code(undefined)), { uploadFile }, []],
       [doc(paragraph(text('http:'))), { uploadFile }, []],
     ] as const) {

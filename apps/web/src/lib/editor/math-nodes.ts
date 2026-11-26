@@ -149,6 +149,70 @@ function replaceableParagraph(state: EditorState, range: Range): Range | undefin
   return { from: $from.before(), to: $from.after() };
 }
 
+/**
+ * Where a new block formula would open from the caret: the empty paragraph
+ * it is in, or a new line after the paragraph it is in (the first line of a
+ * list entry, and a line with text, stay). Undefined where none may stand.
+ */
+function newFormulaLine(state: EditorState): { at: number; empty: boolean } | undefined {
+  const { selection, schema } = state;
+  const { $from } = selection;
+  if (!selection.empty || $from.parent.type.name !== 'paragraph' || !schema.nodes.blockMath) {
+    return undefined;
+  }
+  if ($from.parent.content.size === 0) {
+    const replaced = replaceableParagraph(state, { from: $from.pos, to: $from.pos });
+    if (replaced) return { at: replaced.from, empty: true };
+  }
+  const holder = $from.node($from.depth - 1);
+  const index = $from.index($from.depth - 1) + 1;
+  if (!holder.canReplaceWith(index, index, schema.nodes.blockMath)) return undefined;
+  return { at: $from.after(), empty: false };
+}
+
+/** Whether a block formula can be opened from the caret (`openBlockFormula`). */
+export function canOpenBlockFormula(state: EditorState): boolean {
+  return newFormulaLine(state) !== undefined;
+}
+
+/**
+ * Opens the place of a new block formula at the caret, as typing `$$` and a
+ * space on an empty line does: on that line, or on a new one after the
+ * caret's. False where none may stand.
+ */
+export function openBlockFormula(editor: Editor): boolean {
+  const line = newFormulaLine(editor.state);
+  const paragraph = editor.schema.nodes.paragraph;
+  if (!line || !paragraph) return false;
+  const transaction = editor.state.tr;
+  if (!line.empty) {
+    transaction.insert(line.at, paragraph.create());
+    transaction.setSelection(TextSelection.create(transaction.doc, line.at + 1));
+  }
+  openNewFormula(transaction, line.at, newFormulaPanel(editor));
+  editor.view.dispatch(transaction);
+  return true;
+}
+
+/**
+ * The selected text made a formula in its line, its text the source: the
+ * transaction that does it, or null where it cannot be (nothing chosen, more
+ * than one line, code, a source past the limit).
+ */
+export function inlineFormulaOf(state: EditorState): Transaction | null {
+  const { selection, schema } = state;
+  const type = schema.nodes.inlineMath;
+  const { $from, $to, from, to } = selection;
+  if (!type || selection.empty || !(selection instanceof TextSelection)) return null;
+  if ($from.parent !== $to.parent || $from.parent.type.spec.code) return null;
+  const latex = state.doc.textBetween(from, to, '\n').trim();
+  if (latex === '' || latex.includes('\n') || latex.length > MAX_LATEX) return null;
+  const index = $from.index();
+  if (!$from.parent.canReplaceWith(index, $to.indexAfter(), type)) return null;
+  const transaction = state.tr.replaceWith(from, to, type.create({ latex }));
+  return transaction.setSelection(NodeSelection.create(transaction.doc, from));
+}
+
 /** The DOM of a formula in a line and the source last drawn into it. */
 function inlineMathView(): NodeViewRenderer {
   const name = 'inlineMath';
