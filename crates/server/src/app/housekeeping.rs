@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use fvoci_model::{ContainerKinds, TimeZone, add_days, day_at};
-use fvoci_store::Tenant;
+use fvoci_store::{DueSoonCardCandidate, Tenant};
 use tokio::fs;
 
 use super::App;
@@ -236,6 +236,111 @@ impl App {
             Ok(0) => {}
             Ok(sent) => tracing::info!(sent, "sent due unit review notifications"),
             Err(error) => tracing::error!(%error, "unable to send due unit review notifications"),
+        }
+    }
+
+    /// Creates `due_soon` notifications for incomplete assigned cards due today, due
+    /// tomorrow, or overdue in each assignee's local calendar day (`App::user_today`),
+    /// across both shared organizations and personal spaces (`OrgKind::Personal`),
+    /// deduplicating via `card_due_notices(org_id, card_id, user_id, due_key)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the server lock is not held or a database query fails.
+    pub async fn notify_due_soon_cards(&self, now: i64) -> Result<u64, AppError> {
+        let app = self.housekeeping();
+        app.require_server_lock()?;
+        let utc_day = day_at(now, &TimeZone::default())
+            .ok_or_else(|| AppError::internal("current timestamp is outside supported years"))?;
+        let max_due_at = add_days(&utc_day, 2).unwrap_or(utc_day);
+
+        let mut cursor: Option<(String, String, String)> = None;
+        let mut sent = 0_u64;
+
+        for _ in 0..REVIEW_NOTIFY_MAX_ROUNDS {
+            let after = cursor
+                .as_ref()
+                .map(|(due_at, card, user)| (due_at.as_str(), card.as_str(), user.as_str()));
+            let batch = app
+                .store()
+                .due_soon_card_candidates(&max_due_at, after, REVIEW_NOTIFY_ROUND)
+                .await?;
+            let Some(last) = batch.last() else {
+                break;
+            };
+            // The next round starts after the last one asked of: who is passed over now
+            // (not yet due in their own day, or not reading the board) holds up no one.
+            cursor = Some((
+                last.due_at.clone(),
+                last.card_id.clone(),
+                last.user_id.clone(),
+            ));
+            let reached_limit =
+                i64::try_from(batch.len()).unwrap_or(i64::MAX) >= REVIEW_NOTIFY_ROUND;
+            for candidate in &batch {
+                if app.notify_due_soon_card(candidate, now).await? {
+                    sent += 1;
+                }
+            }
+            if !reached_limit {
+                break;
+            }
+        }
+        Ok(sent)
+    }
+
+    /// Tells `candidate.user_id` that the card is due soon, if it is due by tomorrow in
+    /// their own day (the zone the candidate carries) and they read its board. Whether
+    /// they were told.
+    async fn notify_due_soon_card(
+        &self,
+        candidate: &DueSoonCardCandidate,
+        now: i64,
+    ) -> Result<bool, AppError> {
+        let tz: TimeZone = candidate.user_time_zone.parse().unwrap_or_default();
+        let today = day_at(now, &tz)
+            .or_else(|| day_at(now, &TimeZone::default()))
+            .ok_or_else(|| AppError::internal("current timestamp is outside supported years"))?;
+        let soon_day = add_days(&today, 1).unwrap_or(today);
+        let effective_due = match candidate.due_millis {
+            Some(ms) => day_at(ms, &tz)
+                .or_else(|| day_at(ms, &TimeZone::default()))
+                .unwrap_or_else(|| candidate.due_at.clone()),
+            None => candidate.due_at.clone(),
+        };
+        if effective_due > soon_day {
+            return Ok(false);
+        }
+        let readable = self
+            .in_organization(&candidate.org_id)?
+            .in_workspace(&candidate.workspace_id)
+            .reaching(ContainerKinds::BOARDS)
+            .container_access(&candidate.user_id, &candidate.board_id)
+            .await?
+            .is_some_and(|access| access.grant.reads_on_joining() && !access.container.is_template);
+        if !readable
+            || !self
+                .store()
+                .notify_due_soon_card(candidate, now, MOST_NOTIFICATIONS_PER_USER)
+                .await?
+        {
+            return Ok(false);
+        }
+        self.ws()
+            .notifications_changed(&candidate.user_id, &[&candidate.org_id])
+            .await;
+        Ok(true)
+    }
+
+    /// Housekeeping entry point for [`App::notify_due_soon_cards`].
+    pub async fn notify_due_soon_cards_upkeep(&self) {
+        if self.config().notifications_by_hand || !self.holds_server_lock() {
+            return;
+        }
+        match self.notify_due_soon_cards(now_millis()).await {
+            Ok(0) => {}
+            Ok(sent) => tracing::info!(sent, "sent due-soon card notifications"),
+            Err(error) => tracing::error!(%error, "unable to send due-soon card notifications"),
         }
     }
 }

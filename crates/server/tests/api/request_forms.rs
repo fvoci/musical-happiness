@@ -16,11 +16,15 @@ use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS};
 async fn null_is_refused_where_the_contract_does_not_allow_it() {
     let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, ContainerVisibility::Open).await;
+    let anchor = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "anchor")).await;
     let path = blocks_path(&board.id);
     let block = |member: &str, value: serde_json::Value| {
         let mut block = json!({
-            "id": "x1", "containerId": board.id, "type": "card", "title": "t",
-            "createdAt": 1, "updatedAt": 1,
+            "id": "x1",
+            "containerId": board.id,
+            "parentId": anchor.id,
+            "type": "comment",
+            "title": "t",
         });
         block[member] = value;
         json!([block])
@@ -35,9 +39,10 @@ async fn null_is_refused_where_the_contract_does_not_allow_it() {
             "a null {member}"
         );
     }
-    assert!(
-        blocks_of(&th.client, &board.id).await.is_empty(),
-        "nothing was stored"
+    assert_eq!(
+        blocks_of(&th.client, &board.id).await.len(),
+        1,
+        "only the anchor card was stored"
     );
 
     let made: Vec<Block> = th
@@ -63,7 +68,15 @@ async fn null_is_refused_where_the_contract_does_not_allow_it() {
         "a null title of a patch changes nothing: {}",
         response.text()
     );
-    assert_eq!(blocks_of(&th.client, &board.id).await[0].title, "t");
+    assert_eq!(
+        blocks_of(&th.client, &board.id)
+            .await
+            .iter()
+            .find(|b| b.id == made[0].id)
+            .expect("comment exists")
+            .title,
+        "t"
+    );
 
     th.teardown().await;
 }
@@ -180,7 +193,7 @@ async fn the_board_is_no_parent_of_its_blocks() {
 
     let on_board = Block {
         parent_id: board.id.clone(),
-        ..new_block(&board.id, BlockType::Card, "under the board")
+        ..new_block(&board.id, BlockType::View, "under the board")
     };
     let response = th.client.insert_blocks(&board.id, &[on_board]).await;
     assert_eq!(

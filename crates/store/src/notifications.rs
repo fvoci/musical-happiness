@@ -119,6 +119,19 @@ pub struct NotificationPlace {
     pub workspace_id: String,
 }
 
+/// Live container metadata for resolving `added_to_container` notifications.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainerNotificationPlace {
+    /// Container identifier.
+    pub container_id: String,
+    /// Container kind (`board`, `wiki`, `course`).
+    pub container_kind: ContainerKind,
+    /// Current container title.
+    pub title: String,
+    /// Workspace identifier of the container.
+    pub workspace_id: String,
+}
+
 const NOTIFICATION_COLUMNS: &str = "id, org_id, kind, source_id, block_id, container_id, \
      actor_id, created_at, updated_at, times, doers, read_at";
 
@@ -373,6 +386,51 @@ impl Store {
                 }
             }
             Ok(found)
+        })
+        .await
+    }
+
+    /// Resolves live non-template containers among `container_ids` visible to this
+    /// handle for rendering `added_to_container` notifications.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a query fails.
+    pub async fn container_notification_places(
+        &self,
+        container_ids: &[&str],
+    ) -> Result<Vec<ContainerNotificationPlace>, StoreError> {
+        let ids: BTreeSet<&str> = container_ids.iter().copied().collect();
+        let ids: Vec<&str> = ids.into_iter().collect();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_conn(async |scope| {
+            let mut places = Vec::with_capacity(ids.len());
+            for batch in ids.chunks(BATCH) {
+                let mut sql = scope.sql(
+                    "SELECT c.id, c.kind, c.title, c.workspace_id \
+                     FROM containers AS c \
+                     JOIN workspaces AS w ON w.id = c.workspace_id \
+                     JOIN organizations AS o ON o.id = w.org_id \
+                     WHERE c.is_template = ",
+                );
+                sql.bind(false)
+                    .push(" AND w.deleted_at IS NULL AND o.deleted_at IS NULL")
+                    .push(&scope.same_organization(&[("c", "w")]))
+                    .push(" AND c.id IN (")
+                    .bind_list(batch.iter().map(|id| Id(id)))
+                    .push(")");
+                for row in scope.fetch_all(sql).await? {
+                    places.push(ContainerNotificationPlace {
+                        container_id: row.id(0)?,
+                        container_kind: crate::container_kinds::kind_from_text(&row.text(1)?)?,
+                        title: row.text(2)?,
+                        workspace_id: row.id(3)?,
+                    });
+                }
+            }
+            Ok(places)
         })
         .await
     }

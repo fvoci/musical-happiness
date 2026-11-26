@@ -208,7 +208,10 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
 
   const hasLocalized = templates.some((template) => template.language !== undefined);
   const liveTemplates = templates.filter(
-    (template) => template.board.kind !== 'course' && (!hasLocalized || template.language === 'en'),
+    (template) =>
+      template.board.kind !== 'course' &&
+      template.key !== 'welcome-personal' &&
+      (!hasLocalized || template.language === 'en'),
   );
   const builtinTemplates = templates.filter((template) => template.language !== undefined);
 

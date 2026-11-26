@@ -2,7 +2,7 @@
 //! (except the instance's own), unless somebody comes in before or past the mark; and
 //! an organization put out of use for one account goes with that account alone.
 
-use fvoci_model::{FileRecord, OrgRole, WorkspaceRole, new_id};
+use fvoci_model::{FileRecord, LoginOrigin, OrgRole, Session, WorkspaceRole, new_id};
 use fvoci_store::{DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, LeftFrom, Store};
 
 use crate::account_erasure::{
@@ -145,7 +145,10 @@ async fn begin_alone(test: &TestStore, leaver: &str, org: &str, now: i64) {
             .begin_account_erasure(leaver, now, Erasing::AfterTheWait)
             .await
             .expect("asked");
-        assert_eq!(begun, ErasureStart::Begun, "the erasing begins");
+        assert!(
+            matches!(begun, ErasureStart::Begun(_)),
+            "the erasing begins"
+        );
         return;
     }
     // Its asking was refused too: the operator's word is refused the same way.
@@ -349,7 +352,7 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
         .await
         .expect("asked");
     assert_eq!(
-        matches!(asked, DeletionAsking::Asked(_)),
+        matches!(asked, DeletionAsking::Asked(..)),
         several,
         "asked where the organization goes: {asked:?}"
     );
@@ -365,7 +368,7 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
     assert_eq!(removed.len(), 2, "two organizations went: {erased:?}");
     let files: Vec<_> = removed
         .iter()
-        .flat_map(|from| &from.removed.as_ref().expect("removed").files)
+        .flat_map(|from| &from.removed.as_ref().expect("removed").purged.files)
         .collect();
     // The file of the organization's board, of the space's board and of its diary.
     assert_eq!(files.len(), 3, "the files of each are doomed: {files:?}");
@@ -431,7 +434,7 @@ async fn an_organization_somebody_came_into_during_the_wait_stays() {
         test.request_account_deletion(&leaver, "", T0, T0 + WAIT)
             .await
             .expect("asked"),
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     let newcomer = common::user(&system, "newcomer").await;
     alone_store
@@ -485,7 +488,7 @@ async fn an_organization_somebody_came_into_past_the_mark_is_in_use_again() {
             test.request_account_deletion(&leaver, "", T0 - WAIT, T0)
                 .await
                 .expect("asked"),
-            DeletionAsking::Asked(_)
+            DeletionAsking::Asked(..)
         ));
     }
     begin_alone(&test, &leaver, &org, T0).await;
@@ -612,11 +615,35 @@ async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
         ))
         .await
         .expect("a role is left");
+    // Somebody who once came in through its provider, and left, kept the session.
+    let former = common::user(&test, "former").await;
+    let through_it = Session {
+        id: new_id(),
+        user_id: former.clone(),
+        created_at: T0,
+        last_used_at: T0,
+        expires_at: T0 + 2 * WAIT,
+        user_agent: "a browser".to_owned(),
+        login: Some(LoginOrigin {
+            provider_id: new_id(),
+            org_id: org.clone(),
+            issuer: "https://idp.example".to_owned(),
+            subject: Some("former".to_owned()),
+            revision: Some(1),
+        }),
+        ..Session::default()
+    };
+    assert!(
+        test.create_session(&through_it, "made through its provider", "")
+            .await
+            .expect("asked"),
+        "stored"
+    );
     assert!(matches!(
         test.request_account_deletion(&leaver, "", T0 - WAIT, T0)
             .await
             .expect("asked"),
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     begin_alone(&test, &leaver, &org, T0).await;
     let out_of_use = format!(
@@ -632,7 +659,7 @@ async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
         .filter_map(|from| from.removed.as_ref())
         .collect();
     assert!(
-        matches!(gone[..], [own] if own.files.is_empty())
+        matches!(gone[..], [own] if own.purged.files.is_empty())
             && of_other.iter().all(|from| !from.kept_for_newcomer),
         "the other's erasing neither takes the organization nor keeps it: {of_other:?}"
     );
@@ -646,6 +673,20 @@ async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
         2,
         "it goes with the account it was put out of use for, as the account's own \
          space does: {of_leaver:?}"
+    );
+    // The session made through its provider goes with it, and is named to be closed.
+    let ended: Vec<&str> = of_leaver
+        .iter()
+        .filter_map(|from| from.removed.as_ref())
+        .flat_map(|removed| removed.ended.session_ids())
+        .map(String::as_str)
+        .collect();
+    assert_eq!(ended, [through_it.id.as_str()], "{of_leaver:?}");
+    assert!(
+        test.get_session("made through its provider", T0 + 2, 0)
+            .await
+            .is_err(),
+        "the session is gone"
     );
     assert_eq!(
         holding(&system, &org).await,
@@ -666,12 +707,12 @@ async fn an_erasure_cut_off_around_the_own_space_resumes_and_finishes() {
     let leaver = common::user(&test, "cut-off-space").await;
     let space = fill_the_space_of(&test, &leaver).await;
 
-    assert_eq!(
+    assert!(matches!(
         test.begin_account_erasure(&leaver, T0, Erasing::AtOnce)
             .await
             .expect("begun"),
-        ErasureStart::Begun
-    );
+        ErasureStart::Begun(_)
+    ));
     // Cut off after erasing the shared organization, before reaching the own space.
     let orgs = test
         .organizations_of_account(&leaver)
@@ -712,10 +753,10 @@ async fn an_erasure_cut_off_around_the_own_space_resumes_and_finishes() {
         .removed
         .expect("own space removed");
     assert_eq!(
-        removed.files.len(),
+        removed.purged.files.len(),
         2,
         "board and diary files doomed: {:?}",
-        removed.files
+        removed.purged.files
     );
     check_nothing_names(&system, &space).await;
     assert_eq!(

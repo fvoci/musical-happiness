@@ -62,6 +62,7 @@
     const draft: CourseDraft = {
       title: title.trim(),
       visibility: alone ? 'private' : visibility,
+      minimumRole: 'commenter',
     };
     const chosen = selectedTemplateId
       ? courseTemplates.find((item) => item.id === selectedTemplateId)

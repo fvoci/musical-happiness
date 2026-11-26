@@ -82,11 +82,7 @@ async fn board_with_attachment(ts: &TestServer) -> (Container, String) {
         ..Block::default()
     }];
     // The server gives the card an identifier of its own.
-    let created: Vec<Block> = ts
-        .client
-        .insert_blocks(&board.id, &blocks)
-        .await
-        .created_json();
+    let created = crate::blocks::insert(&ts.client, &board.id, &blocks).await;
     let card_id = created.into_iter().next().expect("the card is made").id;
     let file_block = [Block {
         id: new_id(),
@@ -592,19 +588,22 @@ async fn download_without_a_session_is_refused() {
     ts.teardown().await;
 }
 
-/// A non-member is refused.
+/// An open board's files are readable by workspace members, while a private board's
+/// files are hidden from non-members.
 #[tokio::test]
 async fn download_by_a_non_member_is_forbidden() {
     let ts = Setup::native().start().await.init_basic().await;
     let (board, file_id) = board_with_attachment(&ts).await;
-    let response = ts
-        .client2
-        .get(&format!(
-            "{TEST_WS}/containers/{}/files/{file_id}",
-            board.id
-        ))
-        .await;
-    response.check_forbidden();
+    let path = format!("{TEST_WS}/containers/{}/files/{file_id}", board.id);
+    ts.client2.get(&path).await.check_ok();
+    ts.client
+        .patch(
+            &format!("{TEST_WS}/containers/{}", board.id),
+            &json!({"visibility": "private"}),
+        )
+        .await
+        .check_ok();
+    ts.client2.get(&path).await.check_not_found();
     ts.teardown().await;
 }
 
@@ -815,10 +814,7 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
             named("attachmentId"),
         ),
     ];
-    ts.client2
-        .insert_blocks(&intruder_board.id, &blocks)
-        .await
-        .check_created();
+    crate::blocks::insert(&ts.client2, &intruder_board.id, &blocks).await;
     ForeignFile {
         owner_board,
         file_id,
@@ -1117,10 +1113,7 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
         block(new_id(), &card_id, BlockType::Attachment, empty),
         block(new_id(), &card_id, BlockType::Attachment, JsonMap::new()),
     ];
-    ts.client
-        .insert_blocks(&board.id, &blocks)
-        .await
-        .check_created();
+    crate::blocks::insert(&ts.client, &board.id, &blocks).await;
 
     let duplicate = ts
         .client
@@ -1199,10 +1192,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
         block(card_id.clone(), "", BlockType::Card, JsonMap::new()),
         block(new_id(), &card_id, BlockType::Attachment, fields),
     ];
-    ts.client
-        .insert_blocks(&board.id, &blocks)
-        .await
-        .check_created();
+    crate::blocks::insert(&ts.client, &board.id, &blocks).await;
     ts.client
         .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await
@@ -1272,27 +1262,28 @@ async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
         .await;
     let mut image_fields = JsonMap::new();
     image_fields.insert("fileId".to_owned(), Value::String(file_id.clone()));
-    let card_id = new_id();
-    let blocks = vec![
-        Block {
-            id: card_id.clone(),
+    let target_card = crate::blocks::insert_one(
+        &ts.client,
+        &Block {
+            id: new_id(),
             container_id: target.id.clone(),
             block_type: BlockType::Card,
             created_at: 1,
             updated_at: 1,
             ..Block::default()
         },
-        Block {
-            id: new_id(),
-            container_id: target.id.clone(),
-            parent_id: card_id,
-            block_type: BlockType::Attachment,
-            fields: image_fields,
-            created_at: 1,
-            updated_at: 1,
-            ..Block::default()
-        },
-    ];
+    )
+    .await;
+    let blocks = vec![Block {
+        id: new_id(),
+        container_id: target.id.clone(),
+        parent_id: target_card.id,
+        block_type: BlockType::Attachment,
+        fields: image_fields,
+        created_at: 1,
+        updated_at: 1,
+        ..Block::default()
+    }];
 
     let response = ts
         .client

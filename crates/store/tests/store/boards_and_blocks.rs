@@ -1254,7 +1254,6 @@ async fn create_containers_and_blocks_accepts_a_block_listed_before_its_parent()
             },
             Block {
                 parent_id: card_id.clone(),
-                block_type: BlockType::Attachment,
                 ..new_card(&text_id, &board_id)
             },
             new_card(&card_id, &board_id),

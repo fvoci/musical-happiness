@@ -78,6 +78,8 @@ export class CardStore {
       workspace: board.workspace,
       parentId: cardId,
       role: () => this.board.role,
+      permissions: () => this.board.permissions,
+      joinable: () => this.board.joinable,
       onDeleting: (commentId) => {
         this.board.deleting(commentId, this.cardId);
       },
@@ -85,13 +87,12 @@ export class CardStore {
       api: {
         list: () => this.#backend.comments(this.#boardId, this.cardId),
         create: (body) => this.#backend.createComment(this.#boardId, this.cardId, body),
-        patch: (commentId, write) => this.#backend.patchComment(this.#boardId, commentId, write),
-        remove: (commentId) => this.#backend.deleteBlock(this.#boardId, commentId),
-        restore: async (commentId) => {
-          await this.#backend.restoreBlock(this.#boardId, commentId);
-          return undefined;
-        },
-        versions: (commentId) => this.#backend.commentVersions(this.#boardId, commentId),
+        patch: (commentId, write) =>
+          this.#backend.patchComment(this.#boardId, commentId, write, this.cardId),
+        remove: (commentId) => this.#backend.deleteComment(this.#boardId, this.cardId, commentId),
+        restore: (commentId) => this.#backend.restoreComment(this.#boardId, this.cardId, commentId),
+        versions: (commentId) =>
+          this.#backend.commentVersions(this.#boardId, commentId, this.cardId),
       },
     });
   }

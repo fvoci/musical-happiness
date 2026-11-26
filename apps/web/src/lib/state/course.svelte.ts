@@ -10,6 +10,8 @@ import type { Container, ContainerMember, MemberRole } from '../logic/wire.ts';
 
 import {
   isBackendError,
+  READ_ONLY_PERMISSIONS,
+  type ContainerPermissions,
   type ContainerRole,
   type Courses,
   type CourseUnit,
@@ -58,6 +60,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
   course = $state.raw<Container | undefined>(undefined);
   units = $state.raw<CourseUnit[]>([]);
   members = $state.raw<ContainerMember[]>([]);
+  permissions = $state.raw<ContainerPermissions>({ ...READ_ONLY_PERMISSIONS });
   openUnit = $state.raw<UnitStore | undefined>(undefined);
 
   readonly tree = $derived(pageTree(this.units));
@@ -71,8 +74,12 @@ export class CourseStore implements TreeSource<CourseUnit> {
   readonly role = $derived<MemberRole>(
     roleOf(this.members.find((member) => member.userId === this.workspace.me?.id)),
   );
-  readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
-  readonly canManage = $derived(this.role === 'admin');
+  readonly canEdit = $derived(this.permissions.canEdit);
+  readonly canManage = $derived(
+    this.permissions.canManageVisibility || this.permissions.canManageRoles,
+  );
+  readonly canDelete = $derived(this.permissions.canDelete);
+  readonly canShare = $derived(this.permissions.canShare);
   readonly joinable = $derived(
     this.status === 'ready' && this.course?.visibility === 'open' && this.role === '',
   );
@@ -163,10 +170,21 @@ export class CourseStore implements TreeSource<CourseUnit> {
       takeCourse: (course) => {
         this.#takeCourse(course);
       },
+      refreshPermissions: () => this.#refreshPermissions(),
       refreshActiveTab: () => {
         this.#refreshActiveTab();
       },
     };
+  }
+
+  async #refreshPermissions(): Promise<void> {
+    const reading = this.#readings;
+    try {
+      const permissions = await this.workspace.backend.myPermissions(this.courseId);
+      if (!this.#closed && reading === this.#readings) this.permissions = permissions;
+    } catch {
+      // Handled on next load/refresh if access ended.
+    }
   }
 
   get #courses(): Courses {
@@ -255,6 +273,7 @@ export class CourseStore implements TreeSource<CourseUnit> {
         containerOfWorkspace(backend, this.courseId, workspaceId, 'course'),
         this.#courses.units(this.courseId),
         backend.members(this.courseId),
+        backend.myPermissions(this.courseId),
         this.#courses.myProgress(this.courseId, workspaceId),
         this.#courses.progressSummary(this.courseId, workspaceId),
         this.#courses.schedule(this.courseId, workspaceId),
@@ -265,10 +284,11 @@ export class CourseStore implements TreeSource<CourseUnit> {
       } else {
         this.#speculativeUnitId = undefined;
       }
-      const [course, units, members, progress, summary, schedule] = await reads;
+      const [course, units, members, permissions, progress, summary, schedule] = await reads;
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
       this.#takeCourse(course);
+      this.permissions = permissions;
       this.units = units;
       this.#writes.remember(this.units);
       if (membersTold === this.#people.told) this.members = members;

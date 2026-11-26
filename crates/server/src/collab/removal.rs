@@ -19,6 +19,11 @@ use crate::error::AppError;
 pub(crate) enum Deletion {
     /// A block and its descendants, at any depth.
     Block(String),
+    /// Multiple blocks on one container and their descendants, at any depth.
+    Blocks {
+        container_id: String,
+        block_ids: Vec<String>,
+    },
     /// Every card of these boards, and every page of these wikis.
     Containers(Vec<String>),
 }
@@ -315,6 +320,16 @@ impl Collab {
                 drop(structure);
                 vec![container_id]
             }
+            Deletion::Blocks { container_id, .. } => {
+                let structure = self.structure(tenant, container_id).write_owned().await;
+                if deletion.cards(app).await?.is_empty() {
+                    let removed = remove(app.clone()).await;
+                    drop(structure);
+                    return removed;
+                }
+                drop(structure);
+                vec![container_id.clone()]
+            }
             Deletion::Containers(ids) => ids.clone(),
         };
         let documents = self.writing(tenant, &container_ids).await;
@@ -453,6 +468,23 @@ impl Deletion {
                         .filter(|block| block.block_type.has_room())
                         .map(|block| block.id),
                 );
+            }
+            Self::Blocks { block_ids, .. } => {
+                for id in block_ids {
+                    let root = match app.store().get_block(id).await {
+                        Ok(root) => root,
+                        Err(error) if error.is_not_found() => continue,
+                        Err(error) => return Err(error.into()),
+                    };
+                    let mut blocks = app.store().get_blocks_below(id).await?;
+                    blocks.push(root);
+                    cards.extend(
+                        blocks
+                            .into_iter()
+                            .filter(|block| block.block_type.has_room())
+                            .map(|block| block.id),
+                    );
+                }
             }
             Self::Containers(ids) => {
                 cards = app.store().room_block_ids_of_containers(ids).await?;

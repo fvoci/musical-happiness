@@ -8,8 +8,8 @@
 use std::collections::HashSet;
 
 use fvoci_model::{
-    CATEGORY_CONTAINERS_SORT_ORDER_GAP, CategoryContainerMetadata, CategoryContainers,
-    DEFAULT_CATEGORY_NAME, SidebarVisibility, new_id,
+    CATEGORY_CONTAINERS_SORT_ORDER_GAP, CategoryContainerMetadata, CategoryContainerUpdate,
+    CategoryContainers, CategoryType, SidebarVisibility, new_id,
 };
 
 use crate::Store;
@@ -76,6 +76,12 @@ impl Store {
         category_id: &str,
         new_order: Vec<String>,
     ) -> Result<Vec<String>, StoreError> {
+        let mut seen = HashSet::with_capacity(new_order.len());
+        for container_id in &new_order {
+            if !seen.insert(container_id.as_str()) {
+                return Err(StoreError::DuplicateReorderId(container_id.clone()));
+            }
+        }
         self.with_write_conn(async |scope| {
             if new_order.is_empty() {
                 return Ok(());
@@ -119,6 +125,80 @@ impl Store {
                 .push_bind(" AND category_id = ", Id(category_id))
                 .push_bind(" AND container_id = ", Id(container_id));
             scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Atomically moves `container_id` into `category_id` (belonging to `user_id` in
+    /// `workspace_id`), updates its optional `hidden` flag, and places it at optional
+    /// 0-based `index` within `category_id` in a single database transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if `category_id` does not belong to `user_id` in
+    /// `workspace_id`, or if `container_id` does not exist.
+    pub async fn put_category_container(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        category_id: &str,
+        container_id: &str,
+        update: &CategoryContainerUpdate,
+    ) -> Result<(), StoreError> {
+        self.transaction(async |scope| {
+            let mut cat_sql = scope.sql("SELECT 1 FROM categories WHERE id = ");
+            cat_sql
+                .bind(Id(category_id))
+                .push_bind(" AND user_id = ", Id(user_id))
+                .push_bind(" AND workspace_id = ", Id(workspace_id));
+            if scope.fetch_optional(cat_sql).await?.is_none() {
+                return Err(StoreError::not_found(format_args!(
+                    "category ID={category_id}"
+                )));
+            }
+
+            let container_ids = [container_id.to_owned()];
+            add_update_category_container(scope, user_id, category_id, &container_ids).await?;
+
+            if let Some(hidden) = update.hidden {
+                let mut vis = scope.sql("UPDATE category_containers SET hidden = ");
+                vis.bind(hidden)
+                    .push_bind(", updated_at = ", scope.now_millis())
+                    .push_bind(" WHERE user_id = ", Id(user_id))
+                    .push_bind(" AND category_id = ", Id(category_id))
+                    .push_bind(" AND container_id = ", Id(container_id));
+                scope.execute(vis).await?;
+            }
+
+            if let Some(target_index) = update.index {
+                let mut cur_sql =
+                    scope.sql("SELECT container_id FROM category_containers WHERE category_id = ");
+                cur_sql
+                    .bind(Id(category_id))
+                    .push(" ORDER BY sort_order, container_id");
+                let mut ordered: Vec<String> = scope
+                    .fetch_all(cur_sql)
+                    .await?
+                    .iter()
+                    .map(|row| row.id(0))
+                    .collect::<Result<_, _>>()?;
+                ordered.retain(|id| id != container_id);
+                let pos = target_index.min(ordered.len());
+                ordered.insert(pos, container_id.to_owned());
+
+                let mut reorder =
+                    scope.sql("UPDATE category_containers SET sort_order = CASE container_id");
+                for (sort_order, cid) in (CATEGORY_CONTAINERS_SORT_ORDER_GAP..).zip(&ordered) {
+                    reorder
+                        .push_bind(" WHEN ", Id(cid))
+                        .push_bind(" THEN ", sort_order);
+                }
+                reorder
+                    .push(" ELSE sort_order END")
+                    .push_bind(" WHERE category_id = ", Id(category_id));
+                scope.execute(reorder).await?;
+            }
             Ok(())
         })
         .await
@@ -297,8 +377,8 @@ pub(crate) async fn put_back(
         scope.execute(sql).await?;
         (category_id, place.sort_order)
     } else {
-        let mut sql = scope.sql("SELECT id FROM categories WHERE name = ");
-        sql.bind(DEFAULT_CATEGORY_NAME)
+        let mut sql = scope.sql("SELECT id FROM categories WHERE type = ");
+        sql.bind(CategoryType::System.as_str())
             .push_bind(" AND user_id = ", Id(&place.user_id))
             .push_bind(" AND workspace_id = ", Id(workspace_id))
             .push(" ORDER BY sort_order, created_at, id LIMIT 1");

@@ -198,7 +198,10 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         sso_required: false,
         revision: 0,
     };
-    let none_read = test
+    let fvoci_store::ProviderPut {
+        provider: none_read,
+        ..
+    } = test
         .put_oidc_provider_as_read(&provider("first", ""), None, &new_id(), Duration::ZERO)
         .await
         .expect("stored")
@@ -275,12 +278,10 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         revision: 0,
     };
     let read = test.put_oidc_provider(&provider).await.expect("stored");
-    assert_eq!(
+    assert!(matches!(
         test.delete_oidc_provider(&new_id()).await.expect("removed"),
-        Removal::Removed {
-            provider: read.clone()
-        }
-    );
+        Removal::Removed { ref provider, .. } if provider == &read
+    ));
     let change = test
         .put_oidc_provider_as_read(&provider, Some(&read), &new_id(), Duration::ZERO)
         .await
@@ -354,11 +355,8 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
     assert_eq!(refused, Removal::Enforced);
     assert_eq!(still.as_ref(), Some(&enforced), "as it was");
     let released = released.expect("it was enforced");
-    assert_eq!(
-        removed,
-        Removal::Removed {
-            provider: released.clone()
-        },
+    assert!(
+        matches!(&removed, Removal::Removed { provider, .. } if provider == &released),
         "the provider as released"
     );
     assert!(!released.sso_required);
@@ -729,7 +727,7 @@ async fn the_last_identity_of_an_account_without_a_password_is_not_removed() {
             one.await.expect("joined").expect("asked"),
             two.await.expect("joined").expect("asked"),
         ];
-        outcomes.sort_by_key(|outcome| *outcome != Unlinked::Removed);
+        outcomes.sort_by_key(|outcome| !matches!(outcome, Unlinked::Removed(_)));
         let left = test.identities_of_user(&user).await.expect("read").len();
         rounds.push((outcomes, left));
     }
@@ -744,9 +742,8 @@ async fn the_last_identity_of_an_account_without_a_password_is_not_removed() {
     test.teardown().await;
 
     for (round, (outcomes, left)) in rounds.into_iter().enumerate() {
-        assert_eq!(
-            (outcomes, left),
-            ([Unlinked::Removed, Unlinked::LastWayIn], 1),
+        assert!(
+            matches!(outcomes, [Unlinked::Removed(_), Unlinked::LastWayIn]) && left == 1,
             "round {round}: one goes and the last stays"
         );
     }

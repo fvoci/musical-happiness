@@ -9,8 +9,10 @@ mod admin;
 mod archive;
 mod auth;
 mod blocks;
+mod board_ops;
 mod body;
 mod body_versions;
+mod card_comments;
 mod cards;
 mod categories;
 mod comments;
@@ -43,9 +45,9 @@ mod org_admin;
 mod organizations;
 mod page_comments;
 mod page_versions;
-mod paging;
 mod password_reset;
 mod public_links;
+mod query;
 mod recovery;
 mod references;
 mod search;
@@ -57,6 +59,7 @@ mod system;
 mod teams;
 mod templates;
 mod time_entries;
+mod today;
 mod trash;
 mod unit_comments;
 mod unit_progress;
@@ -97,9 +100,8 @@ use limits::{
     limit_session_request_body,
 };
 
-use crate::app::{App, ChangeNotification};
+use crate::app::App;
 use crate::error::{AppError, Reason};
-use fvoci_store::DuplicateAs;
 
 /// The header that shows a request was sent by a script of the server's own pages, and
 /// its value. A browser does not let another site's page set it, which is one half of
@@ -152,7 +154,10 @@ fn routes() -> Routes {
         .merge(unit_reviews::routes())
         .merge(unit_versions::routes())
         .merge(containers_and_blocks::routes())
+        .merge(board_ops::routes())
+        .merge(card_comments::routes())
         .merge(cards::routes())
+        .merge(today::routes())
         .merge(trash::routes())
         .merge(categories::routes())
         .merge(config::routes())
@@ -373,43 +378,11 @@ pub(crate) fn no_content() -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Returns the percent-decoded value of a query parameter, or the empty string.
-pub(crate) fn query_param(query: Option<&str>, name: &str) -> String {
-    query_option(query, name).unwrap_or_default()
-}
-
-/// Returns the percent-decoded value of a query parameter, if the query has it with a
-/// value: a parameter that is there and empty is as one that is not.
-pub(crate) fn query_option(query: Option<&str>, name: &str) -> Option<String> {
-    query
-        .and_then(|query| crate::auth::token::query_value(query, name))
-        .filter(|value| !value.is_empty())
-}
-
 /// The request's `Accept-Language`, if it has one that is text.
 pub(crate) fn accept_language(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(axum::http::header::ACCEPT_LANGUAGE)
         .and_then(|value| value.to_str().ok())
-}
-
-/// Reads the `disableNotify` query flag.
-pub(crate) fn change_notification(query: Option<&str>) -> ChangeNotification {
-    if query_param(query, "disableNotify") == TRUE {
-        ChangeNotification::Suppress
-    } else {
-        ChangeNotification::Send
-    }
-}
-
-/// Reads the `asTemplate` query flag of the duplication routes; it counts only as
-/// exactly `true`.
-pub(crate) fn duplicate_as(query: Option<&str>) -> DuplicateAs {
-    if query_param(query, "asTemplate") == TRUE {
-        DuplicateAs::Template
-    } else {
-        DuplicateAs::Copy
-    }
 }
 
 /// The value of a query flag that is set.

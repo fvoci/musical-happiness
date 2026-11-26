@@ -72,6 +72,30 @@ export function createBoardCard(
   );
 }
 
+export async function duplicateBoardCard(
+  store: BoardStore,
+  cardId: string,
+  asTemplate?: boolean,
+): Promise<CardSummary | undefined> {
+  const isUndoBusy = (): boolean => store.workspace.undo.busy;
+  const wasBusy = isUndoBusy();
+  const copy = await performBoardAction(
+    store,
+    async () => {
+      const card = await store.workspace.backend.duplicateCard(store.boardId, cardId, asTemplate);
+      void store.workspace.learnUsers(authorIds([card]));
+      store.cards = take(store.cards, card);
+      return card;
+    },
+    async (card) => {
+      await deleteBlockForUndo(store, card.id);
+      store.cards = store.cards.filter((existing) => existing.id !== card.id);
+    },
+    'duplicateCard',
+  );
+  return !wasBusy && isUndoBusy() ? undefined : copy;
+}
+
 export async function changeBoardView(
   store: BoardStore,
   viewWrites: BlockWrites<BoardView, ReturnType<typeof viewPatches>[0]>,

@@ -19,6 +19,8 @@ import {
   type BoardDraft,
   type Category,
   type Change,
+  type CopiedContainerOutput,
+  type CopyToWorkspaceInput,
   type DownloadedFile,
   type ImportFormat,
   type ImportSummary,
@@ -85,6 +87,7 @@ export class Workspace {
   containers = $state.raw<Container[]>([]);
   categories = $state.raw<Category[]>([]);
   settings = $state.raw<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
+  trashRetentionDays = $state(30);
   problems = $state.raw<Problem[]>([]);
 
   board = $state.raw<BoardStore | undefined>(undefined);
@@ -203,14 +206,16 @@ export class Workspace {
     this.workspaces = [];
     this.status = 'loading';
     try {
-      const [me, workspaces, settings] = await Promise.all([
+      const [me, workspaces, settings, retentionDays] = await Promise.all([
         this.backend.me(),
         this.backend.workspaces(),
         this.backend.settings(),
+        this.backend.trashRetentionDays().catch(() => 30),
       ]);
       if (session !== this.#sessionGen) return;
       this.me = me;
       this.workspaces = workspaces;
+      this.trashRetentionDays = retentionDays;
       this.#takeSettings(settings);
       if (leaves?.(settings)) return;
       this.#stopWatching?.();
@@ -423,6 +428,9 @@ export class Workspace {
   createTemplateFromBoard(boardId: string): Promise<Container | undefined> {
     return entry.duplicateContainerOf(this, boardId, true);
   }
+  copyContainerToWorkspace(id: string, req: CopyToWorkspaceInput): Promise<CopiedContainerOutput> {
+    return entry.copyContainerToWorkspaceOf(this, id, req);
+  }
   onboard(): Promise<string | undefined> {
     return entry.onboardOf(this);
   }
@@ -443,7 +451,6 @@ export class Workspace {
       format,
     );
   }
-
   deleteContainer(containerId: string): Promise<void> {
     return deleteWorkspaceContainer(
       this.undo,
@@ -454,13 +461,11 @@ export class Workspace {
       containerId,
     );
   }
-
   async restoreContainer(containerId: string): Promise<void> {
     const container = await this.backend.restoreContainer(containerId);
     await this.#refresh();
     this.#apply({ kind: 'container', container });
   }
-
   createCategory(name: string): Promise<void> {
     return this.#categoryOps.create(name);
   }

@@ -4,7 +4,7 @@
 //! said of a page and its wiki too.
 
 use crate::app::{App, Asker};
-use crate::error::{AppError, Reason};
+use crate::error::AppError;
 use crate::permissions::{DocMode, doc_mode};
 
 /// A user let into the room of a card.
@@ -108,24 +108,10 @@ async fn entered(
     asker: Asker<'_>,
     workspace_id: &str,
 ) -> Result<Option<App>, AppError> {
-    match home.enter_workspace_as(asker, workspace_id).await {
-        // For the workspace the connection named: a board of another is not there for
-        // it (`App::reaches_container`), as for a request that names the workspace in its
-        // path.
-        Ok(Some(entered)) => Ok(Some(entered.app.in_workspace(workspace_id))),
-        Ok(None) => Ok(None),
-        // Not let in, which is an answer: told as a failure, it would leave who is in
-        // the room there when the organization begins to take no password.
-        Err(error)
-            if matches!(
-                error.reason(),
-                Some(Reason::SsoRequired | Reason::PasswordSignInRequired)
-            ) =>
-        {
-            Ok(None)
-        }
-        Err(error) => Err(error),
-    }
+    Ok(home
+        .enter_workspace_quietly(asker, workspace_id)
+        .await?
+        .map(|entered| entered.app.in_workspace(workspace_id)))
 }
 
 /// How `user_id` is in the rooms of the board `container_id` as `app` reaches it: as what

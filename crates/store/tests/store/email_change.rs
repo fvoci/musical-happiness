@@ -396,6 +396,7 @@ async fn a_change_that_waits_goes_with_the_password_and_with_the_account() {
             .change_user_password(&ada.id, HASH, "second", &new_id(), "no digest")
             .await
             .expect("the password is changed")
+            .is_some()
     );
     assert_eq!(changes().await, 0, "with a change of the password");
     assert_eq!(
@@ -433,7 +434,7 @@ async fn a_change_that_waits_goes_with_the_password_and_with_the_account() {
             .await
             .expect("asked")
     );
-    store
+    let _ = store
         .reset_user_password("ada", "fourth")
         .await
         .expect("the operator sets a password");

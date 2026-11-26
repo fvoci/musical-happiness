@@ -19,7 +19,9 @@ struct Named {
     org: String,
     workspace: String,
     board: String,
+    view: String,
     card: String,
+    card_comment: String,
     /// A wiki for everybody in the workspace, which the member joined, a page of it, and
     /// a comment of the founder's on the page.
     wiki: String,
@@ -57,7 +59,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 48] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 49] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -104,6 +106,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 48] = [
     "restoreBlock",
     "restorePage",
     "restorePageComment",
+    "restoreCardComment",
     "restoreUnit",
     "restoreUnitComment",
     // The member's subscription is to the card, by its own identifier.
@@ -141,6 +144,7 @@ fn operations() -> Vec<(String, String, String)> {
         "leaveContainer"
         | "deleteContainer"
         | "deleteBlock"
+        | "batchDeleteCards"
         | "deletePage"
         | "deleteUnit"
         | "deleteCourseMeeting"
@@ -173,6 +177,8 @@ impl Named {
         };
         let comment = if template.contains("/courses/") {
             &self.course_comment
+        } else if template.contains("/cards/") {
+            &self.card_comment
         } else {
             &self.comment
         };
@@ -187,6 +193,7 @@ impl Named {
             .replace("{orgId}", &self.org)
             .replace("{containerId}", &self.board)
             .replace("{boardId}", &self.board)
+            .replace("{viewId}", &self.view)
             .replace("{cardId}", &self.card)
             .replace("{blockId}", &self.card)
             .replace("{wikiId}", &self.wiki)
@@ -313,6 +320,14 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .await
         .value();
     let board = text(&board, "id");
+    let view = founder
+        .post(
+            &format!("{at}/boards/{board}/views"),
+            &json!({"title": format!("{name} view"), "viewType": "board"}),
+        )
+        .await
+        .value();
+    let view = text(&view["view"], "id");
     let card = founder
         .post(
             &format!("{at}/boards/{board}/cards"),
@@ -320,6 +335,14 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         )
         .await
         .value();
+    let card_comment = founder
+        .post(
+            &format!("{at}/boards/{board}/cards/{}/comments", text(&card, "id")),
+            &json!({"body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "card comment"}]}]}}),
+        )
+        .await
+        .value();
+    let card_comment = text(&card_comment, "id");
     let (wiki, page, comment) = wiki_with_a_page(&founder, &at, name).await;
     let (course, unit, course_comment, meeting, exam) =
         course_with_a_unit(&founder, &at, name).await;
@@ -356,7 +379,9 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         member,
         member_id,
         category: text(&categories[0], "id"),
+        view,
         card: card_id,
+        card_comment,
         read_token,
         wiki_token,
         course_token,

@@ -9,6 +9,13 @@
     "description": "글과 영상을 언제 어디에 낼지 계획합니다. 달력에서 발행일을 보고, 갤러리에서는 본문의 첫 그림이 카드의 얼굴이 됩니다.",
     "icon": "📣",
     "showDescription": true,
+    "dueDatePropertyId": "d4ab6f2d-8f17-5bef-a690-13b90b012af4",
+    "doneWhen": {
+      "propertyId": "70a23d2c-c625-5914-bf38-2b743dbe75d0",
+      "optionIds": [
+        "9fbe9f25-85b1-5b41-8ce0-0d26f659836d"
+      ]
+    },
     "cardProperties": [
       {
         "id": "70a23d2c-c625-5914-bf38-2b743dbe75d0",

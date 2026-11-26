@@ -9,6 +9,10 @@
     "description": "배운 것을 주제 하나에 카드 하나로 적습니다. 본문에 수식, 코드, 다이어그램을 그대로 넣고, 복습할 날은 달력에서 봅니다.",
     "icon": "📚",
     "showDescription": true,
+    "dueDatePropertyId": "d8764a1f-e16d-59ad-b5b2-439794c042c7",
+    "doneWhen": {
+      "propertyId": "b6e28f90-d456-52b0-a448-8df9cc0baf4e"
+    },
     "cardProperties": [
       {
         "id": "bc2818c7-6d46-5486-b092-a8ea1f2de1e9",

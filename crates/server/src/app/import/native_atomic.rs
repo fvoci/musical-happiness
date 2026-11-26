@@ -35,7 +35,7 @@ use crate::app::App;
 use crate::app::container_copies::counted_as;
 use crate::app::doomed::Doomed;
 use crate::app::files::{FilePlace, file_record};
-use crate::app::loose_objects::{WRITE_TIMEOUT, Written};
+use crate::app::loose_objects::WrittenPlace;
 use crate::auth::secret::new_secret;
 use crate::collab::AccessScope;
 use crate::error::AppError;
@@ -59,7 +59,7 @@ struct PreparedStreamedArchive {
 /// Files staged and written to `FileBackend` prior to the single database transaction.
 struct StagedNativeFiles {
     records: Vec<FileRecord>,
-    written_paths: Vec<String>,
+    written_places: Vec<WrittenPlace>,
     /// Container ID -> original archive filename -> stored filename.
     file_map: Arc<HashMap<String, HashMap<String, String>>>,
 }
@@ -104,6 +104,7 @@ impl App {
                 &prepared.files,
             )
             .await?;
+        let staged_file_count = staged.records.len();
 
         let collect_ids = if self.ws().has_workspace_listeners(&options.workspace_id)
             || !self.config().block_change_webhooks.is_empty()
@@ -129,7 +130,7 @@ impl App {
         let (members, mut stats) = self
             .run_timed_archive_stream(
                 &mut prepared,
-                &staged,
+                staged,
                 &options.modified_by,
                 rx,
                 streamer_handle,
@@ -146,7 +147,7 @@ impl App {
             containers_imported = prepared.containers.len(),
             "import archive - done"
         );
-        stats.counts.files = staged.records.len();
+        stats.counts.files = staged_file_count;
         let container_ids = tally_container_counts(&prepared.created_order, &mut stats.counts);
         Ok((
             Imported {
@@ -160,16 +161,21 @@ impl App {
     async fn run_timed_archive_stream(
         &self,
         prepared: &mut PreparedStreamedArchive,
-        staged: &StagedNativeFiles,
+        staged: StagedNativeFiles,
         modified_by: &str,
         rx: tokio::sync::mpsc::Receiver<StreamBatch<AppError>>,
         streamer_handle: tokio::task::JoinHandle<StreamedBoardStats>,
     ) -> Result<(Vec<ContainerMember>, StreamedBoardStats), AppError> {
+        let StagedNativeFiles {
+            records,
+            written_places,
+            file_map: _,
+        } = staged;
         let write_future = self
             .store()
             .create_imported_containers_blocks_files_members_and_schedules_streamed(
                 &mut prepared.containers,
-                &staged.records,
+                &records,
                 &prepared.extra_members,
                 &prepared.schedules,
                 modified_by,
@@ -178,16 +184,21 @@ impl App {
         let Ok(write_result) = tokio::time::timeout(IMPORT_STREAM_TIMEOUT, write_future).await
         else {
             streamer_handle.abort();
-            self.clean_written_paths(&staged.written_paths).await;
+            clean_written_places(written_places).await;
             return Err(AppError::bad_request(
                 "archive import exceeded maximum transaction time limit",
             ));
         };
         let streamer_outcome = streamer_handle.await;
         let members = match write_result {
-            Ok(members) => members,
+            Ok(members) => {
+                for place in written_places {
+                    place.settled_in_transaction();
+                }
+                members
+            }
             Err(error) => {
-                self.clean_written_paths(&staged.written_paths).await;
+                clean_written_places(written_places).await;
                 return Err(map_stream_write_error(error));
             }
         };
@@ -336,7 +347,7 @@ impl App {
         if entries.is_empty() {
             return Ok(StagedNativeFiles {
                 records: Vec::new(),
-                written_paths: Vec::new(),
+                written_places: Vec::new(),
                 file_map: Arc::new(HashMap::new()),
             });
         }
@@ -352,7 +363,7 @@ impl App {
         let unpacked = doomed_dir.path().join("entry");
 
         let mut records = Vec::with_capacity(entries.len());
-        let mut written_paths = Vec::with_capacity(entries.len());
+        let mut written_places = Vec::with_capacity(entries.len());
         let mut file_map: HashMap<String, HashMap<String, String>> = HashMap::new();
         let mut total_staged_bytes: u64 = 0;
 
@@ -362,20 +373,21 @@ impl App {
             let written = self
                 .write_one_native_file(zip, index, largest_file, &unpacked, &place.path)
                 .await;
-            let size = match written {
-                Ok(size) => size,
+            let written = match written {
+                Ok(written) => written,
                 Err(error) => {
-                    self.clean_written_paths(&written_paths).await;
+                    clean_written_places(written_places).await;
                     doomed_dir.remove().await;
                     return Err(error.context(format_args!(
                         "cannot import file {filename} for board {dir}"
                     )));
                 }
             };
-            written_paths.push(place.path.clone());
+            let size = written.size();
+            written_places.push(written);
             total_staged_bytes = total_staged_bytes.saturating_add(size);
             if let Err(error) = self.check_org_storage_room(total_staged_bytes).await {
-                self.clean_written_paths(&written_paths).await;
+                clean_written_places(written_places).await;
                 doomed_dir.remove().await;
                 return Err(error);
             }
@@ -390,7 +402,7 @@ impl App {
         doomed_dir.remove().await;
         Ok(StagedNativeFiles {
             records,
-            written_paths,
+            written_places,
             file_map: Arc::new(file_map),
         })
     }
@@ -402,45 +414,28 @@ impl App {
         largest_file: u64,
         unpacked: &Path,
         storage_path: &str,
-    ) -> Result<u64, AppError> {
+    ) -> Result<WrittenPlace, AppError> {
         unpack_entry(zip, index, largest_file, unpacked).await?;
-        let marked = self.mark_writing(storage_path).await;
-        if let Err(error) = marked {
-            remove_unpacked(unpacked).await;
-            return Err(error);
-        }
+        let marked = match self.mark_place(storage_path).await {
+            Ok(marked) => marked,
+            Err(error) => {
+                remove_unpacked(unpacked).await;
+                return Err(error);
+            }
+        };
         let mut file = match fs::File::open(unpacked).await {
             Ok(file) => file,
             Err(error) => {
                 remove_unpacked(unpacked).await;
-                self.give_up_writing(storage_path, Written::Settled).await;
+                marked.give_up_unused().await;
                 return Err(AppError::internal(format_args!(
                     "cannot open an unpacked archive entry: {error}"
                 )));
             }
         };
-        let write = self.files().write(storage_path, &mut file);
-        let outcome = tokio::time::timeout(WRITE_TIMEOUT, write).await;
+        let outcome = marked.write(&mut file).await;
         remove_unpacked(unpacked).await;
-        match outcome {
-            Ok(Ok(size)) => Ok(size),
-            failed => {
-                self.give_up_writing(storage_path, Written::Unsettled).await;
-                let message = match failed {
-                    Ok(Err(error)) => error.to_string(),
-                    _ => "it took longer than a write may take".to_owned(),
-                };
-                Err(AppError::internal(format_args!(
-                    "unable to store the file in the files storage: {message}"
-                )))
-            }
-        }
-    }
-
-    async fn clean_written_paths(&self, paths: &[String]) {
-        for path in paths {
-            self.give_up_writing(path, Written::Settled).await;
-        }
+        outcome
     }
 
     async fn finish_streamed_native_commit(
@@ -521,6 +516,12 @@ fn map_stream_write_error(error: StreamCreateError<AppError>) -> AppError {
         StreamCreateError::Store(error) => {
             AppError::from(error).context("error inserting archive blocks")
         }
+    }
+}
+
+async fn clean_written_places(places: Vec<WrittenPlace>) {
+    for place in places {
+        place.give_up().await;
     }
 }
 

@@ -5,10 +5,11 @@
 //! sign-in; the return from the former provider is the callback of every sign-in
 //! (`oidc.rs`).
 
-use axum::extract::{Extension, RawQuery, State};
+use axum::extract::{Extension, State};
 use axum::http::header::SET_COOKIE;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse as _;
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -18,11 +19,18 @@ use super::auth::{address_of, user_agent};
 use super::contract::params::{AcceptLanguage, StartOrg};
 use super::contract::tag;
 use super::oidc::{browser_cookie, held_cookie_name, started_response};
-use super::{ApiResult, accept_language, no_content, query_param};
+use super::query::QueryParams;
+use super::{ApiResult, accept_language, no_content};
 use crate::app::App;
 use crate::auth::token::cookie_value;
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct OidcHeldQuery {
+    org: String,
+}
 
 /// The routes of a held sign-in: they come before there is a session.
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -33,17 +41,12 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// The organization the request names, and the secret of the browser's cookie of the
 /// sign-in held for it; empty if the browser has none.
-fn held_of(
-    headers: &HeaderMap,
-    app: &App,
-    query: Option<&str>,
-) -> Result<(String, String), AppError> {
-    let org_id = query_param(query, "org");
+fn held_of(headers: &HeaderMap, app: &App, org_id: &str) -> Result<(String, String), AppError> {
     if org_id.is_empty() {
         return Err(AppError::bad_request("the query parameter org is required"));
     }
     let secret = cookie_value(headers, held_cookie_name(app)).unwrap_or_default();
-    Ok((org_id, secret))
+    Ok((org_id.to_owned(), secret))
 }
 
 /// Carry an account over through the former provider
@@ -108,9 +111,9 @@ async fn handle_start_carry_over(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<OidcHeldQuery>,
 ) -> ApiResult {
-    let (org_id, secret) = held_of(&headers, &app, query.as_deref())?;
+    let (org_id, secret) = held_of(&headers, &app, &query.org)?;
     let started = app
         .start_oidc_carry_over(&org_id, &secret, address_of(client))
         .await?;
@@ -176,9 +179,9 @@ async fn handle_finish_held(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<OidcHeldQuery>,
 ) -> ApiResult {
-    let (org_id, secret) = held_of(&headers, &app, query.as_deref())?;
+    let (org_id, secret) = held_of(&headers, &app, &query.org)?;
     let ended = app
         .finish_held_oidc_login(
             &org_id,

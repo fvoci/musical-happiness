@@ -48,7 +48,7 @@ impl ChangeAction {
 impl App {
     /// The database for a write of blocks that tells of itself as `notification`
     /// says: one that is suppressed tells nobody whom it newly names.
-    fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
+    pub(super) fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
         match notification {
             ChangeNotification::Send => self.store().clone(),
             ChangeNotification::Suppress => self.store().quietly(),
@@ -139,6 +139,63 @@ impl App {
         }
     }
 
+    /// Coordinates a block write with active collaborative rooms: when
+    /// `whole_body_cards` is empty, runs under structure barriers on `containers`;
+    /// otherwise runs via [`crate::collab::Collab::write_whole`].
+    pub(crate) async fn write_blocks<T, F, Fut>(
+        &self,
+        containers: Vec<String>,
+        whole_body_cards: Vec<(String, String)>,
+        write: F,
+    ) -> Result<T, AppError>
+    where
+        T: Send + 'static,
+        F: FnOnce(Self) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<T, AppError>> + Send + 'static,
+    {
+        if whole_body_cards.is_empty() {
+            let _structure = self
+                .collab()
+                .changing_structures(self, containers.iter().map(String::as_str))
+                .await;
+            write(self.clone()).await
+        } else {
+            self.collab()
+                .write_whole(self, whole_body_cards, write)
+                .await
+        }
+    }
+
+    /// Announces modified blocks one at a time in the background (`blockChanged`
+    /// websocket broadcast and configured webhooks), skipping any block deleted
+    /// concurrently before the announcement runs.
+    pub(crate) fn announce_blocks(&self, workspace_id: &str, block_ids: Vec<String>) {
+        if block_ids.is_empty() {
+            return;
+        }
+        let app = self.clone();
+        let workspace_id = workspace_id.to_owned();
+        self.spawn_background(async move {
+            for block_id in &block_ids {
+                let mut block = match app.store().get_block(block_id).await {
+                    Ok(block) => block,
+                    Err(error) if error.is_not_found() => continue,
+                    Err(error) => {
+                        tracing::error!(
+                            %error,
+                            block_id,
+                            "cannot read a changed block to announce it"
+                        );
+                        return;
+                    }
+                };
+                block.hide_inactive_number();
+                app.ws().broadcast_block_change(&workspace_id, &block).await;
+                app.tell_webhooks(&block);
+            }
+        });
+    }
+
     /// Inserts a block, or updates the block that already has its identifier, and tells
     /// websocket listeners and webhooks in the background.
     ///
@@ -155,28 +212,25 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
         let container = self.store().get_container(&block.container_id).await?;
-        if block.block_type.has_room() {
-            // A card stored again writes its body whole, around its document.
-            let (mut stored, modified_by) = (block.clone(), modified_by.to_owned());
-            let cards = vec![(block.id.clone(), block.container_id.clone())];
-            *block = self
-                .collab()
-                .write_whole(self, cards, async move |app| {
+        // A card stored again writes its body whole, around its document.
+        let whole_body_cards = if block.block_type.has_room() {
+            vec![(block.id.clone(), block.container_id.clone())]
+        } else {
+            Vec::new()
+        };
+        let (mut stored, modified_by) = (block.clone(), modified_by.to_owned());
+        *block = self
+            .write_blocks(
+                vec![block.container_id.clone()],
+                whole_body_cards,
+                async move |app| {
                     app.store_telling(notification)
                         .insert_block(&mut stored, &modified_by)
                         .await?;
                     Ok(stored)
-                })
-                .await?;
-        } else {
-            let _structure = self
-                .collab()
-                .changing_structure(self, &block.container_id)
-                .await;
-            self.store_telling(notification)
-                .insert_block(block, modified_by)
-                .await?;
-        }
+                },
+            )
+            .await?;
         block.hide_inactive_number();
         log_notification(notification, ChangeAction::Add, &block.id);
 
@@ -222,31 +276,23 @@ impl App {
         }
         let container = self.store().get_container(&container_id).await?;
 
-        // Store all blocks atomically so a failure leaves none persisted.
+        // Store all blocks atomically so a failure leaves none persisted. Cards stored
+        // again write their bodies whole, around their documents.
         let cards: Vec<(String, String)> = blocks
             .iter()
             .filter(|block| block.block_type.has_room())
             .map(|block| (block.id.clone(), container_id.clone()))
             .collect();
-        if cards.is_empty() {
-            let _structure = self.collab().changing_structure(self, &container_id).await;
-            self.store_telling(notification)
-                .insert_blocks(blocks, modified_by)
-                .await?;
-        } else {
-            // Cards stored again write their bodies whole, around their documents.
-            let (mut stored, modified_by) = (blocks.to_vec(), modified_by.to_owned());
-            let stored = self
-                .collab()
-                .write_whole(self, cards, async move |app| {
-                    app.store_telling(notification)
-                        .insert_blocks(&mut stored, &modified_by)
-                        .await?;
-                    Ok(stored)
-                })
-                .await?;
-            blocks.clone_from_slice(&stored);
-        }
+        let (mut stored, modified_by) = (blocks.to_vec(), modified_by.to_owned());
+        let stored = self
+            .write_blocks(vec![container_id], cards, async move |app| {
+                app.store_telling(notification)
+                    .insert_blocks(&mut stored, &modified_by)
+                    .await?;
+                Ok(stored)
+            })
+            .await?;
+        blocks.clone_from_slice(&stored);
         hide_inactive_numbers(blocks);
         for block in blocks.iter() {
             self.ws()
@@ -276,28 +322,26 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let container = self.store().get_container(&old_block.container_id).await?;
-        let mut block = if patch.body.is_keep() || !old_block.block_type.has_room() {
-            let _structure = self
-                .collab()
-                .changing_structure(self, &old_block.container_id)
-                .await;
-            self.store_telling(notification)
-                .patch_block(block_id, patch, modified_by)
-                .await?
+        // A whole body is written around the document of a body edited together.
+        let whole_body_cards = if patch.body.is_keep() || !old_block.block_type.has_room() {
+            Vec::new()
         } else {
-            // A whole body is written around the document of a body edited together.
-            let (block_id, patch, modified_by) =
-                (block_id.to_owned(), patch.clone(), modified_by.to_owned());
-            let cards = vec![(block_id.clone(), old_block.container_id.clone())];
-            self.collab()
-                .write_whole(self, cards, async move |app| {
+            vec![(block_id.to_owned(), old_block.container_id.clone())]
+        };
+        let (block_id, patch, modified_by) =
+            (block_id.to_owned(), patch.clone(), modified_by.to_owned());
+        let mut block = self
+            .write_blocks(
+                vec![old_block.container_id],
+                whole_body_cards,
+                async move |app| {
                     Ok(app
                         .store_telling(notification)
                         .patch_block(&block_id, &patch, &modified_by)
                         .await?)
-                })
-                .await?
-        };
+                },
+            )
+            .await?;
         block.hide_inactive_number();
         self.tell_of_update(&container.workspace_id, &block, notification);
         Ok(block)
@@ -346,46 +390,22 @@ impl App {
         // Whole bodies are written around the documents of bodies edited together.
         let card_ids =
             crate::collab::cards_written_whole(&blocks, &batch.block_ids, &batch.block_patches);
-        if card_ids.is_empty() {
-            let _structure = self
-                .collab()
-                .changing_structures(self, blocks.iter().map(|block| block.container_id.as_str()))
-                .await;
-            self.store_telling(notification)
-                .patch_blocks(batch, modified_by)
-                .await?;
-        } else {
-            let (batch, modified_by) = (batch.clone(), modified_by.to_owned());
-            self.collab()
-                .write_whole(self, card_ids, async move |app| {
-                    Ok(app
-                        .store_telling(notification)
-                        .patch_blocks(&batch, &modified_by)
-                        .await?)
-                })
-                .await?;
-        }
+        let containers: Vec<String> = blocks
+            .iter()
+            .map(|block| block.container_id.clone())
+            .collect();
+        let (owned_batch, modified_by) = (batch.clone(), modified_by.to_owned());
+        self.write_blocks(containers, card_ids, async move |app| {
+            Ok(app
+                .store_telling(notification)
+                .patch_blocks(&owned_batch, &modified_by)
+                .await?)
+        })
+        .await?;
         for block_id in &batch.block_ids {
             log_notification(notification, ChangeAction::Update, block_id);
         }
-
-        let app = self.clone();
-        let workspace_id = workspace_id.to_owned();
-        let block_ids = batch.block_ids.clone();
-        self.spawn_background(async move {
-            for block_id in &block_ids {
-                let mut block = match app.store().get_block(block_id).await {
-                    Ok(block) => block,
-                    Err(error) => {
-                        tracing::error!(%error, block_id, "cannot read a patched block to announce it");
-                        return;
-                    }
-                };
-                block.hide_inactive_number();
-                app.ws().broadcast_block_change(&workspace_id, &block).await;
-                app.tell_webhooks(&block);
-            }
-        });
+        self.announce_blocks(workspace_id, batch.block_ids.clone());
         Ok(())
     }
 

@@ -21,6 +21,7 @@
   import CardDialog from '$lib/features/card/CardDialog.svelte';
   import ViewHeader from '$lib/features/view-header/ViewHeader.svelte';
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
+  import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { focusAdrift } from '$lib/layout/focus.ts';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
@@ -32,7 +33,6 @@
     type CardStore,
     type Workspace,
   } from '$lib/state/index.ts';
-  import { Button } from '$lib/ui/button/index.js';
 
   import LazyView from './LazyView.svelte';
   import ManagedContainer from './ManagedContainer.svelte';
@@ -77,7 +77,7 @@
   });
   $effect(() => {
     const shown = board;
-    if (shown?.status === 'ready' && !shown.missing && !shown.joinable) {
+    if (shown?.status === 'ready' && !shown.missing) {
       return untrack(() => boardPresence(shown).start());
     }
     return undefined;
@@ -156,6 +156,7 @@
     const properties = propertiesThatMeetFilterGroup(
       view.fields.filter,
       board.board.cardProperties,
+      workspace.me?.id,
     );
     const card = await whileHere(board, () => board.createCard({ properties }));
     if (card) openCard(card.id);
@@ -184,22 +185,6 @@
       void tick().then(() => page?.focus());
     }}
   />
-{:else if board.joinable && board.board}
-  <div class="grid h-full place-items-center p-6 text-center" data-testid="board-join">
-    <div class="flex max-w-md flex-col items-center gap-3">
-      <h2 class="text-lg font-medium">
-        {board.board.icon ? `${board.board.icon} ` : ''}{board.board.title ||
-          m['Sidebar.untitled-board']()}
-      </h2>
-      {#if board.board.description}
-        <p class="whitespace-pre-wrap text-muted-foreground">{board.board.description}</p>
-      {/if}
-      <p class="text-muted-foreground">{m.app_board_join_hint()}</p>
-      <Button aria-disabled={board.joining} aria-busy={board.joining} onclick={() => void join()}
-        >{m.app_board_join()}</Button
-      >
-    </div>
-  </div>
 {:else if board.status === 'failed'}
   <div class="grid h-full place-items-center p-6 text-center">
     <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
@@ -211,6 +196,14 @@
     tabindex="-1"
     data-testid="board-page"
   >
+    {#if board.joinable}
+      <WikiJoin
+        kind="board"
+        joining={board.joining}
+        role={board.board?.minimumRole}
+        onJoin={() => void join()}
+      />
+    {/if}
     <ViewHeader
       {board}
       {view}

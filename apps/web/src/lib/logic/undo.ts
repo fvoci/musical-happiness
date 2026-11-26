@@ -114,11 +114,6 @@ export class UndoManager {
     return this.#waiting > 0;
   }
 
-  /** Whether undo was requested for a gesture still under way, even if redo followed it. */
-  undoRequestedFor(groupId: string): boolean {
-    return this.#gestures.get(groupId)?.undoRequested ?? false;
-  }
-
   /**
    * Performs a change and remembers how to take it back: the step is in place
    * at once. Returns what `redo` returned; rejects, and forgets the change,
@@ -172,7 +167,6 @@ export class UndoManager {
     const over = deferred();
     const record: Gesture = {
       over: over.promise,
-      undoRequested: false,
       entry: undefined,
       entries: [],
       history: this.#history,
@@ -202,7 +196,6 @@ export class UndoManager {
   async undo(): Promise<this> {
     const entry = this.#entries[this.#index];
     if (!entry) return this;
-    if (entry.gesture) entry.gesture.undoRequested = true;
     await this.#ask(entry, 'undo');
     return this;
   }
@@ -352,7 +345,7 @@ export class UndoManager {
   /** Drops the undos and redos asked for and not yet begun. */
   #drop(through = Infinity): void {
     for (const ask of this.#asks) {
-      if (ask.number <= through) cancel(ask, this.#asks);
+      if (ask.number <= through) cancel(ask);
     }
   }
 

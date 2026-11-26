@@ -187,6 +187,14 @@
         "reason": "string"
       }
     },
+    "workspaceRoleChanged": {
+      "members": {
+        "type": "string",
+        "workspaceId": "string",
+        "userId": "string",
+        "role": "#WorkspaceRole"
+      }
+    },
     "blocksUnsubscribed": {
       "members": {
         "type": "string",

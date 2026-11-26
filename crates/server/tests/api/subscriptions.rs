@@ -70,18 +70,25 @@ fn sorted(mut subscriptions: Vec<Subscription>) -> Vec<Subscription> {
     subscriptions
 }
 
-/// Inserts a card block on the board through the blocks route, quietly
-/// (`disableNotify`), and ends its writer's watching of it, which a quiet write makes
-/// all the same: these tests make and end every subscription themselves.
+/// Creates a card on the board quietly (`disableNotify`) and ends its writer's watching
+/// of it, which a quiet write makes all the same: these tests make and end every
+/// subscription themselves.
 async fn insert_card(client: &Client, board_id: &str) -> Block {
-    let mut inserted: Vec<Block> = client
+    let created: fvoci_model::Card = client
         .post(
-            &format!("{TEST_WS}/boards/{board_id}/blocks?disableNotify=true"),
-            &[new_block(board_id, "", BlockType::Card)],
+            &format!("{TEST_WS}/boards/{board_id}/cards?disableNotify=true"),
+            &json!({}),
         )
         .await
         .created_json();
-    let card = inserted.pop().expect("one block was inserted");
+    let mut stored: Vec<Block> = client
+        .get(&format!(
+            "{TEST_WS}/boards/{board_id}/blocks?blockId={}",
+            created.id
+        ))
+        .await
+        .ok_json();
+    let card = stored.pop().expect("one card block was stored");
     let writer = client.me().await.id;
     unsubscribe(client, &card.id, &writer)
         .await
@@ -399,8 +406,9 @@ async fn create_subscription_answer_and_subscribing_again() {
         "what is stored is what was answered"
     );
 
-    // The block type may be any closed BlockType variant, also another one than the block's.
-    for block_type in ["view", "comment"] {
+    // Shared-organization subscriptions accept `card`, `page`, and `unit`, while
+    // rejecting non-subscribable or unknown block types with 400.
+    for block_type in ["page", "unit"] {
         let card = insert_card(&th.client, &board.id).await;
         let mut body = request(&card.id, &me);
         body["blockType"] = json!(block_type);
@@ -413,8 +421,14 @@ async fn create_subscription_answer_and_subscribing_again() {
         assert!(listed.contains(&answer), "{answer} is among {listed:?}");
     }
 
-    // Unknown block type strings are rejected at deserialization time.
-    for block_type in ["text", "whatever"] {
+    for block_type in [
+        "view",
+        "comment",
+        "attachment",
+        "chapter",
+        "text",
+        "whatever",
+    ] {
         let mut body = request(&card.id, &me);
         body["blockType"] = json!(block_type);
         th.client.post(PATH, &body).await.check_bad_request();
@@ -568,31 +582,34 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
         .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
 
-    // The request names a block and no board, so a block the user cannot read answers
-    // as one that does not exist: nothing is said about the blocks of other boards.
-    for board in [&private_board, &open_board] {
-        let card = insert_card(&th.client, &board.id).await;
-        let response = th.client2.post(PATH, &request(&card.id, &outsider)).await;
-        check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
-    }
+    // A private board's block answers an uninvited member as not found, while an open
+    // board's block can be viewed and subscribed to by workspace members (but not guests).
+    let private_card = insert_card(&th.client, &private_board.id).await;
+    let response = th
+        .client2
+        .post(PATH, &request(&private_card.id, &outsider))
+        .await;
+    check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
     assert_eq!(
         subscriptions_of(&th.client2, &outsider).await,
         [],
         "nothing was stored"
     );
 
+    let guest = th.add_user("sub.guest").await;
+    let guest_id = guest.me().await.id;
+    crate::content_search::set_role(&th, &guest_id, "guest").await;
+    let open_card = insert_card(&th.client, &open_board.id).await;
+    let guest_response = guest.post(PATH, &request(&open_card.id, &guest_id)).await;
+    check_error(&guest_response, StatusCode::NOT_FOUND, NO_BLOCK);
+
     for block_id in [UNKNOWN_ID, "nope"] {
         let response = th.client2.post(PATH, &request(block_id, &outsider)).await;
         check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
     }
 
-    // Once they have joined the open board, they can subscribe to its cards.
-    let card = insert_card(&th.client, &open_board.id).await;
-    th.client2
-        .post_empty(&format!("{TEST_WS}/containers/{}/join", open_board.id))
-        .await
-        .check_ok();
-    let subscription = subscribe(&th.client2, &card.id, &outsider).await;
+    // A workspace member can subscribe to an open board's cards directly.
+    let subscription = subscribe(&th.client2, &open_card.id, &outsider).await;
     assert_eq!(
         subscriptions_of(&th.client2, &outsider).await,
         [subscription]

@@ -4,7 +4,7 @@
 use serde_json::json;
 
 use crate::common::UNKNOWN_ID;
-use crate::fixtures::{add_member, block, id_of, new_blocks, new_board};
+use crate::fixtures::{add_member, block, id_of, new_blocks, new_board, new_card};
 use crate::harness::{API, ROOT_API, Session};
 
 #[expect(
@@ -20,27 +20,33 @@ pub(crate) async fn trash(s: &mut Session) {
     let board_path = format!("{ROOT_API}/containers/{board}");
     let blocks = format!("{ROOT_API}/boards/{board}/blocks");
 
-    // A card with a comment and a text on it, a view next to it. Blocks below the card
-    // name it as their parent, so the card is created first.
+    // A card with a subcard, comment and attachment on it, and a view next to it.
+    let card = new_card(s, &alice, &board, "Card", json!({}), "create card").await;
+    let deep = new_card(
+        s,
+        &alice,
+        &board,
+        "Subcard",
+        json!({"parentId": card}),
+        "create subcard",
+    )
+    .await;
     let created = new_blocks(
         s,
         &alice,
         &board,
-        json!([
-            block("c1", &board, "card", "Card", "", json!({})),
-            block(
-                "v1",
-                &board,
-                "view",
-                "View",
-                "",
-                json!({"viewType": "board"})
-            ),
-        ]),
-        "insert a card and a view",
+        json!([block(
+            "v1",
+            &board,
+            "view",
+            "View",
+            "",
+            json!({"viewType": "board"})
+        )]),
+        "insert a view",
     )
     .await;
-    let (card, view) = (id_of(&created[0]), id_of(&created[1]));
+    let view = id_of(&created[0]);
     let created = new_blocks(
         s,
         &alice,
@@ -53,22 +59,6 @@ pub(crate) async fn trash(s: &mut Session) {
     )
     .await;
     let text = id_of(&created[1]);
-    let created = new_blocks(
-        s,
-        &alice,
-        &board,
-        json!([block(
-            "d1",
-            &board,
-            "attachment",
-            "Below the text",
-            &text,
-            json!({})
-        )]),
-        "insert a block below the text",
-    )
-    .await;
-    let deep = id_of(&created[0]);
 
     // -- a block and what is below it ---------------------------------------------------
 

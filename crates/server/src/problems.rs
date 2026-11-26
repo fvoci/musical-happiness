@@ -174,18 +174,13 @@ const OIDC_LOGIN_PAGE_UNAVAILABLE: &str = "Status 409 at the start of a sign-in 
 fn describe_reason(reason: Reason) -> &'static str {
     match reason {
         Reason::Csrf => {
-            "Status 403. A request that changes something lacks the header `X-Requested-With: \
-             XMLHttpRequest`, by which the server knows that no page of another site made a \
-             browser send it. A request with a bearer token needs none."
+            "Status 403. A request that changes something lacks the header `X-Requested-With: XMLHttpRequest`, by which the server knows that no page of another site made a browser send it. A request with a bearer token needs none."
         }
         Reason::ForeignOrigin => {
-            "Status 403. The request, or the websocket handshake, has an `Origin` header that \
-             is neither the server's own origin nor one the server was configured to accept."
+            "Status 403. The request, or the websocket handshake, has an `Origin` header that is neither the server's own origin nor one the server was configured to accept."
         }
         Reason::InvalidCredentials => {
-            "The user name, the email address or the password is wrong; the answer does not \
-             say which. Status 401 from a login. Status 400 from a change of the password, \
-             whose session is good: `errors` names `/oldPassword`."
+            "The user name, the email address or the password is wrong; the answer does not say which. Status 401 from a login. Status 400 from a change of the password, whose session is good: `errors` names `/oldPassword`."
         }
         Reason::InvitationRequired
         | Reason::InvitationUnavailable
@@ -199,31 +194,19 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 409. Another user has the email address. `errors` names `/email`."
         }
         Reason::LastAdmin => {
-            "Status 409. The change would leave the board, the workspace or the server \
-             without an administrator. Make somebody else one first."
+            "Status 409. The change would leave the board, the workspace or the server without an administrator. Make somebody else one first."
         }
         Reason::AccountDeletionPending => {
-            "Status 401, with a session that is good: its account was asked to be deleted \
-             and waits. Every operation answers so but `getAccountDeletion`, which says \
-             until when it waits, `cancelAccountDeletion`, which puts the account in use \
-             again as it was, and `logout`."
+            "Status 401, with a session that is good: its account was asked to be deleted and waits. Every operation answers so but `getAccountDeletion`, which says until when it waits, `cancelAccountDeletion`, which puts the account in use again as it was, and `logout`."
         }
         Reason::SignInAgain => {
-            "Status 403, asking to delete an account that has no password \
-             (`requestAccountDeletion`) or to give it its first one (`setPassword`): the \
-             session was not made through a provider in the last five minutes. Sign in \
-             through the provider again (`startOidcLogin`) and send the request from the \
-             session that comes of it."
+            "Status 403, asking to delete an account that has no password (`requestAccountDeletion`) or to give it its first one (`setPassword`): the session was not made through a provider in the last five minutes. Sign in through the provider again (`startOidcLogin`) and send the request from the session that comes of it."
         }
-        Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
-        Reason::TeamSelfJoining => {
-            "Status 403. While joined as organization administrator, you cannot add yourself to a team. Another workspace administrator may add you. Direct board roles end with the administrative joining."
-        }
-        Reason::GuestRoleLimit => "Status 403. A guest of a workspace has no role above editor.",
-        Reason::SharingDisabled => {
-            "Status 403. Sharing a board with whoever has its link is turned off in the \
-             configuration of this server."
-        }
+        Reason::AdminRequired
+        | Reason::TeamSelfJoining
+        | Reason::GuestRoleLimit
+        | Reason::GuestCannotJoinTeam
+        | Reason::SharingDisabled => describe_access(reason).unwrap_or_default(),
         Reason::SecretKeyRequired
         | Reason::OidcIssuerUnverified
         | Reason::OidcUnavailable
@@ -252,7 +235,8 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::RelationRepeated
         | Reason::RelationTooMany
         | Reason::RelationNotACard
-        | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
+        | Reason::RelationCardNotFound
+        | Reason::RelationCycle => describe_relation(reason).unwrap_or_default(),
         Reason::WorkspaceNameTaken
         | Reason::TeamNameTaken
         | Reason::DefaultWorkspace
@@ -262,7 +246,8 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::LastInstanceAdmin
         | Reason::CannotRemoveSelf
         | Reason::PasswordSignInRequired
-        | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
+        | Reason::PublicLinksOff
+        | Reason::CopyOutDisabled => describe_organization(reason).unwrap_or_default(),
         // The rest are the reasons of uploads and archives, of the search of bodies, of
         // the limits of a wiki's tree and of a body edited together, which the functions
         // below name one by one: a reason that is none of theirs fails the tests.
@@ -561,6 +546,10 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
              shared by a link until they are on again. Stopping a board's sharing is not \
              refused."
         }
+        Reason::CopyOutDisabled => {
+            "Status 403. The organization has turned off copying containers out to another \
+             organization, including to a user's personal space (`allowCopyOut`)."
+        }
         _ => return None,
     })
 }
@@ -598,6 +587,11 @@ fn describe_relation(reason: Reason) -> Option<&'static str> {
              one removed from the trash, or another board's, which the answer does not tell \
              apart. A card in the trash may be named, and what a value named before is not \
              asked for again. `errors` as for `relation-not-a-list`."
+        }
+        Reason::RelationCycle => {
+            "Status 400. A card's ordering relation property (`orderingRelations` of the board) \
+             would form a dependency cycle among the cards of the board. `errors` as for \
+             `relation-not-a-list`."
         }
         _ => return None,
     })
@@ -939,55 +933,22 @@ async fn handle_problems(OriginalUri(asked): OriginalUri) -> Response {
     text_page(page)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{all, find};
-    use crate::error::{ErrorKind, Reason};
-
-    #[test]
-    fn every_kind_and_every_reason_is_a_problem_type_with_a_name_of_its_own() {
-        let problems = all();
-        assert_eq!(
-            problems.len(),
-            ErrorKind::ALL.len() + Reason::ALL.len(),
-            "one for each"
-        );
-        for problem in &problems {
-            assert_eq!(
-                find(&problem.name).as_ref(),
-                Some(problem),
-                "found by its name, and the name is no other's"
-            );
-            assert!(
-                problem
-                    .name
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '-'),
-                "a name is lower-case words with hyphens: {}",
-                problem.name
-            );
-            assert!(!problem.title.is_empty() && !problem.description.is_empty());
+fn describe_access(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
+        Reason::TeamSelfJoining => {
+            "Status 403. While joined as organization administrator, you cannot add yourself to a team. Another workspace administrator may add you. Direct board roles end with the administrative joining."
         }
-        assert_eq!(find("nothing"), None);
-    }
-
-    #[test]
-    fn the_page_of_a_kind_says_its_type_title_and_what_it_means() {
-        let page = find("last-admin").expect("a kind").page("");
-        assert!(
-            page.starts_with("Last administrator\n\ntype: /problems/last-admin\n"),
-            "{page}"
-        );
-        assert!(page.contains("reason: last_admin\n"), "{page}");
-        assert!(
-            page.ends_with("\n\nStatus 409. The change would leave the board, the workspace or the server without an administrator. Make somebody else one first.\n"),
-            "{page}"
-        );
-        let page = find("not-found").expect("a kind").page("/base");
-        assert!(
-            page.contains("type: /base/problems/not-found\nstatus: 404\n"),
-            "{page}"
-        );
-        assert!(!page.contains("reason:"), "{page}");
-    }
+        Reason::GuestRoleLimit => "Status 403. A guest of a workspace has no role above editor.",
+        Reason::GuestCannotJoinTeam => {
+            "Status 409. A guest of a workspace cannot be added to a team: only workspace members who work there belong to one."
+        }
+        Reason::SharingDisabled => {
+            "Status 403. Sharing a board with whoever has its link is turned off in the configuration of this server."
+        }
+        _ => return None,
+    })
 }
+
+#[cfg(test)]
+mod tests;

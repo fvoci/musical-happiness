@@ -232,10 +232,10 @@ impl App {
             .await?)
     }
 
-    /// The boards and wikis of the workspace the user holds a role on, and its open
-    /// wikis, which whoever works there reads without joining; templates left out:
-    /// where to look for what the user reads. Whether the user does read one is not
-    /// said here ([`App::containers_read`] asks).
+    /// The boards, wikis and courses of the workspace the user holds a role on, and its
+    /// open boards, wikis and courses, which whoever works there reads without joining;
+    /// templates left out: where to look for what the user reads. Whether the user does
+    /// read one is not said here ([`App::containers_read`] asks).
     async fn containers_held(
         &self,
         user_id: &str,

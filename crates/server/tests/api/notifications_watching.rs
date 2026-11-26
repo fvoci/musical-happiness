@@ -12,9 +12,8 @@ use serde_json::{Value, json};
 
 use crate::common::{Client, Setup, TEST_WS};
 use crate::notifications::{
-    OWNER, board_with_owner, card_with, comment_on, kinds, mentioning, plain, told,
+    OWNER, board_with_owner, card_with, comment_on, give, kinds, mentioning, plain, told,
 };
-use crate::rooms::give;
 use crate::search_pages::{new_page, new_wiki};
 use crate::websocket::{Event, Socket};
 
@@ -159,7 +158,7 @@ async fn the_writer_of_a_page_is_told_of_its_comments() {
     let th = Setup::native().start().await.init_basic().await;
     let b = th.client2.me().await;
     let wiki = new_wiki(&th.client).await;
-    crate::rooms::give_in(
+    crate::notifications::give_in(
         &th,
         crate::common::TEST_WORKSPACE_ID,
         &wiki,

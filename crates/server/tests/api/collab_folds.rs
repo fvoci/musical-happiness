@@ -15,8 +15,8 @@ use serde_json::{Value, json};
 use crate::body_versions::versions;
 use crate::collab::{Editing, body_of, card, editing, editing_app, joined};
 use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
-use crate::notifications::{board_with_owner, card_with, kinds, told};
-use crate::rooms::{Peer, give, paragraphs, table};
+use crate::notifications::{board_with_owner, card_with, give, kinds, told};
+use crate::rooms::{Peer, paragraphs, table};
 
 /// The state's last update, the log's last, the last one the card holds, and how many
 /// rows the log has.

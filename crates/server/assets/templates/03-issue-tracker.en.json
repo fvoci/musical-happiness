@@ -9,6 +9,13 @@
     "description": "Collects bugs and requests. Who reported and last changed an issue, and when, is filled in for you, and the “Active issues” view filters out what is closed.",
     "icon": "🐞",
     "showDescription": true,
+    "doneWhen": {
+      "propertyId": "41fb4307-4d35-515d-8f28-ee0bd207e0fd",
+      "optionIds": [
+        "41e2d65c-a5b7-5f21-83a1-cde59a83c25d",
+        "0dc0879a-7d99-594d-ba6b-cf906869740a"
+      ]
+    },
     "cardProperties": [
       {
         "id": "41fb4307-4d35-515d-8f28-ee0bd207e0fd",

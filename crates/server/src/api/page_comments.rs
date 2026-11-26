@@ -3,23 +3,24 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{Block, Body, BodyChange, CommentVersion};
+use fvoci_model::{Block, Body, BodyChange, CommentVersion, ContainerKinds};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::comments::{
-    create_comment_on, created_comment, delete_comment_on, existing_comment_on,
-    find_live_comment_on, get_comment_versions_on, list_comments_on, patch_comment_on,
-    restore_comment_on,
+    CommentParentKind, CommenterOf, create_comment_on, created_comment, delete_comment_on,
+    existing_comment_on, find_live_comment_on, get_comment_versions_on, list_comments_on,
+    patch_comment_on, restore_comment_on,
 };
 use super::contract::params::{CommentId, MemberWorkspaceId, PageId, WikiId};
 use super::contract::tag;
 use super::wikis::{READ_DENIED, page_with_permission};
-use super::workspace::InWiki;
+use super::workspace::{InWiki, InWorkspace};
 use super::{ApiResult, json_response};
-use crate::app::App;
+use crate::app::{App, ChangeNotification};
+use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -36,7 +37,29 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_restore_page_comment))
 }
 
+const CREATE_DENIED: &str = "access denied to comment on the page";
 const CHANGES_DENIED: &str = "access denied to change the comments of the page";
+
+pub(super) struct PageCommentParent;
+
+impl CommentParentKind for PageCommentParent {
+    const CONTAINER_PARAM: &'static str = "wikiId";
+    const PARENT_PARAM: &'static str = "pageId";
+    const CREATE_DENIED: &'static str = CREATE_DENIED;
+    const CHANGES_DENIED: &'static str = CHANGES_DENIED;
+
+    fn kinds() -> ContainerKinds {
+        ContainerKinds::WIKIS
+    }
+
+    async fn load_parent(
+        ws: &InWorkspace,
+        wiki_id: &str,
+        page_id: &str,
+    ) -> Result<Block, AppError> {
+        ws.app.page_of(wiki_id, page_id).await
+    }
+}
 
 /// A comment to write on a page.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -117,21 +140,18 @@ async fn handle_get_page_comments(
     responses((status = 201, description = "The comment as it was stored.", body = Block)),
 )]
 async fn handle_create_page_comment(
-    InWiki(ws): InWiki,
-    Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+    commenter: CommenterOf<PageCommentParent>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
-    let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
-        ContainerPermission::CommentCards,
-        "access denied to comment on the page",
+    let comment = create_comment_on::<NewPageComment>(
+        &commenter.ws,
+        &commenter.container_id,
+        commenter.parent,
+        "page",
+        &body,
+        ChangeNotification::Send,
     )
     .await?;
-    let comment = create_comment_on::<NewPageComment>(&ws, &wiki_id, page, "page", &body).await?;
-    tracing::debug!(wiki_id, page_id, comment_id = %comment.id, user_id, "CreatePageComment");
     Ok(created_comment(&comment))
 }
 
@@ -152,30 +172,21 @@ async fn handle_create_page_comment(
     responses((status = 200, description = "The comment as it is now.", body = Block)),
 )]
 async fn handle_patch_page_comment(
-    InWiki(ws): InWiki,
-    Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
+    commenter: CommenterOf<PageCommentParent>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
-    let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
-        ContainerPermission::CommentCards,
-        CHANGES_DENIED,
-    )
-    .await?;
-    let comment = existing_comment_on(&ws, &page, &comment_id).await?;
+    let comment_id = commenter.comment_id()?;
+    let comment = existing_comment_on(&commenter.ws, &commenter.parent, comment_id).await?;
     let patched = patch_comment_on::<PageCommentPatch>(
-        &ws,
-        &wiki_id,
+        &commenter.ws,
+        &commenter.container_id,
         &comment,
         CHANGES_DENIED,
         &body,
+        ChangeNotification::Send,
         |patch| patch.read_at,
     )
     .await?;
-    tracing::debug!(wiki_id, page_id, comment_id, user_id, "PatchPageComment");
     Ok(json_response(&patched))
 }
 
@@ -193,36 +204,23 @@ async fn handle_patch_page_comment(
     params(MemberWorkspaceId, WikiId, PageId, CommentId),
     responses((status = 204, description = "The comment is deleted.")),
 )]
-async fn handle_delete_page_comment(
-    InWiki(ws): InWiki,
-    Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
-) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
-    let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
-        ContainerPermission::CommentCards,
+async fn handle_delete_page_comment(commenter: CommenterOf<PageCommentParent>) -> ApiResult {
+    let comment_id = commenter.comment_id()?;
+    let comment = existing_comment_on(&commenter.ws, &commenter.parent, comment_id).await?;
+    delete_comment_on(
+        &commenter.ws,
+        &comment,
         CHANGES_DENIED,
+        ChangeNotification::Send,
     )
-    .await?;
-    let comment = existing_comment_on(&ws, &page, &comment_id).await?;
-    let response = delete_comment_on(&ws, &comment, CHANGES_DENIED).await?;
-    tracing::debug!(wiki_id, page_id, comment_id, user_id, "DeletePageComment");
-    Ok(response)
+    .await
 }
 
 /// Bring a deleted comment on a page back
 ///
 /// A comment deleted on its own comes back onto its page, as `restoreBlock` brings a
 /// card's comment back: for its author from the commenter's role up if they deleted it
-/// themselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied
-/// to undelete other users' comments`, and for the author of a comment somebody else
-/// deleted, `a comment somebody else deleted is brought back by the board's admins`). A
-/// comment that went to the trash with its page comes back with the page
-/// (`restorePage`), not on its own; that one, one not in the trash, and one of another
-/// page are not there (404), nor is any while the page is in the trash. Who reads the
-/// wiki is told with `blockChanged`.
+/// themselves, and for the wiki's admins whoever wrote or deleted it.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/restore",
@@ -231,21 +229,10 @@ async fn handle_delete_page_comment(
     params(MemberWorkspaceId, WikiId, PageId, CommentId),
     responses((status = 200, description = "The comment as it is again.", body = Block)),
 )]
-async fn handle_restore_page_comment(
-    InWiki(ws): InWiki,
-    Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
-) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
-    let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
-        ContainerPermission::CommentCards,
-        CHANGES_DENIED,
-    )
-    .await?;
-    let comment = restore_comment_on(&ws, &page, &comment_id, CHANGES_DENIED).await?;
-    tracing::debug!(wiki_id, page_id, comment_id, user_id, "UndeletePageComment");
+async fn handle_restore_page_comment(commenter: CommenterOf<PageCommentParent>) -> ApiResult {
+    let comment_id = commenter.comment_id()?;
+    let comment =
+        restore_comment_on(&commenter.ws, &commenter.parent, comment_id, CHANGES_DENIED).await?;
     Ok(json_response(&comment))
 }
 
@@ -253,9 +240,7 @@ async fn handle_restore_page_comment(
 ///
 /// The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:
 /// every version but the one it has now, the first one first, with who wrote it and
-/// when. For who reads the wiki (as `getPageComments`), also of a comment in the trash
-/// while its page is there: the versions go only when the comment is gone for good. A
-/// page in the trash is not there (404).
+/// when.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions",

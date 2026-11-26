@@ -273,13 +273,13 @@ test('the cards without a date are counted in the row and listed on asking (C16)
   page,
 }, info) => {
   await openCalendar(page, info);
-  // Nine cards on the board, four with a "Day". The name starts with the words shown.
+  // Twelve cards on the board, four with a "Day". The name starts with the words shown.
   const button = page.getByTestId('calendar-undated');
-  await expect(button).toHaveAccessibleName('No date: 5');
+  await expect(button).toHaveAccessibleName('No date: 8');
   await button.click();
   const list = page.getByTestId('undated-list');
   await expect(list).toHaveCount(1);
-  await expect(list.locator('[data-card]')).toHaveCount(5);
+  await expect(list.locator('[data-card]')).toHaveCount(8);
   await expect(list).toContainText('These cards have no Day');
   await expect(list.locator('[data-card]').filter({ hasText: 'Open a card' })).toHaveCount(0);
   const panel = page.getByTestId('undated-panel');
@@ -287,7 +287,7 @@ test('the cards without a date are counted in the row and listed on asking (C16)
   if (info.project.name === 'mobile') {
     // A compact page has it on a sheet, and Escape closes the sheet.
     await expect(sheet).toBeVisible();
-    await expect(sheet).toContainText('No date: 5');
+    await expect(sheet).toContainText('No date: 8');
     await expect(panel).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(list).toHaveCount(0);
@@ -298,7 +298,7 @@ test('the cards without a date are counted in the row and listed on asking (C16)
     await expect(page.locator(':focus')).toHaveAccessibleName('Close the cards without a date');
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
-    await expect(page.locator(':focus')).toHaveAccessibleName('No date: 5');
+    await expect(page.locator(':focus')).toHaveAccessibleName('No date: 8');
     // Picking a day closes the column; opening the column closes the list of a day.
     await button.click();
     // Tuesday: left of the column, which covers Thursday on a medium pane.
@@ -318,14 +318,14 @@ test('the cards without a date are counted in the row and listed on asking (C16)
   }
   // A card given a date leaves the list; one opened from it gives the focus back to "No date".
   await setDates(page, { 'Describe cards with properties': { from: '2026-11-20' } });
-  await expect(button).toHaveAccessibleName('No date: 4');
+  await expect(button).toHaveAccessibleName('No date: 7');
   await button.click();
-  await expect(list.locator('[data-card]')).toHaveCount(4);
+  await expect(list.locator('[data-card]')).toHaveCount(7);
   await list.locator('[data-card]').filter({ hasText: 'Work on it together' }).locator('a').click();
   await expect(dialog(page)).toContainText('Work on it together');
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toBeHidden();
-  await expect(page.locator(':focus')).toHaveAccessibleName('No date: 4');
+  await expect(page.locator(':focus')).toHaveAccessibleName('No date: 7');
 });
 
 test('"display by" places the cards by another date', async ({ page }, info) => {
@@ -345,7 +345,7 @@ test('"display by" places the cards by another date', async ({ page }, info) => 
     calendar(page).getByRole('button', { name: /^Thursday, November 12, \d+ cards?$/ }),
   ).toHaveCount(0);
   await expect(
-    calendar(page).getByRole('button', { name: /^Tuesday, November 10, 9 cards$/ }),
+    calendar(page).getByRole('button', { name: /^Tuesday, November 10, 12 cards$/ }),
   ).toHaveCount(1);
   // Every card has a time it was changed: none is without a date.
   await expect(page.getByTestId('calendar-undated')).toHaveAccessibleName('No date: 0');
@@ -390,7 +390,7 @@ test('the calendar in light and dark, at 390 pixels, and the cards of a day', as
 
   // The cards without a date: a sheet on the phone, a column elsewhere.
   await page.getByTestId('calendar-undated').click();
-  await expect(page.getByTestId('undated-list').locator('[data-card]')).toHaveCount(1);
+  await expect(page.getByTestId('undated-list').locator('[data-card]')).toHaveCount(4);
   await shoot(`undated-${stage}`);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('undated-list')).toHaveCount(0);

@@ -3,8 +3,8 @@
 use axum::body::Bytes;
 use axum::extract::Path;
 use fvoci_model::{
-    Category, CategoryContainers, CategoryError, CategoryType, RefusalReason, SidebarVisibility,
-    WorkspaceRole,
+    Category, CategoryContainerUpdate, CategoryContainers, CategoryError, CategoryPatch,
+    CategoryType, RefusalReason, SidebarVisibility, WorkspaceRole,
 };
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
@@ -16,7 +16,8 @@ use super::contract::tag;
 
 use super::workspace::{InWorkspace, TextInContainer};
 use super::{
-    ApiResult, decode_json, json_object, json_response, no_content, require_container_visible,
+    ApiResult, decode_json, decode_object, json_object, json_response, no_content,
+    require_container_visible,
 };
 use crate::app::App;
 use crate::auth::now_millis;
@@ -29,9 +30,16 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_get_user_category_containers
         ))
         .routes(routes!(handle_reorder_categories))
-        .routes(routes!(handle_update_category, handle_delete_category))
+        .routes(routes!(
+            handle_update_category,
+            handle_patch_category,
+            handle_delete_category
+        ))
         .routes(routes!(handle_reorder_category_containers))
-        .routes(routes!(handle_update_category_container))
+        .routes(routes!(
+            handle_update_category_container,
+            handle_put_category_container
+        ))
         .routes(routes!(handle_hide_container))
         .routes(routes!(handle_unhide_container))
 }
@@ -206,6 +214,33 @@ async fn handle_update_category(
     Ok(json_response(&updated))
 }
 
+/// Partially update a category
+///
+/// Updates the display `name` and/or `collapsed` state of one of the user's categories
+/// in a single transaction. System categories ignore name changes.
+#[utoipa::path(
+    patch,
+    path = "/w/{workspaceId}/categories/{categoryId}",
+    operation_id = "patchCategory",
+    tag = tag::SIDEBAR,
+    params(WorkspaceId, CategoryId),
+    request_body = CategoryPatch,
+    responses((status = 200, description = "The updated category.", body = Category)),
+)]
+async fn handle_patch_category(
+    TextInContainer(ws): TextInContainer,
+    Path((_, category_id)): Path<(String, String)>,
+    body: Bytes,
+) -> ApiResult {
+    let ws = ws.require_no_guest()?;
+    let patch: CategoryPatch = decode_object(&body)?;
+    let updated = ws
+        .app
+        .patch_category(&ws.workspace_id, &ws.session.user_id, &category_id, &patch)
+        .await?;
+    Ok(json_response(&updated))
+}
+
 /// Delete a category
 ///
 /// Deletes one of the user's categories; its boards go to the user's default
@@ -300,6 +335,46 @@ async fn handle_update_category_container(
         &session.user_id,
         &category_id,
         &[container_id],
+    )
+    .await?;
+    Ok(no_content())
+}
+
+/// Move and/or hide a container in a category atomically
+///
+/// Moves the container into `categoryId` at optional 0-based `index` and/or sets its
+/// `hidden` flag in one database transaction.
+#[utoipa::path(
+    put,
+    path = "/w/{workspaceId}/categories/{categoryId}/containers/{containerId}",
+    operation_id = "putCategoryContainer",
+    tag = tag::SIDEBAR,
+    params(WorkspaceId, CategoryId, ContainerId),
+    request_body = CategoryContainerUpdate,
+    responses((status = 204, description = "The container placement and visibility are updated.")),
+)]
+async fn handle_put_category_container(
+    TextInContainer(ws): TextInContainer,
+    Path((_, category_id, container_id)): Path<ContainerPlace>,
+    body: Bytes,
+) -> ApiResult {
+    let ws = ws.require_no_guest()?;
+    let InWorkspace {
+        app,
+        session,
+        workspace_id,
+        ..
+    } = ws;
+    app.user_category(&workspace_id, &session.user_id, &category_id)
+        .await?;
+    require_container_visible(&app, &session.user_id, &container_id).await?;
+    let update: CategoryContainerUpdate = decode_object(&body)?;
+    app.put_category_container(
+        &workspace_id,
+        &session.user_id,
+        &category_id,
+        &container_id,
+        &update,
     )
     .await?;
     Ok(no_content())

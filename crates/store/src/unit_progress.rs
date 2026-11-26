@@ -14,7 +14,7 @@ use fvoci_model::{
 use crate::Store;
 use crate::containers::inherited_members_source;
 use crate::course_cleanup::{self, PersonalCourseTable};
-use crate::db::{Dialect, Id, Param, Row, Scope};
+use crate::db::{Dialect, Id, LockRank, Param, Row, Scope};
 use crate::error::StoreError;
 
 impl Store {
@@ -145,11 +145,6 @@ impl Store {
 /// Verifies `unit_id` is a live `BlockType::Unit` on live course `course_id` in live
 /// organization `org`, and that `user_id` is an active member of its workspace and not
 /// deleted or erased.
-///
-/// On PostgreSQL locks `blocks` (`FOR KEY SHARE`), `workspace_members` (`FOR SHARE`),
-/// and `users` (`FOR KEY SHARE`) in that global order so concurrent unit deletion,
-/// workspace removal, org departure, or account erasure serialize cleanly without
-/// blocking learners updating progress side by side.
 pub(crate) async fn require_live_unit(
     scope: &mut Scope<'_>,
     course_id: &str,
@@ -157,6 +152,7 @@ pub(crate) async fn require_live_unit(
     user_id: &str,
     org: Param,
 ) -> Result<(), StoreError> {
+    scope.record_lock(LockRank::Block, unit_id);
     let mut sql = scope.sql(
         "SELECT c.workspace_id \
          FROM blocks AS b \
@@ -181,6 +177,10 @@ pub(crate) async fn require_live_unit(
     };
     let workspace_id = row.id(0)?;
 
+    scope.record_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+    );
     let mut member = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
     member
         .bind(Id(&workspace_id))
@@ -192,6 +192,7 @@ pub(crate) async fn require_live_unit(
         return Err(StoreError::not_found("unit"));
     }
 
+    scope.record_lock(LockRank::Users, user_id);
     let mut user = scope.sql("SELECT 1 FROM users WHERE id = ");
     user.bind(Id(user_id))
         .push(" AND deleted_at IS NULL")

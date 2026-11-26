@@ -1,14 +1,14 @@
-//! Boards and their members.
+//! Boards: reading, creating, patching, deleting, restoring, and sidebar placement.
 
 use fvoci_model::{
-    AuditAction, Container, ContainerCategoryWebsocketData, ContainerKind, ContainerMember,
+    CategoryType, Container, ContainerCategoryWebsocketData, ContainerKind, ContainerMember,
     ContainerPatch, ContainerVisibility, new_id,
 };
-use fvoci_store::{AuditEntry, DeletedContainer, Joined, MemberChange, PublicContainers, Standing};
+use fvoci_store::{DeletedContainer, PublicContainers};
 
-use super::{App, ContainerAccess, DEFAULT_CATEGORY_CONTAINERS, Former};
+use super::{App, Former};
 use crate::collab::{AccessScope, Deletion};
-use crate::error::{AppError, Reason};
+use crate::error::AppError;
 use crate::metrics::CourseSource;
 use crate::permissions::ContainerScope;
 
@@ -17,9 +17,6 @@ use crate::permissions::ContainerScope;
 pub(super) fn changes_access(patch: &ContainerPatch) -> bool {
     patch.visibility.is_some() || patch.minimum_role.is_some()
 }
-
-/// The message of the refusal to remove or demote a board's only admin.
-const LAST_ADMIN: &str = "cannot leave a board with no admins";
 
 /// Whether the user who creates a board becomes a member of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,7 +164,7 @@ impl App {
         let categories = self.user_category_containers(user_id, workspace_id).await?;
         let Some(default) = categories
             .iter()
-            .find(|entry| entry.category.name == DEFAULT_CATEGORY_CONTAINERS)
+            .find(|entry| entry.category.category_type == CategoryType::System)
         else {
             return Err(AppError::internal(format_args!(
                 "no default category found for user userID: {user_id}"
@@ -215,8 +212,8 @@ impl App {
             .store()
             .patch_container(container_id, patch, user_id)
             .await?;
-        // Who read an open wiki or course without joining it reads it no more once it is
-        // private: they are told it is gone for them, as when it is deleted.
+        // Who read an open board, wiki, or course without joining it reads it no more
+        // once it is private: they are told it is gone for them, as when it is deleted.
         let closed = scope_before.filter(|before| {
             *before == ContainerScope::OpenToRead
                 && ContainerScope::of(&updated) != ContainerScope::OpenToRead
@@ -469,14 +466,19 @@ impl App {
     async fn tell_where_restored_container_is(&self, container: &Container) {
         let places = match self.store().get_container_places(&container.id).await {
             Ok(places) => places,
-            Err(error) => {
-                tracing::error!(
-                    %error,
-                    container_id = container.id,
-                    "the places of a restored board could not be read"
-                );
+            Err(error)
+                if {
+                    tracing::error!(
+                        %error,
+                        container_id = container.id,
+                        "the places of a restored board could not be read"
+                    );
+                    true
+                } =>
+            {
                 return;
             }
+            Err(_) => unreachable!(),
         };
         for place in places {
             let filed = ContainerCategoryWebsocketData {
@@ -518,395 +520,5 @@ impl App {
                     .await;
             }
         }
-    }
-
-    /// Returns the explicit members of a board.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the query fails.
-    pub async fn members_for_container(
-        &self,
-        container_id: &str,
-    ) -> Result<Vec<ContainerMember>, AppError> {
-        Ok(self.store().get_members_for_container(container_id).await?)
-    }
-
-    /// Returns the members of a board who are in its workspace now, as the board's member
-    /// list shows them: who left the workspace is listed nowhere, whatever role is left.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the members cannot be read.
-    pub async fn present_members_for_container(
-        &self,
-        container_id: &str,
-    ) -> Result<Vec<ContainerMember>, AppError> {
-        Ok(self
-            .store()
-            .get_present_members_for_container(container_id)
-            .await?)
-    }
-
-    /// Makes a user a member of a board with the roles of `member`, files the board
-    /// under the user's default category unless it is a template, and tells the board's
-    /// members.
-    ///
-    /// A user who is a member already stays as they are, and that membership is
-    /// returned. `None` is returned if the board does not exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the membership cannot be read or written, or an
-    /// error if the board cannot be filed under the user's default category; in that
-    /// case the membership exists nonetheless.
-    pub async fn add_member_to_container(
-        &self,
-        member: &ContainerMember,
-    ) -> Result<Option<ContainerMember>, AppError> {
-        self.add_member_to_container_recorded(member, Word::Unasked)
-            .await
-    }
-
-    /// Makes a user a member of a board as [`App::add_member_to_container`] does, on the
-    /// word of who asked, whose permission was checked with `access`: only if they are
-    /// still what it found when the membership is written (`Store::add_member_asked`).
-    ///
-    /// # Errors
-    ///
-    /// As [`App::add_member_to_container`]; `None` also if who asked is not what they were.
-    pub async fn add_member_asked(
-        &self,
-        member: &ContainerMember,
-        user_id: &str,
-        access: &ContainerAccess,
-    ) -> Result<Option<ContainerMember>, AppError> {
-        let word = Word::Asked(standing(user_id, access));
-        self.add_member_to_container_recorded(member, word).await
-    }
-
-    /// Makes a user a member of a board, on behalf of `actor_id`, who manages the board
-    /// without reading it, as [`App::add_member_to_container`] does and, if the membership
-    /// is new, records in the organization's audit log in the same step who made whom a
-    /// member: themselves, by which they come to read it, or somebody else, who might be
-    /// another account of theirs.
-    ///
-    /// # Errors
-    ///
-    /// As [`App::add_member_to_container`]; a record that cannot be written is the store's
-    /// error, and the membership is not made then.
-    pub async fn add_member_as_manager(
-        &self,
-        member: &ContainerMember,
-        actor_id: &str,
-    ) -> Result<Option<ContainerMember>, AppError> {
-        self.add_member_to_container_recorded(member, Word::Manager(actor_id))
-            .await
-    }
-
-    /// Adds a member as [`App::add_member_to_container`] does and, if the membership is new
-    /// and a manager is given, records the manager doing it in the audit log in the same
-    /// step.
-    async fn add_member_to_container_recorded(
-        &self,
-        member: &ContainerMember,
-        word: Word<'_>,
-    ) -> Result<Option<ContainerMember>, AppError> {
-        let container = match self.store().get_container(&member.container_id).await {
-            Ok(container) => container,
-            Err(error) if error.is_not_found() => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-
-        // Added unless already there, in one step: of two requests that add the same
-        // user at once, the second finds the membership the first made.
-        let added = match word {
-            Word::Manager(manager_id) => {
-                let entry = audit_entry(&container, member, manager_id);
-                self.store().add_member_recorded(member, &entry).await
-            }
-            Word::Asked(asked) => self.store().add_member_asked(member, asked).await,
-            Word::Unasked => self.store().add_member(member).await,
-        };
-        let existing = match added {
-            Ok(existing) => existing,
-            // The board, or who asked as they were, is not there any more.
-            Err(error) if error.is_not_found() && matches!(word, Word::Asked(_)) => {
-                return Ok(None);
-            }
-            Err(error) => return Err(error.into()),
-        };
-        if let Some(existing) = existing {
-            return Ok(Some(existing));
-        }
-
-        self.collab()
-            .recheck_access(
-                self,
-                AccessScope::container(&container.id).of_user(&member.user_id),
-            )
-            .await;
-        // The membership is stored: it is announced whatever becomes of the filing.
-        self.broadcast_member_change_in_background(container.workspace_id.clone(), member.clone());
-        if !container.is_template {
-            self.add_containers_to_default_category(
-                &member.user_id,
-                &container.workspace_id,
-                std::slice::from_ref(&container.id),
-            )
-            .await?;
-        }
-        Ok(Some(member.clone()))
-    }
-
-    /// Makes a user a member of a board with the board's minimum role, as joining does,
-    /// and returns the membership. A member below the minimum role is raised to it; a
-    /// member with that role or a higher one stays as they are. The board's members are
-    /// told about a membership that is new or changed.
-    ///
-    /// # Errors
-    ///
-    /// Returns a not-found error if there is no such board, and an error if the board
-    /// cannot be filed under the user's default category; in that case the membership
-    /// exists nonetheless.
-    pub async fn join_container(
-        &self,
-        container_id: &str,
-        user_id: &str,
-    ) -> Result<ContainerMember, AppError> {
-        let container = self.container(container_id).await?;
-        let joined = match self.store().join_container(container_id, user_id).await {
-            Ok(joined) => joined,
-            Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
-            Err(error) => return Err(error.into()),
-        };
-        match joined {
-            Joined::New(member) => {
-                self.collab()
-                    .recheck_access(self, AccessScope::container(&container.id).of_user(user_id))
-                    .await;
-                // The membership is stored: it is announced whatever becomes of the
-                // filing.
-                self.broadcast_member_change_in_background(
-                    container.workspace_id.clone(),
-                    member.clone(),
-                );
-                if !container.is_template {
-                    self.add_containers_to_default_category(
-                        user_id,
-                        &container.workspace_id,
-                        std::slice::from_ref(&container.id),
-                    )
-                    .await?;
-                }
-                Ok(member)
-            }
-            Joined::Raised(member) => {
-                self.collab()
-                    .recheck_access(self, AccessScope::container(&container.id).of_user(user_id))
-                    .await;
-                self.broadcast_member_change_in_background(container.workspace_id, member.clone());
-                Ok(member)
-            }
-            Joined::Already(member) => Ok(member),
-        }
-    }
-
-    /// Replaces the roles of a member of a board and tells the board's members.
-    ///
-    /// `None` is returned, and nothing is changed, if the board does not exist or the
-    /// user is not a member of it.
-    ///
-    /// # Errors
-    ///
-    /// Returns a bad request if the change would leave the board without an admin, or
-    /// the store's error.
-    pub async fn update_container_member(
-        &self,
-        member: &ContainerMember,
-    ) -> Result<Option<ContainerMember>, AppError> {
-        self.update_container_member_recorded(member, Word::Unasked)
-            .await
-    }
-
-    /// Replaces the roles of a member of a board as [`App::update_container_member`] does,
-    /// on the word of who asked, as [`App::add_member_asked`] takes it.
-    ///
-    /// # Errors
-    ///
-    /// As [`App::update_container_member`]; `None` also if who asked is not what they were.
-    pub async fn update_member_asked(
-        &self,
-        member: &ContainerMember,
-        user_id: &str,
-        access: &ContainerAccess,
-    ) -> Result<Option<ContainerMember>, AppError> {
-        let word = Word::Asked(standing(user_id, access));
-        self.update_container_member_recorded(member, word).await
-    }
-
-    /// Gives a member of a board roles on it, on behalf of `actor_id`, who manages the
-    /// board without reading it, as [`App::update_container_member`] does and records in the
-    /// organization's audit log in the same step who gave whom the roles, as
-    /// [`App::add_member_as_manager`] does.
-    ///
-    /// # Errors
-    ///
-    /// As [`App::update_container_member`]; a record that cannot be written is the store's
-    /// error, and the membership is not changed then.
-    pub async fn update_member_as_manager(
-        &self,
-        member: &ContainerMember,
-        actor_id: &str,
-    ) -> Result<Option<ContainerMember>, AppError> {
-        self.update_container_member_recorded(member, Word::Manager(actor_id))
-            .await
-    }
-
-    async fn update_container_member_recorded(
-        &self,
-        member: &ContainerMember,
-        word: Word<'_>,
-    ) -> Result<Option<ContainerMember>, AppError> {
-        let container = match self.store().get_container(&member.container_id).await {
-            Ok(container) => container,
-            Err(error) if error.is_not_found() => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        let scope = AccessScope::container(&container.id).of_user(&member.user_id);
-        self.collab().narrowing_access(self, &scope);
-        // A board keeps at least one admin. Whether this change would take the last one
-        // away is decided where the change is written, so that two admins who step down
-        // at once do not both pass.
-        let changed = match word {
-            Word::Manager(manager_id) => {
-                let entry = audit_entry(&container, member, manager_id);
-                self.store().change_member_recorded(member, &entry).await
-            }
-            Word::Asked(asked) => self.store().change_member_asked(member, asked).await,
-            Word::Unasked => self.store().change_member(member).await,
-        };
-        let change = match changed {
-            Ok(change) => change,
-            // The board, or who asked as they were, is not there any more.
-            Err(error) if error.is_not_found() && matches!(word, Word::Asked(_)) => {
-                return Ok(None);
-            }
-            Err(error) => return Err(error.into()),
-        };
-        match change {
-            MemberChange::Done => {}
-            MemberChange::NotAMember => return Ok(None),
-            MemberChange::LastAdmin => {
-                return Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin));
-            }
-        }
-
-        self.collab()
-            .recheck_access(
-                self,
-                AccessScope::container(&container.id).of_user(&member.user_id),
-            )
-            .await;
-        self.broadcast_member_change_in_background(container.workspace_id, member.clone());
-        Ok(Some(member.clone()))
-    }
-
-    pub(super) fn broadcast_member_change_in_background(
-        &self,
-        workspace_id: String,
-        member: ContainerMember,
-    ) {
-        let app = self.clone();
-        self.spawn_background(async move {
-            app.ws()
-                .broadcast_member_change(&workspace_id, &member.container_id, &member)
-                .await;
-        });
-    }
-
-    /// Removes a user from a board and tells the board's members and the user. Nothing
-    /// happens if the board does not exist or the user is not a member of it.
-    ///
-    /// # Errors
-    ///
-    /// Returns a bad request if the user is the board's only admin, or the store's
-    /// error.
-    pub async fn delete_container_member(
-        &self,
-        container_id: &str,
-        user_id: &str,
-    ) -> Result<(), AppError> {
-        let container = match self.store().get_container(container_id).await {
-            Ok(container) => container,
-            Err(error) if error.is_not_found() => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        let scope = AccessScope::container(container_id).of_user(user_id);
-        self.collab().narrowing_access(self, &scope);
-        // A board keeps at least one admin; decided where the membership is removed.
-        match self.store().remove_member(container_id, user_id).await? {
-            MemberChange::Done => {}
-            MemberChange::NotAMember => return Ok(()),
-            MemberChange::LastAdmin => {
-                return Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin));
-            }
-        }
-
-        self.collab()
-            .recheck_access(self, AccessScope::container(container_id).of_user(user_id))
-            .await;
-        let app = self.clone();
-        let user_id = user_id.to_owned();
-        self.spawn_background(async move {
-            app.ws()
-                .broadcast_member_delete(&container.workspace_id, &container.id, &user_id)
-                .await;
-        });
-        Ok(())
-    }
-}
-
-/// On whose word a board's membership changes, and what is checked of them where it is
-/// written.
-#[derive(Clone, Copy)]
-enum Word<'a> {
-    /// Nobody's that is to be checked again: the server's own (an import).
-    Unasked,
-    /// A user's whose permission was checked: they must still be what it found.
-    Asked(Standing<'a>),
-    /// A workspace's administrator's who manages the board without reading it: they must
-    /// still administer the workspace, and are recorded.
-    Manager(&'a str),
-}
-
-/// What `access` found of the user who asks.
-fn standing<'a>(user_id: &'a str, access: &'a ContainerAccess) -> Standing<'a> {
-    Standing {
-        user_id,
-        workspace_role: access.actor.workspace,
-        member: access.member.as_ref(),
-        team_role: access.team_role,
-    }
-}
-
-/// The record of a manager of the board, who does not read it, giving `member` its
-/// roles: themselves, or somebody else.
-fn audit_entry(container: &Container, member: &ContainerMember, manager_id: &str) -> AuditEntry {
-    if member.user_id == manager_id {
-        AuditEntry::new(
-            &container.workspace_id,
-            manager_id,
-            AuditAction::SelfAddedToContainer,
-            &container.id,
-        )
-    } else {
-        AuditEntry::new(
-            &container.workspace_id,
-            manager_id,
-            AuditAction::AddedToContainer,
-            &container.id,
-        )
-        .with_subject(&member.user_id)
     }
 }

@@ -20,6 +20,7 @@ export type Route =
   | { readonly kind: 'invite'; readonly invitation?: string }
   | { readonly kind: 'org'; readonly orgId: string }
   | { readonly kind: 'meTime' }
+  | { readonly kind: 'todayHub' }
   | {
       readonly kind: 'shared';
       readonly boardId: string;
@@ -72,6 +73,7 @@ export interface RouteFields {
   readonly emailRevert?: boolean | undefined;
   readonly orgId?: string | undefined;
   readonly meTime?: boolean | undefined;
+  readonly todayHub?: boolean | undefined;
   readonly workspaceId?: string | undefined;
   readonly boardId?: string | undefined;
   readonly viewId?: string | undefined;
@@ -205,6 +207,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
   if (segments[0] === 'me' && segments[1] === 'time' && segments.length === 2) {
     return { kind: 'meTime' };
   }
+  if (segments[0] === 'today' && segments.length === 1) {
+    return { kind: 'todayHub' };
+  }
   const [w, workspaceId, section, boardId, viewId, cardId, ...rest] = segments;
   if (w !== 'w' || workspaceId === undefined) return { kind: 'unknown' };
   if (section === 'wikis' && boardId !== undefined && cardId === undefined) {
@@ -282,6 +287,7 @@ export function settled(target: RouteTarget): Route {
   }
   if (route.orgId) return { kind: 'org', orgId: route.orgId };
   if (route.kind === 'meTime' || route.meTime) return { kind: 'meTime' };
+  if (route.kind === 'todayHub' || route.todayHub) return { kind: 'todayHub' };
   const readToken = route.readToken || undefined;
   if (readToken) {
     if (!route.boardId) return NOWHERE;
@@ -385,6 +391,8 @@ export function routePath(target: RouteTarget, basePath: string): string {
       return buildUrl(`/org/${encodeURIComponent(next.orgId)}`, basePath);
     case 'meTime':
       return buildUrl('/me/time', basePath);
+    case 'todayHub':
+      return buildUrl('/today', basePath);
     case 'shared': {
       const path = ['shared', ...encodeParts([next.boardId, next.viewId, next.cardId])].join('/');
       return `${buildUrl(`/${path}`, basePath)}?r=${encodeURIComponent(next.readToken)}`;

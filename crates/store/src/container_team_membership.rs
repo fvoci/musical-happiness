@@ -101,8 +101,7 @@ pub(crate) async fn remove_workspace_teams(
             " UNION SELECT id FROM containers WHERE workspace_id = ",
             Id(workspace_id),
         )
-        .push_bind(" AND visibility = ", ContainerVisibility::Open.as_str())
-        .push_bind(" AND is_template = ", true);
+        .push_bind(" AND visibility = ", ContainerVisibility::Open.as_str());
     let changes = scope
         .fetch_all(sql)
         .await?

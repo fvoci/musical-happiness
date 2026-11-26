@@ -352,8 +352,8 @@ function expectSameShape(doc: DocNode): void {
 const templates = templateDocuments();
 
 describe('the view draws what the editor draws', () => {
-  it('has the 92 documents of the built-in templates to compare', () => {
-    expect(templates).toHaveLength(92);
+  it('has the 110 documents of the built-in templates to compare', () => {
+    expect(templates).toHaveLength(110);
   });
 
   it.each(
@@ -387,7 +387,7 @@ describe('the view draws what the editor draws', () => {
 
   it('compared every document', () => {
     expect(compared.documents).toBe(
-      92 + Object.keys(HAND_MADE).length + Object.keys(WITH_DIAGRAMS).length + 1,
+      110 + Object.keys(HAND_MADE).length + Object.keys(WITH_DIAGRAMS).length + 1,
     );
   });
 

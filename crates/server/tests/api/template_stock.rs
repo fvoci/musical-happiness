@@ -7,13 +7,13 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use fvoci_model::Container;
+use fvoci_model::{Container, OrgRole, User, WorkspaceRole, new_id};
 use fvoci_server::config::Configuration;
 
-use crate::common::{PASSWORD, ROOT_WS, Setup, TestServer, USER1_USERNAME};
+use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, ROOT_WS, Setup, TestServer, USER1_USERNAME};
 
 /// How many built-in templates a reader is listed: each once, in one language.
-const TEMPLATES: usize = 8;
+const TEMPLATES: usize = 9;
 
 /// A directory of the test `name` that exists and takes no file.
 fn dead_storage(name: &str) -> PathBuf {
@@ -54,11 +54,64 @@ async fn started_on_dead_storage(configure: fn(&mut Configuration)) -> TestServe
         .try_start()
         .await
         .expect("run as an unprivileged user: the server starts though the write fails");
-    // The first user only: whoever a link lets in asks for the owed templates too, as
-    // their welcome board is looked for, and these tests say when they are asked for.
-    ts.client = ts
-        .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD)
-        .await;
+    // Seed user1 directly in the store without going through `/register` (which now
+    // requests a welcome board and triggers `restock_templates_soon`), so these tests
+    // control the exact moment owed templates are first requested.
+    let mut user = User {
+        id: new_id(),
+        username: USER1_USERNAME.to_owned(),
+        email: "user1@sample.com".to_owned(),
+        password_hash: fvoci_server::auth::password::hash_password(PASSWORD).expect("a hash"),
+        ..User::default()
+    };
+    ts.app
+        .store()
+        .create_user(&mut user)
+        .await
+        .expect("user1 is stored");
+    if ts
+        .app
+        .store()
+        .is_organization_member(&user.id)
+        .await
+        .expect("checked membership")
+    {
+        ts.app
+            .store()
+            .execute_unchecked(&format!(
+                "UPDATE organization_members SET role = '{}' WHERE CAST(user_id AS TEXT) = '{}'",
+                OrgRole::Admin.as_str(),
+                user.id
+            ))
+            .await
+            .expect("user1 promoted to organization admin");
+    } else {
+        ts.app
+            .store()
+            .add_organization_member(&user.id, OrgRole::Admin)
+            .await
+            .expect("user1 administers the organization");
+    }
+    if ts
+        .app
+        .store()
+        .add_workspace_member(ROOT_WORKSPACE_ID, &user.id, WorkspaceRole::Admin)
+        .await
+        .is_err()
+    {
+        ts.app
+            .store()
+            .execute_unchecked(&format!(
+                "UPDATE workspace_members SET role = '{}' \
+                 WHERE CAST(workspace_id AS TEXT) = '{ROOT_WORKSPACE_ID}' \
+                 AND CAST(user_id AS TEXT) = '{}'",
+                WorkspaceRole::Admin.as_str(),
+                user.id
+            ))
+            .await
+            .expect("user1 promoted to root workspace admin");
+    }
+    ts.client = ts.login(USER1_USERNAME, PASSWORD).await;
     assert!(
         ts.app.owes_templates(),
         "the templates are owed (run as an unprivileged user: root writes where nobody may)"

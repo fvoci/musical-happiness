@@ -121,6 +121,11 @@ pub(crate) const BEFORE_USER_SETTINGS_AND_BLOCK_CLEANUP_VERSION: i64 = 75;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_SERVER_INDEXES_AND_DERIVED_COLUMNS_VERSION: i64 = 76;
 
+/// The migration before server-authority columns, derived card tables, and widened
+/// audit/notification kinds (0078).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_SERVER_AUTHORITY_VERSION: i64 = 77;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -145,7 +150,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 13] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 48] = [
+pub(crate) const ORG_TABLES: [&str; 50] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -153,6 +158,8 @@ pub(crate) const ORG_TABLES: [&str; 48] = [
     "body_updates",
     "body_version_editors",
     "body_versions",
+    "card_assignees",
+    "card_due_notices",
     "categories",
     "category_containers",
     "comment_versions",
@@ -596,5 +603,17 @@ mod tests {
             .expect("migration 77 is in the list");
         assert_eq!(step.version, 77);
         assert_eq!(step.description, "server indexes and derived columns");
+    }
+
+    /// Migration 78 adds server-authority columns, derived card tables, and widened
+    /// audit and notification kinds.
+    #[test]
+    fn migration_78_is_server_authority() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_SERVER_AUTHORITY_VERSION + 1)
+            .expect("migration 78 is in the list");
+        assert_eq!(step.version, 78);
+        assert_eq!(step.description, "server authority");
     }
 }

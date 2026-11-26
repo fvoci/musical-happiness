@@ -10,6 +10,7 @@
   const coursePageChunk = new LazyChunk(() => import('./CoursePage.svelte'));
   const diaryPageChunk = new LazyChunk(() => import('./DiaryPage.svelte'));
   const myTimePageChunk = new LazyChunk(() => import('./MyTimePage.svelte'));
+  const todayHubChunk = new LazyChunk(() => import('./TodayHubPage.svelte'));
   const learningTodayChunk = new LazyChunk(() => import('./LearningTodayPage.svelte'));
   const todayReviewsChunk = new LazyChunk(() => import('./TodayReviewsPage.svelte'));
 </script>
@@ -87,6 +88,12 @@
   <LazyView chunk={myTimePageChunk}>
     {#snippet children(MyTimePage)}
       <MyTimePage {workspace} {router} />
+    {/snippet}
+  </LazyView>
+{:else if router.route.kind === 'todayHub'}
+  <LazyView chunk={todayHubChunk}>
+    {#snippet children(TodayHubPage)}
+      <TodayHubPage {workspace} {router} />
     {/snippet}
   </LazyView>
 {:else if router.route.kind === 'unknown' || (here && workspace.entered === 'missing')}

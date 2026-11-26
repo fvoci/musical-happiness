@@ -450,9 +450,11 @@ test('shared workspace: open course read without joining, joined co-editing with
     if (!shared) throw new Error('no shared workspace');
     const inWorkspace = `/api/v1/w/${shared.id}`;
 
+    // Joined, an editor: a course left to its default gives who joins it the commenter's role.
     const course = await postJson<Schemas['Container']>(adaApi, `${inWorkspace}/courses`, {
       title: 'Shared Curriculum',
       visibility: 'open',
+      minimumRole: 'editor',
     });
     const chapter = await postJson<Schemas['Unit']>(
       adaApi,

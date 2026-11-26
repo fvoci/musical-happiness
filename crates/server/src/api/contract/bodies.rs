@@ -14,8 +14,8 @@
 
 use fvoci_model::{
     BlockType, Body, CardOpen, CardPropertyDefinition, CategoryType, ContainerRole,
-    ContainerVisibility, Credential, Density, HourCycle, JsonMap, MinimumRole, NameShown, Theme,
-    Title, WeekStart,
+    ContainerVisibility, Credential, Density, DoneWhen, HourCycle, JsonMap, MinimumRole, NameShown,
+    Theme, Title, WeekStart,
 };
 use utoipa::ToSchema;
 
@@ -100,6 +100,14 @@ pub(crate) struct NewBoard {
     /// non-empty `id` that no other has.
     #[schema(nullable = false)]
     card_properties: Option<Vec<CardPropertyDefinition>>,
+    /// Explicit card `date` property identifier driving `'Today'` and `due_soon` alerts.
+    due_date_property_id: Option<String>,
+    /// Rule defining when a card on the board counts as completed (`done`).
+    done_when: Option<DoneWhen>,
+    /// When `true` on a blank non-template board, populates default status, assignee, and
+    /// due-date properties, `doneWhen`, and an initial Kanban view.
+    #[schema(nullable = false)]
+    scaffold: Option<bool>,
 }
 
 /// A block to insert.
@@ -120,8 +128,8 @@ pub(crate) struct NewBlock {
     /// block of the request. Left out for a block directly on its board.
     #[schema(nullable = false)]
     parent_id: Option<String>,
-    /// The block type: `card`, `view`, `comment` or `attachment`. Any other type is
-    /// refused (400 naming `type`): a card's content is its body.
+    /// The block type (`view`, `comment` or `attachment` on `/boards/{boardId}/blocks`;
+    /// `card` is created via `createCard`, or in bulk via `createContainersAndBlocks`).
     #[schema(rename = "type")]
     block_type: BlockType,
     /// The display title.
@@ -133,11 +141,6 @@ pub(crate) struct NewBlock {
     /// value, a list of relation link objects (`{"card", "kind", "lagDays"}`), or `null`.
     #[schema(value_type = Option<Object>, nullable = false)]
     fields: Option<JsonMap>,
-    /// Must be 1 or more. The server does not keep it: the block is created when the
-    /// server stores it.
-    created_at: i64,
-    /// Must be 1 or more. The server does not keep it.
-    updated_at: i64,
 }
 
 /// Boards and their blocks, to make together.
@@ -321,6 +324,8 @@ pub(crate) struct SettingsChange {
     notify_assignments: Option<bool>,
     /// Whether the user is told of the new comments on what they watch (`comment`).
     notify_comments: Option<bool>,
+    /// Whether the user is told when a card or review is due soon (`due_soon`).
+    notify_due: Option<bool>,
 }
 
 /// The bytes of a file, as the body of an answer.

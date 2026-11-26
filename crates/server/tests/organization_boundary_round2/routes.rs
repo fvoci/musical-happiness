@@ -2,9 +2,10 @@
 
 #[path = "routes/extra.rs"]
 mod extra;
+#[path = "routes/reach.rs"]
+mod reach;
 
 use std::collections::BTreeSet;
-use std::io::{Cursor, Read as _};
 
 use fvoci_model::{
     Block, BlockType, CategoryContainers, Container, ContainerMember, ContainerVisibility,
@@ -19,6 +20,7 @@ use super::common::{
     Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, UNKNOWN_ID,
 };
 use super::{answer, db_type_of_the_tests};
+use reach::{REACHED_BY_ITEM, REFUSED_IN_REACH};
 
 // Method, path suffix, operation ID: every operation under `/w/{workspaceId}`, also
 // compared against the published contract. A parameter of the path is filled in with an
@@ -591,146 +593,89 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "putUnitSchedule",
     ),
     ("GET", "/learning/today", "getWorkspaceLearningToday"),
-];
-
-/// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
-/// nothing: the body is refused, the operation, or what the path names.
-const REFUSED_IN_REACH: [StatusCode; 3] = [
-    StatusCode::BAD_REQUEST,
-    StatusCode::FORBIDDEN,
-    StatusCode::NOT_FOUND,
-];
-
-/// The operations of `WORKSPACE_ROUTES` that a guest of the workspace reaches by what
-/// they name, as a member does: for the guest the workspace is there, and what is refused
-/// is what the path names (a board, a card, an upload, a user), or the operation.
-const REACHED_BY_ITEM: &[&str] = &[
-    "getReferencesTo",
-    "createBoard",
-    "createWiki",
-    "getPageTree",
-    "createPage",
-    "getPage",
-    "patchPage",
-    "deletePage",
-    "getPageComments",
-    "createPageComment",
-    "patchPageComment",
-    "deletePageComment",
-    "getPageCommentVersions",
-    "getPageBodyVersions",
-    "getPageBodyVersion",
-    "restorePageBodyVersion",
-    "keepPageBodyVersion",
-    "movePage",
-    "duplicatePage",
-    "getDeletedPages",
-    "restorePage",
-    "restorePageComment",
-    "createCourse",
-    "getUnitTree",
-    "createUnit",
-    "getUnit",
-    "patchUnit",
-    "deleteUnit",
-    "getUnitComments",
-    "createUnitComment",
-    "patchUnitComment",
-    "deleteUnitComment",
-    "getUnitCommentVersions",
-    "restoreUnitComment",
-    "getUnitBodyVersions",
-    "keepUnitBodyVersion",
-    "getUnitBodyVersion",
-    "restoreUnitBodyVersion",
-    "moveUnit",
-    "getDeletedUnits",
-    "restoreUnit",
-    "getMyCourseProgress",
-    "putUnitProgress",
-    "getCourseProgressSummary",
-    "listCourseMeetings",
-    "createCourseMeeting",
-    "patchCourseMeeting",
-    "deleteCourseMeeting",
-    "putMeetingAttendance",
-    "listCourseExams",
-    "createCourseExam",
-    "patchCourseExam",
-    "deleteCourseExam",
-    "putMyExamScore",
-    "deleteMyExamScore",
-    "publishCourseExamResults",
-    "unpublishCourseExamResults",
-    "listMyCourseReviews",
-    "scheduleUnitReview",
-    "completeUnitReview",
-    "deleteUnitReview",
-    "listMyUnitNotes",
-    "createUnitNote",
-    "patchUnitNote",
-    "deleteUnitNote",
-    "getCourseSchedule",
-    "putCourseSchedule",
-    "deleteCourseSchedule",
-    "redistributeCourseSchedule",
-    "redistributeMyCourseSchedule",
-    "putUnitSchedule",
-    "createContainersAndBlocks",
-    "deleteContainersAndBlocks",
-    "patchContainersAndBlocks",
-    "deleteContainer",
-    "getContainer",
-    "patchContainer",
-    "exportContainerArchive",
-    "createBlocks",
-    "getBlocks",
-    "patchBlocks",
-    "deleteBlock",
-    "patchBlock",
-    "duplicateBlock",
-    "restoreBlock",
-    "getCommentVersions",
-    "createCard",
-    "getCards",
-    "getCardByNumber",
-    "duplicateContainer",
-    "uploadFile",
-    "getFile",
-    "getFileRecord",
-    "getFileVersions",
-    "addFileVersion",
-    "getFileVersion",
-    "restoreFileVersion",
-    "getFileLease",
-    "holdFileLease",
-    "releaseFileLease",
-    "joinContainer",
-    "leaveContainer",
-    "addMember",
-    "getMembers",
-    "removeMember",
-    "updateMember",
-    "reorderCardProperties",
-    "getPublicLink",
-    "setPublicLink",
-    "getDeletedCards",
-    "restoreContainer",
-    "createUpload",
-    "getCard",
-    "patchCard",
-    "getCardBodyVersions",
-    "getCardBodyVersion",
-    "restoreCardBodyVersion",
-    "keepCardBodyVersion",
-    "createSubscription",
-    "deleteSubscription",
-    "getSubscriptions",
-    "deleteUpload",
-    "getUpload",
-    "completeUpload",
-    "putUploadPart",
-    "getWorkspaceUser",
+    ("GET", "/today", "getWorkspaceToday"),
+    (
+        "GET",
+        "/containers/{containerId}/my-permissions",
+        "getMyContainerPermissions",
+    ),
+    (
+        "POST",
+        "/containers/{containerId}/copy-to-workspace",
+        "copyContainerToWorkspace",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/duplicate",
+        "duplicateCard",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/batch-delete",
+        "batchDeleteCards",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/batch-restore",
+        "batchRestoreCards",
+    ),
+    ("POST", "/boards/{boardId}/views", "createBoardView"),
+    (
+        "POST",
+        "/boards/{boardId}/views/{viewId}/move",
+        "moveBoardView",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/views/{viewId}/duplicate",
+        "duplicateBoardView",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/views/{viewId}/card-moves",
+        "moveViewCards",
+    ),
+    (
+        "GET",
+        "/boards/{boardId}/cards/{cardId}/comments",
+        "getCardComments",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/comments",
+        "createCardComment",
+    ),
+    (
+        "PATCH",
+        "/boards/{boardId}/cards/{cardId}/comments/{commentId}",
+        "patchCardComment",
+    ),
+    (
+        "DELETE",
+        "/boards/{boardId}/cards/{cardId}/comments/{commentId}",
+        "deleteCardComment",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/comments/{commentId}/restore",
+        "restoreCardComment",
+    ),
+    (
+        "GET",
+        "/boards/{boardId}/cards/{cardId}/comments/{commentId}/versions",
+        "getCardCommentVersions",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/attachments",
+        "createCardAttachment",
+    ),
+    ("PATCH", "/categories/{categoryId}", "patchCategory"),
+    (
+        "PUT",
+        "/categories/{categoryId}/containers/{containerId}",
+        "putCategoryContainer",
+    ),
 ];
 
 #[test]
@@ -769,27 +714,7 @@ pub(super) fn fill_with_nothing(suffix: &str) -> String {
     filled
 }
 
-pub(super) fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("an export is a ZIP");
-    let mut entries = Vec::new();
-    for index in 0..zip.len() {
-        let mut entry = zip.by_index(index).expect("an entry");
-        let mut bytes = Vec::new();
-        entry.read_to_end(&mut bytes).expect("the entry contents");
-        if entry.name().expect("an entry name") == "version.json" {
-            let mut header: Value = serde_json::from_slice(&bytes).expect("the archive header");
-            assert!(header["date"].is_number(), "an export timestamp is present");
-            header["date"] = json!(0);
-            bytes = serde_json::to_vec(&header).expect("the normalized header");
-        }
-        entries.push((
-            entry.name().expect("a UTF-8 entry name").into_owned(),
-            bytes,
-        ));
-    }
-    entries.sort();
-    entries
-}
+pub(super) use extra::archive_entries;
 
 /// Who asks: somebody who is no member of the hidden workspace, a guest of it, or
 /// somebody who is no member of it and only a guest where they work, the root
@@ -1397,6 +1322,7 @@ impl Items<'_> {
             .replace("{workspaceId}", workspace)
             .replace("{containerId}", &pick(&self.board.id, UNKNOWN_ID))
             .replace("{boardId}", &pick(&self.board.id, UNKNOWN_ID))
+            .replace("{viewId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{cardId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{blockId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{wikiId}", &pick(&self.page.container_id, UNKNOWN_ID))
@@ -1483,6 +1409,12 @@ pub(super) async fn compare_resource_routes(
                 }
                 "reorderCardProperties" | "createBlocks" => json!([]),
                 "createCard" => json!({"title": "new card"}),
+                "createBoardView" => json!({"title": "new view", "viewType": "board"}),
+                "batchDeleteCards" | "batchRestoreCards" | "moveViewCards" => {
+                    json!({"cardIds": [block(absent)]})
+                }
+                "createCardAttachment" => json!({"fileId": "missing-file"}),
+                "copyContainerToWorkspace" => json!({"targetWorkspaceId": workspace}),
                 "createUnit" => json!({"title": "new unit"}),
                 "moveUnit" => json!({"parentId": ""}),
                 "createCourseMeeting" => {

@@ -184,6 +184,16 @@ struct UnsubscribedWorkspaceMessage<'a> {
     reason: &'static str,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceRoleChangedMessage<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    workspace_id: &'a str,
+    user_id: &'a str,
+    role: fvoci_model::WorkspaceRole,
+}
+
 /// The server stopped what a connection followed of a shared board's blocks.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -241,6 +251,7 @@ outgoing!(
     SubscribedWorkspaceMessage,
     SubscribedBlocksMessage,
     UnsubscribedWorkspaceMessage,
+    WorkspaceRoleChangedMessage,
     UnsubscribedBlocksMessage,
 );
 
@@ -491,7 +502,7 @@ impl Hub {
 
     /// Closes every connection. For shutdown: the connections are not part of the HTTP
     /// server's own connection handling once they are upgraded.
-    pub fn close(&self) {
+    pub fn shutdown(&self) {
         self.close_where(Disconnect::Shutdown, |_| true);
     }
 

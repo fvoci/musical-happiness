@@ -1,13 +1,16 @@
 /**
- * Container, membership, template, and public-link HTTP operations for
- * `ServerBackend` (`api/backend.ts`), including per-container `BlockTurns`
- * serialization (`W1.1`) and `learnPlaces` workspace tracking (`W1.2`).
+ * Container, membership, permissions, cross-workspace copy, template, and
+ * public-link HTTP operations for `ServerBackend` (`api/backend.ts`), including
+ * per-container `BlockTurns` serialization and `learnPlaces` workspace tracking.
  */
 import type { BoardView, Container, ContainerMember, ContainerPatch } from '../logic/wire.ts';
 import {
   BackendError,
   type BoardDraft,
+  type ContainerPermissions,
   type ContainerRole,
+  type CopiedContainerOutput,
+  type CopyToWorkspaceInput,
   type PublicLink,
   type PublicLinkChange,
   type ViewDraft,
@@ -52,6 +55,34 @@ export class ServerContainers {
     draft: BoardDraft,
     firstView: ViewDraft,
   ): Promise<{ board: Container; view: BoardView }> {
+    if (draft.scaffold) {
+      const request: Schemas['NewBoard'] = {
+        visibility: draft.visibility ?? 'private',
+        title: draft.title,
+        description: draft.description ?? '',
+        icon: draft.icon ?? '',
+        scaffold: true,
+      };
+      const rawBoard = await this.#deps.inWorkspace<Schemas['Container']>(
+        '/boards',
+        {},
+        { method: 'POST', json: request },
+        workspaceId,
+      );
+      const board = containerOf(rawBoard);
+      this.#deps.learnPlaces([board]);
+      const blocks = await this.#deps.inWorkspace<Schemas['Block'][]>(
+        '/boards/{boardId}/blocks',
+        { boardId: board.id },
+        { query: { type: 'view' } },
+        workspaceId,
+      );
+      const rawView = blocks[0];
+      if (!rawView) throw new BackendError(500, { detail: 'the server made no view' });
+      const view = viewOf(rawView);
+      this.#deps.learnView(view);
+      return { board, view };
+    }
     const request = newBoardAndViewOf(draft, firstView);
     const made = await this.#deps.inWorkspace<Schemas['ContainersAndBlocks']>(
       '/containers-and-blocks',
@@ -96,11 +127,38 @@ export class ServerContainers {
       (patch.updatedCardProperties?.length ?? 0) > 0 ||
       (patch.deletedCardProperties?.length ?? 0) > 0 ||
       Object.keys(patch.updatedProperties ?? {}).length > 0 ||
-      (patch.deletedProperties?.length ?? 0) > 0;
+      (patch.deletedProperties?.length ?? 0) > 0 ||
+      patch.dueDatePropertyId !== undefined ||
+      patch.doneWhen !== undefined;
     if (mutatesProperties) {
       return this.#deps.turns.run(`container ${id}`, send);
     }
     return send();
+  }
+
+  myPermissions(containerId: string): Promise<ContainerPermissions> {
+    return this.#deps.inWorkspace<Schemas['ContainerPermissions']>(
+      '/containers/{containerId}/my-permissions',
+      { containerId },
+    );
+  }
+
+  async copyContainerToWorkspace(
+    containerId: string,
+    request: CopyToWorkspaceInput,
+  ): Promise<CopiedContainerOutput> {
+    const json: Schemas['CopyContainerToWorkspaceRequest'] = {
+      targetWorkspaceId: request.targetWorkspaceId,
+      ...(request.title === undefined ? {} : { title: request.title }),
+    };
+    const result = await this.#deps.inWorkspace<Schemas['CopiedContainerResult']>(
+      '/containers/{containerId}/copy-to-workspace',
+      { containerId },
+      { method: 'POST', json },
+    );
+    const container = containerOf(result.container);
+    this.#deps.learnPlaces([container]);
+    return { container, missingFilesCount: result.missingFilesCount };
   }
 
   async searchBoards(workspaceId: string, query: string): Promise<Container[]> {

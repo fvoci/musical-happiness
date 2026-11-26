@@ -2,10 +2,10 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{Category, CategoryType};
+use fvoci_model::{Category, CategoryPatch, CategoryType};
 
 use super::App;
-use super::category_containers::{DEFAULT_CATEGORY_CONTAINERS, category_of_workspace_takes};
+use super::category_containers::category_of_workspace_takes;
 use crate::auth::now_millis;
 use crate::error::AppError;
 
@@ -63,6 +63,36 @@ impl App {
         self.store().update_category(&category).await?;
 
         let updated = self.store().get_category(&category.id).await?;
+        self.ws().broadcast_category_change(&updated).await;
+        Ok(updated)
+    }
+
+    /// Patches the name and/or collapsed state of a user's category in a single
+    /// transaction and broadcasts the updated category. System categories ignore name
+    /// changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns not-found if `category_id` does not belong to `user_id` in `workspace_id`,
+    /// bad-request if the patched name is invalid, and the store's error on database failure.
+    pub async fn patch_category(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        category_id: &str,
+        patch: &CategoryPatch,
+    ) -> Result<Category, AppError> {
+        let updated = self
+            .store()
+            .patch_category(workspace_id, category_id, user_id, patch)
+            .await
+            .map_err(|error| {
+                if error.is_not_found() {
+                    AppError::not_found(CATEGORY)
+                } else {
+                    error.into()
+                }
+            })?;
         self.ws().broadcast_category_change(&updated).await;
         Ok(updated)
     }
@@ -148,7 +178,7 @@ impl App {
         };
         let Some(default) = category_containers
             .iter()
-            .find(|entry| entry.category.name == DEFAULT_CATEGORY_CONTAINERS)
+            .find(|entry| entry.category.category_type == CategoryType::System)
         else {
             return Err(AppError::internal(
                 "moveBoardsToDefaultCategory: no default category found",
@@ -222,10 +252,7 @@ impl App {
         Ok(new_order)
     }
 
-    /// Checks that a new order names the user's categories and nothing else.
-    ///
-    /// Only the count and membership are compared, so an order that names one category
-    /// twice and omits another still passes, leaving the omitted category in place.
+    /// Checks that a new order names every category of the user once and nothing else.
     async fn verify_new_categories_match_existing(
         &self,
         user_id: &str,
@@ -242,6 +269,14 @@ impl App {
                 new_order.len(),
                 existing.len(),
             )));
+        }
+        let mut seen = HashSet::with_capacity(new_order.len());
+        for category_id in new_order {
+            if !seen.insert(category_id.as_str()) {
+                return Err(AppError::bad_request(format_args!(
+                    "the new order lists {category_id} more than once"
+                )));
+            }
         }
         let existing_ids: HashSet<&str> = existing
             .iter()

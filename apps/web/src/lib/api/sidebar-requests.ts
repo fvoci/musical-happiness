@@ -1,13 +1,10 @@
 /**
  * Sidebar category HTTP operations for `ServerBackend` (`api/backend.ts`),
- * serialized per workspace via `BlockTurns` and reusing the cached user ID (§1.3.5).
+ * using single-transaction `PATCH /categories/{categoryId}` and
+ * `PUT /categories/{categoryId}/containers/{containerId}` endpoints, serialized
+ * per workspace via `BlockTurns`.
  */
-import {
-  BackendError,
-  type Category,
-  type CategoryDraft,
-  type CategoryPatch,
-} from '../state/backend.ts';
+import type { Category, CategoryDraft, CategoryPatch } from '../state/backend.ts';
 import type { BlockTurns } from '../state/write.ts';
 
 import { categoryOf, type Schemas } from './convert.ts';
@@ -52,24 +49,16 @@ export class ServerSidebar {
 
   patchCategory(workspaceId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
     return this.#turn(workspaceId, async () => {
-      const before = await this.#category(workspaceId, categoryId);
-      const request: Schemas['CategoryUpdate'] = {
-        id: categoryId,
-        userId: before.userId,
-        workspaceId,
-        name: patch.name ?? before.name,
-        collapsed: patch.collapsed ?? before.collapsed,
+      const request: Schemas['CategoryPatch'] = {
+        ...(patch.name === undefined ? {} : { name: patch.name }),
+        ...(patch.collapsed === undefined ? {} : { collapsed: patch.collapsed }),
       };
       const updated = await this.#http.request<Schemas['Category']>(
         underWorkspace('/categories/{categoryId}'),
         { workspaceId, categoryId },
-        { method: 'PUT', json: request },
+        { method: 'PATCH', json: request },
       );
-      return {
-        ...categoryOf({ ...updated, containerMetadata: [] }),
-        containerIds: before.containerIds,
-        hiddenContainerIds: before.hiddenContainerIds,
-      };
+      return categoryOf({ ...updated, containerMetadata: [] });
     });
   }
 
@@ -100,18 +89,11 @@ export class ServerSidebar {
     index: number,
   ): Promise<void> {
     return this.#turn(workspaceId, async () => {
+      const json: Schemas['CategoryContainerUpdate'] = { index: Math.max(0, index) };
       await this.#http.request(
         underWorkspace('/categories/{categoryId}/containers/{containerId}'),
         { workspaceId, categoryId, containerId },
-        { method: 'POST' },
-      );
-      const { containerIds } = await this.#category(workspaceId, categoryId);
-      const filed = containerIds.filter((id) => id !== containerId);
-      filed.splice(Math.max(0, Math.min(index, filed.length)), 0, containerId);
-      await this.#http.request(
-        underWorkspace('/categories/{categoryId}/container-order'),
-        { workspaceId, categoryId },
-        { method: 'PUT', json: filed },
+        { method: 'PUT', json },
       );
     });
   }
@@ -123,19 +105,12 @@ export class ServerSidebar {
     hidden: boolean,
   ): Promise<void> {
     return this.#turn(workspaceId, async () => {
+      const json: Schemas['CategoryContainerUpdate'] = { hidden };
       await this.#http.request(
-        hidden
-          ? underWorkspace('/categories/{categoryId}/containers/{containerId}/hide')
-          : underWorkspace('/categories/{categoryId}/containers/{containerId}/unhide'),
+        underWorkspace('/categories/{categoryId}/containers/{containerId}'),
         { workspaceId, categoryId, containerId: id },
-        { method: 'PUT' },
+        { method: 'PUT', json },
       );
     });
-  }
-
-  async #category(workspaceId: string, categoryId: string): Promise<Category> {
-    const found = (await this.categories(workspaceId)).find((one) => one.id === categoryId);
-    if (!found) throw new BackendError(404, { detail: 'no such category' });
-    return found;
   }
 }

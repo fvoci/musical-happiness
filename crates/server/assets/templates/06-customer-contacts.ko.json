@@ -9,6 +9,14 @@
     "description": "고객과 나눈 이야기와 다음 연락을 한곳에 둡니다. 표 아래에서 예상 금액의 합계를 보고, ‘영업 단계별’ 보드에서는 끝난 거래를 숨깁니다. 예시의 이름과 주소는 모두 지어낸 것입니다.",
     "icon": "🤝",
     "showDescription": true,
+    "dueDatePropertyId": "ad1093d4-e23c-5f26-8714-3b26df6cb0b1",
+    "doneWhen": {
+      "propertyId": "c98ec0be-784b-5243-931d-b2989975ff1c",
+      "optionIds": [
+        "1b78a142-f648-5a60-8a86-16933769f012",
+        "4d19697b-67b2-59c3-beb5-9b0385393563"
+      ]
+    },
     "cardProperties": [
       {
         "id": "c98ec0be-784b-5243-931d-b2989975ff1c",

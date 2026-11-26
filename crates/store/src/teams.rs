@@ -204,11 +204,17 @@ pub(crate) async fn require_addition(
     user_id: &str,
     by: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("SELECT user_id FROM workspace_members WHERE workspace_id = ");
+    let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
-        .push_bind(" AND user_id = ", Id(user_id))
-        .push(" AND role IN ('admin', 'member')");
-    if scope.fetch_optional(sql).await?.is_none() {
+        .push_bind(" AND user_id = ", Id(user_id));
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Err(StoreError::not_found("workspace member"));
+    };
+    let role = row.text(0)?;
+    if role == fvoci_model::WorkspaceRole::Guest.as_str() {
+        return Err(StoreError::GuestCannotJoinTeam);
+    }
+    if role != "admin" && role != "member" {
         return Err(StoreError::not_found("workspace member"));
     }
     if user_id == by

@@ -1,19 +1,26 @@
-//! Shared helpers for comment endpoints on room-bearing blocks (`page_comments`,
-//! `unit_comments`).
+//! Shared helpers and `CommenterOf` extractor for comment endpoints on room-bearing
+//! blocks (`card_comments`, `page_comments`, `unit_comments`).
+
+use std::future::Future;
+use std::marker::PhantomData;
 
 use axum::body::Bytes;
+use axum::extract::{FromRequestParts, RawPathParams};
+use axum::http::request::Parts;
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Body, BodyChange, RefusalReason, Refusals, new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, ContainerKinds, RefusalReason, Refusals, new_id,
 };
 use serde::de::DeserializeOwned;
 
 use super::workspace::InWorkspace;
 use super::{
     ApiResult, BlockAction, created, decode_with_document, json_response, no_content,
-    require_block_permission, require_delete_permission, require_deletion_permission,
+    require_block_permission, require_container_permission, require_delete_permission,
+    require_deletion_permission,
 };
-use crate::app::ChangeNotification;
+use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
+use crate::permissions::ContainerPermission;
 
 /// Refusal message when a comment body is empty or omitted.
 const TEXT_MISSING: &str = "a comment has a text";
@@ -21,6 +28,90 @@ const TEXT_MISSING: &str = "a comment has a text";
 /// Refusal message when `readAt` is omitted on a comment patch.
 const READ_AT_MISSING: &str =
     "a comment is changed with readAt, the updatedAt of the comment as it was read";
+
+/// Domain descriptor for a commentable parent block kind (`card`, `page`, `unit`).
+pub(super) trait CommentParentKind: Send + Sync + 'static {
+    const CONTAINER_PARAM: &'static str;
+    const PARENT_PARAM: &'static str;
+    const CREATE_DENIED: &'static str;
+    const CHANGES_DENIED: &'static str;
+
+    fn kinds() -> ContainerKinds;
+
+    fn load_parent(
+        ws: &InWorkspace,
+        container_id: &str,
+        parent_id: &str,
+    ) -> impl Future<Output = Result<Block, AppError>> + Send;
+}
+
+/// Request-parts extractor verifying workspace entry, `CommentCards` container
+/// permission, and existence of the live parent block (`card`, `page`, or `unit`).
+pub(super) struct CommenterOf<K> {
+    pub(super) ws: InWorkspace,
+    pub(super) container_id: String,
+    pub(super) parent: Block,
+    pub(super) comment_id: Option<String>,
+    _kind: PhantomData<K>,
+}
+
+impl<K: CommentParentKind> CommenterOf<K> {
+    pub(super) fn comment_id(&self) -> Result<&str, AppError> {
+        self.comment_id
+            .as_deref()
+            .ok_or_else(|| AppError::internal("route missing commentId path parameter"))
+    }
+}
+
+impl<K: CommentParentKind> FromRequestParts<App> for CommenterOf<K> {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let ws = InWorkspace::from_request_parts(parts, app)
+            .await?
+            .reaching(K::kinds());
+        let params = RawPathParams::from_request_parts(parts, app)
+            .await
+            .map_err(|_| AppError::bad_request("invalid UTF-8 in path parameter"))?;
+        let mut container_id = None;
+        let mut parent_id = None;
+        let mut comment_id = None;
+        for (name, value) in &params {
+            if name == K::CONTAINER_PARAM {
+                container_id = Some(value.to_owned());
+            } else if name == K::PARENT_PARAM {
+                parent_id = Some(value.to_owned());
+            } else if name == "commentId" {
+                comment_id = Some(value.to_owned());
+            }
+        }
+        let container_id = container_id
+            .ok_or_else(|| AppError::internal("route missing container path parameter"))?;
+        let parent_id =
+            parent_id.ok_or_else(|| AppError::internal("route missing parent path parameter"))?;
+        let denial = if comment_id.is_some() {
+            K::CHANGES_DENIED
+        } else {
+            K::CREATE_DENIED
+        };
+        require_container_permission(
+            &ws.app,
+            &ws.session.user_id,
+            &container_id,
+            ContainerPermission::CommentCards,
+            denial,
+        )
+        .await?;
+        let parent = K::load_parent(&ws, &container_id, &parent_id).await?;
+        Ok(Self {
+            ws,
+            container_id,
+            parent,
+            comment_id,
+            _kind: PhantomData,
+        })
+    }
+}
 
 /// Extracts the non-empty [`Body`] from a comment request's [`BodyChange`].
 pub(super) fn text_of(change: BodyChange) -> Result<Body, AppError> {
@@ -82,14 +173,14 @@ pub(super) async fn list_comments_on(
     Ok(json_response(&comments))
 }
 
-/// Creates a comment on an already-authorized `parent` block from a decoded payload `T`
-/// (whose `body` is carried by `decode_with_document`).
+/// Creates a comment on an already-authorized `parent` block from a decoded payload `T`.
 pub(super) async fn create_comment_on<T: DeserializeOwned>(
     ws: &InWorkspace,
     container_id: &str,
     parent: Block,
     parent_what: &'static str,
     raw_body: &Bytes,
+    notification: ChangeNotification,
 ) -> Result<Block, AppError> {
     let user_id = ws.session.user_id.as_str();
     let (_new, document): (T, _) = decode_with_document(raw_body)?;
@@ -105,7 +196,7 @@ pub(super) async fn create_comment_on<T: DeserializeOwned>(
     };
     if let Err(error) = ws
         .app
-        .insert_block(&mut comment, user_id, ChangeNotification::Send)
+        .insert_block(&mut comment, user_id, notification)
         .await
     {
         return Err(match ws.app.block(&comment.parent_id).await {
@@ -116,14 +207,14 @@ pub(super) async fn create_comment_on<T: DeserializeOwned>(
     Ok(comment)
 }
 
-/// Patches an already-resolved `comment` block using `read_at_of` to extract `readAt` from
-/// the request payload `T`.
+/// Patches an already-resolved `comment` block using `read_at_of` to extract `readAt`.
 pub(super) async fn patch_comment_on<T: DeserializeOwned>(
     ws: &InWorkspace,
     container_id: &str,
     comment: &Block,
     changes_denied: &str,
     raw_body: &Bytes,
+    notification: ChangeNotification,
     read_at_of: impl FnOnce(&T) -> Option<i64>,
 ) -> Result<Block, AppError> {
     let user_id = ws.session.user_id.as_str();
@@ -149,7 +240,7 @@ pub(super) async fn patch_comment_on<T: DeserializeOwned>(
         ..BlockPatch::default()
     };
     ws.app
-        .patch_block(&comment.id, &patch, user_id, ChangeNotification::Send)
+        .patch_block(&comment.id, &patch, user_id, notification)
         .await
 }
 
@@ -158,11 +249,12 @@ pub(super) async fn delete_comment_on(
     ws: &InWorkspace,
     comment: &Block,
     changes_denied: &str,
+    notification: ChangeNotification,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     require_delete_permission(&ws.app, user_id, comment, changes_denied).await?;
     ws.app
-        .delete_block(&comment.id, user_id, ChangeNotification::Send)
+        .delete_block(&comment.id, user_id, notification)
         .await?;
     Ok(no_content())
 }

@@ -19,6 +19,7 @@ impl From<BlockError> for AppError {
             | BlockError::BodyTooLarge => Self::bad_request(error).with_field("body"),
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
             BlockError::InvalidCardField { .. }
+            | BlockError::InvalidViewField { .. }
             | BlockError::InvalidPageField { .. }
             | BlockError::InvalidEntryField { .. }
             | BlockError::InvalidUnitField { .. }
@@ -49,6 +50,7 @@ impl From<BlockError> for AppError {
             BlockError::InvalidRelation(error) => Self::from(error),
             BlockError::TypeNotCurrent
             | BlockError::TypeChanges
+            | BlockError::CardByBlocks
             | BlockError::PageByBlocks
             | BlockError::PageOffWiki
             | BlockError::NotPageOnWiki
@@ -62,6 +64,10 @@ impl From<BlockError> for AppError {
             | BlockError::ParentBelowBlock
             | BlockError::CommentNotOnCardOrPage
             | BlockError::ParentIsComment
+            | BlockError::ViewBelowBlock
+            | BlockError::ParentIsView
+            | BlockError::AttachmentNotOnCard
+            | BlockError::ParentIsAttachment
             | BlockError::PageNotBelowPage
             | BlockError::EntryBelowBlock
             | BlockError::UnitParentNotChapter
@@ -85,6 +91,7 @@ impl From<RelationError> for AppError {
             RelationProblem::TooMany => Reason::RelationTooMany,
             RelationProblem::NotACard => Reason::RelationNotACard,
             RelationProblem::CardNotFound => Reason::RelationCardNotFound,
+            RelationProblem::Cycle => Reason::RelationCycle,
         };
         let refused = Self::bad_request(&error).with_reason(reason);
         let refused = if error.problem == RelationProblem::TooMany {

@@ -14,7 +14,6 @@ use super::body::decode_object;
 use super::contract::bodies::Binary;
 use super::contract::params::{ContainerId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
-use super::require_container_permission;
 use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, RequiredSession, json_response};
 use crate::app::{App, ExportedArchive, ImportFormat, ImportSummary, Slot, download};
@@ -105,15 +104,20 @@ async fn handle_export_container(
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &container_id,
+    let access = ws
+        .app
+        .container_access(user_id, &container_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    super::require_granted(
+        access.grant,
         ContainerPermission::View,
         "access denied to board",
-    )
-    .await?;
-    let container = ws.app.container(&container_id).await?;
+    )?;
+    if (!access.container.is_template && !access.has_membership()) || !access.actor.works_there() {
+        return Err(AppError::forbidden("access denied to export board"));
+    }
+    let container = access.container;
     let slot = ws.app.start_export(user_id)?;
     let archive = ws
         .app

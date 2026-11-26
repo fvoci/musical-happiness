@@ -259,13 +259,15 @@ impl Noted<'_> {
     /// at all: a board or a wiki that is no template, of an organization people work
     /// in together (in the space of one account nobody else reads anything), for users
     /// that are accounts (one that was erased is none).
-    fn push_noted(&self, sql: &mut Sql) {
+    fn push_noted(&self, sql: &mut Sql, kind: NotificationKind) {
         sql.push_bind(
             " WHERE u.erased_at = 0 AND bo.id = ",
             Id(&self.block.container_id),
         )
         .push_bind(" AND bo.is_template = ", false)
-        .push_bind(" AND o.kind = ", OrgKind::Shared.as_str());
+        .push_bind(" AND (o.kind = ", OrgKind::Shared.as_str())
+        .push_bind(" OR ", kind == NotificationKind::DueSoon)
+        .push(")");
     }
 
     /// Notes that `users` may be told of `kind`: each as the doing of whoever named
@@ -294,7 +296,7 @@ impl Noted<'_> {
                 sql.push(" JOIN users AS u ON u.id IN (")
                     .bind_list(batch.iter().map(|user| Id(user)))
                     .push(")");
-                self.push_noted(&mut sql);
+                self.push_noted(&mut sql, kind);
                 sql.push(NOTED_AGAIN);
                 scope.execute(sql).await?;
             }
@@ -315,7 +317,7 @@ impl Noted<'_> {
             .bind(Id(self.about))
             .push(&scope.same_organization(&[("s", "bo")]))
             .push(" JOIN users AS u ON u.id = s.user_id");
-        self.push_noted(&mut sql);
+        self.push_noted(&mut sql, NotificationKind::Comment);
         sql.push_bind(" AND u.id <> ", Id(self.writer));
         let named: Vec<&str> = mentioned
             .iter()
@@ -378,6 +380,17 @@ async fn watch(scope: &mut Scope<'_>, block_id: &str, users: &[&str]) -> Result<
     Ok(())
 }
 
+/// Who added whom to which shared-organization container, for [`Store::note_added_to_container`].
+#[derive(Debug, Clone, Copy)]
+pub struct AddedToContainerNotice<'a> {
+    /// Target board, wiki, or course identifier.
+    pub container_id: &'a str,
+    /// User who received membership.
+    pub recipient_id: &'a str,
+    /// User who granted membership.
+    pub actor_id: &'a str,
+}
+
 impl Store {
     /// Makes a user who was given a card a watcher of it, where they are not already:
     /// for the server that tells them of it, once it found that they read the card.
@@ -391,4 +404,65 @@ impl Store {
         self.with_write_conn(async |scope| watch(scope, block_id, &[user_id]).await)
             .await
     }
+
+    /// Notes in `notification_outbox` that `notice.recipient_id` was added to a
+    /// non-template shared-organization container `notice.container_id` by
+    /// `notice.actor_id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn note_added_to_container(
+        &self,
+        notice: AddedToContainerNotice<'_>,
+    ) -> Result<(), StoreError> {
+        let AddedToContainerNotice {
+            container_id,
+            recipient_id,
+            actor_id,
+        } = notice;
+        if actor_id.is_empty()
+            || actor_id == recipient_id
+            || !fvoci_model::is_id(recipient_id)
+            || !fvoci_model::is_id(container_id)
+        {
+            return Ok(());
+        }
+        self.with_write_conn(async |scope| {
+            note_added_to_container_in_tx(scope, container_id, recipient_id, actor_id).await
+        })
+        .await
+    }
+}
+
+pub(crate) async fn note_added_to_container_in_tx(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+    recipient_id: &str,
+    actor_id: &str,
+) -> Result<(), StoreError> {
+    if actor_id.is_empty() || actor_id == recipient_id {
+        return Ok(());
+    }
+    let now = scope.now_millis();
+    let mut sql = scope.sql(
+        "INSERT INTO notification_outbox (org_id, recipient_id, kind, source_id, \
+         block_id, container_id, actor_id, seq, due_at) SELECT w.org_id, u.id, ",
+    );
+    sql.bind(NotificationKind::AddedToContainer.as_str())
+        .push_bind(", ", Id(container_id))
+        .push_bind(", ", Id(container_id))
+        .push_bind(", bo.id, ", OptId(actor_id))
+        .push_bind(", ", now)
+        .push_bind(", ", now)
+        .push(" FROM containers AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
+        .push(&scope.same_organization(&[("w", "bo")]))
+        .push(" JOIN organizations AS o ON o.id = w.org_id")
+        .push_bind(" JOIN users AS u ON u.id = ", Id(recipient_id))
+        .push_bind(" WHERE u.erased_at = 0 AND bo.id = ", Id(container_id))
+        .push_bind(" AND bo.is_template = ", false)
+        .push_bind(" AND o.kind = ", OrgKind::Shared.as_str())
+        .push(NOTED_AGAIN);
+    scope.execute(sql).await?;
+    Ok(())
 }

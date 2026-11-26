@@ -35,10 +35,7 @@ async fn impostor_template(client: &Client) -> Container {
         updated_at: 1,
         ..Block::default()
     };
-    client
-        .insert_blocks_in(ROOT_WORKSPACE_ID, &board.id, &[card])
-        .await
-        .check_created();
+    crate::blocks::insert_in(client, ROOT_WORKSPACE_ID, &board.id, &[card]).await;
     board
 }
 
@@ -430,7 +427,7 @@ async fn concurrent_onboarding_stores_the_templates_once() {
         .expect("the built-in templates are read");
     assert_eq!(
         templates.len(),
-        16,
+        18,
         "not stored twice over, and every onboarding found its welcome board"
     );
     ts.teardown().await;

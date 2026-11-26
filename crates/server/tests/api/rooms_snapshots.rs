@@ -152,11 +152,7 @@ async fn copying_a_card_or_template_includes_pending_bodies_of_child_cards() {
         updated_at: 1,
         ..Block::default()
     };
-    let children: Vec<Block> = th
-        .client
-        .insert_blocks(&table.board_id, &[child])
-        .await
-        .created_json();
+    let children = crate::blocks::insert(&th.client, &table.board_id, &[child]).await;
     let child_id = &children[0].id;
     let mut parent_writer = Peer::connect(&th.client, 102).await;
     parent_writer

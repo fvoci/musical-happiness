@@ -1,12 +1,14 @@
 //! Boards: listing, creating, reading, patching, deleting, duplicating and restoring.
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use fvoci_model::{
-    Container, ContainerKind, ContainerPatch, ContainerVisibility, ContainersAndBlocks, JsonMap,
-    MinimumRole,
+    Container, ContainerKind, ContainerPatch, ContainerPermissions, ContainerVisibility,
+    ContainersAndBlocks, CopiedContainerResult, CopyContainerToWorkspaceRequest, DuplicateAs,
+    JsonMap, MinimumRole,
 };
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
@@ -15,21 +17,29 @@ use utoipa_axum::routes;
 use super::contract::bodies::NewBoard;
 use super::contract::params::{
     AcceptLanguage, AsTemplate, BoardId, ContainerId, CopiedContainerId, MemberWorkspaceId,
-    ToWorkspace,
+    PeopleContainerId, ToWorkspace,
 };
 use super::contract::tag;
+use super::query::QueryParams;
 use super::workspace::{InContainer, InCopied, InWorkspace};
 
 use super::{
-    ApiResult, accept_language, created, decode_json, json_response, no_content, query_param,
+    ApiResult, RequiredSession, accept_language, created, decode_json, decode_object,
+    json_response, no_content,
 };
 use super::{
-    duplicate_as, json_object, require_container_permission, require_granted,
-    require_workspace_access,
+    TRUE, json_object, require_container_permission, require_granted, require_workspace_access,
 };
-use crate::app::{App, as_managed};
+use crate::app::{App, BoardScaffolding, as_managed};
 use crate::error::AppError;
 use crate::permissions::{ContainerPermission, Grant};
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct DuplicateContainerQuery {
+    as_template: String,
+    to_workspace: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -39,7 +49,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_patch_container,
             handle_delete_container
         ))
+        .routes(routes!(handle_get_my_container_permissions))
         .routes(routes!(handle_duplicate_container))
+        .routes(routes!(handle_copy_container_to_workspace))
         .routes(routes!(handle_restore_container))
         .routes(routes!(handle_reorder_card_properties))
 }
@@ -145,24 +157,34 @@ fn decode_container_patch(body: &[u8]) -> Result<ContainerPatch, AppError> {
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards",
-    params(MemberWorkspaceId),
+    params(MemberWorkspaceId, AcceptLanguage),
     operation_id = "createBoard",
     tag = tag::CONTAINERS,
     request_body = NewBoard,
     responses((status = 201, description = "The board that was made.", body = Container)),
 )]
-async fn handle_create_board(ws: InWorkspace, body: Bytes) -> ApiResult {
+async fn handle_create_board(ws: InWorkspace, headers: HeaderMap, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it, open ones and private ones.
     ws.require_container_maker("access denied to create board")?;
-    let requested = json_object(decode_json(&body)?)?;
+    let mut requested = json_object(decode_json(&body)?)?;
     check_closed_members(&requested, "", BoardObject::Board)?;
+    let scaffolding = match requested.remove("scaffold") {
+        None | Some(Value::Bool(false)) => BoardScaffolding::None,
+        Some(Value::Bool(true)) => BoardScaffolding::Default,
+        Some(_) => {
+            return Err(AppError::bad_request("scaffold must be a boolean").with_field("scaffold"));
+        }
+    };
     let mut board: Container =
         serde_json::from_value(Value::Object(requested)).map_err(AppError::bad_request)?;
     ws.place_container(&mut board, "workspaceId")?;
     board.validate().map_err(AppError::bad_request)?;
 
-    let board = ws.app.create_container_with_admin(board, user_id).await?;
+    let board = ws
+        .app
+        .create_board_maybe_scaffolded(board, scaffolding, user_id, accept_language(&headers))
+        .await?;
     Ok(created(&board))
 }
 
@@ -196,6 +218,31 @@ async fn handle_get_container(
         access.container
     };
     Ok(json_response(&container))
+}
+
+/// Caller's effective permissions on a container
+///
+/// Returns the caller-scoped [`ContainerPermissions`] on `containerId` without embedding
+/// caller permissions inside [`Container`] or WebSocket broadcasts.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/containers/{containerId}/my-permissions",
+    operation_id = "getMyContainerPermissions",
+    tag = tag::CONTAINERS,
+    params(MemberWorkspaceId, ContainerId),
+    responses((status = 200, description = "Caller's effective permissions on the container.", body = ContainerPermissions)),
+)]
+async fn handle_get_my_container_permissions(
+    InContainer(ws): InContainer,
+    Path((_, container_id)): Path<(String, String)>,
+) -> ApiResult {
+    let access = ws
+        .app
+        .container_access(&ws.session.user_id, &container_id)
+        .await?
+        .filter(|access| access.grant.sees())
+        .ok_or_else(|| AppError::not_found("board"))?;
+    Ok(json_response(&access.grant.to_container_permissions()))
 }
 
 /// Change a board
@@ -378,18 +425,18 @@ async fn handle_delete_container(
 async fn handle_duplicate_container(
     InCopied(ws): InCopied,
     Path((_, container_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<DuplicateContainerQuery>,
     headers: HeaderMap,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
-    let duplicate_as = duplicate_as(query.as_deref());
+    let duplicate_as = if query.as_template == TRUE {
+        DuplicateAs::Template
+    } else {
+        DuplicateAs::Copy
+    };
     let accept_language = accept_language(&headers);
-    let mut to_workspace = query_param(query.as_deref(), "toWorkspace");
+    let mut to_workspace = query.to_workspace;
 
-    // Whether the board is there for the user comes first: a board that cannot be seen
-    // answers as one that does not exist, whatever else the request says.
-    // Copying is reading: an open template is for everybody who works in its workspace
-    // and for its members, a built-in one for everybody, any other board for its members.
     let access = ws
         .app
         .container_access(user_id, &container_id)
@@ -400,9 +447,10 @@ async fn handle_duplicate_container(
         ContainerPermission::View,
         "access denied to board",
     )?;
+    if !access.container.is_template && !access.has_membership() {
+        return Err(AppError::forbidden("access denied to copy board"));
+    }
     if to_workspace.is_empty() {
-        // A copy stays in the workspace of the path: the board's, or for a built-in
-        // template, which is every workspace's, the one it is copied from.
         to_workspace.clone_from(&ws.workspace_id);
     }
     require_workspace_access(&ws.app, user_id, &to_workspace).await?;
@@ -418,6 +466,47 @@ async fn handle_duplicate_container(
         )
         .await?;
     Ok(created(&containers_and_blocks))
+}
+
+/// Copy a board, wiki, or course to another workspace
+///
+/// Copies a live `board`, `wiki`, or `course` into `targetWorkspaceId` (in the same or
+/// another organization opened by the session, including the caller's personal space),
+/// stripping absent-member assignments/mentions, converting external `[[` references to
+/// plain text, enforcing `allowCopyOut` (403 with the reason `copy_out_disabled`) and
+/// target storage limits (413 with the reason `storage_full`), and recording
+/// `container_copied_out` in the source organization's audit log when copying across
+/// organizations.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/containers/{containerId}/copy-to-workspace",
+    operation_id = "copyContainerToWorkspace",
+    tag = tag::CONTAINERS,
+    params(MemberWorkspaceId, PeopleContainerId, AcceptLanguage),
+    request_body = CopyContainerToWorkspaceRequest,
+    responses((status = 201, description = "The copied container and missing source file count.", body = CopiedContainerResult)),
+)]
+async fn handle_copy_container_to_workspace(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    Path((workspace_id, container_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult {
+    app.enter_workspace(&session, &workspace_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    let request: CopyContainerToWorkspaceRequest = decode_object(&body)?;
+    let copied = app
+        .copy_container_to_workspace(
+            &session,
+            &workspace_id,
+            &container_id,
+            &request,
+            accept_language(&headers),
+        )
+        .await?;
+    Ok(created(&copied))
 }
 
 /// Bring a deleted board back

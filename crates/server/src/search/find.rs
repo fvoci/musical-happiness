@@ -103,8 +103,8 @@ impl App {
     /// of the workspace ([`App::in_workspace`]) that reaches the kinds of container
     /// to search ([`App::reaching`]): one that reaches boards alone finds no page. The
     /// user reads what is on the boards and in the wikis they have a role on, their
-    /// own or a team's, and in the open wikis of a workspace they work in, joined or
-    /// not: an open board they have not joined is theirs to join, and not searched.
+    /// own or a team's, and in the open boards and open wikis of a workspace they work
+    /// in, joined or not.
     ///
     /// The search server is asked where one is configured, and the database
     /// otherwise (`search::database`); every card and page either answers with is then

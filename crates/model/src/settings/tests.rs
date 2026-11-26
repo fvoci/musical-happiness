@@ -23,7 +23,7 @@ fn the_defaults_are_what_is_answered_when_nothing_is_stored() {
             "timeZone": "auto", "weekStart": "auto", "hourCycle": "auto",
             "theme": "auto", "cardOpen": "center", "density": "auto", "haptics": true,
             "language": "auto", "notifyMentions": true, "notifyAssignments": true,
-            "notifyComments": true,
+            "notifyComments": true, "notifyDue": true,
         })
     );
 }
@@ -35,6 +35,7 @@ fn each_kind_of_notification_is_switched_off_and_on_by_its_own_setting() {
         ("notifyMentions", NotificationKind::Mention),
         ("notifyAssignments", NotificationKind::Assignment),
         ("notifyComments", NotificationKind::Comment),
+        ("notifyDue", NotificationKind::DueSoon),
     ];
     for (name, kind) in kinds {
         let off = patched(json!({name: false}));

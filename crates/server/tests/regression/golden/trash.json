@@ -48,7 +48,57 @@
     }
   },
   {
-    "name": "insert a card and a view",
+    "name": "create card",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/cards as trash-alice",
+    "status": 201,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:3>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "",
+      "id": "<id:6>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 1,
+      "parentId": "",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "Card",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "name": "create subcard",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/cards as trash-alice",
+    "status": 201,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:3>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "",
+      "id": "<id:7>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 2,
+      "parentId": "<id:6>",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "Subcard",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "name": "insert a view",
     "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as trash-alice",
     "status": 201,
     "content_type": "application/json",
@@ -58,24 +108,10 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:6>",
-        "modifiedBy": "<id:2>",
-        "number": 1,
-        "parentId": "",
-        "title": "Card",
-        "type": "card",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
         "fields": {
           "viewType": "board"
         },
-        "id": "<id:7>",
+        "id": "<id:8>",
         "modifiedBy": "<id:2>",
         "parentId": "",
         "title": "View",
@@ -96,7 +132,7 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:8>",
+        "id": "<id:9>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
         "title": "Comment",
@@ -109,31 +145,10 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:9>",
+        "id": "<id:10>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
         "title": "Text",
-        "type": "attachment",
-        "updatedAt": "<ts>"
-      }
-    ]
-  },
-  {
-    "name": "insert a block below the text",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as trash-alice",
-    "status": 201,
-    "content_type": "application/json",
-    "body": [
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:10>",
-        "modifiedBy": "<id:2>",
-        "parentId": "<id:9>",
-        "title": "Below the text",
         "type": "attachment",
         "updatedAt": "<ts>"
       }
@@ -172,7 +187,7 @@
         "fields": {
           "viewType": "board"
         },
-        "id": "<id:7>",
+        "id": "<id:8>",
         "modifiedBy": "<id:2>",
         "parentId": "",
         "title": "View",
@@ -232,7 +247,7 @@
   },
   {
     "name": "undelete: a block that is not deleted",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/restore as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:8>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -246,7 +261,7 @@
   },
   {
     "name": "undelete: a child brings back the whole deletion",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:10>/restore as trash-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7>/restore as trash-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -254,12 +269,17 @@
       "containerId": "<id:3>",
       "createdAt": "<ts>",
       "createdBy": "<id:2>",
-      "fields": {},
-      "id": "<id:10>",
+      "fields": {
+        "icon": "",
+        "isTemplate": false,
+        "properties": {}
+      },
+      "id": "<id:7>",
       "modifiedBy": "<id:4>",
-      "parentId": "<id:9>",
-      "title": "Below the text",
-      "type": "attachment",
+      "number": 2,
+      "parentId": "<id:6>",
+      "title": "Subcard",
+      "type": "card",
       "updatedAt": "<ts>"
     }
   },
@@ -274,7 +294,11 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
+        "fields": {
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
+        },
         "id": "<id:6>",
         "modifiedBy": "<id:4>",
         "number": 1,
@@ -289,9 +313,27 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "viewType": "board"
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
         },
         "id": "<id:7>",
+        "modifiedBy": "<id:4>",
+        "number": 2,
+        "parentId": "<id:6>",
+        "title": "Subcard",
+        "type": "card",
+        "updatedAt": "<ts>"
+      },
+      {
+        "body": null,
+        "containerId": "<id:3>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
+        "fields": {
+          "viewType": "board"
+        },
+        "id": "<id:8>",
         "modifiedBy": "<id:2>",
         "parentId": "",
         "title": "View",
@@ -304,7 +346,7 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:8>",
+        "id": "<id:9>",
         "modifiedBy": "<id:4>",
         "parentId": "<id:6>",
         "title": "Comment",
@@ -317,23 +359,10 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:9>",
+        "id": "<id:10>",
         "modifiedBy": "<id:4>",
         "parentId": "<id:6>",
         "title": "Text",
-        "type": "attachment",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:10>",
-        "modifiedBy": "<id:4>",
-        "parentId": "<id:9>",
-        "title": "Below the text",
         "type": "attachment",
         "updatedAt": "<ts>"
       }
@@ -365,12 +394,19 @@
         "createdAt": "<ts>",
         "notifiedAt": "<ts>",
         "userId": "<id:2>"
+      },
+      {
+        "blockId": "<id:7>",
+        "blockType": "card",
+        "createdAt": "<ts>",
+        "notifiedAt": "<ts>",
+        "userId": "<id:2>"
       }
     ]
   },
   {
     "name": "delete the text",
-    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:9> as trash-alice",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:10> as trash-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
@@ -382,7 +418,7 @@
   },
   {
     "name": "undelete the text: its card is in the trash",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:9>/restore as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:10>/restore as trash-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -404,7 +440,11 @@
       "containerId": "<id:3>",
       "createdAt": "<ts>",
       "createdBy": "<id:2>",
-      "fields": {},
+      "fields": {
+        "icon": "",
+        "isTemplate": false,
+        "properties": {}
+      },
       "id": "<id:6>",
       "modifiedBy": "<id:2>",
       "number": 1,
@@ -425,8 +465,26 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
+        "fields": {
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
+        },
+        "id": "<id:7>",
+        "modifiedBy": "<id:2>",
+        "number": 2,
+        "parentId": "<id:6>",
+        "title": "Subcard",
+        "type": "card",
+        "updatedAt": "<ts>"
+      },
+      {
+        "body": null,
+        "containerId": "<id:3>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:8>",
+        "id": "<id:9>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
         "title": "Comment",
@@ -437,7 +495,7 @@
   },
   {
     "name": "undelete the text",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:9>/restore as trash-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:10>/restore as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -446,7 +504,7 @@
       "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "fields": {},
-      "id": "<id:9>",
+      "id": "<id:10>",
       "modifiedBy": "<id:2>",
       "parentId": "<id:6>",
       "title": "Text",
@@ -465,8 +523,26 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
+        "fields": {
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
+        },
+        "id": "<id:7>",
+        "modifiedBy": "<id:2>",
+        "number": 2,
+        "parentId": "<id:6>",
+        "title": "Subcard",
+        "type": "card",
+        "updatedAt": "<ts>"
+      },
+      {
+        "body": null,
+        "containerId": "<id:3>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:8>",
+        "id": "<id:9>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
         "title": "Comment",
@@ -479,7 +555,7 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:9>",
+        "id": "<id:10>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
         "title": "Text",
@@ -490,7 +566,7 @@
   },
   {
     "name": "delete the view on its own",
-    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:7> as trash-alice",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:8> as trash-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
@@ -625,6 +701,13 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "doneWhen": {
+          "optionIds": [
+            "<id:16>"
+          ],
+          "propertyId": "<id:13>"
+        },
+        "dueDatePropertyId": "<id:23>",
         "icon": "👋",
         "id": "<id:26>",
         "isBuiltin": false,
@@ -634,7 +717,7 @@
         "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": true,
-        "templateVersion": 12,
+        "templateVersion": 13,
         "title": "Getting started with fvoci",
         "updatedAt": "<ts>",
         "visibility": "private",
@@ -798,7 +881,11 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
+        "fields": {
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
+        },
         "id": "<id:6>",
         "modifiedBy": "<id:2>",
         "number": 1,
@@ -812,8 +899,26 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
+        "fields": {
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
+        },
+        "id": "<id:7>",
+        "modifiedBy": "<id:2>",
+        "number": 2,
+        "parentId": "<id:6>",
+        "title": "Subcard",
+        "type": "card",
+        "updatedAt": "<ts>"
+      },
+      {
+        "body": null,
+        "containerId": "<id:3>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:8>",
+        "id": "<id:9>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
         "title": "Comment",
@@ -826,23 +931,10 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:9>",
+        "id": "<id:10>",
         "modifiedBy": "<id:2>",
         "parentId": "<id:6>",
         "title": "Text",
-        "type": "attachment",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:10>",
-        "modifiedBy": "<id:2>",
-        "parentId": "<id:9>",
-        "title": "Below the text",
         "type": "attachment",
         "updatedAt": "<ts>"
       }

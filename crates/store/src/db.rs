@@ -20,6 +20,9 @@ use crate::Tenant;
 use crate::clock::Clock;
 use crate::error::StoreError;
 
+mod locks;
+pub(crate) use locks::{DeletedContainersHeld, InstanceHeld, LockRank, OrganizationHeld};
+
 /// The SQL dialect of the connected database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dialect {
@@ -402,6 +405,9 @@ pub(crate) struct Scope<'c> {
     /// Whether the writes of blocks of this scope note whom to tell
     /// ([`crate::Store::telling_nobody`], [`crate::Store::quietly`]).
     noting: Noting,
+    /// Acquired `(rank, key)` locks in this scope for debug lock-order assertions.
+    #[cfg(debug_assertions)]
+    locks: Vec<(LockRank, String)>,
 }
 
 /// Whom the writes of blocks of a handle, and of its scopes, note to be told.
@@ -474,7 +480,18 @@ impl<'c> Scope<'c> {
             versions_kept,
             search_outbox: None,
             noting: Noting::Named,
+            #[cfg(debug_assertions)]
+            locks: Vec::new(),
         }
+    }
+
+    /// Records a lock acquisition at `(rank, key)` and asserts global lock ordering in
+    /// debug and test builds.
+    pub(crate) fn record_lock(&mut self, rank: LockRank, key: &str) {
+        #[cfg(debug_assertions)]
+        locks::push_checked_lock(&mut self.locks, rank, key);
+        #[cfg(not(debug_assertions))]
+        let _ = (rank, key);
     }
 
     /// Attaches the owning store's monotonic [`Clock`] to this scope.

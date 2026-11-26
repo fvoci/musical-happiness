@@ -10,7 +10,7 @@ use std::time::Duration;
 use fvoci_model::AuditAction;
 
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Row, Scope};
+use crate::db::{OrganizationHeld, Row, Scope};
 use crate::error::StoreError;
 use crate::oidc::{StoredProvider, hold_provider_of_organization};
 use crate::{Store, Tenant};
@@ -179,10 +179,11 @@ pub(crate) async fn read_former(
 }
 
 /// Follows a change of the issuer of the transaction's organization's provider, from
-/// `before`, which the caller holds: the former provider kept until now gives way
-/// ([`give_way`]), and `before` is kept in its place for `keeping.time`.
-pub(crate) async fn keep_after_move(
-    scope: &mut Scope<'_>,
+/// `before`: the former provider kept until now gives way ([`give_way`]), and `before`
+/// is kept in its place for `keeping.time`.
+pub(crate) async fn keep_after_move<'c>(
+    scope: &mut Scope<'c>,
+    _held: OrganizationHeld<'c>,
     before: &StoredProvider,
     keeping: Keeping<'_>,
 ) -> Result<(), StoreError> {

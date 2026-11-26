@@ -29,17 +29,17 @@ const SUBTREE_SAMPLE: [(&str, &str, &str); 6] = [
     ("child1", "parent", "card"),
     ("child2", "parent", "card"),
     ("grandchild1", "child1", "attachment"),
-    ("grandchild2", "child2", "attachment"),
-    ("greatgrandchild1", "grandchild1", "attachment"),
+    ("grandchild2", "child2", "card"),
+    ("greatgrandchild1", "grandchild2", "attachment"),
 ];
 
 /// Five sample blocks of varying types used by pagination and filter tests.
 const TYPED_SAMPLE: [(&str, &str, &str); 5] = [
-    ("block1", "", "view"),
-    ("block2", "block1", "view"),
-    ("block3", "block1", "view"),
+    ("block1", "", "card"),
+    ("block2", "block1", "card"),
+    ("block3", "block1", "card"),
     ("block4", "block1", "attachment"),
-    ("block5", "block2", "view"),
+    ("block5", "block2", "card"),
 ];
 
 /// What has to exist before a block does: a user to write it and a board to hold it,
@@ -1126,7 +1126,7 @@ async fn get_blocks() {
     let missing = new_id();
 
     // "not existing parent"
-    let filter = board().with_parent(&missing).with_type(BlockType::View);
+    let filter = board().with_parent(&missing).with_type(BlockType::Card);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert!(
         blocks.is_empty(),
@@ -1142,7 +1142,7 @@ async fn get_blocks() {
     );
 
     // "valid parent and type"
-    let filter = board().with_parent(block1_id).with_type(BlockType::View);
+    let filter = board().with_parent(block1_id).with_type(BlockType::Card);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert_eq!(
         blocks.len(),
@@ -1172,7 +1172,7 @@ async fn get_blocks() {
     );
 
     // "valid type"
-    let filter = board().with_type(BlockType::View);
+    let filter = board().with_type(BlockType::Card);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert_eq!(blocks.len(), 4, "four blocks have the type: {blocks:?}");
 
@@ -1849,7 +1849,7 @@ async fn get_blocks_does_not_filter_when_type_is_unset() {
 
     let specs = [
         &TYPED_SAMPLE[..],
-        &[("card-a", "", "card"), ("card-b", "", "card")],
+        &[("view-a", "", "view"), ("view-b", "", "view")],
     ]
     .concat();
     let mut sample = named_blocks(&board_id, &specs);
@@ -1871,9 +1871,9 @@ async fn get_blocks_does_not_filter_when_type_is_unset() {
         "an unset type leaves the other filters in force"
     );
 
-    let filter = BlockFilter::container(&board_id).with_type(BlockType::Card);
+    let filter = BlockFilter::container(&board_id).with_type(BlockType::View);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
-    assert_eq!(sorted_names(&blocks), ["card-a", "card-b"]);
+    assert_eq!(sorted_names(&blocks), ["view-a", "view-b"]);
 
     test.teardown().await;
 }
@@ -2071,7 +2071,7 @@ async fn the_empty_id_names_no_block_and_deleting_it_leaves_its_board_alone() {
     let left = board_blocks(store, &board_id).await;
     assert_eq!(
         sorted_names(&left),
-        ["child2", "grandchild2", "parent"],
+        ["child2", "grandchild2", "greatgrandchild1", "parent"],
         "child1 took what is below it along"
     );
 
@@ -2194,7 +2194,7 @@ async fn get_block_counts_by_type_counts_existing_blocks() {
     common::insert_blocks(store, &mut sample, &user_id).await;
     let other_board_id = another_board(store, &workspace_id, &user_id).await;
     let mut other_board = Block {
-        block_type: BlockType::Attachment,
+        block_type: BlockType::View,
         ..block(&new_id(), &other_board_id)
     };
     store
@@ -2210,7 +2210,11 @@ async fn get_block_counts_by_type_counts_existing_blocks() {
         .get_block_counts_by_type()
         .await
         .expect("the counts are read");
-    let expected = [("attachment".to_owned(), 2), ("view".to_owned(), 3)];
+    let expected = [
+        ("attachment".to_owned(), 1),
+        ("card".to_owned(), 3),
+        ("view".to_owned(), 1),
+    ];
     assert_eq!(
         counts.into_iter().collect::<Vec<_>>(),
         expected,
@@ -2371,9 +2375,9 @@ async fn blocks_with_malformed_properties_are_not_stored() {
 /// block, the name of its parent and its type.
 const CARD_TREE: [(&str, &str, &str); 7] = [
     ("card", "", "card"),
-    ("text", "card", "attachment"),
+    ("text", "card", "card"),
     ("comment", "card", "comment"),
-    ("below", "text", "attachment"),
+    ("below", "text", "card"),
     ("deepest", "below", "attachment"),
     ("other card", "", "card"),
     ("other text", "other card", "attachment"),
@@ -2609,13 +2613,14 @@ async fn a_child_deleted_before_its_card_comes_back_only_after_the_card() {
     let restorer_id = common::user(store, "restorer").await;
     let tree = insert_card_tree(store, &board_id, &user_id).await;
     let card_id = id_of(&tree, "card");
-    let text_id = id_of(&tree, "text");
+    let below_id = id_of(&tree, "below");
+    let deepest_id = id_of(&tree, "deepest");
 
-    // The text goes with what is below it, then the card with the comment that is left.
+    // The attachment goes on its own, then the card with the sub-cards and comment left on it.
     store
-        .delete_block(text_id, &user_id)
+        .delete_block(deepest_id, &user_id)
         .await
-        .expect("the text is deleted");
+        .expect("the attachment is deleted");
     store
         .delete_block(card_id, &user_id)
         .await
@@ -2628,20 +2633,17 @@ async fn a_child_deleted_before_its_card_comes_back_only_after_the_card() {
     );
     let trash = trash_of(store, &tree, &CARD_AND_BELOW).await;
 
-    // The text itself, and a block that went with it.
-    for name in ["text", "deepest"] {
-        assert_undelete_finds_nothing(store, id_of(&tree, name), &restorer_id).await;
-        assert_eq!(
-            board_blocks(store, &board_id).await,
-            left,
-            "undeleting {name} while the card is in the trash brought nothing back"
-        );
-        assert_eq!(
-            trash_of(store, &tree, &CARD_AND_BELOW).await,
-            trash,
-            "undeleting {name} while the card is in the trash left the trash as it was"
-        );
-    }
+    assert_undelete_finds_nothing(store, deepest_id, &restorer_id).await;
+    assert_eq!(
+        board_blocks(store, &board_id).await,
+        left,
+        "undeleting deepest while the card is in the trash brought nothing back"
+    );
+    assert_eq!(
+        trash_of(store, &tree, &CARD_AND_BELOW).await,
+        trash,
+        "undeleting deepest while the card is in the trash left the trash as it was"
+    );
 
     let card = store
         .undelete_block(card_id, &restorer_id)
@@ -2650,34 +2652,32 @@ async fn a_child_deleted_before_its_card_comes_back_only_after_the_card() {
     assert_restored(
         store,
         &tree,
-        &["card", "comment"],
+        &["card", "text", "comment", "below"],
         &restorer_id,
         card.updated_at,
     )
     .await;
     assert_eq!(
-        trash_of(store, &tree, &["text", "below", "deepest"]).await,
-        trash_of_names(&trash, &tree, &["text", "below", "deepest"]),
+        trash_of(store, &tree, &["deepest"]).await,
+        trash_of_names(&trash, &tree, &["deepest"]),
         "what was deleted before the card is still in the trash as it was"
     );
-    for name in ["text", "below", "deepest"] {
-        assert_no_block(store, id_of(&tree, name)).await;
-    }
+    assert_no_block(store, deepest_id).await;
 
-    let restored_text = store
-        .undelete_block(text_id, &restorer_id)
+    let restored_deepest = store
+        .undelete_block(deepest_id, &restorer_id)
         .await
-        .expect("the text is restored once its card exists");
+        .expect("the attachment is restored once its card exists");
     assert_eq!(
-        restored_text.parent_id, card_id,
-        "the text is back on its card"
+        restored_deepest.parent_id, below_id,
+        "the attachment is back on its card"
     );
     assert_restored(
         store,
         &tree,
-        &["text", "below", "deepest"],
+        &["deepest"],
         &restorer_id,
-        restored_text.updated_at,
+        restored_deepest.updated_at,
     )
     .await;
     let blocks = board_blocks(store, &board_id).await;
@@ -3460,8 +3460,8 @@ async fn one_batch_writing_a_block_many_times_keeps_the_last_write() {
 /// name of its parent and its type.
 const SMALL_TREE: [(&str, &str, &str); 3] = [
     ("card", "", "card"),
-    ("text", "card", "attachment"),
-    ("below", "text", "attachment"),
+    ("text", "card", "card"),
+    ("below", "text", "card"),
 ];
 
 /// How many times each race below is run.

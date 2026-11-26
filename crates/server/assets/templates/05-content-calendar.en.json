@@ -9,6 +9,13 @@
     "description": "Plans what is published where, and when. The calendar shows the publishing days, and in the gallery the first picture of a body is the face of its card.",
     "icon": "📣",
     "showDescription": true,
+    "dueDatePropertyId": "d4ab6f2d-8f17-5bef-a690-13b90b012af4",
+    "doneWhen": {
+      "propertyId": "70a23d2c-c625-5914-bf38-2b743dbe75d0",
+      "optionIds": [
+        "9fbe9f25-85b1-5b41-8ce0-0d26f659836d"
+      ]
+    },
     "cardProperties": [
       {
         "id": "70a23d2c-c625-5914-bf38-2b743dbe75d0",

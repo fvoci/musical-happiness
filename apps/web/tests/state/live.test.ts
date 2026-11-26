@@ -477,4 +477,33 @@ describe('changes from the server', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(FakeSocket.made).toHaveLength(1);
   });
+
+  it('triggers resync on workspaceSubscribed and blocksSubscribed ACKs', async () => {
+    const { socket, board, self } = await connected();
+    socket.message({ type: 'workspaceSubscribed', workspaceId: 't' });
+    socket.message({ type: 'blocksSubscribed', workspaceId: 't', containerId: 'b1' });
+    await settle();
+    expect(board).toEqual([{ kind: 'resync' }, { kind: 'resync' }]);
+    expect(self).toEqual([{ kind: 'resync' }, { kind: 'resync' }]);
+  });
+
+  it('forwards workspaceRoleChanged to listeners and schedules sidebar resync', async () => {
+    const { socket, board, self } = await connected();
+    socket.message({
+      type: 'workspaceRoleChanged',
+      workspaceId: 't',
+      userId: 'u',
+      role: 'admin',
+    });
+    await settle();
+    expect(board).toEqual([
+      { kind: 'workspaceRole', workspaceId: 't', userId: 'u', role: 'admin' },
+    ]);
+    expect(self).toEqual([{ kind: 'workspaceRole', workspaceId: 't', userId: 'u', role: 'admin' }]);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(self).toEqual([
+      { kind: 'workspaceRole', workspaceId: 't', userId: 'u', role: 'admin' },
+      { kind: 'resync' },
+    ]);
+  });
 });

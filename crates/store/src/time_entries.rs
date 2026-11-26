@@ -33,7 +33,13 @@ const VISIBLE_ENTRY_SELECT: &str = "\
     SELECT te.id, te.org_id, te.workspace_id, te.container_id, te.block_id, \
            te.target_kind, te.target_title, te.kind, te.started_at, te.ended_at, \
            te.note, te.created_at, te.updated_at, o.kind, o.deleted_at, p.id, \
-           CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END \
+           CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END, \
+           (o.kind = 'personal' OR o.owner_id = te.user_id \
+            OR EXISTS (SELECT 1 FROM organization_members AS om \
+              WHERE om.org_id = te.org_id AND om.user_id = te.user_id) \
+            OR EXISTS (SELECT 1 FROM workspace_members AS wm \
+              JOIN workspaces AS w ON w.id = wm.workspace_id \
+              WHERE w.org_id = te.org_id AND w.deleted_at IS NULL AND wm.user_id = te.user_id)) \
     FROM time_entries AS te \
     JOIN users AS u ON u.id = te.user_id \
     LEFT JOIN organizations AS o ON o.id = te.org_id \
@@ -57,19 +63,31 @@ pub struct TimeReader<'a> {
 }
 
 impl TimeReader<'_> {
-    /// Fail-closed allow-list of active organizations holding at least one time entry of
-    /// this user that `self.making` opens. Must be called inside a consistent snapshot
-    /// transaction ([`Store::read_snapshot`]).
-    async fn open_organizations(self, scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
+    /// Fail-closed allow-list of active organizations `(org_id, is_present_member)` holding
+    /// at least one time entry of this user that `self.making` opens. Must be called inside
+    /// a consistent snapshot transaction ([`Store::read_snapshot`]).
+    async fn open_organizations(
+        self,
+        scope: &mut Scope<'_>,
+    ) -> Result<Vec<(String, bool)>, StoreError> {
         let mut sql = scope.sql(
             "SELECT DISTINCT te.org_id, o.kind, o.deleted_at, p.id, \
-             CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END \
-             FROM time_entries AS te \
-             JOIN users AS u ON u.id = te.user_id \
-             JOIN organizations AS o ON o.id = te.org_id AND o.deleted_at IS NULL \
-             LEFT JOIN oidc_providers AS p ON p.org_id = te.org_id AND p.sso_required = ",
+             CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END, \
+             (o.kind = 'personal' OR o.owner_id = u.id \
+              OR EXISTS (SELECT 1 FROM organization_members AS om \
+                WHERE om.org_id = te.org_id AND om.user_id = u.id) \
+              OR EXISTS (SELECT 1 FROM workspace_members AS wm \
+                JOIN workspaces AS w ON w.id = wm.workspace_id \
+                WHERE w.org_id = te.org_id AND w.deleted_at IS NULL AND wm.user_id = u.id",
         );
-        sql.bind(true)
+        sql.push(&scope.same_organization(&[("wm", "w")]))
+            .push(
+                ")) FROM time_entries AS te \
+                 JOIN users AS u ON u.id = te.user_id \
+                 JOIN organizations AS o ON o.id = te.org_id AND o.deleted_at IS NULL \
+                 LEFT JOIN oidc_providers AS p ON p.org_id = te.org_id AND p.sso_required = ",
+            )
+            .bind(true)
             .push_bind(" WHERE te.user_id = ", Id(self.user_id));
         let mut open = Vec::new();
         for row in scope.fetch_all(sql).await? {
@@ -77,8 +95,9 @@ impl TimeReader<'_> {
             let deleted = row.opt_int(2)?.is_some();
             let required = opt_id(&row, 3)?;
             let password = row.text(4)?;
+            let present = row.bool(5)?;
             if !deleted && org_opened_by(kind, required, &password, self.making) {
-                open.push(row.id(0)?);
+                open.push((row.id(0)?, present));
             }
         }
         Ok(open)
@@ -303,7 +322,19 @@ impl Store {
         }
         self.system()
             .read_snapshot(async |scope| {
-                let open = reader.open_organizations(scope).await?;
+                let open_all = reader.open_organizations(scope).await?;
+                let targets_filtered = filter.block_id.is_some() || filter.container_id.is_some();
+                let mut open = Vec::with_capacity(open_all.len());
+                let mut former_orgs = std::collections::HashSet::new();
+                for (org_id, present) in open_all {
+                    if !present {
+                        if targets_filtered {
+                            continue;
+                        }
+                        former_orgs.insert(org_id.clone());
+                    }
+                    open.push(org_id);
+                }
                 if open.is_empty() {
                     return Ok(empty_list());
                 }
@@ -323,8 +354,15 @@ impl Store {
                     .fetch_all(list_sql)
                     .await?
                     .iter()
-                    .map(row_to_entry)
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .map(|row| {
+                        let org_id = row.id(1)?;
+                        let mut entry = row_to_entry(row)?;
+                        if former_orgs.contains(&org_id) {
+                            mask_former_org_target(&mut entry);
+                        }
+                        Ok(entry)
+                    })
+                    .collect::<Result<Vec<_>, StoreError>>()?;
 
                 let summary = read_summary(scope, reader.user_id, &open, filter).await?;
                 Ok(TimeEntryList { entries, summary })
@@ -555,8 +593,12 @@ fn push_readable_container(sql: &mut Sql, scope: &Scope<'_>, user_id: &str) {
     .push(") OR ");
     container_team_access::push_has_team_role(sql, scope, user_id);
     sql.push_bind(" OR (b.visibility = ", ContainerVisibility::Open.as_str())
-        .push_bind(" AND b.kind = ", ContainerKind::Course.as_str())
-        .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
+        .push(" AND b.kind IN (")
+        .bind_list([
+            ContainerKind::Board.as_str(),
+            ContainerKind::Course.as_str(),
+        ])
+        .push_bind(") AND wm.role <> ", WorkspaceRole::Guest.as_str())
         .push("))");
 }
 
@@ -805,18 +847,30 @@ fn org_opened_by(
 }
 
 fn row_to_visible(row: &Row, making: Making<&str>) -> Result<VisibleRow, StoreError> {
-    let entry = row_to_entry(row)?;
+    let mut entry = row_to_entry(row)?;
     let visible = match row.opt_text(13)? {
         Some(kind_text) => {
             let kind = parse_org_kind(&kind_text)?;
             let deleted = row.opt_int(14)?.is_some();
             let required = opt_id(row, 15)?;
             let password = row.text(16)?;
+            let present = row.bool(17)?;
+            if !present {
+                mask_former_org_target(&mut entry);
+            }
             !deleted && org_opened_by(kind, required, &password, making)
         }
         None => false,
     };
     Ok(VisibleRow { entry, visible })
+}
+
+fn mask_former_org_target(entry: &mut TimeEntry) {
+    entry.workspace_id = None;
+    entry.container_id = None;
+    entry.block_id = None;
+    entry.target_kind = None;
+    entry.target_title = None;
 }
 
 fn row_to_entry(row: &Row) -> Result<TimeEntry, StoreError> {

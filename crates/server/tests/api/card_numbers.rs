@@ -72,16 +72,15 @@ async fn every_way_a_card_is_made_gives_it_the_next_number_and_every_read_says_i
         block_type: BlockType::Card,
         title: "by blocks".to_owned(),
         number: Some(1),
-        created_at: 1,
-        updated_at: 1,
         ..Block::default()
     };
-    let stored: Vec<Block> = ts
-        .client
+    ts.client
         .insert_blocks_in(TEST_WORKSPACE_ID, &board.id, &[sent])
         .await
-        .created_json();
-    assert_eq!(stored[0].number, Some(2));
+        .check_bad_request();
+    let second_req = json!({"title": "by blocks", "number": 1});
+    let second = create_card(&ts.client, TEST_WS, &board.id, second_req).await;
+    assert_eq!(second.number, Some(2));
 
     let duplicate = |id: String, query: &'static str| {
         let client = &ts.client;
@@ -138,7 +137,7 @@ async fn every_way_a_card_is_made_gives_it_the_next_number_and_every_read_says_i
     let found: Card = by_number(&ts.client, TEST_WS, &board.id, "2")
         .await
         .ok_json();
-    assert_eq!(found.id, stored[0].id);
+    assert_eq!(found.id, second.id);
     assert_eq!(found.number, Some(2));
 
     // What a reference shows of the card says its number too.
@@ -226,14 +225,26 @@ async fn a_number_a_request_sends_is_never_refused_nor_taken() {
     let sent = json!({"title": "sent", "number": "7"});
     let card = create_card(&ts.client, TEST_WS, &board.id, sent).await;
     assert_eq!(card.number, Some(1));
-    let block = json!([{"id": "a", "containerId": board.id, "type": "card", "number": -1,
-        "createdAt": 1, "updatedAt": 1}]);
-    let stored: Vec<Block> = ts
+    let second = create_card(
+        &ts.client,
+        TEST_WS,
+        &board.id,
+        json!({"title": "negative", "number": -1}),
+    )
+    .await;
+    assert_eq!(second.number, Some(2));
+    let combined: Value = ts
         .client
-        .post(&format!("{TEST_WS}/boards/{}/blocks", board.id), &block)
+        .post(
+            &format!("{TEST_WS}/containers-and-blocks"),
+            &json!({
+                "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}],
+                "blocks": [{"id": "a", "containerId": "b1", "type": "card", "number": -1}],
+            }),
+        )
         .await
         .created_json();
-    assert_eq!(stored[0].number, Some(2));
+    assert_eq!(combined["blocks"][0]["number"], json!(1));
     ts.teardown().await;
 }
 

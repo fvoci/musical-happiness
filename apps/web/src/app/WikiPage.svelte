@@ -363,7 +363,7 @@
       {trash}
       {workspace}
       title={m.wiki_trash()}
-      description={m.wiki_trash_description()}
+      description={m.wiki_trash_retention({ days: workspace.trashRetentionDays })}
       untitled={m.wiki_page_untitled()}
       testId="page-trash"
     />

@@ -19,7 +19,7 @@ import Trash2Icon from '@lucide/svelte/icons/trash-2';
 import type { MenuAction } from '$lib/components/menu/actions.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import type { Container } from '$lib/logic/wire.ts';
-import type { Category, Workspace } from '$lib/state/index.ts';
+import { isOpen, type Category, type Workspace } from '$lib/state/index.ts';
 
 import { exportAction } from './container-export.ts';
 import { categoryOrderAfterStep, moveToEnd } from './sidebar-logic.ts';
@@ -33,6 +33,9 @@ export function categoryLabel(category: Pick<Category, 'type' | 'name'>): string
   return category.type === 'system' ? m.shell_default_category() : category.name;
 }
 
+export type SidebarAsked =
+  { kind: 'container'; container: Container } | { kind: 'category'; category: Category };
+
 /** What the menus act with. */
 export interface SidebarMenus {
   workspace: Workspace;
@@ -42,12 +45,15 @@ export interface SidebarMenus {
   containerId: string | undefined;
   /** Whether the reader may delete the board or wiki on the page. Of the others the sidebar does not know. */
   canDeleteOpenContainer: boolean;
+  /** Whether the currently open container is an open container the reader has not joined yet. */
+  openContainerJoinable?: boolean | undefined;
   onNewCategory: () => void;
   onRenameCategory: (category: Category) => void;
   onDeleteCategory: (category: Category) => void;
   onDeleteContainer: (container: Container) => void;
   onTemplateFromBoard: (boardId: string) => void;
   onDuplicateContainer: (containerId: string) => void;
+  onCopyToWorkspace?: ((container: Container) => void) | undefined;
 }
 
 function stepCategory(menus: SidebarMenus, category: Category, step: -1 | 1): void {
@@ -138,12 +144,16 @@ export function containerActions(
         if (move) void workspace.moveContainer(move.containerId, move.categoryId, move.index);
       },
     }));
-  const saving = [exportAction(workspace, container, moves.length > 0)];
+  const unjoined = container.id === menus.containerId && menus.openContainerJoinable === true;
+  const saving = unjoined ? [] : [exportAction(workspace, container, moves.length > 0)];
   if (menus.guest) return saving;
+  const hasOtherWorkspace = workspace.workspaces
+    .filter(isOpen)
+    .some((ws) => ws.id !== container.workspaceId);
   return [
     ...moves,
     ...saving,
-    ...(kind === 'diary'
+    ...(kind === 'diary' || unjoined
       ? []
       : [
           {
@@ -159,8 +169,20 @@ export function containerActions(
               menus.onDuplicateContainer(container.id);
             },
           },
+          ...(menus.onCopyToWorkspace && hasOtherWorkspace
+            ? [
+                {
+                  id: 'copy-to-workspace',
+                  label: m.shell_copy_to_workspace(),
+                  icon: FolderInputIcon,
+                  run: () => {
+                    menus.onCopyToWorkspace?.(container);
+                  },
+                },
+              ]
+            : []),
         ]),
-    ...(kind === 'board'
+    ...(kind === 'board' && !unjoined
       ? [
           {
             id: 'template-from-board',

@@ -9,7 +9,7 @@ use sha2::{Digest as _, Sha256};
 use super::super::routes::archive_entries;
 use super::{Case, Parameters};
 
-pub(super) async fn exercise(case: &mut Case, board: &str) {
+pub(super) async fn exercise(case: &mut Case, board: &str, card: &str) {
     let at = &[("boardId", board)];
     let payload = format!("{} private file", case.label).into_bytes();
     let filename = format!("{}-private.txt", case.label);
@@ -19,6 +19,15 @@ pub(super) async fn exercise(case: &mut Case, board: &str) {
     ));
     let uploaded = case.send("uploadFile", request).await.value();
     let file = case.remember(&uploaded, "fileId");
+    let attached = case
+        .run(
+            "createCardAttachment",
+            &[("boardId", board), ("cardId", card)],
+            json!({"fileId": file}),
+        )
+        .await
+        .value();
+    case.remember(&attached, "id");
     let file_at = &[("boardId", board), ("fileId", file.as_str())];
     let received = case.run("getFile", file_at, json!({})).await;
     assert_eq!(

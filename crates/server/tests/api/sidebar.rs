@@ -1552,8 +1552,8 @@ async fn the_default_category_is_created_once_per_workspace() {
     th.teardown().await;
 }
 
-/// Preserved quirk: the default category is recognised by its name alone, so a custom
-/// category that the user named "Boards" stands in for it.
+/// The default category is recognised by `CategoryType::System`, so a custom category
+/// named "Boards" does not suppress creating the system default category.
 #[tokio::test]
 async fn a_custom_category_named_boards_stands_in_for_the_default_one() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1563,16 +1563,10 @@ async fn a_custom_category_named_boards_stands_in_for_the_default_one() {
 
     let listed = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
 
-    assert_eq!(
-        ids(&listed),
-        [custom.id.as_str()],
-        "no system category is added"
-    );
-    assert_eq!(
-        listed[0].category.category_type,
-        CategoryType::Custom,
-        "the stand-in is a custom category"
-    );
+    assert_eq!(listed.len(), 2, "custom and system default coexist");
+    assert_eq!(listed[0].category.id, custom.id);
+    assert_eq!(listed[0].category.category_type, CategoryType::Custom);
+    assert_eq!(listed[1].category.category_type, CategoryType::System);
 
     th.teardown().await;
 }
@@ -2074,17 +2068,11 @@ async fn reorder_categories_over_the_api() {
         "the listing tells each category's place, from the first gap"
     );
 
-    // Preserved quirk: only the count and the membership are checked, so naming one
-    // category twice passes. The one left out keeps its place value.
+    // Naming one category twice is refused with 400 and changes nothing.
     let twice = [default_id.as_str(), default_id.as_str(), second.id.as_str()];
-    let response = th.client.put(path, &twice).await;
-    assert_eq!(response.ok_json::<Vec<String>>(), twice, "the answer");
+    th.client.put(path, &twice).await.check_bad_request();
     let listed = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
-    assert_eq!(
-        sorted(ids(&listed)),
-        sorted(new_order.to_vec()),
-        "every category is still listed"
-    );
+    assert_eq!(ids(&listed), new_order, "unchanged after duplicate IDs");
 
     // A new category comes first, also after a reorder.
     let new = create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "New")).await;
@@ -2357,15 +2345,16 @@ async fn the_word_reorder_is_an_identifier_like_any_other() {
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     // Among the boards of a category: the place of the board `reorder`, which takes
-    // `POST` only.
+    // `POST` and `PUT` (treating `reorder` as a container ID, never a reorder route).
     let as_board = format!("{ROOT_WS}/categories/{}/containers/reorder", created.id);
-    let response = th.client.put(&as_board, &[&board.id]).await;
+    let response = th.client.put(&as_board, &json!({})).await;
+    check_error(&response, StatusCode::NOT_FOUND, "board not found");
+    let response = th.client.delete(&as_board).await;
     check_error(
         &response,
         StatusCode::METHOD_NOT_ALLOWED,
         "method not allowed",
     );
-    assert_eq!(response.header("allow"), "POST", "what the path takes");
     let response = th.client.post_empty(&as_board).await;
     check_error(&response, StatusCode::NOT_FOUND, "board not found");
 

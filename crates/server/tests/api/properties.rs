@@ -134,7 +134,15 @@ fn check_refused(response: &ApiResponse, what: &str) {
 async fn board_with_card(th: &TestServer) -> (Container, Card) {
     let board: Container = new_board(
         &th.client,
-        json!([{"id": "p1", "name": "Status", "type": "select", "options": []}]),
+        json!([{
+            "id": "p1",
+            "name": "Status",
+            "type": "select",
+            "options": [
+                {"id": "open", "label": "Open", "color": "default"},
+                {"id": "x", "label": "X", "color": "default"},
+            ],
+        }]),
     )
     .await
     .created_json();
@@ -286,30 +294,50 @@ async fn well_formed_card_property_definitions_are_stored_as_sent() {
 async fn a_block_with_malformed_properties_is_not_inserted() {
     let th = Setup::native().start().await.init_basic().await;
     let board: Container = new_board(&th.client, json!([])).await.created_json();
+    let card: Card = th
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "Anchor"}),
+        )
+        .await
+        .created_json();
     let path = format!("{TEST_WS}/boards/{}/blocks", board.id);
+    let combined = format!("{TEST_WS}/containers-and-blocks");
+    let new_board_req = |properties: Value| {
+        json!({
+            "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
+            "blocks": [card_block("b1", properties)],
+        })
+    };
 
     for (what, value) in malformed_values() {
         let response = th
             .client
-            .post(&path, &json!([card_block(&board.id, json!({"p1": value}))]))
+            .post(&combined, &new_board_req(json!({"p1": value})))
             .await;
         check_refused(&response, what);
     }
     for properties in [json!("a string"), json!(["a"]), json!(42), json!(null)] {
         let response = th
             .client
-            .post(&path, &json!([card_block(&board.id, properties.clone())]))
+            .post(&combined, &new_board_req(properties.clone()))
             .await;
         check_refused(&response, &format!("properties that are {properties}"));
     }
     // `properties` means property values on a block of any type.
     let mut attachment = card_block(&board.id, json!({"p1": 1}));
     attachment["type"] = json!("attachment");
+    attachment["parentId"] = json!(card.id);
     check_refused(
         &th.client.post(&path, &json!([attachment])).await,
         "an attachment block",
     );
-    assert_eq!(blocks_of(&th.client, &board.id).await, [], "nothing stored");
+    assert_eq!(
+        blocks_of(&th.client, &board.id).await.len(),
+        1,
+        "only anchor card stored"
+    );
     th.teardown().await;
 }
 
@@ -455,18 +483,21 @@ async fn well_formed_property_values_are_stored_as_sent() {
     let inserted = th
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &json!([
-                card_block(&board.id, values.clone()),
-                card_block(&board.id, json!({})),
-            ]),
+            &format!("{TEST_WS}/containers-and-blocks"),
+            &json!({
+                "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}],
+                "blocks": [
+                    card_block("b1", values.clone()),
+                    card_block("b1", json!({})),
+                ],
+            }),
         )
         .await;
     inserted.check_created();
     th.client
         .patch(
             &format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id),
-            &json!({"updatedFields": {"properties": {"p1": ["x"]}}}),
+            &json!({"updatedFields": {"properties": {"p1": "x"}}}),
         )
         .await
         .check_no_content();
@@ -655,6 +686,21 @@ async fn date_properties_hold_date_values() {
         .await
         .created_json();
 
+    assert_refused_date_cases(&th.client, &cards, &card.id).await;
+    let stored: Card = th
+        .client
+        .get(&format!("{TEST_WS}/cards/{}", card.id))
+        .await
+        .ok_json();
+    assert_eq!(
+        stored.properties, card.properties,
+        "the refused patches changed nothing"
+    );
+
+    th.teardown().await;
+}
+
+async fn assert_refused_date_cases(client: &Client, cards_path: &str, card_id: &str) {
     for (what, properties) in [
         ("a date as text", json!({"due": "{\"from\":1772679600000}"})),
         ("no calendar day", json!({"due": {"from": "2026-02-30"}})),
@@ -676,41 +722,44 @@ async fn date_properties_hold_date_values() {
         ),
     ] {
         check_refused(
-            &th.client
-                .post(&cards, &json!({"title": "Card", "properties": properties}))
+            &client
+                .post(
+                    cards_path,
+                    &json!({"title": "Card", "properties": properties}),
+                )
                 .await,
             what,
         );
         check_refused(
-            &th.client
+            &client
                 .patch(
-                    &format!("{TEST_WS}/cards/{}", card.id),
+                    &format!("{TEST_WS}/cards/{card_id}"),
                     &json!({"updatedProperties": properties}),
                 )
                 .await,
             what,
         );
         check_refused(
-            &th.client
+            &client
                 .post(
-                    &format!("{TEST_WS}/boards/{}/blocks", board.id),
-                    &json!([card_block(&board.id, properties)]),
+                    &format!("{TEST_WS}/containers-and-blocks"),
+                    &json!({
+                        "containers": [{
+                            "id": "b1",
+                            "workspaceId": TEST_WORKSPACE_ID,
+                            "visibility": "private",
+                            "cardProperties": [
+                                {"id": "due", "name": "Due", "type": "date"},
+                                {"id": "note", "name": "Note", "type": "text"},
+                            ],
+                        }],
+                        "blocks": [card_block("b1", properties)],
+                    }),
                 )
                 .await,
             what,
         );
     }
-    let stored: Card = th
-        .client
-        .get(&format!("{TEST_WS}/cards/{}", card.id))
-        .await
-        .ok_json();
-    assert_eq!(
-        stored.properties, card.properties,
-        "the refused patches changed nothing"
-    );
-
-    th.teardown().await;
 }
 
 /// A change of the board's definitions leaves the cards' values as they are: a card

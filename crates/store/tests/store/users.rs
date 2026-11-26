@@ -233,7 +233,7 @@ async fn create_and_update_user() {
 
     // "UpdateUserPassword"
     let new_password = new_id();
-    store
+    let _ = store
         .reset_user_password(&user.username, &new_password)
         .await
         .unwrap();
@@ -256,7 +256,7 @@ async fn create_and_update_user() {
         )
         .await
         .unwrap();
-    assert!(changed, "the hash was still the one seen");
+    assert!(changed.is_some(), "the hash was still the one seen");
 
     let got = store.get_user_by_id(&user.id).await.unwrap();
     assert_eq!(got.id, user.id);
@@ -603,7 +603,7 @@ async fn user_lookups_ignore_ascii_case() {
     }
 
     // A password is set by name in any letter case too, for that user alone.
-    let reset = store
+    let fvoci_store::PasswordSet { user_id: reset, .. } = store
         .reset_user_password("hAN.sOLO", "new-hash")
         .await
         .unwrap();
@@ -780,7 +780,10 @@ async fn updates_of_missing_users_fail() {
         .change_user_password(&ghost, "", "hash", &new_id(), "unused-digest")
         .await
         .expect("a change for no user is answered");
-    assert!(!by_id, "nobody has a hash to replace: nothing was changed");
+    assert!(
+        by_id.is_none(),
+        "nobody has a hash to replace: nothing was changed"
+    );
     let error = store.get_user_by_id(&ghost).await.unwrap_err();
     assert!(error.is_not_found(), "and no user was made: got {error:?}");
 

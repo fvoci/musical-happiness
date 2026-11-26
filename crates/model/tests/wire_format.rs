@@ -234,6 +234,8 @@ fn container_json_members() {
             property_type: PropertyType::Select,
             options: vec![PropertyOption::new("o1", "Open", PropertyColor::Blue)],
         }],
+        due_date_property_id: None,
+        done_when: None,
         created_at: 1,
         updated_at: 2,
         deleted_at: None,
@@ -703,7 +705,7 @@ fn config_error_and_request_json_members() {
         json!({
             "allowPublicLinks": true,
             "nameDisplay": "username", "featureFlags": {}, "maxFileBytes": 7,
-            "maxImportBytes": 9, "searchEnabled": false
+            "maxImportBytes": 9, "searchEnabled": false, "trashRetentionDays": 0
         })
     );
 

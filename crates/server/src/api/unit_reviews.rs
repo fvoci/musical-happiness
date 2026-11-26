@@ -7,12 +7,13 @@
 //! confirmation, and `ContainerKind::Course` isolation. No public-link route exists.
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::{
     CompleteUnitReview, CompletedUnitReview, CreateUnitNote, PatchUnitNote, ReviewStatusFilter,
     ScheduleUnitReview, TodayReviewItem, UnitNote, UnitNoteKind, UnitReview,
     course_review_intervals,
 };
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -20,13 +21,25 @@ use super::contract::params::{
     CourseId, MemberWorkspaceId, NoteId, NoteKind, ReviewId, ReviewStatus, ReviewUnitId, UnitId,
 };
 use super::contract::tag;
+use super::query::{QueryParams, non_empty_opt};
 use super::workspace::InCourse;
-use super::{
-    ApiResult, created, decode_object, json_response, no_content, query_option, require_granted,
-};
+use super::{ApiResult, created, decode_object, json_response, no_content, require_granted};
 use crate::app::{App, ContainerAccess};
 use crate::error::AppError;
 use crate::permissions::{ContainerPermission, Grant};
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct CourseReviewsQuery {
+    status: String,
+    unit_id: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct UnitNotesQuery {
+    kind: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -62,27 +75,25 @@ fn require_enrolled_member(access: &ContainerAccess, denial: &str) -> Result<(),
     Ok(())
 }
 
-fn parse_review_status(query: Option<&str>) -> Result<ReviewStatusFilter, AppError> {
-    match query_option(query, "status") {
-        None => Ok(ReviewStatusFilter::All),
-        Some(raw) => raw
-            .parse()
-            .map_err(|error: fvoci_model::ParseReviewStatusError| {
-                AppError::bad_request(error.to_string()).with_parameter("status")
-            }),
+fn parse_review_status(raw: &str) -> Result<ReviewStatusFilter, AppError> {
+    if raw.is_empty() {
+        return Ok(ReviewStatusFilter::All);
     }
+    raw.parse()
+        .map_err(|error: fvoci_model::ParseReviewStatusError| {
+            AppError::bad_request(error.to_string()).with_parameter("status")
+        })
 }
 
-fn parse_note_kind(query: Option<&str>) -> Result<Option<UnitNoteKind>, AppError> {
-    match query_option(query, "kind") {
-        None => Ok(None),
-        Some(raw) => raw
-            .parse()
-            .map(Some)
-            .map_err(|error: fvoci_model::ParseUnitNoteKindError| {
-                AppError::bad_request(error.to_string()).with_parameter("kind")
-            }),
+fn parse_note_kind(raw: &str) -> Result<Option<UnitNoteKind>, AppError> {
+    if raw.is_empty() {
+        return Ok(None);
     }
+    raw.parse()
+        .map(Some)
+        .map_err(|error: fvoci_model::ParseUnitNoteKindError| {
+            AppError::bad_request(error.to_string()).with_parameter("kind")
+        })
 }
 
 /// My scheduled reviews in a course
@@ -103,7 +114,7 @@ fn parse_note_kind(query: Option<&str>) -> Result<Option<UnitNoteKind>, AppError
 async fn handle_list_my_course_reviews(
     InCourse(ws): InCourse,
     Path((_, course_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<CourseReviewsQuery>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     let access = course_view_access(
@@ -113,8 +124,8 @@ async fn handle_list_my_course_reviews(
         "access denied to course reviews",
     )
     .await?;
-    let status = parse_review_status(query.as_deref())?;
-    let unit_id = query_option(query.as_deref(), "unitId");
+    let status = parse_review_status(&query.status)?;
+    let unit_id = non_empty_opt(&query.unit_id);
     if !access.has_membership() {
         return Ok(json_response(&Vec::<UnitReview>::new()));
     }
@@ -273,12 +284,12 @@ async fn handle_delete_unit_review(
 async fn handle_list_my_unit_notes(
     InCourse(ws): InCourse,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<UnitNotesQuery>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     let access =
         course_view_access(&ws.app, user_id, &course_id, "access denied to unit notes").await?;
-    let kind = parse_note_kind(query.as_deref())?;
+    let kind = parse_note_kind(&query.kind)?;
     if !access.has_membership() {
         let _ = ws.app.content_unit_of(&course_id, &unit_id).await?;
         return Ok(json_response(&Vec::<UnitNote>::new()));

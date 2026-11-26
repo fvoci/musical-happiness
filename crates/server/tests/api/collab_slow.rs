@@ -18,8 +18,8 @@ use crate::body_versions::versions;
 use crate::collab::{Editing, body_of, card, editing, editing_app, joined, paragraphs};
 use crate::collab_written_past::stored;
 use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
-use crate::notifications::{board_with_owner, card_with, kinds, told};
-use crate::rooms::{Peer, give};
+use crate::notifications::{board_with_owner, card_with, give, kinds, told};
+use crate::rooms::Peer;
 
 /// The client that types the list, and the one whose changes walk it.
 const TYPIST: u64 = 7;

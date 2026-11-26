@@ -219,11 +219,8 @@ impl App {
             .unlink_identity(&user.id, &user.password_hash, identity)
             .await?
         {
-            Unlinked::Removed => {
-                // The store ended the sessions made for that identity: what they had
-                // open, their seats in the rooms among it, ends with them.
-                self.ws()
-                    .close_sessions_of_identity(&user.id, &request.issuer, &request.subject);
+            Unlinked::Removed(ended) => {
+                self.ws().close(ended.into_scope());
                 tracing::info!(user_id = %user.id, issuer = %request.issuer, "an account removed an identity from itself");
                 Ok(())
             }

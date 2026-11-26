@@ -9,6 +9,10 @@
     "description": "회의 하나가 카드 하나입니다. 새 카드는 ‘회의록 양식’에서 시작하고, 달력 뷰에서 지난 회의와 다가올 회의를 봅니다.",
     "icon": "📝",
     "showDescription": true,
+    "dueDatePropertyId": "b905062a-b93a-5a21-ade3-c4a20972b7a7",
+    "doneWhen": {
+      "propertyId": "d80efada-5f9b-5764-ab78-3115440c512b"
+    },
     "cardProperties": [
       {
         "id": "b905062a-b93a-5a21-ade3-c4a20972b7a7",

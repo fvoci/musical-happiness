@@ -22,6 +22,7 @@ use crate::diary::{
 };
 use crate::page::{PAGE_ICON_FIELD, PAGE_ORDER_FIELD, is_order_value};
 use crate::relation::RelationError;
+use crate::view_fields::{ViewFieldsError, drop_malformed_view_fields, validate_view_fields};
 
 /// Maximum number of Unicode scalar values allowed in a block title (`16_383`).
 pub const BLOCK_TITLE_MAX_CHARS: usize = 16_383;
@@ -304,6 +305,10 @@ pub enum BlockError {
         /// What its value must be.
         expected: &'static str,
     },
+    /// A write of blocks gives the type of a card on `/boards/{boardId}/blocks`: cards
+    /// are created through `createCard`.
+    #[error("a card is made by createCard")]
+    CardByBlocks,
     /// A write of blocks gives the type of a page, as the type of a new block or of a
     /// patch: see [`BlockError::type_not_current`].
     #[error("a page is made and changed by the operations of pages")]
@@ -431,6 +436,21 @@ pub enum BlockError {
         /// The most chapters the course may have.
         limit: u32,
     },
+    /// A view block carries an unknown or malformed member in `fields`.
+    #[error(transparent)]
+    InvalidViewField(#[from] ViewFieldsError),
+    /// A view block is placed below another block instead of at the top of its board.
+    #[error("a view is below no block")]
+    ViewBelowBlock,
+    /// Another block is placed below a view block.
+    #[error("a view is the parent of no block")]
+    ParentIsView,
+    /// An attachment block is placed on a board without a live card parent.
+    #[error("the parent of an attachment is a card of its board")]
+    AttachmentNotOnCard,
+    /// Another block is placed below an attachment block.
+    #[error("an attachment is the parent of no block")]
+    ParentIsAttachment,
 }
 
 /// The fields of a unit whose value has one kind.
@@ -581,7 +601,7 @@ pub struct Block {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::serde_util::non_null"
+        deserialize_with = "crate::serde_util::positive_millis"
     )]
     #[schema(nullable = false)]
     pub deleted_at: Option<i64>,
@@ -750,16 +770,31 @@ impl Block {
                 if fields_json.chars().count() <= self.block_type.fields_max_chars() => {}
             _ => return Err(BlockError::FieldsSizeLimitExceeded),
         }
+        if self.block_type == BlockType::View {
+            validate_view_fields(&self.fields)?;
+        }
         validate_block_properties(&self.fields)?;
         self.block_type.check_body(self.body.as_ref())
     }
 
     /// Removes the fields that a block can no longer be stored with but that one stored
-    /// before may hold: `properties` that are no object, and for a card an `icon` or
-    /// `isTemplate` of another kind. Returns their names. A stored block is made so
-    /// before it is read as a card, patched or copied: what is refused is what a
-    /// request writes, not what was there.
+    /// before may hold: `properties` that are no object, for a card an `icon` or
+    /// `isTemplate` of another kind, and for a view any unknown or malformed member.
+    /// Returns their names. A stored block is made so before it is read as a card,
+    /// patched or copied: what is refused is what a request writes, not what was there.
     pub fn drop_malformed_fields(&mut self) -> Vec<String> {
+        if self.block_type == BlockType::View {
+            let mut dropped = drop_malformed_view_fields(&mut self.fields);
+            if self
+                .fields
+                .get("properties")
+                .is_some_and(|v| !v.is_object())
+            {
+                self.fields.remove("properties");
+                dropped.push("properties".to_owned());
+            }
+            return dropped;
+        }
         let is_card = self.block_type == BlockType::Card;
         let malformed: Vec<String> = self
             .fields

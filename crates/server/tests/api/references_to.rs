@@ -192,9 +192,9 @@ async fn what_names_a_card_or_a_page_is_told_once_and_in_pages() {
 }
 
 /// What names a card from where the asker does not read changes no letter of what
-/// they are told, in every page: not for a member who is not on it, not for one who
-/// has not joined an open board, and it is told once they read it (an open wiki they
-/// read unjoined).
+/// they are told, in every page: not for a member who is not on a private board or wiki,
+/// while open boards and open wikis are read unjoined and invited boards are told once
+/// joined/invited.
 #[tokio::test]
 async fn what_names_from_where_the_asker_does_not_read_is_not_told() {
     let th = Setup::native().start().await.init_basic().await;
@@ -205,38 +205,30 @@ async fn what_names_from_where_the_asker_does_not_read_is_not_told() {
     let seen = card_of(owner, TEST_WS, &shown.board, "seen").await;
     card_names(owner, TEST_WS, &seen, &[&shown.card]).await;
     let private = made(owner, TEST_WS, "private", HIDDEN).await;
-    let open = made(owner, TEST_WS, "open", HIDDEN).await;
+    let private2 = made(owner, TEST_WS, "private", HIDDEN).await;
+    let open = made(owner, TEST_WS, "open", "read unjoined").await;
     let queries = ["", "?perPage=1", "?perPage=1&page=1", "?perPage=1&page=2"];
-    // The page of the open wiki is read unjoined: its title is no secret.
-    owner
-        .patch(
-            &format!("{TEST_WS}/wikis/{}/pages/{}", open.wiki, open.page),
-            &json!({"title": "read unjoined"}),
-        )
-        .await
-        .check_ok();
-    // A page of an open wiki names it: read by the member, who has not joined it.
+    // Both a card of an open board and a page of an open wiki are read unjoined.
+    card_names(owner, TEST_WS, &open.card, &[&shown.card]).await;
     page_names(owner, TEST_WS, &open, &[&shown.card]).await;
 
     let mut before = Vec::new();
     for query in queries {
         before.push(naming(member, TEST_WS, &shown.card, query).await.text());
     }
-    // A card, a page and a comment name it from a board and a wiki for the invited
-    // only, and a card and a comment from an open board the member has not joined.
-    let mut on_open = Vec::new();
-    for hidden in [&private, &open] {
+    let mut on_private2 = Vec::new();
+    for hidden in [&private, &private2] {
         card_names(owner, TEST_WS, &hidden.card, &[&shown.card]).await;
         if hidden.board == private.board {
             page_names(owner, TEST_WS, hidden, &[&shown.card]).await;
         }
         let another = card_of(owner, TEST_WS, &hidden.board, HIDDEN).await;
         comment_naming(owner, &hidden.board, &another, &[&shown.card]).await;
-        on_open.push(another);
+        on_private2.push(another);
     }
     assert_eq!(
         listed(&naming(owner, TEST_WS, &shown.card, "").await).len(),
-        7,
+        8,
         "the owner is told of all of them"
     );
     for (query, before) in queries.iter().zip(&before) {
@@ -246,42 +238,38 @@ async fn what_names_from_where_the_asker_does_not_read_is_not_told() {
     }
     assert_eq!(
         listed(&naming(member, TEST_WS, &shown.card, "").await),
-        [seen.as_str(), open.page.as_str()]
+        [seen.as_str(), open.card.as_str(), open.page.as_str()]
     );
 
-    // Joined, the member is told of what names it from there, and of nothing else.
-    member
-        .post(
-            &format!("{TEST_WS}/containers/{}/join", open.board),
-            &json!({}),
-        )
-        .await
-        .check_ok();
-    // The oldest first, as each was made: the card that names it, the open board's
-    // card and the open wiki's page (made together), then the card of the comment.
+    // Invited to private2's board, the member is told of what names it from there, and nothing else.
+    let_read(owner, &private2.board, &member_id).await;
     assert_eq!(
         listed(&naming(member, TEST_WS, &shown.card, "").await),
-        [seen.as_str(), &open.card, &open.page, &on_open[1]]
+        [
+            seen.as_str(),
+            &private2.card,
+            &open.card,
+            &open.page,
+            &on_private2[1]
+        ]
     );
     th.teardown().await;
 }
 
 /// What the asker does not read is asked about as what is not there, to the letter:
-/// of a board they are not on or have not joined, in the trash, of another workspace,
-/// a block that is
-/// neither a card nor a page, and what is no identifier.
+/// of a private board/wiki they are not on, in the trash, of another workspace, a block
+/// that is neither a card nor a page, and what is no identifier.
 #[tokio::test]
 async fn what_names_a_block_the_asker_does_not_read_is_asked_as_of_nothing() {
     let th = Setup::native().start().await.init_basic().await;
     let (owner, member) = (&th.client, &th.client2);
     let own = made(member, TEST_WS, "private", "own").await;
     let private = made(owner, TEST_WS, "private", HIDDEN).await;
-    let open = made(owner, TEST_WS, "open", HIDDEN).await;
+    let open = made(owner, TEST_WS, "open", "read unjoined").await;
     let elsewhere = made(owner, ROOT_WS, "open", HIDDEN).await;
-    // Each is named by what the member reads, and by what the member does not.
-    for hidden in [&private, &open] {
-        card_names(member, TEST_WS, &own.card, &hidden.both()).await;
-        card_names(owner, TEST_WS, &hidden.card, &hidden.both()).await;
+    for target in [&private, &open] {
+        card_names(member, TEST_WS, &own.card, &target.both()).await;
+        card_names(owner, TEST_WS, &target.card, &target.both()).await;
     }
     let comment = comment_naming(member, &own.board, &own.card, &[&own.card]).await;
     let in_the_trash = card_of(member, TEST_WS, &own.board, "gone").await;
@@ -292,13 +280,10 @@ async fn what_names_a_block_the_asker_does_not_read_is_asked_as_of_nothing() {
 
     let of_nothing = naming(member, TEST_WS, UNKNOWN_ID, "").await;
     of_nothing.check_not_found();
-    // The page of the open wiki the member reads unjoined; its open board they do not.
-    let mut not_there = [
-        &private.both()[..],
-        &[open.card.as_str()],
-        &elsewhere.both(),
-    ]
-    .concat();
+    // Both the open board's card and open wiki's page are read unjoined; private is not.
+    naming(member, TEST_WS, &open.card, "").await.check_ok();
+    naming(member, TEST_WS, &open.page, "").await.check_ok();
+    let mut not_there = [&private.both()[..], &elsewhere.both()].concat();
     not_there.extend([
         comment.as_str(),
         in_the_trash.as_str(),
@@ -320,9 +305,9 @@ async fn what_names_a_block_the_asker_does_not_read_is_asked_as_of_nothing() {
 }
 
 /// A guest is told what names from where it was invited, and an administrator who
-/// only manages a board nothing of what is on it: neither is told a letter more for
-/// what names from elsewhere, but for the administrator what names from an open wiki,
-/// which whoever works in the workspace reads.
+/// only manages a private board nothing of what is on it: neither is told a letter more
+/// for what names from private containers elsewhere, while the administrator (who works
+/// in the workspace) reads open boards and open wikis unjoined, and a guest does not.
 #[tokio::test]
 async fn a_guest_and_who_only_manages_are_told_what_they_read_names() {
     for administers in [false, true] {
@@ -337,33 +322,33 @@ async fn a_guest_and_who_only_manages_are_told_what_they_read_names() {
         let_read(owner, &shown.board, &asker_id).await;
         let seen = card_of(owner, TEST_WS, &shown.board, "seen").await;
         card_names(owner, TEST_WS, &seen, &[&shown.card]).await;
-        // An open wiki's page names it: the administrator, who works in the workspace,
-        // reads it unjoined; a guest does not.
         let open = made(owner, TEST_WS, "open", HIDDEN).await;
+        card_names(owner, TEST_WS, &open.card, &[&shown.card]).await;
         page_names(owner, TEST_WS, &open, &[&shown.card]).await;
         let before = naming(asker, TEST_WS, &shown.card, "").await.text();
 
         let private = made(owner, TEST_WS, "private", HIDDEN).await;
         card_names(owner, TEST_WS, &private.card, &[&shown.card]).await;
         page_names(owner, TEST_WS, &private, &[&shown.card]).await;
-        card_names(owner, TEST_WS, &open.card, &[&shown.card]).await;
         let told = naming(asker, TEST_WS, &shown.card, "").await;
         assert_eq!(told.text(), before, "administers: {administers}");
         let mut told_of = vec![seen.as_str()];
         if administers {
+            told_of.push(&open.card);
             told_of.push(&open.page);
         }
         assert_eq!(listed(&told), told_of, "administers: {administers}");
-        // Nor is either found by its title, nor asked about but as nothing is.
-        let found_of: Vec<&str> = told_of[1..].to_vec();
-        assert_eq!(listed(&found(asker, TEST_WS, HIDDEN).await), found_of);
+        // Nor is private found by its title, nor asked about but as nothing is.
+        let mut expected_found = Vec::new();
+        if administers {
+            expected_found.push(open.page.as_str());
+            expected_found.push(open.card.as_str());
+        }
+        assert_eq!(listed(&found(asker, TEST_WS, HIDDEN).await), expected_found);
         let of_nothing = naming(asker, TEST_WS, UNKNOWN_ID, "").await;
-        let mut hidden = [
-            &private.both()[..],
-            &[open.card.as_str(), &shown.page, UNKNOWN_ID],
-        ]
-        .concat();
+        let mut hidden = [&private.both()[..], &[&shown.page, UNKNOWN_ID]].concat();
         if !administers {
+            hidden.push(&open.card);
             hidden.push(&open.page);
         }
         for id in hidden {
@@ -598,23 +583,21 @@ async fn what_the_asker_does_not_read_is_not_found() {
     assert_eq!(listed(&found(owner, TEST_WS, HIDDEN).await).len(), 4);
     for term in [HIDDEN, "hidden", "title", "HIDDEN-TITLE"] {
         let of_term = listed(&found(member, TEST_WS, term).await);
-        assert_eq!(of_term, [open.page.as_str()], "{term}");
+        assert_eq!(of_term, [open.page.as_str(), open.card.as_str()], "{term}");
     }
     let recent = found(member, TEST_WS, "").await;
-    assert_ne!(recent.text(), before, "the open wiki's page is new");
+    assert_ne!(recent.text(), before, "the open board and wiki are new");
     assert_eq!(
         listed(&recent),
-        [open.page.as_str(), own.page.as_str(), own.card.as_str()]
+        [
+            open.page.as_str(),
+            open.card.as_str(),
+            own.page.as_str(),
+            own.card.as_str()
+        ]
     );
 
-    // Joined, and invited: what is there is found from then on.
-    member
-        .post(
-            &format!("{TEST_WS}/containers/{}/join", open.board),
-            &json!({}),
-        )
-        .await
-        .check_ok();
+    // Invited to private.wiki: what is there is found from then on.
     let_read(owner, &private.wiki, &member.me().await.id).await;
     assert_eq!(
         listed(&found(member, TEST_WS, HIDDEN).await),

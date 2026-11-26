@@ -200,12 +200,21 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
     response.check_error(StatusCode::BAD_REQUEST, BELOW_A_COMMENT);
     assert_eq!(response.refused_at(), "/blockPatches/0/parentId");
 
-    // A change of type is always refused on any existing block.
-    insert_one(
-        &th.client,
-        &child_of(&attachment, BlockType::Attachment, "below the attachment"),
-    )
-    .await;
+    // An attachment cannot be placed below another attachment either, and a change of
+    // type is always refused on any existing block.
+    let nested_attachment = th
+        .client
+        .insert_blocks(
+            board_id,
+            &[child_of(
+                &attachment,
+                BlockType::Attachment,
+                "below the attachment",
+            )],
+        )
+        .await;
+    nested_attachment.check_bad_request();
+    assert_eq!(nested_attachment.refused_at(), "/0/parentId");
     let view = insert_one(&th.client, &new_block(board_id, BlockType::View, "view")).await;
     for (block, to) in [(&attachment, "comment"), (card, "view"), (&view, "comment")] {
         let response = th
@@ -250,12 +259,7 @@ async fn a_block_comes_back_from_the_trash_only_where_it_may_be() {
         .await
         .check_error(StatusCode::CONFLICT, &refused(OFF_A_CARD));
 
-    let card = insert_one(&th.client, &new_block(board_id, BlockType::Card, "card 2")).await;
-    let middle = insert_one(
-        &th.client,
-        &child_of(&card, BlockType::Attachment, "middle"),
-    )
-    .await;
+    let middle = insert_one(&th.client, &new_block(board_id, BlockType::Card, "middle")).await;
     let below = insert_one(
         &th.client,
         &child_of(&middle, BlockType::Attachment, "below"),

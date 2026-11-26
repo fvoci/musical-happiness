@@ -73,6 +73,7 @@ mod public_links;
 mod registration;
 mod restored_boards;
 mod search_outbox;
+mod server_authority_migration;
 mod server_indexes_and_derived_columns_migration;
 mod session_origin;
 mod sessions;

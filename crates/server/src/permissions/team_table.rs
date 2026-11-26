@@ -56,7 +56,6 @@ fn direct_and_team_roles_take_the_highest_within_the_team_limit() {
     for (case, actor, role, team_role, effective) in rows {
         for scope in [
             ContainerScope::InvitedOnly,
-            ContainerScope::Open,
             ContainerScope::OpenToRead,
             ContainerScope::InvitedOnlyTemplate,
         ] {

@@ -310,7 +310,8 @@ impl Store {
             let inherited = inherited_members_source(scope);
             let mut sql = scope.sql(
                 "SELECT ur.id, ur.unit_id, ur.container_id, c.title, b.title, \
-                 ur.scheduled_date, CAST(ur.interval_days AS BIGINT), ur.created_at, ur.updated_at \
+                 ur.scheduled_date, CAST(ur.interval_days AS BIGINT), ur.created_at, \
+                 ur.updated_at, c.properties \
                  FROM unit_reviews AS ur \
                  JOIN blocks AS b ON b.id = ur.unit_id \
                  JOIN containers AS c ON c.id = b.container_id \
@@ -606,6 +607,10 @@ fn review_from_row(row: &Row) -> Result<UnitReview, StoreError> {
 fn today_review_from_row(row: &Row, today: &str) -> Result<TodayReviewItem, StoreError> {
     let scheduled_date = row.text(5)?;
     let overdue = days_between(&scheduled_date, today).unwrap_or(0).max(0);
+    let interval_days = positive_u32(row.int(6)?);
+    let properties = row.json_map(9, "properties")?;
+    let review_intervals = fvoci_model::course_review_intervals(&properties);
+    let suggested = suggested_next_interval_days(Some(interval_days), &review_intervals);
     Ok(TodayReviewItem {
         id: row.id(0)?,
         unit_id: row.id(1)?,
@@ -613,10 +618,12 @@ fn today_review_from_row(row: &Row, today: &str) -> Result<TodayReviewItem, Stor
         course_title: row.text(3)?,
         unit_title: row.text(4)?,
         scheduled_date,
-        interval_days: positive_u32(row.int(6)?),
+        interval_days,
         overdue_days: u32::try_from(overdue).unwrap_or(u32::MAX),
         created_at: row.int(7)?,
         updated_at: row.int(8)?,
+        suggested_next_interval_days: suggested,
+        review_intervals,
     })
 }
 

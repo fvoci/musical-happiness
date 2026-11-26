@@ -10,8 +10,8 @@
 //! sentence of what the product promises.
 
 use fvoci_model::{
-    Container, ContainerKind, ContainerMember, ContainerRole, ContainerVisibility, OrgRole,
-    Workspace, WorkspaceRole,
+    Container, ContainerKind, ContainerMember, ContainerPermissions, ContainerRole,
+    ContainerVisibility, OrgRole, Workspace, WorkspaceRole,
 };
 use fvoci_store::{Looking, Reach};
 
@@ -118,7 +118,7 @@ pub const fn may_become(from: WorkspaceRole, to: WorkspaceRole) -> bool {
 #[must_use]
 pub const fn invites_guests(grant: Grant, scope: ContainerScope, workspace: &Workspace) -> bool {
     match scope {
-        ContainerScope::InvitedOnly | ContainerScope::Open | ContainerScope::OpenToRead => {
+        ContainerScope::InvitedOnly | ContainerScope::OpenToRead => {
             workspace.guest_invitations && grant.allows(ContainerPermission::ManageRoles)
         }
         ContainerScope::BuiltIn
@@ -130,10 +130,8 @@ pub const fn invites_guests(grant: Grant, scope: ContainerScope, workspace: &Wor
 /// Who a board is there for, besides its members.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainerScope {
-    /// An open board: whoever works in the workspace sees it and may join it.
-    Open,
-    /// An open wiki or open course: whoever works in the workspace reads and searches it
-    /// without joining, and joins it to write or enroll.
+    /// An open board, wiki, or course: whoever works in the workspace reads and searches
+    /// it without joining, and joins it to write or enroll.
     OpenToRead,
     /// A board for the invited only: nobody but its members knows it is there.
     InvitedOnly,
@@ -156,8 +154,9 @@ impl ContainerScope {
         ) {
             (true, _, _) => Self::BuiltIn,
             (false, false, ContainerVisibility::Open) => match container.kind {
-                ContainerKind::Board => Self::Open,
-                ContainerKind::Wiki | ContainerKind::Course => Self::OpenToRead,
+                ContainerKind::Board | ContainerKind::Wiki | ContainerKind::Course => {
+                    Self::OpenToRead
+                }
                 // No diary is stored as open (`Container::check_storable`); one that
                 // were would be nobody's but its members' all the same.
                 ContainerKind::Diary => Self::InvitedOnly,
@@ -173,7 +172,7 @@ impl ContainerScope {
     #[must_use]
     pub fn in_the_trash(self) -> Self {
         match self {
-            Self::Open | Self::OpenToRead | Self::InvitedOnly => Self::InvitedOnly,
+            Self::OpenToRead | Self::InvitedOnly => Self::InvitedOnly,
             Self::OpenTemplate | Self::InvitedOnlyTemplate => Self::InvitedOnlyTemplate,
             Self::BuiltIn => Self::BuiltIn,
         }
@@ -181,7 +180,7 @@ impl ContainerScope {
 
     /// Whether whoever works in the workspace sees the board without being its member.
     fn open_to_the_workspace(self) -> bool {
-        matches!(self, Self::Open | Self::OpenToRead | Self::OpenTemplate)
+        matches!(self, Self::OpenToRead | Self::OpenTemplate)
     }
 }
 
@@ -354,6 +353,21 @@ impl Grant {
     #[must_use]
     pub const fn reads_on_joining(self) -> bool {
         self.reads() || self.allows(ContainerPermission::Join)
+    }
+
+    /// Projects this caller-specific grant into the wire [`ContainerPermissions`] flags.
+    #[must_use]
+    pub const fn to_container_permissions(self) -> ContainerPermissions {
+        ContainerPermissions {
+            can_edit: self.allows(ContainerPermission::ManageCards),
+            can_comment: self.allows(ContainerPermission::CommentCards),
+            can_manage_properties: self.allows(ContainerPermission::ManageProperties),
+            can_manage_visibility: self.allows(ContainerPermission::ManageType),
+            can_manage_roles: self.allows(ContainerPermission::ManageRoles),
+            can_delete: self.allows(ContainerPermission::Delete),
+            can_share: self.allows(ContainerPermission::Share),
+            can_manage_others_comments: self.allows(ContainerPermission::ManageOthersComments),
+        }
     }
 }
 
@@ -563,7 +577,6 @@ pub fn grant(actor: Actor, facts: ContainerFacts) -> Grant {
         role_grant(role.min(highest_container_role(workspace_role)))
     });
     let as_worker = match (actor.works_there(), facts.scope) {
-        (true, ContainerScope::Open) => Grant::of(&[See, Join]),
         (true, ContainerScope::OpenToRead) => Grant::of(&[See, Join, View, ListMembers]),
         (true, ContainerScope::OpenTemplate) => Grant::of(&[See, View, ListMembers]),
         _ => Grant::NONE,

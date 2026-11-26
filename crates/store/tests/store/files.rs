@@ -211,9 +211,18 @@ async fn a_file_is_found_through_its_own_board_only() {
 
     // Deleting the image block of one board leaves both records as they are: nothing
     // marks a file record deleted.
+    let mut host_card = Block {
+        id: new_id(),
+        container_id: other.clone(),
+        block_type: BlockType::Card,
+        created_by: user_id.clone(),
+        ..Block::default()
+    };
+    store.insert_block(&mut host_card, &user_id).await.unwrap();
     let mut image = Block {
         id: new_id(),
         container_id: other.clone(),
+        parent_id: host_card.id.clone(),
         block_type: BlockType::Attachment,
         created_by: user_id.clone(),
         fields: serde_json::from_value(json!({ "fileId": stored_name }))
@@ -473,17 +482,18 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
             .await
             .expect("a file of the board is stored");
     }
+    let mut card = card_showing(board_id, &["7body.png", "7block.pdf"]);
+    common::insert_blocks(store, std::slice::from_mut(&mut card), &user_id).await;
     let mut image = Block {
         id: new_id(),
         container_id: board_id.clone(),
+        parent_id: card.id.clone(),
         block_type: BlockType::Attachment,
         fields: serde_json::from_value(json!({ "fileId": "7image.png" }))
             .expect("the fields are a JSON object"),
         ..Block::default()
     };
-    let mut card = card_showing(board_id, &["7body.png", "7block.pdf"]);
     common::insert_blocks(store, std::slice::from_mut(&mut image), &user_id).await;
-    common::insert_blocks(store, std::slice::from_mut(&mut card), &user_id).await;
 
     assert_eq!(
         collected(store, started - 1).await,

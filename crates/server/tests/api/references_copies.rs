@@ -326,19 +326,22 @@ async fn blocks_made_together_name_each_other_by_their_new_identifiers() {
     let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
         reference(&second), reference(&source.b),
     ]}]});
-    let made: Vec<Block> = th
+    let created: serde_json::Value = th
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/blocks", source.board),
-            &json!([
-                {"id": first, "containerId": source.board, "type": "card", "title": "first",
-                    "body": body, "createdAt": 1, "updatedAt": 1},
-                {"id": second, "containerId": source.board, "type": "card", "title": "second",
-                    "createdAt": 1, "updatedAt": 1},
-            ]),
+            &format!("{TEST_WS}/containers-and-blocks"),
+            &json!({
+                "containers": [{"id": "nb", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Together"}],
+                "blocks": [
+                    {"id": first, "containerId": "nb", "type": "card", "title": "first",
+                        "body": body},
+                    {"id": second, "containerId": "nb", "type": "card", "title": "second"},
+                ],
+            }),
         )
         .await
         .created_json();
+    let made: Vec<Block> = serde_json::from_value(created["blocks"].clone()).expect("blocks");
     assert!(made[0].id != first && made[1].id != second);
     assert_eq!(naming(&th.client, &made[1].id).await, [made[0].id.as_str()]);
     let of_b = naming(&th.client, &source.b).await;

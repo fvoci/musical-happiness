@@ -151,14 +151,6 @@ pub(crate) fn view_block(board_id: &str) -> Block {
     }
 }
 
-fn card_block(board_id: &str) -> Block {
-    Block {
-        block_type: BlockType::Card,
-        title: "Card 1".to_owned(),
-        ..view_block(board_id)
-    }
-}
-
 pub(crate) async fn get_board(client: &Client, id: &str) -> ApiResponse {
     client.get(&format!("{TEST_WS}/containers/{id}")).await
 }
@@ -465,9 +457,16 @@ async fn create_board_create_public_board_and_its_blocks() {
         .await;
     assert_eq!(blocks.ok_json::<Vec<Block>>(), vec![], "no blocks yet");
 
-    // "A non-member user should be able to access the public board but not its blocks"
+    // Workspace members can read an open board's blocks without joining, while creating cards is refused until joined.
     th.client2
         .get(&format!("{TEST_WS}/boards/{}/blocks", board.id))
+        .await
+        .check_ok();
+    th.client2
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "nope"}),
+        )
         .await
         .check_forbidden();
 
@@ -1624,25 +1623,29 @@ async fn get_members_for_container_a_non_authenticated_user_should_be_rejected()
     th.teardown().await;
 }
 
-/// Listing members of a board without permission is rejected.
+/// Listing members of a private board without membership returns 404, while unjoined
+/// workspace members on an open board can read its members.
 #[tokio::test]
 async fn get_members_for_container_a_user_without_permissions_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
-    let board = board_with_users(&th).await;
+    let open = board_with_users(&th).await;
     th.app
-        .delete_container_member(&board.id, &user2.id)
+        .delete_container_member(&open.id, &user2.id)
         .await
         .expect("user2 is removed");
+    get_members(&th.client2, &open.id).await.check_ok();
 
-    let response = get_members(&th.client2, &board.id).await;
-
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to board members",
-        "why"
-    );
+    let private = board_with_admin(
+        &th,
+        new_board(TEST_WORKSPACE_ID, ContainerVisibility::Private, "private"),
+        &user1.id,
+    )
+    .await;
+    get_members(&th.client2, &private.id)
+        .await
+        .check_not_found();
     th.teardown().await;
 }
 
@@ -1838,7 +1841,12 @@ async fn add_member_a_public_board_through_a_user_that_is_not_yet_a_member() {
     let new_member = editor(&board.id, &user2.id);
 
     th.client2.add_member(&new_member).await.check_forbidden();
-    get_members(&th.client2, &board.id).await.check_forbidden();
+    let initial_members: Vec<ContainerMember> = get_members(&th.client2, &board.id).await.ok_json();
+    assert_eq!(
+        initial_members.len(),
+        1,
+        "unjoined member reads open board members"
+    );
 
     // Join board - will become an editor
     let joined: ContainerMember = join_board(&th.client2, &board.id).await.ok_json();
@@ -2136,9 +2144,12 @@ async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board()
                 stored.role, expected,
                 "minimum role {minimum_role:?}: the stored membership"
             );
-            // The role is real: only an editor may insert a card.
+            // The role is real: only an editor may create a card.
             let insert = client
-                .insert_blocks(&board.id, &[card_block(&board.id)])
+                .post(
+                    &format!("{TEST_WS}/boards/{}/cards", board.id),
+                    &json!({"title": "Card 1"}),
+                )
                 .await;
             if expected == ContainerRole::Editor {
                 insert.check_created();
@@ -2860,13 +2871,19 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
         "raising the minimum raises nobody"
     );
     th.client2
-        .insert_blocks(&board.id, &[card_block(&board.id)])
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "Card 1"}),
+        )
         .await
         .check_forbidden();
     let raised: ContainerMember = join_board(&th.client2, &board.id).await.ok_json();
     assert_eq!(raised.role, ContainerRole::Editor, "joining again does");
     th.client2
-        .insert_blocks(&board.id, &[card_block(&board.id)])
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "Card 1"}),
+        )
         .await
         .check_created();
 
@@ -2905,7 +2922,10 @@ async fn a_member_below_the_minimum_role_has_the_role_they_were_given() {
         .await
         .check_ok();
     th.client2
-        .insert_blocks(&board.id, &[card_block(&board.id)])
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "Card 1"}),
+        )
         .await
         .check_forbidden();
     join_board(&th.client2, &board.id)
@@ -3004,12 +3024,12 @@ async fn leave_container_cases() {
         response.check_error(StatusCode::NOT_FOUND, "board not found");
     }
     let outsider = th.add_user("user3").await;
-    leave_board(&outsider, &board.id).await.check_forbidden();
+    leave_board(&outsider, &board.id).await.check_no_content();
 
     let response = leave_board(&th.client2, &board.id).await;
     response.check_no_content();
     assert_eq!(members_of(&th, &board.id).await.len(), 1, "user2 left");
-    leave_board(&th.client2, &board.id).await.check_forbidden();
+    leave_board(&th.client2, &board.id).await.check_no_content();
 
     let response = leave_board(&th.client, &board.id).await;
     response.check_status(StatusCode::CONFLICT);

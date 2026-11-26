@@ -58,11 +58,8 @@ impl Hidden {
             updated_at: 1,
             ..Block::default()
         };
-        let mut created: Vec<Block> = th
-            .client
-            .insert_blocks(&board.id, &[block(BlockType::Card, "")])
-            .await
-            .created_json();
+        let mut created =
+            crate::blocks::insert(&th.client, &board.id, &[block(BlockType::Card, "")]).await;
         let card = created.pop().expect("the card is created");
         let mut created: Vec<Block> = th
             .client
@@ -137,11 +134,12 @@ impl Hidden {
             updated_at: 1,
             ..Block::default()
         };
-        let mut created: Vec<Block> = th
-            .client2
-            .insert_blocks(&own_board.id, &[own_block(BlockType::Card, "")])
-            .await
-            .created_json();
+        let mut created = crate::blocks::insert(
+            &th.client2,
+            &own_board.id,
+            &[own_block(BlockType::Card, "")],
+        )
+        .await;
         let own_card = created.pop().expect("the card is created");
         let mut created: Vec<Block> = th
             .client2
@@ -346,7 +344,7 @@ fn content_cases() -> Vec<Case> {
             |h, i| format!("{TEST_WS}/boards/{}/blocks", h.board[i]),
             |h, i| {
                 json!([{
-                    "containerId": h.board[i], "type": "card", "createdAt": 1, "updatedAt": 1,
+                    "containerId": h.board[i], "type": "view",
                 }])
             },
         ),

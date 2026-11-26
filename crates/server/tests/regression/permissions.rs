@@ -130,6 +130,7 @@ impl Users {
 struct Fixture<'a> {
     http: &'a Http,
     users: &'a Users,
+    visibility: String,
     board: String,
     card: String,
     view: String,
@@ -166,27 +167,32 @@ impl<'a> Fixture<'a> {
                 .await;
             assert_eq!(added.status, 200, "adding the {role} to the board");
         }
+        let card = http
+            .api(
+                Method::POST,
+                &format!("{ROOT_API}/boards/{board}/cards"),
+                Payload::Json(json!({"title": "card"})),
+                &owner,
+            )
+            .await
+            .string("id");
         let blocks = format!("{ROOT_API}/boards/{board}/blocks");
         let created = http
             .api(
                 Method::POST,
                 &blocks,
-                Payload::Json(json!([
-                    block("card", &board, "card", "card", "", json!({})),
-                    block(
-                        "view",
-                        &board,
-                        "view",
-                        "view",
-                        "",
-                        json!({"viewType": "board"})
-                    ),
-                ])),
+                Payload::Json(json!([block(
+                    "view",
+                    &board,
+                    "view",
+                    "view",
+                    "",
+                    json!({"viewType": "board"})
+                )])),
                 &owner,
             )
             .await;
         let created = created.json();
-        let card = id_by_title(created, "card");
         let comment = http
             .api(
                 Method::POST,
@@ -205,6 +211,7 @@ impl<'a> Fixture<'a> {
         Self {
             http,
             users,
+            visibility: board_type.to_owned(),
             view: id_by_title(created, "view"),
             comment: id_of(&comment.json()[0]),
             card,
@@ -488,7 +495,7 @@ async fn subscribe_before_delete<'a>(fx: &Fixture<'_>, me: &'a str) -> &'a str {
         .await;
     // A member has a subscription to end. Who is no member cannot subscribe,
     // and their cell says what ending a subscription one does not have answers.
-    let wanted = if MEMBER_ROLES.contains(name) {
+    let wanted = if MEMBER_ROLES.contains(name) || fx.visibility == "open" {
         201
     } else {
         404

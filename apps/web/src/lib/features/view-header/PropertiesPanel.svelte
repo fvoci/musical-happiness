@@ -16,7 +16,7 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardView } from '$lib/logic/wire.ts';
+  import type { BoardView, DoneRule } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Switch } from '$lib/ui/switch/index.js';
 
@@ -79,6 +79,57 @@
       'showProperty',
     );
   }
+
+  const dateProperties = $derived(
+    (board.board?.cardProperties ?? []).filter((prop) => prop.type === 'date'),
+  );
+  const doneChoices = $derived.by(() => {
+    const out: { value: string; label: string; rule: DoneRule }[] = [];
+    for (const prop of board.board?.cardProperties ?? []) {
+      if (prop.type === 'checkbox') {
+        out.push({
+          value: `checkbox:${prop.id}`,
+          label: prop.name,
+          rule: { kind: 'checkbox', propertyId: prop.id },
+        });
+      } else if (prop.type === 'select' || prop.type === 'multiSelect') {
+        for (const opt of prop.options) {
+          out.push({
+            value: `option:${prop.id}:${opt.id}`,
+            label: `${prop.name}: ${opt.label}`,
+            rule: { kind: 'option', propertyId: prop.id, optionIds: [opt.id] },
+          });
+        }
+      }
+    }
+    return out;
+  });
+  const selectedDoneValue = $derived.by(() => {
+    const rule = board.board?.doneWhen;
+    if (!rule) return '';
+    if (rule.kind === 'checkbox') return `checkbox:${rule.propertyId}`;
+    const first = rule.optionIds[0];
+    return first ? `option:${rule.propertyId}:${first}` : '';
+  });
+
+  function changeDueProperty(value: string): void {
+    void board.changeBoard((current) => {
+      const next = { ...current };
+      if (value) next.dueDatePropertyId = value;
+      else delete next.dueDatePropertyId;
+      return next;
+    }, 'changeBoard');
+  }
+
+  function changeDoneRule(value: string): void {
+    const chosen = doneChoices.find((item) => item.value === value);
+    void board.changeBoard((current) => {
+      const next = { ...current };
+      if (chosen) next.doneWhen = chosen.rule;
+      else delete next.doneWhen;
+      return next;
+    }, 'changeBoard');
+  }
 </script>
 
 <p class="sr-only" aria-live="polite">{told}</p>
@@ -101,7 +152,7 @@
           }
         />
       </label>
-      {#if board.canEdit}
+      {#if board.canManageProperties}
         {@const place = order.indexOf(toggle.id)}
         <IconButton
           label={m.view_property_move_up({ name })}
@@ -129,3 +180,43 @@
     </li>
   {/each}
 </ul>
+{#if board.canManageProperties && board.board && !board.board.isTemplate && (dateProperties.length > 0 || doneChoices.length > 0)}
+  <div class="grid gap-2 border-t p-2 text-xs" data-testid="board-today-rules">
+    {#if dateProperties.length > 0}
+      <label class="grid gap-1">
+        <span class="font-medium text-muted-foreground">{m.view_due_date_property()}</span>
+        <select
+          class="h-8 rounded-md border border-input-border bg-background px-2 text-xs"
+          data-testid="board-due-date-property"
+          value={board.board.dueDatePropertyId ?? ''}
+          onchange={(e) => {
+            changeDueProperty(e.currentTarget.value);
+          }}
+        >
+          <option value="">{m.view_due_date_auto()}</option>
+          {#each dateProperties as prop (prop.id)}
+            <option value={prop.id}>{prop.name}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
+    {#if doneChoices.length > 0}
+      <label class="grid gap-1">
+        <span class="font-medium text-muted-foreground">{m.view_done_when()}</span>
+        <select
+          class="h-8 rounded-md border border-input-border bg-background px-2 text-xs"
+          data-testid="board-done-when"
+          value={selectedDoneValue}
+          onchange={(e) => {
+            changeDoneRule(e.currentTarget.value);
+          }}
+        >
+          <option value="">{m.view_done_none()}</option>
+          {#each doneChoices as choice (choice.value)}
+            <option value={choice.value}>{choice.label}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
+  </div>
+{/if}

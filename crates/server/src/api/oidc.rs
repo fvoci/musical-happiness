@@ -9,10 +9,11 @@
 //! cookie finishes it.
 
 use axum::body::Bytes;
-use axum::extract::{Extension, Path, RawQuery, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::header::{LOCATION, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -25,14 +26,36 @@ use super::contract::params::{
     AcceptLanguage, CallbackOrg, LoginOrg, OidcCode, OidcError, OidcIssuer, OidcState, StartOrg,
 };
 use super::contract::tag;
-use super::{ApiResult, accept_language, decode_json, json_object, json_response, query_param};
+use super::query::QueryParams;
+use super::{ApiResult, accept_language, decode_json, json_object, json_response};
 use crate::app::{
     App, BackTo, Callback, FinishedLogin, HELD_SIGN_IN_LIFETIME_MILLIS, LOGIN_FLOW_LIFETIME_MILLIS,
     LoginFailure, StartedLogin,
 };
-use crate::auth::token::{Credential, Https, cookie_value, query_value};
+use crate::auth::token::{Credential, Https, cookie_value};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct LoginOptionsQuery {
+    org: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct OidcStartQuery {
+    org: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct OidcCallbackQuery {
+    state: String,
+    code: String,
+    error: Option<String>,
+    iss: Option<String>,
+}
 
 /// The cookie that ties a sign-in to the browser that started it, where the server is
 /// reached over HTTPS: the `__Host-` prefix keeps other hosts of the domain from
@@ -77,9 +100,11 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
     security(()),
     responses((status = 200, description = "What the login page shows.", body = LoginOptions)),
 )]
-async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery) -> ApiResult {
-    let org = query.as_deref().and_then(|query| query_value(query, "org"));
-    let options = app.login_options(org.as_deref()).await?;
+async fn handle_login_options(
+    State(app): State<App>,
+    QueryParams(query): QueryParams<LoginOptionsQuery>,
+) -> ApiResult {
+    let options = app.login_options(query.org.as_deref()).await?;
     Ok(json_response(&options))
 }
 
@@ -153,10 +178,10 @@ async fn handle_start(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<OidcStartQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let org_id = query_param(query.as_deref(), "org");
+    let org_id = query.org;
     if org_id.is_empty() {
         return Err(AppError::bad_request("the query parameter org is required"));
     }
@@ -265,16 +290,15 @@ async fn handle_callback(
     State(app): State<App>,
     Path(org_id): Path<String>,
     headers: HeaderMap,
-    RawQuery(query): RawQuery,
+    Query(query): Query<OidcCallbackQuery>,
 ) -> ApiResult {
-    let query = query.unwrap_or_default();
     let callback = Callback {
-        state: query_value(&query, "state").unwrap_or_default(),
-        code: query_value(&query, "code").unwrap_or_default(),
-        error: query_value(&query, "error"),
+        state: query.state,
+        code: query.code,
+        error: query.error,
         browser_secret: cookie_value(&headers, flow_cookie_name(&app)).unwrap_or_default(),
         org_id,
-        issuer: query_value(&query, "iss"),
+        issuer: query.iss,
         // The session a browser comes back with is the one of its cookie.
         session_token: match app.authenticator().session_cookie().credential(&headers) {
             Some(Credential::Cookie(token)) => Some(token),

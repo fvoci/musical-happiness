@@ -18,7 +18,7 @@ async fn change_user_password_from_a_stale_hash_changes_nothing() {
     let test = common::setup().await;
     let store = &test.store;
     let alice = common::user(store, "alice").await;
-    store
+    let _ = store
         .reset_user_password("alice", "current-hash")
         .await
         .expect("the password is set");
@@ -34,7 +34,7 @@ async fn change_user_password_from_a_stale_hash_changes_nothing() {
             .change_user_password(&alice, stale, "new-hash", &here, "alice-here-anew")
             .await
             .expect("a change from another hash is answered");
-        assert!(!changed, "{stale:?} is not the stored hash");
+        assert!(changed.is_none(), "{stale:?} is not the stored hash");
 
         let after = store
             .get_user_by_id(&alice)
@@ -86,7 +86,8 @@ async fn of_two_password_changes_from_the_same_hash_one_is_made() {
                 let changed = store
                     .change_user_password(&alice, &seen, &new_hash, &session_id, &new_digest)
                     .await
-                    .expect("a change of the password is answered");
+                    .expect("a change of the password is answered")
+                    .is_some();
                 (changed, digest, new_hash, new_digest)
             });
         }

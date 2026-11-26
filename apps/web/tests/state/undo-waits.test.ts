@@ -145,12 +145,10 @@ describe('a change made while a gesture waits for one of its writes (found by a 
     };
 
     try {
-      // The drop writes the view's order, then the card's status.
-      const dropping = board.dropCards({
-        viewId: view.id,
-        cardIds: [card.id],
-        optionId: 'done',
-        index: 0,
+      // A two-write gesture writes the view's order, then the card's status.
+      const dropping = board.inOneStep(async (groupId) => {
+        await board.setViewFields(view.id, { cardOrder: [card.id] }, 'moveCard', groupId);
+        await board.setCardProperty(card.id, STATUS, 'done', groupId);
       });
       await started;
       await board.setCardProperty(card.id, STATUS, 'doing');
@@ -330,7 +328,7 @@ describe('an undo that waits while the reader moves on (found by a review of 042
   });
 });
 
-/** Holds the next reading of a card until `release`; `started` settles when it is asked. */
+/** Holds the next duplicateCard call until `release`; `started` settles when it is asked. */
 function holdNextCardRead(backend: MemoryBackend) {
   let release = (): void => undefined;
   let entered = (): void => undefined;
@@ -340,12 +338,12 @@ function holdNextCardRead(backend: MemoryBackend) {
   const started = new Promise<void>((resolve) => {
     entered = resolve;
   });
-  const read = backend.card.bind(backend);
-  backend.card = async (...args) => {
-    backend.card = read;
+  const duplicate = backend.duplicateCard.bind(backend);
+  backend.duplicateCard = async (...args) => {
+    backend.duplicateCard = duplicate;
     entered();
     await gate;
-    return read(...args);
+    return duplicate(...args);
   };
   return { release, started };
 }

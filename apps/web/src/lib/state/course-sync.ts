@@ -31,6 +31,7 @@ export interface CourseSyncHost {
   currentReading(): number;
   clearWatchingCache(): void;
   takeCourse(course: Container): void;
+  refreshPermissions(): Promise<void>;
   refreshActiveTab(): void;
 }
 
@@ -84,8 +85,12 @@ export function applyCourseChange(host: CourseSyncHost, change: Change): void {
         if (store.course?.visibility !== 'open') store.workspace.evictContainer(store.courseId);
       } else if (removed && host.activeTab() === 'exams') void store.events.refreshExams();
       void store.workspace.learnUsers(next.map(memberId), { members: true });
+      void host.refreshPermissions();
       break;
     }
+    case 'workspaceRole':
+      if (change.userId === store.workspace.me?.id) void host.refreshPermissions();
+      break;
     case 'resync':
       void refreshCourse(host);
       break;
@@ -107,16 +112,18 @@ export async function refreshCourse(host: CourseSyncHost): Promise<void> {
   try {
     const courses = host.courses();
     const workspaceId = store.workspace.info?.id;
-    const [course, units, members, progress, summary, schedule] = await Promise.all([
+    const [course, units, members, permissions, progress, summary, schedule] = await Promise.all([
       store.workspace.backend.container(store.courseId),
       courses.units(store.courseId),
       store.workspace.backend.members(store.courseId),
+      store.workspace.backend.myPermissions(store.courseId),
       courses.myProgress(store.courseId, workspaceId),
       courses.progressSummary(store.courseId, workspaceId),
       courses.schedule(store.courseId, workspaceId),
     ]);
     if (host.isClosed() || reading !== host.currentReading()) return;
     host.takeCourse(course);
+    store.permissions = permissions;
     if (membersTold === people.told) store.members = members;
     store.progress.take(progress, summary, progressMark);
     store.schedule.take(schedule, scheduleMark);

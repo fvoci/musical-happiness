@@ -343,6 +343,13 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "doneWhen": {
+          "optionIds": [
+            "<id:9>"
+          ],
+          "propertyId": "<id:6>"
+        },
+        "dueDatePropertyId": "<id:16>",
         "icon": "👋",
         "id": "<id:19>",
         "isBuiltin": false,
@@ -352,7 +359,7 @@
         "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": true,
-        "templateVersion": 12,
+        "templateVersion": 13,
         "title": "Getting started with fvoci",
         "updatedAt": "<ts>",
         "visibility": "private",
@@ -513,6 +520,13 @@
         "createdAt": "<ts>",
         "createdBy": "<id:20>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "doneWhen": {
+          "optionIds": [
+            "<id:9>"
+          ],
+          "propertyId": "<id:6>"
+        },
+        "dueDatePropertyId": "<id:16>",
         "icon": "👋",
         "id": "<id:21>",
         "isBuiltin": false,
@@ -522,7 +536,7 @@
         "modifiedBy": "<id:20>",
         "properties": {},
         "showDescription": true,
-        "templateVersion": 12,
+        "templateVersion": 13,
         "title": "Getting started with fvoci",
         "updatedAt": "<ts>",
         "visibility": "private",
@@ -837,27 +851,28 @@
   },
   {
     "name": "insert a card",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/blocks as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/cards as boards-alice",
     "status": 201,
     "content_type": "application/json",
-    "body": [
-      {
-        "body": null,
-        "containerId": "<id:4>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {
-          "icon": "x"
-        },
-        "id": "<id:22>",
-        "modifiedBy": "<id:2>",
-        "number": 1,
-        "parentId": "",
-        "title": "A card",
-        "type": "card",
-        "updatedAt": "<ts>"
-      }
-    ]
+    "body": {
+      "boardId": "<id:4>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "x",
+      "id": "<id:22>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 1,
+      "parentId": "",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "A card",
+      "updatedAt": "<ts>"
+    }
   },
   {
     "name": "duplicate",
@@ -872,7 +887,9 @@
           "createdAt": "<ts>",
           "createdBy": "<id:2>",
           "fields": {
-            "icon": "x"
+            "icon": "x",
+            "isTemplate": false,
+            "properties": {}
           },
           "id": "<id:24>",
           "modifiedBy": "<id:2>",
@@ -929,7 +946,9 @@
           "createdAt": "<ts>",
           "createdBy": "<id:2>",
           "fields": {
-            "icon": "x"
+            "icon": "x",
+            "isTemplate": false,
+            "properties": {}
           },
           "id": "<id:26>",
           "modifiedBy": "<id:2>",
@@ -1013,7 +1032,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "icon": "x"
+          "icon": "x",
+          "isTemplate": false,
+          "properties": {}
         },
         "id": "<id:24>",
         "modifiedBy": "<id:2>",
@@ -1169,7 +1190,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "icon": "x"
+          "icon": "x",
+          "isTemplate": false,
+          "properties": {}
         },
         "id": "<id:22>",
         "modifiedBy": "<id:2>",
@@ -1265,6 +1288,13 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "doneWhen": {
+          "optionIds": [
+            "<id:9>"
+          ],
+          "propertyId": "<id:6>"
+        },
+        "dueDatePropertyId": "<id:16>",
         "icon": "👋",
         "id": "<id:19>",
         "isBuiltin": false,
@@ -1274,7 +1304,7 @@
         "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": true,
-        "templateVersion": 12,
+        "templateVersion": 13,
         "title": "Getting started with fvoci",
         "updatedAt": "<ts>",
         "visibility": "private",

@@ -47,6 +47,10 @@ export function notificationText(
       return m.notifications_review_due({ title });
     case 'meeting_upcoming':
       return m.notifications_meeting_upcoming({ title });
+    case 'due_soon':
+      return m.notifications_due_soon({ title });
+    case 'added_to_container':
+      return m.notifications_added_to_container({ who, title });
   }
 }
 

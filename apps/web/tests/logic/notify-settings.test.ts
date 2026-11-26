@@ -9,15 +9,27 @@ describe('the switches of notifications', () => {
       notifyMentions: true,
       notifyAssignments: true,
       notifyComments: true,
+      notifyDue: true,
     });
     expect(
-      readNotifySettings({ notifyMentions: false, notifyAssignments: 'no', notifyComments: 0 }),
-    ).toEqual({ notifyMentions: false, notifyAssignments: true, notifyComments: true });
+      readNotifySettings({
+        notifyMentions: false,
+        notifyAssignments: 'no',
+        notifyComments: 0,
+        notifyDue: false,
+      }),
+    ).toEqual({
+      notifyMentions: false,
+      notifyAssignments: true,
+      notifyComments: true,
+      notifyDue: false,
+    });
   });
 
   it('each tell of their own kind', () => {
-    const settings = readNotifySettings({ notifyComments: false });
+    const settings = readNotifySettings({ notifyComments: false, notifyDue: false });
     expect(notifies(settings, 'comment')).toBe(false);
+    expect(notifies(settings, 'due_soon')).toBe(false);
     expect(notifies(settings, 'mention')).toBe(true);
     expect(notifies(settings, 'assignment')).toBe(true);
   });

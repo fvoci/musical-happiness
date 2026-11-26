@@ -355,6 +355,8 @@ pub struct UserSettings {
     pub notify_assignments: bool,
     /// Whether the user is told of the new comments on what they watch (`comment`).
     pub notify_comments: bool,
+    /// Whether the user is told when an incomplete assigned card is due soon (`due_soon`).
+    pub notify_due: bool,
 }
 
 impl UserSettings {
@@ -366,7 +368,10 @@ impl UserSettings {
             crate::NotificationKind::Mention => self.notify_mentions,
             crate::NotificationKind::Assignment => self.notify_assignments,
             crate::NotificationKind::Comment => self.notify_comments,
-            crate::NotificationKind::ReviewDue | crate::NotificationKind::MeetingUpcoming => true,
+            crate::NotificationKind::DueSoon => self.notify_due,
+            crate::NotificationKind::ReviewDue
+            | crate::NotificationKind::MeetingUpcoming
+            | crate::NotificationKind::AddedToContainer => true,
         }
     }
 }
@@ -385,6 +390,7 @@ impl Default for UserSettings {
             notify_mentions: true,
             notify_assignments: true,
             notify_comments: true,
+            notify_due: true,
         }
     }
 }
@@ -414,11 +420,13 @@ pub enum SettingName {
     NotifyAssignments,
     /// `notifyComments`
     NotifyComments,
+    /// `notifyDue`
+    NotifyDue,
 }
 
 impl SettingName {
     /// Every setting there is.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::TimeZone,
         Self::WeekStart,
         Self::HourCycle,
@@ -430,6 +438,7 @@ impl SettingName {
         Self::NotifyMentions,
         Self::NotifyAssignments,
         Self::NotifyComments,
+        Self::NotifyDue,
     ];
 
     /// The name as it is written.
@@ -446,6 +455,7 @@ impl SettingName {
             Self::NotifyMentions => "notifyMentions",
             Self::NotifyAssignments => "notifyAssignments",
             Self::NotifyComments => "notifyComments",
+            Self::NotifyDue => "notifyDue",
         }
     }
 
@@ -453,7 +463,11 @@ impl SettingName {
     const fn is_flag(self) -> bool {
         matches!(
             self,
-            Self::Haptics | Self::NotifyMentions | Self::NotifyAssignments | Self::NotifyComments
+            Self::Haptics
+                | Self::NotifyMentions
+                | Self::NotifyAssignments
+                | Self::NotifyComments
+                | Self::NotifyDue
         )
     }
 
@@ -477,7 +491,8 @@ impl SettingName {
             Self::Haptics
             | Self::NotifyMentions
             | Self::NotifyAssignments
-            | Self::NotifyComments => "true or false".to_owned(),
+            | Self::NotifyComments
+            | Self::NotifyDue => "true or false".to_owned(),
             Self::Language => "\"auto\" or a language tag such as \"ko\" or \"en-US\"".to_owned(),
         }
     }
@@ -512,6 +527,7 @@ impl UserSettings {
             SettingName::NotifyMentions => self.notify_mentions = parse_flag(value)?,
             SettingName::NotifyAssignments => self.notify_assignments = parse_flag(value)?,
             SettingName::NotifyComments => self.notify_comments = parse_flag(value)?,
+            SettingName::NotifyDue => self.notify_due = parse_flag(value)?,
             SettingName::Language => self.language = value.parse()?,
         }
         Ok(())

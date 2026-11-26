@@ -8,12 +8,13 @@
 
 use axum::body::Bytes;
 use axum::extract::rejection::RawPathParamsRejection;
-use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
+use axum::extract::{FromRequestParts, Path, RawPathParams, State};
 use axum::http::request::Parts;
 use fvoci_model::{
     AuditRecord, Container, ContainerKinds, OrgKind, OrgRole, Session, User, UserWorkspace,
     Workspace, WorkspaceRole,
 };
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -22,9 +23,15 @@ use super::contract::params::{
     MemberWorkspaceId, Page, PerPage, UserId, UserSearch, WorkerWorkspaceId, WorkspaceId,
 };
 use super::contract::tag;
-use super::paging::paging_params;
+use super::query::{PagingQuery, QueryParams};
 use super::session::session_of;
-use super::{ApiResult, MAX_USER_IDS, RequiredSession, decode_json, json_response, query_param};
+use super::{ApiResult, MAX_USER_IDS, RequiredSession, decode_json, json_response};
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct WorkspaceUsersQuery {
+    search: String,
+}
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{self, Actor};
@@ -72,7 +79,7 @@ pub(crate) struct InWorkspace {
     /// What the user is in the workspace's organization, if a member of it.
     org_role: Option<OrgRole>,
     /// What the workspace's organization is.
-    kind: OrgKind,
+    pub(crate) kind: OrgKind,
 }
 
 impl FromRequestParts<App> for InWorkspace {
@@ -156,7 +163,7 @@ impl InWorkspace {
     }
 
     /// The same workspace, reaching boards of `kinds`.
-    fn reaching(mut self, kinds: ContainerKinds) -> Self {
+    pub(crate) fn reaching(mut self, kinds: ContainerKinds) -> Self {
         self.app = self.app.reaching(kinds);
         self
     }
@@ -463,15 +470,17 @@ async fn handle_get_workspace(TextInWorkspace(ws): TextInWorkspace) -> ApiResult
     params(MemberWorkspaceId, UserSearch),
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
-async fn handle_get_workspace_users(ws: InWorkspace, RawQuery(query): RawQuery) -> ApiResult {
-    let search_query = query_param(query.as_deref(), "search");
+async fn handle_get_workspace_users(
+    ws: InWorkspace,
+    QueryParams(query): QueryParams<WorkspaceUsersQuery>,
+) -> ApiResult {
     Ok(json_response(
         &ws.app
             .search_users_in_workspace(
                 &ws.session.user_id,
                 &ws.workspace_id,
                 ws.role,
-                &search_query,
+                &query.search,
             )
             .await?,
     ))
@@ -576,11 +585,14 @@ async fn handle_get_workspace_user(
     params(WorkerWorkspaceId, Page, PerPage),
     responses((status = 200, description = "The records of the page.", body = Vec<AuditRecord>)),
 )]
-async fn handle_get_workspace_audit(ws: InWorkspace, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_get_workspace_audit(
+    ws: InWorkspace,
+    QueryParams(query): QueryParams<PagingQuery>,
+) -> ApiResult {
     if !permissions::reads_the_audit_log(Some(ws.role)) {
         return Err(workspace_not_found());
     }
-    let paging = paging_params(query.as_deref())?;
+    let paging = query.into_list_page()?;
     Ok(json_response(
         &ws.app
             .workspace_audit(&ws.session.user_id, &ws.workspace_id, paging)

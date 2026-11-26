@@ -139,18 +139,7 @@ async fn exercise_workspace(client: &Client, workspace: &str, name: &str) {
         .ok_json();
     assert_eq!(found.len(), 1, "search finds this founder's board");
     assert_eq!(found[0].id, board, "search returns the copied board");
-    let memberships = client.get("/users/me/memberships").await;
-    memberships.check_ok();
-    assert_eq!(
-        memberships.value().as_array().expect("memberships").len(),
-        1,
-        "only the founder's copied board is listed"
-    );
-    assert_eq!(
-        memberships.value()[0]["containerId"],
-        board,
-        "the global membership lookup reaches the right organization"
-    );
+    assert_founder_memberships(client, &user.id, &board).await;
     exercise_people_and_trash(client, &path, &user.id, &board).await;
     client
         .post(&format!("{path}/onboard"), &json!({}))
@@ -160,6 +149,26 @@ async fn exercise_workspace(client: &Client, workspace: &str, name: &str) {
         .delete(&format!("{path}/categories/{}", category.id))
         .await
         .check_no_content();
+}
+
+async fn assert_founder_memberships(client: &Client, user_id: &str, board: &str) {
+    let memberships = client.get("/users/me/memberships").await;
+    memberships.check_ok();
+    let member_items = memberships.value();
+    let member_list = member_items.as_array().expect("memberships");
+    assert_eq!(
+        member_list.len(),
+        3,
+        "founder's copied board plus shared and personal welcome boards are listed"
+    );
+    assert!(
+        member_list.iter().any(|m| m["containerId"] == board),
+        "the global membership lookup reaches the copied board in the right organization"
+    );
+    assert!(
+        member_list.iter().all(|m| m["userId"] == user_id),
+        "all returned memberships belong to this founder"
+    );
 }
 
 async fn exercise_people_and_trash(client: &Client, path: &str, user_id: &str, board: &str) {

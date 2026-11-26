@@ -301,7 +301,10 @@ async fn reads_template(
         return Ok(false);
     }
     let container = containers::get_container(scope, &member.container_id).await?;
-    if !container.is_template || container.visibility != ContainerVisibility::Open {
+    let readable_open = container.visibility == ContainerVisibility::Open
+        && (container.is_template
+            || fvoci_model::ContainerKinds::OPEN_TO_READ.holds(container.kind));
+    if !readable_open {
         return Ok(false);
     }
     Ok(

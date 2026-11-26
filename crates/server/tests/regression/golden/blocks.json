@@ -44,6 +44,31 @@
     "body": []
   },
   {
+    "name": "create first card",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/cards as blocks-alice",
+    "status": 201,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:3>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "x",
+      "id": "<id:5>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 1,
+      "parentId": "",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "First card",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
     "name": "insert blocks",
     "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as blocks-alice",
     "status": 201,
@@ -54,29 +79,10 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {
-          "contentOrder": [
-            "<id:5>"
-          ],
-          "icon": "x"
-        },
+        "fields": {},
         "id": "<id:6>",
         "modifiedBy": "<id:2>",
-        "number": 1,
-        "parentId": "",
-        "title": "First card",
-        "type": "card",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:5>",
-        "modifiedBy": "<id:2>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -110,12 +116,11 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "contentOrder": [
-            "<id:5>"
-          ],
-          "icon": "x"
+          "icon": "x",
+          "isTemplate": false,
+          "properties": {}
         },
-        "id": "<id:6>",
+        "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
@@ -129,9 +134,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:5>",
+        "id": "<id:6>",
         "modifiedBy": "<id:2>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -165,12 +170,11 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "contentOrder": [
-            "<id:5>"
-          ],
-          "icon": "x"
+          "icon": "x",
+          "isTemplate": false,
+          "properties": {}
         },
-        "id": "<id:6>",
+        "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
@@ -182,7 +186,7 @@
   },
   {
     "name": "list: by parent",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?parentId=<id:6> as blocks-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?parentId=<id:5> as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -192,9 +196,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:5>",
+        "id": "<id:6>",
         "modifiedBy": "<id:2>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -203,7 +207,7 @@
   },
   {
     "name": "list: by parent and type",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?parentId=<id:6>&type=attachment as blocks-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?parentId=<id:5>&type=attachment as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -213,9 +217,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:5>",
+        "id": "<id:6>",
         "modifiedBy": "<id:2>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -224,24 +228,24 @@
   },
   {
     "name": "list: the old name of the parameter is no filter",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?parent_id=<id:6>&type=attachment as blocks-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": [
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:5>",
-        "modifiedBy": "<id:2>",
-        "parentId": "<id:6>",
-        "title": "Some text",
-        "type": "attachment",
-        "updatedAt": "<ts>"
-      }
-    ]
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?parent_id=<id:5>&type=attachment as blocks-alice",
+    "status": 400,
+    "content_type": "application/problem+json",
+    "body": {
+      "detail": "unknown query parameter `parent_id`",
+      "errors": [
+        {
+          "detail": "unknown query parameter `parent_id`",
+          "parameter": "parent_id",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
+    }
   },
   {
     "name": "list: unknown type",
@@ -262,12 +266,11 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "contentOrder": [
-            "<id:5>"
-          ],
-          "icon": "x"
+          "icon": "x",
+          "isTemplate": false,
+          "properties": {}
         },
-        "id": "<id:6>",
+        "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
@@ -281,9 +284,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:5>",
+        "id": "<id:6>",
         "modifiedBy": "<id:2>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -307,7 +310,7 @@
   },
   {
     "name": "list: one block",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?blockId=<id:6> as blocks-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?blockId=<id:5> as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -317,12 +320,11 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "contentOrder": [
-            "<id:5>"
-          ],
-          "icon": "x"
+          "icon": "x",
+          "isTemplate": false,
+          "properties": {}
         },
-        "id": "<id:6>",
+        "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
@@ -358,12 +360,11 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "contentOrder": [
-            "<id:5>"
-          ],
-          "icon": "x"
+          "icon": "x",
+          "isTemplate": false,
+          "properties": {}
         },
-        "id": "<id:6>",
+        "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
@@ -377,9 +378,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:5>",
+        "id": "<id:6>",
         "modifiedBy": "<id:2>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "Some text",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -486,37 +487,16 @@
     }
   },
   {
-    "name": "insert: no createdAt",
+    "name": "insert: card rejected on /blocks",
     "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as blocks-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "a new block's createdAt is 1 or more",
+      "detail": "a card is made by createCard",
       "errors": [
         {
-          "detail": "a new block's createdAt is 1 or more",
-          "pointer": "/0/createdAt",
-          "reason": "invalid"
-        }
-      ],
-      "instance": "urn:uuid:<request-id>",
-      "requestId": "<request-id>",
-      "status": 400,
-      "title": "Bad request",
-      "type": "/problems/bad-request"
-    }
-  },
-  {
-    "name": "insert: no updatedAt",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as blocks-alice",
-    "status": 400,
-    "content_type": "application/problem+json",
-    "body": {
-      "detail": "a new block's updatedAt is 1 or more",
-      "errors": [
-        {
-          "detail": "a new block's updatedAt is 1 or more",
-          "pointer": "/0/updatedAt",
+          "detail": "a card is made by createCard",
+          "pointer": "/0/type",
           "reason": "invalid"
         }
       ],
@@ -577,7 +557,7 @@
     }
   },
   {
-    "name": "insert: commenter inserts a card",
+    "name": "insert: commenter inserts a view",
     "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as blocks-bob",
     "status": 403,
     "content_type": "application/problem+json",
@@ -604,7 +584,7 @@
         "fields": {},
         "id": "<id:9>",
         "modifiedBy": "<id:4>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "A comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -622,26 +602,27 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
+        "fields": {
+          "viewType": "board"
+        },
         "id": "<id:10>",
         "modifiedBy": "<id:2>",
-        "number": 2,
         "parentId": "",
-        "title": "Quiet card",
-        "type": "card",
+        "title": "Quiet view",
+        "type": "view",
         "updatedAt": "<ts>"
       }
     ]
   },
   {
     "name": "patch",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6> as blocks-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5> as blocks-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "patch: commenter",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6> as blocks-bob",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5> as blocks-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -655,7 +636,7 @@
   },
   {
     "name": "patch: non-member",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6> as blocks-carol",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5> as blocks-carol",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -683,7 +664,7 @@
   },
   {
     "name": "patch: malformed body",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6> as blocks-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5> as blocks-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -697,11 +678,11 @@
   },
   {
     "name": "patch: long title",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6> as blocks-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5> as blocks-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "error validating block <id:6>: block title size limit exceeded",
+      "detail": "error validating block <id:5>: block title size limit exceeded",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,
@@ -759,9 +740,11 @@
             1,
             2
           ],
-          "icon": "y"
+          "icon": "y",
+          "isTemplate": false,
+          "properties": {}
         },
-        "id": "<id:6>",
+        "id": "<id:5>",
         "modifiedBy": "<id:2>",
         "number": 1,
         "parentId": "",
@@ -775,9 +758,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:5>",
+        "id": "<id:6>",
         "modifiedBy": "<id:2>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "Text again",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -805,7 +788,7 @@
         "fields": {},
         "id": "<id:9>",
         "modifiedBy": "<id:4>",
-        "parentId": "<id:6>",
+        "parentId": "<id:5>",
         "title": "A comment",
         "type": "comment",
         "updatedAt": "<ts>"
@@ -815,20 +798,21 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
+        "fields": {
+          "viewType": "board"
+        },
         "id": "<id:10>",
         "modifiedBy": "<id:2>",
-        "number": 2,
         "parentId": "",
-        "title": "Quiet card",
-        "type": "card",
+        "title": "Quiet view",
+        "type": "view",
         "updatedAt": "<ts>"
       }
     ]
   },
   {
     "name": "duplicate",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/duplicate as blocks-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5>/duplicate as blocks-alice",
     "status": 201,
     "content_type": "application/json",
     "body": [
@@ -843,11 +827,12 @@
             2
           ],
           "icon": "y",
-          "isTemplate": false
+          "isTemplate": false,
+          "properties": {}
         },
         "id": "<id:11>",
         "modifiedBy": "<id:2>",
-        "number": 3,
+        "number": 2,
         "parentId": "",
         "title": "Card again",
         "type": "card",
@@ -870,7 +855,7 @@
   },
   {
     "name": "duplicate as template",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/duplicate?asTemplate=true as blocks-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5>/duplicate?asTemplate=true as blocks-alice",
     "status": 201,
     "content_type": "application/json",
     "body": [
@@ -885,7 +870,8 @@
             2
           ],
           "icon": "y",
-          "isTemplate": true
+          "isTemplate": true,
+          "properties": {}
         },
         "id": "<id:13>",
         "modifiedBy": "<id:2>",
@@ -911,7 +897,7 @@
   },
   {
     "name": "duplicate: commenter",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6>/duplicate as blocks-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5>/duplicate as blocks-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -1004,7 +990,23 @@
     "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?type=view as blocks-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": []
+    "body": [
+      {
+        "body": null,
+        "containerId": "<id:3>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
+        "fields": {
+          "viewType": "board"
+        },
+        "id": "<id:10>",
+        "modifiedBy": "<id:2>",
+        "parentId": "",
+        "title": "Quiet view",
+        "type": "view",
+        "updatedAt": "<ts>"
+      }
+    ]
   },
   {
     "name": "undelete: commenter",
@@ -1089,18 +1091,33 @@
         "title": "Board view",
         "type": "view",
         "updatedAt": "<ts>"
+      },
+      {
+        "body": null,
+        "containerId": "<id:3>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
+        "fields": {
+          "viewType": "board"
+        },
+        "id": "<id:10>",
+        "modifiedBy": "<id:2>",
+        "parentId": "",
+        "title": "Quiet view",
+        "type": "view",
+        "updatedAt": "<ts>"
       }
     ]
   },
   {
     "name": "delete a card with content",
-    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:6> as blocks-alice",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/blocks/<id:5> as blocks-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "list: children of the deleted card",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?parentId=<id:6> as blocks-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/blocks?parentId=<id:5> as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
@@ -1132,6 +1149,56 @@
     }
   },
   {
+    "name": "create Card A",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:15>/cards as blocks-alice",
+    "status": 201,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:15>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "",
+      "id": "<id:16>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 1,
+      "parentId": "",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "Card A",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "name": "create Card B",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:15>/cards as blocks-alice",
+    "status": 201,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:15>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "",
+      "id": "<id:17>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 2,
+      "parentId": "",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "Card B",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
     "name": "insert without identifiers",
     "request": "POST /api/v1/w/<id:1>/boards/<id:15>/blocks as blocks-alice",
     "status": 201,
@@ -1142,13 +1209,14 @@
         "containerId": "<id:15>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:16>",
+        "fields": {
+          "viewType": "board"
+        },
+        "id": "<id:18>",
         "modifiedBy": "<id:2>",
-        "number": 1,
         "parentId": "",
         "title": "Nameless one",
-        "type": "card",
+        "type": "view",
         "updatedAt": "<ts>"
       },
       {
@@ -1156,19 +1224,20 @@
         "containerId": "<id:15>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:17>",
+        "fields": {
+          "viewType": "table"
+        },
+        "id": "<id:19>",
         "modifiedBy": "<id:2>",
-        "number": 2,
         "parentId": "",
         "title": "Nameless two",
-        "type": "card",
+        "type": "view",
         "updatedAt": "<ts>"
       }
     ]
   },
   {
-    "name": "insert children before their parents",
+    "name": "insert attachments under cards",
     "request": "POST /api/v1/w/<id:1>/boards/<id:15>/blocks as blocks-alice",
     "status": 201,
     "content_type": "application/json",
@@ -1179,9 +1248,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:18>",
+        "id": "<id:20>",
         "modifiedBy": "<id:2>",
-        "parentId": "<id:19>",
+        "parentId": "<id:16>",
         "title": "Text of A",
         "type": "attachment",
         "updatedAt": "<ts>"
@@ -1191,48 +1260,12 @@
         "containerId": "<id:15>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {
-          "contentOrder": [
-            "<id:18>"
-          ]
-        },
-        "id": "<id:19>",
-        "modifiedBy": "<id:2>",
-        "number": 3,
-        "parentId": "",
-        "title": "Card A",
-        "type": "card",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:15>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
         "fields": {},
-        "id": "<id:20>",
-        "modifiedBy": "<id:2>",
-        "parentId": "<id:21>",
-        "title": "Text of B",
-        "type": "attachment",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:15>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {
-          "contentOrder": [
-            "<id:20>"
-          ]
-        },
         "id": "<id:21>",
         "modifiedBy": "<id:2>",
-        "number": 4,
-        "parentId": "",
-        "title": "Card B",
-        "type": "card",
+        "parentId": "<id:17>",
+        "title": "Text of B",
+        "type": "attachment",
         "updatedAt": "<ts>"
       }
     ]
@@ -1248,55 +1281,14 @@
         "containerId": "<id:15>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
+        "fields": {
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
+        },
         "id": "<id:16>",
         "modifiedBy": "<id:2>",
         "number": 1,
-        "parentId": "",
-        "title": "Nameless one",
-        "type": "card",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:15>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:17>",
-        "modifiedBy": "<id:2>",
-        "number": 2,
-        "parentId": "",
-        "title": "Nameless two",
-        "type": "card",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:15>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:18>",
-        "modifiedBy": "<id:2>",
-        "parentId": "<id:19>",
-        "title": "Text of A",
-        "type": "attachment",
-        "updatedAt": "<ts>"
-      },
-      {
-        "body": null,
-        "containerId": "<id:15>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {
-          "contentOrder": [
-            "<id:18>"
-          ]
-        },
-        "id": "<id:19>",
-        "modifiedBy": "<id:2>",
-        "number": 3,
         "parentId": "",
         "title": "Card A",
         "type": "card",
@@ -1307,12 +1299,17 @@
         "containerId": "<id:15>",
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:20>",
+        "fields": {
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
+        },
+        "id": "<id:17>",
         "modifiedBy": "<id:2>",
-        "parentId": "<id:21>",
-        "title": "Text of B",
-        "type": "attachment",
+        "number": 2,
+        "parentId": "",
+        "title": "Card B",
+        "type": "card",
         "updatedAt": "<ts>"
       },
       {
@@ -1321,16 +1318,54 @@
         "createdAt": "<ts>",
         "createdBy": "<id:2>",
         "fields": {
-          "contentOrder": [
-            "<id:20>"
-          ]
+          "viewType": "board"
         },
+        "id": "<id:18>",
+        "modifiedBy": "<id:2>",
+        "parentId": "",
+        "title": "Nameless one",
+        "type": "view",
+        "updatedAt": "<ts>"
+      },
+      {
+        "body": null,
+        "containerId": "<id:15>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
+        "fields": {
+          "viewType": "table"
+        },
+        "id": "<id:19>",
+        "modifiedBy": "<id:2>",
+        "parentId": "",
+        "title": "Nameless two",
+        "type": "view",
+        "updatedAt": "<ts>"
+      },
+      {
+        "body": null,
+        "containerId": "<id:15>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
+        "fields": {},
+        "id": "<id:20>",
+        "modifiedBy": "<id:2>",
+        "parentId": "<id:16>",
+        "title": "Text of A",
+        "type": "attachment",
+        "updatedAt": "<ts>"
+      },
+      {
+        "body": null,
+        "containerId": "<id:15>",
+        "createdAt": "<ts>",
+        "createdBy": "<id:2>",
+        "fields": {},
         "id": "<id:21>",
         "modifiedBy": "<id:2>",
-        "number": 4,
-        "parentId": "",
-        "title": "Card B",
-        "type": "card",
+        "parentId": "<id:17>",
+        "title": "Text of B",
+        "type": "attachment",
         "updatedAt": "<ts>"
       }
     ]

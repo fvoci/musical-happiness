@@ -8,8 +8,10 @@ use thiserror::Error;
 
 use crate::JsonMap;
 use crate::allowlist::holds_nul;
+use crate::board_ops::DoneWhen;
 use crate::card_property::{
-    CardPropertyDefinition, CardPropertyError, PersonProperties, validate_card_property_definitions,
+    CardPropertyDefinition, CardPropertyError, PersonProperties, PropertyType,
+    validate_card_property_definitions,
 };
 
 /// Who may see and join a board.
@@ -147,9 +149,9 @@ impl ContainerKinds {
     pub const LINKED: Self = Self(Self::BOARD | Self::WIKI | Self::COURSE);
     /// Boards, wikis and courses: what may be copied whole (`duplicateContainer`).
     pub const COPIED: Self = Self(Self::BOARD | Self::WIKI | Self::COURSE);
-    /// Wikis and courses: open containers that whoever works in the workspace reads and
-    /// searches without joining.
-    pub const OPEN_TO_READ: Self = Self(Self::WIKI | Self::COURSE);
+    /// Boards, wikis and courses: open containers that whoever works in the workspace
+    /// reads and searches without joining.
+    pub const OPEN_TO_READ: Self = Self(Self::BOARD | Self::WIKI | Self::COURSE);
     /// Every kind: what is the same for any container (the container itself, its files,
     /// its place in the sidebar and in the trash, its archive).
     pub const EVERY: Self = Self(Self::BOARD | Self::WIKI | Self::DIARY | Self::COURSE);
@@ -395,6 +397,13 @@ pub enum ContainerError {
     /// A course is stored with card properties.
     #[error("a course has no card properties: it holds units and no cards")]
     CourseHasCardProperties,
+    /// `dueDatePropertyId` names no `date` card property of the board.
+    #[error("dueDatePropertyId must name a date property of the board")]
+    InvalidDueDateProperty,
+    /// `doneWhen` names no `select`, `multiSelect` or `checkbox` property, or names an
+    /// option not belonging to that property.
+    #[error("doneWhen must name a select, multiSelect or checkbox property and its options")]
+    InvalidDoneWhen,
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
@@ -463,6 +472,14 @@ pub struct Container {
     /// The property definitions of the board's cards, in display order.
     #[serde(default)]
     pub card_properties: Vec<CardPropertyDefinition>,
+    /// Optional identifier of the `date` property used as the board's due date in
+    /// `'Today'` and `due_soon` notifications. When absent, the board's first `date`
+    /// property is inferred automatically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_date_property_id: Option<String>,
+    /// Optional completion rule marking which cards on this board are finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done_when: Option<DoneWhen>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(default)]
     pub created_at: i64,
@@ -473,7 +490,7 @@ pub struct Container {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::serde_util::non_null"
+        deserialize_with = "crate::serde_util::positive_millis"
     )]
     #[schema(nullable = false)]
     pub deleted_at: Option<i64>,
@@ -532,6 +549,25 @@ impl Container {
         PersonProperties::of(&self.card_properties)
     }
 
+    /// Returns the effective `date` property identifier used as this board's due date:
+    /// `due_date_property_id` when it names a `date` property on the board, or else the
+    /// first `date` property in `card_properties`.
+    #[must_use]
+    pub fn effective_due_date_property_id(&self) -> Option<&str> {
+        if let Some(explicit) = self.due_date_property_id.as_deref()
+            && self
+                .card_properties
+                .iter()
+                .any(|p| p.id == explicit && p.property_type == PropertyType::Date)
+        {
+            return Some(explicit);
+        }
+        self.card_properties
+            .iter()
+            .find(|p| !p.id.is_empty() && p.property_type == PropertyType::Date)
+            .map(|p| p.id.as_str())
+    }
+
     /// Checks that the board may be stored.
     ///
     /// # Errors
@@ -581,6 +617,7 @@ impl Container {
         if self.kind == ContainerKind::Diary && self.visibility != ContainerVisibility::Private {
             return Err(ContainerError::DiaryNotPrivate);
         }
+        self.check_due_and_done()?;
         let texts = [
             ("title", self.title.contains('\0')),
             ("description", self.description.contains('\0')),
@@ -597,11 +634,69 @@ impl Container {
                     .iter()
                     .any(CardPropertyDefinition::holds_nul),
             ),
+            (
+                "dueDatePropertyId",
+                self.due_date_property_id
+                    .as_ref()
+                    .is_some_and(|id| id.contains('\0')),
+            ),
+            (
+                "doneWhen",
+                self.done_when.as_ref().is_some_and(DoneWhen::holds_nul),
+            ),
         ];
         match texts.into_iter().find(|(_, holds)| *holds) {
             Some((member, _)) => Err(ContainerError::NulCharacter { member }),
             None => Ok(()),
         }
+    }
+
+    fn check_due_and_done(&self) -> Result<(), ContainerError> {
+        if self.kind != ContainerKind::Board {
+            if self.due_date_property_id.is_some() {
+                return Err(ContainerError::InvalidDueDateProperty);
+            }
+            if self.done_when.is_some() {
+                return Err(ContainerError::InvalidDoneWhen);
+            }
+            return Ok(());
+        }
+        if let Some(due_id) = &self.due_date_property_id
+            && !self
+                .card_properties
+                .iter()
+                .any(|p| p.id == *due_id && p.property_type == PropertyType::Date)
+        {
+            return Err(ContainerError::InvalidDueDateProperty);
+        }
+        if let Some(done) = &self.done_when {
+            let Some(prop) = self
+                .card_properties
+                .iter()
+                .find(|p| p.id == done.property_id)
+            else {
+                return Err(ContainerError::InvalidDoneWhen);
+            };
+            match prop.property_type {
+                PropertyType::Checkbox => {
+                    if !done.option_ids.is_empty() {
+                        return Err(ContainerError::InvalidDoneWhen);
+                    }
+                }
+                PropertyType::Select | PropertyType::MultiSelect => {
+                    if done.option_ids.is_empty()
+                        || !done
+                            .option_ids
+                            .iter()
+                            .all(|id| prop.options.iter().any(|opt| opt.id == *id))
+                    {
+                        return Err(ContainerError::InvalidDoneWhen);
+                    }
+                }
+                _ => return Err(ContainerError::InvalidDoneWhen),
+            }
+        }
+        Ok(())
     }
 
     /// Checks the card property definitions of the board alone, for where a board is
@@ -646,6 +741,22 @@ pub struct ContainerPatch {
     pub updated_card_properties: Vec<CardPropertyDefinition>,
     /// Identifiers of card property definitions to remove.
     pub deleted_card_properties: Vec<String>,
+    /// Optional change to `dueDatePropertyId`: omitted keeps it, `null` or `""` clears it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::nullable_patch"
+    )]
+    #[schema(value_type = Option<String>)]
+    pub due_date_property_id: Option<Option<String>>,
+    /// Optional change to `doneWhen`: omitted keeps it, `null` clears it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_util::nullable_patch"
+    )]
+    #[schema(value_type = Option<DoneWhen>)]
+    pub done_when: Option<Option<DoneWhen>>,
 }
 
 impl ContainerPatch {
@@ -694,6 +805,13 @@ impl ContainerPatch {
         if !self.updated_card_properties.is_empty() || !self.deleted_card_properties.is_empty() {
             self.apply_card_properties(container);
         }
+        if let Some(next_due) = &self.due_date_property_id {
+            container.due_date_property_id = next_due.clone().filter(|s| !s.is_empty());
+        }
+        if let Some(next_done) = &self.done_when {
+            container.done_when.clone_from(next_done);
+        }
+        reconcile_due_and_done(container);
     }
 
     fn apply_card_properties(&self, container: &mut Container) {
@@ -724,6 +842,38 @@ impl ContainerPatch {
             .filter(|id| emitted.insert(id.as_str()))
             .filter_map(|id| by_id.get(id).cloned())
             .collect();
+    }
+}
+
+fn reconcile_due_and_done(container: &mut Container) {
+    if let Some(due_id) = &container.due_date_property_id
+        && !container
+            .card_properties
+            .iter()
+            .any(|p| p.id == *due_id && p.property_type == PropertyType::Date)
+    {
+        container.due_date_property_id = None;
+    }
+    if let Some(done) = &mut container.done_when {
+        let Some(prop) = container
+            .card_properties
+            .iter()
+            .find(|p| p.id == done.property_id)
+        else {
+            container.done_when = None;
+            return;
+        };
+        match prop.property_type {
+            PropertyType::Checkbox => done.option_ids.clear(),
+            PropertyType::Select | PropertyType::MultiSelect => {
+                done.option_ids
+                    .retain(|id| prop.options.iter().any(|opt| opt.id == *id));
+                if done.option_ids.is_empty() {
+                    container.done_when = None;
+                }
+            }
+            _ => container.done_when = None,
+        }
     }
 }
 

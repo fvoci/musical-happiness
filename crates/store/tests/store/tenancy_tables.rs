@@ -417,6 +417,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     a_course_with_progress(store, &board.workspace_id, &user_id).await;
     told_and_to_be_told(store, &board_id, &user_id).await;
     a_time_entry(store, &board, &comment.parent_id, &user_id).await;
+    a_card_assignee_and_due_notice(store, &board, &comment.parent_id, &user_id).await;
     // The trash: a card of the live board, and a whole board.
     let mut card = fvoci_model::Block {
         id: new_id(),
@@ -617,6 +618,76 @@ async fn a_time_entry(store: &Store, board: &Container, card_id: &str, user_id: 
         .create_time_entry(user_id, &entry, 1000, 2000, 2000)
         .await
         .expect("a time entry is stored");
+}
+
+async fn a_card_assignee_and_due_notice(
+    store: &Store,
+    board: &Container,
+    card_id: &str,
+    user_id: &str,
+) {
+    let assignee_prop = new_id();
+    let due_prop = new_id();
+    store
+        .patch_container(
+            &board.id,
+            &fvoci_model::ContainerPatch {
+                updated_card_properties: vec![
+                    fvoci_model::CardPropertyDefinition::new(
+                        assignee_prop.clone(),
+                        "Assignee",
+                        fvoci_model::PropertyType::Person,
+                    ),
+                    fvoci_model::CardPropertyDefinition::new(
+                        due_prop.clone(),
+                        "Due",
+                        fvoci_model::PropertyType::Date,
+                    ),
+                ],
+                ..fvoci_model::ContainerPatch::default()
+            },
+            user_id,
+        )
+        .await
+        .expect("board properties patched");
+    let mut updated_props = fvoci_model::JsonMap::new();
+    updated_props.insert(assignee_prop, serde_json::Value::String(user_id.to_owned()));
+    updated_props.insert(due_prop, serde_json::json!({"from": "2026-11-26"}));
+    store
+        .patch_block(
+            card_id,
+            &fvoci_model::BlockPatch {
+                property_changes: fvoci_model::PropertyChanges {
+                    updated: updated_props,
+                    deleted: Vec::new(),
+                },
+                ..fvoci_model::BlockPatch::default()
+            },
+            user_id,
+        )
+        .await
+        .expect("card assigned with due date");
+    let org_id = store
+        .tenant()
+        .org_id()
+        .expect("organization-scoped store handle");
+    store
+        .notify_due_soon_card(
+            &fvoci_store::DueSoonCardCandidate {
+                org_id,
+                workspace_id: board.workspace_id.clone(),
+                board_id: board.id.clone(),
+                card_id: card_id.to_owned(),
+                user_id: user_id.to_owned(),
+                due_at: "2026-11-26".to_owned(),
+                due_millis: None,
+                user_time_zone: "auto".to_owned(),
+            },
+            3000,
+            100,
+        )
+        .await
+        .expect("due notice stored");
 }
 
 /// Real rows in all three group tables, so every organization wall is exercised.

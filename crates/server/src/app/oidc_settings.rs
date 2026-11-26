@@ -87,7 +87,10 @@ impl App {
         // Decided from the provider as it was read; the store takes the change only if
         // that is still the provider, so no other change slips between the two.
         sso::check_change(session, existing.as_ref(), &next)?;
-        let stored = self
+        let fvoci_store::ProviderPut {
+            provider: stored,
+            ended,
+        } = self
             .store()
             .put_oidc_provider_as_read(
                 &next,
@@ -102,11 +105,7 @@ impl App {
                 AppError::conflict("the provider was changed meanwhile; read it and try again")
             })?;
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
-        if let Some(existing) = &existing
-            && existing.issuer != stored.issuer
-        {
-            self.close_sessions_of_origin(existing);
-        }
+        self.ws().close(ended.into_scope());
         sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
         if stored.sso_required {
             if !existing
@@ -132,23 +131,14 @@ impl App {
     /// password, and the store's error.
     pub async fn delete_oidc_provider(&self, actor_id: &str) -> Result<(), AppError> {
         match self.store().delete_oidc_provider(actor_id).await? {
-            Removal::Removed { provider } => {
-                // The store ended the sessions made through it: what they had open, their
-                // seats in the rooms among it, ends with them.
-                self.close_sessions_of_origin(&provider);
+            Removal::Removed { ended, .. } => {
+                self.ws().close(ended.into_scope());
                 tracing::info!("the provider of an organization was removed");
             }
             Removal::NoneThere => {}
             Removal::Enforced => return Err(sso::enforced()),
         }
         Ok(())
-    }
-
-    /// Closes the connections of the sessions made through a provider of `provider`'s
-    /// organization under its issuer, which the store ended with it.
-    pub(super) fn close_sessions_of_origin(&self, provider: &StoredProvider) {
-        self.ws()
-            .close_sessions_of_origin(&provider.org_id, &provider.issuer);
     }
 
     /// Ends the keeping of the former provider of the handle's organization before

@@ -18,7 +18,7 @@ use serde_json::Value;
 use tokio::io::AsyncRead;
 
 use super::App;
-use super::loose_objects::{WRITE_TIMEOUT, Written};
+use super::loose_objects::WrittenPlace;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
@@ -132,46 +132,104 @@ impl App {
     ) -> Result<String, AppError> {
         self.check_org_storage_room(0).await?;
         let place = self.new_file_place(container_id, filename).await?;
-        self.mark_writing(&place.path).await?;
-        let write = self.files().write(&place.path, reader);
-        let size = match tokio::time::timeout(WRITE_TIMEOUT, write).await {
-            Ok(Ok(size)) => size,
-            failed => {
-                // The object store may have taken it with its answer lost.
-                self.give_up_writing(&place.path, Written::Unsettled).await;
-                let error = match failed {
-                    Ok(Err(error)) => error.to_string(),
-                    _ => "it took longer than a write may take".to_owned(),
-                };
-                return Err(AppError::internal(format_args!(
-                    "unable to store the file in the files storage: {error}"
-                )));
-            }
-        };
+        let written = self.mark_place(&place.path).await?.write(reader).await?;
+        let size = written.size();
         if let Err(error) = self.check_org_storage_room(size).await {
-            self.give_up_writing(&place.path, Written::Settled).await;
+            written.give_up().await;
             return Err(error);
         }
         let record = file_record(container_id, place, size, user_id);
-        self.record_written(&record).await?;
+        written.record(&record).await?;
         Ok(record.stored_name)
     }
 
-    /// Records a file whose object was written at a marked place; gives the object up
-    /// if it cannot be recorded.
-    async fn record_written(&self, record: &FileRecord) -> Result<(), AppError> {
-        match self.store().record_written_file(record).await {
-            Ok(true) => Ok(()),
-            // Doomed while it was written, which took longer than any write takes: the
-            // store doomed it again, for the housekeeping to remove.
-            Ok(false) => Err(AppError::internal(
-                "the file was given up while it was written",
-            )),
-            Err(error) => {
-                self.give_up_writing(&record.path, Written::Settled).await;
-                Err(error.into())
+    /// Pre-copies storage objects for `file_ids` from `source_app`'s `source_container_id`
+    /// into `target_container_id` of `target_org_id` under `loose_objects` marks without
+    /// writing any `files` rows yet.
+    ///
+    /// Checks `self.check_org_storage_room` before copying, and if any storage copy
+    /// fails, gives up all already-copied objects and returns a 500 error so no partial
+    /// state remains.
+    pub(crate) async fn pre_copy_files_to_container(
+        &self,
+        source_app: &Self,
+        source_container_id: &str,
+        target_org_id: &str,
+        target_container_id: &str,
+        file_ids: &[String],
+        created_by: &str,
+    ) -> Result<(HashMap<String, String>, Vec<FileRecord>, Vec<WrittenPlace>), AppError> {
+        let mut unique_ids = Vec::with_capacity(file_ids.len());
+        let mut seen = HashSet::with_capacity(file_ids.len());
+        for file_id in file_ids {
+            if !file_id.is_empty() && seen.insert(file_id.as_str()) {
+                unique_ids.push(file_id.as_str());
             }
         }
+        if unique_ids.is_empty() {
+            return Ok((HashMap::new(), Vec::new(), Vec::new()));
+        }
+
+        let mut sources = Vec::with_capacity(unique_ids.len());
+        let mut total_bytes = 0_u64;
+        for file_id in unique_ids {
+            if let Some(source) = source_app.file_record(source_container_id, file_id).await? {
+                total_bytes = total_bytes.saturating_add(u64::try_from(source.size).unwrap_or(0));
+                sources.push((file_id.to_owned(), source));
+            }
+        }
+        self.check_org_storage_room(total_bytes).await?;
+
+        let mut file_map = HashMap::with_capacity(sources.len());
+        let mut records = Vec::with_capacity(sources.len());
+        let mut written_places: Vec<WrittenPlace> = Vec::with_capacity(sources.len());
+        let now = now_millis();
+
+        for (old_stored_name, source) in sources {
+            let secret = new_secret();
+            let key = FileKey {
+                org_id: target_org_id,
+                container_id: target_container_id,
+                secret: &secret,
+            };
+            let copy = FileRecord {
+                id: new_id(),
+                container_id: target_container_id.to_owned(),
+                stored_name: format!("{secret}{}", source.extension),
+                path: key.to_string(),
+                created_at: now,
+                version: 1,
+                created_by: created_by.to_owned(),
+                ..source.clone()
+            };
+            let marked = match self.mark_place(&copy.path).await {
+                Ok(marked) => marked,
+                Err(error) => {
+                    for place in written_places {
+                        place.give_up().await;
+                    }
+                    return Err(error);
+                }
+            };
+            let size = u64::try_from(source.size).unwrap_or(0);
+            match marked.copy_from(&source.path, size).await {
+                Ok(written) => {
+                    file_map.insert(old_stored_name, copy.stored_name.clone());
+                    records.push(copy);
+                    written_places.push(written);
+                }
+                Err(error) => {
+                    for place in written_places {
+                        place.give_up().await;
+                    }
+                    return Err(AppError::internal(format_args!(
+                        "unable to copy file in storage: {error}"
+                    )));
+                }
+            }
+        }
+
+        Ok((file_map, records, written_places))
     }
 
     /// A new place for a file of `container_id` that the client calls `filename`
@@ -603,25 +661,27 @@ impl App {
             created_by: String::new(),
             ..source.clone()
         };
-        if let Err(error) = self.mark_writing(&copy.path).await {
-            tracing::error!(%error, "card file copy could not mark destination");
-            return None;
-        }
-        let copied = self.files().copy(&source.path, &copy.path);
-        if let Err(error) = tokio::time::timeout(WRITE_TIMEOUT, copied)
-            .await
-            .unwrap_or_else(|_| Err(StorageError::Io(std::io::ErrorKind::TimedOut.into())))
-        {
-            tracing::error!(
-                %error,
-                source_path = source.path,
-                destination_path = copy.path,
-                "card file copy failed to copy file"
-            );
-            self.give_up_writing(&copy.path, Written::Unsettled).await;
-            return None;
-        }
-        if let Err(error) = self.record_written(&copy).await {
+        let marked = match self.mark_place(&copy.path).await {
+            Ok(marked) => marked,
+            Err(error) => {
+                tracing::error!(%error, "card file copy could not mark destination");
+                return None;
+            }
+        };
+        let size = u64::try_from(source.size).unwrap_or(0);
+        let written = match marked.copy_from(&source.path, size).await {
+            Ok(written) => written,
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    source_path = source.path,
+                    destination_path = copy.path,
+                    "card file copy failed to copy file"
+                );
+                return None;
+            }
+        };
+        if let Err(error) = written.record(&copy).await {
             tracing::error!(%error, "card file copy could not record destination");
             return None;
         }

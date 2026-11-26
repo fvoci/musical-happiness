@@ -19,6 +19,8 @@ export interface Organization {
   name: string;
   /** Whether its boards may be read by a public link. */
   publicLinks: boolean;
+  /** Whether members may copy containers out of this organization. */
+  allowCopyOut: boolean;
   /** The workspace whoever joins the organization gets into; it is not deleted. */
   defaultWorkspaceId: string;
 }
@@ -59,6 +61,7 @@ import type { WorkspaceInfo } from './workspace-types.ts';
 export interface OrganizationPatch {
   name?: string;
   publicLinks?: boolean;
+  allowCopyOut?: boolean;
 }
 
 /**

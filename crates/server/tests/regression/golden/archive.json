@@ -33,27 +33,36 @@
     }
   },
   {
+    "name": "create exported card",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/cards as arch-alice",
+    "status": 201,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:3>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "x",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 1,
+      "parentId": "",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "Exported card",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
     "name": "insert content",
     "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as arch-alice",
     "status": 201,
     "content_type": "application/json",
     "body": [
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {
-          "icon": "x"
-        },
-        "id": "<id:4>",
-        "modifiedBy": "<id:2>",
-        "number": 1,
-        "parentId": "",
-        "title": "Exported card",
-        "type": "card",
-        "updatedAt": "<ts>"
-      },
       {
         "body": null,
         "containerId": "<id:3>",
@@ -154,7 +163,9 @@
             "createdAt": "<ts>",
             "createdBy": "<id:2>",
             "fields": {
-              "icon": "x"
+              "icon": "x",
+              "isTemplate": false,
+              "properties": {}
             },
             "id": "<id:4>",
             "modifiedBy": "<id:2>",
@@ -446,6 +457,13 @@
         "createdAt": "<ts>",
         "createdBy": "<id:22>",
         "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "doneWhen": {
+          "optionIds": [
+            "<id:12>"
+          ],
+          "propertyId": "<id:9>"
+        },
+        "dueDatePropertyId": "<id:19>",
         "icon": "👋",
         "id": "<id:23>",
         "isBuiltin": false,
@@ -455,7 +473,7 @@
         "modifiedBy": "<id:22>",
         "properties": {},
         "showDescription": true,
-        "templateVersion": 12,
+        "templateVersion": 13,
         "title": "Getting started with fvoci",
         "updatedAt": "<ts>",
         "visibility": "private",
@@ -502,7 +520,9 @@
         "createdAt": "<ts>",
         "createdBy": "<id:22>",
         "fields": {
-          "icon": "x"
+          "icon": "x",
+          "isTemplate": false,
+          "properties": {}
         },
         "id": "<id:24>",
         "modifiedBy": "<id:22>",

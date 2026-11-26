@@ -239,7 +239,10 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
     let (own, own_page) = wiki_of(&th.client2, "private").await;
     let board = th
         .client
-        .post(&format!("{TEST_WS}/boards"), &json!({"visibility": "open"}))
+        .post(
+            &format!("{TEST_WS}/boards"),
+            &json!({"visibility": "private"}),
+        )
         .await
         .value()["id"]
         .as_str()

@@ -406,7 +406,7 @@ describe('views', () => {
 
   it('says where a view moved and refused is, back where it is stored, said once', async () => {
     const { board, workspace, backend } = await mount('List');
-    vi.spyOn(backend, 'patchView').mockRejectedValue(new BackendError(403, { detail: 'no' }));
+    vi.spyOn(backend, 'moveView').mockRejectedValue(new BackendError(403, { detail: 'no' }));
     await openMenu(toolButton('views'));
     const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
     await fireEvent.click(lineTool(boardId, 'move-down'));
@@ -430,14 +430,14 @@ describe('views', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const send = backend.patchView.bind(backend);
+    const send = backend.moveView.bind(backend);
     let holdFirst = true;
-    vi.spyOn(backend, 'patchView').mockImplementation(async (boardId, viewId, patch) => {
+    vi.spyOn(backend, 'moveView').mockImplementation(async (boardId, viewId, after) => {
       if (holdFirst) {
         holdFirst = false;
         await gate;
       }
-      return send(boardId, viewId, patch);
+      return send(boardId, viewId, after);
     });
     await openMenu(toolButton('views'));
     const announcements: string[] = [];
@@ -466,20 +466,9 @@ describe('views', () => {
     }
   });
 
-  it('says a move once when the first attempt gets 409 and the retry succeeds', async () => {
-    const { board, workspace, backend } = await mount('List');
+  it('announces a move once when the server updates companion views atomically', async () => {
+    const { board, workspace } = await mount('List');
     const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
-    const send = backend.patchView.bind(backend);
-    let bumped = false;
-    vi.spyOn(backend, 'patchView').mockImplementation((bId, vId, patch) => {
-      if (vId === boardId && !bumped) {
-        bumped = true;
-        // Another client changes Board synchronously before this write reaches the backend.
-        const stored = backend.world.blocks.get(boardId);
-        if (stored) stored.updatedAt = backend.world.now();
-      }
-      return send(bId, vId, patch);
-    });
     await openMenu(toolButton('views'));
     const announcements: string[] = [];
     const statusRegion = document.querySelector('span[aria-live="polite"]');

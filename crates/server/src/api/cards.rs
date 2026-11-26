@@ -1,11 +1,12 @@
 //! Cards: the card view of blocks of type `card`.
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::{
     Block, BlockType, BodyVersion, BodyVersionContent, Card, CardError, CardPatch, KeptBodyVersion,
     RefusalReason, Refusals,
 };
+use serde::Deserialize;
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -16,20 +17,27 @@ use super::contract::params::{
     BoardId, BodyVersionNumber, CardId, CardNumber, DisableNotify, Page, PerPage, Preview,
 };
 use super::contract::tag;
+use super::query::{DisableNotifyQuery, QueryParams, paging_from_strings};
 use super::workspace::InWorkspace;
 
 use super::blocks::BLOCK_FIELDS;
 use super::body_versions::{
     get_body_version, keep_body_version, list_body_versions, restore_body_version,
 };
-use super::change_notification;
-use super::paging::paging_params;
-use super::{ApiResult, TRUE, created, json_response, query_param};
+use super::{ApiResult, TRUE, created, json_response};
 use super::{decode_with_document, require_container_permission, require_permission_through};
 use crate::app::{App, CardPreviews};
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct CardsListQuery {
+    pub(super) page: String,
+    pub(super) per_page: String,
+    pub(super) preview: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -88,7 +96,8 @@ async fn card_with_permission(
 /// refused with 400, and stored links always include all three fields normalized. Any
 /// other refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,
 /// `relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`
-/// (a block of the board that is no card) or `relation_card_not_found`: no card of that
+/// (a block of the board that is no card), `relation_cycle` (ordering dependencies form
+/// a cycle on the board) or `relation_card_not_found`: no card of that
 /// identifier on the board, which is also the answer for a card of another board. Every
 /// write of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)
 /// the values it changes, and does not ask again for a card that a value named before.
@@ -104,11 +113,11 @@ async fn card_with_permission(
 async fn handle_create_card(
     ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let notification = change_notification(query.as_deref());
+    let notification = query.notification();
     require_container_permission(
         &ws.app,
         user_id,
@@ -162,7 +171,7 @@ async fn handle_create_card(
 async fn handle_get_cards(
     ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<CardsListQuery>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
     require_container_permission(
@@ -173,7 +182,7 @@ async fn handle_get_cards(
         "access denied to fetch cards",
     )
     .await?;
-    let cards = cards_page(&ws.app, &board_id, query.as_deref()).await?;
+    let cards = cards_page(&ws.app, &board_id, &query).await?;
     tracing::debug!(board_id, user_id, count = cards.len(), "GetCards");
     Ok(json_response(&cards))
 }
@@ -183,10 +192,10 @@ async fn handle_get_cards(
 pub(super) async fn cards_page(
     app: &App,
     board_id: &str,
-    query: Option<&str>,
+    query: &CardsListQuery,
 ) -> Result<Vec<Card>, AppError> {
-    let page = paging_params(query)?;
-    let previews = if query_param(query, "preview") == TRUE {
+    let page = paging_from_strings(&query.page, &query.per_page)?;
+    let previews = if query.preview == TRUE {
         CardPreviews::With
     } else {
         CardPreviews::Without
@@ -213,11 +222,11 @@ pub(super) async fn cards_page(
 async fn handle_patch_card(
     ws: InWorkspace,
     Path((_, card_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let notification = change_notification(query.as_deref());
+    let notification = query.notification();
 
     let card = card_with_permission(
         &ws.app,

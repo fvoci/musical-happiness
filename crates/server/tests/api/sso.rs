@@ -486,6 +486,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "finishOidcLogin",
     "getClientConfig",
     "getAccountDeletion",
+    // Aggregates across organizations opened by the session, excluding walled organizations
+    // and counting their locked workspaces (`lockedWorkspaceCount`).
+    "getAccountToday",
     "getActiveTimeEntry",
     "getClientState",
     "getLoginOptions",

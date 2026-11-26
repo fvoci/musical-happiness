@@ -57,7 +57,7 @@ impl Store {
         digest: &str,
         password_hash: &str,
         now: i64,
-    ) -> Result<Option<String>, StoreError> {
+    ) -> Result<Option<sessions::PasswordSet>, StoreError> {
         let began = std::time::Instant::now();
         self.transaction(async |scope| {
             let mut find = scope.sql("SELECT user_id FROM password_resets WHERE token_hash = ");
@@ -66,8 +66,6 @@ impl Store {
                 return Ok(None);
             };
             let user_id = row.id(0)?;
-            // The user is held before changing credentials or sessions, in the same
-            // order as login. A login with the old hash must finish before this reset.
             let mut hold = scope.sql("SELECT id FROM users WHERE ");
             hold.push(RESETTABLE).push_bind(" AND id = ", Id(&user_id));
             if scope.dialect() == Dialect::Postgres {
@@ -76,7 +74,6 @@ impl Store {
             if scope.fetch_optional(hold).await?.is_none() {
                 return Ok(None);
             }
-            // Recheck after taking the lock: another consumer may have used the token.
             let now =
                 now.saturating_add(i64::try_from(began.elapsed().as_millis()).unwrap_or(i64::MAX));
             let mut take = scope.sql("DELETE FROM password_resets WHERE token_hash = ");
@@ -85,8 +82,6 @@ impl Store {
                 return Ok(None);
             }
             end_links_of_user(scope, &user_id).await?;
-            // Who holds the link reads the address: the new password is theirs, and a
-            // lock on the one before ends ([`users::lock_password`]).
             let mut change = scope.sql("UPDATE users SET password_hash = ");
             change
                 .bind(password_hash)
@@ -94,8 +89,8 @@ impl Store {
                 .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(&user_id));
             scope.execute(change).await?;
-            sessions::delete_sessions_of_user(scope, &user_id).await?;
-            Ok(Some(user_id))
+            let ended = sessions::delete_sessions_of_user(scope, &user_id).await?;
+            Ok(Some(sessions::PasswordSet { user_id, ended }))
         })
         .await
     }

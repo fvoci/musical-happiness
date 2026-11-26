@@ -15,6 +15,7 @@
   import ClockIcon from '@lucide/svelte/icons/clock';
   import PanelLeftOpenIcon from '@lucide/svelte/icons/panel-left-open';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import SunIcon from '@lucide/svelte/icons/sun';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -32,6 +33,7 @@
     meTime?: boolean;
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    todayHub?: { active: boolean; onOpen: () => void } | undefined;
     reviewsToday?: { active: boolean; onOpen: () => void } | undefined;
     learningToday?: { active: boolean; onOpen: () => void } | undefined;
     containerHref: (container: ContainerPlace) => string;
@@ -51,6 +53,7 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    todayHub,
     reviewsToday,
     learningToday,
     containerHref,
@@ -117,6 +120,17 @@
     {/each}
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
+  {#if todayHub && workspace.me?.id}
+    <IconButton
+      label={m.today_hub_title()}
+      aria-current={todayHub.active ? 'page' : undefined}
+      data-testid="strip-open-today-hub"
+      class={todayHub.active ? 'bg-sidebar-accent ring-1 ring-input-border' : undefined}
+      onclick={todayHub.onOpen}
+    >
+      <SunIcon />
+    </IconButton>
+  {/if}
   {#if reviewsToday && workspace.backend.course && workspace.info && workspace.me?.id}
     <IconButton
       label={m.today_reviews_title()}

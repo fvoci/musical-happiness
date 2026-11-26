@@ -7,7 +7,7 @@
 use serde_json::json;
 
 use crate::common::ROOT_WORKSPACE_ID;
-use crate::fixtures::{block, id_of, new_blocks, new_board};
+use crate::fixtures::{block, id_of, new_board, new_card};
 use crate::harness::ROOT_API;
 use crate::harness::{API, Session, id_by_title};
 
@@ -110,18 +110,12 @@ pub(crate) async fn boards(s: &mut Session) {
         .await;
     s.get("get after patches", &path).user(&alice).await;
 
-    new_blocks(
+    new_card(
         s,
         &alice,
         &board,
-        json!([block(
-            "c1",
-            &board,
-            "card",
-            "A card",
-            "",
-            json!({"icon": "x"})
-        )]),
+        "A card",
+        json!({"icon": "x"}),
         "insert a card",
     )
     .await;

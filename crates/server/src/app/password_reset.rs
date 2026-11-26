@@ -189,14 +189,14 @@ impl App {
         let _attempt = self.admit_registration(address)?;
         fvoci_model::check_new_password(password)?;
         let hash = self.hash(password).await?;
-        let user_id = self
+        let fvoci_store::PasswordSet { user_id, ended } = self
             .store()
             .consume_password_reset(&token_digest(token), &hash, now_millis())
             .await?
             .ok_or_else(|| {
                 AppError::bad_request("the reset link is invalid or expired").with_field("token")
             })?;
-        self.ws().close_user(&user_id);
+        self.ws().close(ended.into_scope());
         match self.store().account_by_id(&user_id).await {
             Ok(user) => self
                 .login_limiter()

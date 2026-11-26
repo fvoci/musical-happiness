@@ -1080,24 +1080,31 @@ fn check_against(openapi: &Value, what: &Value, value: &Value, at: &str) {
     match what {
         Value::String(reference) if let Some(name) = reference.strip_prefix('#') => {
             let schema = &openapi["components"]["schemas"][name];
-            let properties = schema["properties"]
-                .as_object()
-                .unwrap_or_else(|| panic!("{at}: openapi.json has the schema {name}"));
-            let object = value
-                .as_object()
-                .unwrap_or_else(|| panic!("{at}: an object, not {value}"));
-            for key in object.keys() {
+            if let Some(variants) = schema["enum"].as_array() {
                 assert!(
-                    properties.contains_key(key),
-                    "{at}: `{key}` is no member of {name} in openapi.json: {value}"
+                    variants.contains(value),
+                    "{at}: {value} is among {variants:?} of {name}"
                 );
-            }
-            for key in schema["required"].as_array().into_iter().flatten() {
-                let key = key.as_str().expect("required names are strings");
-                assert!(
-                    object.contains_key(key),
-                    "{at}: {name} has `{key}`: {value}"
-                );
+            } else {
+                let properties = schema["properties"]
+                    .as_object()
+                    .unwrap_or_else(|| panic!("{at}: openapi.json has the schema {name}"));
+                let object = value
+                    .as_object()
+                    .unwrap_or_else(|| panic!("{at}: an object, not {value}"));
+                for key in object.keys() {
+                    assert!(
+                        properties.contains_key(key),
+                        "{at}: `{key}` is no member of {name} in openapi.json: {value}"
+                    );
+                }
+                for key in schema["required"].as_array().into_iter().flatten() {
+                    let key = key.as_str().expect("required names are strings");
+                    assert!(
+                        object.contains_key(key),
+                        "{at}: {name} has `{key}`: {value}"
+                    );
+                }
             }
         }
         Value::String(kind) => {
@@ -1389,9 +1396,12 @@ async fn hear_the_endings(
     contract_check.hear(socket, "blocksSubscribed").await;
     th.app.ws().end_readers_of_container(&block.container_id);
     contract_check.hear(socket, "blocksUnsubscribed").await;
-    th.app
-        .ws()
-        .workspace_role_changed(ROOT_WORKSPACE_ID, user_id);
+    th.app.ws().workspace_role_changed_to(
+        ROOT_WORKSPACE_ID,
+        user_id,
+        fvoci_model::WorkspaceRole::Member,
+    );
+    contract_check.hear(socket, "workspaceRoleChanged").await;
     contract_check.hear(socket, "workspaceUnsubscribed").await;
     socket
         .send(json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))

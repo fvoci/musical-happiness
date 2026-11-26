@@ -14,10 +14,10 @@ use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session, User, WorkspaceRol
 use crate::Store;
 use crate::accounts::{self, Which};
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope};
+use crate::db::{Dialect, Id, LockRank, OptId, OrganizationHeld, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::oidc_former::{self, Keeping};
-use crate::sessions;
+use crate::sessions::{self, ProviderPut, SessionsEnded};
 use crate::users::InstanceRole;
 
 /// The columns of a sign-in under way, in the order [`flow_from_row`] reads them.
@@ -196,14 +196,17 @@ impl Store {
         &self,
         provider: &StoredProvider,
     ) -> Result<StoredProvider, StoreError> {
-        self.put_provider(provider, AsRead::Whatever, Keeping::NOTHING)
+        let put = self
+            .put_provider(provider, AsRead::Whatever, Keeping::NOTHING)
             .await?
-            .ok_or(StoreError::NoRows)
+            .ok_or(StoreError::NoRows)?;
+        Ok(put.provider)
     }
 
     /// Stores the provider of the handle's organization, in place of the one it has, if
     /// that one is still the one read, `read` (the same provider, last changed at the
-    /// same time), or there is still none for `None`; and returns it as stored. `None`
+    /// same time), or there is still none for `None`; and returns it as stored with the
+    /// sessions ended when the issuer changed. `None`
     /// if it changed or was removed meanwhile, and nothing is stored: what was decided
     /// from it (the secret kept, the settings kept) is to be decided again. A provider whose issuer and client stay keeps its
     /// identifier and the time it was first set; one with another issuer or client is
@@ -226,7 +229,7 @@ impl Store {
         read: Option<&StoredProvider>,
         actor_id: &str,
         keep_former: Duration,
-    ) -> Result<Option<StoredProvider>, StoreError> {
+    ) -> Result<Option<ProviderPut>, StoreError> {
         let read = read.map(|read| (read.id.clone(), read.updated_at));
         let keeping = Keeping {
             time: keep_former,
@@ -241,9 +244,9 @@ impl Store {
         provider: &StoredProvider,
         as_read: AsRead,
         keeping: Keeping<'_>,
-    ) -> Result<Option<StoredProvider>, StoreError> {
+    ) -> Result<Option<ProviderPut>, StoreError> {
         self.transaction(async |scope| {
-            hold_provider_of_organization(scope).await?;
+            let held = hold_provider_of_organization(scope).await?;
             let before = read_provider(scope).await?;
             let there = before
                 .as_ref()
@@ -253,7 +256,7 @@ impl Store {
             {
                 return Ok(None);
             }
-            let written = write_provider(scope, before.as_ref(), provider, keeping).await?;
+            let written = write_provider(scope, held, before.as_ref(), provider, keeping).await?;
             if let Some(actor_id) = keeping.actor_id {
                 record_provider_change(scope, actor_id, before.as_ref(), &written.provider).await?;
                 if written.dropped_pending {
@@ -266,7 +269,10 @@ impl Store {
                     audit::record_entry(scope, &entry).await?;
                 }
             }
-            Ok(Some(written.provider))
+            Ok(Some(ProviderPut {
+                provider: written.provider,
+                ended: written.ended,
+            }))
         })
         .await
     }
@@ -294,7 +300,8 @@ impl Store {
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(Id(&provider.org_id));
             scope.execute(sql).await?;
-            sessions::end_sessions_of_origin(scope, &provider.org_id, &provider.issuer).await?;
+            let ended =
+                sessions::end_sessions_of_origin(scope, &provider.org_id, &provider.issuer).await?;
             oidc_former::give_way(scope, Some(actor_id)).await?;
             let entry = AuditEntry::new(
                 "",
@@ -303,7 +310,7 @@ impl Store {
                 &provider.org_id,
             );
             audit::record_entry(scope, &entry).await?;
-            Ok(Removal::Removed { provider })
+            Ok(Removal::Removed { provider, ended })
         })
         .await
     }
@@ -551,13 +558,17 @@ impl Store {
 /// transaction ends: changes and removals of it are one after the other. On PostgreSQL
 /// the organization's row is held (no key of it changes, so its references are not held
 /// up); on SQLite a transaction that writes holds the database.
-pub(crate) async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+pub(crate) async fn hold_provider_of_organization<'c>(
+    scope: &mut Scope<'c>,
+) -> Result<OrganizationHeld<'c>, StoreError> {
+    let org_key = scope.org_id().unwrap_or_default();
+    scope.record_lock(LockRank::Organization, &org_key);
     if scope.dialect() == Dialect::Postgres {
         let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
         sql.bind(scope.org()?).push(" FOR NO KEY UPDATE");
         scope.fetch_optional(sql).await?;
     }
-    Ok(())
+    Ok(OrganizationHeld::new())
 }
 
 /// The provider of the transaction's organization, as it is stored, if it has one.
@@ -584,11 +595,12 @@ pub(crate) struct Written {
     pub(crate) provider: StoredProvider,
     /// Whether pending settings of the provider were thrown away with the change.
     pub(crate) dropped_pending: bool,
+    /// Sessions ended when the issuer changed.
+    pub(crate) ended: SessionsEnded,
 }
 
-/// Stores `provider` as the transaction's organization's, in place of `before`, which
-/// the caller read in this transaction and holds ([`hold_provider_of_organization`]).
-/// A provider whose issuer and client stay keeps its identifier and the time it was
+/// Stores `provider` as the transaction's organization's, in place of `before`, under
+/// `held`. A provider whose issuer and client stay keeps its identifier and the time it was
 /// first set; one with another issuer or client is another provider, under a new
 /// identifier, and the sign-ins under way through the one before end with it; with
 /// another issuer, so do the sessions made through a provider of the organization
@@ -596,8 +608,9 @@ pub(crate) struct Written {
 /// `keeping` says (`oidc_former.rs`). A change of what signing in takes raises the
 /// revision and throws away the pending settings, which were saved against what
 /// signing in took.
-pub(crate) async fn write_provider(
-    scope: &mut Scope<'_>,
+pub(crate) async fn write_provider<'c>(
+    scope: &mut Scope<'c>,
+    held: OrganizationHeld<'c>,
     before: Option<&StoredProvider>,
     provider: &StoredProvider,
     keeping: Keeping<'_>,
@@ -653,15 +666,27 @@ pub(crate) async fn write_provider(
         .push([" RETURNING ", PROVIDER_COLUMNS]);
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     let stored = provider_from_row(&row)?;
-    if let Some(before) = before
+    if !before.is_some_and(|b| b.sso_required) && stored.sso_required {
+        let mut lock_copy = scope.sql("UPDATE organizations SET allow_copy_out = ");
+        lock_copy
+            .bind(false)
+            .push_bind(" WHERE id = ", scope.org()?)
+            .push_bind(" AND allow_copy_out = ", true);
+        scope.execute(lock_copy).await?;
+    }
+    let ended = if let Some(before) = before
         && before.issuer != stored.issuer
     {
-        sessions::end_sessions_of_origin(scope, &before.org_id, &before.issuer).await?;
-        oidc_former::keep_after_move(scope, before, keeping).await?;
-    }
+        let ended = sessions::end_sessions_of_origin(scope, &before.org_id, &before.issuer).await?;
+        oidc_former::keep_after_move(scope, held, before, keeping).await?;
+        ended
+    } else {
+        SessionsEnded::none()
+    };
     Ok(Written {
         provider: stored,
         dropped_pending,
+        ended,
     })
 }
 
@@ -756,13 +781,15 @@ pub(crate) async fn admit(
 }
 
 /// What came of removing the provider of an organization.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Removal {
     /// It is removed, and the sessions made through a provider of the organization
     /// under its issuer ended with it.
     Removed {
         /// The provider as it was.
         provider: StoredProvider,
+        /// Sessions ended with the provider.
+        ended: SessionsEnded,
     },
     /// The organization had none.
     NoneThere,
@@ -897,27 +924,18 @@ async fn is_identity_of(
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// Makes a user a member of the scope's organization and of its default workspace, as a
-/// member of both, unless the user is a member of the organization already; says
-/// whether the user joined. Two at once for the same user both succeed, and one of them
-/// joins.
+/// Makes `user_id` a member of the scope's organization and default workspace unless
+/// already in the organization; returns whether the user newly joined.
 async fn join_as_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     if !accounts::join_organization(scope, user_id, OrgRole::Member).await? {
         return Ok(false);
     }
-    accounts::join_workspace(
-        scope,
-        Which::DefaultWorkspace,
-        user_id,
-        WorkspaceRole::Member,
-    )
-    .await?;
+    let which = Which::DefaultWorkspace;
+    accounts::join_workspace(scope, which, user_id, WorkspaceRole::Member).await?;
     Ok(true)
 }
 
-/// Whether the user has a place in the transaction's organization: a member of it, or
-/// of one of its workspaces in use (a guest of a workspace is no member of the
-/// organization), as the wall counts them.
+/// Whether `user_id` is a member of the transaction's organization or of a live workspace in it.
 pub(crate) async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     if is_member(scope, user_id).await? {
         return Ok(true);
@@ -931,7 +949,6 @@ pub(crate) async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bo
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// Whether the user is a member of the transaction's organization.
 async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
     sql.bind(scope.org()?)

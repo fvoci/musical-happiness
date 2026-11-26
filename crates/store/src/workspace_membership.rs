@@ -23,7 +23,7 @@ use fvoci_model::{ContainerMember, ContainerRole, WorkspaceMember, WorkspaceRole
 use crate::Store;
 use crate::audit::{self, AuditEntry};
 use crate::containers::{delete_member, find_member, lock_container, save_member};
-use crate::db::{Dialect, Id, Row, Scope};
+use crate::db::{Dialect, Id, LockRank, Row, Scope};
 use crate::error::StoreError;
 use crate::trash::{self, TrashedRoles};
 use crate::{members, org_admin, person_names};
@@ -187,7 +187,7 @@ async fn change_role(
     // those in the trash too, as a restore has them.
     let containers = if to == WorkspaceRole::Guest {
         let containers = hold_containers_of(scope, workspace_id, user_id).await?;
-        trash::hold_deleted_containers(scope, workspace_id).await?;
+        let _ = trash::hold_deleted_containers(scope, workspace_id).await?;
         containers
     } else {
         Vec::new()
@@ -263,7 +263,7 @@ async fn remove(
         return Ok(Some(MembershipChange::NotAMember));
     }
     let containers = hold_containers_of(scope, workspace_id, user_id).await?;
-    trash::hold_deleted_containers(scope, workspace_id).await?;
+    let _ = trash::hold_deleted_containers(scope, workspace_id).await?;
     let Some(current) = held_role(scope, workspace_id, user_id).await? else {
         return Ok(Some(MembershipChange::NotAMember));
     };
@@ -376,6 +376,7 @@ pub(crate) async fn hold_workspace(
     scope: &mut Scope<'_>,
     workspace_id: &str,
 ) -> Result<bool, StoreError> {
+    scope.record_lock(LockRank::Workspace, workspace_id);
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
@@ -443,6 +444,10 @@ pub(crate) async fn held_role(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<Option<WorkspaceRole>, StoreError> {
+    scope.record_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+    );
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));

@@ -1,7 +1,7 @@
 //! Lists of what is in the trash: the deleted cards of a board, and the deleted boards
 //! a user may bring back.
 
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::DeletedItem;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -9,7 +9,7 @@ use utoipa_axum::routes;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
-use super::paging::paging_params;
+use super::query::{PagingQuery, QueryParams};
 use super::workspace::{InWorkspace, TextInContainer};
 use super::{ApiResult, json_response, require_container_permission};
 use crate::app::App;
@@ -39,9 +39,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 async fn handle_get_deleted_cards(
     ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
-    let query = query.as_deref();
     require_container_permission(
         &ws.app,
         &ws.session.user_id,
@@ -50,7 +49,7 @@ async fn handle_get_deleted_cards(
         "access denied to the trash of the board",
     )
     .await?;
-    let page = paging_params(query)?;
+    let page = query.into_list_page()?;
     Ok(json_response(&ws.app.deleted_cards(&board_id, page).await?))
 }
 
@@ -74,10 +73,10 @@ async fn handle_get_deleted_cards(
 )]
 async fn handle_get_deleted_containers(
     TextInContainer(ws): TextInContainer,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    let page = paging_params(query.as_deref())?;
+    let page = query.into_list_page()?;
     Ok(json_response(
         &ws.app
             .deleted_containers(&ws.workspace_id, &ws.session.user_id, ws.role, page)

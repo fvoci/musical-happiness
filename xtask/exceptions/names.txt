@@ -174,14 +174,21 @@ crates/store/src/container_membership.rs | container_team_access::
 crates/store/src/invitations.rs | team_role
 crates/store/src/invitations.rs | container_team_access::
 crates/store/src/link_locks.rs | team changes hold
+crates/store/src/error.rs | guestcannotjointeam
 crates/store/src/observe.rs | TeamSelfJoining
+crates/store/src/observe.rs | GuestCannotJoinTeam
 crates/server/src/error.rs | teamselfjoining
+crates/server/src/error.rs | guestcannotjointeam
 crates/server/src/error/reason.rs | teamselfjoining
 crates/server/src/error/reason.rs | team_self_joining
+crates/server/src/error/reason.rs | guestcannotjointeam
+crates/server/src/error/reason.rs | guest_cannot_join_team
 crates/server/src/error/reason.rs | to a team
 crates/server/src/problems.rs | teamselfjoining
 crates/server/src/problems.rs | yourself to a team
-crates/server/src/app/containers.rs | team_role
+crates/server/src/problems.rs | guestcannotjointeam
+crates/server/src/problems.rs | added to a team
+crates/server/src/app/container_members.rs | team_role
 crates/server/src/app/containers.rs | a team's people keep
 crates/server/src/app/invitations.rs | team_role
 crates/store/tests/store/invitations.rs | team

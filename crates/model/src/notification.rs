@@ -34,6 +34,10 @@ pub enum NotificationKind {
     ReviewDue,
     /// A course study meeting is starting soon.
     MeetingUpcoming,
+    /// An incomplete card assigned to the person is due soon or due today.
+    DueSoon,
+    /// Somebody added the person to a board, wiki, or course.
+    AddedToContainer,
 }
 
 impl NotificationKind {
@@ -46,6 +50,8 @@ impl NotificationKind {
             Self::Comment => "comment",
             Self::ReviewDue => "review_due",
             Self::MeetingUpcoming => "meeting_upcoming",
+            Self::DueSoon => "due_soon",
+            Self::AddedToContainer => "added_to_container",
         }
     }
 }
@@ -71,6 +77,8 @@ impl FromStr for NotificationKind {
             "comment" => Ok(Self::Comment),
             "review_due" => Ok(Self::ReviewDue),
             "meeting_upcoming" => Ok(Self::MeetingUpcoming),
+            "due_soon" => Ok(Self::DueSoon),
+            "added_to_container" => Ok(Self::AddedToContainer),
             other => Err(UnknownNotificationKind(other.to_owned())),
         }
     }
@@ -148,6 +156,8 @@ mod tests {
             NotificationKind::Comment,
             NotificationKind::ReviewDue,
             NotificationKind::MeetingUpcoming,
+            NotificationKind::DueSoon,
+            NotificationKind::AddedToContainer,
         ] {
             assert_eq!(kind.as_str().parse(), Ok(kind));
             assert_eq!(

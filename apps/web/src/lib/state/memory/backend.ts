@@ -3,7 +3,7 @@
  * Lists are scrambled (`scramble`) so screens cannot rely on backend order.
  * Helpers for tests: `as`, `failNext`, `latency`.
  */
-import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
+import type { CardPreview } from '../../editor/card-preview.ts';
 import type { FileDetails } from '../../editor/files.ts';
 import type { DocNode } from '../../editor/schema.ts';
 import type { NameChange } from '../../logic/person-names.ts';
@@ -18,14 +18,18 @@ import {
   BackendError,
   type AccountSettings,
   type AccountSettingsPatch,
+  type AccountToday,
   type Attachment,
   type Backend,
   type BoardDraft,
+  type BoardViewWriteResult,
   type BodyDoc,
   type BodyDocHears,
   type BodyWrite,
   type CardDetail,
   type CardDraft,
+  type CardMovesInput,
+  type CardMovesOutput,
   type CardPatch,
   type CardSummary,
   type CardTelling,
@@ -35,7 +39,10 @@ import {
   type ChangeListener,
   type Comment,
   type CommentVersion,
+  type ContainerPermissions,
   type ContainerRole,
+  type CopiedContainerOutput,
+  type CopyToWorkspaceInput,
   type DeletedItem,
   type DownloadedFile,
   type DownloadOptions,
@@ -50,16 +57,18 @@ import {
   type UserOrganization,
   type ViewDraft,
   type WorkspaceInfo,
+  type WorkspaceToday,
 } from '../backend.ts';
 import { BlockTurns } from '../write.ts';
 
 import { changeName, keepSettings, settingsOf } from './account.ts';
 import * as blockOps from './block-ops.ts';
+import * as boardAuth from './board-authority.ts';
 import { openMemoryRoom } from './bodies.ts';
 import { MemoryBodyVersions } from './body-versions.ts';
 import { MemoryCategories } from './categories.ts';
 import { versionsOf } from './comments.ts';
-import { memberFileUrl, memberRole } from './container-access.ts';
+import { memberFileUrl, memberRole, memoryPermissionsOf, reads } from './container-access.ts';
 import * as containerOps from './container-ops.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { MemoryCourses } from './courses.ts';
@@ -74,13 +83,13 @@ import { fail } from './refuse.ts';
 import { nextScreenState } from './screen-state.ts';
 import { searchBoardsOf } from './search.ts';
 import { visibleTemplates } from './seed-templates.ts';
-import { copy, LIMITS, memberOf, scramble, summaryOf, viewOf } from './shapes.ts';
+import { copy, LIMITS, memberOf, scramble } from './shapes.ts';
 import * as spaces from './spaces.ts';
 import { MemoryTime } from './time.ts';
 import { deletedCardsOf, deletedContainersOf, mayManageCards } from './trash.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
 import { MemoryWikis } from './wikis.ts';
-import type { StoredCard, World } from './world.ts';
+import type { World } from './world.ts';
 
 export { LIMITS, memberOf };
 
@@ -170,11 +179,10 @@ export class MemoryBackend implements Backend {
     await this.#enter('searchUsers');
     const wanted = query.trim().toLowerCase();
     return (await this.users(workspaceId))
-      .filter((user) => userFound(user, wanted))
-      .sort((first, second) => first.createdAt - second.createdAt)
+      .filter((u) => userFound(u, wanted))
+      .sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, 10);
   }
-
   async settings(): Promise<AccountSettings> {
     await this.#enter('settings');
     return copy(settingsOf(this.world, this.userId));
@@ -192,16 +200,39 @@ export class MemoryBackend implements Backend {
     const current = this.world.screenState.get(this.userId) ?? {};
     this.world.screenState.set(this.userId, nextScreenState(current, updated, deleted));
   }
-
   async boards(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('boards', workspaceId);
     const mine = [...this.world.containers.values()].filter(
-      (board) =>
-        board.workspaceId === workspaceId &&
-        (board.kind ?? 'board') === 'board' &&
-        containerOps.memberIdsOf(this.world, board.id).includes(this.userId),
+      (b) =>
+        b.workspaceId === workspaceId &&
+        !b.isTemplate &&
+        (b.kind ?? 'board') === 'board' &&
+        reads(this.world, this.userId, b.id),
     );
     return scramble(mine).map(copy);
+  }
+  async trashRetentionDays(): Promise<number> {
+    await this.#enter('trashRetentionDays');
+    return 30;
+  }
+  async myPermissions(id: string): Promise<ContainerPermissions> {
+    await this.#enter('myPermissions');
+    return memoryPermissionsOf(this.world, this.userId, id);
+  }
+  async copyContainerToWorkspace(
+    id: string,
+    req: CopyToWorkspaceInput,
+  ): Promise<CopiedContainerOutput> {
+    await this.#enter('copyContainerToWorkspace');
+    return containerOps.copyMemoryContainerToWorkspace(this, id, req);
+  }
+  async accountToday(): Promise<AccountToday> {
+    await this.#enter('accountToday');
+    return boardAuth.memoryAccountToday(this);
+  }
+  async workspaceToday(workspaceId: string): Promise<WorkspaceToday> {
+    await this.#enterWorkspace('workspaceToday', workspaceId);
+    return boardAuth.memoryWorkspaceToday(this, workspaceId);
   }
   async container(id: string): Promise<Container> {
     await this.#enter('container');
@@ -320,14 +351,28 @@ export class MemoryBackend implements Backend {
 
   async views(boardId: string): Promise<BoardView[]> {
     await this.#enter('views');
-    memberRole(this.world, this.userId, boardId);
-    return scramble(this.world.blocksOf(boardId).filter((block) => block.type === 'view')).map(
-      viewOf,
-    );
+    return blockOps.listMemoryViews(this, boardId);
   }
   async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
     await this.#enter('createView');
     return blockOps.createMemoryView(this, boardId, draft);
+  }
+  async writeView(boardId: string, draft: ViewDraft): Promise<BoardViewWriteResult> {
+    await this.#enter('writeView');
+    return boardAuth.writeMemoryView(this, boardId, draft);
+  }
+  async moveView(b: string, v: string, after: string | null): Promise<BoardViewWriteResult> {
+    await this.#enter('moveView');
+    return boardAuth.moveMemoryView(this, b, v, after);
+  }
+  async duplicateView(
+    b: string,
+    v: string,
+    title?: string,
+    after?: string | null,
+  ): Promise<BoardViewWriteResult> {
+    await this.#enter('duplicateView');
+    return boardAuth.duplicateMemoryView(this, b, v, title, after);
   }
   patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
     return this.#viewTurns.patchView(viewId, patch, async (sent) => {
@@ -335,20 +380,13 @@ export class MemoryBackend implements Backend {
       return blockOps.patchMemoryView(this, boardId, viewId, sent);
     });
   }
-
   async cards(boardId: string): Promise<CardSummary[]> {
     await this.#enter('cards');
-    memberRole(this.world, this.userId, boardId);
-    const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
-    return scramble(cards).map((c) =>
-      blockOps.withLastComment(this.world, summaryOf(c as StoredCard)),
-    );
+    return blockOps.listMemoryCards(this, boardId);
   }
   async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
     await this.#enter('cardPreviews');
-    memberRole(this.world, this.userId, boardId);
-    const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
-    return new Map(cards.map((card) => [card.id, cardPreviewOf(card.body)]));
+    return blockOps.listMemoryCardPreviews(this, boardId);
   }
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     await this.#enter('card');
@@ -358,6 +396,22 @@ export class MemoryBackend implements Backend {
     await this.#enter('createCard');
     return blockOps.createMemoryCard(this, boardId, draft);
   }
+  async duplicateCard(boardId: string, cardId: string, asTemplate?: boolean): Promise<CardSummary> {
+    await this.#enter('duplicateCard');
+    return boardAuth.duplicateMemoryCard(this, boardId, cardId, asTemplate);
+  }
+  async moveViewCards(b: string, v: string, move: CardMovesInput): Promise<CardMovesOutput> {
+    await this.#enter('moveViewCards');
+    return boardAuth.moveMemoryViewCards(this, b, v, move);
+  }
+  async batchDeleteCards(boardId: string, cardIds: readonly string[]): Promise<void> {
+    await this.#enter('batchDeleteCards');
+    boardAuth.batchDeleteMemoryCards(this, boardId, cardIds);
+  }
+  async batchRestoreCards(boardId: string, cardIds: readonly string[]): Promise<CardSummary[]> {
+    await this.#enter('batchRestoreCards');
+    return boardAuth.batchRestoreMemoryCards(this, boardId, cardIds);
+  }
   async patchCard(b: string, c: string, patch: CardPatch, _t?: CardTelling): Promise<CardSummary> {
     await this.#enter('patchCard');
     return blockOps.patchMemoryCard(this, b, c, patch);
@@ -366,7 +420,6 @@ export class MemoryBackend implements Backend {
     await this.#enter('writeCardBody');
     return blockOps.writeMemoryCardBody(this, boardId, cardId, write);
   }
-
   async comments(boardId: string, cardId: string): Promise<Comment[]> {
     await this.#enter('comments');
     return blockOps.listMemoryComments(this, boardId, cardId);
@@ -375,14 +428,22 @@ export class MemoryBackend implements Backend {
     await this.#enter('createComment');
     return blockOps.createMemoryComment(this, boardId, cardId, body);
   }
-  async patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
+  async patchComment(b: string, c: string, write: BodyWrite, _cardId?: string): Promise<Comment> {
     await this.#enter('patchComment');
-    return blockOps.patchMemoryComment(this, boardId, commentId, write);
+    return blockOps.patchMemoryComment(this, b, c, write);
   }
-  async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
+  async deleteComment(b: string, cardId: string, c: string): Promise<void> {
+    await this.#enter('deleteComment');
+    boardAuth.deleteMemoryComment(this, b, cardId, c);
+  }
+  async restoreComment(b: string, cardId: string, c: string): Promise<Comment> {
+    await this.#enter('restoreComment');
+    return boardAuth.restoreMemoryComment(this, b, cardId, c);
+  }
+  async commentVersions(b: string, c: string, _cardId?: string): Promise<CommentVersion[]> {
     await this.#enter('commentVersions');
-    memberRole(this.world, this.userId, boardId);
-    return versionsOf(this.world, boardId, commentId);
+    memberRole(this.world, this.userId, b);
+    return versionsOf(this.world, b, c);
   }
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     await this.#enter('attachments');

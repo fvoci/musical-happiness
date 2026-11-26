@@ -10,16 +10,19 @@ mod account_erasure;
 mod audience;
 mod auth;
 mod blocks;
+mod board_ops;
 mod body_versions;
 mod cards;
 mod category;
 mod category_containers;
 mod container_copies;
+mod container_members;
 mod containers;
 mod containers_and_blocks;
 mod course_events;
 mod course_schedules;
 mod courses;
+mod cross_workspace_copy;
 mod diaries;
 mod doomed;
 mod download;
@@ -58,6 +61,7 @@ mod server_lock;
 mod slots;
 mod snapshots;
 
+pub use board_ops::BoardScaffolding;
 pub(crate) use download::download;
 pub use mail::UnsentMail;
 pub(crate) use notifications::start_upkeep as start_notification_upkeep;
@@ -81,6 +85,7 @@ mod teams;
 mod template_stock;
 mod templates;
 mod time_entries;
+mod today;
 mod trash;
 mod unit_progress;
 mod unit_reviews;
@@ -734,6 +739,7 @@ impl App {
             feature_flags: config.feature_flags.clone(),
             max_file_bytes: limits.largest_file,
             max_import_bytes: limits.largest_import,
+            trash_retention_days: config.trash_retention_days,
             // Every server searches bodies: on its search server, or on its database
             // where none is configured. One that cannot hold the index answers 503.
             search_enabled: true,

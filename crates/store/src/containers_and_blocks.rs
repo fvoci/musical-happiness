@@ -181,6 +181,11 @@ impl Store {
         let mut abort: Option<StreamAbort<E>> = None;
         let outcome = self
             .transaction(async |scope| {
+                containers::lock_containers(
+                    scope,
+                    containers.iter().map(|container| container.id.as_str()),
+                )
+                .await?;
                 for container in containers.iter_mut() {
                     containers::insert_container(scope, container, user_id).await?;
                 }
@@ -255,6 +260,11 @@ impl Store {
         let mut abort: Option<StreamAbort<E>> = None;
         let outcome = self
             .transaction(async |scope| {
+                containers::lock_containers(
+                    scope,
+                    containers.iter().map(|container| container.id.as_str()),
+                )
+                .await?;
                 for container in containers.iter_mut() {
                     containers::insert_container(scope, container, user_id).await?;
                 }
@@ -449,6 +459,14 @@ pub(crate) async fn create_containers_and_blocks(
     user_id: &str,
     new_files: NewBodyFiles,
 ) -> Result<(), StoreError> {
+    containers::lock_containers(
+        scope,
+        containers_and_blocks
+            .containers
+            .iter()
+            .map(|container| container.id.as_str()),
+    )
+    .await?;
     for container in &mut containers_and_blocks.containers {
         containers::insert_container(scope, container, user_id).await?;
     }
@@ -588,6 +606,14 @@ async fn create_imported_containers_blocks_and_files(
     extra_members: &[ContainerMember],
     user_id: &str,
 ) -> Result<Vec<ContainerMember>, StoreError> {
+    containers::lock_containers(
+        scope,
+        containers_and_blocks
+            .containers
+            .iter()
+            .map(|container| container.id.as_str()),
+    )
+    .await?;
     for container in &mut containers_and_blocks.containers {
         containers::insert_container(scope, container, user_id).await?;
     }

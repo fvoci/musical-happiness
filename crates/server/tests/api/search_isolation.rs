@@ -311,7 +311,7 @@ async fn world(th: &TestServer) -> World {
             &open_page,
             &private_page,
         ]),
-        member_reads: sorted(&[&open_card.id, &teamed_card, &open_page]),
+        member_reads: sorted(&[&open_card.id, &unjoined_card.id, &teamed_card, &open_page]),
         guest_reads: sorted(&[&invited_card.id]),
         private: (private_card.id, private.id),
     }
@@ -532,8 +532,8 @@ async fn check_numbered_search(th: &TestServer, w: &NumberedWorld) {
                     .map(|hit| hit.id.as_str())
                     .collect::<Vec<_>>()
             ),
-            sorted(&[&w.beta_card_2, &w.team_card_2]),
-            "member finds #2 on joined open board and team board only ({query})"
+            sorted(&[&w.beta_card_2, &w.unjoined_card_2, &w.team_card_2]),
+            "member finds #2 on open boards (joined or unjoined) and team board ({query})"
         );
         for hit in &member_hits {
             assert_eq!(hit.number, Some(2), "hit reports card number 2");

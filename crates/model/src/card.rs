@@ -101,7 +101,7 @@ pub struct Card {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::serde_util::non_null"
+        deserialize_with = "crate::serde_util::positive_millis"
     )]
     #[schema(nullable = false)]
     pub deleted_at: Option<i64>,

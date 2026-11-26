@@ -12,6 +12,8 @@ import {
   type Backend,
   type BoardDraft,
   type Category,
+  type CopiedContainerOutput,
+  type CopyToWorkspaceInput,
   type User,
   type WorkspaceInfo,
 } from './backend.ts';
@@ -343,6 +345,23 @@ export async function duplicateContainerOf(
   }
 }
 
+/** Copies a board, wiki, or course into `request.targetWorkspaceId`. */
+export async function copyContainerToWorkspaceOf(
+  workspace: {
+    readonly backend: Backend;
+    readonly info: WorkspaceInfo | undefined;
+    receiveContainer(container: Container): void;
+  },
+  containerId: string,
+  request: CopyToWorkspaceInput,
+): Promise<CopiedContainerOutput> {
+  const out = await workspace.backend.copyContainerToWorkspace(containerId, request);
+  if (workspace.info?.id === request.targetWorkspaceId && !out.container.isTemplate) {
+    workspace.receiveContainer(out.container);
+  }
+  return out;
+}
+
 /** Makes a board and its first kanban view together, adding it to the sidebar at once. */
 export async function createBoardOf(
   workspace: {
@@ -357,6 +376,15 @@ export async function createBoardOf(
 ): Promise<Container | undefined> {
   if (!workspace.info) return undefined;
   try {
+    if (draft.scaffold && !draft.cardProperties) {
+      const { board } = await workspace.backend.createBoard(
+        workspace.info.id,
+        draft,
+        firstKanban([], viewTitle),
+      );
+      workspace.receiveContainer(board);
+      return board;
+    }
     const cardProperties =
       draft.cardProperties ?? createEmptyBoard(undefined, statusName).cardProperties;
     const { board } = await workspace.backend.createBoard(

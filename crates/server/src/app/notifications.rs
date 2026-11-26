@@ -18,14 +18,14 @@ use fvoci_model::{
     ContainerKind, Notification, NotificationKind, NotificationSubject, SearchKind, Session,
 };
 use fvoci_store::{
-    MeetingNotificationPlace, NotificationEvent, NotificationLimits, NotificationPlace,
-    NotificationReader, StoredNotification, Told,
+    ContainerNotificationPlace, MeetingNotificationPlace, NotificationEvent, NotificationLimits,
+    NotificationPlace, NotificationReader, StoredNotification, Told,
 };
 
 use super::sso::Asker;
 use super::{App, ListPage};
 use crate::auth::now_millis;
-use crate::error::{AppError, Reason};
+use crate::error::AppError;
 use crate::metrics::NotificationSettled;
 use crate::permissions::ContainerPermission;
 use crate::scheduler::RecurringTask;
@@ -241,6 +241,68 @@ impl App {
         Ok(read)
     }
 
+    /// Where each container among `container_ids` is now, for a user who reads it or may
+    /// join it (`AddedToContainer`).
+    async fn container_places_read_by(
+        &self,
+        user_id: &str,
+        entry: Entry<'_>,
+        container_ids: &[&str],
+    ) -> Result<Vec<Option<Seen>>, AppError> {
+        let places: HashMap<String, ContainerNotificationPlace> = self
+            .store()
+            .container_notification_places(container_ids)
+            .await?
+            .into_iter()
+            .map(|place| (place.container_id.clone(), place))
+            .collect();
+        let mut entered: HashMap<&str, Option<Self>> = HashMap::new();
+        let mut reads: HashMap<&str, bool> = HashMap::new();
+        let mut read = Vec::with_capacity(container_ids.len());
+        for container_id in container_ids {
+            let Some(place) = places.get(*container_id) else {
+                read.push(None);
+                continue;
+            };
+            let workspace_id = place.workspace_id.as_str();
+            if !entered.contains_key(workspace_id) {
+                let app = self.entered_workspace(entry, workspace_id).await?;
+                entered.insert(workspace_id, app);
+            }
+            let Some(app) = entered.get(workspace_id).and_then(Option::as_ref) else {
+                read.push(None);
+                continue;
+            };
+            let cid = place.container_id.as_str();
+            let reads_it = if let Some(reads_it) = reads.get(cid) {
+                *reads_it
+            } else {
+                let reads_it = app
+                    .container_access(user_id, cid)
+                    .await?
+                    .is_some_and(|access| {
+                        access.grant.reads_on_joining()
+                            && !access.container.is_template
+                            && access.container.workspace_id == workspace_id
+                    });
+                reads.insert(cid, reads_it);
+                reads_it
+            };
+            read.push(reads_it.then(|| Seen {
+                place: NotificationPlace {
+                    block_id: String::new(),
+                    block_kind: search_kind_of_container(place.container_kind),
+                    title: place.title.clone(),
+                    container_id: place.container_id.clone(),
+                    container_kind: place.container_kind,
+                    workspace_id: place.workspace_id.clone(),
+                },
+                comment_id: String::new(),
+            }));
+        }
+        Ok(read)
+    }
+
     /// This handle for what is in the workspace, as `entry` lets its user in; `None`
     /// for a workspace a session does not enter: one its user is no member of, and
     /// one its sign-in does not open.
@@ -252,18 +314,10 @@ impl App {
         let Entry::Session(asker) = entry else {
             return Ok(Some(self.clone()));
         };
-        match self.enter_workspace_as(asker, workspace_id).await {
-            Ok(entered) => Ok(entered.map(|entered| entered.app)),
-            Err(error)
-                if matches!(
-                    error.reason(),
-                    Some(Reason::SsoRequired | Reason::PasswordSignInRequired)
-                ) =>
-            {
-                Ok(None)
-            }
-            Err(error) => Err(error),
-        }
+        Ok(self
+            .enter_workspace_quietly(asker, workspace_id)
+            .await?
+            .map(|entered| entered.app))
     }
 
     /// A page of what the session's user was told, in every organization the session
@@ -290,7 +344,11 @@ impl App {
             let of_blocks: Vec<&StoredNotification> = stored
                 .iter()
                 .filter(|told| {
-                    told.org_id == org_id && told.kind != NotificationKind::MeetingUpcoming
+                    told.org_id == org_id
+                        && !matches!(
+                            told.kind,
+                            NotificationKind::MeetingUpcoming | NotificationKind::AddedToContainer
+                        )
                 })
                 .collect();
             if !of_blocks.is_empty() {
@@ -325,6 +383,30 @@ impl App {
                     .meeting_places_read_by(user_id, Entry::Session(session.into()), &meeting_ids)
                     .await?;
                 for (told, place) in of_meetings.into_iter().zip(read) {
+                    if let Some(place) = place {
+                        places.insert(told.id.as_str(), place);
+                    }
+                }
+            }
+            let of_containers: Vec<&StoredNotification> = stored
+                .iter()
+                .filter(|told| {
+                    told.org_id == org_id && told.kind == NotificationKind::AddedToContainer
+                })
+                .collect();
+            if !of_containers.is_empty() {
+                let container_ids: Vec<&str> = of_containers
+                    .iter()
+                    .map(|told| told.container_id.as_str())
+                    .collect();
+                let read = org_app
+                    .container_places_read_by(
+                        user_id,
+                        Entry::Session(session.into()),
+                        &container_ids,
+                    )
+                    .await?;
+                for (told, place) in of_containers.into_iter().zip(read) {
                     if let Some(place) = place {
                         places.insert(told.id.as_str(), place);
                     }
@@ -454,9 +536,27 @@ fn retry_at(now: i64, attempts: i64) -> i64 {
     now.saturating_add(wait)
 }
 
+const fn search_kind_of_container(kind: ContainerKind) -> SearchKind {
+    match kind {
+        ContainerKind::Board => SearchKind::Card,
+        ContainerKind::Wiki => SearchKind::Page,
+        ContainerKind::Course => SearchKind::Unit,
+        ContainerKind::Diary => SearchKind::Entry,
+    }
+}
+
 /// Whether the person of `event` reads now what it happened in, as anybody they may
 /// come with later ([`Entry::Standing`]). `app` reaches every organization.
 async fn reads_it(app: &App, event: &NotificationEvent) -> Result<bool, AppError> {
+    if event.kind == NotificationKind::AddedToContainer {
+        return Ok(app
+            .in_organization(&event.org_id)?
+            .container_places_read_by(&event.recipient_id, Entry::Standing, &[&event.container_id])
+            .await?
+            .first()
+            .and_then(Option::as_ref)
+            .is_some());
+    }
     let named = Named {
         block_id: &event.block_id,
         source_id: &event.source_id,

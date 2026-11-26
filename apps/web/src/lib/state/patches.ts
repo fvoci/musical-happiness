@@ -160,6 +160,16 @@ export function applyContainerPatch(board: Container, patch: ContainerPatch): Co
     description: patch.description ?? board.description,
     icon: patch.icon ?? board.icon,
     showDescription: patch.showDescription ?? board.showDescription,
+    dueDatePropertyId:
+      patch.dueDatePropertyId === undefined
+        ? board.dueDatePropertyId
+        : (patch.dueDatePropertyId ?? null),
+    doneWhen:
+      patch.doneWhen === undefined
+        ? board.doneWhen
+        : patch.doneWhen === null
+          ? null
+          : structuredClone(patch.doneWhen),
     properties,
     cardProperties,
   };

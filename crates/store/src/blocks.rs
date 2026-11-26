@@ -129,14 +129,7 @@ impl Paging {
     }
 }
 
-/// Whether a duplicate is an ordinary copy or a template.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DuplicateAs {
-    /// An ordinary copy.
-    Copy,
-    /// A template.
-    Template,
-}
+pub use fvoci_model::DuplicateAs;
 
 /// The titles a copy of a board or a wiki is given, in the language of whoever asked
 /// for it. The store has no words of its own: the caller brings them.

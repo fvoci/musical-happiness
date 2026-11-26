@@ -20,7 +20,7 @@ members: leave                              401        404        204        204
 blocks: list                                401        404        200        200        200        200
 blocks: list all                            401        404        200        200        200        200
 blocks: list by parent                      401        404        200        200        200        200
-blocks: insert card                         401        404        403        403        201        201
+blocks: insert card                         401        404        400        400        400        400
 blocks: insert view                         401        404        403        403        201        201
 blocks: insert comment                      401        404        403        201        201        201
 blocks: patch card                          401        404        403        403        204        204

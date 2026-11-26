@@ -88,7 +88,9 @@ fn origin(provider: &StoredProvider) -> LoginOrigin {
 async fn a_session_keeps_its_origin() {
     let test = common::setup().await;
     let user = person(&test, "someone").await;
-    let stored = test
+    let fvoci_store::ProviderPut {
+        provider: stored, ..
+    } = test
         .put_oidc_provider_as_read(
             &provider("https://one.example"),
             None,
@@ -116,7 +118,7 @@ async fn the_providers_sessions_end_with_its_removal_or_its_issuer() {
     let test = common::setup().await;
     let first = person(&test, "first").await;
     let second = person(&test, "second").await;
-    let one = test
+    let fvoci_store::ProviderPut { provider: one, .. } = test
         .put_oidc_provider_as_read(
             &provider("https://one.example"),
             None,
@@ -135,13 +137,13 @@ async fn the_providers_sessions_end_with_its_removal_or_its_issuer() {
 
     let mut same_issuer = provider("https://one.example");
     same_issuer.auto_join = false;
-    let kept = test
+    let fvoci_store::ProviderPut { provider: kept, .. } = test
         .put_oidc_provider_as_read(&same_issuer, Some(&one), &first, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
     let after_the_same_issuer = (alive(&test, &firsts).await, alive(&test, &seconds).await);
-    let two = test
+    let fvoci_store::ProviderPut { provider: two, .. } = test
         .put_oidc_provider_as_read(
             &provider("https://two.example"),
             Some(&kept),
@@ -164,7 +166,7 @@ async fn the_providers_sessions_end_with_its_removal_or_its_issuer() {
     assert_eq!(after_the_same_issuer, (true, true), "the issuer stayed");
     assert_eq!(after_another_issuer, (false, false), "everybody's ended");
     assert!(
-        matches!(&removal, Removal::Removed { provider } if provider.issuer == "https://two.example"),
+        matches!(&removal, Removal::Removed { provider, .. } if provider.issuer == "https://two.example"),
         "{removal:?}"
     );
     assert!(!of_two_after, "ended with the removal");
@@ -182,7 +184,9 @@ async fn unlinking_ends_the_users_sessions_of_that_issuer() {
     let test = common::setup().await;
     let user = person(&test, "linked").await;
     let other = person(&test, "other").await;
-    let stored = test
+    let fvoci_store::ProviderPut {
+        provider: stored, ..
+    } = test
         .put_oidc_provider_as_read(
             &provider("https://one.example"),
             None,
@@ -226,7 +230,7 @@ async fn unlinking_ends_the_users_sessions_of_that_issuer() {
         alive(&test, &someone_elses).await,
     ];
     test.teardown().await;
-    assert_eq!(unlinked, Unlinked::Removed);
+    assert!(matches!(unlinked, Unlinked::Removed(_)));
     assert_eq!(
         alive_after,
         [false, true, true, true],
@@ -241,7 +245,9 @@ async fn unlinking_ends_the_users_sessions_of_that_issuer() {
 async fn unlinking_ends_the_sessions_of_that_identity_only() {
     let test = common::setup().await;
     let user = person(&test, "linked twice").await;
-    let stored = test
+    let fvoci_store::ProviderPut {
+        provider: stored, ..
+    } = test
         .put_oidc_provider_as_read(
             &provider("https://one.example"),
             None,
@@ -288,7 +294,7 @@ async fn unlinking_ends_the_sessions_of_that_identity_only() {
     ];
     let read = test.get_session(&second, T0, 0).await.expect("read");
     test.teardown().await;
-    assert_eq!(unlinked, Unlinked::Removed);
+    assert!(matches!(unlinked, Unlinked::Removed(_)));
     assert_eq!(
         alive_after,
         [false, true, false],
@@ -367,7 +373,9 @@ async fn the_migration_fills_the_origin_or_ends_the_session() {
 async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
     let test = common::setup().await;
     let user = person(&test, "linked").await;
-    let stored = test
+    let fvoci_store::ProviderPut {
+        provider: stored, ..
+    } = test
         .put_oidc_provider_as_read(
             &provider("https://one.example"),
             None,
@@ -382,12 +390,12 @@ async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
         subject: "subject",
     };
     test.add_identity(&user, identity, "").await.expect("tied");
-    assert_eq!(
+    assert!(matches!(
         test.unlink_identity(&user, HASH, identity)
             .await
             .expect("asked"),
-        Unlinked::Removed
-    );
+        Unlinked::Removed(_)
+    ));
     let mut session = Session {
         id: new_id(),
         created_at: T0,
@@ -423,7 +431,9 @@ async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
 async fn a_change_of_what_signing_in_takes_raises_the_revision() {
     let test = common::setup().await;
     let user = person(&test, "admin").await;
-    let first = test
+    let fvoci_store::ProviderPut {
+        provider: first, ..
+    } = test
         .put_oidc_provider_as_read(
             &provider("https://one.example"),
             None,
@@ -451,11 +461,14 @@ async fn a_change_of_what_signing_in_takes_raises_the_revision() {
             .put_oidc_provider_as_read(&next, Some(&read), &user, Duration::ZERO)
             .await
             .expect("stored")
-            .expect("as read");
+            .expect("as read")
+            .provider;
         revisions.push(read.revision);
     }
     next.sso_required = true;
-    let enforced = test
+    let fvoci_store::ProviderPut {
+        provider: enforced, ..
+    } = test
         .put_oidc_provider_as_read(&next, Some(&read), &user, Duration::ZERO)
         .await
         .expect("stored")

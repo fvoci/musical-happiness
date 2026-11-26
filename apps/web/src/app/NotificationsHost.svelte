@@ -75,14 +75,25 @@
 
   function placeOf({ subject }: Notification): Place | undefined {
     if (!subject) return undefined;
-    const { blockKind, blockId: id, containerId, workspaceId, title, kind: notifKind } = subject;
+    const {
+      blockKind,
+      blockId: id,
+      containerId,
+      containerKind,
+      workspaceId,
+      title,
+      kind: notifKind,
+    } = subject;
+    if (notifKind === 'added_to_container' || id === '') {
+      return { kind: 'container', id: '', containerId, containerKind, workspaceId, title };
+    }
     const kind =
       notifKind === 'meeting_upcoming'
         ? 'meeting'
         : notifKind === 'review_due'
           ? 'unit'
           : blockKind;
-    return { kind, id, containerId, workspaceId, title };
+    return { kind, id, containerId, containerKind, workspaceId, title };
   }
 
   function hrefOf(notification: Notification): string {

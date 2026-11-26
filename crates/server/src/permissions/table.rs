@@ -8,7 +8,7 @@ use super::ContainerPermission::{
     CommentCards, Delete, Join, ListMembers, ManageCards, ManageOthersComments, ManageProperties,
     ManageRoles, ManageType, See, Share, View,
 };
-use super::ContainerScope::{BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate};
+use super::ContainerScope::{BuiltIn, InvitedOnly, InvitedOnlyTemplate, OpenTemplate, OpenToRead};
 use super::{
     Actor, ContainerFacts, ContainerPermission, ContainerScope, DocMode, Grant, doc_mode, grant,
     highest_container_role,
@@ -115,7 +115,7 @@ const ROWS: &[Row] = &[
     row(
         "a role is the same on an open board",
         MEMBER,
-        Open,
+        OpenToRead,
         Some(ContainerRole::Viewer),
         &[See, View, ListMembers, Join],
     ),
@@ -127,7 +127,13 @@ const ROWS: &[Row] = &[
         None,
         NOTHING,
     ),
-    row("a stranger: no open board", STRANGER, Open, None, NOTHING),
+    row(
+        "a stranger: no open board",
+        STRANGER,
+        OpenToRead,
+        None,
+        NOTHING,
+    ),
     row(
         "a stranger: no open template",
         STRANGER,
@@ -142,13 +148,13 @@ const ROWS: &[Row] = &[
         Some(ContainerRole::Admin),
         NOTHING,
     ),
-    // Whoever works in the workspace sees its open boards, and joins them to read.
+    // Whoever works in the workspace reads and may join its open boards.
     row(
-        "a member sees and joins an open board",
+        "a member reads and may join an open board",
         MEMBER,
-        Open,
+        OpenToRead,
         None,
-        &[See, Join],
+        &[See, Join, View, ListMembers],
     ),
     row(
         "a member: no invited-only board",
@@ -201,7 +207,7 @@ const ROWS: &[Row] = &[
         NOTHING,
     ),
     // A guest sees the boards they were invited to, one by one, as no more than an editor.
-    row("a guest: no open board", GUEST, Open, None, NOTHING),
+    row("a guest: no open board", GUEST, OpenToRead, None, NOTHING),
     row(
         "a guest: no open template",
         GUEST,
@@ -233,7 +239,7 @@ const ROWS: &[Row] = &[
     row(
         "a guest on an open board is no more than invited",
         GUEST,
-        Open,
+        OpenToRead,
         Some(ContainerRole::Editor),
         EDITOR,
     ),
@@ -269,11 +275,11 @@ const ROWS: &[Row] = &[
         MANAGE,
     ),
     row(
-        "a workspace admin manages an open board and may join it",
+        "a workspace admin reads, manages and may join an open board",
         WORKSPACE_ADMIN,
-        Open,
+        OpenToRead,
         None,
-        &[See, Join, ListMembers, ManageRoles, Delete],
+        &[See, Join, View, ListMembers, ManageRoles, Delete],
     ),
     row(
         "a workspace admin reads an open template",
@@ -308,7 +314,7 @@ const ROWS: &[Row] = &[
     row(
         "an org admin outside the workspace: nothing",
         ORG_ADMIN_ONLY,
-        Open,
+        OpenToRead,
         None,
         NOTHING,
     ),
@@ -322,9 +328,9 @@ const ROWS: &[Row] = &[
     row(
         "an org admin in the workspace is what the workspace role is",
         ORG_ADMIN_IN_WORKSPACE,
-        Open,
+        OpenToRead,
         None,
-        &[See, Join],
+        &[See, Join, View, ListMembers],
     ),
     row(
         "an org admin outside the workspace manages none of its boards",
@@ -360,7 +366,7 @@ const ROWS: &[Row] = &[
     row(
         "removed: an open board is gone",
         REMOVED,
-        Open,
+        OpenToRead,
         Some(ContainerRole::Editor),
         NOTHING,
     ),
@@ -419,7 +425,7 @@ fn who_only_manages_a_board_is_told_its_content_is_not_there() {
         WORKSPACE_ADMIN,
         ContainerFacts {
             team_role: None,
-            scope: Open,
+            scope: OpenToRead,
             role: None,
         },
     );
@@ -449,7 +455,7 @@ fn who_only_manages_a_board_is_told_its_content_is_not_there() {
 
 #[test]
 fn the_trash_is_open_to_nobody() {
-    assert_eq!(Open.in_the_trash(), IN_THE_TRASH);
+    assert_eq!(OpenToRead.in_the_trash(), IN_THE_TRASH);
     assert_eq!(OpenTemplate.in_the_trash(), InvitedOnlyTemplate);
     assert_eq!(InvitedOnly.in_the_trash(), InvitedOnly);
 }
@@ -849,8 +855,14 @@ const ROOM_ROWS: &[RoomRow] = &[
         None,
         READ,
     ),
-    // To see an open board is not to read it: one joins it first.
-    room("a member who has not joined", MEMBER, Open, None, None),
+    // Whoever works in the workspace reads an open board in its rooms without joining.
+    room(
+        "a member who has not joined reads",
+        MEMBER,
+        OpenToRead,
+        None,
+        READ,
+    ),
     room(
         "a member: no invited-only board",
         MEMBER,
@@ -858,7 +870,7 @@ const ROOM_ROWS: &[RoomRow] = &[
         None,
         None,
     ),
-    room("a guest who was not invited", GUEST, Open, None, None),
+    room("a guest who was not invited", GUEST, OpenToRead, None, None),
     // To manage a board is not to read it.
     room(
         "a workspace admin who only manages",
@@ -870,7 +882,7 @@ const ROOM_ROWS: &[RoomRow] = &[
     room(
         "an organization's admin outside the workspace",
         ORG_ADMIN_ONLY,
-        Open,
+        OpenToRead,
         None,
         None,
     ),
@@ -882,7 +894,7 @@ const ROOM_ROWS: &[RoomRow] = &[
         Some(ContainerRole::Admin),
         None,
     ),
-    room("a stranger", STRANGER, Open, None, None),
+    room("a stranger", STRANGER, OpenToRead, None, None),
     room(
         "a stranger with a stored role",
         STRANGER,

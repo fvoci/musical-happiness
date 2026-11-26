@@ -13,11 +13,11 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::audit::AuditActor;
-use crate::db::{Dialect, Id, Param, Row, Scope, Sql};
+use crate::db::{Dialect, Id, InstanceHeld, LockRank, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::password_reset;
 use crate::person_names;
-use crate::sessions;
+use crate::sessions::{self, PasswordSet, SessionsEnded};
 use crate::{directory, members, users_by_id};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
@@ -74,7 +74,7 @@ pub(crate) const WAITS: &str = "delete_after > 0 AND erase_started_at = 0";
 /// The columns of `user_settings` read for [`UserSettings`].
 const USER_SETTINGS_COLUMNS: &str = "language, theme, density, card_open, haptics, week_start, \
                                      hour_cycle, time_zone, notify_mentions, notify_assignments, \
-                                     notify_comments";
+                                     notify_comments, notify_due";
 
 impl Store {
     /// Returns the number of users that are not deleted.
@@ -339,7 +339,7 @@ impl Store {
         password_hash: &str,
         kept_session_id: &str,
         kept_session_token_digest: &str,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<Option<SessionsEnded>, StoreError> {
         // A first password changes which sessions the account's own space takes
         // (`SessionTaken::of_space`): what was read of that is read again.
         let space = if seen_password_hash.is_empty() {
@@ -356,16 +356,17 @@ impl Store {
                 .push_bind(" AND password_hash = ", seen_password_hash)
                 .push_bind(" AND password_locked_at = ", 0_i64);
             if scope.execute(sql).await? == 0 {
-                return Ok(false);
+                return Ok(None);
             }
             if let Some(space) = &space {
                 scope.invalidate_visibility_of(space)?;
             }
-            sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await?;
+            let ended =
+                sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await?;
             sessions::replace_token_digest(scope, kept_session_id, kept_session_token_digest)
                 .await?;
             password_reset::end_links_of_user(scope, user_id).await?;
-            Ok(true)
+            Ok(Some(ended))
         })
         .await
     }
@@ -763,6 +764,7 @@ pub(crate) async fn lock_password(
 ///
 /// Returns [`StoreError::UserNotFound`] if there is no such user.
 pub(crate) async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+    scope.record_lock(LockRank::Users, user_id);
     let mut sql = scope.sql("SELECT id FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
     if scope.dialect() == Dialect::Postgres {
@@ -775,13 +777,13 @@ pub(crate) async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<()
 }
 
 /// Holds the user's row (`FOR NO KEY UPDATE` on PostgreSQL) regardless of `deleted_at`,
-/// so cleanup on organization departure or guest removal serializes with concurrent
-/// per-user `time_entries` writes (`lock_user` / `hold_in_use`) without deadlocking
-/// against the `organizations -> workspaces -> containers -> users` lock order.
+/// serializing cleanup on organization departure or guest removal with concurrent
+/// per-user writes.
 pub(crate) async fn hold_user_for_cleanup(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<(), StoreError> {
+    scope.record_lock(LockRank::Users, user_id);
     if scope.dialect() == Dialect::Postgres {
         let mut sql = scope.sql("SELECT id FROM users WHERE id = ");
         sql.bind(Id(user_id)).push(" FOR NO KEY UPDATE");
@@ -794,6 +796,7 @@ pub(crate) async fn hold_user_for_cleanup(
 /// ends, and says whether it is in use: an asking to delete it waits for this, or
 /// this finds it asked.
 pub(crate) async fn hold_in_use(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+    scope.record_lock(LockRank::Users, user_id);
     let mut sql = scope.sql("SELECT id FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
     if scope.dialect() == Dialect::Postgres {
@@ -816,27 +819,29 @@ pub(crate) async fn has_password(scope: &mut Scope<'_>, user_id: &str) -> Result
 /// Holds the instance's row to the end of the transaction: the changes of who
 /// administers the instance are made one at a time. On SQLite a transaction that writes
 /// holds the whole database.
-pub(crate) async fn lock_instance(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+pub(crate) async fn lock_instance<'c>(
+    scope: &mut Scope<'c>,
+) -> Result<InstanceHeld<'c>, StoreError> {
+    scope.record_lock(LockRank::Instance, "1");
     let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
     scope.fetch_optional(sql).await?;
-    Ok(())
+    Ok(InstanceHeld::new())
 }
 
 /// Makes the user an administrator of the instance if `role` is the organization's
 /// administrator, and ends that otherwise, unless they are its last administrator: then
-/// nothing changes and the answer is `false`. The caller holds the instance's row
-/// ([`lock_instance`]).
-pub(crate) async fn follow_org_role(
-    scope: &mut Scope<'_>,
+/// nothing changes and the answer is `false`.
+pub(crate) async fn follow_org_role<'c>(
+    scope: &mut Scope<'c>,
+    _held: InstanceHeld<'c>,
     user_id: &str,
     role: OrgRole,
 ) -> Result<bool, StoreError> {
     let is_admin = role == OrgRole::Admin;
     if !is_admin {
-        // Who does not administer the instance has nothing to stop.
         let mut sql = scope.sql("SELECT 1 FROM users WHERE is_admin = ");
         sql.bind(true).push_bind(" AND id = ", Id(user_id));
         if scope.fetch_optional(sql).await?.is_none() {
@@ -861,7 +866,7 @@ pub(crate) async fn follow_org_role(
 }
 
 /// Sets the password hash of the user with the given name, in any letter case, and
-/// deletes their sessions; returns the identifier of that user.
+/// deletes their sessions; returns that user and the sessions that ended.
 ///
 /// # Errors
 ///
@@ -870,7 +875,7 @@ pub(crate) async fn reset_password(
     scope: &mut Scope<'_>,
     username: &str,
     password_hash: &str,
-) -> Result<String, StoreError> {
+) -> Result<PasswordSet, StoreError> {
     let lookup = Lookup::Username(username);
     update_password(scope, lookup, password_hash).await?;
     let mut sql = scope.sql("SELECT id FROM users WHERE ");
@@ -880,7 +885,7 @@ pub(crate) async fn reset_password(
         .await?
         .ok_or_else(|| StoreError::UserNotFound(username.to_owned()))?;
     let user_id = row.id(0)?;
-    sessions::delete_sessions_of_user(scope, &user_id).await?;
+    let ended = sessions::delete_sessions_of_user(scope, &user_id).await?;
     password_reset::end_links_of_user(scope, &user_id).await?;
-    Ok(user_id)
+    Ok(PasswordSet { user_id, ended })
 }

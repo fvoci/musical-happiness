@@ -47,18 +47,16 @@ async fn board_with_previewed_card(th: &TestServer) -> (Container, String, Strin
         {"type": "image", "attrs": {"fileId": later_id}},
         paragraph("more"),
     ]});
-    let with_body = json!({"id": new_id(), "containerId": board.id, "type": "card", "title": "with",
-                           "createdAt": 1, "updatedAt": 1, "body": body,
-                           "fields": {"properties": {"owner": me.id}}});
-    let without = json!({"id": new_id(), "containerId": board.id, "type": "card", "title": "without",
-                         "createdAt": 1, "updatedAt": 1});
-    th.client
-        .post(
-            &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &[with_body, without],
-        )
-        .await
-        .check_created();
+    let _ = new_id();
+    for card in [
+        json!({"title": "with", "body": body, "properties": {"owner": me.id}}),
+        json!({"title": "without"}),
+    ] {
+        th.client
+            .post(&cards_path(&board.id), &card)
+            .await
+            .check_created();
+    }
     (board, file_id, me.id)
 }
 

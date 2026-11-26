@@ -6,7 +6,7 @@
  */
 
 /** What a notification tells of. */
-export type NotificationKind = 'mention' | 'assignment' | 'comment';
+export type NotificationKind = 'mention' | 'assignment' | 'comment' | 'due_soon';
 
 export interface NotifySettings {
   /** Somebody mentioned the reader. */
@@ -15,12 +15,15 @@ export interface NotifySettings {
   notifyAssignments: boolean;
   /** Somebody commented on what the reader watches. */
   notifyComments: boolean;
+  /** A card assigned to the reader is due today or soon. */
+  notifyDue: boolean;
 }
 
 export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
   notifyMentions: true,
   notifyAssignments: true,
   notifyComments: true,
+  notifyDue: true,
 };
 
 /** The switch of each kind, in the order the settings show them. */
@@ -29,6 +32,7 @@ export const NOTIFY_SWITCHES: readonly { kind: NotificationKind; setting: keyof 
     { kind: 'mention', setting: 'notifyMentions' },
     { kind: 'assignment', setting: 'notifyAssignments' },
     { kind: 'comment', setting: 'notifyComments' },
+    { kind: 'due_soon', setting: 'notifyDue' },
   ];
 
 /**
@@ -46,6 +50,7 @@ export function readNotifySettings(stored: unknown): NotifySettings {
     notifyMentions: on('notifyMentions'),
     notifyAssignments: on('notifyAssignments'),
     notifyComments: on('notifyComments'),
+    notifyDue: on('notifyDue'),
   };
 }
 

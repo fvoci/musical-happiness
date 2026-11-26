@@ -125,10 +125,9 @@ async fn guests_cannot_see_or_join_teams_and_promoting_restores_no_membership() 
         .get(&item)
         .await
         .check_status(StatusCode::NOT_FOUND);
-    th.client
-        .put(&membership, &json!({}))
-        .await
-        .check_status(StatusCode::NOT_FOUND);
+    let guest_add = th.client.put(&membership, &json!({})).await;
+    guest_add.check_status(StatusCode::CONFLICT);
+    assert_eq!(guest_add.error_reason(), "guest_cannot_join_team");
     th.client
         .put(&format!("{item}/members/{UNKNOWN_ID}"), &json!({}))
         .await

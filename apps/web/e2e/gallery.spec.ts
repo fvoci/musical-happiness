@@ -31,7 +31,7 @@ async function columns(page: Page): Promise<number> {
 
 test('the cards of the view stand in a grid, in the order of the view', async ({ page }, info) => {
   await openView(page, info, ...WELCOME);
-  await expect(cards(page)).toHaveCount(9);
+  await expect(cards(page)).toHaveCount(12);
   const expected = await page.evaluate((id) => {
     const { workspace } = (
       window as unknown as {
@@ -91,9 +91,9 @@ test('"+ New" makes a card and opens it', async ({ page }, info) => {
   await expect(dialog(page)).toBeVisible();
   await page.goBack();
   await expect(dialog(page)).toBeHidden();
-  await expect(cards(page)).toHaveCount(10);
+  await expect(cards(page)).toHaveCount(13);
   await undo(page);
-  await expect(cards(page)).toHaveCount(9);
+  await expect(cards(page)).toHaveCount(12);
 });
 
 test('the menu of a card duplicates and deletes it, and has nothing about columns', async ({
@@ -106,7 +106,7 @@ test('the menu of a card duplicates and deletes it, and has nothing about column
   await expect(page.locator('[data-action="select"]')).toHaveCount(0);
   await choose(page, 'duplicate');
   await expect(card(page, 'Open a card')).toHaveCount(2);
-  await expect(cards(page)).toHaveCount(10);
+  await expect(cards(page)).toHaveCount(13);
 
   await page.getByRole('button', { name: 'Card menu: Filter, sort and group' }).click();
   await choose(page, 'delete');
@@ -188,7 +188,7 @@ test.describe('screens', () => {
       await page.emulateMedia({ colorScheme: scheme });
       await openView(page, info, ...WELCOME);
       await expect(boardPage(page)).toBeVisible();
-      await expect(cards(page)).toHaveCount(9);
+      await expect(cards(page)).toHaveCount(12);
       await page.screenshot({ path: `${screensDir('gallery')}/gallery-${stage}-${scheme}.png` });
     });
   }

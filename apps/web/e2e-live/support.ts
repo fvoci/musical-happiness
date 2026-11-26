@@ -14,7 +14,14 @@ import { request as httpRequest } from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { expect, request, type APIRequestContext, type Browser, type Page } from '@playwright/test';
+import {
+  expect,
+  request,
+  type APIRequestContext,
+  type Browser,
+  type Page,
+  type Response,
+} from '@playwright/test';
 
 import { addressOf, placeOf } from '../e2e/address.ts';
 import { screensDir } from '../e2e/screens.ts';
@@ -53,6 +60,19 @@ export function boardPath(
 }
 
 export { placeOf };
+
+/**
+ * Whether `answer` is the server's 201 to making a board from "Add board": an empty
+ * board is made by `POST /w/{workspaceId}/boards` with the board's first properties
+ * and view (`scaffold`), not with the blocks of `/containers-and-blocks`.
+ */
+export function madeABoard(answer: Response): boolean {
+  return (
+    answer.request().method() === 'POST' &&
+    /\/api\/v1\/w\/[^/]+\/boards$/.test(new URL(answer.url()).pathname) &&
+    answer.status() === 201
+  );
+}
 
 /** A client of the API, signed in as nobody yet. */
 export async function apiClient(baseURL: string): Promise<APIRequestContext> {

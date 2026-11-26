@@ -68,7 +68,7 @@ async fn an_administrator(store: &Store, name: &str) -> User {
 
 async fn enforced(store: &Store, pending_issuer: &str) -> Enforced {
     let admin = an_administrator(store, "admin").await;
-    let provider = store
+    let fvoci_store::ProviderPut { provider, .. } = store
         .put_oidc_provider_as_read(&provider(ONE, "one"), None, &admin.id, Duration::ZERO)
         .await
         .expect("asked")

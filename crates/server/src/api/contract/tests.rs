@@ -200,8 +200,8 @@ fn an_answer_has_every_member_and_a_patch_needs_none() {
         board["required"].as_array().map(Vec::len),
         board["properties"]
             .as_object()
-            .map(|members| members.len() - 1),
-        "every member of a board but deletedAt is always there"
+            .map(|members| members.len() - 3),
+        "every member of a board but deletedAt, dueDatePropertyId and doneWhen is always there"
     );
     assert_eq!(
         schemas["ContainerPatch"]["required"],
@@ -549,6 +549,8 @@ const ORDERS: &[(&str, &str)] = &[
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
     ("getCardBodyVersions", "The newest first"),
+    ("getCardCommentVersions", "the first one first"),
+    ("getCardComments", "oldest first"),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),

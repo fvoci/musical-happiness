@@ -13,7 +13,7 @@ use fvoci_model::{
 };
 
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Dialect, Id, OptId, Row, Scope};
+use crate::db::{Dialect, Id, LockRank, OptId, OrganizationHeld, Row, Scope};
 use crate::error::{StoreError, Taken};
 use crate::trash::{self, Purged, Trashed};
 use crate::{Paging, Store, directory, joinings, person_names, users, workspaces};
@@ -78,12 +78,15 @@ impl Store {
         actor_id: &str,
     ) -> Result<Organization, StoreError> {
         self.transaction(async |scope| {
-            let before = held_by_admin(scope, actor_id).await?;
+            let (before, _) = held_by_admin(scope, actor_id).await?;
             let changes_public_links = patch
                 .public_links
                 .is_some_and(|on| on != before.public_links);
+            let changes_allow_copy_out = patch
+                .allow_copy_out
+                .is_some_and(|on| on != before.allow_copy_out);
             let mut sql = scope.sql("UPDATE organizations SET updated_at = ");
-            if !changes_public_links {
+            if !changes_public_links && !changes_allow_copy_out {
                 sql.changing_no_access();
             }
             sql.bind(scope.now_millis());
@@ -93,23 +96,55 @@ impl Store {
             if let Some(public_links) = patch.public_links {
                 sql.push_bind(", public_links = ", public_links);
             }
+            if let Some(allow_copy_out) = patch.allow_copy_out {
+                sql.push_bind(", allow_copy_out = ", allow_copy_out);
+            }
             sql.push_bind(" WHERE id = ", scope.org()?);
             scope.execute(sql).await?;
-            match patch.public_links {
-                Some(on) if on != before.public_links => {
-                    let action = if on {
-                        AuditAction::PublicLinksEnabled
-                    } else {
-                        AuditAction::PublicLinksDisabled
-                    };
-                    let entry = AuditEntry::new("", actor_id, action, &before.id);
-                    audit::record_entry(scope, &entry).await?;
-                }
-                _ => {}
+            if let Some(on) = patch.public_links
+                && on != before.public_links
+            {
+                let action = if on {
+                    AuditAction::PublicLinksEnabled
+                } else {
+                    AuditAction::PublicLinksDisabled
+                };
+                let entry = AuditEntry::new("", actor_id, action, &before.id);
+                audit::record_entry(scope, &entry).await?;
+            }
+            if let Some(on) = patch.allow_copy_out
+                && on != before.allow_copy_out
+            {
+                let action = if on {
+                    AuditAction::CopyOutEnabled
+                } else {
+                    AuditAction::CopyOutDisabled
+                };
+                let entry = AuditEntry::new("", actor_id, action, &before.id);
+                audit::record_entry(scope, &entry).await?;
             }
             organization(scope).await
         })
         .await
+    }
+
+    /// Records in the handle's organization's audit log that `actor_id` copied
+    /// `container_id` out to another organization or personal space (`detail`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
+    /// [`StoreError::Database`] if the statement fails.
+    pub async fn record_container_copied_out(
+        &self,
+        actor_id: &str,
+        container_id: &str,
+        detail: &str,
+    ) -> Result<(), StoreError> {
+        let entry = AuditEntry::new("", actor_id, AuditAction::ContainerCopiedOut, container_id)
+            .with_detail(detail);
+        self.with_write_conn(async |scope| audit::record_entry(scope, &entry).await)
+            .await
     }
 
     /// One page of the members of the handle's organization, the oldest member first:
@@ -175,9 +210,9 @@ impl Store {
         self.transaction(async |scope| {
             // The instance's row first, as a change of who administers the instance
             // takes it: the two are one role for now (`members::follow_instance_role`).
-            users::lock_instance(scope).await?;
+            let held_instance = users::lock_instance(scope).await?;
             let the_instances = directory::is_the_instances_organization(scope).await?;
-            let org = held_by_admin(scope, actor_id).await?;
+            let (org, _) = held_by_admin(scope, actor_id).await?;
             let Some(current) = org_role_of(scope, user_id).await? else {
                 return Ok(OrgRoleChange::NotAMember);
             };
@@ -192,7 +227,8 @@ impl Store {
             // administers the instance, and who stops does not, or they would make
             // themselves, or anybody, its administrator again past this log. Of
             // another organization, a role is that organization's alone.
-            if the_instances && !users::follow_org_role(scope, user_id, role).await? {
+            if the_instances && !users::follow_org_role(scope, held_instance, user_id, role).await?
+            {
                 return Ok(OrgRoleChange::LastAdmin);
             }
             let actor = AuditActor::Person(actor_id.to_owned());
@@ -317,7 +353,7 @@ impl Store {
         actor_id: &str,
     ) -> Result<WorkspaceTrashing, StoreError> {
         self.transaction(async |scope| {
-            let org = held_by_admin(scope, actor_id).await?;
+            let (org, _) = held_by_admin(scope, actor_id).await?;
             if org.default_workspace_id == workspace_id {
                 return Ok(WorkspaceTrashing::Default);
             }
@@ -390,8 +426,9 @@ impl Store {
             // The organization's first, as deleting a board takes it before the board's:
             // with a joining of the workspace that ends meanwhile (`joinings`). Its row
             // alone: an organization no longer in use still has its trash emptied.
-            hold_organization_row(scope).await?;
+            let held_org = hold_organization_row(scope).await?;
             // Held against a restoration under way, which then finds nothing to restore.
+            scope.record_lock(LockRank::Workspace, workspace_id);
             let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
             sql.bind(Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
@@ -403,7 +440,7 @@ impl Store {
             if scope.fetch_optional(sql).await?.is_none() {
                 return Ok(Purged::default());
             }
-            remove_workspace(scope, workspace_id).await
+            remove_workspace(scope, held_org, workspace_id).await
         })
         .await
     }
@@ -508,8 +545,10 @@ impl Store {
 
 /// The handle's organization as it is stored.
 async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
-    let mut sql = scope
-        .sql("SELECT id, name, public_links, default_workspace_id FROM organizations WHERE id = ");
+    let mut sql = scope.sql(
+        "SELECT id, name, public_links, allow_copy_out, default_workspace_id \
+         FROM organizations WHERE id = ",
+    );
     sql.bind(scope.org()?)
         .push(" AND deleted_at IS NULL AND is_system = false");
     let row = scope
@@ -520,7 +559,8 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
         id: row.id(0)?,
         name: row.text(1)?,
         public_links: row.bool(2)?,
-        default_workspace_id: row.id(3)?,
+        allow_copy_out: row.bool(3)?,
+        default_workspace_id: row.id(4)?,
     })
 }
 
@@ -557,10 +597,10 @@ pub(crate) async fn change_org_role(
 /// Removes a workspace of the scope's organization for good, and everything in it, as
 /// [`Store::purge_workspace`] says: each of its boards goes into the trash and from
 /// there for good with those that were in it, their files doomed, and its categories,
-/// its members and its audit log go with it. The caller holds the organization's row
-/// and the workspace's.
-pub(crate) async fn remove_workspace(
-    scope: &mut Scope<'_>,
+/// its members and its audit log go with it.
+pub(crate) async fn remove_workspace<'c>(
+    scope: &mut Scope<'c>,
+    _held: OrganizationHeld<'c>,
     workspace_id: &str,
 ) -> Result<Purged, StoreError> {
     let mut sql = scope.sql("SELECT id FROM containers WHERE workspace_id = ");
@@ -592,16 +632,22 @@ pub(crate) async fn remove_workspace(
 /// Holds the handle's organization's row ([`hold_organization_row`]) and reads it:
 /// [`StoreError::NotFound`] if it is not in use. A job that must also work on an
 /// organization no longer in use, as emptying its trash does, holds the row alone.
-pub(crate) async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
-    hold_organization_row(scope).await?;
-    organization(scope).await
+pub(crate) async fn lock_organization<'c>(
+    scope: &mut Scope<'c>,
+) -> Result<(Organization, OrganizationHeld<'c>), StoreError> {
+    let held = hold_organization_row(scope).await?;
+    Ok((organization(scope).await?, held))
 }
 
 /// Holds the handle's organization's row to the end of the transaction, whether it is
 /// in use or not: the changes of who administers it, of its workspaces and of the
 /// boards they hold, are made one at a time. On SQLite a transaction that writes holds
 /// the whole database.
-pub(crate) async fn hold_organization_row(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+pub(crate) async fn hold_organization_row<'c>(
+    scope: &mut Scope<'c>,
+) -> Result<OrganizationHeld<'c>, StoreError> {
+    let org_key = scope.org_id().unwrap_or_default();
+    scope.record_lock(LockRank::Organization, &org_key);
     let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
     sql.bind(scope.org()?);
     // Not FOR UPDATE: what refers to the organization (a member, a workspace, a record)
@@ -610,16 +656,19 @@ pub(crate) async fn hold_organization_row(scope: &mut Scope<'_>) -> Result<(), S
         sql.push(" FOR NO KEY UPDATE");
     }
     scope.fetch_optional(sql).await?;
-    Ok(())
+    Ok(OrganizationHeld::new())
 }
 
 /// Holds the handle's organization's row as [`lock_organization`] does, for a change
 /// `actor_id` makes as its administrator: one who stopped being one meanwhile changes
 /// nothing, as if the organization were not there.
-async fn held_by_admin(scope: &mut Scope<'_>, actor_id: &str) -> Result<Organization, StoreError> {
-    let org = lock_organization(scope).await?;
+async fn held_by_admin<'c>(
+    scope: &mut Scope<'c>,
+    actor_id: &str,
+) -> Result<(Organization, OrganizationHeld<'c>), StoreError> {
+    let (org, held) = lock_organization(scope).await?;
     if org_role_of(scope, actor_id).await? == Some(OrgRole::Admin) {
-        Ok(org)
+        Ok((org, held))
     } else {
         Err(StoreError::not_found("organization"))
     }
@@ -632,7 +681,7 @@ pub(crate) async fn still_workspace_admin(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<bool, StoreError> {
-    lock_organization(scope).await?;
+    let _ = lock_organization(scope).await?;
     Ok(matches!(
         membership(scope, workspace_id, user_id).await?,
         Some((WorkspaceRole::Admin, _))

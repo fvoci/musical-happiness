@@ -98,7 +98,26 @@ export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceI
   return workspaces.map(workspaceOf);
 }
 
+function doneWhenOf(raw: Schemas['Container']['doneWhen']): Container['doneWhen'] {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (raw.optionIds && raw.optionIds.length > 0) {
+    return { kind: 'option', propertyId: raw.propertyId, optionIds: raw.optionIds };
+  }
+  return { kind: 'checkbox', propertyId: raw.propertyId };
+}
+
+function wireDoneWhen(rule: ContainerPatch['doneWhen']): Schemas['ContainerPatch']['doneWhen'] {
+  if (rule === undefined) return undefined;
+  if (rule === null) return null;
+  if (rule.kind === 'option') {
+    return { propertyId: rule.propertyId, optionIds: rule.optionIds };
+  }
+  return { propertyId: rule.propertyId, optionIds: [] };
+}
+
 export function containerOf(board: Schemas['Container']): Container {
+  const doneWhen = doneWhenOf(board.doneWhen);
   return {
     id: board.id,
     workspaceId: board.workspaceId,
@@ -116,6 +135,10 @@ export function containerOf(board: Schemas['Container']): Container {
     templateVersion: board.templateVersion,
     properties: board.properties as Container['properties'],
     cardProperties: board.cardProperties,
+    ...(board.dueDatePropertyId === undefined
+      ? {}
+      : { dueDatePropertyId: board.dueDatePropertyId }),
+    ...(doneWhen === undefined ? {} : { doneWhen }),
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
     ...(board.deletedAt === undefined ? {} : { deletedAt: board.deletedAt }),
@@ -366,8 +389,6 @@ export function newBoardAndViewOf(
         type: 'view',
         title: firstView.title,
         fields: firstView.fields,
-        createdAt: 1,
-        updatedAt: 1,
       },
     ],
   };
@@ -379,16 +400,18 @@ export function newBoardAndViewOf(
  * would refuse it.
  */
 export function containerPatchOf(patch: ContainerPatch): Schemas['ContainerPatch'] {
-  const { minimumRole, updatedCardProperties, ...rest } = patch;
+  const { minimumRole, updatedCardProperties, doneWhen, ...rest } = patch;
   if (minimumRole === '' || minimumRole === 'admin') {
     throw new BackendError(400, {
       detail: 'no such minimum role',
       errors: [refusedMember('minimumRole', 'no such minimum role')],
     });
   }
+  const wiredDoneWhen = wireDoneWhen(doneWhen);
   return {
     ...rest,
     ...(minimumRole === undefined ? {} : { minimumRole }),
     ...(updatedCardProperties === undefined ? {} : { updatedCardProperties }),
+    ...(wiredDoneWhen === undefined ? {} : { doneWhen: wiredDoneWhen }),
   };
 }

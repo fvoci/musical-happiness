@@ -39,13 +39,34 @@ pub(crate) fn check(
         })
     };
     let moves = existing.is_none_or(|existing| existing.parent_id != block.parent_id);
+    if !moves {
+        return Ok(());
+    }
     let is_comment = block.block_type == BlockType::Comment;
     let on_its_place = parent_type.copied().is_some_and(BlockType::takes_comments);
-    if is_comment && moves && !on_its_place {
+    if is_comment && !on_its_place {
         return refuse(BlockError::CommentNotOnCardOrPage);
     }
-    if moves && parent_type == Some(&BlockType::Comment) {
+    if parent_type == Some(&BlockType::Comment) {
         return refuse(BlockError::ParentIsComment);
+    }
+    if block.block_type == BlockType::View && !block.parent_id.is_empty() {
+        return refuse(BlockError::ViewBelowBlock);
+    }
+    if block.block_type == BlockType::Card
+        && let Some(parent) = parent_type
+        && *parent != BlockType::Card
+    {
+        return refuse(BlockError::CardNotBelowCard);
+    }
+    if parent_type == Some(&BlockType::View) {
+        return refuse(BlockError::ParentIsView);
+    }
+    if block.block_type == BlockType::Attachment && parent_type != Some(&BlockType::Card) {
+        return refuse(BlockError::AttachmentNotOnCard);
+    }
+    if parent_type == Some(&BlockType::Attachment) {
+        return refuse(BlockError::ParentIsAttachment);
     }
     Ok(())
 }
@@ -61,6 +82,14 @@ pub(crate) fn restore_refusal(
         Some(BlockError::CommentNotOnCardOrPage)
     } else if parent_type == Some(BlockType::Comment) {
         Some(BlockError::ParentIsComment)
+    } else if block_type == BlockType::View && parent_type.is_some() {
+        Some(BlockError::ViewBelowBlock)
+    } else if parent_type == Some(BlockType::View) {
+        Some(BlockError::ParentIsView)
+    } else if block_type == BlockType::Attachment && parent_type != Some(BlockType::Card) {
+        Some(BlockError::AttachmentNotOnCard)
+    } else if parent_type == Some(BlockType::Attachment) {
+        Some(BlockError::ParentIsAttachment)
     } else {
         None
     }

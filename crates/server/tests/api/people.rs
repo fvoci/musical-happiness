@@ -415,29 +415,36 @@ async fn leave_every_workspace(th: &TestServer, user_id: &str) {
     }
 }
 
-/// An open board is read by who joins it: who left after writing on one is named to its
-/// members, and to nobody who works in the workspace without having joined it.
+/// An open board is read without joining by whoever works in the workspace (and by no
+/// uninvited guest), while a private board names who left only to its members.
 #[tokio::test]
 async fn who_left_is_named_on_an_open_board_to_its_members_only() {
     let th = Setup::native().start().await.init_basic().await;
     let leaver = th.client2.me().await.id;
     let third = th.add_user("third").await;
-    let open: fvoci_model::Container = th
+    let private_board: fvoci_model::Container = th
         .client
         .create_board(&new_board(
             ROOT_WORKSPACE_ID,
-            ContainerVisibility::Open,
-            "Open",
+            ContainerVisibility::Private,
+            "Private",
         ))
         .await
         .created_json();
-    th.client2
-        .post_empty(&format!("{ROOT_WS}/containers/{}/join", open.id))
+    th.client
+        .add_member_in(
+            ROOT_WORKSPACE_ID,
+            &fvoci_model::ContainerMember::new(
+                &private_board.id,
+                &leaver,
+                fvoci_model::ContainerRole::Editor,
+            ),
+        )
         .await
         .check_ok();
     th.client2
         .post(
-            &format!("{ROOT_WS}/boards/{}/cards", open.id),
+            &format!("{ROOT_WS}/boards/{}/cards", private_board.id),
             &json!({"title": "Mine"}),
         )
         .await
@@ -455,10 +462,24 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
         by_id(&third).await,
         third.get(&format!("{ROOT_WS}/users/{leaver}")).await.status,
     );
-    third
-        .post_empty(&format!("{ROOT_WS}/containers/{}/join", open.id))
+    let open: fvoci_model::Container = th
+        .client
+        .create_board(&new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerVisibility::Open,
+            "Open",
+        ))
+        .await
+        .created_json();
+    // Once the private board becomes open, workspace workers read it unjoined and see the author.
+    th.client
+        .patch(
+            &format!("{ROOT_WS}/containers/{}", private_board.id),
+            &json!({"visibility": "open"}),
+        )
         .await
         .check_ok();
+    drop(open);
     let after = (
         by_id(&third).await,
         third.get(&format!("{ROOT_WS}/users/{leaver}")).await.status,

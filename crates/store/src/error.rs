@@ -14,6 +14,14 @@ pub enum StoreError {
     #[error("cannot add yourself to a team while joined as organization administrator")]
     TeamSelfJoining,
 
+    /// A workspace guest cannot be added to a team.
+    #[error("a workspace guest cannot be added to a team")]
+    GuestCannotJoinTeam,
+
+    /// A reorder request listed the same identifier more than once.
+    #[error("reorder list contains duplicate identifier {0}")]
+    DuplicateReorderId(String),
+
     /// A record that the operation needs does not exist.
     #[error("{{{0}}} not found")]
     NotFound(String),

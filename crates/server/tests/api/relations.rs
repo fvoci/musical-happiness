@@ -421,21 +421,9 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     check_refused(&created, REASON, "/properties");
 
     let mut block = json!({
-        "id": "c", "containerId": board.id, "type": "card", "title": "c",
-        "createdAt": 1, "updatedAt": 1, "fields": {"properties": {RELATION: refused}},
+        "id": "c", "containerId": "b", "type": "card", "title": "c",
+        "fields": {"properties": {RELATION: refused}},
     });
-    let view = json!({
-        "id": "v", "containerId": board.id, "type": "view", "title": "v",
-        "createdAt": 1, "updatedAt": 1, "fields": {},
-    });
-    let blocks = th
-        .client
-        .post(
-            &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &json!([view, block]),
-        )
-        .await;
-    check_refused(&blocks, REASON, "/1/fields");
 
     let patched = th
         .client
@@ -499,44 +487,6 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
 #[tokio::test]
 async fn new_cards_of_one_request_may_name_each_other() {
     let th = Setup::native().start().await.init_basic().await;
-    let Related { board, cards } = related_board(&th.client, 1).await;
-    let there = &cards[0].id;
-    let card = |id: &str, names: Value| {
-        json!({
-            "id": id, "containerId": board.id, "type": "card", "title": id,
-            "createdAt": 1, "updatedAt": 1, "fields": {"properties": {RELATION: names}},
-        })
-    };
-    let created: Vec<Block> = th
-        .client
-        .post(
-            &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &json!([
-                card(
-                    "a",
-                    json!([
-                        {"card": "b", "kind": "ss", "lagDays": 2},
-                        {"card": there},
-                    ])
-                ),
-                card("b", json!([{"card": "a", "kind": "ff", "lagDays": -1}])),
-            ]),
-        )
-        .await
-        .created_json();
-    let (a, b) = (&created[0], &created[1]);
-    assert_eq!(
-        a.fields["properties"][RELATION],
-        json!([
-            {"card": b.id, "kind": "ss", "lagDays": 2},
-            {"card": there, "kind": "fs", "lagDays": 0},
-        ])
-    );
-    assert_eq!(
-        b.fields["properties"][RELATION],
-        json!([{"card": a.id, "kind": "ff", "lagDays": -1}])
-    );
-
     let made: Value = th
         .client
         .post(
@@ -548,10 +498,8 @@ async fn new_cards_of_one_request_may_name_each_other() {
                 }],
                 "blocks": [
                     {"id": "x", "containerId": "nb", "type": "card", "title": "x",
-                     "createdAt": 1, "updatedAt": 1,
                      "fields": {"properties": {RELATION: [{"card": "y", "kind": "sf", "lagDays": 4}]}}},
                     {"id": "y", "containerId": "nb", "type": "card", "title": "y",
-                     "createdAt": 1, "updatedAt": 1,
                      "fields": {"properties": {RELATION: [{"card": "x"}]}}},
                 ],
             }),
@@ -711,9 +659,9 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
             .post(
                 &blocks,
                 &json!([{
-                    "id": id, "containerId": board.id, "type": "view",
-                    "title": id, "createdAt": 1, "updatedAt": 1,
-                    "fields": {"viewType": "table", "properties": value},
+                    "id": id, "containerId": board.id, "parentId": cards[0].id, "type": "attachment",
+                    "title": id,
+                    "fields": {"properties": value},
                 }]),
             )
             .await
@@ -725,7 +673,7 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
             .iter()
             .find(|block| block.title == title)
             .map(|block| block.id.clone())
-            .expect("the view")
+            .expect("the attachment")
     };
     let to_card = json!({"type": "card"});
     let odd = client
@@ -747,13 +695,13 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
     };
     assert_eq!(
         type_of("odd"),
-        Some(fvoci_model::BlockType::View),
-        "odd stays view"
+        Some(fvoci_model::BlockType::Attachment),
+        "odd stays attachment"
     );
     assert_eq!(
         type_of("fine"),
-        Some(fvoci_model::BlockType::View),
-        "fine stays view"
+        Some(fvoci_model::BlockType::Attachment),
+        "fine stays attachment"
     );
     th.teardown().await;
 }

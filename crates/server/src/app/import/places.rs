@@ -152,12 +152,17 @@ impl Place<'_> {
         {
             return Err(refused(block, BlockError::ChapterBelowBlock));
         }
-        if self.kind == ContainerKind::Board && *block.block_type == BlockType::Card {
-            if block.is_template && !parent_id.is_empty() {
-                return Err(refused(block, BlockError::TemplateCardBelowBlock));
+        if self.kind == ContainerKind::Board {
+            if *block.block_type == BlockType::Attachment && parent_id.is_empty() {
+                return Err(refused(block, BlockError::AttachmentNotOnCard));
             }
-            if !parent_id.is_empty() && parent_id == block.id {
-                return Err(refused(block, BlockError::ParentBelowBlock));
+            if *block.block_type == BlockType::Card {
+                if block.is_template && !parent_id.is_empty() {
+                    return Err(refused(block, BlockError::TemplateCardBelowBlock));
+                }
+                if !parent_id.is_empty() && parent_id == block.id {
+                    return Err(refused(block, BlockError::ParentBelowBlock));
+                }
             }
         }
         let parent_block = if parent_id.is_empty() {
@@ -192,6 +197,12 @@ impl Place<'_> {
                 Some(BlockError::CommentNotOnCardOrPage)
             }
             (_, Some(BlockType::Comment)) => Some(BlockError::ParentIsComment),
+            (BlockType::View, Some(_)) => Some(BlockError::ViewBelowBlock),
+            (_, Some(BlockType::View)) => Some(BlockError::ParentIsView),
+            (BlockType::Attachment, parent) if parent != Some(&BlockType::Card) => {
+                Some(BlockError::AttachmentNotOnCard)
+            }
+            (_, Some(BlockType::Attachment)) => Some(BlockError::ParentIsAttachment),
             (BlockType::Card, Some(parent)) if *parent != BlockType::Card => {
                 Some(BlockError::CardNotBelowCard)
             }

@@ -186,7 +186,7 @@ async fn a_change_of_the_password_leaves_nothing_confirmed_of_the_one_before() {
     let changed = store
         .change_user_password(&alice.id, HASH, "second", &kept.id, "kept-third")
         .await;
-    assert!(changed.expect("asked"), "the password is changed");
+    assert!(changed.expect("asked").is_some(), "the password is changed");
     assert_eq!(confirmed_at(store, "kept-third").await, Some(T0 + 5));
     assert!(
         !is_there(store, "other-anew").await,
@@ -209,7 +209,7 @@ async fn a_change_of_the_password_leaves_nothing_confirmed_of_the_one_before() {
 
     confirm("before-the-operator", "third").await;
     let reset = store.reset_user_password(&alice.username, "fourth").await;
-    reset.expect("the operator sets the password");
+    let _ = reset.expect("the operator sets the password");
     assert_eq!(confirmed_of(&test, &alice.id).await, 0, "nor the operator");
     test.teardown().await;
 }

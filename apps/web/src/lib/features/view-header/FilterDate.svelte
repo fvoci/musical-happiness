@@ -16,7 +16,7 @@
   import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
   import { displayCalendarDate } from '$lib/logic/format.ts';
   import type { Regional } from '$lib/logic/regional.ts';
-  import { formatFilterDate, parseFilterDate } from '$lib/logic/wire.ts';
+  import { DYNAMIC_FILTER_TODAY, formatFilterDate, parseFilterDate } from '$lib/logic/wire.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Calendar, Day as CalendarDay } from '$lib/ui/calendar/index.js';
 
@@ -41,15 +41,18 @@
   let today = $state<CalendarDate | undefined>(undefined);
 
   /** The day the condition has now. */
-  const chosen = $derived(parseFilterDate(value));
+  const isDynamicToday = $derived(value === DYNAMIC_FILTER_TODAY);
+  const chosen = $derived(parseFilterDate(value, regional.timeZone, now));
   const text = $derived(
-    chosen
-      ? displayCalendarDate(chosen, {
-          locale,
-          timeZone: regional.timeZone,
-          ...(now === undefined ? {} : { now }),
-        })
-      : '',
+    isDynamicToday
+      ? m.filter_today_dynamic()
+      : chosen
+        ? displayCalendarDate(chosen, {
+            locale,
+            timeZone: regional.timeZone,
+            ...(now === undefined ? {} : { now }),
+          })
+        : '',
   );
   const weekStartsOn = $derived((regional.weekStart % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
 
@@ -64,6 +67,11 @@
   function pick(picked: CalendarDate | undefined): void {
     const next = picked === undefined ? undefined : formatFilterDate(picked);
     if (next !== value) onChange(next);
+    open = false;
+  }
+
+  function pickDynamicToday(): void {
+    if (value !== DYNAMIC_FILTER_TODAY) onChange(DYNAMIC_FILTER_TODAY);
     open = false;
   }
 
@@ -119,20 +127,30 @@
       {/snippet}
     </Calendar>
     <hr class="border-border" />
-    <div class="flex justify-between gap-1">
+    <div class="flex flex-wrap justify-between gap-1">
+      <div class="flex gap-1">
+        <Button
+          variant="ghost"
+          class="group-data-[presentation=sheet]/surface:min-h-touch"
+          onclick={() => {
+            pick(today);
+          }}
+        >
+          {m['DateRange.today']()}
+        </Button>
+        <Button
+          variant={isDynamicToday ? 'secondary' : 'ghost'}
+          data-testid="filter-date-always-today"
+          class="group-data-[presentation=sheet]/surface:min-h-touch"
+          onclick={pickDynamicToday}
+        >
+          {m.filter_today_dynamic()}
+        </Button>
+      </div>
       <Button
         variant="ghost"
         class="group-data-[presentation=sheet]/surface:min-h-touch"
-        onclick={() => {
-          pick(today);
-        }}
-      >
-        {m['DateRange.today']()}
-      </Button>
-      <Button
-        variant="ghost"
-        class="group-data-[presentation=sheet]/surface:min-h-touch"
-        disabled={chosen === undefined}
+        disabled={chosen === undefined && !isDynamicToday}
         onclick={() => {
           pick(undefined);
         }}

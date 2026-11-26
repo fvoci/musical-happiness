@@ -100,7 +100,7 @@ pub struct User {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::serde_util::non_null"
+        deserialize_with = "crate::serde_util::positive_millis"
     )]
     #[schema(nullable = false)]
     pub deleted_at: Option<i64>,
@@ -187,6 +187,43 @@ impl ClientStatePatch {
         }
         refused.into_result()
     }
+}
+
+/// Which sessions an operation of the store ended: the connections made with them are
+/// to be closed. The store tells it by the witness it returns (`SessionsEnded`).
+#[derive(Debug, PartialEq, Eq)]
+pub enum EndedSessionScope {
+    /// No sessions ended.
+    None,
+    /// One session, by identifier.
+    Session(String),
+    /// Specific sessions, by identifier.
+    Sessions(Vec<String>),
+    /// Every session of this user.
+    User(String),
+    /// Every session of `user_id` except `kept_session_id`.
+    UserExcept {
+        /// The user whose other sessions ended.
+        user_id: String,
+        /// The session kept open.
+        kept_session_id: String,
+    },
+    /// Every session created through a provider of `org_id` with `issuer`.
+    Origin {
+        /// Organization of the provider.
+        org_id: String,
+        /// Issuer of the provider.
+        issuer: String,
+    },
+    /// Every session of `user_id` created for `(issuer, subject)` (or without subject).
+    Identity {
+        /// The user who unlinked the identity.
+        user_id: String,
+        /// Issuer of the unlinked identity.
+        issuer: String,
+        /// Subject of the unlinked identity.
+        subject: String,
+    },
 }
 
 /// A login session, as the server keeps it. The token the client presents is not part

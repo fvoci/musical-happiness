@@ -1,20 +1,6 @@
 /**
  * The data boundary: everything a screen can read, write and listen to.
- *
- * Screens never talk to a server. They use the stores of this folder, and
- * the stores use one `Backend`: the one that calls the server (`lib/api/`),
- * or the one that keeps its data in memory (`memory/`) for working without a
- * server. Nothing above this file knows which.
- *
- * The shapes follow the server design (its `docs/s6-design.md`): errors are
- * the problem details of RFC 9457 with the status codes of its section 1.3, identifiers are made by the server, a card or a comment has
- * its text as one document (`body`), a card list comes without bodies, a
- * comment is written with the `updatedAt` it was read at so that a stale
- * write is refused with 409, and a card's body is written together in its
- * room (`openDoc`). Where the design says nothing and something had to be
- * made up and is still open, it is listed in `docs/contract-assumptions.md`.
- *
- * No method promises an order: whatever is shown in order is sorted by the client (`order.ts`).
+ * Screens use stores, and stores use one `Backend` (`lib/api/` or `memory/`).
  */
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { FileDetails } from '../editor/files.ts';
@@ -46,8 +32,10 @@ import type { DiariesOfBackend } from './diary-types.ts';
 import type { CoursesOfBackend } from './course-types.ts';
 import type { ImportOptions, ImportSummary } from './import-types.ts';
 import type { TimeOfBackend } from './time-types.ts';
+import type { ServerAuthorityOfBackend } from './authority-types.ts';
 import type { UserOrganization, WorkspaceInfo } from './workspace-types.ts';
 
+export * from './authority-types.ts';
 export type * from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 export * from './content-search.ts';
@@ -210,6 +198,7 @@ export interface CardPatch {
 export interface ViewDraft {
   title: string;
   fields: BoardView['fields'];
+  after?: string | null;
 }
 
 export interface BoardDraft {
@@ -218,6 +207,7 @@ export interface BoardDraft {
   icon?: string;
   visibility?: Container['visibility'];
   cardProperties?: Container['cardProperties'];
+  scaffold?: boolean;
 }
 
 /** A write of a body: the document and the version it was based on. */
@@ -271,7 +261,8 @@ export interface Backend
     ContentSearchOfBackend,
     NotificationsOfBackend,
     TimeOfBackend,
-    VersionsOfFiles {
+    VersionsOfFiles,
+    ServerAuthorityOfBackend {
   // The reader and the people around them.
   me(): Promise<User>;
   /**
@@ -433,12 +424,17 @@ export interface Backend
    * Replaces the text of a comment. Rejects with 409 when the comment changed
    * since `readAt`, and with 400 when the body is empty: a comment has a text.
    */
-  patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment>;
+  patchComment(
+    boardId: string,
+    commentId: string,
+    write: BodyWrite,
+    cardId?: string,
+  ): Promise<Comment>;
   /**
    * What a comment said before each change, the first text first; empty for
    * one never changed. For the board's members (a reader by its link has none).
    */
-  commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]>;
+  commentVersions(boardId: string, commentId: string, cardId?: string): Promise<CommentVersion[]>;
   attachments(boardId: string, cardId: string): Promise<Attachment[]>;
   createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment>;
 

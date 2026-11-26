@@ -240,7 +240,25 @@ async fn open_course_and_workspace_roles_control_access_search_and_rooms() {
     assert_eq!(nack["reason"], json!("document_read_only"), "{nack}");
     unjoined.leave().await;
 
-    // Join -> can write; leave -> read-only again.
+    // Join gives default `commenter` role (comments allowed, unit patch forbidden);
+    // raising `minimumRole` to `editor` lets joiners edit; leaving returns to read-only.
+    let join_res: Value = th
+        .client2
+        .post(&format!("{TEST_WS}/containers/{open}/join"), &json!({}))
+        .await
+        .ok_json();
+    assert_eq!(join_res["role"], json!("commenter"));
+    th.client2
+        .patch(&open_unit_path, &json!({"title": "still commenter"}))
+        .await
+        .check_forbidden();
+    th.client
+        .patch(
+            &format!("{TEST_WS}/containers/{open}"),
+            &json!({"minimumRole": "editor"}),
+        )
+        .await
+        .check_ok();
     th.client2
         .post(&format!("{TEST_WS}/containers/{open}/join"), &json!({}))
         .await

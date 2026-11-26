@@ -1,18 +1,26 @@
 //! Searching boards.
 
-use axum::extract::RawQuery;
 use fvoci_model::{Container, ContainerSearchField};
 use fvoci_store::PublicContainers;
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::params::{SearchField, SearchTerm, WorkspaceId};
 use super::contract::tag;
+use super::query::QueryParams;
 
 use super::workspace::InWorkspace;
-use super::{ApiResult, json_response, query_param};
+use super::{ApiResult, json_response};
 use crate::app::App;
 use crate::error::AppError;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct BoardSearchQuery {
+    q: String,
+    field: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_search_boards))
@@ -35,14 +43,17 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId, SearchTerm, SearchField),
     responses((status = 200, description = "The boards that match.", body = Vec<Container>)),
 )]
-async fn handle_search_boards(ws: InWorkspace, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_search_boards(
+    ws: InWorkspace,
+    QueryParams(query): QueryParams<BoardSearchQuery>,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    let term = query_param(query.as_deref(), "q");
-    let field_text = query_param(query.as_deref(), "field");
-    let search_field = if field_text.is_empty() {
+    let term = query.q;
+    let search_field = if query.field.is_empty() {
         ContainerSearchField::Title
     } else {
-        field_text
+        query
+            .field
             .parse::<ContainerSearchField>()
             .map_err(AppError::bad_request)?
     };

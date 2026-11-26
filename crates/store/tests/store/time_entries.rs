@@ -716,7 +716,10 @@ async fn erase_user(test: &TestStore, user_id: &str) {
         .begin_account_erasure(user_id, 100_000, Erasing::AtOnce)
         .await
         .expect("begin erasure");
-    assert_eq!(start, ErasureStart::Begun, "account erasure began");
+    assert!(
+        matches!(start, ErasureStart::Begun(_)),
+        "account erasure began"
+    );
     for org_id in test
         .organizations_of_account(user_id)
         .await

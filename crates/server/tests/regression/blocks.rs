@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use crate::fixtures::{add_member, block, new_blocks, new_board};
+use crate::fixtures::{add_member, block, new_blocks, new_board, new_card};
 use crate::harness::ROOT_API;
 use crate::harness::{API, Body, Session, id_by_title};
 
@@ -17,27 +17,21 @@ pub(crate) async fn blocks(s: &mut Session) {
     let path = format!("{ROOT_API}/boards/{board}/blocks");
 
     s.get("list: empty", &path).user(&alice).await;
+    let card = new_card(
+        s,
+        &alice,
+        &board,
+        "First card",
+        json!({"icon": "x"}),
+        "create first card",
+    )
+    .await;
     let created = new_blocks(
         s,
         &alice,
         &board,
         json!([
-            block(
-                "card1",
-                &board,
-                "card",
-                "First card",
-                "",
-                json!({"icon": "x", "contentOrder": ["text1"]})
-            ),
-            block(
-                "text1",
-                &board,
-                "attachment",
-                "Some text",
-                "card1",
-                json!({})
-            ),
+            block("text1", &board, "attachment", "Some text", &card, json!({})),
             block(
                 "view1",
                 &board,
@@ -50,7 +44,6 @@ pub(crate) async fn blocks(s: &mut Session) {
         "insert blocks",
     )
     .await;
-    let card = id_by_title(&created, "First card");
     let text = id_by_title(&created, "Some text");
     let view = id_by_title(&created, "Board view");
 
@@ -111,25 +104,21 @@ pub(crate) async fn blocks(s: &mut Session) {
         .user(&alice)
         .await;
     s.post("insert: no type", &path)
-        .json(json!([{"id": "x1", "containerId": board, "createdAt": 1, "updatedAt": 1}]))
+        .json(json!([{"id": "x1", "containerId": board}]))
         .user(&alice)
         .await;
-    s.post("insert: no createdAt", &path)
-        .json(json!([{"id": "x1", "containerId": board, "type": "card", "updatedAt": 1}]))
-        .user(&alice)
-        .await;
-    s.post("insert: no updatedAt", &path)
-        .json(json!([{"id": "x1", "containerId": board, "type": "card", "createdAt": 1}]))
+    s.post("insert: card rejected on /blocks", &path)
+        .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
         .user(&alice)
         .await;
     s.post("insert: other board id", &path)
         .json(json!([block(
             "x1",
             "another-board",
-            "card",
+            "view",
             "x",
             "",
-            json!({})
+            json!({"viewType": "board"})
         )]))
         .user(&alice)
         .await;
@@ -137,19 +126,33 @@ pub(crate) async fn blocks(s: &mut Session) {
         .json(json!([block(
             "x1",
             &board,
-            "card",
+            "view",
             &"t".repeat(65_536),
             "",
-            json!({})
+            json!({"viewType": "board"})
         )]))
         .user(&alice)
         .await;
     s.post("insert: non-member", &path)
-        .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
+        .json(json!([block(
+            "x1",
+            &board,
+            "view",
+            "x",
+            "",
+            json!({"viewType": "board"})
+        )]))
         .user(&carol)
         .await;
-    s.post("insert: commenter inserts a card", &path)
-        .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
+    s.post("insert: commenter inserts a view", &path)
+        .json(json!([block(
+            "x1",
+            &board,
+            "view",
+            "x",
+            "",
+            json!({"viewType": "board"})
+        )]))
         .user(&bob)
         .await;
     s.post("insert: commenter inserts a comment", &path)
@@ -167,10 +170,10 @@ pub(crate) async fn blocks(s: &mut Session) {
         .json(json!([block(
             "x2",
             &board,
-            "card",
-            "Quiet card",
+            "view",
+            "Quiet view",
             "",
-            json!({})
+            json!({"viewType": "board"})
         )]))
         .user(&alice)
         .await;
@@ -289,15 +292,14 @@ pub(crate) async fn blocks(s: &mut Session) {
     .user(&alice)
     .await;
 
-    // Blocks without identifiers, and a request that has the children before their
-    // parents: each block gets an identifier of its own, and the list has the blocks
-    // of a request in the order the request had them in.
     let second = new_board(s, &alice, "Order of a request", "private", json!({})).await;
+    let second_card_a = new_card(s, &alice, &second, "Card A", json!({}), "create Card A").await;
+    let second_card_b = new_card(s, &alice, &second, "Card B", json!({}), "create Card B").await;
     let second_path = format!("{ROOT_API}/boards/{second}/blocks");
     s.post("insert without identifiers", &second_path)
         .json(json!([
-            {"containerId": second, "type": "card", "title": "Nameless one", "createdAt": 1, "updatedAt": 1},
-            {"containerId": second, "type": "card", "title": "Nameless two", "createdAt": 1, "updatedAt": 1},
+            {"containerId": second, "type": "view", "title": "Nameless one", "fields": {"viewType": "board"}},
+            {"containerId": second, "type": "view", "title": "Nameless two", "fields": {"viewType": "table"}},
         ]))
         .user(&alice)
         .await;
@@ -306,26 +308,24 @@ pub(crate) async fn blocks(s: &mut Session) {
         &alice,
         &second,
         json!([
-            block("t1", &second, "attachment", "Text of A", "a", json!({})),
             block(
-                "a",
+                "t1",
                 &second,
-                "card",
-                "Card A",
-                "",
-                json!({"contentOrder": ["t1"]})
+                "attachment",
+                "Text of A",
+                &second_card_a,
+                json!({})
             ),
-            block("t2", &second, "attachment", "Text of B", "b", json!({})),
             block(
-                "b",
+                "t2",
                 &second,
-                "card",
-                "Card B",
-                "",
-                json!({"contentOrder": ["t2"]})
+                "attachment",
+                "Text of B",
+                &second_card_b,
+                json!({})
             ),
         ]),
-        "insert children before their parents",
+        "insert attachments under cards",
     )
     .await;
     s.get("list: in the order of the requests", &second_path)
@@ -335,7 +335,19 @@ pub(crate) async fn blocks(s: &mut Session) {
 
 pub(crate) async fn cards(s: &mut Session) {
     let [alice, bob] = s.users("cards", ["alice", "bob"]).await;
-    let board = new_board(s, &alice, "Cards", "private", json!({})).await;
+    let board = new_board(
+        s,
+        &alice,
+        "Cards",
+        "private",
+        json!({
+            "cardProperties": [
+                {"id": "p1", "name": "P1", "type": "text", "options": []},
+                {"id": "p2", "name": "P2", "type": "text", "options": []},
+            ]
+        }),
+    )
+    .await;
     add_member(s, &alice, &board, &bob, "viewer").await;
     let path = format!("{ROOT_API}/boards/{board}/cards");
 

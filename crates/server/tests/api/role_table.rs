@@ -1087,13 +1087,11 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
     for op in shared_ops() {
         let (of_board, of_wiki) = (row_of(&board, op.row), row_of(&wiki, op.row));
         for (index, (name, _, _)) in COLUMNS.iter().enumerate() {
-            if index != unjoined {
-                assert_eq!(of_board[index], of_wiki[index], "{}: {name}", op.row);
-            }
+            assert_eq!(of_board[index], of_wiki[index], "{}: {name}", op.row);
         }
     }
-    // Unjoined, an open wiki is read as by its viewer, and nothing of it is changed;
-    // an open board is seen, and read only once joined.
+    // Unjoined, an open wiki and an open board are both read as by their viewer, and
+    // nothing of either is changed, duplicated, or exported until joined.
     let reads = [
         "container: get",
         "members: list",
@@ -1121,14 +1119,7 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
             cells[unjoined]
         );
     }
-    for row in ["members: list", "teams: list", "files: get", "cards: list"] {
-        assert_eq!(
-            row_of(&board, row)[unjoined],
-            "403",
-            "an open board unjoined: {row}"
-        );
-    }
-    assert_eq!(row_of(&board, "references: to")[unjoined], "404");
+    assert_open_unjoined_board_rows(&board, unjoined, viewer);
     // Nor does who has not joined it write on its pages: a comment, a change or the
     // removal of the admin's, bringing that back, or a version of the body.
     for row in [
@@ -1183,6 +1174,45 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
     ts.teardown().await;
 }
 
+fn assert_open_unjoined_board_rows(board: &[(&str, Vec<String>)], unjoined: usize, viewer: usize) {
+    for row in [
+        "members: list",
+        "teams: list",
+        "files: get",
+        "references: to",
+        "cards: list",
+        "cards: get",
+        "blocks: list",
+        "cards: body versions",
+    ] {
+        let cells = row_of(board, row);
+        assert_eq!(
+            cells[unjoined], cells[viewer],
+            "an open board unjoined reads as viewer: {row}"
+        );
+        assert!(
+            cells[unjoined].starts_with('2'),
+            "an open board unjoined: {row}: {}",
+            cells[unjoined]
+        );
+    }
+    for row in [
+        "cards: create",
+        "cards: patch",
+        "comments: create",
+        "cards: keep version",
+        "cards: trash",
+        "board: duplicate",
+        "board: export",
+    ] {
+        assert_eq!(
+            row_of(board, row)[unjoined],
+            "403",
+            "an open board unjoined refuses write/copy/export: {row}"
+        );
+    }
+}
+
 /// Expected permission set for `(actor_key, role, scope)` in the pure permission matrix.
 fn expected_permissions(
     actor_key: &str,
@@ -1195,7 +1225,7 @@ fn expected_permissions(
         ManageProperties, ManageRoles, ManageType, See, Share, View,
     };
     use fvoci_server::permissions::ContainerScope::{
-        BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate, OpenToRead,
+        BuiltIn, InvitedOnly, InvitedOnlyTemplate, OpenTemplate, OpenToRead,
     };
 
     if scope == BuiltIn {
@@ -1227,7 +1257,6 @@ fn expected_permissions(
     }
     if matches!(actor_key, "member" | "ws-admin") {
         match scope {
-            Open => set.extend([See, Join]),
             OpenToRead => set.extend([See, Join, View, ListMembers]),
             OpenTemplate => set.extend([See, View, ListMembers]),
             InvitedOnly | InvitedOnlyTemplate | BuiltIn => {}
@@ -1257,12 +1286,12 @@ fn matrix_containers() -> [MatrixContainer; 13] {
     use fvoci_model::ContainerKind::{Board, Course, Diary, Wiki};
     use fvoci_model::ContainerVisibility::{Open as VisOpen, Private};
     use fvoci_server::permissions::ContainerScope::{
-        BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate, OpenToRead,
+        BuiltIn, InvitedOnly, InvitedOnlyTemplate, OpenTemplate, OpenToRead,
     };
 
     [
         ("board:private", Board, false, false, Private, InvitedOnly),
-        ("board:open", Board, false, false, VisOpen, Open),
+        ("board:open", Board, false, false, VisOpen, OpenToRead),
         ("wiki:private", Wiki, false, false, Private, InvitedOnly),
         ("wiki:open", Wiki, false, false, VisOpen, OpenToRead),
         ("course:private", Course, false, false, Private, InvitedOnly),
@@ -1546,13 +1575,13 @@ async fn course_template_and_diary_routes_match_the_role_matrix() {
     let unjoined = column(READS_UNJOINED);
     assert_eq!(
         row_of(&course, "course: duplicate")[unjoined],
-        "201",
-        "unjoined member duplicates open course"
+        "403",
+        "unjoined member cannot duplicate open course"
     );
     assert_eq!(
         row_of(&course, "course: export")[unjoined],
-        "200",
-        "unjoined member exports open course"
+        "403",
+        "unjoined member cannot export open course"
     );
 
     // On a template, every column except `member@open` matches a board; on `member@open`

@@ -12,11 +12,12 @@ use fvoci_model::{
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::contract::params::AcceptLanguage;
 use super::contract::tag;
 use super::signup_cookie::{marker_of, with_marker};
 
 use super::session::AccountSession;
-use super::{ApiResult, RequiredSession, created, decode_object, no_content};
+use super::{ApiResult, RequiredSession, accept_language, created, decode_object, no_content};
 use crate::app::App;
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
@@ -198,6 +199,7 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
     path = "/register",
     operation_id = "register",
     tag = tag::AUTH,
+    params(AcceptLanguage),
     request_body = RegisterRequest,
     security(()),
     responses(
@@ -248,7 +250,9 @@ async fn handle_register(
             StatusCode::ACCEPTED.into_response(),
         ));
     }
-    let user = app.sign_up(&register, address_of(client)).await?;
+    let user = app
+        .sign_up_with_language(&register, address_of(client), accept_language(&headers))
+        .await?;
     Ok(created(&user))
 }
 

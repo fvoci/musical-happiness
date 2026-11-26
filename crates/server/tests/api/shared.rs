@@ -290,7 +290,12 @@ async fn the_board_routes_take_no_read_token() {
         );
         f.ts.anonymous().get(&path).await.check_unauthorized();
         let response = outsider.get(&path).await;
-        assert_eq!(response.status, StatusCode::NOT_FOUND, "{path}");
+        if under == "boards" {
+            response.check_bad_request();
+            assert_eq!(response.refused_at(), "parameter readToken", "{path}");
+        } else {
+            assert_eq!(response.status, StatusCode::NOT_FOUND, "{path}");
+        }
     }
     f.ts.teardown().await;
 }

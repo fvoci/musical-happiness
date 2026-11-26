@@ -24,9 +24,10 @@ use fvoci_model::{
     ContainerKind, Leaving, LeavingOrganization, OrgKind, OrgRole, OrganizationName, Session,
 };
 
-use crate::db::{Id, Scope, Sql};
+use crate::db::{Id, InstanceHeld, Scope, Sql};
 use crate::error::StoreError;
-use crate::{Store, container_kinds, directory, link_locks, password_reset, sessions, users};
+use crate::sessions::{self, SessionsEnded};
+use crate::{Store, container_kinds, directory, link_locks, password_reset, users};
 
 /// What stands in the way of deleting an account, and what goes with it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -55,10 +56,10 @@ impl DeletionStanding {
 }
 
 /// What became of a request to delete an account.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DeletionAsking {
     /// The account is out of use and waits: its sessions are ended.
-    Asked(Leaving),
+    Asked(Leaving, SessionsEnded),
     /// Something would be left without anybody to run it: nothing changed.
     Refused(DeletionStanding),
     /// The account is not in use, or its password was set anew since it was checked:
@@ -166,8 +167,8 @@ impl Store {
     ) -> Result<DeletionAsking, StoreError> {
         self.system()
             .transaction(async |scope| {
-                users::lock_instance(scope).await?;
-                let standing = standing(scope, user_id, Held::Yes).await?;
+                let held_instance = users::lock_instance(scope).await?;
+                let standing = standing(scope, user_id, Held::Yes(held_instance)).await?;
                 if !standing.is_open() {
                     return Ok(DeletionAsking::Refused(standing));
                 }
@@ -187,12 +188,15 @@ impl Store {
                 if let Some(space) = &standing.own_space {
                     scope.invalidate_visibility_of(&space.id)?;
                 }
-                sessions::delete_sessions_of_user(scope, user_id).await?;
+                let ended = sessions::delete_sessions_of_user(scope, user_id).await?;
                 password_reset::end_links_of_user(scope, user_id).await?;
-                Ok(DeletionAsking::Asked(Leaving {
-                    requested_at: now,
-                    delete_after,
-                }))
+                Ok(DeletionAsking::Asked(
+                    Leaving {
+                        requested_at: now,
+                        delete_after,
+                    },
+                    ended,
+                ))
             })
             .await
     }
@@ -278,22 +282,22 @@ impl Store {
 }
 
 /// Whether the rows that decide are held to the end of the transaction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Held {
-    Yes,
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Held<'c> {
+    Yes(InstanceHeld<'c>),
     No,
 }
 
 /// What stands in the way of deleting the account `user_id`, read through a scope that
-/// reaches every organization. `Held::Yes` holds the row of each organization the
-/// account administers, in the order of their identifiers, several of them under the
-/// turn of `link_locks`: the caller holds the instance's row already
-/// (`users::lock_instance`), which nothing takes after the turn.
-pub(crate) async fn standing(
-    scope: &mut Scope<'_>,
+/// reaches every organization. [`Held::Yes`] holds the row of each organization the
+/// account administers in ascending identifier order (under [`link_locks::take_turn`]
+/// when there is more than one).
+pub(crate) async fn standing<'c>(
+    scope: &mut Scope<'c>,
     user_id: &str,
-    held: Held,
+    held: Held<'c>,
 ) -> Result<DeletionStanding, StoreError> {
+    let lock_orgs = matches!(held, Held::Yes(_));
     let mut standing = DeletionStanding {
         last_instance_admin: is_last_instance_admin(scope, user_id).await?,
         ..DeletionStanding::default()
@@ -319,13 +323,15 @@ pub(crate) async fn standing(
         })
         .collect::<Result<_, StoreError>>()?;
     // The rows of several organizations are held under the turn, as every
-    // transaction that spans organizations holds them (`link_locks`).
-    if held == Held::Yes && administered.len() > 1 {
+    // transaction that spans organizations holds them (`link_locks`): the caller holds
+    // the instance's row already (`users::lock_instance`), which nothing takes after the
+    // turn.
+    if lock_orgs && administered.len() > 1 {
         link_locks::take_turn(scope).await?;
     }
     let the_instances = directory::oldest_organization(scope).await?;
     for organization in administered {
-        if held == Held::Yes {
+        if lock_orgs {
             link_locks::hold_organization(scope, &organization.id).await?;
         }
         match without(scope, &organization.id, user_id).await? {

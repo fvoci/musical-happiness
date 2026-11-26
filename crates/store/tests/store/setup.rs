@@ -613,9 +613,10 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
 /// two cards whose bodies show an image deep in the document; the second and the fourth
 /// go to the trash.
 fn blocks_showing(board_id: &str) -> [Block; 5] {
-    let image = |name: &str| Block {
+    let image = |name: &str, parent_id: &str| Block {
         id: new_id(),
         container_id: board_id.to_owned(),
+        parent_id: parent_id.to_owned(),
         block_type: BlockType::Attachment,
         fields: serde_json::from_value(serde_json::json!({ "fileId": name }))
             .expect("the fields are a JSON object"),
@@ -638,14 +639,18 @@ fn blocks_showing(board_id: &str) -> [Block; 5] {
         .expect("the body may be stored"),
         ..Block::default()
     };
+    let live_card = card("7body.png");
+    let trashed_card = card("7trashbody.png");
+    let live_card_id = live_card.id.clone();
     [
-        image("7image.png"),
-        image("7trash.png"),
-        card("7body.png"),
-        card("7trashbody.png"),
+        live_card,
+        image("7trash.png", &live_card_id),
+        image("7image.png", &live_card_id),
+        trashed_card,
         Block {
             id: new_id(),
             container_id: board_id.to_owned(),
+            parent_id: live_card_id,
             block_type: BlockType::Attachment,
             fields: serde_json::from_value(
                 serde_json::json!({ "attachmentId": "7attachment.png" }),
@@ -980,32 +985,29 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         ..Block::default()
     };
     let none = serde_json::json!({});
+    let child = |parent_id: String, fields: serde_json::Value| Block {
+        parent_id,
+        ..block(BlockType::Attachment, fields)
+    };
+    let card_host = block(BlockType::Card, none.clone());
+    let card_host_id = card_host.id.clone();
     let mut blocks = [
-        block(BlockType::Card, none.clone()),
-        block(
-            BlockType::Attachment,
+        card_host,
+        child(
+            card_host_id.clone(),
             serde_json::json!({"fileId": "7kept.png"}),
         ),
         block(BlockType::View, none.clone()),
         block(BlockType::View, none.clone()),
-        block(
-            BlockType::Attachment,
-            serde_json::json!({"fileId": "7image.png"}),
-        ),
-        block(BlockType::View, none.clone()),
-        block(BlockType::View, none.clone()),
+        child(card_host_id, serde_json::json!({"fileId": "7image.png"})),
+        block(BlockType::Card, none.clone()),
+        block(BlockType::Card, none.clone()),
         block(BlockType::View, none.clone()),
     ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
     let mut below = [
-        Block {
-            parent_id: blocks[5].id.clone(),
-            ..block(BlockType::Attachment, none.clone())
-        },
-        Block {
-            parent_id: blocks[6].id.clone(),
-            ..block(BlockType::Attachment, none)
-        },
+        child(blocks[5].id.clone(), none.clone()),
+        child(blocks[6].id.clone(), none),
     ];
     common::insert_blocks(&test, &mut below, &user_id).await;
     for trashed in [&below[0].id, &blocks[6].id] {

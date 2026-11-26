@@ -11,9 +11,7 @@ use serde_json::Value;
 use super::App;
 use super::blocks::ChangeNotification;
 use super::files::FILE;
-use super::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::error::{AppError, Reason};
-use crate::storage::StorageError;
 
 /// What a request misses that asks for a version a file has not, or has no more.
 const VERSION: &str = "version";
@@ -190,23 +188,17 @@ impl App {
         if source.is_current {
             return Ok(described(source.clone()));
         }
-        self.check_org_storage_room(u64::try_from(source.size).unwrap_or(0))
-            .await?;
-        // The mark, the bytes, then the row that says where they are and takes the
-        // mark away, as a copied file is written.
+        let size = u64::try_from(source.size).unwrap_or(0);
+        self.check_org_storage_room(size).await?;
         let path = self.new_version_place(container_id).await?;
-        self.mark_writing(&path).await?;
-        let copied = self.files().copy(&source.path, &path);
-        if let Err(error) = tokio::time::timeout(WRITE_TIMEOUT, copied)
-            .await
-            .unwrap_or_else(|_| Err(StorageError::Io(std::io::ErrorKind::TimedOut.into())))
-        {
-            self.give_up_writing(&path, Written::Unsettled).await;
-            return Err(error.into());
-        }
+        let written = self
+            .mark_place(&path)
+            .await?
+            .copy_from(&source.path, size)
+            .await?;
         let copy = RestoredCopy {
             from: version,
-            path: &path,
+            path: written.path(),
             by: user_id,
         };
         let restored = self
@@ -215,21 +207,23 @@ impl App {
             .await;
         match restored {
             Ok(VersionRestored::Written(kept)) => {
+                written.settled_in_transaction();
                 self.resize_attachments(container_id, file_id, user_id)
                     .await;
                 Ok(described(kept))
             }
-            // Doomed while it was copied, which took longer than any write takes: the
-            // store doomed it again, for the housekeeping to remove.
-            Ok(VersionRestored::GivenUp) => Err(AppError::internal(
-                "the copy of the version was given up while it was written",
-            )),
+            Ok(VersionRestored::GivenUp) => {
+                written.settled_in_transaction();
+                Err(AppError::internal(
+                    "the copy of the version was given up while it was written",
+                ))
+            }
             Ok(VersionRestored::Stale { current }) => {
-                self.give_up_writing(&path, Written::Settled).await;
+                written.give_up().await;
                 Err(stale(base, current))
             }
             Err(error) => {
-                self.give_up_writing(&path, Written::Settled).await;
+                written.give_up().await;
                 if error.is_not_found() {
                     Err(AppError::not_found(VERSION))
                 } else {

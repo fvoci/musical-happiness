@@ -18,12 +18,12 @@ use crate::Store;
 use crate::account_deletion::{self, Without};
 use crate::account_erasure::{self, LeftFrom};
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::Scope;
+use crate::db::{OrganizationHeld, Scope};
 use crate::error::StoreError;
 use crate::{directory, org_admin, users};
 
 /// What became of an account's asking to leave the handle's organization.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Departure {
     /// It is out of the organization: what it left there.
     Left(LeftFrom),
@@ -51,7 +51,7 @@ pub enum DepartureRefused {
 }
 
 /// What became of an administrator's taking a member out of the handle's organization.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MemberRemoval {
     /// The member is out of the organization: what they left there.
     Removed(LeftFrom),
@@ -139,8 +139,8 @@ impl Store {
         self.transaction(async |scope| {
             // The instance's row first, as a change of who administers the instance
             // takes it, then the organization's, as a change of its roles does.
-            users::lock_instance(scope).await?;
-            org_admin::hold_organization_row(scope).await?;
+            let held_instance = users::lock_instance(scope).await?;
+            let held_org = org_admin::hold_organization_row(scope).await?;
             if !is_shared_and_in_use(scope).await? {
                 return Ok(Departure::NotAMember);
             }
@@ -159,13 +159,14 @@ impl Store {
             // member, does not run the server, or they would make anybody its
             // administrator again from outside it.
             if standing == InstanceStanding::InstanceOrg
-                && !users::follow_org_role(scope, user_id, OrgRole::Member).await?
+                && !users::follow_org_role(scope, held_instance, user_id, OrgRole::Member).await?
             {
                 return Ok(Departure::Refused(DepartureRefused::LastInstanceAdmin));
             }
             let actor = AuditActor::Person(user_id.to_owned());
             let left =
-                evict_from_organization(scope, user_id, &actor, JoiningsEnding::Left).await?;
+                evict_from_organization(scope, held_org, user_id, &actor, JoiningsEnding::Left)
+                    .await?;
             Ok(Departure::Left(left))
         })
         .await
@@ -190,8 +191,8 @@ impl Store {
         actor_id: &str,
     ) -> Result<MemberRemoval, StoreError> {
         self.transaction(async |scope| {
-            users::lock_instance(scope).await?;
-            org_admin::hold_organization_row(scope).await?;
+            let held_instance = users::lock_instance(scope).await?;
+            let held_org = org_admin::hold_organization_row(scope).await?;
             if !is_shared_and_in_use(scope).await? {
                 return Ok(MemberRemoval::NotAnAdmin);
             }
@@ -209,13 +210,14 @@ impl Store {
                 return Ok(MemberRemoval::Refused(refused));
             }
             if standing == InstanceStanding::InstanceOrg
-                && !users::follow_org_role(scope, user_id, OrgRole::Member).await?
+                && !users::follow_org_role(scope, held_instance, user_id, OrgRole::Member).await?
             {
                 return Ok(MemberRemoval::Refused(RemovalRefused::LastInstanceAdmin));
             }
             let actor = AuditActor::Person(actor_id.to_owned());
             let left =
-                evict_from_organization(scope, user_id, &actor, JoiningsEnding::Revoked).await?;
+                evict_from_organization(scope, held_org, user_id, &actor, JoiningsEnding::Revoked)
+                    .await?;
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
             let entry = AuditEntry::new("", actor_id, AuditAction::OrgMemberRemoved, &org_id)
                 .with_subject(user_id);
@@ -229,8 +231,9 @@ impl Store {
 /// Removes `user_id` from every workspace, board, group, subscription, unused link, and
 /// membership of the scope's organization, ending admin joinings as `joinings` says and
 /// recording handovers and revoked joinings under `actor`.
-async fn evict_from_organization(
-    scope: &mut Scope<'_>,
+async fn evict_from_organization<'c>(
+    scope: &mut Scope<'c>,
+    held_org: OrganizationHeld<'c>,
     user_id: &str,
     actor: &AuditActor,
     joinings: JoiningsEnding,
@@ -241,7 +244,7 @@ async fn evict_from_organization(
     };
     let mut left = LeftFrom::default();
     account_erasure::leave_every_workspace(scope, user_id, actor, &mut left).await?;
-    account_erasure::leave_organization(scope, user_id).await?;
+    account_erasure::leave_organization(scope, held_org, user_id).await?;
     // A workspace they were in by a joining alone is one they left too.
     left.left.extend(joined);
     left.left.sort_unstable();

@@ -7,7 +7,13 @@
  */
 import type { MemberRole } from './container-members.ts';
 export type { ContainerMember, MemberRole } from './container-members.ts';
-import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
+import {
+  dateOfInstant,
+  parseCalendarDate,
+  type CalendarDate,
+  type DatePoint,
+  type DateValue,
+} from './dates.ts';
 export { encodeBase32 } from './base32.ts';
 import { type PropertyColor } from './property-colors.ts';
 export { DEFAULT_PROPERTY_COLOR, PROPERTY_COLORS, type PropertyColor } from './property-colors.ts';
@@ -56,6 +62,10 @@ export interface PropertyTemplate {
   options: PropertyOption[];
 }
 
+export type DoneRule =
+  | { kind: 'option'; propertyId: string; optionIds: string[] }
+  | { kind: 'checkbox'; propertyId: string };
+
 export interface Container {
   id: string;
   workspaceId: string;
@@ -74,6 +84,8 @@ export interface Container {
   templateVersion: number;
   properties: Record<string, string | string[]>;
   cardProperties: PropertyTemplate[];
+  dueDatePropertyId?: string | null;
+  doneWhen?: DoneRule | null;
   createdAt: number;
   updatedAt: number;
   deletedAt?: number;
@@ -90,6 +102,8 @@ export interface ContainerPatch {
   deletedProperties?: string[];
   updatedCardProperties?: PropertyTemplate[];
   deletedCardProperties?: string[];
+  dueDatePropertyId?: string | null;
+  doneWhen?: DoneRule | null;
 }
 
 export interface ContainersAndBlocks {
@@ -131,6 +145,10 @@ export function createBoard(source?: Container, statusName = 'Status'): Containe
     templateVersion: source?.templateVersion || 0,
     properties: source?.properties ?? {},
     cardProperties,
+    ...(source?.dueDatePropertyId === undefined
+      ? {}
+      : { dueDatePropertyId: source.dueDatePropertyId }),
+    ...(source?.doneWhen === undefined ? {} : { doneWhen: source.doneWhen }),
     createdAt: source?.createdAt || now,
     updatedAt: source?.updatedAt || now,
     ...(source?.deletedAt === undefined ? {} : { deletedAt: source.deletedAt }),
@@ -200,8 +218,19 @@ export function plainPropertyValue(
   return stored.to === undefined ? String(stored.from) : `${stored.from}/${stored.to}`;
 }
 
-export function parseFilterDate(text: string | undefined): CalendarDate | undefined {
-  return text === undefined ? undefined : parseCalendarDate(text);
+export const DYNAMIC_FILTER_TODAY = 'today';
+export const DYNAMIC_FILTER_ME = 'me';
+
+export function parseFilterDate(
+  text: string | undefined,
+  timeZone?: string,
+  now?: number,
+): CalendarDate | undefined {
+  if (text === undefined) return undefined;
+  if (text === DYNAMIC_FILTER_TODAY && timeZone) {
+    return dateOfInstant(now ?? Date.now(), timeZone);
+  }
+  return parseCalendarDate(text);
 }
 
 export function formatFilterDate(date: CalendarDate): string {

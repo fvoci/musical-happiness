@@ -113,7 +113,7 @@ async fn board_changes_are_broadcast_to_the_members() {
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            ContainerVisibility::Open,
+            ContainerVisibility::Private,
             "Roadmap",
         ))
         .await
@@ -314,7 +314,9 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
         "nothing about the member themselves: {rest:?}"
     );
 
-    // A board that is not a template: only the board change is broadcast.
+    // A board that is not a template: no synthetic member messages are sent; making it
+    // private tells unjoined workspace workers that it is gone for them (`deletedAt > 0`),
+    // just like an open wiki or course.
     let board = board_with_admin(
         &th,
         new_board(TEST_WORKSPACE_ID, ContainerVisibility::Open, "a board"),
@@ -335,10 +337,17 @@ async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users(
         Vec::<&Value>::new(),
         "no member messages for a board: {rest:?}"
     );
+    let closed_msg = socket2
+        .expect("containerChanged", "/container/id", &board.id)
+        .await;
+    assert!(
+        closed_msg["container"]["deletedAt"].as_i64() > Some(0),
+        "unjoined workspace worker hears closed board as deleted: {closed_msg}"
+    );
     assert_eq!(
-        socket2.drain().await,
-        Vec::<Value>::new(),
-        "and nothing for the user who is not a member"
+        with_action(&socket2.drain().await, "containerMemberRemoved"),
+        Vec::<&Value>::new(),
+        "no synthetic member messages for a non-template board"
     );
 
     th.teardown().await;

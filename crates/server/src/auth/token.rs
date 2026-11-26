@@ -215,44 +215,6 @@ pub(crate) fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(|(_, value)| value.trim_matches('"').to_owned())
 }
 
-/// Returns the percent-decoded value of the first query parameter with the given name.
-pub(crate) fn query_value(query: &str, name: &str) -> Option<String> {
-    query
-        .split('&')
-        .map(|pair| pair.split_once('=').unwrap_or((pair, "")))
-        .find(|(key, _)| percent_decode(key) == name)
-        .map(|(_, value)| percent_decode(value))
-}
-
-/// Decodes `%XX` escapes and `+` as space; malformed escapes are kept as they are.
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while let Some(&byte) = bytes.get(index) {
-        let escaped = (byte == b'%')
-            .then(|| bytes.get(index + 1..index + 3))
-            .flatten()
-            .and_then(|hex| std::str::from_utf8(hex).ok())
-            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
-        match (byte, escaped) {
-            (_, Some(value)) => {
-                decoded.push(value);
-                index += 3;
-            }
-            (b'+', None) => {
-                decoded.push(b' ');
-                index += 1;
-            }
-            (other, None) => {
-                decoded.push(other);
-                index += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&decoded).into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,19 +395,6 @@ mod tests {
         assert!(
             Origins::new("http://localhost:8000", &["*".to_owned()]).is_err(),
             "no wildcard among the allowed origins"
-        );
-    }
-
-    #[test]
-    fn query_values_are_percent_decoded() {
-        assert_eq!(
-            query_value("a=1&readToken=x%2By", "readToken").as_deref(),
-            Some("x+y")
-        );
-        assert_eq!(query_value("a=1", "readToken"), None);
-        assert_eq!(
-            query_value("readToken=a+b", "readToken").as_deref(),
-            Some("a b")
         );
     }
 }

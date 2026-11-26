@@ -6,6 +6,7 @@ import { diagnostics } from './diagnostics.ts';
 import { foldCase } from './text.ts';
 import {
   cardProperty,
+  DYNAMIC_FILTER_ME,
   isFilterGroup,
   parseDateValue,
   parseFilterDate,
@@ -22,6 +23,10 @@ import {
 export interface FilterContext {
   /** The reader's time zone, an IANA name such as `Asia/Seoul`: decides which day a moment is on. */
   timeZone: string;
+  /** The reader's user ID, used to resolve dynamic `'me'` person/author filters. */
+  meId?: string | undefined;
+  /** Optional current moment in milliseconds, used when evaluating `'today'`. */
+  now?: number | undefined;
   /** The title of a card of the board; undefined for one that is not there (deleted). */
   cardTitle?: (cardId: string) => string | undefined;
 }
@@ -124,13 +129,23 @@ export function isClauseMet(
 ): boolean {
   const template = templates.find((candidate) => candidate.id === filter.propertyId);
   const { value, dateValue } = valueForClause(filter, template, card, context);
-  const first = filter.values[0];
+  const isPersonLike =
+    template?.type === 'person' ||
+    template?.type === 'multiPerson' ||
+    template?.type === 'createdBy' ||
+    template?.type === 'updatedBy';
+  const resolvedValues = isPersonLike
+    ? filter.values.flatMap((v) =>
+        v === DYNAMIC_FILTER_ME ? (context.meId ? [context.meId] : []) : [v],
+      )
+    : filter.values;
+  const first = resolvedValues[0];
 
   // Text or a list (a date value counts by its key); anything else counts as empty.
   const plain = plainPropertyValue(value);
   const stored = typeof plain === 'string' || Array.isArray(plain) ? plain : '';
   const hasAnyValue = (): boolean =>
-    filter.values.some((candidate) =>
+    resolvedValues.some((candidate) =>
       Array.isArray(stored) ? stored.includes(candidate) : candidate === stored,
     );
   const needle = foldCase(first ?? '');
@@ -138,7 +153,7 @@ export function isClauseMet(
   const someText = (test: (text: string) => boolean): boolean => texts.some(test);
 
   const days = dateValue ? daysOf(dateValue, context.timeZone) : undefined;
-  const day = parseFilterDate(first);
+  const day = parseFilterDate(filter.values[0], context.timeZone, context.now);
 
   switch (filter.condition) {
     case 'includes':
@@ -192,13 +207,14 @@ export function isClauseMet(
 export function propertiesThatMeetFilterGroup(
   group: FilterGroup | undefined,
   templates: readonly PropertyTemplate[],
+  meId?: string,
 ): Record<string, string> {
   if (!group) return {};
   const clauses = group.filters.filter((filter): filter is FilterClause => !isFilterGroup(filter));
   const considered = group.operation === 'or' ? clauses.slice(0, 1) : clauses;
   const result: Record<string, string> = {};
   for (const clause of considered) {
-    const property = propertyThatMeetsFilterClause(clause, templates);
+    const property = propertyThatMeetsFilterClause(clause, templates, meId);
     if (property.value) result[property.id] = property.value;
   }
   return result;
@@ -208,6 +224,7 @@ export function propertiesThatMeetFilterGroup(
 export function propertyThatMeetsFilterClause(
   clause: FilterClause,
   templates: readonly PropertyTemplate[],
+  meId?: string,
 ): { id: string; value?: string } {
   const id = clause.propertyId;
   const template = templates.find((candidate) => candidate.id === id);
@@ -218,7 +235,11 @@ export function propertyThatMeetsFilterClause(
   if (template.type === 'createdBy' || template.type === 'updatedBy') return { id };
 
   if (clause.condition === 'includes') {
-    const first = clause.values[0];
+    const raw = clause.values[0];
+    const first =
+      raw === DYNAMIC_FILTER_ME && (template.type === 'person' || template.type === 'multiPerson')
+        ? meId
+        : raw;
     return first === undefined ? { id } : { id, value: first };
   }
   if (clause.condition === 'isNotEmpty' && template.type === 'select') {

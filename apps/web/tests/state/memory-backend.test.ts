@@ -199,6 +199,7 @@ describe('settings', () => {
         'notifyMentions',
         'notifyAssignments',
         'notifyComments',
+        'notifyDue',
       ].sort(),
     );
     const changed = await backend.patchSettings({ theme: 'dark', timeZone: 'Asia/Seoul' });
@@ -518,15 +519,15 @@ describe('a copy of a board', () => {
 describe('the seed made of the boards of `seed/`', () => {
   it('holds every English board as a live board the reader is on, plus localized built-in templates', async () => {
     const templates = await loadTemplates();
-    expect(templates).toHaveLength(16);
+    expect(templates).toHaveLength(18);
     const { backend, world } = setup(templates);
     const [workspace] = await backend.workspaces();
     const workspaceId = workspace?.id ?? '';
     const boards = await backend.boards(workspaceId);
     expect(boards).toHaveLength(7);
     const cards = (await Promise.all(boards.map((board) => backend.cards(board.id)))).flat();
-    expect(cards).toHaveLength(41);
-    expect(cards.filter((card) => card.hasBody)).toHaveLength(41);
+    expect(cards).toHaveLength(44);
+    expect(cards.filter((card) => card.hasBody)).toHaveLength(44);
     expect(new Set([...world.blocks.keys(), ...world.containers.keys()]).size).toBe(
       world.blocks.size + world.containers.size,
     );

@@ -21,10 +21,9 @@ use crate::common::{
 };
 use crate::content_search::set_role;
 use crate::notifications::{
-    OWNER, board_with_owner, card_with, comment_on, kinds, mentioning, told, unread,
+    OWNER, board_with_owner, card_with, comment_on, give, give_in, kinds, mentioning, told, unread,
 };
 use crate::own_space::own_workspace;
-use crate::rooms::{give, give_in};
 use crate::search_pages::{new_page, new_wiki, stored_wiki};
 use crate::workspaces::another_organization;
 

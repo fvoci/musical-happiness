@@ -494,7 +494,7 @@ pub const GLOBAL_TABLES: [&str; 13] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 48] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 50] = crate::schema::ORG_TABLES;
 
 async fn migrate_database(database: &TestDatabase, version: i64) {
     let store = Store::open(database.db_type(), database.database_connection())
@@ -767,6 +767,16 @@ pub async fn migrate_to_before_server_indexes_and_derived_columns(database: &Tes
         crate::schema::BEFORE_SERVER_INDEXES_AND_DERIVED_COLUMNS_VERSION,
     )
     .await;
+}
+
+/// Brings a test database to the schema right before migration `0078`: every migration
+/// up to `0077`.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_server_authority(database: &TestDatabase) {
+    migrate_database(database, crate::schema::BEFORE_SERVER_AUTHORITY_VERSION).await;
 }
 
 /// Brings a test database to the schema as a server left it before the organization's

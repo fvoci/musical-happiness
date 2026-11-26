@@ -11,6 +11,17 @@ use crate::{Store, StoreError, oidc_identities, password_reset, sessions, signup
 /// for, in milliseconds: as long as a change of address waits to be confirmed.
 pub const EMAIL_REVERT_LIFETIME_MILLIS: i64 = EMAIL_CHANGE_LIFETIME_MILLIS;
 
+/// What a link back to an address came to: the account it gave the address back to, and
+/// the account's sessions, which ended.
+#[must_use = "close the connections of the sessions it ended with Hub::close"]
+#[derive(Debug, PartialEq, Eq)]
+pub struct EmailRevert {
+    /// The account and its address.
+    pub reverted: EmailReverted,
+    /// Its sessions, all of which ended.
+    pub ended: sessions::SessionsEnded,
+}
+
 /// An account a link gave its address back to, for what follows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmailReverted {
@@ -47,10 +58,7 @@ impl Store {
         &self,
         digest: &str,
         now: i64,
-    ) -> Result<Option<EmailReverted>, StoreError> {
-        // Whoever has the address of the server may ask this, with any text: one that
-        // is no link waits for nobody, where a link takes its turn with every
-        // registration (below).
+    ) -> Result<Option<EmailRevert>, StoreError> {
         let known = self
             .with_conn(async |scope| Ok(find(scope, digest, now).await?.is_some()))
             .await?;
@@ -58,7 +66,6 @@ impl Store {
             return Ok(None);
         }
         self.transaction(async |scope| {
-            // As a change of address is confirmed: the names, then the account.
             signups::claim_account_names(scope).await?;
             let Some(link) = find(scope, digest, now).await? else {
                 return Ok(None);
@@ -66,7 +73,6 @@ impl Store {
             let Some((username, before)) = hold_account(scope, &link.user_id).await? else {
                 return Ok(None);
             };
-            // Of two at once, one takes it.
             let mut take = scope.sql("DELETE FROM email_reverts WHERE token_hash = ");
             take.bind(digest).push_bind(" AND expires_at > ", now);
             if scope.execute(take).await? == 0 {
@@ -90,13 +96,16 @@ impl Store {
                 oidc_identities::remove_linked_after(scope, &link.user_id, link.created_at).await?;
             password_reset::end_links_of_user(scope, &link.user_id).await?;
             users::lock_password(scope, &link.user_id, now).await?;
-            sessions::delete_sessions_of_user(scope, &link.user_id).await?;
-            Ok(Some(EmailReverted {
-                user_id: link.user_id,
-                username,
-                before,
-                restored,
-                unlinked_identities,
+            let ended = sessions::delete_sessions_of_user(scope, &link.user_id).await?;
+            Ok(Some(EmailRevert {
+                reverted: EmailReverted {
+                    user_id: link.user_id,
+                    username,
+                    before,
+                    restored,
+                    unlinked_identities,
+                },
+                ended,
             }))
         })
         .await

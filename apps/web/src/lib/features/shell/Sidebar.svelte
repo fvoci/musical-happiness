@@ -1,17 +1,6 @@
 <!--
-  The sidebar: the name of the app (or, for who works in several workspaces or may
-  start an organization, the one shown, to switch to another: `WorkspaceSwitcher.svelte`), a field that narrows the boards down by
-  title (and asks the backend for the boards it finds beyond them), the categories with their boards, and at the foot "Add board",
-  the trash of boards (`TrashDialog.svelte`), the way to the organization's screen for
-  its administrators, and the reader's account (which opens the settings). In the
-  reader's own space there are no people to manage and no organization to go to.
-
-  This is the content only. Where it sits (beside the board, or over the page
-  as a drawer) is the shell's business, and nothing in here is drawn anew
-  when that changes: the scroll position, the search and whatever has the
-  focus stay.
-
-  Deleting asks first. Names of categories are asked for in a small dialog.
+  The sidebar: workspace switcher, search, categories with their containers,
+  and footer navigation/actions (`SidebarDialogs.svelte` holds the dialogs).
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte';
@@ -23,12 +12,12 @@
   import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import SearchIcon from '@lucide/svelte/icons/search';
+  import SunIcon from '@lucide/svelte/icons/sun';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import UsersIcon from '@lucide/svelte/icons/users';
   import XIcon from '@lucide/svelte/icons/x';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
-  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ContainerPlace } from '$lib/logic/urls.ts';
@@ -48,35 +37,29 @@
   import { Input } from '$lib/ui/input/index.js';
 
   import { BoardSearch } from './board-search.svelte.ts';
-  import { shownTitle } from './shown-title.ts';
-  import CategoryNameDialog from './CategoryNameDialog.svelte';
-  import PeopleDialog from './PeopleDialog.svelte';
+  import type { SidebarAsked } from './sidebar-actions.ts';
+  import SidebarDialogs from './SidebarDialogs.svelte';
   import SidebarList from './SidebarList.svelte';
   import SidebarNavButton from './SidebarNavButton.svelte';
-  import TrashDialog from './TrashDialog.svelte';
   import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 
   interface Props {
     workspace: Workspace;
-    /** The board or wiki on the page. */
     containerId: string | undefined;
     meTime?: boolean;
     timeHref?: string | undefined;
     onOpenTime?: (() => void) | undefined;
+    todayHub?: { active: boolean; onOpen: () => void } | undefined;
     reviewsToday?: { active: boolean; onOpen: () => void } | undefined;
     learningToday?: { active: boolean; onOpen: () => void } | undefined;
     containerHref: (container: ContainerPlace) => string;
-    /** The sidebar is a column beside the board: its button folds it. Otherwise it closes the drawer. */
     beside: boolean;
     onOpenContainer: (container: ContainerPlace) => void;
     onClose: () => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
-    /** The address of the organization's screen, for whoever administers it. */
     orgHref?: string | undefined;
-    /** Goes to another workspace; the head of the sidebar chooses (`WorkspaceSwitcher`). */
     onSwitchWorkspace?: ((workspaceId: string) => void) | undefined;
-    /** Starts an organization and goes to its workspace, where the backend can (the switcher offers it). */
     onCreateOrganization?: ((name: string) => Promise<void>) | undefined;
   }
 
@@ -86,6 +69,7 @@
     meTime = false,
     timeHref,
     onOpenTime,
+    todayHub,
     reviewsToday,
     learningToday,
     containerHref,
@@ -99,20 +83,10 @@
     onCreateOrganization,
   }: Props = $props();
 
-  /**
-   * The workspace shown, or the one closed to this session in its place; the
-   * reader's own space has nobody else in it, and no organization to administer.
-   */
   const shown = $derived(workspace.info ?? workspace.closed);
   const ownSpace = $derived(isOwnSpace(shown));
 
   let query = $state('');
-  /**
-   * What the backend finds for the query beyond what the sidebar shows; only
-   * boards of a workspace the reader can be taken to are offered. A guest has
-   * the boards they are on in the sidebar already, and the server searches
-   * for those who work in the workspace: nothing is asked for them.
-   */
   const boardSearch = new BoardSearch(async (text) =>
     isGuest(workspace)
       ? []
@@ -133,26 +107,25 @@
     (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),
   );
 
-  /**
-   * Whether "Delete board" is offered for the board that is open: not on a
-   * board the reader can only read. What the reader is on the other boards
-   * the sidebar does not know; there the server has the say.
-   */
   const canDeleteOpenContainer = $derived.by(() => {
     const active = workspace.activeContainer;
     return (
-      (workspace.board?.boardId === containerId && workspace.board?.canEdit === true) ||
-      (active?.kind === 'wiki' && active.wikiId === containerId && active.canManage) ||
-      (active?.kind === 'course' && active.courseId === containerId && active.canManage) ||
-      // A diary is the reader's alone.
+      (workspace.board?.boardId === containerId && workspace.board?.canDelete === true) ||
+      (active?.kind === 'wiki' && active.wikiId === containerId && active.canDelete) ||
+      (active?.kind === 'course' && active.courseId === containerId && active.canDelete) ||
       workspace.containers.some((one) => one.id === containerId && one.kind === 'diary')
     );
   });
 
-  /**
-   * The way into a diary where the reader's own space has none yet: the
-   * first one is made as it is pressed, nothing asked, and opened on today.
-   */
+  const openContainerJoinable = $derived.by(() => {
+    const active = workspace.activeContainer;
+    return (
+      (workspace.board?.boardId === containerId && workspace.board?.joinable === true) ||
+      (active?.kind === 'wiki' && active.wikiId === containerId && active.joinable) ||
+      (active?.kind === 'course' && active.courseId === containerId && active.joinable)
+    );
+  });
+
   const firstDiaryOffered = $derived(
     ownSpace &&
       workspace.backend.diary !== undefined &&
@@ -164,8 +137,6 @@
     if (made) onOpenContainer(made);
   }
 
-  // ------------------------------------------------- names of categories
-
   let naming = $state.raw<{ mode: 'create' } | { mode: 'rename'; category: Category }>({
     mode: 'create',
   });
@@ -176,13 +147,9 @@
     else if (name !== naming.category.name) void workspace.renameCategory(naming.category.id, name);
   }
 
-  // --------------------------------------------------------------- trash
-
-  /** Managing the people of the workspace, where the backend has that. */
   const access = $derived(peopleOf(workspace));
   let peopleOpen = $state(false);
   let trashOpen = $state(false);
-  /** The deleted boards, read anew each time they are shown. */
   let trash = $state.raw<Trash | undefined>(undefined);
 
   function openTrash(): void {
@@ -191,25 +158,16 @@
     void trash.read();
   }
 
-  // ------------------------------------------------------------ deleting
-
-  type Asked =
-    { kind: 'container'; container: Container } | { kind: 'category'; category: Category };
-  let asked = $state.raw<Asked | undefined>(undefined);
+  let asked = $state.raw<SidebarAsked | undefined>(undefined);
   let askOpen = $state(false);
-  /** The kind of the board, wiki or diary asked about. */
-  const askedKind = $derived(
-    asked?.kind === 'container' ? (asked.container.kind ?? 'board') : undefined,
-  );
-
-  const titleOf = shownTitle;
+  let copyingContainer = $state.raw<Container | undefined>(undefined);
+  let copyOpen = $state(false);
 
   async function deleteContainer(container: Container): Promise<void> {
     const here = await whileHere(workspace, async () => {
       await workspace.deleteContainer(container.id);
       return true;
     });
-    // The page showed the container that is gone: show the first one that is left.
     if (
       !here ||
       container.id !== containerId ||
@@ -221,13 +179,11 @@
     if (next) onOpenContainer(next);
   }
 
-  /** Makes a template of the board and opens it, to be changed there. */
   async function templateFromBoard(boardId: string): Promise<void> {
     const made = await whileHere(workspace, () => workspace.createTemplateFromBoard(boardId));
     if (made) onOpenContainer(made);
   }
 
-  /** Copies the board or wiki whole and opens the copy. */
   async function duplicateContainer(containerId: string): Promise<void> {
     const made = await whileHere(workspace, () => workspace.duplicateContainer(containerId));
     if (made) onOpenContainer(made);
@@ -282,7 +238,6 @@
     }}
     class="bg-background pr-9 pl-8 roomy:h-touch roomy:pr-12 roomy:text-base"
     onkeydown={(event: KeyboardEvent) => {
-      // The first Escape empties the field; only the next one is for what is around it.
       if (event.key !== 'Escape' || query === '') return;
       event.preventDefault();
       setQuery('');
@@ -310,6 +265,7 @@
     found={boardSearch.found}
     searching={boardSearch.pending}
     {canDeleteOpenContainer}
+    {openContainerJoinable}
     {onOpenContainer}
     onNewCategory={() => {
       naming = { mode: 'create' };
@@ -325,6 +281,10 @@
     }}
     onTemplateFromBoard={(id: string) => void templateFromBoard(id)}
     onDuplicateContainer={(id: string) => void duplicateContainer(id)}
+    onCopyToWorkspace={(container: Container) => {
+      copyingContainer = container;
+      copyOpen = true;
+    }}
     onDeleteContainer={(container: Container) => {
       asked = { kind: 'container', container };
       askOpen = true;
@@ -333,8 +293,6 @@
 </nav>
 
 <div class="shrink-0 border-t p-2 pb-[calc(0.5rem+var(--safe-bottom))]">
-  <!-- A guest is on the boards they were invited to: they make none, and bring none back.
-       Nor does anybody where no workspace is shown, as in one closed to this session. -->
   {#if workspace.info && !isGuest(workspace)}
     {#if firstDiaryOffered}
       <button
@@ -380,6 +338,15 @@
       <UsersIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
     </button>
+  {/if}
+  {#if todayHub && workspace.me?.id}
+    <SidebarNavButton
+      testId="open-today-hub"
+      active={todayHub.active}
+      label={m.today_hub_title()}
+      onclick={todayHub.onOpen}
+      icon={SunIcon}
+    />
   {/if}
   {#if reviewsToday && workspace.backend.course && workspace.info && workspace.me?.id}
     <SidebarNavButton
@@ -437,57 +404,19 @@
   </button>
 </div>
 
-{#if access}
-  <PeopleDialog
-    bind:open={peopleOpen}
-    {workspace}
-    people={access.people}
-    inviteLink={access.inviteLink}
-  />
-{/if}
-
-<TrashDialog
-  bind:open={trashOpen}
-  {trash}
+<SidebarDialogs
   {workspace}
-  title={m.shell_trash()}
-  description={m.shell_trash_boards_description()}
-  untitled={m['Sidebar.untitled-board']()}
-  testId="board-trash"
-/>
-
-<CategoryNameDialog
-  bind:open={namingOpen}
-  mode={naming.mode}
-  initial={naming.mode === 'rename' ? naming.category.name : ''}
-  onSubmit={submitName}
-/>
-
-<ConfirmDialog
-  bind:open={askOpen}
-  title={asked?.kind === 'category'
-    ? m['SidebarCategories.CategoryMenu.DeleteModal.Title']()
-    : askedKind === 'wiki'
-      ? m.shell_delete_wiki_title()
-      : askedKind === 'diary'
-        ? m.shell_delete_diary_title()
-        : askedKind === 'course'
-          ? m.shell_delete_course_title()
-          : m['DeleteBoardDialog.confirm-tite']()}
-  description={asked?.kind === 'category'
-    ? m['SidebarCategories.CategoryMenu.DeleteModal.Body']({ categoryName: asked.category.name })
-    : asked?.kind === 'container'
-      ? askedKind === 'wiki'
-        ? m.shell_delete_wiki_info({ title: titleOf(asked.container) })
-        : askedKind === 'diary'
-          ? m.shell_delete_diary_info({ title: titleOf(asked.container) })
-          : askedKind === 'course'
-            ? m.shell_delete_course_info({ title: titleOf(asked.container) })
-            : m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.container) })
-      : undefined}
-  confirmLabel={asked?.kind === 'category'
-    ? m.shared_delete()
-    : m['DeleteBoardDialog.confirm-delete']()}
-  destructive
-  onConfirm={confirmed}
+  {access}
+  bind:peopleOpen
+  {trash}
+  bind:trashOpen
+  {naming}
+  bind:namingOpen
+  onSubmitName={submitName}
+  {asked}
+  bind:askOpen
+  onConfirmDelete={confirmed}
+  {copyingContainer}
+  bind:copyOpen
+  onCopiedToWorkspace={onOpenContainer}
 />

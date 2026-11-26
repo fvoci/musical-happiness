@@ -707,6 +707,12 @@ impl AppError {
             | ContainerError::PropertiesLeftOut { .. } => {
                 Self::bad_request(StoreError::InvalidContainer(refused))
             }
+            ContainerError::InvalidDueDateProperty | ContainerError::InvalidDoneWhen => {
+                let mut error = Self::bad_request(StoreError::InvalidContainer(refused))
+                    .with_field("properties");
+                error.subject = Some(Subject::Board);
+                error
+            }
             ContainerError::NulCharacter { member } => {
                 let mut error =
                     Self::bad_request(StoreError::InvalidContainer(refused)).with_field(member);
@@ -735,6 +741,9 @@ impl From<StoreError> for AppError {
             StoreError::TeamSelfJoining => {
                 Self::forbidden(error).with_reason(Reason::TeamSelfJoining)
             }
+            StoreError::GuestCannotJoinTeam => {
+                Self::conflict(error).with_reason(Reason::GuestCannotJoinTeam)
+            }
             // What was not found is in the store's message, which names identifiers; the
             // answer does not repeat it. Routes say what kind of thing they miss.
             StoreError::NotFound(_) | StoreError::NotAllFound { .. } | StoreError::NoRows => {
@@ -755,7 +764,8 @@ impl From<StoreError> for AppError {
                 Self::not_found("user")
             }
             // What a client sent and the store refused.
-            StoreError::InvalidBlock {
+            StoreError::DuplicateReorderId(_)
+            | StoreError::InvalidBlock {
                 source:
                     BlockError::TitleSizeLimitExceeded
                     | BlockError::FieldsSizeLimitExceeded

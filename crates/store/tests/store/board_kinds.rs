@@ -272,7 +272,7 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
         ),
         (
             ContainerKinds::OPEN_TO_READ,
-            vec![wiki.id.as_str(), course.id.as_str()],
+            vec![board.id.as_str(), wiki.id.as_str(), course.id.as_str()],
         ),
         (
             ContainerKinds::SHARED,

@@ -429,36 +429,17 @@ async fn create_boards_and_blocks_refusals() {
         );
     }
 
-    // Blocks are checked one by one: board, type, creation time, modification time.
-    // Each refusal names the member in the one spelling the API has.
-    for (block, field, message) in [
-        (
-            json!({"id": "b1", "containerId": "bd", "createdAt": 1, "updatedAt": 1}),
-            "type",
-            "the block has no type",
-        ),
-        (
-            json!({"id": "b1", "containerId": "bd", "type": "card", "updatedAt": 1}),
-            "createdAt",
-            "a new block's createdAt is 1 or more",
-        ),
-        (
-            json!({"id": "b1", "containerId": "bd", "type": "card", "createdAt": 1}),
-            "updatedAt",
-            "a new block's updatedAt is 1 or more",
-        ),
-    ] {
-        let response = th
-            .client
-            .post(PATH, &json!({"containers": [board], "blocks": [block]}))
-            .await;
-        expect_bad_request(&response, message);
-        assert_eq!(
-            response.refused_at(),
-            format!("/blocks/0/{field}"),
-            "{message}"
-        );
-    }
+    // Blocks are checked one by one: a block without a `type` is refused at `/blocks/0/type`,
+    // while `createdAt` and `updatedAt` are server-assigned and need not be sent by clients.
+    let response = th
+        .client
+        .post(
+            PATH,
+            &json!({"containers": [board], "blocks": [{"id": "b1", "containerId": "bd"}]}),
+        )
+        .await;
+    expect_bad_request(&response, "the block has no type");
+    assert_eq!(response.refused_at(), "/blocks/0/type");
 
     // A board that names a workspace other than the path's, one that does not exist and
     // text that is no identifier among them, is refused; the path names the workspace.

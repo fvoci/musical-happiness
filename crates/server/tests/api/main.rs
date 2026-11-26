@@ -1,6 +1,7 @@
 //! API integration tests: an in-process server on an ephemeral port driven over HTTP
 //! and WebSocket, organized by feature area.
 
+mod block_insert;
 mod block_types;
 mod common;
 
@@ -169,6 +170,7 @@ mod search_isolation;
 mod search_pages;
 mod search_real;
 mod search_versions;
+mod server_authority;
 mod server_lock;
 mod shared;
 mod shared_blocks;

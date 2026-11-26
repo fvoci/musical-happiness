@@ -204,6 +204,12 @@ async fn check_card_restore_top(
     if parent.block_type == BlockType::Comment {
         return Err(not_restorable(BlockError::ParentIsComment));
     }
+    if parent.block_type == BlockType::View {
+        return Err(not_restorable(BlockError::ParentIsView));
+    }
+    if parent.block_type == BlockType::Attachment {
+        return Err(not_restorable(BlockError::ParentIsAttachment));
+    }
     if parent.block_type != BlockType::Card {
         return Err(not_restorable(BlockError::CardNotBelowCard));
     }

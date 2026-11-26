@@ -59,7 +59,8 @@
       "maxFileBytes": 104857600,
       "maxImportBytes": 268435456,
       "nameDisplay": "username",
-      "searchEnabled": true
+      "searchEnabled": true,
+      "trashRetentionDays": 30
     }
   },
   {
@@ -73,7 +74,8 @@
       "maxFileBytes": 104857600,
       "maxImportBytes": 268435456,
       "nameDisplay": "username",
-      "searchEnabled": true
+      "searchEnabled": true,
+      "trashRetentionDays": 30
     }
   },
   {

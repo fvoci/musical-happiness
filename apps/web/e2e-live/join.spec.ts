@@ -1,7 +1,7 @@
 /**
  * An open board on the real server, opened by somebody of the workspace who is
- * no member of it: its title and description are shown with a way to join,
- * and joining opens it (the user's decision, H5). Nobody is made a member by
+ * no member of it: it is read as it is, under a bar that joins it, as an open
+ * wiki is, and joining lets them write in it. Nobody is made a member by
  * opening it.
  */
 import { expect, test } from '@playwright/test';
@@ -49,15 +49,16 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
   await signInOnPage(page, visitor);
   const join = page.getByTestId('board-join');
   await expect(join).toBeVisible();
-  await expect(join.getByRole('heading')).toHaveText('Commons');
-  await expect(join).toContainText('For the whole workspace');
-  await expect(page.getByTestId('board-page')).toHaveCount(0);
+  await expect(join).toContainText('You read this board without being a member');
+  // The board is read as it is, its cards with it.
+  await expect(page.getByTestId('board-page')).toBeVisible();
+  await expect(page.getByText('Water the plants')).toBeVisible();
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   // Opening it made nobody a member.
   expect(await memberNames()).toEqual([owner.username]);
 
   await join.getByRole('button', { name: 'Join this board' }).click();
-  await expect(page.getByTestId('board-page')).toBeVisible();
+  await expect(join).toHaveCount(0);
   // The focus is on the board, where the button was.
   await expect(page.getByTestId('board-page')).toBeFocused();
   await expect(page.getByText('Water the plants')).toBeVisible();
