@@ -20,7 +20,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Every kind of node and mark a body may contain. */
+/** Every kind of node and mark a body may contain; an image opens larger on a press, or Enter. */
 export const Mixed: Story = { args: { doc: MIXED } };
 /** One document of the built-in templates. */
 export const FromTemplate: Story = { args: { doc: FROM_TEMPLATE } };

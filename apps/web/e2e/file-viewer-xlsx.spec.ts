@@ -253,7 +253,7 @@ test('a workbook in a page opens from its file block', async ({ page }) => {
   const body = pageBody(page);
   await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
   await body.click();
-  await page.keyboard.type('/');
+  await page.keyboard.type('/file');
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     page.keyboard.press('Enter'),

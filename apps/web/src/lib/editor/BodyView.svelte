@@ -16,6 +16,10 @@
   caller knows of it changes. Without `references` each shows as what the
   reader may not see. A file block is a place too, and its file's name, size
   and link are drawn into it from the file source (file-view.ts).
+
+  An image opens larger on a press, or on Enter or Space (image-zoom.ts,
+  ImageLightbox.svelte), unless `zoomImages` is false: where a press of the
+  body is the caller's (a preview that opens what it shows).
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -26,6 +30,8 @@
   import { drawCodeBlocksLater } from './code-later.ts';
   import { drawEmbeds } from './embeds.ts';
   import { drawFileBlocks } from './file-view.ts';
+  import ImageLightbox from './ImageLightbox.svelte';
+  import { zoomImagesOf, type LightboxImage } from './image-zoom.ts';
   import { attachReferences, type ReferenceDrawing } from './reference-chip.ts';
   import { renderBody } from './render.ts';
 
@@ -42,6 +48,8 @@
     invalid?: Snippet<[problems: string[]]>;
     /** Shown in place of an empty body. */
     empty?: Snippet;
+    /** Whether an image opens larger when pressed; true unless given. */
+    zoomImages?: boolean;
     class?: ClassValue;
   }
 
@@ -52,8 +60,22 @@
     references,
     invalid,
     empty,
+    zoomImages = true,
     class: className,
   }: Props = $props();
+
+  /** The image opened larger; nothing while none is. */
+  let zoomed = $state<LightboxImage>();
+
+  /** The images of the body open larger, those it draws anew too (`nodes`). */
+  function zoomImagesIn(
+    element: HTMLElement,
+    zooms: boolean,
+    ..._drawn: unknown[]
+  ): (() => void) | undefined {
+    if (!zooms) return undefined;
+    return zoomImagesOf(element, (image) => (zoomed = image), { buttons: true });
+  }
 
   const body = $derived.by(() => {
     const rendered = renderBody(doc, { resolveUser, taskLabel });
@@ -79,5 +101,7 @@
     }}
     {@attach (element: HTMLElement) => attachReferences(element, references, nodes)}
     {@attach (element: HTMLElement) => drawCodeBlocksLater(element, CODE_COPY_TEXTS, nodes)}
+    {@attach (element: HTMLElement) => zoomImagesIn(element, zoomImages, nodes)}
   ></div>
+  <ImageLightbox image={zoomed} onclose={() => (zoomed = undefined)} />
 {/if}

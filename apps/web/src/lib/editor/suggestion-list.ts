@@ -4,11 +4,18 @@
  * layer sits below the app's popover components and cannot use them.
  *
  * The cursor stays in the editor; the list is driven from there. The arrow
- * keys move through it, Enter or Tab takes the entry, Escape closes it. It
- * is placed again whenever the editor reports the cursor's rectangle anew,
- * which it does on every change and when the window is resized.
+ * keys move through it, Enter or Tab takes the entry, Escape closes it. A
+ * key that an input method is composing with (the Enter that ends a Korean
+ * syllable) is the input method's, never the list's; an entry pressed while a
+ * syllable is being composed (`/젬`) is taken once it is written, or the
+ * syllable would be taken away half made. It is placed again whenever the
+ * editor reports the cursor's rectangle anew, which it does on every change
+ * and when the window is resized.
  */
+import type { EditorView } from '@tiptap/pm/view';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
+
+import { isComposing } from '$lib/keys.ts';
 
 import type { SuggestionEntry, SuggestionRenderer } from './extensions.ts';
 
@@ -21,6 +28,12 @@ export interface SuggestionListOptions {
 
 let lists = 0;
 
+/**
+ * How long after a composition ends what it wrote is the document's: ProseMirror takes it in
+ * within 20 ms (prosemirror-view `scheduleComposeEnd`).
+ */
+const COMPOSITION_WRITTEN = 30;
+
 /** One opening of the list, with its DOM, selection and owner kept together. */
 class SuggestionList {
   #list: HTMLDivElement | undefined;
@@ -28,6 +41,7 @@ class SuggestionList {
   #active = 0;
   #choose: (entry: SuggestionEntry) => void = () => undefined;
   #owner: HTMLElement | undefined;
+  #view: EditorView | undefined;
   readonly #id = `doc-suggestions-${(lists += 1)}`;
   readonly #options: SuggestionListOptions;
 
@@ -62,8 +76,7 @@ class SuggestionList {
         // `mousedown`, and prevented: a click must not take the focus out of the editor.
         option.addEventListener('mousedown', (event) => {
           event.preventDefault();
-          const choose = this.#choose;
-          choose(entry);
+          this.#pressed(entry);
         });
         return option;
       }),
@@ -75,6 +88,25 @@ class SuggestionList {
     this.#place(rect);
   }
 
+  /** Takes an entry pressed; while a syllable is composed, once it is written. */
+  #pressed(entry: SuggestionEntry): void {
+    const view = this.#view;
+    if (!view?.composing) {
+      const choose = this.#choose;
+      choose(entry);
+      return;
+    }
+    const written = (): void => {
+      setTimeout(() => {
+        // The list may have closed meanwhile; the entry is taken with the range as it is now.
+        if (!this.#list || view.composing) return;
+        const choose = this.#choose;
+        choose(entry);
+      }, COMPOSITION_WRITTEN);
+    };
+    view.dom.addEventListener('compositionend', written, { once: true });
+  }
+
   #close(): void {
     this.#list?.remove();
     this.#list = undefined;
@@ -83,6 +115,7 @@ class SuggestionList {
   }
 
   onStart = (props: SuggestionProps<SuggestionEntry, SuggestionEntry>): void => {
+    this.#view = props.editor.view;
     this.#owner = props.editor.view.dom;
     const page = this.#owner.ownerDocument;
     this.#list = page.createElement('div');
@@ -107,7 +140,7 @@ class SuggestionList {
   };
 
   onKeyDown = ({ event }: SuggestionKeyDownProps): boolean => {
-    if (!this.#list || this.#entries.length === 0) return false;
+    if (!this.#list || this.#entries.length === 0 || isComposing(event)) return false;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       const step = event.key === 'ArrowDown' ? 1 : -1;
       this.#active = (this.#active + step + this.#entries.length) % this.#entries.length;

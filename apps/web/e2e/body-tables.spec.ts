@@ -64,8 +64,21 @@ test('a table is made, written in and changed with the keyboard alone', async ({
   const body = await newPage(page);
   await body.click();
   await page.keyboard.type('/');
-  // Where files can go, a file first; then a table.
-  await expect(slashMenu(page).getByRole('option')).toHaveText(['File', 'Table']);
+  // The kinds of block, then a table, and a file where files can go.
+  await expect(slashMenu(page).getByRole('option')).toHaveText([
+    'Heading 1',
+    'Heading 2',
+    'Heading 3',
+    'To-do list',
+    'Bulleted list',
+    'Numbered list',
+    'Quote',
+    'Code block',
+    'Formula block',
+    'Divider',
+    'Table',
+    'File or image',
+  ]);
   await page.keyboard.press('Escape');
   await page.keyboard.press('Backspace');
   await slash(page, 'table', 'Table');

@@ -27,6 +27,7 @@ import type { Node as DocumentNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 
+import { noTypingFromControls } from './browser-edits.ts';
 import { CODE_CONTROLS, codeBlocksEditable } from './code-block-view.ts';
 import { knownTokens, tokensFor } from './code-highlighter.ts';
 import { codeLanguageOf, type CodeLanguage } from './code-languages.ts';
@@ -346,15 +347,7 @@ export function codeHighlight(): Plugin<HighlightState> {
           tokens?.refresh();
           return false;
         },
-        // With the focus on a block's language or copy button, nothing is typed into the body:
-        // an edit comes to the editor itself, and WebKit would make it where the caret was.
-        beforeinput: (view, event) => {
-          const focused = view.dom.ownerDocument.activeElement;
-          if (!(focused instanceof Element) || !focused.matches(CODE_CONTROLS)) return false;
-          if (!view.dom.contains(focused)) return false;
-          event.preventDefault();
-          return true;
-        },
+        beforeinput: noTypingFromControls(CODE_CONTROLS),
       },
     },
     view: (view) => {
