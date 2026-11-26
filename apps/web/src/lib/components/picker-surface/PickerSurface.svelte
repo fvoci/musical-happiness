@@ -20,6 +20,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
+  import { Opener } from '$lib/focus.ts';
   import { fingerPointer, insets } from '$lib/layout/room.svelte.ts';
   import * as Popover from '$lib/ui/popover/index.js';
   import { cn } from '$lib/utils.js';
@@ -37,6 +38,8 @@
     trigger: Snippet<[{ props: Record<string, unknown> }]>;
     children: Snippet;
     onOpenChange?: (open: boolean) => void;
+    /** Where the focus goes once the surface has closed, in place of a trigger nobody can focus. */
+    returnFocus?: () => HTMLElement | null | undefined;
     class?: string;
   }
 
@@ -47,12 +50,12 @@
     trigger,
     children,
     onOpenChange,
+    returnFocus,
     class: className,
   }: Props = $props();
 
   let popover = $state<HTMLElement | null>(null);
-  /** What opened the sheet, for the focus to come back to: Safari does not focus a pressed button. */
-  let opener: HTMLElement | null = null;
+  const opener = new Opener();
 
   function focusMarked(event: Event): void {
     // Under a finger the focus stays out of the field: the keyboard comes up
@@ -76,7 +79,7 @@
       'aria-expanded': open,
       // In the capture phase: a trigger may put its own `onclick` in place of this one's.
       onclickcapture: (event: MouseEvent) => {
-        opener = event.currentTarget as HTMLElement;
+        opener.remember(event);
       },
       onclick: () => {
         open = true;
@@ -84,7 +87,12 @@
       },
     },
   })}
-  <BottomSheet bind:open {title} {onOpenChange} returnFocus={() => opener}>
+  <BottomSheet
+    bind:open
+    {title}
+    {onOpenChange}
+    returnFocus={() => returnFocus?.() ?? opener.take()}
+  >
     <div class={cn('px-2 pb-2', className)}>
       {@render children()}
     </div>
@@ -103,6 +111,12 @@
       aria-label={title}
       class="max-h-(--bits-popover-content-available-height) w-auto max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))] min-w-64 gap-0 overflow-y-auto p-1"
       onOpenAutoFocus={focusMarked}
+      onCloseAutoFocus={(event: Event) => {
+        const back = returnFocus?.();
+        if (!back?.isConnected) return;
+        event.preventDefault();
+        back.focus({ preventScroll: true });
+      }}
     >
       <div data-presentation="popover" class={cn('group/surface', className)}>
         {@render children()}

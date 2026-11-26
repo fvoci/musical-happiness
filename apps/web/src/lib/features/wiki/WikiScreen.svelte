@@ -30,7 +30,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
-  import { focusRevealed } from '$lib/layout/focus.ts';
+  import { focusRevealed } from '$lib/focus.ts';
   import { coverPane } from '$lib/layout/over-pane.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import type { PagePlace } from '$lib/logic/page-moves.ts';

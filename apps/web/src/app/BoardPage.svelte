@@ -23,7 +23,7 @@
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { focusAdrift } from '$lib/layout/focus.ts';
+  import { focusAdrift } from '$lib/focus.ts';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
   import {
     boardPresence,

@@ -119,10 +119,11 @@
         label: m.kanban_move_to_column(),
         icon: ArrowRightLeftIcon,
         hint: many,
-        // The first menu closes, and gives the focus back, before the second opens.
         run: () => {
           moveMenuMade = true;
-          setTimeout(() => (moving = true), 0);
+        },
+        afterClose: () => {
+          moving = true;
         },
       });
     }
@@ -148,19 +149,6 @@
       run: () => onMove?.(column.optionId),
     })),
   );
-
-  // The second menu hangs on an element nobody can focus. When it closes
-  // with the focus gone to nowhere, the "…" it came from takes it.
-  let wasMoving = false;
-  $effect(() => {
-    const now = moving;
-    if (wasMoving && !now) {
-      setTimeout(() => {
-        if (document.activeElement === document.body) holder?.querySelector('button')?.focus();
-      }, 0);
-    }
-    wasMoving = now;
-  });
 </script>
 
 <span bind:this={holder} class="relative block">
@@ -187,6 +175,7 @@
       title={m.kanban_move_to_column()}
       subtitle={title}
       actions={moveActions}
+      returnFocus={() => holder?.querySelector('button')}
     >
       {#snippet trigger(props: Record<string, unknown>)}
         <span

@@ -34,8 +34,8 @@ function row(overrides: Partial<RowMenu> = {}): RowMenu {
 }
 
 const ids = (actions: { id: string }[]): string[] => actions.map((action) => action.id);
-const run = (actions: { id: string; run: () => void }[], id: string): void => {
-  actions.find((action) => action.id === id)?.run();
+const run = (actions: { id: string; run?: (() => void) | undefined }[], id: string): void => {
+  actions.find((action) => action.id === id)?.run?.();
 };
 
 describe('the menu of a heading', () => {

@@ -20,7 +20,7 @@
   import type { ContainerPlace } from '$lib/logic/urls.ts';
   import type { Container } from '$lib/logic/wire.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
-  import { focusRevealed } from '$lib/layout/focus.ts';
+  import { focusRevealed, Opener } from '$lib/focus.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { paneCovered } from '$lib/layout/over-pane.svelte.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
@@ -123,21 +123,20 @@
     },
   );
 
-  let opener: Element | null = null;
+  const opener = new Opener();
   $effect(() => {
     if (!drawerOut) return;
     focusRevealed(panel, { preventScroll: true });
     return () => {
-      const from = opener;
-      opener = null;
+      const from = opener.take();
       const lost = document.activeElement;
-      if (!(from instanceof HTMLElement) || !from.isConnected) return;
+      if (!from) return;
       if (lost === null || lost === document.body || panel?.contains(lost)) focusRevealed(from);
     };
   });
 
   function openDrawer(event: Event): void {
-    opener = event.currentTarget instanceof Element ? event.currentTarget : document.activeElement;
+    opener.remember(event);
     sidebar.drawerOpen = true;
   }
 

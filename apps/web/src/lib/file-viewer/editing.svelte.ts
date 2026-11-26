@@ -29,6 +29,8 @@
  */
 import { tick } from 'svelte';
 
+import { focusRevealed } from '$lib/focus.ts';
+
 import {
   readFromEditor,
   REQUEST_LIMIT,
@@ -466,17 +468,10 @@ export class EditingSession {
     this.#focusFrame();
   }
 
-  /**
-   * Moves the focus to the frame once Svelte has updated its visibility. `getBoundingClientRect()`
-   * flushes WebKit's style even while a stylesheet is pending, so `focus()` does not see the
-   * stale `visibility: hidden` and drop focus to `body`.
-   */
+  /** Moves the focus to the frame once Svelte has made it visible. */
   #focusFrame(): void {
     void tick().then(() => {
-      const frame = this.#frame;
-      if (!frame?.isConnected) return;
-      frame.getBoundingClientRect();
-      frame.focus();
+      focusRevealed(this.#frame);
     });
   }
 

@@ -61,7 +61,7 @@
 {:else if unit.comments.status === 'failed'}
   <div class="flex flex-wrap items-center gap-2 border-t pt-5" role="alert">
     <p class="text-muted-foreground">{m.app_problem_load()}</p>
-    <Button variant="outline" onclick={() => void unit.comments.read(false)}>
+    <Button variant="outline" onclick={() => void unit.comments.reread()}>
       {m.app_retry()}
     </Button>
   </div>

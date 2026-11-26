@@ -16,6 +16,7 @@
 import { isAllowedHref } from '$lib/editor/schema.ts';
 
 import { CLOSE, MEASURE, NAMESPACES, OPEN, TEXT, type Step } from './docx-protocol.ts';
+import { yieldThread } from './yield-thread.ts';
 
 /** How many steps are built before the thread is given back. */
 const SLICE = 20_000;
@@ -60,11 +61,6 @@ function isSafeDocxAddress(value: string): boolean {
   }
   return /^(?:https?:|mailto:)/i.test(trimmed) && isAllowedHref(trimmed);
 }
-
-const yieldThread = (): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, 0);
-  });
 
 /** Thrown when the steps are not in their shape: the worker's answer is not taken. */
 export class BrokenSteps extends Error {}

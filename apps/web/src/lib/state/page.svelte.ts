@@ -107,15 +107,12 @@ export class PageStore implements OpenHierarchyNode {
 
   async load(): Promise<void> {
     this.status = 'loading';
-    await Promise.all([this.#readBody(true), this.comments.read(true)]);
+    await Promise.all([this.#readBody(), this.comments.read()]);
   }
 
   async refresh(): Promise<void> {
     if (this.status !== 'ready') return;
-    await Promise.all([
-      this.#busy() ? undefined : this.#readBody(false),
-      this.comments.read(false),
-    ]);
+    await Promise.all([this.#busy() ? undefined : this.#rereadBody(), this.comments.reread()]);
   }
 
   #applyDetail(detail: WikiPageDetail): void {
@@ -141,7 +138,18 @@ export class PageStore implements OpenHierarchyNode {
     this.wiki.receivePage(this.meta ?? detail);
   }
 
-  async #readBody(first: boolean): Promise<void> {
+  /** The first reading of the body: a failure is told. */
+  #readBody(): Promise<void> {
+    return this.#fetchBody('first');
+  }
+
+  /** The body read again when it changed: a failure waits for the next change. */
+  #rereadBody(): Promise<void> {
+    return this.#fetchBody('again');
+  }
+
+  async #fetchBody(kind: 'first' | 'again'): Promise<void> {
+    const first = kind === 'first';
     this.#readings += 1;
     const reading = this.#readings;
     try {
@@ -197,7 +205,7 @@ export class PageStore implements OpenHierarchyNode {
       this.#news = page;
       return;
     }
-    void this.#readBody(false);
+    void this.#rereadBody();
   }
 
   #busy(): boolean {

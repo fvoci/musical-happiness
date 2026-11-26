@@ -29,3 +29,36 @@ export function focusRevealed(
   element.getBoundingClientRect();
   element.focus(options);
 }
+
+/**
+ * What opened a sheet, a dialog or a drawer, for the focus to go back to once it closes. Safari
+ * does not focus a link or a button that a mouse or a finger presses, so what has the focus
+ * when it opens may be the page itself: what was pressed is taken from the event instead.
+ */
+export class Opener {
+  #element: HTMLElement | null = null;
+
+  /** Remembers what `event` was on, else what has the focus now (the page itself is nothing). */
+  remember(event?: Event): void {
+    const target = event?.currentTarget;
+    this.#element = target instanceof HTMLElement ? target : focusedElement();
+  }
+
+  /** Remembers `element`, in place of what an event would say. */
+  hold(element: HTMLElement | null | undefined): void {
+    this.#element = element ?? null;
+  }
+
+  /** What opened, while it is still on the page; forgotten once taken. */
+  take(): HTMLElement | null {
+    const element = this.#element;
+    this.#element = null;
+    return element?.isConnected ? element : null;
+  }
+}
+
+/** The element that has the focus; none where that is the page itself. */
+function focusedElement(): HTMLElement | null {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && active !== document.body ? active : null;
+}

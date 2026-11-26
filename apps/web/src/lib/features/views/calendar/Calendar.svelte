@@ -35,7 +35,7 @@
 
   import { faceProperties } from '$lib/components/card-face/face.ts';
   import BottomSheet from '$lib/components/sheet/BottomSheet.svelte';
-  import { focusAdrift } from '$lib/layout/focus.ts';
+  import { focusAdrift } from '$lib/focus.ts';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { fingerPointer, page, PaneRoom } from '$lib/layout/room.svelte.ts';
   import {

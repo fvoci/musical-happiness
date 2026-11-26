@@ -26,6 +26,7 @@
   import { tick, type Snippet } from 'svelte';
 
   import { overlayPresentation, type OverlayPresentation } from '$lib/layout/presentation.ts';
+  import { Opener } from '$lib/focus.ts';
   import { insets, page } from '$lib/layout/room.svelte.ts';
   import { isApplePlatform } from '$lib/keys.ts';
   import { cutTitle } from '$lib/components/cut-title.ts';
@@ -46,6 +47,8 @@
     status?: string;
     /** The element that opens it. Spread `props` on a button, before its own attributes. */
     trigger: Snippet<[Record<string, unknown>]>;
+    /** Where the focus goes once the menu has closed, in place of a trigger nobody can focus. */
+    returnFocus?: () => HTMLElement | null | undefined;
   }
 
   let {
@@ -57,6 +60,7 @@
     presentation,
     status,
     trigger,
+    returnFocus,
   }: Props = $props();
 
   const shown = $derived(presentation ?? overlayPresentation(page.stage));
@@ -70,19 +74,39 @@
   function linePlace(index: number): Record<string, number> {
     return withTools ? { 'aria-posinset': index + 1, 'aria-setsize': actions.length } : {};
   }
-  /** What opened the sheet, for the focus to come back to: Safari does not focus a pressed button. */
-  let opener: HTMLElement | null = null;
+  const opener = new Opener();
+  let dropdownTrigger = $state<HTMLElement | null>(null);
+  /** The `afterClose` of the line chosen, for once the menu has closed. */
+  let afterClose: (() => void) | undefined;
 
   function choose(action: MenuAction): void {
     open = false;
-    action.run();
+    afterClose = action.afterClose;
+    action.run?.();
+  }
+
+  /** Once the menu has closed and the focus is back: what the line chosen left for then. */
+  function closed(): void {
+    const next = afterClose;
+    afterClose = undefined;
+    next?.();
+  }
+
+  /** The dropdown closed: the focus where `returnFocus` says, or on the trigger before `afterClose`. */
+  function closedDropdown(event: Event): void {
+    const back = returnFocus?.() ?? (afterClose ? dropdownTrigger : null);
+    if (back?.isConnected) {
+      event.preventDefault();
+      back.focus({ preventScroll: true });
+    }
+    closed();
   }
 
   /** A link's line pressed: answered here, or (a new tab or window asked for) left to the browser. */
   function follow(event: MouseEvent, action: MenuAction): void {
     if (!followedHere(event)) return;
     event.preventDefault();
-    action.run();
+    action.run?.();
   }
 
   /** Names this menu's list in the page, for its lines to be found again once they move. */
@@ -190,7 +214,8 @@
         toolKeys(event, action);
       }}
       onSelect={() => {
-        action.run();
+        afterClose = action.afterClose;
+        action.run?.();
       }}
     >
       {@render dropdownLine(action)}
@@ -238,13 +263,19 @@
     'aria-expanded': open,
     // In the capture phase: a trigger may put its own `onclick` in place of this one's.
     onclickcapture: (event: MouseEvent) => {
-      opener = event.currentTarget as HTMLElement;
+      opener.remember(event);
     },
     onclick: () => {
       open = true;
     },
   })}
-  <BottomSheet bind:open {title} {subtitle} returnFocus={() => opener}>
+  <BottomSheet
+    bind:open
+    {title}
+    {subtitle}
+    returnFocus={() => returnFocus?.() ?? opener.take()}
+    onClosed={closed}
+  >
     <ul class="px-2 pb-2" role="menu" aria-label={title} data-menu={uid}>
       {#each actions as action (action.id)}
         <li
@@ -315,7 +346,7 @@
   </BottomSheet>
 {:else}
   <DropdownMenu.Root bind:open>
-    <DropdownMenu.Trigger>
+    <DropdownMenu.Trigger bind:ref={dropdownTrigger}>
       {#snippet child({ props }: { props: Record<string, unknown> })}
         {@render trigger(props)}
       {/snippet}
@@ -326,6 +357,7 @@
       aria-label={title}
       data-menu={uid}
       data-testid="dropdown"
+      onCloseAutoFocus={closedDropdown}
       class={[
         withTools ? 'w-72' : 'w-60',
         'max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))]',

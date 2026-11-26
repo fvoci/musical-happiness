@@ -179,7 +179,7 @@ describe('the comments on a page, in memory', () => {
     await settle();
     await settle();
     expect(comments.comments.map((comment) => comment.id)).toEqual([theirs.id]);
-    await comments.read(false);
+    await comments.reread();
     expect(comments.comments.map((comment) => comment.id)).toEqual([theirs.id]);
     store.close();
   });
