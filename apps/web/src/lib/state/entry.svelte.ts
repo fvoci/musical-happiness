@@ -1,60 +1,32 @@
 /**
  * The entry of one day of a diary as its page has it open: its body, edited
- * together in its room as a card's is (`card.svelte.ts`, `page.svelte.ts`).
- *
- * A day nobody wrote on has no entry, and none is made for it before the
- * reader writes: the first thing they write (`write`) is kept here as a draft
- * while the entry is made, then put into the room's document once that has
- * arrived (`takeDraft`: the editor of the room appends it, after what another
- * device wrote there meanwhile). A draft the room never took (the room did
- * not open, the page went first) is appended atomically after whatever the
- * entry holds on the server (`patchEntry` with `appendBody`); the draft is
- * this store's until that write is answered (`flushing`: nobody writes in it,
- * and the room's editor waits), and is kept, to be written again, where it
- * was refused.
- *
- * An entry the reader emptied here, or made here and left blank, and leaves
- * blank with nobody else in its room, is deleted as it is left (`closeBody`,
- * and `leave` as the page goes): an empty day is a day not written, in the
- * diary's calendar too (`isBlank` says what empty is).
- *
- * The day's mood, weather and place are marked here too (`mark`, `notes`):
- * they are the day's at once, sent apart from the body (`EntryNotes`), and a
- * day without an entry has one made for them as for its first words.
+ * together in its room via `CollaborativeBodyState`, its pre-entry draft, and
+ * its day notes (`EntryNotes`).
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { CalendarDate } from '../logic/dates.ts';
-import { isBackendError, type BodyDoc, type BodyDocState } from './backend.ts';
+import { BackendError, isBackendError, type BodyDocState } from './backend.ts';
 import { BodyUploads } from './body-uploads.svelte.ts';
-import type { DayNotes, Diaries, DiaryEntryDetail } from './diary-types.ts';
+import { CollaborativeBodyState } from './collab-body.svelte.ts';
+import type { DayNotes, Diaries, DiaryEntry, DiaryEntryDetail } from './diary-types.ts';
 import { EntryNotes, type NotesHost } from './entry-notes.svelte.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
-/** What an entry needs of its diary's store. */
 export interface EntryHost {
   readonly workspace: Workspace;
   readonly diaryId: string;
-  /** An entry made, read or deleted here: the page's list follows. */
   received(entry: DiaryEntryDetail): void;
   removed(entryId: string): void;
+  catchUpEntry?: (entryId: string) => void;
 }
 
-/**
- * Whether an entry holds nothing the reader put in it: no text, no image or
- * file in its body (`blankBody`, as its editor says), and none of the day's
- * notes. What a day may carry besides its body is counted here.
- */
 export function isBlank(entry: DayNotes, blankBody: boolean): boolean {
   return blankBody && entry.mood === null && entry.weather === '' && entry.place === '';
 }
 
-/** The notes of a day nobody marked. */
 const NO_NOTES: DayNotes = { mood: null, weather: '', place: '' };
-
-/** How long after the entry could not be made it is not asked for again, however much is typed. */
 const MAKE_AGAIN_AFTER = 5000;
 
-/** A refusal that may pass by itself: no answer, too many requests, the server's own trouble. */
 function passing(error: unknown): boolean {
   return (
     isBackendError(error) && (error.status === 0 || error.status === 429 || error.status >= 500)
@@ -65,41 +37,60 @@ export class EntryStore {
   readonly host: EntryHost;
   readonly date: CalendarDate;
 
-  /** The entry, once there is one. */
   entry = $state.raw<DiaryEntryDetail | undefined>(undefined);
-  /** The body in its room, while it is open there (`openBody`). */
-  room = $state.raw<BodyDocState | undefined>(undefined);
-  /** Why things of the reader's were dropped, each once, until dismissed. */
-  lost = $state.raw<readonly string[]>([]);
-  /** What the reader wrote before the room took it; `null` for nothing. */
   draft = $state.raw<DocNode | null>(null);
-  /** The reader writes in the draft (emptied again, too) and the room has not taken it yet. */
   drafting = $state(false);
-  /** The draft could not be kept: the entry was not made, or its body not written. */
   unsaved = $state(false);
-  /** The draft is being written as the body: it is that write's until answered, and is not written in meanwhile. */
   flushing = $state(false);
 
-  #bodyDoc: BodyDoc | undefined;
-  /** The body is asked to be open (`openBody`): it opens once there is an entry. */
   #wanted = false;
   #making: Promise<void> | undefined;
-  /** When the entry may be asked for again after it could not be made. */
   #makeAgainAt = 0;
-  /** Asks for it then, typed meanwhile or not. */
   #again: ReturnType<typeof setTimeout> | undefined;
-  /** The reader changed the room's document while it was open here, or made the entry here. */
   #changedHere = false;
-  /** The editor of the room's document holds nothing (`noteBlank`). */
   #blankBody = false;
   #closed = false;
+  #missedBodyEntryId: string | undefined;
   readonly #notes: EntryNotes;
+  readonly #collab: CollaborativeBodyState;
+  readonly #bodyUploads: BodyUploads;
 
   constructor(host: EntryHost, date: CalendarDate, entry?: DiaryEntryDetail) {
     this.host = host;
     this.date = date;
     this.entry = entry;
     this.#notes = new EntryNotes(this.#notesHost());
+    this.#bodyUploads = new BodyUploads(() => this.host.workspace);
+    this.#collab = new CollaborativeBodyState({
+      workspace: host.workspace,
+      probeStillThere: async () => {
+        const current = this.entry;
+        const diaries = this.host.workspace.backend.diary;
+        if (!current || !diaries) throw new BackendError(404, { detail: 'gone' });
+        return diaries.entry(this.host.diaryId, current.id);
+      },
+      onGone: () => {
+        this.lose();
+      },
+      onState: (state) => {
+        if (state.pending) this.#changedHere = true;
+      },
+      onDocReleased: () => {
+        this.#catchUp();
+      },
+    });
+  }
+
+  get room(): BodyDocState | undefined {
+    return this.#collab.room;
+  }
+
+  get lost(): readonly string[] {
+    return this.#collab.lost;
+  }
+
+  get hasRoomDoc(): boolean {
+    return !this.#closed && this.#collab.hasDoc;
   }
 
   #notesHost(): NotesHost {
@@ -120,7 +111,6 @@ export class EntryStore {
       written: (written) => {
         const held = this.entry;
         if (held?.id !== written.id) return;
-        // An answer older than the entry held (its body written meanwhile) leaves it as it is.
         this.entry = this.#notes.over(held.updatedAt > written.updatedAt ? held : written);
         host.received(this.entry);
       },
@@ -130,15 +120,10 @@ export class EntryStore {
     };
   }
 
-  /** The day's mood, weather and place, as marked here last. */
   get notes(): DayNotes {
     return this.#notes.over(this.entry ?? NO_NOTES);
   }
 
-  /**
-   * The reader marked the day's mood, weather or place (`later`: as they type
-   * it): the day's at once; a day without an entry has one made for it.
-   */
   mark(change: Partial<DayNotes>, when: 'now' | 'later' = 'now'): void {
     this.#notes.change(change, when);
     this.#changedHere = true;
@@ -151,64 +136,98 @@ export class EntryStore {
     this.host.received(this.entry);
   }
 
-  /** What was typed in the notes goes now: the field was left. */
   sendNotes(): void {
     void this.#notes.send();
   }
 
-  /** Something wants the day to have an entry: a draft, or notes marked that hold something. */
   #wantsEntry(): boolean {
     return this.draft !== null || !isBlank(this.#notes.over(NO_NOTES), true);
   }
 
-  /** The body as it was read, shown until the room's document has arrived. */
   get body(): DocNode | null {
     return this.entry?.body ?? null;
   }
 
-  /** The entry of the day was made or changed elsewhere (another device): this one is it. */
+  /** Applies an authoritative restored `DiaryEntryDetail` immediately (W1.4). */
+  applyRestored(detail: DiaryEntryDetail): void {
+    if (this.#closed || detail.date !== this.date) return;
+    this.entry = this.#notes.over(detail);
+    this.host.received(this.entry);
+  }
+
+  /**
+   * Updates metadata from a live `entries` change while the room already holds
+   * the Yjs document (`hasRoomDoc`), reading the live body from `room.doc` in
+   * memory rather than re-downloading over HTTP (§1.3.3).
+   */
+  adoptMeta(meta: DiaryEntry): void {
+    if (meta.date !== this.date || this.#closed || this.entry?.id !== meta.id) return;
+    if (this.entry.updatedAt >= meta.updatedAt) return;
+    this.#missedBodyEntryId = meta.id;
+    this.entry = this.#notes.over({ ...this.entry, ...meta });
+    this.host.received(this.entry);
+    const doc = this.room?.doc;
+    if (doc) this.#syncBodyFromDoc(doc);
+  }
+
+  #syncBodyFromDoc(doc: NonNullable<BodyDocState['doc']>): void {
+    const entryId = this.entry?.id;
+    if (!entryId || this.#closed) return;
+    void import('../editor/room-body.ts').then(({ bodyOfDoc }) => {
+      if (this.#closed || this.entry?.id !== entryId || (this.room?.doc && this.room.doc !== doc)) {
+        return;
+      }
+      const body = bodyOfDoc(doc);
+      if (body === undefined) return;
+      this.entry = this.#notes.over({ ...this.entry, body });
+      this.host.received(this.entry);
+    });
+  }
+
+  #catchUp(): void {
+    const entryId = this.#missedBodyEntryId;
+    if (!entryId || this.#closed) return;
+    if (this.room?.doc) {
+      this.#syncBodyFromDoc(this.room.doc);
+      return;
+    }
+    this.#missedBodyEntryId = undefined;
+    if (this.entry?.id === entryId) this.host.catchUpEntry?.(entryId);
+  }
+
   adopt(entry: DiaryEntryDetail): void {
     if (entry.date !== this.date || this.#closed) return;
     const held = this.entry;
-    // Read before what is held was: it is no news.
     if (held?.id === entry.id && held.updatedAt > entry.updatedAt) return;
-    // Another than the one held (deleted unheard, and the day written again elsewhere): its room is left.
     if (held && held.id !== entry.id) this.lose();
     const first = this.entry === undefined;
     if (first) this.#notes.forgetBlank();
+    this.#missedBodyEntryId = undefined;
     this.entry = this.#notes.over(entry);
     if (first) void this.#notes.send();
     if (first && this.#wanted) this.openBody();
   }
 
-  /** The entry was deleted elsewhere: its room is left, and what is written next makes another. */
   lose(): void {
-    const opened = this.#bodyDoc;
-    [this.#bodyDoc, this.room, this.entry, this.#changedHere] = [
-      undefined,
-      undefined,
+    const opened = this.#collab.detach();
+    [this.entry, this.#changedHere, this.#blankBody, this.#missedBodyEntryId] = [
       undefined,
       false,
+      false,
+      undefined,
     ];
-    this.#blankBody = false;
     opened?.close();
     this.#notes.forgetBlank();
     if (this.#wantsEntry() && !this.#closed) this.#makeIfNone();
   }
 
-  /**
-   * The reader wrote in a day without an entry: what they wrote is the draft,
-   * and the entry is made the first time it is not empty.
-   */
   write(draft: DocNode | null): void {
     this.draft = draft;
     this.drafting = true;
     if (draft !== null) this.#makeIfNone();
-    // No draft holds the notes any more.
     else void this.#notes.send();
   }
 
-  /** Makes the day's entry, once at a time, unless it has one or was refused a moment ago. */
   #makeIfNone(): void {
     if (this.entry || this.#making || Date.now() < this.#makeAgainAt) return;
     this.#making = this.#make().finally(() => {
@@ -221,25 +240,20 @@ export class EntryStore {
     if (!diaries) return;
     try {
       const made = await diaries.createEntry(this.host.diaryId, this.date);
-      // Made elsewhere first, it is answered as it is: what holds nothing here clears nothing of it.
       this.#notes.forgetBlank();
       const entry = this.#notes.over(made);
       this.host.received(entry);
       this.unsaved = false;
       if (this.entry === undefined) {
-        // Made for what was written here: left blank here, it goes (`closeBody`).
         [this.entry, this.#changedHere] = [entry, true];
       }
-      // Sent where no draft holds them; a draft carries them (`#flush`).
       const noted = this.#notes.send();
-      // Left before the entry was there: what was written goes as its body.
       if (this.#closed || !this.#wanted) {
         await noted;
         await this.#flush();
       } else this.openBody();
     } catch (error) {
       this.#makeAgainAt = Date.now() + MAKE_AGAIN_AFTER;
-      // Said once, until the entry is made; asked for again by itself where that may pass.
       if (!this.unsaved) this.host.workspace.report('save', error);
       this.unsaved = true;
       if (!passing(error)) return;
@@ -250,48 +264,32 @@ export class EntryStore {
     }
   }
 
-  /** The draft, for the editor of the room's document to put in; given once, and not while it is being written. */
   takeDraft(): DocNode | null {
     if (this.flushing) return null;
     const draft = this.draft;
     [this.draft, this.drafting] = [null, false];
-    // The room writes the draft as it takes it: the notes it held go now.
     void this.#notes.send();
     return draft;
   }
 
-  /** What the editor of the room's document holds now: whether it is empty. */
   noteBlank(blank: boolean): void {
     this.#blankBody = blank;
   }
 
   // --------------------------------------------------------------- body
 
-  /** Opens the body in its room, once there is an entry; unless it is open, or the backend has no rooms. */
   openBody(): void {
     this.#wanted = true;
-    const backend = this.host.workspace.backend;
-    const workspaceId = this.host.workspace.info?.id;
     const entryId = this.entry?.id;
-    if (this.#bodyDoc || this.#closed || !entryId || !backend.openDoc || !workspaceId) return;
-    const opened = backend.openDoc(workspaceId, this.host.diaryId, entryId, {
-      state: (state) => {
-        if (this.#bodyDoc !== opened) return;
-        if (state.pending) this.#changedHere = true;
-        this.room = state;
-      },
-      discarded: (why) => {
-        if (this.#bodyDoc === opened) this.sayLost(why);
-      },
-    });
-    this.#bodyDoc = opened;
-    this.room = opened.state;
+    if (this.#closed || !entryId) return;
+    this.#collab.open(
+      this.host.workspace.backend,
+      this.host.workspace.info?.id,
+      this.host.diaryId,
+      entryId,
+    );
   }
 
-  /**
-   * The entry the reader leaves blank, alone in its room, having emptied or
-   * made it here; never one with a draft still to be written into it.
-   */
   #emptied(): DiaryEntryDetail | undefined {
     const entry = this.entry;
     const room = this.room;
@@ -302,23 +300,15 @@ export class EntryStore {
     return entry && room?.doc && left && blank ? entry : undefined;
   }
 
-  /**
-   * Leaves the body's room, what waits sent first. A draft it never took is
-   * written as the body; an entry left blank here is deleted.
-   */
   closeBody(): void {
     this.#wanted = false;
-    const opened = this.#bodyDoc;
     const emptied = this.#emptied();
-    // An entry left blank keeps what waits until it is deleted (`#delete`).
+    const closingDoc = !emptied ? this.room?.doc : undefined;
+    const opened = this.#collab.detach();
+    if (closingDoc) this.#syncBodyFromDoc(closingDoc);
     if (emptied) this.#notes.stop();
     else void this.#notes.send();
-    [this.#bodyDoc, this.room, this.#changedHere, this.#blankBody] = [
-      undefined,
-      undefined,
-      false,
-      false,
-    ];
+    [this.#changedHere, this.#blankBody, this.#missedBodyEntryId] = [false, false, undefined];
     if (this.draft !== null && this.entry) void this.#flush();
     if (!opened) return;
     if (!emptied) {
@@ -327,8 +317,7 @@ export class EntryStore {
     }
     void opened.settle().then(() => {
       opened.close();
-      // Opened again meanwhile: it is written in, not left.
-      if (this.#bodyDoc || this.#wanted) {
+      if (this.#collab.isOpen || this.#wanted) {
         if (this.entry?.id === emptied.id) this.#changedHere = true;
         void this.#notes.send();
         return undefined;
@@ -337,14 +326,8 @@ export class EntryStore {
     });
   }
 
-  /**
-   * The page goes (the tab closed, another address loaded, or kept to come
-   * back to: `persisted`): what `closeBody` would send is sent at once, to be
-   * sent still once the page has gone. A draft goes with the notes not
-   * answered yet in one write (`#flush`); else the notes go in one of their
-   * own (`EntryNotes.leave`). A page kept to come back to deletes nothing.
-   */
   leave(persisted: boolean): void {
+    void this.#collab.settle();
     const diaries = this.host.workspace.backend.diary;
     const emptied = this.#emptied();
     if (!diaries || !this.entry) return;
@@ -356,7 +339,6 @@ export class EntryStore {
     } else void this.#notes.leave();
   }
 
-  /** The page goes: nothing more is opened here; a draft or notes whose entry could not be made are tried once more. */
   close(): void {
     this.closeBody();
     this.#closed = true;
@@ -369,7 +351,6 @@ export class EntryStore {
     this.#bodyUploads.giveUp();
   }
 
-  /** Writes the draft as the body, with the notes it held (`NotesHost.held`). */
   async #flush(options: { keepalive?: boolean } = {}): Promise<void> {
     const entry = this.entry;
     const diaries = this.host.workspace.backend.diary;
@@ -379,12 +360,9 @@ export class EntryStore {
     const notes = this.#notes.unanswered() ?? {};
     try {
       const written = await this.#writeDraft(diaries, entry, { draft, notes }, options);
-      // Deleted elsewhere meanwhile: what was written went to the trash with
-      // it, and the draft stays, for the entry made again (`lose`).
       if (this.entry?.id !== entry.id) return;
       this.#notes.carried(notes);
       if (this.draft === draft) [this.draft, this.drafting] = [null, false];
-      // Written here, it is not blank: it is emptied here only by a change in its room.
       [this.entry, this.unsaved, this.#changedHere] = [this.#notes.over(written), false, false];
       this.host.received(this.entry);
       void this.#notes.send();
@@ -392,14 +370,12 @@ export class EntryStore {
       if (this.entry?.id !== entry.id) return;
       this.unsaved = true;
       this.host.workspace.report('save', error);
-      // The draft could not be written: the notes it held go on their own.
       void this.#notes.send();
     } finally {
       this.flushing = false;
     }
   }
 
-  /** Appends the draft after whatever the entry holds on the server, with `notes`, in one transaction. */
   #writeDraft(
     diaries: Diaries,
     entry: DiaryEntryDetail,
@@ -417,43 +393,35 @@ export class EntryStore {
   async #delete(entry: DiaryEntryDetail): Promise<void> {
     try {
       await this.host.workspace.backend.diary?.deleteEntry(this.host.diaryId, entry.id);
-      // Its room, opened again as it was deleted, is left; what was marked since stays.
       if (this.entry?.id === entry.id) this.lose();
       this.host.removed(entry.id);
     } catch (error) {
-      // Gone already (deleted elsewhere) is what was wanted.
       if (isBackendError(error) && error.status === 404) return;
-      // Kept, it was still emptied here: leaving it blank again tries to delete it again.
       if (this.entry?.id === entry.id) this.#changedHere = true;
       this.host.workspace.report('save', error);
-      // Kept, it keeps what was emptied in it.
       void this.#notes.send();
     }
   }
 
-  /** Waits until what the reader typed in the body's room has reached it. */
-  async settleBody(): Promise<void> {
-    await this.#bodyDoc?.settle();
+  settleBody(): Promise<void> {
+    return this.#collab.settle();
   }
 
   retryBody(): void {
-    this.#bodyDoc?.retry();
+    this.#collab.retry();
   }
 
   sayLost(why: string): void {
-    if (!this.lost.includes(why)) this.lost = [...this.lost, why];
+    this.#collab.sayLost(why);
   }
 
   dismissLost(): void {
-    this.lost = [];
+    this.#collab.dismissLost();
   }
 
-  /** Uploads a file for the body, a file of the diary; closing the page gives it up. */
   uploadFile(file: File): Promise<string> {
     return this.#bodyUploads.run(file, (options) =>
       this.host.workspace.backend.upload(this.host.diaryId, file, options),
     );
   }
-
-  readonly #bodyUploads = new BodyUploads(() => this.host.workspace);
 }

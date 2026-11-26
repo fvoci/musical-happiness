@@ -7,16 +7,26 @@
 import { referenceAt } from '$lib/logic/reference-address.ts';
 import type { LinkedBlock, ReferencePlaces } from '$lib/state/index.ts';
 
-import { ANY_VIEW, type Route, type Router } from './router.svelte.ts';
+import {
+  ANY_VIEW,
+  isSharedRoute,
+  workspaceIdOf,
+  type RouteTarget,
+  type Router,
+} from './router.svelte.ts';
 
 /** The route that shows what is named; none for what has no screen. */
-function routeOf(router: Router, linked: LinkedBlock): Partial<Route> | undefined {
+function routeOf(router: Router, linked: LinkedBlock): RouteTarget | undefined {
   const { route } = router;
-  if (linked.kind === 'card' && linked.containerId === route.boardId) {
+  if (
+    linked.kind === 'card' &&
+    (route.kind === 'board' || route.kind === 'shared') &&
+    linked.containerId === route.boardId
+  ) {
     return { ...route, cardId: linked.id };
   }
-  if (route.shared) return undefined;
-  const { workspaceId } = route;
+  if (isSharedRoute(route)) return undefined;
+  const workspaceId = workspaceIdOf(route);
   if (linked.kind === 'page') return { workspaceId, wikiId: linked.containerId, pageId: linked.id };
   if (linked.kind === 'unit') {
     return { workspaceId, courseId: linked.containerId, unitId: linked.id };
@@ -33,11 +43,24 @@ export function referencePlaces(router: Router): ReferencePlaces {
     open: (linked) => {
       const route = routeOf(router, linked);
       if (!route) return;
-      if (linked.kind === 'card' && linked.containerId === router.route.boardId) {
+      const now = router.route;
+      if (
+        linked.kind === 'card' &&
+        (now.kind === 'board' || now.kind === 'shared') &&
+        linked.containerId === now.boardId
+      ) {
         router.openCard(linked.id);
-      } else if (linked.kind === 'page' && linked.containerId === router.route.wikiId) {
+      } else if (
+        linked.kind === 'page' &&
+        now.kind === 'wiki' &&
+        linked.containerId === now.wikiId
+      ) {
         router.openPage(linked.id);
-      } else if (linked.kind === 'unit' && linked.containerId === router.route.courseId) {
+      } else if (
+        linked.kind === 'unit' &&
+        now.kind === 'course' &&
+        linked.containerId === now.courseId
+      ) {
         router.openUnit(linked.id);
       } else router.go(route);
     },
@@ -45,7 +68,7 @@ export function referencePlaces(router: Router): ReferencePlaces {
       referenceAt(address, {
         origin: location.origin,
         basePath: router.basePath,
-        workspaceId: router.route.workspaceId,
+        workspaceId: workspaceIdOf(router.route),
       }),
   };
 }

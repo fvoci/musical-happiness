@@ -48,3 +48,36 @@ export function rememberPlace(userId: string, workspaceId: string, boardId: stri
     // Without storage the place lasts for the visit.
   }
 }
+
+/** Clears unscoped UI state in `localStorage` on sign-out while preserving per-user workspace memory. */
+export function forgetUnscoped(): void {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('fvoci.calendar.scale.')) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Without storage nothing was kept.
+  }
+}
+
+/** Forgets every account-scoped identifier kept on this browser for `userId` (on account deletion). */
+export function forgetUser(userId: string): void {
+  if (!userId) return;
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (
+        key === `${KEY}${userId}` ||
+        key.startsWith(`${PLACE_KEY}${userId}:`) ||
+        key.startsWith(`fvoci:wiki-open:${userId}:`) ||
+        key.startsWith(`fvoci:course-open:${userId}:`) ||
+        key.startsWith('fvoci.calendar.scale.')
+      ) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Without storage nothing was kept.
+  }
+}

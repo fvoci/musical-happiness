@@ -3,10 +3,53 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import TeamsPanel from '$lib/features/shell/TeamsPanel.svelte';
-import { BackendError, type People, type Workspace } from '$lib/state/index.ts';
+import { BackendError, Workspace, type People } from '$lib/state/index.ts';
+import { MemoryBackend } from '$lib/state/memory/backend.ts';
+import { seedWorld } from '$lib/state/memory/seed.ts';
 import type { Team, Teams } from '$lib/state/team-types.ts';
 
 afterEach(cleanup);
+
+function makeWorkspace(): Workspace {
+  const { world, readerId } = seedWorld([]);
+  const workspace = new Workspace({
+    backend: new MemoryBackend(world, readerId),
+    locale: () => 'en',
+  });
+  workspace.status = 'ready';
+  workspace.workspaces = [{ id: 'w1', role: 'admin', title: 'Studio' }];
+  workspace.info = { id: 'w1', role: 'admin', title: 'Studio' };
+  return workspace;
+}
+
+function makePeople(): People {
+  return {
+    members: () => Promise.resolve([]),
+    setRole: () => Promise.reject(new Error('unused')),
+    removeMember: () => Promise.resolve(),
+    invitations: () => Promise.resolve([]),
+    inviteMembers: () => Promise.reject(new Error('unused')),
+    inviteGuest: () => Promise.reject(new Error('unused')),
+    revokeInvitation: () => Promise.resolve(),
+    guestInvitations: () => Promise.resolve(true),
+    setGuestInvitations: () => Promise.resolve(true),
+  };
+}
+
+function makeTeams(overrides: Partial<Teams>): Teams {
+  return {
+    list: () => Promise.resolve([]),
+    create: () => Promise.reject(new Error('unused')),
+    rename: () => Promise.reject(new Error('unused')),
+    delete: () => Promise.resolve(),
+    addMember: () => Promise.resolve(),
+    removeMember: () => Promise.resolve(),
+    onContainer: () => Promise.resolve([]),
+    assign: () => Promise.resolve(),
+    unassign: () => Promise.resolve(),
+    ...overrides,
+  };
+}
 
 const REFUSALS: [problem: BackendError, told: RegExp][] = [
   [
@@ -27,14 +70,12 @@ const REFUSALS: [problem: BackendError, told: RegExp][] = [
 it.each(REFUSALS)(
   'keeps a refused name typed and says why in one line (%#)',
   async (problem, told) => {
-    const teams = {
+    const teams = makeTeams({
       list: vi.fn<Teams['list']>(() => Promise.resolve([])),
       create: vi.fn<Teams['create']>(() => Promise.reject(problem)),
-    } as Partial<Teams> as Teams;
-    const people = { members: () => Promise.resolve([]) } as unknown as People;
-    const workspace = {
-      info: { id: 'w1', role: 'admin', title: 'Studio' },
-    } as unknown as Workspace;
+    });
+    const people = makePeople();
+    const workspace = makeWorkspace();
     render(TeamsPanel, { workspace, people, teams });
     const input = await screen.findByRole('textbox', { name: 'Team name' });
     await fireEvent.input(input, { target: { value: 'DESIGN' } });
@@ -49,14 +90,14 @@ it.each(REFUSALS)(
 
 it('says why a new name of a team is refused, and keeps the rename box with what was typed', async () => {
   const design: Team = { id: 't1', workspaceId: 'w1', name: 'Design', members: [] };
-  const teams = {
+  const teams = makeTeams({
     list: vi.fn<Teams['list']>(() => Promise.resolve([design])),
     rename: vi.fn<Teams['rename']>(() =>
       Promise.reject(new BackendError(409, { reason: 'team_name_taken' })),
     ),
-  } as Partial<Teams> as Teams;
-  const people = { members: () => Promise.resolve([]) } as unknown as People;
-  const workspace = { info: { id: 'w1', role: 'admin', title: 'Studio' } } as unknown as Workspace;
+  });
+  const people = makePeople();
+  const workspace = makeWorkspace();
   render(TeamsPanel, { workspace, people, teams });
   await fireEvent.click(await screen.findByText('Design'));
   await fireEvent.click(screen.getByRole('button', { name: 'Rename' }));

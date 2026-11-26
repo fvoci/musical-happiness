@@ -1,480 +1,20 @@
 /**
  * The shapes the server stores and sends, and everything that depends on them.
  *
- * The server's wire format is going to be redesigned. To keep that change in
- * one place, this is the only file of the logic that knows:
- * - what a block, card, view and board look like,
- * - what is inside the untyped `fields` of a block, and how dates are written,
- * - how identifiers are made, and what a patch (the delta sent to the server)
- *   looks like.
- *
- * The other modules get at these through the functions exported here.
- * tests/logic/wire-boundary.test.ts fails when one of them reads `fields`
- * itself. What they do use directly are the members every block has at the
- * top level: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`,
- * `modifiedBy`, `createdAt`, `updatedAt`, `deletedAt`, `limited` and `number`.
+ * Only the `wire*` modules (`wire.ts`, `wire-blocks.ts`, `wire-patches.ts`)
+ * know what is inside the untyped `fields` of a block, how dates are written,
+ * and how patches are constructed (`tests/logic/wire-boundary.test.ts`).
  */
 import type { MemberRole } from './container-members.ts';
 export type { ContainerMember, MemberRole } from './container-members.ts';
 import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
-import { diagnostics } from './diagnostics.ts';
-import { encodeBase32 } from './base32.ts';
 export { encodeBase32 } from './base32.ts';
 import { type PropertyColor } from './property-colors.ts';
 export { DEFAULT_PROPERTY_COLOR, PROPERTY_COLORS, type PropertyColor } from './property-colors.ts';
-import type { RelationLink } from './relations.ts';
 export * from './relations.ts';
-import { optionalViewFields, type OptionalViewFields } from './view-members.ts';
-
-// ------------------------------------------------------------ identifiers
-
-export type IdKind =
-  'none' | 'workspace' | 'board' | 'card' | 'view' | 'session' | 'user' | 'token' | 'block';
-
-const ID_PREFIX: Record<IdKind, string> = {
-  none: '7',
-  workspace: 'w',
-  board: 'b',
-  card: 'c',
-  view: 'v',
-  session: 's',
-  user: 'u',
-  token: 'k',
-  block: 'a',
-};
-
-/** A new identifier: one letter for the kind and 26 characters of 128 random bits. */
-export function createId(kind: IdKind): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return ID_PREFIX[kind] + encodeBase32(bytes);
-}
-
-/** The identifier kind for a block of the given type. */
-export function idKindOfBlockType(type: string | undefined): IdKind {
-  switch (type) {
-    case 'workspace':
-    case 'board':
-    case 'card':
-    case 'view':
-      return type;
-    default:
-      return 'none';
-  }
-}
-
-// ----------------------------------------------------------------- blocks
-
-export const CONTENT_BLOCK_TYPES = [
-  'text',
-  'image',
-  'divider',
-  'checkbox',
-  'h1',
-  'h2',
-  'h3',
-  'list-item',
-  'attachment',
-  'quote',
-  'video',
-] as const;
-
-export const BLOCK_TYPES = [
-  ...CONTENT_BLOCK_TYPES,
-  'board',
-  'view',
-  'card',
-  'comment',
-  'page',
-  'entry',
-  'unit',
-  'chapter',
-  'unknown',
-] as const;
-
-export type ContentBlockType = (typeof CONTENT_BLOCK_TYPES)[number];
-export type BlockType = (typeof BLOCK_TYPES)[number];
-
-export interface Block {
-  id: string;
-  containerId: string;
-  parentId: string;
-  createdBy: string;
-  modifiedBy: string;
-  type: BlockType;
-  title: string;
-  fields: Record<string, unknown>;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt?: number;
-  /** Set by the server on a card it withholds the content of. */
-  limited?: boolean;
-  /** A card's number on its board (`#12`), as the server gives it; none for a template or another block. */
-  number?: number;
-}
-
-export interface BlockPatch {
-  parentId?: string;
-  type?: BlockType;
-  title?: string;
-  updatedFields?: Record<string, unknown>;
-  deletedFields?: string[];
-  readAt?: number;
-}
-
-/**
- * A block with every member present: a copy of `source` with the gaps
- * filled, or a new empty block. The copy shares the values inside `fields`.
- */
-export function createBlock(source?: Block): Block {
-  const now = Date.now();
-  return {
-    id: source?.id || createId(idKindOfBlockType(source?.type)),
-    containerId: source?.containerId || '',
-    parentId: source?.parentId || '',
-    createdBy: source?.createdBy || '',
-    modifiedBy: source?.modifiedBy || '',
-    type: source?.type || 'unknown',
-    fields: source?.fields ? { ...source.fields } : {},
-    title: source?.title || '',
-    createdAt: source?.createdAt || now,
-    updatedAt: source?.updatedAt || now,
-    ...(source?.deletedAt === undefined ? {} : { deletedAt: source.deletedAt }),
-    limited: Boolean(source?.limited),
-    ...(source?.number === undefined ? {} : { number: source.number }),
-  };
-}
-
-// ------------------------------------------------------------------ cards
-
-/**
- * A property value of a card: text, a list of option or user identifiers, a
- * date value, or (for a relation property only) a list of relation links.
- */
-export type PropertyValue = string | string[] | StoredDateValue | RelationLink[];
-
-/** Content blocks in display order; an inner list is one row of blocks side by side. */
-export type ContentOrder = (string | string[])[];
-
-export type CardFields = {
-  icon?: string;
-  isTemplate?: boolean;
-  properties: Record<string, PropertyValue>;
-  contentOrder: ContentOrder;
-};
-
-export type Card = Block & { fields: CardFields; lastCommentAt?: number };
-
-function readContentOrder(value: unknown): ContentOrder {
-  if (!Array.isArray(value)) return [];
-  const order: ContentOrder = [];
-  for (const entry of value as unknown[]) {
-    if (typeof entry === 'string') order.push(entry);
-    else if (Array.isArray(entry)) order.push([...(entry as string[])]);
-  }
-  return order;
-}
-
-export function createCard(source?: Block): Card {
-  const fields = source?.fields ?? {};
-  const isTemplate = Boolean(fields.isTemplate);
-  const base = createBlock(source);
-  if (isTemplate) delete base.number;
-  return {
-    ...base,
-    type: 'card',
-    fields: {
-      icon: (fields.icon as string | undefined) || '',
-      properties: { ...(fields.properties as Record<string, PropertyValue> | undefined) },
-      contentOrder: readContentOrder(fields.contentOrder),
-      isTemplate,
-    },
-  };
-}
-
-/** The value of a property as it is stored on the card, if any. */
-export function cardProperty(card: Card, propertyId: string): PropertyValue | undefined {
-  return card.fields.properties[propertyId];
-}
-/** Every stored property value of the card, by property identifier. */
-export function cardProperties(card: Card): Readonly<Record<string, PropertyValue>> {
-  return card.fields.properties;
-}
-/** Sets a property value on the card object itself. */
-export function setCardProperty(card: Card, propertyId: string, value: PropertyValue): void {
-  card.fields.properties[propertyId] = value;
-}
-/** Whether a card is a template for making new cards. */
-export const isCardTemplate = (card: Card): boolean => Boolean(card.fields.isTemplate);
-export function cardContentOrder(card: Card): ContentOrder {
-  return card.fields.contentOrder;
-}
-export function cardIcon(card: Card): string {
-  return card.fields.icon ?? '';
-}
-
-/** Appends a content block to the end of the card's content. */
-export function appendCardContent(card: Card, blockId: string): void {
-  card.fields.contentOrder.push(blockId);
-}
-
-// ---------------------------------------------------------------- filters
-
-export type FilterCondition =
-  | 'includes'
-  | 'notIncludes'
-  | 'isEmpty'
-  | 'isNotEmpty'
-  | 'isSet'
-  | 'isNotSet'
-  | 'is'
-  | 'contains'
-  | 'notContains'
-  | 'startsWith'
-  | 'notStartsWith'
-  | 'endsWith'
-  | 'notEndsWith'
-  | 'isBefore'
-  | 'isAfter';
-
-export type FilterClause = {
-  propertyId: string;
-  condition: FilterCondition;
-  values: string[];
-};
-
-export type FilterGroupOperation = 'and' | 'or';
-
-/** Either all of its filters have to hold (`and`) or one of them (`or`). */
-export type FilterGroup = {
-  operation: FilterGroupOperation;
-  filters: (FilterClause | FilterGroup)[];
-};
-
-export function isFilterGroup(filter: FilterClause | FilterGroup): filter is FilterGroup {
-  return 'operation' in filter && 'filters' in filter;
-}
-
-/** A clause with every member present; a stored clause can lack some. */
-export function createFilterClause(source?: Partial<FilterClause>): FilterClause {
-  return {
-    propertyId: source?.propertyId || '',
-    condition: source?.condition || 'includes',
-    values: Array.isArray(source?.values) ? source.values.slice() : [],
-  };
-}
-
-export function createFilterGroup(source?: FilterGroup): FilterGroup {
-  return {
-    operation: source?.operation || 'and',
-    filters: (source?.filters ?? []).map((filter) =>
-      isFilterGroup(filter) ? createFilterGroup(filter) : createFilterClause(filter),
-    ),
-  };
-}
-
-// ------------------------------------------------------------------ views
-
-export type ViewType = 'board' | 'table' | 'gallery' | 'calendar' | 'gantt';
-
-/** The pseudo property that stands for the title column in sort options and calculations. */
-export const TITLE_COLUMN_ID = '__title';
-
-export type SortOption = { propertyId: string; reversed: boolean };
-
-export type GroupCalculation = { calculation: string; propertyId: string };
-
-/** A view's members; those it has only where given a value are declared in view-members.ts. */
-export type BoardViewFields = {
-  viewType: ViewType;
-  sort: SortOption[];
-  shownProperties: string[];
-  visibleGroups: string[];
-  hiddenGroups: string[];
-  collapsedGroups: string[];
-  filter: FilterGroup;
-  cardOrder: string[];
-  columnWidths: Record<string, number>;
-  columnCalculations: Record<string, string>;
-  groupCalculations: Record<string, GroupCalculation>;
-  defaultTemplateId: string;
-} & OptionalViewFields;
-
-export type BoardView = Block & { fields: BoardViewFields };
-
-const copyList = (value: unknown): string[] =>
-  Array.isArray(value) ? [...(value as string[])] : [];
-
-export function createBoardView(source?: Block): BoardView {
-  const fields = (source?.fields ?? {}) as Partial<BoardViewFields>;
-  return {
-    ...createBlock(source),
-    type: 'view',
-    fields: {
-      viewType: fields.viewType || 'board',
-      ...optionalViewFields(fields),
-      sort: (fields.sort ?? []).map((option) => ({ ...option })),
-      shownProperties: copyList(fields.shownProperties),
-      visibleGroups: copyList(fields.visibleGroups),
-      hiddenGroups: copyList(fields.hiddenGroups),
-      collapsedGroups: copyList(fields.collapsedGroups),
-      filter: createFilterGroup(fields.filter),
-      cardOrder: copyList(fields.cardOrder),
-      columnWidths: { ...fields.columnWidths },
-      columnCalculations: { ...fields.columnCalculations },
-      groupCalculations: { ...fields.groupCalculations },
-      defaultTemplateId: fields.defaultTemplateId || '',
-    },
-  };
-}
-
-/** What a view says about which cards to show and in what order. */
-export interface ViewQuery {
-  viewType: ViewType;
-  filter: FilterGroup;
-  sort: readonly SortOption[];
-  /** The order the cards were dragged into; used when there is no sort option. */
-  cardOrder: readonly string[];
-  shownProperties: readonly string[];
-  dateProperty: string | undefined;
-}
-
-export function viewQuery(view: BoardView): ViewQuery {
-  const { fields } = view;
-  return {
-    viewType: fields.viewType,
-    filter: fields.filter,
-    sort: fields.sort,
-    cardOrder: fields.cardOrder,
-    shownProperties: fields.shownProperties,
-    dateProperty: fields.dateProperty,
-  };
-}
-
-/** What a view says about its columns: which property groups them and which groups show. */
-export interface ViewGrouping {
-  groupBy: string | undefined;
-  visibleGroups: readonly string[];
-  hiddenGroups: readonly string[];
-  collapsedGroups: readonly string[];
-}
-
-export function viewGrouping(view: BoardView): ViewGrouping {
-  const { fields } = view;
-  return {
-    groupBy: fields.groupBy,
-    visibleGroups: fields.visibleGroups,
-    hiddenGroups: fields.hiddenGroups,
-    collapsedGroups: fields.collapsedGroups,
-  };
-}
-
-// ----------------------------------------------------- other block kinds
-
-export type CommentBlock = Block & { type: 'comment' };
-export type TextBlock = Block & { type: 'text' };
-export type HeadingBlock = Block & { type: 'h1' | 'h2' | 'h3' };
-export type DividerBlock = Block & { type: 'divider' };
-export type CheckboxBlock = Block & { type: 'checkbox' };
-export type ImageBlock = Block & { type: 'image'; fields: { fileId: string } };
-export type AttachmentBlock = Block & { type: 'attachment'; fields: { fileId: string } };
-
-function createTyped<T extends BlockType>(type: T, source?: Block): Block & { type: T } {
-  return { ...createBlock(source), type };
-}
-
-export const createCommentBlock = (source?: Block): CommentBlock => createTyped('comment', source);
-export const createTextBlock = (source?: Block): TextBlock => createTyped('text', source);
-export const createDividerBlock = (source?: Block): DividerBlock => createTyped('divider', source);
-export const createCheckboxBlock = (source?: Block): CheckboxBlock =>
-  createTyped('checkbox', source);
-
-export function createHeadingBlock(level: 1 | 2 | 3, source?: Block): HeadingBlock {
-  return createTyped(`h${level}`, source);
-}
-
-export function createImageBlock(source?: Block): ImageBlock {
-  return {
-    ...createTyped('image', source),
-    fields: { fileId: (source?.fields.fileId as string | undefined) || '' },
-  };
-}
-
-export function createAttachmentBlock(source?: Block): AttachmentBlock {
-  const fields = source?.fields ?? {};
-  return {
-    ...createTyped('attachment', source),
-    // Archives made by old versions name the file `attachmentId`.
-    fields: {
-      fileId:
-        (fields.attachmentId as string | undefined) || (fields.fileId as string | undefined) || '',
-    },
-  };
-}
-
-/** The identifier of the file an image or attachment block shows. */
-export function blockFileId(block: ImageBlock | AttachmentBlock): string {
-  return block.fields.fileId;
-}
-
-/**
- * The block as the kind its `type` says, with the members of that kind
- * filled in. A block of a type this app does not know comes back as a plain
- * block, and is reported.
- */
-export function normalizeBlock(block: Block): Block {
-  switch (block.type) {
-    case 'view':
-      return createBoardView(block);
-    case 'card':
-      return createCard(block);
-    case 'text':
-      return createTextBlock(block);
-    case 'h1':
-      return createHeadingBlock(1, block);
-    case 'h2':
-      return createHeadingBlock(2, block);
-    case 'h3':
-      return createHeadingBlock(3, block);
-    case 'image':
-      return createImageBlock(block);
-    case 'divider':
-      return createDividerBlock(block);
-    case 'comment':
-      return createCommentBlock(block);
-    case 'checkbox':
-      return createCheckboxBlock(block);
-    case 'attachment':
-      return createAttachmentBlock(block);
-    default:
-      diagnostics.report(`cannot normalize a block of unknown type: ${block.type}`);
-      return createBlock(block);
-  }
-}
-
-export function normalizeBlocks(blocks: readonly Block[]): Block[] {
-  return blocks.map(normalizeBlock);
-}
-
-/**
- * Rewrites the identifiers a block keeps of other blocks: the manual card
- * order of a view and the content order of a card. Used after copying a tree
- * of blocks under new identifiers.
- */
-export function remapBlockReferences(block: Block, idMap: Readonly<Record<string, string>>): void {
-  // An identifier outside the copied tree stays as it is.
-  const mapped = (id: string): string => idMap[id] ?? id;
-  if (block.type === 'view') {
-    const view = block as BoardView;
-    view.fields.cardOrder = view.fields.cardOrder.map(mapped);
-  }
-  if (block.type === 'card') {
-    const card = block as Card;
-    card.fields.contentOrder = card.fields.contentOrder.map((entry) =>
-      Array.isArray(entry) ? entry.map(mapped) : mapped(entry),
-    );
-  }
-}
+import { createId, type Block, type BlockPatch, type PropertyValue } from './wire-blocks.ts';
+export * from './wire-blocks.ts';
+export * from './wire-patches.ts';
 
 // ----------------------------------------------------------------- boards
 
@@ -482,7 +22,6 @@ export const CONTAINER_VISIBILITY_OPEN = 'open';
 export const CONTAINER_VISIBILITY_PRIVATE = 'private';
 export type ContainerVisibility =
   typeof CONTAINER_VISIBILITY_OPEN | typeof CONTAINER_VISIBILITY_PRIVATE;
-/** What a board is for: cards and views, pages, diary entries, or a course's units. It never changes. */
 export type ContainerKind = 'board' | 'wiki' | 'diary' | 'course';
 
 export type PropertyType =
@@ -510,7 +49,6 @@ export interface PropertyOption {
   color: PropertyColor;
 }
 
-/** The definition of one card property of a board. */
 export interface PropertyTemplate {
   id: string;
   name: string;
@@ -525,7 +63,6 @@ export interface Container {
   createdBy: string;
   modifiedBy: string;
   visibility: ContainerVisibility;
-  /** Absent: a board, as the server reads one stored without it. */
   kind?: ContainerKind;
   minimumRole: MemberRole;
   title: string;
@@ -533,7 +70,6 @@ export interface Container {
   icon?: string;
   showDescription: boolean;
   isTemplate: boolean;
-  /** A template the server offers every workspace; nobody's to change. */
   isBuiltin?: boolean;
   templateVersion: number;
   properties: Record<string, string | string[]>;
@@ -568,13 +104,6 @@ export interface ContainersAndBlocksPatch {
   blockPatches: BlockPatch[];
 }
 
-/**
- * A board with every member present: a copy of `source` with the gaps filled
- * (its card properties and their options copied too), or a new board.
- *
- * A new board starts with one select property. `statusName` is its name; the
- * caller passes the translated word.
- */
 export function createBoard(source?: Container, statusName = 'Status'): Container {
   const now = Date.now();
   const cardProperties: PropertyTemplate[] = source?.cardProperties
@@ -610,23 +139,11 @@ export function createBoard(source?: Container, statusName = 'Status'): Containe
 
 // ------------------------------------------------------------ date values
 
-/**
- * How a date property is written on the wire: an object, not text. Each end
- * says by its JSON type what it is. A calendar day is the text `YYYY-MM-DD`,
- * the same day for every reader; a moment is an integer, the milliseconds
- * since 1970-01-01 00:00 UTC, like `createdAt` and `updatedAt` of a block.
- *
- * `from` is always there; `to`, when there, is of the same kind as `from`,
- * later than it, and itself part of the range. Nothing else is in the object:
- * whether a value carries a time is its type, and the time zone belongs to
- * the reader, not to the value.
- */
 export interface StoredDateValue {
   from: string | number;
   to?: string | number;
 }
 
-/** The last moment the wire can carry: the end of the year 9999. */
 const LAST_INSTANT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
 function readPoint(stored: unknown): DatePoint | undefined {
@@ -643,12 +160,6 @@ const writePoint = (point: DatePoint): string | number => point.instant ?? point
 const samePoint = (first: DatePoint, second: DatePoint): boolean =>
   first.date === second.date && first.instant === second.instant;
 
-/**
- * Reads the stored value of a date property. Whatever is not a well-formed
- * date value (text left behind by another property type, ends of two kinds,
- * a range that runs backwards, a day that does not exist) reads as an empty
- * value: the server refuses to store such a thing, so it is not guessed at.
- */
 export function parseDateValue(stored: unknown): DateValue {
   if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return {};
   const { from: storedFrom, to: storedTo } = stored as { from?: unknown; to?: unknown };
@@ -667,11 +178,6 @@ export function parseDateValue(stored: unknown): DateValue {
   return samePoint(from, to) ? { from } : { from, to };
 }
 
-/**
- * The value to store for a date value; undefined when the value is empty
- * (the property is then cleared). A range whose two ends are the same is
- * written as that one end, and one written backwards is turned around.
- */
 export function formatDateValue(value: DateValue): StoredDateValue | undefined {
   const { from, to } = value;
   if (!from) return undefined;
@@ -682,13 +188,6 @@ export function formatDateValue(value: DateValue): StoredDateValue | undefined {
   return first <= last ? { from: first, to: last } : { from: last, to: first };
 }
 
-/**
- * A stored value as text or a list of texts, which is what every kind of
- * property but the date kind holds. A date value has no text of its own: it
- * becomes a key, its ends joined by a slash, that is the same for the same
- * value. The key is for counting and comparing; what is shown for a date is
- * made from `parseDateValue`. A malformed date value has no text at all.
- */
 export function plainPropertyValue(
   value: PropertyValue | undefined,
 ): string | string[] | undefined {
@@ -701,171 +200,10 @@ export function plainPropertyValue(
   return stored.to === undefined ? String(stored.from) : `${stored.from}/${stored.to}`;
 }
 
-/** The day a date filter compares with: a filter stores it as `YYYY-MM-DD`. */
 export function parseFilterDate(text: string | undefined): CalendarDate | undefined {
   return text === undefined ? undefined : parseCalendarDate(text);
 }
 
-/** The text to store in a date filter for a day. */
 export function formatFilterDate(date: CalendarDate): string {
   return date;
-}
-
-// ---------------------------------------------------------------- patches
-
-/** A stored object can be missing altogether; it then counts as empty. */
-type Members = object | null | undefined;
-
-function keysOnlyIn(first: Members, second: Members): string[] {
-  const other = new Set(Object.keys(second ?? {}));
-  return Object.keys(first ?? {}).filter((key) => !other.has(key));
-}
-
-/** The members of `from` whose value differs from the one in `to`, except `skip`. */
-function changedMembers(
-  from: Members,
-  to: Members,
-  skip: readonly string[],
-): Record<string, unknown> {
-  const fromRecord = (from ?? {}) as Record<string, unknown>;
-  const toRecord = (to ?? {}) as Record<string, unknown>;
-  const changed: Record<string, unknown> = {};
-  for (const key of Object.keys(fromRecord)) {
-    if (!skip.includes(key) && fromRecord[key] !== toRecord[key]) changed[key] = fromRecord[key];
-  }
-  return changed;
-}
-
-/**
- * The patch that turns `oldBlock` into `newBlock`, and the one that undoes
- * it. Values are compared by identity, so a field that was replaced by an
- * equal copy counts as changed.
- */
-export function createPatchesFromBlocks(
-  newBlock: Block,
-  oldBlock: Block,
-): [BlockPatch, BlockPatch] {
-  return [
-    {
-      ...changedMembers(newBlock, oldBlock, ['fields']),
-      updatedFields: changedMembers(newBlock.fields, oldBlock.fields, []),
-      deletedFields: keysOnlyIn(oldBlock.fields, newBlock.fields),
-    },
-    {
-      ...changedMembers(oldBlock, newBlock, ['fields']),
-      updatedFields: changedMembers(oldBlock.fields, newBlock.fields, []),
-      deletedFields: keysOnlyIn(newBlock.fields, oldBlock.fields),
-    },
-  ];
-}
-
-function templatesEqual(first: PropertyTemplate, second: PropertyTemplate): boolean {
-  if (Object.keys(changedMembers(first, second, ['options'])).length > 0) return false;
-  if (first.options.length !== second.options.length) return false;
-  return first.options.every((option) => {
-    const other = second.options.find((candidate) => candidate.id === option.id);
-    return other !== undefined && Object.keys(changedMembers(option, other, [])).length === 0;
-  });
-}
-
-/** The templates of `templates` that are new or different compared with `others`. */
-function changedTemplates(
-  templates: readonly PropertyTemplate[],
-  others: readonly PropertyTemplate[],
-): PropertyTemplate[] {
-  return templates.filter((template) => {
-    const other = others.find((candidate) => candidate.id === template.id);
-    return !other || !templatesEqual(template, other);
-  });
-}
-
-function missingTemplateIds(
-  templates: readonly PropertyTemplate[],
-  others: readonly PropertyTemplate[],
-): string[] {
-  return templates
-    .filter((template) => !others.some((candidate) => candidate.id === template.id))
-    .map((template) => template.id);
-}
-
-/** The patch that turns the old card properties into the new ones, and the one that undoes it. */
-export function createCardPropertiesPatches(
-  newCardProperties: readonly PropertyTemplate[],
-  oldCardProperties: readonly PropertyTemplate[],
-): [ContainerPatch, ContainerPatch] {
-  return [
-    {
-      updatedCardProperties: changedTemplates(newCardProperties, oldCardProperties),
-      deletedCardProperties: missingTemplateIds(oldCardProperties, newCardProperties),
-    },
-    {
-      updatedCardProperties: changedTemplates(oldCardProperties, newCardProperties),
-      deletedCardProperties: missingTemplateIds(newCardProperties, oldCardProperties),
-    },
-  ];
-}
-
-const BOARD_MEMBERS_WITH_OWN_PATCH = ['properties', 'cardProperties'];
-
-/** The patch that turns `oldBoard` into `newBoard`, and the one that undoes it. */
-export function createPatchesFromContainers(
-  newBoard: Container,
-  oldBoard: Container,
-): [ContainerPatch, ContainerPatch] {
-  const [cardPropertiesPatch, cardPropertiesUndoPatch] = createCardPropertiesPatches(
-    newBoard.cardProperties,
-    oldBoard.cardProperties,
-  );
-  return [
-    {
-      ...changedMembers(newBoard, oldBoard, BOARD_MEMBERS_WITH_OWN_PATCH),
-      ...cardPropertiesPatch,
-      updatedProperties: changedMembers(newBoard.properties, oldBoard.properties, []),
-      deletedProperties: keysOnlyIn(oldBoard.properties, newBoard.properties),
-    },
-    {
-      ...changedMembers(oldBoard, newBoard, BOARD_MEMBERS_WITH_OWN_PATCH),
-      ...cardPropertiesUndoPatch,
-      updatedProperties: changedMembers(oldBoard.properties, newBoard.properties, []),
-      deletedProperties: keysOnlyIn(newBoard.properties, oldBoard.properties),
-    },
-  ];
-}
-
-/**
- * One patch for a board together with some of its blocks, and the one that
- * undoes it. `updatedBlocks[i]` and `oldBlocks[i]` are the two states of the
- * block `updatedBlockIds[i]`.
- */
-export function createPatchesFromContainersAndBlocks(
-  updatedBoard: Container,
-  oldBoard: Container,
-  updatedBlockIds: string[],
-  updatedBlocks: readonly Block[],
-  oldBlocks: readonly Block[],
-): [ContainersAndBlocksPatch, ContainersAndBlocksPatch] {
-  const blockPatches: BlockPatch[] = [];
-  const blockUndoPatches: BlockPatch[] = [];
-  updatedBlocks.forEach((newBlock, index) => {
-    const oldBlock = oldBlocks[index];
-    if (!oldBlock) throw new Error(`no old state for block ${newBlock.id}`);
-    const [patch, undoPatch] = createPatchesFromBlocks(newBlock, oldBlock);
-    blockPatches.push(patch);
-    blockUndoPatches.push(undoPatch);
-  });
-  const [boardPatch, boardUndoPatch] = createPatchesFromContainers(updatedBoard, oldBoard);
-  return [
-    {
-      blockIDs: updatedBlockIds,
-      blockPatches,
-      containerIDs: [updatedBoard.id],
-      containerPatches: [boardPatch],
-    },
-    {
-      blockIDs: updatedBlockIds,
-      blockPatches: blockUndoPatches,
-      containerIDs: [updatedBoard.id],
-      containerPatches: [boardUndoPatch],
-    },
-  ];
 }

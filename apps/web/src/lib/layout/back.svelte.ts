@@ -42,15 +42,51 @@ let listening = false;
 
 const MARK = 'fvociOverlay';
 
+function ensureListening(): void {
+  if (listening) return;
+  window.addEventListener('popstate', onPopState);
+  listening = true;
+}
+
 /** Whether a history state is one of the entries this file makes. */
 export function isOverlayEntry(state: unknown): boolean {
   return typeof state === 'object' && state !== null && MARK in state;
 }
 
+function onWaitTimeout(): void {
+  waitTimer = undefined;
+  ownSteps = 0;
+  runWaiting();
+}
+
+function scheduleWaitLimit(): void {
+  clearTimeout(waitTimer);
+  waitTimer = setTimeout(onWaitTimeout, WAIT_LIMIT);
+}
+
 function runWaiting(): void {
   clearTimeout(waitTimer);
   waitTimer = undefined;
-  for (const write of waiting.splice(0)) write();
+  while (ownSteps === 0 && waiting.length > 0) {
+    const write = waiting.shift();
+    write?.();
+  }
+  if (waiting.length > 0) {
+    waitTimer ??= setTimeout(onWaitTimeout, WAIT_LIMIT);
+  }
+}
+
+/**
+ * Steps back `steps` history entries of our own (`history.back()` or `history.go(-steps)`),
+ * holding subsequent `afterOwnSteps` writes until the `popstate` arrives.
+ */
+export function stepBack(steps = 1): void {
+  if (steps <= 0) return;
+  ensureListening();
+  ownSteps += 1;
+  scheduleWaitLimit();
+  if (steps === 1) history.back();
+  else history.go(-steps);
 }
 
 /**
@@ -64,7 +100,7 @@ export function afterOwnSteps(write: () => void): void {
     return;
   }
   waiting.push(write);
-  waitTimer ??= setTimeout(runWaiting, WAIT_LIMIT);
+  waitTimer ??= setTimeout(onWaitTimeout, WAIT_LIMIT);
 }
 
 function onPopState(): void {
@@ -83,10 +119,7 @@ export function closeOnBack(isOpen: () => boolean, close: () => void): void {
   // is what "back" closes first.
   $effect.pre(() => {
     if (!isOpen()) return;
-    if (!listening) {
-      window.addEventListener('popstate', onPopState);
-      listening = true;
-    }
+    ensureListening();
     const mine: Open = { close, entered: false };
     opened.push(mine);
     afterOwnSteps(() => {
@@ -103,8 +136,7 @@ export function closeOnBack(isOpen: () => boolean, close: () => void): void {
       opened.splice(at, 1);
       // Closed before its entry was added: there is none to take back.
       if (!mine.entered) return;
-      ownSteps += 1;
-      history.back();
+      stepBack();
     };
   });
 }

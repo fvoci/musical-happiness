@@ -6,6 +6,7 @@ import {
   emptyDoc,
   isAllowedHref,
   isEmptyDoc,
+  isFileId,
   MARK_SPECS,
   MAX_DEPTH,
   MAX_LATEX,
@@ -205,7 +206,10 @@ describe('link targets', () => {
     ' javascript:alert(1)',
     'java\tscript:alert(1)',
     'java\nscript:alert(1)',
+    'java\rscript:alert(1)',
+    '\u0000javascript:alert(1)',
     '\u0001javascript:alert(1)',
+    '\u007fjavascript:alert(1)',
     'data:text/html,<script>alert(1)</script>',
     'vbscript:msgbox(1)',
     'file:///etc/passwd',
@@ -217,6 +221,31 @@ describe('link targets', () => {
     '   ',
   ])('refuses %j', (href) => {
     expect(isAllowedHref(href)).toBe(false);
+  });
+
+  it('refuses path traversal and unsafe characters in fileId while accepting server and seed ids', () => {
+    for (const ok of [
+      'f1',
+      'f2.pdf',
+      'viewer-sample.ko.docx',
+      '01930000-0000-7000-8000-00000000b001',
+    ]) {
+      expect(isFileId(ok)).toBe(true);
+    }
+    for (const bad of [
+      '',
+      '.',
+      '..',
+      '../secret',
+      'a..b',
+      'a/b',
+      'a\\b',
+      'a b',
+      'a?b=1',
+      'x'.repeat(101),
+    ]) {
+      expect(isFileId(bad)).toBe(false);
+    }
   });
 
   it('refuses what is not text, and text that is too long', () => {

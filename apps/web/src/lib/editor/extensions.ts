@@ -45,7 +45,7 @@ import { fileUrl } from './files.ts';
 import { KeyReadsCaret } from './key-caret.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
 import { Reference, type ReferenceOptions } from './reference.ts';
-import { isAllowedHref, isUserId } from './schema.ts';
+import { isAllowedHref, isFileId, isUserId } from './schema.ts';
 import { BodyDocument, BodyTable, BodyTableCell, BodyTableHeader, BodyTableRow } from './table.ts';
 import { BodyTaskItem } from './task-item.ts';
 
@@ -77,7 +77,7 @@ const BodyOrderedList = OrderedList.extend({
         default: 1,
         parseHTML: (element: HTMLElement) => {
           const start = Number.parseInt(element.getAttribute('start') ?? '', 10);
-          return Number.isInteger(start) && start >= 0 ? start : 1;
+          return Number.isInteger(start) && start >= 0 && start <= 1_000_000_000 ? start : 1;
         },
       },
     };
@@ -112,16 +112,25 @@ export const FileImage = Node.create({
         parseHTML: (element: HTMLElement) => element.getAttribute('data-file-id'),
         renderHTML: (attrs: { fileId?: string | null }) => ({ 'data-file-id': attrs.fileId }),
       },
-      alt: { default: null },
+      alt: {
+        default: null,
+      },
     };
   },
 
   parseHTML() {
-    return [{ tag: 'img[data-file-id]' }];
+    return [
+      {
+        tag: 'img[data-file-id]',
+        getAttrs: (element: HTMLElement) =>
+          isFileId(element.getAttribute('data-file-id')) ? null : false,
+      },
+    ];
   },
 
   renderHTML({ node, HTMLAttributes }) {
-    const src = fileUrl(String(node.attrs.fileId));
+    const fileId = typeof node.attrs.fileId === 'string' ? node.attrs.fileId : '';
+    const src = fileId ? fileUrl(fileId) : undefined;
     return ['img', mergeAttributes(HTMLAttributes, src ? { src } : {}, { ...IMAGE_ATTRIBUTES })];
   },
 

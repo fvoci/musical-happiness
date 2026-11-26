@@ -29,11 +29,8 @@ function shown(revert: (token: string) => Promise<string | undefined>, token = '
 
 describe('the page of the link that gives the address back', () => {
   it('is a route of its own under the deployment path', () => {
-    expect(parseRoute('/boards/revert-email', 'boards')).toMatchObject({
-      emailRevert: true,
-      unknown: false,
-    });
-    expect(parseRoute('/revert-email/secret', '').unknown).toBe(true);
+    expect(parseRoute('/boards/revert-email', 'boards')).toEqual({ kind: 'emailRevert' });
+    expect(parseRoute('/revert-email/secret', '').kind).toBe('unknown');
   });
 
   it('changes nothing until the button is pressed, then says the address is back and leads to a reset', async () => {

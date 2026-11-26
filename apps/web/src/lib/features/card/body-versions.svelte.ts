@@ -30,11 +30,15 @@ import {
   type BodyVersion,
   type BodyVersionContent,
   type BodyVersions,
+  type CardDetail,
   type CardStore,
+  type CourseUnitDetail,
+  type DiaryEntryDetail,
   type EntryStore,
   type KeptBodyVersion,
   type PageStore,
   type UnitStore,
+  type WikiPageDetail,
 } from '$lib/state/index.ts';
 
 import { VersionComparing } from './version-compare.svelte.ts';
@@ -61,6 +65,8 @@ export interface VersionsSource {
    * typed, or the stored body when there is no room.
    */
   current(): Promise<DocNode | null>;
+  /** Applies the restored detail returned by `restore` immediately, before WS echo arrives. */
+  applyRestored?(restored: unknown): void;
 }
 
 /**
@@ -95,6 +101,9 @@ export function cardVersions(board: BoardStore, card: CardStore): VersionsSource
     writable: () => card.room?.writable ?? false,
     opening: () => opening(card),
     current: () => bodyNow(card.room, card.body),
+    applyRestored: (restored) => {
+      card.applyRestored(restored as CardDetail);
+    },
   };
 }
 
@@ -111,6 +120,9 @@ export function pageVersions(page: PageStore): VersionsSource {
     writable: () => page.room?.writable ?? false,
     opening: () => opening(page),
     current: () => bodyNow(page.room, page.body),
+    applyRestored: (restored) => {
+      page.applyRestored(restored as WikiPageDetail);
+    },
   };
 }
 
@@ -127,6 +139,9 @@ export function unitVersions(unit: UnitStore): VersionsSource {
     writable: () => unit.room?.writable ?? false,
     opening: () => opening(unit),
     current: () => bodyNow(unit.room, unit.body),
+    applyRestored: (restored) => {
+      unit.applyRestored(restored as CourseUnitDetail);
+    },
   };
 }
 
@@ -149,6 +164,9 @@ export function entryVersions(entry: EntryStore): VersionsSource {
       return status === 'joining' || status === 'receiving';
     },
     current: () => bodyNow(entry.room, entry.body),
+    applyRestored: (restored) => {
+      entry.applyRestored(restored as DiaryEntryDetail);
+    },
   };
 }
 
@@ -168,7 +186,8 @@ export async function keepVersion(source: VersionsSource): Promise<KeepOutcome> 
     // The room was lost meanwhile: what was typed last may not be in it.
     if (!source.writable()) return 'notNow';
     return (await source.versions.keep(source.ownerId, source.itemId)).outcome;
-  } catch {
+  } catch (error) {
+    reportAuth(source, 'save', error);
     return 'failed';
   }
 }
@@ -221,7 +240,8 @@ export class VersionsReading {
     try {
       this.#take(await this.#list());
       this.status = 'ready';
-    } catch {
+    } catch (error) {
+      reportAuth(this.#source, 'load', error);
       this.status = 'failed';
     }
   }
@@ -287,6 +307,7 @@ export class VersionsReading {
       this.contentStatus = 'ready';
       void this.compare.refresh();
     } catch (error) {
+      reportAuth(this.#source, 'load', error);
       if (!this.#isChosen(version)) return;
       this.contentStatus = statusOf(error) === 404 ? 'gone' : 'failed';
     }
@@ -317,9 +338,15 @@ export class VersionsReading {
     this.refusal = undefined;
     try {
       await this.#source.settle();
-      await this.#versions.restore(this.#source.ownerId, this.#source.itemId, version.version);
+      const restored = await this.#versions.restore(
+        this.#source.ownerId,
+        this.#source.itemId,
+        version.version,
+      );
+      if (restored !== undefined) this.#source.applyRestored?.(restored);
       return true;
     } catch (error) {
+      reportAuth(this.#source, 'save', error);
       const status = statusOf(error);
       this.refusal = status === 404 ? 'gone' : status === 409 ? 'unrestorable' : 'failed';
       return false;
@@ -331,4 +358,8 @@ export class VersionsReading {
 
 function statusOf(error: unknown): number {
   return isBackendError(error) ? error.status : 0;
+}
+
+function reportAuth(source: VersionsSource, action: 'load' | 'save', error: unknown): void {
+  if (statusOf(error) === 401) source.workspace.report(action, error);
 }

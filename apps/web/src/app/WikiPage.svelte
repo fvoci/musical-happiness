@@ -46,7 +46,6 @@
   import {
     pageTrash,
     referenceTitles,
-    shownWiki,
     whileHere,
     WikiStore,
     type PageStore,
@@ -71,8 +70,8 @@
     referenceTitles(workspace).places = referencePlaces(router);
   });
 
-  const wikiId = $derived(router.route.wikiId);
-  const pageId = $derived(router.route.pageId);
+  const wikiId = $derived(router.route.kind === 'wiki' ? router.route.wikiId : undefined);
+  const pageId = $derived(router.route.kind === 'wiki' ? router.route.pageId : undefined);
 
   /** The wiki of the address, made anew for another one. */
   const wiki = $derived(wikiId ? new WikiStore(workspace, wikiId) : undefined);
@@ -80,14 +79,11 @@
   $effect(() => {
     const store = wiki;
     if (!store) return;
-    const holder = shownWiki(workspace);
+    let deactivate: (() => void) | undefined;
     untrack(() => {
-      workspace.closeBoard();
-      holder.current = store;
-      // What the head of the page told, and the focus of a join, were the wiki's before.
+      deactivate = workspace.activateContainer(store);
       notice = undefined;
       joined = false;
-      // And so were its deleted pages, the dialog of its people and the versions of a page.
       [trash, trashOpen, sharing] = [undefined, false, false];
       [versions, versionsOpen] = [undefined, false];
       const explicit = pageId;
@@ -98,7 +94,7 @@
     });
     return () => {
       store.close();
-      if (holder.current === store) holder.current = undefined;
+      deactivate?.();
     };
   });
 
@@ -135,7 +131,7 @@
   });
 
   // The page the reader is on, told with the visit (before it starts: it is told once).
-  $effect(() => {
+  $effect.pre(() => {
     wiki?.presence.setCard(pageId);
   });
 
@@ -152,7 +148,10 @@
   $effect(() => {
     const shown = wiki;
     if (shown?.status === 'ready' && !shown.missing && placed) {
-      return untrack(() => shown.presence.start());
+      return untrack(() => {
+        shown.presence.setCard(pageId);
+        return shown.presence.start();
+      });
     }
     return undefined;
   });
@@ -180,7 +179,7 @@
     });
     if (!done || workspace.containers.some((left) => left.id === store.wikiId)) return;
     // The reader went elsewhere meanwhile: they stay there.
-    if (router.route.wikiId !== store.wikiId) return;
+    if (router.route.kind !== 'wiki' || router.route.wikiId !== store.wikiId) return;
     const next = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (next) router.openContainer(next);
   }
@@ -204,6 +203,9 @@
   onkeydown={(event: KeyboardEvent) => {
     if (wiki?.openPage) holdSaveKey(event);
   }}
+  onpagehide={() => {
+    void wiki?.settleBody();
+  }}
 />
 
 {#if !wiki || wiki.status === 'idle' || wiki.status === 'loading'}
@@ -217,7 +219,7 @@
     {workspace}
     {store}
     kind="wiki"
-    shown={() => shownWiki(workspace).current === store}
+    shown={() => workspace.activeContainer === store}
     {router}
     onJoined={() => {
       joined = true;

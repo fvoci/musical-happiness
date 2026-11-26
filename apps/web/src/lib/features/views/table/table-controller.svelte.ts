@@ -119,22 +119,21 @@ export class TableController {
 
   // ------------------------------------------------------------ columns
 
-  readonly columns = $derived.by<TableColumn[]>(() => {
+  /** Stored column metadata: unaffected by live drag pixel width so rows/calculations stay untouched (§1.2.2). */
+  readonly columns = $derived.by<TableColumn[]>(() => tableColumns(this.#view, this.#templates));
+  /** Stored width of the title column; undefined leaves it to the pane. */
+  readonly titleWidth = $derived.by(() => storedTitleWidth(this.#view.fields.columnWidths));
+  /** Live or stored width of the title column for `--table-title` and its `HeaderCell`. */
+  readonly liveTitleWidth = $derived.by(() =>
+    this.resize.live?.id === TITLE_COLUMN_ID ? this.resize.live.width : this.titleWidth,
+  );
+  readonly template = $derived.by(() => {
     const live = this.resize.live;
-    return tableColumns(
-      this.#view,
-      this.#templates,
-      live && live.id !== TITLE_COLUMN_ID ? { [live.id]: live.width } : {},
+    return gridTemplate(
+      this.columns.map((column) => (live?.id === column.id ? live.width : column.width)),
     );
   });
-  /** The reader's width of the title column; undefined leaves it to the pane. */
-  readonly titleWidth = $derived.by(() =>
-    this.resize.live?.id === TITLE_COLUMN_ID
-      ? this.resize.live.width
-      : storedTitleWidth(this.#view.fields.columnWidths),
-  );
-  readonly template = $derived.by(() => gridTemplate(this.columns.map((column) => column.width)));
-  /** The title column, for the summary row: it counts as a text property. */
+  /** The title column, for the summary row: decoupled from live drag width (§1.2.2). */
   readonly titleColumn = $derived.by<TableColumn>(() => ({
     id: TITLE_COLUMN_ID,
     template: titleProperty(m['TableComponent.name']()),
@@ -373,7 +372,10 @@ export class TableController {
       Object.entries(properties).filter(([, value]) => value !== ''),
     );
     const card = await board.createCard({ properties: draft });
-    if (card) this.editing.start(card.id, TITLE_COLUMN_ID);
+    if (card) {
+      await tick();
+      this.editing.start(card.id, TITLE_COLUMN_ID);
+    }
   }
 
   // -------------------------------------------------------------- cells

@@ -10,6 +10,7 @@
  */
 import type { Editor as TiptapEditor } from '@tiptap/core';
 
+import { noteChunkFailure } from '$lib/chunk-reload.svelte.ts';
 import type BodyEditor from '$lib/editor/BodyEditor.svelte';
 
 class EditorChunk {
@@ -35,6 +36,7 @@ class EditorChunk {
       })
       .catch(() => {
         this.failed = true;
+        void noteChunkFailure();
       })
       .finally(() => {
         this.#loading = undefined;

@@ -127,6 +127,12 @@ export function reread<T extends Versioned>(
 export class BlockTurns {
   readonly #writes = new Map<string, Promise<void>>();
   readonly #advanced = new Map<string, Map<number, number>>();
+  readonly #conditional = new Map<string, number>();
+
+  /** True when at least one queued write on `blockId` carries `readAt`. */
+  hasConditionalWaiter(blockId: string): boolean {
+    return (this.#conditional.get(blockId) ?? 0) > 0;
+  }
 
   /** Runs `write` once earlier writes of `blockId` have ended, however they ended. */
   run<T>(blockId: string, write: () => Promise<T>): Promise<T> {
@@ -160,11 +166,23 @@ export class BlockTurns {
       updatedFields?: Record<string, unknown>;
       deletedFields?: string[];
     },
-  >(viewId: string, patch: P, send: (sent: P) => Promise<{ before: T; after: T }>): Promise<T> {
+  >(
+    viewId: string,
+    patch: P,
+    send: (sent: P, conditionalQueued: boolean) => Promise<{ before: T; after: T }>,
+  ): Promise<T> {
+    if (patch.readAt !== undefined) {
+      this.#conditional.set(viewId, (this.#conditional.get(viewId) ?? 0) + 1);
+    }
     return this.run(viewId, async () => {
+      if (patch.readAt !== undefined) {
+        const left = (this.#conditional.get(viewId) ?? 1) - 1;
+        if (left > 0) this.#conditional.set(viewId, left);
+        else this.#conditional.delete(viewId);
+      }
       const readAt = patch.readAt === undefined ? undefined : this.#resolve(viewId, patch.readAt);
       const sent = readAt === patch.readAt ? patch : { ...patch, readAt };
-      const { before, after } = await send(sent);
+      const { before, after } = await send(sent, this.hasConditionalWaiter(viewId));
       const from = sent.readAt ?? before.updatedAt;
       const expectedOrder =
         sent.updatedFields && 'order' in sent.updatedFields

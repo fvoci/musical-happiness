@@ -108,6 +108,7 @@ test('a member edits an HWPX and saves it as a version; over a newer version, as
 
   await type(page, '!');
   await page.keyboard.press('Control+s');
+  await page.getByTestId('file-editor-confirm-version').click();
   const stale = page.getByTestId('file-editor-stale');
   await expect(stale).toContainText('The file got a newer version meanwhile');
   await page.getByTestId('file-editor-stale-apart').click();

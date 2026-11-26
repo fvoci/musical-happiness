@@ -13,6 +13,8 @@
  * load or navigate, and an attribute that would run script (`on…`), are
  * left out, whatever the worker says: a defense besides the frame's policy.
  */
+import { isAllowedHref } from '$lib/editor/schema.ts';
+
 import { CLOSE, MEASURE, NAMESPACES, OPEN, TEXT, type Step } from './docx-protocol.ts';
 
 /** How many steps are built before the thread is given back. */
@@ -48,6 +50,16 @@ const BARRED = new Set([
   'listener',
 ]);
 const ATTRIBUTE = /^[A-Za-z_:][A-Za-z0-9_.:-]*$/;
+const ADDRESS_ATTRIBUTES = new Set(['href', 'src', 'xlink:href']);
+const SAFE_DATA_IMAGE = /^data:image\/(?!svg)[a-z0-9.+-]+[;,]/i;
+
+function isSafeDocxAddress(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('#') || /^blob:/i.test(trimmed) || SAFE_DATA_IMAGE.test(trimmed)) {
+    return true;
+  }
+  return /^(?:https?:|mailto:)/i.test(trimmed) && isAllowedHref(trimmed);
+}
 
 const yieldThread = (): Promise<void> =>
   new Promise((resolve) => {
@@ -98,7 +110,17 @@ export async function build(
         for (let attribute = 0; attribute < count; attribute += 1) {
           const [name, value] = [text(), text()];
           if (element && ATTRIBUTE.test(name) && !/^on/i.test(name)) {
-            element.setAttribute(name, fill(value));
+            const filled = fill(value);
+            const lower = name.toLowerCase();
+            if (
+              ADDRESS_ATTRIBUTES.has(lower) ||
+              lower.endsWith(':href') ||
+              lower.endsWith(':src')
+            ) {
+              if (isSafeDocxAddress(filled)) element.setAttribute(name, filled);
+            } else {
+              element.setAttribute(name, filled);
+            }
           }
         }
         skipped.push(!element);

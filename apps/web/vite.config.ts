@@ -141,7 +141,24 @@ export default defineConfig(({ command }) => ({
       // Hexadecimal, because that is what the server recognises as a
       // content hash. Sixteen digits: a hash of letters a-f only, which the
       // server would not recognise, has a chance of 1 in 6.6 million.
-      output: OUTPUT_NAMES,
+      output: {
+        ...OUTPUT_NAMES,
+        codeSplitting: {
+          groups: [
+            {
+              name: 'i18n-shared',
+              test: /src\/lib\/i18n\/paraglide\//,
+              minShareCount: 2,
+            },
+            {
+              name: 'app-shared',
+              test: /src\/lib\/(state|logic|components|ui)\//,
+              minShareCount: 2,
+              maxModuleSize: 4096,
+            },
+          ],
+        },
+      },
     },
   },
   // pdf.js's and rhwp's workers, which the viewer's frame starts from their

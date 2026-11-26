@@ -317,7 +317,7 @@
           users={reader.people}
           named={reader.users}
           presentation={reader.presentation}
-          cards={host.cards}
+          cards={template.type === 'relation' ? host.cards : undefined}
           preventLoops={host.ordering(column.id)}
           onOpenCard={host.open}
           onChange={(value: StoredValue | undefined) => {
@@ -335,7 +335,7 @@
             locale={reader.locale}
             regional={reader.regional}
             users={reader.users}
-            cards={host.cards}
+            cards={template.type === 'relation' ? host.cards : undefined}
             onOpenCard={host.open}
             innerTabindex={-1}
           />

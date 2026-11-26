@@ -83,8 +83,17 @@ export const isUserId: AttributeRule = (value) =>
   value !== NIL_ID;
 /** A block's identifier, which has the form of a user's: whether it names anything is not asked. */
 export const isBlockId: AttributeRule = isUserId;
+/**
+ * An uploaded file's identifier (`<secret>.<ext>` or a block id): single path
+ * segment of ASCII letters, digits, `.`, `_`, `-`, never `.` or `..` traversal.
+ */
+export const isFileId: AttributeRule = (value) =>
+  typeof value === 'string' &&
+  value !== '.' &&
+  !value.includes('..') &&
+  /^[A-Za-z0-9._-]{1,100}$/.test(value);
 /** A language tag of a code block: `rust`, `c++`, `objective-c`. */
-const isLanguage: AttributeRule = (value) =>
+export const isLanguage: AttributeRule = (value) =>
   typeof value === 'string' && /^[A-Za-z0-9+#._-]{1,40}$/.test(value);
 
 /**

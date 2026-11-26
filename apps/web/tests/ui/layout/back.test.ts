@@ -6,7 +6,8 @@
 import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Router } from '../../../src/app/router.svelte.ts';
+import { cardIdOf, Router } from '../../../src/app/router.svelte.ts';
+import { isOverlayEntry } from '$lib/layout/back.svelte.ts';
 
 import { overlay, type Overlay } from './overlay-host.svelte.ts';
 
@@ -99,12 +100,36 @@ describe('going somewhere else from inside a drawer', () => {
     history.back();
     await settle();
     expect(sheet.open).toBe(false);
-    expect(router.route.cardId).toBe('c');
+    expect(cardIdOf(router.route)).toBe('c');
     expect(location.pathname).toBe('/w/t/boards/b/v/c');
     // The next "back" closes the card.
     history.back();
     await settle();
-    expect(router.route.cardId).toBeUndefined();
+    expect(cardIdOf(router.route)).toBeUndefined();
+    stop();
+  });
+
+  it('cleans up all stacked overlay history entries (fvociOverlay >= 2) when navigating away', async () => {
+    const router = new Router('');
+    const stop = router.listen();
+    const drawer = open();
+    const sheet = open();
+    await settle();
+
+    router.openContainer({ id: 'other', workspaceId: 't' });
+    sheet.open = false;
+    drawer.open = false;
+    flushSync();
+    await settle();
+    expect(location.pathname).toBe('/w/t/boards/other');
+    expect(isOverlayEntry(history.state)).toBe(false);
+
+    // One single Back returns straight to the original view, with no stranded overlay entry!
+    history.back();
+    await settle();
+    expect(location.pathname).toBe('/w/t/boards/b/v');
+    expect(isOverlayEntry(history.state)).toBe(false);
+    expect(router.route).toMatchObject({ kind: 'board', boardId: 'b', viewId: 'v' });
     stop();
   });
 });
@@ -180,12 +205,12 @@ describe('opening right after closing', () => {
     next.open = false;
     flushSync();
     await settle();
-    expect(router.route.cardId).toBe('c');
+    expect(cardIdOf(router.route)).toBe('c');
     expect(location.pathname).toBe('/w/t/boards/b/v/c');
 
     history.back();
     await settle();
-    expect(router.route.cardId).toBeUndefined();
+    expect(cardIdOf(router.route)).toBeUndefined();
     expect(location.pathname).toBe('/w/t/boards/b/v');
     stop();
   });
@@ -201,21 +226,42 @@ describe('opening right after closing', () => {
     flushSync();
     router.openView('other');
     // The screen follows at once; the address waits for the step back.
-    expect(router.route.viewId).toBe('other');
+    expect(router.route).toMatchObject({ kind: 'board', viewId: 'other' });
     expect(pushed).not.toHaveBeenCalled();
     expect(location.pathname).toBe('/w/t/boards/b/v');
 
     await settle();
     expect(pushed).toHaveBeenCalledTimes(1);
     expect(location.pathname).toBe('/w/t/boards/b/other');
-    expect(router.route.viewId).toBe('other');
+    expect(router.route).toMatchObject({ kind: 'board', viewId: 'other' });
 
     // One step back is the view the reader came from.
     history.back();
     await settle();
     expect(location.pathname).toBe('/w/t/boards/b/v');
-    expect(router.route.viewId).toBe('v');
+    expect(router.route).toMatchObject({ kind: 'board', viewId: 'v' });
     pushed.mockRestore();
+    stop();
+  });
+
+  it('holds subsequent view/overlay writes until closeCard() history.back() completes (W2.2)', async () => {
+    const router = new Router('');
+    const stop = router.listen();
+    router.openCard('c');
+    await settle();
+
+    router.closeCard();
+    // Immediately closed on the route, before popstate fires:
+    expect(cardIdOf(router.route)).toBeUndefined();
+    // Opening another view or overlay right after closeCard() is not clobbered by closeCard's popstate:
+    router.openView('other');
+    const sheet = open();
+    await settle();
+    await settle();
+    expect(sheet.open).toBe(true);
+    expect(sheet.closedByBack).toBe(0);
+    expect(location.pathname).toBe('/w/t/boards/b/other');
+    expect(router.route).toMatchObject({ kind: 'board', viewId: 'other' });
     stop();
   });
 
@@ -231,8 +277,39 @@ describe('opening right after closing', () => {
     router.closeCard();
     await settle();
     await settle();
-    expect(router.route.cardId).toBeUndefined();
+    expect(cardIdOf(router.route)).toBeUndefined();
     expect(location.pathname).toBe('/w/t/boards/b/v');
     stop();
+  });
+
+  it('releases queued writes after WAIT_LIMIT when popstate never arrives', () => {
+    const router = new Router('');
+    const stop = router.listen();
+    const sheet = open();
+    vi.useFakeTimers();
+    const backSpy = vi.spyOn(history, 'back').mockImplementation(() => {
+      // Simulate a step back whose popstate never fires (e.g. history boundary).
+    });
+    try {
+      sheet.open = false;
+      flushSync();
+      router.openView('other');
+      expect(location.pathname).toBe('/w/t/boards/b/v');
+
+      vi.advanceTimersByTime(1999);
+      expect(location.pathname).toBe('/w/t/boards/b/v');
+
+      vi.advanceTimersByTime(1);
+      expect(location.pathname).toBe('/w/t/boards/b/other');
+
+      // Router #writes is unlocked too, so subsequent popstate navigation works.
+      history.pushState(null, '', '/w/t/boards/b/third');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      expect(router.route).toMatchObject({ kind: 'board', viewId: 'third' });
+    } finally {
+      backSpy.mockRestore();
+      vi.useRealTimers();
+      stop();
+    }
   });
 });

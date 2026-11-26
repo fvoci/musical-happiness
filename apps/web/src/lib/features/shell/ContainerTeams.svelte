@@ -10,7 +10,7 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { Shareable, Workspace } from '$lib/state/index.ts';
+  import { isBackendError, type Shareable, type Workspace } from '$lib/state/index.ts';
   import type { ContainerTeam, Team, TeamRole, Teams } from '$lib/state/team-types.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -59,7 +59,13 @@
       groups = all;
       assigned = onContainer;
       unread = false;
-    } catch {
+    } catch (error) {
+      if (isBackendError(error)) {
+        if (error.status === 401) workspace.report('load', error);
+        else if (error.status === 403 || error.status === 404) {
+          workspace.evictWorkspace(workspaceId);
+        }
+      }
       if (current === reading) unread = true;
     }
   }
@@ -83,7 +89,11 @@
       else await teams.unassign(place, shareable.containerId, teamId);
       selected = '';
       return true;
-    } catch {
+    } catch (error) {
+      if (isBackendError(error)) {
+        if (error.status === 401) workspace.report('save', error);
+        else if (error.status === 403 || error.status === 404) workspace.evictWorkspace(place);
+      }
       problem = m.teams_failed();
       return false;
     } finally {

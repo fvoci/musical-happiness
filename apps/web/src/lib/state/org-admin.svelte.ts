@@ -26,6 +26,7 @@ interface Shell {
   report(action: 'load', error: unknown): void;
   evictWorkspace?(workspaceId: string): void;
   evictOrg?(orgId: string): void;
+  reloadWorkspaces?(): Promise<void> | void;
 }
 
 /** Why a change was refused, as the screen tells it. */
@@ -141,7 +142,10 @@ export class OrgAdmin {
   }
 
   createWorkspace(name: string): Promise<boolean> {
-    return this.#change(() => this.#api.createWorkspace(this.orgId, name));
+    return this.#change(async () => {
+      await this.#api.createWorkspace(this.orgId, name);
+      await this.#shell?.reloadWorkspaces?.();
+    });
   }
 
   oidcProvider(): Promise<OidcProvider | undefined> {
@@ -190,28 +194,39 @@ export class OrgAdmin {
   }
 
   renameWorkspace(workspaceId: string, name: string): Promise<boolean> {
-    return this.#change(() => this.#api.renameWorkspace(this.orgId, workspaceId, name));
+    return this.#change(async () => {
+      await this.#api.renameWorkspace(this.orgId, workspaceId, name);
+      await this.#shell?.reloadWorkspaces?.();
+    });
   }
 
   deleteWorkspace(workspaceId: string): Promise<boolean> {
     return this.#change(async () => {
       await this.#api.deleteWorkspace(this.orgId, workspaceId);
       this.#shell?.evictWorkspace?.(workspaceId);
+      await this.#shell?.reloadWorkspaces?.();
     });
   }
 
   restoreWorkspace(workspaceId: string): Promise<boolean> {
-    return this.#change(() => this.#api.restoreWorkspace(this.orgId, workspaceId));
+    return this.#change(async () => {
+      await this.#api.restoreWorkspace(this.orgId, workspaceId);
+      await this.#shell?.reloadWorkspaces?.();
+    });
   }
 
   joinWorkspace(workspaceId: string): Promise<boolean> {
-    return this.#change(() => this.#api.joinWorkspace(this.orgId, workspaceId));
+    return this.#change(async () => {
+      await this.#api.joinWorkspace(this.orgId, workspaceId);
+      await this.#shell?.reloadWorkspaces?.();
+    });
   }
 
   leaveWorkspace(workspaceId: string): Promise<boolean> {
     return this.#change(async () => {
       await this.#api.leaveWorkspace(this.orgId, workspaceId);
       this.#shell?.evictWorkspace?.(workspaceId);
+      await this.#shell?.reloadWorkspaces?.();
     });
   }
 

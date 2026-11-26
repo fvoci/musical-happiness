@@ -320,9 +320,10 @@ async function draw(source: string, width: number, page: Document): Promise<Diag
   stage.style.width = `${Math.max(240, Math.round(width))}px`;
   page.body.append(stage);
   serial += 1;
+  const diagramId = `doc-diagram-${serial}`;
   try {
-    const { svg } = await library.render(`doc-diagram-${serial}`, source, stage);
-    const picture = safeSvg(svg, { document: page });
+    const { svg } = await library.render(diagramId, source, stage);
+    const picture = safeSvg(svg, { document: page, expectedId: diagramId });
     return picture ? { ok: true, picture } : { ok: false, reason: 'failed' };
   } catch (error) {
     return { ok: false, reason: 'failed', detail: messageOf(error) };

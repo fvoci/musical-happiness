@@ -1,33 +1,17 @@
 /**
- * One open wiki: the wiki itself, its members (what the reader may do), and
- * its pages, a tree (`tree`, `logic/page-tree.ts`). The page that is shown is
- * a store of its own (`page.svelte.ts`), opened from here (`openPage`).
- *
- * The wiki is read as a board of the kind `wiki`: at the address of a board it
- * is not there, and a board is not there at a wiki's. Changes are heard as
- * the board's are (`watchContainer`): the wiki renamed or deleted, its members,
- * its pages made, changed and deleted (`pages`, `blocksDeleted`), and the
- * comments on the page shown (`blocks`, handed to `PageStore.comments`). A page
- * deleted takes the pages below it along, and only it is told: the store
- * takes them off itself.
- *
- * Writes show at once and go back when the backend refuses them, told
- * (`workspace.report`). Renaming a page, changing its icon, making one,
- * moving one, copying one, deleting one (brought back from the trash) and
- * changing the wiki can be undone.
- *
- * An open wiki is read by whoever works in the workspace without joining it
- * (`joinable`): they join it to write. Its people and its openness are changed
- * through the dialogs a board's are (`containerId`, `board`, `members`).
+ * One open wiki: the wiki itself, its members, its tree of pages (`pageTree`),
+ * and the currently open `PageStore`. Optimistic hierarchy writes are handled
+ * by `HierarchyWriteQueue`.
  */
+import { isEmptyDoc } from '../editor/schema.ts';
 import type { PagePlace } from '../logic/page-moves.ts';
 import { pageTree } from '../logic/page-tree.ts';
 import type { Container, ContainerMember, MemberRole } from '../logic/wire.ts';
 
 import {
   isBackendError,
-  type ContainerRole,
   type Change,
+  type ContainerRole,
   type DeletedItem,
   type PageDraft,
   type Paging,
@@ -36,55 +20,45 @@ import {
   type Wikis,
 } from './backend.ts';
 import { containerOfWorkspace, roleOf } from './board-parts.ts';
-import { isCommentBlock } from './changes.ts';
-import { MemberWrites } from './member-writes.ts';
 import { ContainerPresence } from './board-presence.svelte.ts';
+import { isCommentBlock } from './changes.ts';
+import { HierarchyWriteQueue } from './hierarchy-writes.ts';
+import { MemberWrites } from './member-writes.ts';
 import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
-import { TreeWrites } from './tree-writes.ts';
-import { joinOpenWiki, performPageLooks, performWikiLooks } from './wiki-parts.ts';
 import { memberId } from './user-names.ts';
+import { joinOpenWiki, performPageLooks, performWikiLooks } from './wiki-parts.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
 
-/** What a page's title and icon are changed to: what is left out stays. */
 export interface PageLooks {
   title?: string;
   icon?: string;
 }
 
-/** What the reader can change of the wiki itself. */
 export interface WikiLooks {
   title?: string;
   description?: string;
   icon?: string;
-  /** Open to the workspace (`open`) or for the invited only (`private`): its admins'. */
   visibility?: Container['visibility'];
-  /** The role of who joins it: its admins'. */
   minimumRole?: Container['minimumRole'];
 }
 
 export class WikiStore {
+  readonly kind = 'wiki' as const;
   readonly workspace: Workspace;
   readonly wikiId: string;
 
   status = $state<LoadStatus>('idle');
-  /** The wiki is not there, or not for the reader: the two look the same. */
   missing = $state(false);
-  /** Whether the full list of pages has been read at least once. */
   pagesReady = $state(false);
-  /** Page ID speculatively opened from cache before the full page list arrived. */
   speculativePageId = $state<string | undefined>(undefined);
-  /** The reader asked to join and the answer has not come. */
   joining = $state(false);
   wiki = $state.raw<Container | undefined>(undefined);
-  /** Every page of the wiki, in no order. */
   pages = $state.raw<WikiPage[]>([]);
   members = $state.raw<ContainerMember[]>([]);
-  /** The page shown, if one is. */
   openPage = $state.raw<PageStore | undefined>(undefined);
 
-  /** The pages as a tree, each list of siblings in their order. */
   readonly tree = $derived(pageTree(this.pages));
   readonly orderedMembers = $derived.by(() =>
     orderMembers(
@@ -93,62 +67,53 @@ export class WikiStore {
       this.workspace.locale,
     ),
   );
-  /** What the reader is on this wiki. */
   readonly role = $derived<MemberRole>(
     roleOf(this.members.find((member) => member.userId === this.workspace.me?.id)),
   );
-  /** Whether the reader writes pages: the wiki's admins and editors. */
   readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
-  /**
-   * Whether the reader changes and deletes the wiki itself: its admins. An
-   * administrator of the workspace who manages an open wiki without being its
-   * member joins it first, as on an open board.
-   */
   readonly canManage = $derived(this.role === 'admin');
-  /**
-   * The wiki is open and the reader no member of it: they read it, and join it
-   * (`join`) to write in it.
-   */
   readonly joinable = $derived(
     this.status === 'ready' && this.wiki?.visibility === 'open' && this.role === '',
   );
 
   #stopWatching: (() => void) | undefined;
   #closed = false;
-  /** Readings begun (`load`, `#refresh`): the latest is the one that counts. */
   #readings = 0;
 
-  /** Who else is on the wiki, and on which page: started while it is shown (`start`). */
   readonly presence: ContainerPresence;
-  /** Making, moving and deleting pages (`tree-writes.ts`). */
-  readonly #writes: TreeWrites;
-  /** Adding, changing and taking off members (`member-writes.ts`). */
+  readonly #writes: HierarchyWriteQueue<WikiPage, WikiPageDetail, PageDraft>;
   readonly #people = new MemberWrites(this);
 
   constructor(workspace: Workspace, wikiId: string) {
     this.workspace = workspace;
     this.wikiId = wikiId;
     this.presence = new ContainerPresence({ workspace, containerId: wikiId });
-    this.#writes = new TreeWrites({
-      wikiId,
+    this.#writes = new HierarchyWriteQueue({
       workspace,
-      wikis: () => this.#wikis,
-      pages: () => this.pages,
-      setPages: (pages) => {
+      nodes: () => this.pages,
+      setNodes: (pages) => {
         this.pages = pages;
       },
-      openPage: () => this.openPage,
-      takePage: (page) => {
+      openNode: () => this.openPage,
+      takeNode: (page) => {
         this.#takePage(page);
       },
       reread: () => {
         void this.#refresh();
       },
+      create: (draft) => this.#wikis.createPage(wikiId, draft),
+      hasBody: async (pageId) => {
+        const { body } = await this.#wikis.page(wikiId, pageId);
+        return body !== null && !isEmptyDoc(body);
+      },
+      remove: (pageId) => this.#wikis.deletePage(wikiId, pageId),
+      restore: (pageId) => this.#wikis.restorePage(wikiId, pageId),
+      move: (pageId, to) => this.#wikis.movePage(wikiId, pageId, to),
+      duplicate: (pageId, title) => this.#wikis.duplicatePage(wikiId, pageId, title),
     });
   }
 
   get #wikis(): Wikis {
-    // Opened only where the backend has wikis (the app's, not a public link's).
     const wikis = this.workspace.backend.wiki;
     if (!wikis) throw new Error('this backend has no wikis');
     return wikis;
@@ -169,7 +134,6 @@ export class WikiStore {
     const initialPageId = options.pageId;
     const speculative = Boolean(initialPageId && options.speculative);
     try {
-      // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
       this.#stopWatching = this.workspace.backend.watchContainer(this.wikiId, (change) => {
         this.#apply(change);
@@ -178,7 +142,6 @@ export class WikiStore {
       const wikiRead = containerOfWorkspace(backend, this.wikiId, this.workspace.info?.id, 'wiki');
       const membersRead = backend.members(this.wikiId);
       const pagesRead = this.#wikis.pages(this.wikiId);
-      // Avoid unhandled rejection if container/members reject before pages settles.
       pagesRead.catch(() => undefined);
       if (initialPageId) {
         this.speculativePageId = speculative ? initialPageId : undefined;
@@ -190,7 +153,6 @@ export class WikiStore {
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
       this.takeWiki(wiki);
-      // Members told meanwhile are newer than this reading.
       if (membersTold === this.#people.told) this.members = members;
       if (initialPageId && (wiki.visibility === 'open' || this.role !== '')) this.status = 'ready';
       const pages = await pagesRead;
@@ -215,7 +177,6 @@ export class WikiStore {
       this.speculativePageId = undefined;
       this.openPage?.close();
       this.openPage = undefined;
-      // Not there for the reader, or not to read: the two look the same.
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
         this.workspace.evictContainer(this.wikiId);
         this.missing = true;
@@ -224,7 +185,6 @@ export class WikiStore {
     }
   }
 
-  /** Called when a speculatively opened page is deleted, forbidden, or fails to load. */
   speculativeFailed(pageId: string): void {
     this.workspace.forgetWikiPage(this.wikiId, pageId);
     if (this.speculativePageId !== pageId) return;
@@ -235,14 +195,16 @@ export class WikiStore {
     }
   }
 
-  /** Joins the open wiki shown (`joinable`) and reads it. False (and told) when that failed. */
   join(): Promise<boolean> {
     return joinOpenWiki(this);
   }
 
-  /** Asked as a function: `#closed` may change while a reading waits, which TypeScript does not see. */
   isClosed(): boolean {
     return this.#closed;
+  }
+
+  settleBody(): Promise<void> {
+    return this.openPage?.settleBody() ?? Promise.resolve();
   }
 
   close(): void {
@@ -253,10 +215,8 @@ export class WikiStore {
     this.openPage = undefined;
   }
 
-  /** Shows a page: its store is made, and the one before closed. None for `undefined`. */
   showPage(pageId: string | undefined, speculative = false): PageStore | undefined {
     if (!speculative) this.speculativePageId = undefined;
-    // The same page, unless it was found gone: shown again, it is read anew (restored, let back in).
     const open = this.openPage;
     if (open && open.pageId === pageId && !open.missing) return open;
     this.openPage?.close();
@@ -267,7 +227,6 @@ export class WikiStore {
 
   // ------------------------------------------------------------ changes
 
-  /** Shows `wiki` unless a newer one is shown: a reading may land after a change told meanwhile. */
   takeWiki(wiki: Container): void {
     if (!this.wiki || this.wiki.updatedAt <= wiki.updatedAt) this.wiki = wiki;
   }
@@ -276,14 +235,12 @@ export class WikiStore {
     switch (change.kind) {
       case 'container':
         if (change.container.id !== this.wikiId) break;
-        // Deleted and brought back, or joined: everything of it is read again.
         if (this.missing) void this.load();
         else this.takeWiki(change.container);
         break;
       case 'containerDeleted':
         if (change.containerId !== this.wikiId) break;
         this.workspace.evictContainer(this.wikiId);
-        // An open wiki may only have been closed to the reader: read again, it may be one to join.
         if (this.wiki?.visibility === 'open' && !this.#closed) void this.load();
         else [this.missing, this.status] = [true, 'failed'];
         break;
@@ -323,26 +280,19 @@ export class WikiStore {
     }
   }
 
-  /** A version of a page from the backend: shown, unless a move of it is under way. */
   receivePage(page: WikiPage): void {
     if (this.#writes.receive(page)) this.#takePage(page);
   }
 
-  /** A page made or changed: the newer of the two is kept, and the open page is told. */
   #takePage(page: WikiPage): void {
     if (page.wikiId !== this.wikiId || !this.#writes.admits(page)) return;
     this.pages = take(this.pages, page);
     const shown = this.openPage;
     if (shown?.pageId !== page.id) return;
-    // Brought back while shown as not there: read again.
     if (shown.missing) void shown.load();
     else shown.pageChanged(page);
   }
 
-  /**
-   * Reads the wiki, its members and pages again after changes may have been
-   * missed (`resync`): the pages merged with what is shown (`reread`).
-   */
   async #refresh(): Promise<void> {
     if (this.status !== 'ready' || !this.pagesReady || this.isClosed()) return;
     this.#readings += 1;
@@ -358,15 +308,12 @@ export class WikiStore {
       ]);
       if (this.isClosed() || reading !== this.#readings) return;
       this.takeWiki(wiki);
-      // Members told meanwhile are newer than this reading.
       if (membersTold === this.#people.told) this.members = members;
       const shown = this.openPage;
       const title = (shown && this.page(shown.pageId)?.title) ?? '';
-      // What was taken off while it was read is gone, though the reading has it.
       const read = this.#writes.admitted(pages, mark);
       this.pages = reread(this.pages, read, before, (page) => this.#writes.receive(page));
       this.#writes.remember(this.pages);
-      // The reader's own deletion under way tells of itself.
       if (shown && !this.page(shown.pageId)) {
         if (!this.#writes.isDeleting(shown.pageId)) shown.gone('others', title);
       } else if (shown) void shown.refresh();
@@ -376,7 +323,6 @@ export class WikiStore {
         return;
       }
       if (this.isClosed() || reading !== this.#readings) return;
-      // Gone for the reader (deleted, or taken off it): read as on opening.
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
         this.workspace.evictContainer(this.wikiId);
         void this.load();
@@ -386,37 +332,28 @@ export class WikiStore {
 
   // ------------------------------------------------------------- writes
 
-  /**
-   * Makes a page (`PageDraft`: below a page, after one, or last at the top)
-   * and gives it, shown in the tree; undefined when it was refused (told).
-   */
   createPage(draft: PageDraft): Promise<WikiPageDetail | undefined> {
-    return this.#writes.createPage(draft);
+    return this.#writes.create(draft, 'createPage');
   }
 
-  /** The reader's moves the backend has not answered yet, queued ones among them. */
   moving = $state(0);
-  /** Moves of the reader's under way, or an undo or redo, maybe of one: the tree says it is settling. */
   readonly settling = $derived.by(() => this.moving > 0 || this.workspace.undoBusy);
 
-  /** Moves a page with the pages below it where `to` says; false when it was refused (told). */
   async movePage(pageId: string, to: PagePlace): Promise<boolean> {
     this.moving += 1;
     try {
-      return await this.#writes.movePage(pageId, to);
+      return await this.#writes.move(pageId, to, 'movePage');
     } finally {
       this.moving -= 1;
     }
   }
 
-  /** Copies a page with the pages below it, right after it; undefined when it was refused (told). */
   duplicatePage(pageId: string, title: string): Promise<WikiPageDetail | undefined> {
-    return this.#writes.duplicatePage(pageId, title);
+    return this.#writes.duplicate(pageId, title, 'duplicatePage');
   }
 
-  /** Deletes a page and every page below it; false when it was refused (told). */
   async deletePage(pageId: string): Promise<boolean> {
-    const done = await this.#writes.deletePage(pageId);
+    const done = await this.#writes.remove(pageId, 'deletePage');
     const remembered = this.workspace.rememberedWikiPage(this.wikiId);
     if (done && remembered && !this.page(remembered)) {
       this.workspace.forgetWikiPage(this.wikiId, remembered);
@@ -424,29 +361,19 @@ export class WikiStore {
     return done;
   }
 
-  /**
-   * The wiki's pages in the trash, for its editors: a page of them, the last
-   * deleted first, those the reader is deleting right now among them.
-   */
   async deletedPages(paging?: Paging): Promise<DeletedItem[]> {
     await this.#writes.deletionsAnswered();
     return this.#wikis.deletedPages(this.wikiId, paging);
   }
 
-  /** Brings a page back from the trash with those that went with it; a refusal is thrown. */
   restorePage(pageId: string): Promise<void> {
-    return this.#writes.restorePage(pageId);
+    return this.#writes.restore(pageId);
   }
 
-  /** Changes the title or the icon of a page: shown at once, undone as one step. */
   changePage(pageId: string, looks: PageLooks): Promise<void> {
     return performPageLooks(this, this.#wikis, pageId, looks);
   }
 
-  /**
-   * Changes the wiki's title, description, icon, openness or the role of who
-   * joins it: shown at once, undone as one step (`step` names it).
-   */
   changeWiki(
     looks: WikiLooks,
     step: 'changeWiki' | 'changeVisibility' | 'changeMinimumRole' = 'changeWiki',
@@ -455,7 +382,6 @@ export class WikiStore {
   }
 
   // ------------------------------------------------------------ sharing
-  // What the dialogs of a board's people read and change (`ShareDialog`).
 
   get containerId(): string {
     return this.wikiId;
@@ -465,17 +391,14 @@ export class WikiStore {
     return this.wiki;
   }
 
-  /** The wiki as read for whoever manages it without reading it (`managed-container.ts`). */
   set container(wiki: Container | undefined) {
     this.wiki = wiki;
   }
 
-  /** Whether anybody of the workspace reads the wiki, and may join it to write. */
   setOpen(open: boolean): Promise<void> {
     return this.changeWiki({ visibility: open ? 'open' : 'private' }, 'changeVisibility');
   }
 
-  /** The role somebody gets by joining the wiki. Members keep theirs. */
   setMinimumRole(role: ContainerRole): Promise<void> {
     return this.changeWiki({ minimumRole: role }, 'changeMinimumRole');
   }

@@ -1,11 +1,19 @@
-/** Addresses: a board, a view and a card under the base path the server names. */
+/** Addresses: discriminated union `Route` parsing, formatting, and history navigation. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as back from '$lib/layout/back.svelte.ts';
 
+import {
+  forgetFragmentToken,
+  forgetInviteToken,
+  readFragmentToken,
+  takeInviteToken,
+} from '$lib/fragment-token.ts';
 import { localeOfSetting, matchLocale } from '../../../src/app/locale.ts';
 import { goToPlace, routeOfPlace } from '../../../src/app/places.ts';
 import {
+  cardIdOf,
+  isSharedRoute,
   parseRoute,
   placeRoute,
   readBasePath,
@@ -14,108 +22,174 @@ import {
   shownContainerId,
 } from '../../../src/app/router.svelte.ts';
 
-const none = {
-  workspaceId: undefined,
-  boardId: undefined,
-  viewId: undefined,
-  cardId: undefined,
-  unknown: false,
-};
-
 describe('reading an address', () => {
   it('reads workspace, board, view and card, each optional from the right', () => {
-    expect(parseRoute('/', '')).toEqual(none);
-    expect(parseRoute('/w/t', '')).toEqual({ ...none, workspaceId: 't' });
-    expect(parseRoute('/w/t/boards', '')).toEqual({ ...none, workspaceId: 't' });
-    expect(parseRoute('/w/t/boards/b', '')).toEqual({ ...none, workspaceId: 't', boardId: 'b' });
+    expect(parseRoute('/', '')).toEqual({ kind: 'home' });
+    expect(parseRoute('/w/t', '')).toEqual({ kind: 'workspace', workspaceId: 't' });
+    expect(parseRoute('/w/t/boards', '')).toEqual({ kind: 'workspace', workspaceId: 't' });
+    expect(parseRoute('/w/t/boards/b', '')).toEqual({
+      kind: 'board',
+      workspaceId: 't',
+      boardId: 'b',
+    });
     expect(parseRoute('/w/t/boards/b/v', '')).toEqual({
-      ...none,
+      kind: 'board',
       workspaceId: 't',
       boardId: 'b',
       viewId: 'v',
     });
     expect(parseRoute('/w/t/boards/b/v/c', '')).toEqual({
+      kind: 'board',
       workspaceId: 't',
       boardId: 'b',
       viewId: 'v',
       cardId: 'c',
-      unknown: false,
     });
-    expect(parseRoute('/w/t/boards/b/v/', '')).toMatchObject({ boardId: 'b', viewId: 'v' });
+    expect(parseRoute('/w/t/boards/b/v/', '')).toMatchObject({
+      kind: 'board',
+      boardId: 'b',
+      viewId: 'v',
+    });
   });
 
   it('reads a public link: the board, a view and a card, and the read token', () => {
     expect(parseRoute('/base/shared/b/v/c', 'base', '?r=tok')).toEqual({
-      ...none,
+      kind: 'shared',
       boardId: 'b',
       viewId: 'v',
       cardId: 'c',
       readToken: 'tok',
-      shared: true,
     });
     expect(parseRoute('/shared/b', '', '?r=a%2Fb')).toEqual({
-      ...none,
+      kind: 'shared',
       boardId: 'b',
       readToken: 'a/b',
-      shared: true,
     });
-    // Without a token, or with more than a card, it is no address of the app's.
-    expect(parseRoute('/shared/b', '').unknown).toBe(true);
-    expect(parseRoute('/shared/b', '', '?r=').unknown).toBe(true);
-    expect(parseRoute('/shared', '', '?r=t').unknown).toBe(true);
-    expect(parseRoute('/shared/b/v/c/x', '', '?r=t').unknown).toBe(true);
-    // Each is still under `/shared`: the reader's screen says not found, not the app.
+    expect(parseRoute('/shared/b', '').kind).toBe('unknown');
+    expect(parseRoute('/shared/b', '', '?r=').kind).toBe('unknown');
+    expect(parseRoute('/shared', '', '?r=t').kind).toBe('unknown');
+    expect(parseRoute('/shared/b/v/c/x', '', '?r=t').kind).toBe('unknown');
     for (const [path, search] of [
       ['/shared/b', ''],
       ['/shared/b', '?r='],
       ['/shared', '?r=t'],
       ['/shared/b/v/c/x', '?r=t'],
     ] as const) {
-      expect(parseRoute(path, '', search).shared).toBe(true);
+      expect(isSharedRoute(parseRoute(path, '', search))).toBe(true);
     }
-    expect(parseRoute('/w/t', '').shared).toBeUndefined();
+    expect(isSharedRoute(parseRoute('/w/t', ''))).toBe(false);
   });
 
-  it('writes a public link under the base path, the token in the query', () => {
+  it('writes a public link under the base path, the token in the query, and compares readToken on go()', () => {
     const shared = { boardId: 'b', viewId: 'v', readToken: 't/1' };
     expect(routePath(shared, 'base')).toBe('/base/shared/b/v?r=t%2F1');
     expect(routePath({ ...shared, cardId: 'c' }, '')).toBe('/shared/b/v/c?r=t%2F1');
-    // A link names no workspace, also when the route has one.
     expect(routePath({ ...shared, workspaceId: 'w' }, '')).toBe('/shared/b/v?r=t%2F1');
+
+    history.replaceState(null, '', '/shared/b/v?r=tok1');
+    const router = new Router('');
+    router.go({ boardId: 'b', viewId: 'v', readToken: 'tok2' });
+    expect(`${location.pathname}${location.search}`).toBe('/shared/b/v?r=tok2');
   });
 
   it("reads the organization's screen, and nothing below it", () => {
-    expect(parseRoute('/org/o', '')).toEqual({ ...none, orgId: 'o' });
-    expect(parseRoute('/app/org/o', 'app')).toEqual({ ...none, orgId: 'o' });
-    expect(parseRoute('/org', '').unknown).toBe(true);
-    expect(parseRoute('/org/o/w', '').unknown).toBe(true);
+    expect(parseRoute('/org/o', '')).toEqual({ kind: 'org', orgId: 'o' });
+    expect(parseRoute('/app/org/o', 'app')).toEqual({ kind: 'org', orgId: 'o' });
+    expect(parseRoute('/org', '').kind).toBe('unknown');
+    expect(parseRoute('/org/o/w', '').kind).toBe('unknown');
     expect(routePath({ orgId: 'o 1' }, 'app')).toBe('/app/org/o%201');
   });
 
+  it('strips /invite/<token> from the URL immediately and restores from sessionStorage on reload', () => {
+    sessionStorage.clear();
+    history.replaceState(null, '', '/invite/secret-token');
+    const initial = parseRoute(location.pathname, '');
+    expect(initial).toEqual({ kind: 'invite', invitation: 'secret-token' });
+    const taken = takeInviteToken(
+      initial.kind === 'invite' ? initial.invitation : undefined,
+      '/invite',
+    );
+    expect(taken).toBe('secret-token');
+    expect(location.pathname).toBe('/invite');
+
+    const reloaded = parseRoute(location.pathname, '');
+    expect(reloaded).toEqual({ kind: 'invite' });
+    expect(takeInviteToken(undefined, '/invite')).toBe('secret-token');
+    forgetInviteToken();
+    expect(takeInviteToken(undefined, '/invite')).toBe('');
+
+    // Router itself strips both /invite/<token> and auth #hash tokens on construction (S10).
+    history.replaceState(null, '', '/invite/router-secret');
+    const inviteRouter = new Router('');
+    expect(location.pathname).toBe('/invite');
+    expect(inviteRouter.route).toEqual({ kind: 'invite' });
+    expect(inviteRouter.invitation).toBe('router-secret');
+    forgetInviteToken();
+
+    history.replaceState(null, '', '/verify-email#verify-secret');
+    const verifyRouter = new Router('');
+    const stopVerify = verifyRouter.listen();
+    const seenFragments: string[] = [];
+    const offFragment = verifyRouter.onFragment(({ token }) => {
+      seenFragments.push(token);
+    });
+    expect(verifyRouter.route).toEqual({ kind: 'emailVerify' });
+    expect(verifyRouter.fragment).toEqual({ token: 'verify-secret' });
+    expect(location.hash).toBe('');
+    expect(readFragmentToken('verify-email')).toBe('verify-secret');
+
+    // Same-document fragment navigation fires popstate BEFORE hashchange in HTML5:
+    // Router captures & strips once, updates router.fragment to a fresh object, and notifies once.
+    const firstOpened = verifyRouter.fragment;
+    history.pushState(null, '', '/verify-email#second-secret');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(location.hash).toBe('');
+    expect(verifyRouter.fragment).toEqual({ token: 'second-secret' });
+    expect(verifyRouter.fragment).not.toBe(firstOpened);
+    expect(seenFragments).toEqual(['second-secret']);
+
+    // Re-opening the exact same fragment link again creates a new fragment object so {#key} remounts.
+    const secondOpened = verifyRouter.fragment;
+    history.pushState(null, '', '/verify-email#second-secret');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(verifyRouter.fragment).toEqual({ token: 'second-secret' });
+    expect(verifyRouter.fragment).not.toBe(secondOpened);
+    expect(seenFragments).toEqual(['second-secret', 'second-secret']);
+
+    offFragment();
+    stopVerify();
+    forgetFragmentToken('verify-email');
+  });
+
   it('does not know other addresses, the old ones among them', () => {
-    expect(parseRoute('/login', '').unknown).toBe(true);
-    expect(parseRoute('/w', '').unknown).toBe(true);
-    expect(parseRoute('/w/t/bord/b', '').unknown).toBe(true);
-    expect(parseRoute('/w/t/boards/b/v/c/more', '').unknown).toBe(true);
-    expect(parseRoute(['', 'board', 'b', 'v', 'c'].join('/'), '').unknown).toBe(true);
+    expect(parseRoute('/login', '').kind).toBe('unknown');
+    expect(parseRoute('/w', '').kind).toBe('unknown');
+    expect(parseRoute('/w/t/bord/b', '').kind).toBe('unknown');
+    expect(parseRoute('/w/t/boards/b/v/c/more', '').kind).toBe('unknown');
+    expect(parseRoute(['', 'board', 'b', 'v', 'c'].join('/'), '').kind).toBe('unknown');
   });
 
   it('works under a base path, and knows nothing outside of it', () => {
-    expect(parseRoute('/app', 'app')).toEqual(none);
+    expect(parseRoute('/app', 'app')).toEqual({ kind: 'home' });
     expect(parseRoute('/app/w/t/boards/b', 'app')).toMatchObject({
+      kind: 'board',
       workspaceId: 't',
       boardId: 'b',
     });
-    expect(parseRoute('/elsewhere/w/t/boards/b', 'app').unknown).toBe(true);
-    expect(parseRoute('/appx/w/t/boards/b', 'app').unknown).toBe(true);
+    expect(parseRoute('/elsewhere/w/t/boards/b', 'app').kind).toBe('unknown');
+    expect(parseRoute('/appx/w/t/boards/b', 'app').kind).toBe('unknown');
   });
 
   it('decodes what the address encodes, and survives what does not decode', () => {
     expect(parseRoute('/w/a%2Fb/boards/a%20b', '')).toMatchObject({
+      kind: 'board',
       workspaceId: 'a/b',
       boardId: 'a b',
     });
-    expect(parseRoute('/w/t/boards/%E0%A4%A', '').boardId).toBe('%E0%A4%A');
+    const malformed = parseRoute('/w/t/boards/%E0%A4%A', '');
+    expect(malformed).toMatchObject({ kind: 'board', boardId: '%E0%A4%A' });
   });
 });
 
@@ -145,26 +219,29 @@ describe('writing an address', () => {
 
 describe('the address of a diary', () => {
   it('reads the diary and the day of the year, and writes them back', () => {
-    expect(parseRoute('/w/me/diaries/d/11-21', '')).toMatchObject({
+    expect(parseRoute('/w/me/diaries/d/11-21', '')).toEqual({
+      kind: 'diary',
       workspaceId: 'me',
       diaryId: 'd',
       monthDay: '11-21',
-      boardId: undefined,
-      unknown: false,
     });
-    expect(parseRoute('/w/me/diaries/d', '')).toMatchObject({ diaryId: 'd', monthDay: undefined });
+    expect(parseRoute('/w/me/diaries/d', '')).toEqual({
+      kind: 'diary',
+      workspaceId: 'me',
+      diaryId: 'd',
+    });
     for (const path of ['/w/me/diaries/d', '/w/me/diaries/d/02-29']) {
       expect(routePath(parseRoute(path, ''), '')).toBe(path);
     }
   });
 
   it('reads and writes ?year=YYYY on a diary day, ignoring invalid years', () => {
-    expect(parseRoute('/w/me/diaries/d/11-21', '', '?year=2024')).toMatchObject({
+    expect(parseRoute('/w/me/diaries/d/11-21', '', '?year=2024')).toEqual({
+      kind: 'diary',
       workspaceId: 'me',
       diaryId: 'd',
       monthDay: '11-21',
       year: '2024',
-      unknown: false,
     });
     expect(routePath(parseRoute('/w/me/diaries/d/11-21', '', '?year=2024'), '')).toBe(
       '/w/me/diaries/d/11-21?year=2024',
@@ -173,9 +250,11 @@ describe('the address of a diary', () => {
       '/w/me/diaries/d',
     );
     for (const bad of ['', '?year=', '?year=abc', '?year=0000', '?year=20250', '?year=-1']) {
-      expect(parseRoute('/w/me/diaries/d/11-21', '', bad).year).toBeUndefined();
+      const r = parseRoute('/w/me/diaries/d/11-21', '', bad);
+      expect(r.kind === 'diary' ? r.year : undefined).toBeUndefined();
     }
-    expect(parseRoute('/w/me/diaries/d', '', '?year=2024').year).toBeUndefined();
+    const withoutDay = parseRoute('/w/me/diaries/d', '', '?year=2024');
+    expect(withoutDay.kind === 'diary' ? withoutDay.year : undefined).toBeUndefined();
   });
 
   it('builds entry search routes with ?year=YYYY and follows popstate across years', () => {
@@ -198,23 +277,26 @@ describe('the address of a diary', () => {
     expect(router.href(routeOfPlace(router, hit))).toBe('/w/me/diaries/d/11-21?year=2024');
     goToPlace(router, hit);
     expect(`${location.pathname}${location.search}`).toBe('/w/me/diaries/d/11-21?year=2024');
-    expect(router.route.year).toBe('2024');
+    expect(router.route).toMatchObject({ kind: 'diary', year: '2024' });
     router.openDay('11-21');
     expect(`${location.pathname}${location.search}`).toBe('/w/me/diaries/d/11-21');
-    expect(router.route.year).toBeUndefined();
+    expect(router.route.kind === 'diary' ? router.route.year : undefined).toBeUndefined();
     history.replaceState(null, '', '/w/me/diaries/d/11-21?year=2023');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    expect(router.route.year).toBe('2023');
+    expect(router.route).toMatchObject({ kind: 'diary', year: '2023' });
     stop();
   });
 
   it('keeps a day no year has, for the page to say it is not found', () => {
-    expect(parseRoute('/w/me/diaries/d/13-40', '')).toMatchObject({ monthDay: '13-40' });
+    expect(parseRoute('/w/me/diaries/d/13-40', '')).toMatchObject({
+      kind: 'diary',
+      monthDay: '13-40',
+    });
   });
 
   it('is the address of a diary in the sidebar, and its diary the container shown', () => {
     const diary = { id: 'd', workspaceId: 'me', kind: 'diary' as const };
-    expect(placeRoute(diary)).toEqual({ workspaceId: 'me', diaryId: 'd' });
+    expect(placeRoute(diary)).toEqual({ kind: 'diary', workspaceId: 'me', diaryId: 'd' });
     expect(shownContainerId(parseRoute('/w/me/diaries/d/11-21', ''))).toBe('d');
   });
 
@@ -224,15 +306,14 @@ describe('the address of a diary', () => {
     const stop = router.listen();
     const before = history.length;
     router.openDay('11-22');
-    expect(router.route).toMatchObject({ diaryId: 'd', monthDay: '11-22' });
+    expect(router.route).toMatchObject({ kind: 'diary', diaryId: 'd', monthDay: '11-22' });
     expect(location.pathname).toBe('/w/me/diaries/d/11-22');
     expect(history.length).toBe(before + 1);
     router.openDay('11-23', { replace: true });
     expect(history.length).toBe(before + 1);
-    // Back to another day of the same diary is a move too.
     history.replaceState(null, '', '/w/me/diaries/d/11-21');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    expect(router.route.monthDay).toBe('11-21');
+    expect(router.route).toMatchObject({ kind: 'diary', monthDay: '11-21' });
     stop();
   });
 });
@@ -240,21 +321,18 @@ describe('the address of a diary', () => {
 describe('the address of a course', () => {
   it('reads the course and its unit, writes them back, and rejects extra segments', () => {
     const parsed = parseRoute('/w/ws/courses/c1/u1', '');
-    expect(parsed).toMatchObject({
+    expect(parsed).toEqual({
+      kind: 'course',
       workspaceId: 'ws',
       courseId: 'c1',
       unitId: 'u1',
-      unknown: false,
     });
-    expect(parsed.boardId).toBeUndefined();
-    expect(parsed.wikiId).toBeUndefined();
-    expect(parseRoute('/w/ws/courses/c1', '')).toMatchObject({
+    expect(parseRoute('/w/ws/courses/c1', '')).toEqual({
+      kind: 'course',
       workspaceId: 'ws',
       courseId: 'c1',
-      unitId: undefined,
-      unknown: false,
     });
-    expect(parseRoute('/w/ws/courses/c1/u1/extra', '').unknown).toBe(true);
+    expect(parseRoute('/w/ws/courses/c1/u1/extra', '').kind).toBe('unknown');
     for (const path of ['/w/ws/courses/c1', '/w/ws/courses/c1/u1']) {
       expect(routePath(parseRoute(path, ''), '')).toBe(path);
     }
@@ -263,7 +341,7 @@ describe('the address of a course', () => {
 
   it('places courses in the sidebar, resolves shownContainerId, and navigates units and search hits', () => {
     const course = { id: 'c1', workspaceId: 'ws', kind: 'course' as const };
-    expect(placeRoute(course)).toEqual({ workspaceId: 'ws', courseId: 'c1' });
+    expect(placeRoute(course)).toEqual({ kind: 'course', workspaceId: 'ws', courseId: 'c1' });
     expect(shownContainerId(parseRoute('/w/ws/courses/c1/u1', ''))).toBe('c1');
 
     history.replaceState(null, '', '/w/ws/courses/c1');
@@ -271,12 +349,12 @@ describe('the address of a course', () => {
     const stop = router.listen();
     const before = history.length;
     router.openUnit('u1');
-    expect(router.route).toMatchObject({ courseId: 'c1', unitId: 'u1' });
+    expect(router.route).toMatchObject({ kind: 'course', courseId: 'c1', unitId: 'u1' });
     expect(location.pathname).toBe('/w/ws/courses/c1/u1');
     expect(history.length).toBe(before + 1);
 
     router.openUnit('u2', { replace: true });
-    expect(router.route.unitId).toBe('u2');
+    expect(router.route).toMatchObject({ kind: 'course', unitId: 'u2' });
     expect(history.length).toBe(before + 1);
 
     const hit = {
@@ -293,10 +371,10 @@ describe('the address of a course', () => {
     });
     goToPlace(router, hit);
     expect(location.pathname).toBe('/w/ws/courses/c2/u9');
-    expect(router.route).toMatchObject({ courseId: 'c2', unitId: 'u9' });
+    expect(router.route).toMatchObject({ kind: 'course', courseId: 'c2', unitId: 'u9' });
 
-    // Course tabs (`?tab=meetings&meeting=<id>`, `?tab=exams`) and meeting notifications.
-    expect(parseRoute('/w/ws/courses/c2', '', '?tab=meetings&meeting=m1')).toMatchObject({
+    expect(parseRoute('/w/ws/courses/c2', '', '?tab=meetings&meeting=m1')).toEqual({
+      kind: 'course',
       workspaceId: 'ws',
       courseId: 'c2',
       courseTab: 'meetings',
@@ -306,9 +384,14 @@ describe('the address of a course', () => {
       '/w/ws/courses/c2?tab=meetings&meeting=m1',
     );
     const examsParsed = parseRoute('/w/ws/courses/c2', '', '?tab=exams&meeting=m1');
-    expect(examsParsed.courseTab).toBe('exams');
-    expect(examsParsed.meetingId).toBeUndefined();
-    expect(parseRoute('/w/ws/courses/c2', '', '?tab=other').courseTab).toBeUndefined();
+    expect(examsParsed).toEqual({
+      kind: 'course',
+      workspaceId: 'ws',
+      courseId: 'c2',
+      courseTab: 'exams',
+    });
+    const otherTab = parseRoute('/w/ws/courses/c2', '', '?tab=other');
+    expect(otherTab.kind === 'course' ? otherTab.courseTab : undefined).toBeUndefined();
 
     const meetingHit = {
       kind: 'meeting' as const,
@@ -363,11 +446,11 @@ describe('moving about', () => {
   });
 
   it('starts from the address the page was loaded on', () => {
-    expect(new Router('').route).toMatchObject({
+    expect(new Router('').route).toEqual({
+      kind: 'board',
       workspaceId: 't',
       boardId: 'b',
       viewId: 'v',
-      cardId: undefined,
     });
   });
 
@@ -389,7 +472,7 @@ describe('moving about', () => {
     router.closeCard();
     expect(location.pathname).toBe('/w/t/boards/b/v');
     expect(history.length).toBe(before);
-    expect(router.route.cardId).toBeUndefined();
+    expect(cardIdOf(router.route)).toBeUndefined();
   });
 
   it('drops the view and the card when another board is opened', () => {
@@ -397,14 +480,14 @@ describe('moving about', () => {
     router.openCard('c');
     router.openContainer({ id: 'other', workspaceId: 't' });
     expect(location.pathname).toBe('/w/t/boards/other');
-    expect(router.route).toMatchObject({ boardId: 'other', viewId: undefined, cardId: undefined });
+    expect(router.route).toEqual({ kind: 'board', workspaceId: 't', boardId: 'other' });
   });
 
   it('opens a board at the address of its own workspace', () => {
     const router = new Router('');
     router.openContainer({ id: 'theirs', workspaceId: 't2' });
     expect(location.pathname).toBe('/w/t2/boards/theirs');
-    expect(router.route).toMatchObject({ workspaceId: 't2', boardId: 'theirs' });
+    expect(router.route).toEqual({ kind: 'board', workspaceId: 't2', boardId: 'theirs' });
   });
 
   it('keeps the workspace when another view is opened', () => {
@@ -418,7 +501,7 @@ describe('moving about', () => {
     const stop = router.listen();
     history.pushState(null, '', '/w/t2/boards/x');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    expect(router.route).toMatchObject({ workspaceId: 't2', boardId: 'x' });
+    expect(router.route).toEqual({ kind: 'board', workspaceId: 't2', boardId: 'x' });
     stop();
   });
 
@@ -431,13 +514,11 @@ describe('moving about', () => {
       replace: (to: string) => calls.push(`replace ${to}`),
     });
     try {
-      // Nothing open: a new entry, as any going somewhere.
       released.mockImplementationOnce(() => {
         calls.push('release');
         return 0;
       });
       router.restart({});
-      // A dialog open, with its entry: the new address takes that entry's place.
       released.mockImplementationOnce(() => {
         calls.push('release');
         return 1;
@@ -461,20 +542,18 @@ describe('the language', () => {
   it('finds the closest set of messages for what the browser asks', () => {
     expect(matchLocale('ko-KR')).toBe('ko');
     expect(matchLocale('en-GB')).toBe('en');
-    expect(matchLocale('zh-TW')).toBe('zh-Hant');
-    expect(matchLocale('zh-Hant-HK')).toBe('zh-Hant');
-    expect(matchLocale('zh-CN')).toBe('zh-Hans');
-    expect(matchLocale('pt-PT')).toBe('pt-BR');
+    expect(matchLocale('ja-JP')).toBeUndefined();
     expect(matchLocale('xx-YY')).toBeUndefined();
-    // The server answers a tag as it was given, case and all.
-    expect(matchLocale('PT-br')).toBe('pt-BR');
-    expect(matchLocale('ZH-hant')).toBe('zh-Hant');
+    expect(matchLocale('KO-kr')).toBe('ko');
+    expect(matchLocale('EN-us')).toBe('en');
   });
 
   it('shows the account setting in its closest set, and auto or one it has none for as the browser asks', () => {
     const browser = matchLocale(navigator.languages[0] ?? '') ?? 'en';
     expect(localeOfSetting('ko')).toBe('ko');
-    expect(localeOfSetting('de-AT')).toBe('de');
+    expect(localeOfSetting('ko-KR')).toBe('ko');
+    expect(localeOfSetting('en-GB')).toBe('en');
+    expect(localeOfSetting('de-AT')).toBe(browser);
     expect(localeOfSetting('auto')).toBe(browser);
     expect(localeOfSetting('xx')).toBe(browser);
   });

@@ -42,14 +42,7 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import {
-    cardTrash,
-    isOwnSpace,
-    shownCourse,
-    shownWiki,
-    type Trash,
-    type Workspace,
-  } from '$lib/state/index.ts';
+  import { cardTrash, isOwnSpace, type Trash, type Workspace } from '$lib/state/index.ts';
 
   import { Button } from '$lib/ui/button/index.js';
 
@@ -113,13 +106,13 @@
   );
   /** The open wiki, where the page is one: its admins change its description. */
   const wiki = $derived.by(() => {
-    const shown = shownWiki(workspace).current;
-    return shown?.wikiId === containerId ? shown : undefined;
+    const active = workspace.activeContainer;
+    return active?.kind === 'wiki' && active.wikiId === containerId ? active : undefined;
   });
   /** The open course, where the page is one: its admins change its description. */
   const course = $derived.by(() => {
-    const shown = shownCourse(workspace).current;
-    return shown?.courseId === containerId ? shown : undefined;
+    const active = workspace.activeContainer;
+    return active?.kind === 'course' && active.courseId === containerId ? active : undefined;
   });
   /** The container as it is read where it is open, else as the list has it. */
   const container = $derived(store?.board ?? wiki?.wiki ?? course?.course ?? listed);

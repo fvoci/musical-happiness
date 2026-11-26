@@ -1,25 +1,6 @@
 {
   "baseLocale": "en",
-  "locales": [
-    "en",
-    "ko",
-    "ca",
-    "de",
-    "el",
-    "es",
-    "fr",
-    "id",
-    "it",
-    "ja",
-    "nl",
-    "oc",
-    "pt-BR",
-    "ru",
-    "sv",
-    "tr",
-    "zh-Hans",
-    "zh-Hant"
-  ],
+  "locales": ["en", "ko"],
   "modules": ["./node_modules/@inlang/plugin-message-format/dist/index.js"],
   "plugin.inlang.messageFormat": {
     "pathPattern": "./messages/{locale}.json"
