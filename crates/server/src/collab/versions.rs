@@ -27,10 +27,14 @@
 //!   versions were kept, or past its document (an import, a copy), so that what the
 //!   editors change can be gone back to. The store keeps it within the write of the
 //!   update's log.
+//! - Around what an agent adds to a body through a personal API token
+//!   ([`Collab::append`]): the body before, as of who wrote it, so that the body
+//!   without the agent's words can be gone back to, and the body after, as the agent's
+//!   ([`fvoci_store::Store::keep_agent_version`]).
 
 use std::time::Duration;
 
-use fvoci_store::{BodyBefore, ByHand};
+use fvoci_store::{BodyBefore, ByAgent, ByHand};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -191,6 +195,40 @@ impl Collab {
             kept(slot);
         }
         Ok(by_hand)
+    }
+
+    /// Keeps the body of a held card as a version before an agent writes in it, as of
+    /// who wrote it: what its editors typed is written to the card first.
+    pub(super) async fn keep_before_agent(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+    ) -> Result<(), AppError> {
+        self.write_pending(app, card_id, slot, DueVersion::Skip)
+            .await?;
+        app.store().keep_body_version(card_id).await?;
+        kept(slot);
+        Ok(())
+    }
+
+    /// Writes to a held card what an agent of `user_id` wrote in its document, and keeps
+    /// the body as the agent's version.
+    pub(super) async fn keep_agent_version(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        user_id: &str,
+        agent: ByAgent<'_>,
+    ) -> Result<(), AppError> {
+        self.write_pending(app, card_id, slot, DueVersion::Skip)
+            .await?;
+        app.store()
+            .keep_agent_version(card_id, user_id, agent)
+            .await?;
+        kept(slot);
+        Ok(())
     }
 
     /// Has the versions take it to be `by` later from now on: for the tests of what

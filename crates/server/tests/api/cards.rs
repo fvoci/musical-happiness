@@ -13,7 +13,6 @@ use fvoci_model::{
     ContainerVisibility, JsonMap, is_id, new_id,
 };
 use fvoci_server::app::ChangeNotification;
-use fvoci_server::collab::OverEditors;
 use fvoci_server::error::ErrorKind;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -644,7 +643,7 @@ async fn app_patch_card_success_scenario() {
             &card.id,
             &user_id,
             ChangeNotification::Send,
-            OverEditors::Replace,
+            None,
         )
         .await
         .expect("the card is patched");
@@ -669,7 +668,7 @@ async fn app_patch_card_error_scenario() {
                 card_id,
                 &th.stranger().await,
                 ChangeNotification::Send,
-                OverEditors::Replace,
+                None,
             )
             .await
             .expect_err("the patch is refused")

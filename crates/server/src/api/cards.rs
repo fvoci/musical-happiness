@@ -30,9 +30,8 @@ use super::body_versions::{
 };
 use super::{ApiResult, TRUE, created, json_response};
 use super::{decode_with_document, require_container_permission, require_permission_through};
-use crate::app::{App, Caller, CardPreviews, CardsFilter, CardsOrder, CardsUnder};
+use crate::app::{App, CardPreviews, CardsFilter, CardsOrder, CardsUnder};
 use crate::auth::now_millis;
-use crate::collab::OverEditors;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
@@ -172,16 +171,6 @@ fn refuse_both_bodies(body: &BodyChange) -> Result<(), AppError> {
         "a body is sent as body or as bodyMarkdown, not as both",
     );
     Err(refused.into())
-}
-
-/// What a body the caller writes whole does to the people editing it: an agent's is
-/// refused while they do, as it would lose what they typed and have not sent.
-fn over_editors(caller: &Caller) -> OverEditors {
-    if caller.delegation().is_some() {
-        OverEditors::Refuse
-    } else {
-        OverEditors::Replace
-    }
 }
 
 pub(super) async fn card_with_permission(
@@ -436,13 +425,7 @@ async fn handle_patch_card(
 
     let patched = ws
         .app
-        .patch_card(
-            &patch,
-            &card.id,
-            user_id,
-            notification,
-            over_editors(&ws.caller),
-        )
+        .patch_card(&patch, &card.id, user_id, notification, ws.caller.agent())
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))?;
     tracing::debug!(board_id = %patched.board_id, card_id = %patched.id, user_id, "PatchCard");

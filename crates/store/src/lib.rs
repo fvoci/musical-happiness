@@ -130,7 +130,8 @@ pub use board_ops::PreparedCardDuplicate;
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
 pub use body_versions::{
-    BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES, KeptVersion,
+    BodyBefore, ByAgent, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES,
+    KeptVersion,
 };
 pub use category_containers::ContainerPlace;
 pub use clock::Clock;

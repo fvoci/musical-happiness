@@ -288,11 +288,12 @@ async fn handle_patch_page(
         .await?;
     let patched = ws
         .app
-        .patch_block(
+        .patch_block_as(
             &page.id,
             &patch.into_block_patch(),
             user_id,
             ChangeNotification::Send,
+            ws.caller.agent(),
         )
         .await?;
     tracing::debug!(wiki_id, page_id, user_id, "PatchPage");

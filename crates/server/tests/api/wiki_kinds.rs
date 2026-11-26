@@ -77,6 +77,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("uploadFile", Reaches::EVERY),
     ("getFile", Reaches::EVERY),
     ("getFileRecord", Reaches::EVERY),
+    ("listContainerFiles", Reaches::EVERY),
     ("getFileVersions", Reaches::EVERY),
     ("getFileVersion", Reaches::EVERY),
     ("addFileVersion", Reaches::EVERY),
@@ -122,6 +123,8 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getCardByNumber", Reaches::BOARDS),
     ("getCard", Reaches::BOARDS),
     ("patchCard", Reaches::BOARDS),
+    ("appendCardMarkdown", Reaches::BOARDS),
+    ("listCardFiles", Reaches::BOARDS),
     ("getCardComments", Reaches::BOARDS),
     ("createCardComment", Reaches::BOARDS),
     ("patchCardComment", Reaches::BOARDS),
@@ -751,6 +754,7 @@ impl World {
                 json!({"cardIds": [things.block]})
             }
             "createCardAttachment" => json!({"fileId": things.file, "title": "kept.txt"}),
+            "appendCardMarkdown" => json!({"markdown": "said"}),
             "copyContainerToWorkspace" => json!({"targetWorkspaceId": things.workspace}),
             "createCardComment" | "createPageComment" | "createUnitComment" => {
                 json!({"body": said()})

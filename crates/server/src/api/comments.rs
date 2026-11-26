@@ -8,9 +8,11 @@ use axum::body::Bytes;
 use axum::extract::{FromRequestParts, RawPathParams};
 use axum::http::request::Parts;
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Body, BodyChange, ContainerKinds, RefusalReason, Refusals, new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, COMMENT_AGENT_TOKEN_NAME, ContainerKinds,
+    RefusalReason, Refusals, new_id,
 };
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 
 use super::delegated::{Admits, Wall};
 use super::workspace::InWorkspace;
@@ -201,6 +203,12 @@ pub(super) async fn create_comment_on<T: DeserializeOwned>(
         body: Some(text),
         ..Block::default()
     };
+    if let Some(agent) = ws.caller.agent() {
+        comment.fields.insert(
+            COMMENT_AGENT_TOKEN_NAME.to_owned(),
+            Value::String(agent.token_name.to_owned()),
+        );
+    }
     if let Err(error) = ws
         .app
         .insert_block(&mut comment, user_id, notification)

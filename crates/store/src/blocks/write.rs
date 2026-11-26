@@ -14,7 +14,7 @@ pub(super) async fn update_existing_block_row(
     block: &mut Block,
     user_id: &str,
     now: i64,
-    how: Written,
+    how: Written<'_>,
 ) -> Result<(), StoreError> {
     // Every change of a block moves its `updatedAt` on, also within one millisecond
     // and when the clock steps back: a writer that read the block before this
@@ -48,9 +48,7 @@ pub(super) async fn update_existing_block_row(
     };
     // Before the files are put down: what the body before showed is still shown
     // by its version.
-    if let Some(cause) = how.body_write.kept_after() {
-        body_versions::record_change(scope, existing, block, user_id, cause).await?;
-    }
+    body_versions::record_change(scope, existing, block, user_id, how.body_write).await?;
     block_derived::refresh(scope, block, Before::Stored(existing), how.new_files).await?;
     notification_noting::note_named(scope, block, Some(existing), user_id, how.telling).await
 }
@@ -211,7 +209,7 @@ pub(crate) async fn patch_block(
     block_id: &str,
     patch: &BlockPatch,
     user_id: &str,
-    body_write: BodyWrite,
+    body_write: BodyWrite<'_>,
     telling: Telling,
 ) -> Result<Block, StoreError> {
     let container_id = find_container_id(scope, block_id)

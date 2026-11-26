@@ -6,8 +6,10 @@
 
 use serde_json::Value;
 
-use super::place::Unanswered;
-use super::{Collab, whole};
+use fvoci_store::ByAgent;
+
+use super::place::{Held, Unanswered};
+use super::{Collab, Taken, whole};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -17,8 +19,8 @@ use crate::error::AppError;
 pub struct Appender<'a> {
     /// The user.
     pub user_id: &'a str,
-    /// The token; `None` for a session.
-    pub token_id: Option<&'a str>,
+    /// The agent, by its token; `None` for a session.
+    pub agent: Option<ByAgent<'a>>,
 }
 
 impl Appender<'_> {
@@ -26,15 +28,23 @@ impl Appender<'_> {
     /// ([`super::senders`]): the token, so that one agent's updates held back hold back
     /// none of its owner's own, nor another agent's; the user, for a session.
     fn sender(self) -> String {
-        self.token_id
-            .map_or_else(|| self.user_id.to_owned(), |token| format!("token:{token}"))
+        self.agent.map_or_else(
+            || self.user_id.to_owned(),
+            |agent| format!("token:{}", agent.token_id),
+        )
     }
 }
+
+/// What a document took of the nodes: its update, the epoch it was of, and what the
+/// room is to be told.
+type Appended = (Vec<u8>, i64, Taken);
 
 impl Collab {
     /// Adds `nodes`, top-level nodes of a body, after the last of the body of the card
     /// `card_id` of `app`'s organization, by `by`, and writes the body to the
-    /// card. Opens the document if it is not open; an open room is sent the update.
+    /// card. Opens the document if it is not open; an open room is sent the update. An
+    /// agent's addition is kept as its version, after the body before
+    /// ([`Collab::keep_before_agent`]).
     ///
     /// # Errors
     ///
@@ -53,6 +63,9 @@ impl Collab {
         let nodes = serde_json::to_vec(nodes)
             .map_err(|error| AppError::internal(format_args!("the nodes as JSON: {error}")))?;
         let user_id = by.user_id.to_owned();
+        let agent = by
+            .agent
+            .map(|agent| (agent.token_id.to_owned(), agent.token_name.to_owned()));
         let appended = self
             .on_slot_while(
                 app,
@@ -60,19 +73,17 @@ impl Collab {
                 None,
                 move |collab, app, card_id, mut slot| async move {
                     let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                    let appended = collab
-                        .append_in(app, card_id, slot, &user_id, &sender, &nodes)
-                        .await;
-                    let written = match appended {
-                        Ok(_) => {
-                            collab
-                                .write_pending(app, card_id, slot, whole::DueVersion::Keep)
-                                .await
-                        }
-                        Err(_) => Ok(()),
+                    let by = Added {
+                        user_id: &user_id,
+                        sender: &sender,
+                        agent: agent.as_ref().map(|(token_id, token_name)| ByAgent {
+                            token_id,
+                            token_name,
+                        }),
                     };
+                    let appended = collab.append_held(app, card_id, slot, by, &nodes).await;
                     collab.retire(slot);
-                    written.map(|()| appended)
+                    appended
                 },
             )
             .await?
@@ -81,5 +92,46 @@ impl Collab {
         self.send_appended(app, card_id, epoch, &update, &taken)
             .await;
         Ok(())
+    }
+}
+
+/// Who adds to a held card's body, as [`Collab::append_held`] is told.
+#[derive(Debug, Clone, Copy)]
+struct Added<'a> {
+    user_id: &'a str,
+    sender: &'a str,
+    agent: Option<ByAgent<'a>>,
+}
+
+impl Collab {
+    /// [`Collab::append`] on a held slot: the nodes added and written to the card, and
+    /// for an agent the versions around them kept.
+    async fn append_held(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        by: Added<'_>,
+        nodes: &[u8],
+    ) -> Result<Result<Appended, Unanswered>, AppError> {
+        if by.agent.is_some() {
+            self.keep_before_agent(app, card_id, slot).await?;
+        }
+        let appended = self
+            .append_in(app, card_id, slot, by.user_id, by.sender, nodes)
+            .await;
+        if appended.is_ok() {
+            match by.agent {
+                Some(agent) => {
+                    self.keep_agent_version(app, card_id, slot, by.user_id, agent)
+                        .await?;
+                }
+                None => {
+                    self.write_pending(app, card_id, slot, whole::DueVersion::Keep)
+                        .await?;
+                }
+            }
+        }
+        Ok(appended)
     }
 }

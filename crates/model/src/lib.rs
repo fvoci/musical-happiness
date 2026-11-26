@@ -85,7 +85,8 @@ pub use auth::{
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges,
+    BlockType, CARD_FIELDS_MAX_CHARS, COMMENT_AGENT_TOKEN_NAME, ParseBlockTypeError,
+    PropertyChanges,
     stamp_modification_metadata,
 };
 pub use block_ids::{

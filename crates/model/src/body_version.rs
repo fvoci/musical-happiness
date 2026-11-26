@@ -24,11 +24,15 @@ pub enum BodyVersionCause {
     /// (`restoreCardBodyVersion`, `restorePageBodyVersion`, `restoreDiaryEntryBodyVersion`,
     /// `restoreUnitBodyVersion`).
     Restored,
+    /// The body after an agent wrote in it through a personal API token of an editor
+    /// (`appendCardMarkdown`, or a body it wrote whole): named by the token
+    /// (`agentTokenName`). The body before is kept first, as of who wrote it.
+    Agent,
 }
 
 impl BodyVersionCause {
     /// Every cause there is.
-    pub const ALL: [Self; 3] = [Self::Auto, Self::Manual, Self::Restored];
+    pub const ALL: [Self; 4] = [Self::Auto, Self::Manual, Self::Restored, Self::Agent];
 
     /// Returns the wire and database form.
     #[must_use]
@@ -37,6 +41,7 @@ impl BodyVersionCause {
             Self::Auto => "auto",
             Self::Manual => "manual",
             Self::Restored => "restored",
+            Self::Agent => "agent",
         }
     }
 }
@@ -81,6 +86,11 @@ pub struct BodyVersion {
     pub is_current: bool,
     /// How it came to be kept.
     pub cause: BodyVersionCause,
+    /// The name of the personal API token an agent wrote the body through, for a
+    /// version of cause `agent`; left out otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub agent_token_name: Option<String>,
 }
 
 /// A version kept of a card's body, with the body.
@@ -100,6 +110,10 @@ pub struct BodyVersionContent {
     pub is_current: bool,
     /// How it came to be kept.
     pub cause: BodyVersionCause,
+    /// As `BodyVersion.agentTokenName`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub agent_token_name: Option<String>,
     /// The body of the card then; `null` if it had none.
     pub body: Option<Body>,
 }

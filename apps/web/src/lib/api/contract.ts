@@ -2899,7 +2899,8 @@ export interface paths {
          * @description For the board's members from the commenter's role up (whoever reads an open board
          *     without joining it is refused with 403). The server chooses the identifier, the
          *     author and the times. Every image of the text shows a file of the board (400
-         *     otherwise), and the text has no file block (400).
+         *     otherwise), and the text has no file block (400). Written with a personal API token,
+         *     the comment names the token in `fields.agentTokenName`.
          *
          *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
@@ -7254,6 +7255,11 @@ export interface components {
          *     to then.
          */
         BodyVersion: {
+            /**
+             * @description The name of the personal API token an agent wrote the body through, for a
+             *     version of cause `agent`; left out otherwise.
+             */
+            agentTokenName?: string;
             /** @description How it came to be kept. */
             cause: components["schemas"]["BodyVersionCause"];
             /**
@@ -7288,9 +7294,11 @@ export interface components {
          *     who asked for it, by going back to a version, or by the server on its own.
          * @enum {string}
          */
-        BodyVersionCause: "auto" | "manual" | "restored";
+        BodyVersionCause: "auto" | "manual" | "restored" | "agent";
         /** @description A version kept of a card's body, with the body. */
         BodyVersionContent: {
+            /** @description As `BodyVersion.agentTokenName`. */
+            agentTokenName?: string;
             body: components["schemas"]["Body"] | null;
             /** @description How it came to be kept. */
             cause: components["schemas"]["BodyVersionCause"];

@@ -6,7 +6,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use fvoci_model::{ApiTokenScope, Session};
-use fvoci_store::{LiveApiToken, Making};
+use fvoci_store::{ByAgent, LiveApiToken, Making};
 
 use super::{App, Asker};
 use crate::auth::api_token::{Delegation, USE_RECORDING_INTERVAL_MILLIS};
@@ -49,6 +49,16 @@ impl Caller {
             CallerAuth::Session(_) => None,
             CallerAuth::ApiToken(delegation) => Some(delegation),
         }
+    }
+
+    /// The agent the caller writes as, named by its token, as the versions of what it
+    /// writes are kept; `None` for a session.
+    #[must_use]
+    pub fn agent(&self) -> Option<ByAgent<'_>> {
+        self.delegation().map(|delegation| ByAgent {
+            token_id: &delegation.token_id,
+            token_name: &delegation.name,
+        })
     }
 
     /// The caller as the rule of what opens what asks of them.

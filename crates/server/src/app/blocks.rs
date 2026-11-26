@@ -1,7 +1,7 @@
 //! Blocks: reading and changing them, and telling websocket listeners and webhooks.
 
 use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion};
-use fvoci_store::{BlockFilter, DeletedBlock, DuplicateAs};
+use fvoci_store::{BlockFilter, ByAgent, DeletedBlock, DuplicateAs};
 
 use super::App;
 use crate::collab::{Deletion, OverEditors};
@@ -320,28 +320,25 @@ impl App {
         modified_by: &str,
         notification: ChangeNotification,
     ) -> Result<Block, AppError> {
-        self.patch_block_over(
-            block_id,
-            patch,
-            modified_by,
-            notification,
-            OverEditors::Replace,
-        )
-        .await
+        self.patch_block_as(block_id, patch, modified_by, notification, None)
+            .await
     }
 
-    /// As [`App::patch_block`], a body it writes whole done `over` its editors.
+    /// As [`App::patch_block`], by `modified_by` themselves, or by an agent through a
+    /// personal API token of theirs (`agent`). An agent's body written whole is refused
+    /// while people may write in it, as it would lose what they typed and have not
+    /// sent, and is kept as the agent's version after the body before.
     ///
     /// # Errors
     ///
-    /// As [`App::patch_block`], and 409 `room_has_active_editors` (`over`).
-    pub async fn patch_block_over(
+    /// As [`App::patch_block`], and 409 `room_has_active_editors` for an agent.
+    pub async fn patch_block_as(
         &self,
         block_id: &str,
         patch: &BlockPatch,
         modified_by: &str,
         notification: ChangeNotification,
-        over: OverEditors,
+        agent: Option<ByAgent<'_>>,
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let container = self.store().get_container(&old_block.container_id).await?;
@@ -351,13 +348,27 @@ impl App {
         } else {
             vec![(block_id.to_owned(), old_block.container_id.clone())]
         };
+        let over = match agent {
+            Some(_) => OverEditors::Refuse,
+            None => OverEditors::Replace,
+        };
+        let agent = agent.map(|agent| (agent.token_id.to_owned(), agent.token_name.to_owned()));
         let (block_id, patch, modified_by) =
             (block_id.to_owned(), patch.clone(), modified_by.to_owned());
         let write = async move |app: Self| {
-            Ok(app
-                .store_telling(notification)
-                .patch_block(&block_id, &patch, &modified_by)
-                .await?)
+            let store = app.store_telling(notification);
+            Ok(match &agent {
+                Some((token_id, token_name)) => {
+                    let agent = ByAgent {
+                        token_id,
+                        token_name,
+                    };
+                    store
+                        .patch_block_by_agent(&block_id, &patch, &modified_by, agent)
+                        .await?
+                }
+                None => store.patch_block(&block_id, &patch, &modified_by).await?,
+            })
         };
         let mut block = if whole_body_cards.is_empty() {
             self.write_blocks(vec![old_block.container_id], whole_body_cards, write)

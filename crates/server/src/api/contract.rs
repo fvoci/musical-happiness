@@ -288,9 +288,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ContainerTeam", Members::All),
     ("ContainerTeamRole", Members::AsWritten),
     ("ContainersAndBlocks", Members::All),
-    ("BodyVersion", Members::All),
+    ("BodyVersion", Members::AllBut(&["agentTokenName"])),
     ("BodyVersionCause", Members::AsWritten),
-    ("BodyVersionContent", Members::All),
+    ("BodyVersionContent", Members::AllBut(&["agentTokenName"])),
     ("KeptBodyVersion", Members::All),
     ("KeptOutcome", Members::AsWritten),
     (

@@ -318,11 +318,12 @@ async fn handle_patch_unit(
         .await?;
     let patched = ws
         .app
-        .patch_block(
+        .patch_block_as(
             &unit.id,
             &patch.into_block_patch(),
             user_id,
             ChangeNotification::Send,
+            ws.caller.agent(),
         )
         .await?;
     tracing::debug!(course_id, unit_id, user_id, "PatchUnit");

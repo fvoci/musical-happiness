@@ -26,7 +26,7 @@ use serde_json::Value;
 use crate::Store;
 use crate::block_derived::{self, Before};
 use crate::body_digest::body_digest;
-use crate::db::{Id, Param, Row, Scope, SqlFragment, VersionsKept, to_json_text};
+use crate::db::{Id, OptId, Param, Row, Scope, SqlFragment, VersionsKept, to_json_text};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
 use crate::notification_noting::Telling;
@@ -64,6 +64,18 @@ pub struct KeptVersion {
     pub body_digest: Vec<u8>,
     /// How it came to be kept.
     pub cause: BodyVersionCause,
+    /// The name of the token an agent wrote it through ([`BodyVersionCause::Agent`]).
+    pub agent_token_name: Option<String>,
+}
+
+/// An agent that writes a body through a personal API token of its user, as the
+/// version it leaves names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ByAgent<'a> {
+    /// The token.
+    pub token_id: &'a str,
+    /// Its name.
+    pub token_name: &'a str,
 }
 
 /// What became of a card's body an editor asked to keep as a version
@@ -91,6 +103,8 @@ struct BodyToKeep<'a> {
     written_by: Option<&'a str>,
     /// How it comes to be kept.
     cause: BodyVersionCause,
+    /// The agent that wrote it, for a version of [`BodyVersionCause::Agent`].
+    agent: Option<ByAgent<'a>>,
 }
 
 impl Store {
@@ -168,12 +182,71 @@ impl Store {
                 block: &card,
                 written_by: None,
                 cause: BodyVersionCause::Manual,
+                agent: None,
             };
             let kept = keep_and_refresh(scope, &card, &body).await?;
             Ok(Some(match kept {
                 Some(version) => ByHand::Kept(version),
                 None => ByHand::Unchanged(newest.map(|(version, _)| version)),
             }))
+        })
+        .await
+    }
+
+    /// Keeps the body a card holds as the version an agent leaves, by `user_id` through
+    /// the token `agent` ([`BodyVersionCause::Agent`]), and gives its number; `None` as
+    /// for [`Store::keep_body_version`]. Who else wrote the body since the version
+    /// before is named with them.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::keep_body_version`].
+    pub async fn keep_agent_version(
+        &self,
+        card_id: &str,
+        user_id: &str,
+        agent: ByAgent<'_>,
+    ) -> Result<Option<i64>, StoreError> {
+        self.transaction(async |scope| {
+            let Some(card) = held_card(scope, card_id).await? else {
+                return Ok(None);
+            };
+            let body = BodyToKeep {
+                block: &card,
+                written_by: Some(user_id),
+                cause: BodyVersionCause::Agent,
+                agent: Some(agent),
+            };
+            keep_and_refresh(scope, &card, &body).await
+        })
+        .await
+    }
+
+    /// Applies `patch` to a block as [`Store::patch_block`] does, written by an agent
+    /// through a personal API token of `user_id`: a body it writes whole is kept as
+    /// the agent's version ([`BodyVersionCause::Agent`]) after the body before.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::patch_block`].
+    pub async fn patch_block_by_agent(
+        &self,
+        block_id: &str,
+        patch: &BlockPatch,
+        user_id: &str,
+        agent: ByAgent<'_>,
+    ) -> Result<Block, StoreError> {
+        self.transaction(async |scope| {
+            let telling = Telling::of(scope);
+            blocks::patch_block(
+                scope,
+                block_id,
+                patch,
+                user_id,
+                BodyWrite::ByAgent(agent),
+                telling,
+            )
+            .await
         })
         .await
     }
@@ -225,7 +298,8 @@ impl Store {
     pub async fn body_versions(&self, block_id: &str) -> Result<Vec<KeptVersion>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT version, kept_at, body_digest, cause FROM body_versions WHERE block_id = ",
+                "SELECT version, kept_at, body_digest, cause, actor_token_name FROM body_versions \
+                 WHERE block_id = ",
             );
             sql.bind(Id(block_id)).push(" ORDER BY version DESC");
             let mut versions = scope
@@ -264,15 +338,15 @@ impl Store {
     ) -> Result<Option<(KeptVersion, Option<Body>)>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT version, kept_at, body_digest, cause, body FROM body_versions \
-                 WHERE block_id = ",
+                "SELECT version, kept_at, body_digest, cause, actor_token_name, body \
+                 FROM body_versions WHERE block_id = ",
             );
             sql.bind(Id(block_id)).push_bind(" AND version = ", version);
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
             };
             let mut kept = kept_version(&row)?;
-            let body = match row.json(4, "body")? {
+            let body = match row.json(5, "body")? {
                 Value::Null => None,
                 document => Some(Body::from_stored(document)),
             };
@@ -289,8 +363,8 @@ impl Store {
     }
 }
 
-/// A version as a row of `version, kept_at, body_digest, cause` has it, without who
-/// wrote it.
+/// A version as a row of `version, kept_at, body_digest, cause, actor_token_name` has
+/// it, without who wrote it.
 fn kept_version(row: &Row) -> Result<KeptVersion, StoreError> {
     let cause = row.text(3)?;
     Ok(KeptVersion {
@@ -298,6 +372,7 @@ fn kept_version(row: &Row) -> Result<KeptVersion, StoreError> {
         kept_at: row.int(1)?,
         body_digest: row.bytes(2)?,
         editors: Vec::new(),
+        agent_token_name: row.opt_text(4)?,
         cause: cause
             .parse()
             .map_err(
@@ -334,6 +409,7 @@ pub(crate) async fn keep_held(
         block: &card,
         written_by: None,
         cause: BodyVersionCause::Auto,
+        agent: None,
     };
     keep_and_refresh(scope, &card, &body).await
 }
@@ -372,7 +448,7 @@ async fn keep_and_refresh(
 
 /// What a write that changes the body of a card is, for the versions kept of that body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BodyWrite {
+pub(crate) enum BodyWrite<'a> {
     /// A body written whole by its writer: the body before and the body after are
     /// kept as versions within the write ([`record_change`]).
     Whole,
@@ -380,19 +456,24 @@ pub(crate) enum BodyWrite {
     /// kept as [`BodyWrite::Whole`] keeps a body, the body after as
     /// [`BodyVersionCause::Restored`].
     Restored,
+    /// A body written whole by an agent through a personal API token of its writer
+    /// ([`Store::patch_block_by_agent`]): kept as [`BodyWrite::Whole`] keeps a body, the
+    /// body after as [`BodyVersionCause::Agent`], named by the token.
+    ByAgent(ByAgent<'a>),
     /// The body of the card's document as its editors typed it so far
     /// ([`Store::project_body`]): no version of its own; the server keeps one when it
     /// is due ([`Store::keep_body_version`]).
     Projected,
 }
 
-impl BodyWrite {
+impl BodyWrite<'_> {
     /// How the body after a write is kept as a version within it ([`record_change`]);
     /// `None` for a write that keeps none.
     pub(crate) const fn kept_after(self) -> Option<BodyVersionCause> {
         match self {
             Self::Whole => Some(BodyVersionCause::Auto),
             Self::Restored => Some(BodyVersionCause::Restored),
+            Self::ByAgent(_) => Some(BodyVersionCause::Agent),
             Self::Projected => None,
         }
     }
@@ -410,16 +491,20 @@ struct Kept {
 
 /// Keeps the versions a write of a card's body whole brings, within that write: the
 /// body before, if it is not the card's newest version yet (by its editors, if any
-/// typed it), and the body after, by `user_id`, as `cause` says. Nothing for a write
-/// that leaves the body as it was, and for a block whose body has no room. The caller
-/// puts down the files the card shows after.
+/// typed it), and the body after, by `user_id`, as `write` says
+/// ([`BodyWrite::kept_after`]). Nothing for a write that keeps no version, that leaves
+/// the body as it was, and for a block whose body has no room. The caller puts down
+/// the files the card shows after.
 pub(crate) async fn record_change(
     scope: &mut Scope<'_>,
     before: &Block,
     after: &Block,
     user_id: &str,
-    cause: BodyVersionCause,
+    write: BodyWrite<'_>,
 ) -> Result<(), StoreError> {
+    let Some(cause) = write.kept_after() else {
+        return Ok(());
+    };
     if !after.block_type.has_room()
         || body_digest(before.body.as_ref()) == body_digest(after.body.as_ref())
     {
@@ -430,6 +515,7 @@ pub(crate) async fn record_change(
             block: before,
             written_by: None,
             cause: BodyVersionCause::Auto,
+            agent: None,
         };
         keep(scope, &before).await?;
     }
@@ -437,6 +523,10 @@ pub(crate) async fn record_change(
         block: after,
         written_by: Some(user_id),
         cause,
+        agent: match write {
+            BodyWrite::ByAgent(agent) => Some(agent),
+            _ => None,
+        },
     };
     keep(scope, &after).await?;
     Ok(())
@@ -456,6 +546,7 @@ pub(crate) async fn keep_copied_body(
         block,
         written_by: Some(user_id),
         cause: BodyVersionCause::Auto,
+        agent: None,
     };
     keep_and_refresh(scope, block, &copied).await?;
     Ok(())
@@ -507,9 +598,8 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         .map_or(0_i64, |json| i64::try_from(json.len()).unwrap_or(i64::MAX));
     let files: Vec<&str> = block.body.as_ref().map(Body::file_ids).unwrap_or_default();
     let mut sql = scope.sql(
-        "INSERT INTO body_versions \
-         (block_id, version, body, body_bytes, body_digest, files, kept_at, cause) \
-         VALUES (",
+        "INSERT INTO body_versions (block_id, version, body, body_bytes, body_digest, \
+         files, kept_at, cause, actor_token_id, actor_token_name) VALUES (",
     );
     sql.bind(Id(&block.id))
         .push_bind(", ", version)
@@ -519,6 +609,11 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         .push_bind(", ", to_json_text(&files)?)
         .push_bind(", ", kept_at)
         .push_bind(", ", body.cause.as_str())
+        .push_bind(", ", OptId(body.agent.map_or("", |agent| agent.token_id)))
+        .push_bind(
+            ", ",
+            Param::OptText(body.agent.map(|agent| agent.token_name.to_owned())),
+        )
         .push(")");
     scope.execute(sql).await?;
     if !editors.is_empty() {

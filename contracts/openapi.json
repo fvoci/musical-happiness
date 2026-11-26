@@ -865,6 +865,10 @@
       "BodyVersion": {
         "description": "A version kept of a card's body: the body as it was at a time, and who wrote it up\nto then.",
         "properties": {
+          "agentTokenName": {
+            "description": "The name of the personal API token an agent wrote the body through, for a\nversion of cause `agent`; left out otherwise.",
+            "type": "string"
+          },
           "cause": {
             "$ref": "#/components/schemas/BodyVersionCause",
             "description": "How it came to be kept."
@@ -905,13 +909,18 @@
         "enum": [
           "auto",
           "manual",
-          "restored"
+          "restored",
+          "agent"
         ],
         "type": "string"
       },
       "BodyVersionContent": {
         "description": "A version kept of a card's body, with the body.",
         "properties": {
+          "agentTokenName": {
+            "description": "As `BodyVersion.agentTokenName`.",
+            "type": "string"
+          },
           "body": {
             "oneOf": [
               {
@@ -15346,7 +15355,7 @@
         "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "For the board's members from the commenter's role up (whoever reads an open board\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the board (400\notherwise), and the text has no file block (400).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "description": "For the board's members from the commenter's role up (whoever reads an open board\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the board (400\notherwise), and the text has no file block (400). Written with a personal API token,\nthe comment names the token in `fields.agentTokenName`.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createCardComment",
         "parameters": [
           {

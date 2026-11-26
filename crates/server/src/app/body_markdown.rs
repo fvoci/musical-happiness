@@ -14,7 +14,7 @@ use fvoci_model::{Body, BodyChange, Card, RefusalReason, Refusals, is_id};
 use serde_json::Value;
 
 use super::App;
-use super::caller::{Caller, CallerAuth};
+use super::caller::Caller;
 use super::import::markdown::{
     AssetResolver, ExternalOnlyResolver, ResolvedTarget, blocks_to_body, fvoci_markdown_to_blocks,
 };
@@ -229,13 +229,9 @@ impl App {
         self.check_body_files(container_id, Some(&added))
             .await
             .map_err(|error| error.moved("/body", "/markdown"))?;
-        let token_id = match &caller.auth {
-            CallerAuth::ApiToken(delegation) => Some(delegation.token_id.as_str()),
-            CallerAuth::Session(_) => None,
-        };
         let by = Appender {
             user_id: &caller.user_id,
-            token_id,
+            agent: caller.agent(),
         };
         self.collab().append(self, block_id, by, &nodes).await
     }
