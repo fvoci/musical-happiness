@@ -27,7 +27,7 @@ pub(crate) async fn send(client: &Client, message: &Value) -> ApiResponse {
 }
 
 /// The request `method` with `params`.
-fn request(method: &str, params: &Value) -> Value {
+pub(crate) fn request(method: &str, params: &Value) -> Value {
     json!({"jsonrpc": "2.0", "id": 7, "method": method, "params": params})
 }
 
@@ -378,7 +378,7 @@ async fn the_overview_names_the_workspace_the_caller_and_what_they_read_or_may_j
 }
 
 /// The workspaces `list_workspaces` names for `agent`.
-async fn listed(agent: &Client) -> Vec<String> {
+pub(crate) async fn listed(agent: &Client) -> Vec<String> {
     ids_of(
         &called(agent, "list_workspaces", &json!({})).await,
         "workspaces",

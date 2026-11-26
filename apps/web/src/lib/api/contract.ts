@@ -12164,7 +12164,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description A body that is no single JSON-RPC message: the JSON-RPC error (`-32700` or `-32600`) without an `id`, and no problem. An `MCP-Protocol-Version` header the server does not speak is a problem. */
+            /** @description A body that is no single JSON-RPC message: the JSON-RPC error (`-32700` or `-32600`) without an `id`, as `application/json`, as the transport has it. An `MCP-Protocol-Version` header the server does not speak is a problem. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12173,6 +12173,7 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

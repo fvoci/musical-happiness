@@ -10346,9 +10346,14 @@
                   "additionalProperties": true,
                   "type": "object"
                 }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
               }
             },
-            "description": "A body that is no single JSON-RPC message: the JSON-RPC error (`-32700` or `-32600`) without an `id`, and no problem. An `MCP-Protocol-Version` header the server does not speak is a problem."
+            "description": "A body that is no single JSON-RPC message: the JSON-RPC error (`-32700` or `-32600`) without an `id`, as `application/json`, as the transport has it. An `MCP-Protocol-Version` header the server does not speak is a problem."
           },
           "default": {
             "content": {

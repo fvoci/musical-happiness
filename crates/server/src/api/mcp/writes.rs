@@ -34,6 +34,11 @@ use crate::permissions::ContainerPermission;
 /// What a page or unit is changed with to be denied.
 const CHANGE_DENIED: &str = "access denied to change it";
 
+/// Why a `readAt` sent with nothing written whole is refused: it would be checked by a
+/// change of nothing.
+const READ_AT_ALONE: &str = "readAt is checked of what is written whole (the title, the \
+     body and the like); appendMarkdown keeps what changed since and takes none";
+
 /// `value` as a request body.
 fn request_body(value: &impl Serialize) -> Result<Bytes, AppError> {
     serde_json::to_vec(value)
@@ -73,6 +78,15 @@ pub(super) async fn save_card(
         arguments.body_markdown.as_ref(),
         arguments.append_markdown.as_ref(),
     )?;
+    let writes_whole = arguments.title.is_some()
+        || arguments.icon.is_some()
+        || arguments.parent_id.is_some()
+        || arguments.properties.is_some()
+        || arguments.deleted_properties.is_some()
+        || arguments.body_markdown.is_some();
+    if arguments.read_at.is_some() && !writes_whole {
+        return Err(ToolError::arguments(READ_AT_ALONE));
+    }
     let ws = enter(
         app,
         caller,
@@ -163,6 +177,11 @@ pub(super) async fn save_page_or_unit(
     }
     if arguments.id.is_none() && arguments.read_at.is_some() {
         return Err(ToolError::arguments("readAt is of one that is changed"));
+    }
+    let writes_whole =
+        arguments.title.is_some() || arguments.icon.is_some() || arguments.body_markdown.is_some();
+    if arguments.read_at.is_some() && !writes_whole {
+        return Err(ToolError::arguments(READ_AT_ALONE));
     }
     match arguments.kind {
         PageOrUnit::Page => save_page(app, caller, arguments).await,
@@ -323,8 +342,7 @@ async fn save_page(
             (page.id, patch)
         }
     };
-    // Sent whenever it has a `readAt`, which is checked by it.
-    if !patch.body.is_keep() || (!is_new && (fields || patch.read_at.is_some())) {
+    if !patch.body.is_keep() || (!is_new && fields) {
         patch_page_from(&ws, wiki_id, &page_id, &request_body(&patch)?).await?;
     }
     if let Some(markdown) = &writes.added {
@@ -359,31 +377,20 @@ async fn save_unit(
     let course_id = arguments.container_id.as_str();
     let has_body = arguments.body_markdown.is_some() || arguments.append_markdown.is_some();
     let changes = arguments.title.is_some() || arguments.read_at.is_some() || has_body;
-    let current = match &arguments.id {
-        None => None,
-        Some(unit_id) => {
-            // Progress alone is a reader's to record; anything else an editor's.
-            let permission = if changes {
-                ContainerPermission::ManageCards
-            } else {
-                ContainerPermission::View
-            };
-            let block =
-                unit_with_permission(&ws, course_id, unit_id, permission, CHANGE_DENIED).await?;
-            Some(Unit::from(block))
-        }
+    // Progress alone is a reader's to record; a change is an editor's.
+    let needs = if changes {
+        ContainerPermission::ManageCards
+    } else {
+        ContainerPermission::View
     };
+    let current = unit_there(&ws, course_id, arguments.id.as_deref(), needs).await?;
     let is_new = current.is_none();
     if !is_new && !changes && arguments.progress.is_none() {
         return Err(ToolError::arguments("there is nothing to change"));
     }
-    let kind = current.as_ref().map_or(
-        match arguments.unit_kind {
-            Some(OutlineEntry::Chapter) => UnitKind::Chapter,
-            Some(OutlineEntry::Unit) | None => UnitKind::Unit,
-        },
-        |unit| unit.kind,
-    );
+    let kind = current
+        .as_ref()
+        .map_or_else(|| kind_asked(arguments.unit_kind), |unit| unit.kind);
     if kind == UnitKind::Chapter && has_body {
         return Err(AppError::from(BlockError::BodyNotAllowed).into());
     }
@@ -423,7 +430,7 @@ async fn save_unit(
             (unit.id, patch)
         }
     };
-    if !patch.body.is_keep() || (!is_new && (patch.title.is_some() || patch.read_at.is_some())) {
+    if !patch.body.is_keep() || (!is_new && patch.title.is_some()) {
         patch_unit_from(&ws, course_id, &unit_id, &request_body(&patch)?).await?;
     }
     if let Some(markdown) = &writes.added {
@@ -439,6 +446,29 @@ async fn save_unit(
         }
     }
     Ok(saved)
+}
+
+/// The unit `unit_id` of the course `course_id`, if one is named, for a caller who has
+/// `permission` there.
+async fn unit_there(
+    ws: &InWorkspace,
+    course_id: &str,
+    unit_id: Option<&str>,
+    permission: ContainerPermission,
+) -> Result<Option<Unit>, AppError> {
+    let Some(unit_id) = unit_id else {
+        return Ok(None);
+    };
+    let block = unit_with_permission(ws, course_id, unit_id, permission, CHANGE_DENIED).await?;
+    Ok(Some(Unit::from(block)))
+}
+
+/// What a new entry of a course is, as `unitKind` asks: a unit if it is left out.
+fn kind_asked(asked: Option<OutlineEntry>) -> UnitKind {
+    match asked {
+        Some(OutlineEntry::Chapter) => UnitKind::Chapter,
+        Some(OutlineEntry::Unit) | None => UnitKind::Unit,
+    }
 }
 
 /// The word `createUnit` takes for a unit of `kind`.

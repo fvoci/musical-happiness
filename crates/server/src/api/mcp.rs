@@ -28,7 +28,7 @@ use axum::http::header::WWW_AUTHENTICATE;
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use fvoci_model::ApiTokenScope;
+use fvoci_model::{ApiTokenScope, Problem};
 use serde_json::{Map, Value, json};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -135,9 +135,13 @@ fn challenged(error: AppError) -> Response {
         (
             status = 400,
             description = "A body that is no single JSON-RPC message: the JSON-RPC error \
-                (`-32700` or `-32600`) without an `id`, and no problem. An \
-                `MCP-Protocol-Version` header the server does not speak is a problem.",
-            body = Object,
+                (`-32700` or `-32600`) without an `id`, as `application/json`, as the \
+                transport has it. An `MCP-Protocol-Version` header the server does not \
+                speak is a problem.",
+            content(
+                (Object = "application/json"),
+                (Problem = "application/problem+json"),
+            ),
         ),
     ),
 )]

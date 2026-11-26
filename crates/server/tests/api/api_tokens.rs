@@ -10,6 +10,7 @@ use crate::common::{
     ApiResponse, Client, HIDDEN_WORKSPACE_ID, PASSWORD, ROOT_WORKSPACE_ID, Setup,
     TEST_WORKSPACE_ID, TestServer,
 };
+use crate::mcp::{called, listed, refused};
 
 /// Makes a token as `client` that reaches `workspaces`, with `scope`.
 async fn make_token(client: &Client, scope: &str, workspaces: &[&str]) -> IssuedApiToken {
@@ -339,6 +340,13 @@ async fn an_organization_that_takes_no_password_gives_its_workspaces_to_tokens_w
     );
     let reader = agent(&ts, &issued);
     reader.get(&boards).await.check_ok();
+    let overview = json!({"workspaceId": ROOT_WORKSPACE_ID});
+    assert_eq!(
+        listed(&reader).await,
+        [ROOT_WORKSPACE_ID],
+        "and to its agent"
+    );
+    called(&reader, "get_workspace_overview", &overview).await;
 
     // Switched off, the token opens nothing of the organization until it is on again.
     admin
@@ -350,6 +358,13 @@ async fn an_organization_that_takes_no_password_gives_its_workspaces_to_tokens_w
         StatusCode::FORBIDDEN,
         "api_tokens_disallowed",
     );
+    assert_eq!(
+        listed(&reader).await,
+        Vec::<String>::new(),
+        "nor to its agent"
+    );
+    let problem = refused(&reader, "get_workspace_overview", &overview).await;
+    assert_eq!(problem["reason"], "api_tokens_disallowed", "{problem}");
     admin
         .patch(&org, &json!({"allowApiTokens": true}))
         .await

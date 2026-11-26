@@ -523,7 +523,7 @@
             ]
           },
           "readAt": {
-            "description": "The `updatedAt` of the card as it was read: the change is refused (409) if the\ncard changed since.",
+            "description": "The `updatedAt` of the card as it was read: the change is refused (409) if the\ncard changed since. Sent with what is written whole; `appendMarkdown` alone keeps\nwhat changed since and takes none.",
             "format": "int64",
             "type": [
               "integer",
@@ -647,7 +647,7 @@
             ]
           },
           "readAt": {
-            "description": "The `updatedAt` of the page or unit as it was read: the change is refused (409)\nif it changed since.",
+            "description": "The `updatedAt` of the page or unit as it was read: the change is refused (409)\nif it changed since. Sent with what is written whole; `appendMarkdown` alone\nkeeps what changed since and takes none.",
             "format": "int64",
             "type": [
               "integer",

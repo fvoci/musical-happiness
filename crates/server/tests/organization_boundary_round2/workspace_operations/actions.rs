@@ -66,6 +66,7 @@ async fn boards(case: &mut Case, board: &str) {
     let at = &[("boardId", board)];
     case.present("getWorkspaceBoards", &[], board).await;
     case.present("listWorkspaceContainers", &[], board).await;
+    case.present("getWorkspaceOverview", &[], board).await;
     case.present("getContainer", at, board).await;
     case.run("getMyContainerPermissions", at, json!({})).await;
     let ws = case.workspace.clone();

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::api_tokens::agent_writing;
 use crate::body_versions::versions;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, UNKNOWN_ID};
-use crate::mcp::{agent_of, call, called, refused};
+use crate::mcp::{agent_of, call, called, refused, request, send};
 use crate::rooms::{QUIET, paragraphs, two_in_a_room};
 
 /// Whether `text` says each of `words`.
@@ -179,14 +179,12 @@ async fn a_page_is_made_written_and_added_to_as_the_agents_and_commented_on() {
     )
     .await;
     assert_eq!(problem["status"], 409, "{problem}");
-    // As what is added to it, and nothing is.
-    let problem = refused(
-        &agent,
-        "save_page_or_unit",
-        &page(json!({"id": page_id, "appendMarkdown": "late", "readAt": made["updatedAt"]})),
-    )
-    .await;
-    assert_eq!(problem["status"], 409, "{problem}");
+    // What is added to it takes none: it keeps what changed since. Nothing is added.
+    let alone = json!({"name": "save_page_or_unit",
+                       "arguments": page(json!({"id": page_id, "appendMarkdown": "late",
+                                                "readAt": made["updatedAt"]}))});
+    let answer: Value = send(&agent, &request("tools/call", &alone)).await.ok_json();
+    assert_eq!(answer["error"]["code"], -32602, "{answer}");
     let read = called(
         &agent,
         "get_item",

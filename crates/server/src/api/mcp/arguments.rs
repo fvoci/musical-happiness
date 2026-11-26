@@ -255,7 +255,8 @@ pub(super) struct SaveCardArguments {
     #[serde(default)]
     pub(super) body_markdown: Option<String>,
     /// The `updatedAt` of the card as it was read: the change is refused (409) if the
-    /// card changed since.
+    /// card changed since. Sent with what is written whole; `appendMarkdown` alone keeps
+    /// what changed since and takes none.
     #[serde(default)]
     pub(super) read_at: Option<i64>,
     /// Markdown to add after the last of the body, written as one more editor writes:
@@ -346,7 +347,8 @@ pub(super) struct SavePageOrUnitArguments {
     #[serde(default)]
     pub(super) body_markdown: Option<String>,
     /// The `updatedAt` of the page or unit as it was read: the change is refused (409)
-    /// if it changed since.
+    /// if it changed since. Sent with what is written whole; `appendMarkdown` alone
+    /// keeps what changed since and takes none.
     #[serde(default)]
     pub(super) read_at: Option<i64>,
     /// Markdown to add after the last of the body, as one more editor writes: whoever
