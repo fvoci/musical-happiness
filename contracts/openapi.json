@@ -1319,6 +1319,25 @@
         ],
         "type": "object"
       },
+      "CardsOfPage": {
+        "description": "The cards of a page of a board, whole or in short (`compact=true`).",
+        "oneOf": [
+          {
+            "description": "The cards.",
+            "items": {
+              "$ref": "#/components/schemas/Card"
+            },
+            "type": "array"
+          },
+          {
+            "description": "The cards in short.",
+            "items": {
+              "$ref": "#/components/schemas/CompactCard"
+            },
+            "type": "array"
+          }
+        ]
+      },
       "Category": {
         "description": "A sidebar category of one user in one workspace.",
         "properties": {
@@ -1633,6 +1652,56 @@
           "version",
           "writtenAt",
           "writtenBy"
+        ],
+        "type": "object"
+      },
+      "CompactCard": {
+        "description": "A card in short, as a list gives it with `compact=true` (`getCards`): enough to tell\nthe cards apart and choose one to read.",
+        "properties": {
+          "hasBody": {
+            "description": "Whether the card has a body.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The card's identifier.",
+            "type": "string"
+          },
+          "number": {
+            "description": "The card's number on its board (`Card.number`).",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "The identifier of the parent card; empty for a top-level card.",
+            "type": "string"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "description": "Property values keyed by property identifier, as `Card.properties`.",
+            "type": "object"
+          },
+          "title": {
+            "description": "The display title.",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hasBody",
+          "id",
+          "number",
+          "parentId",
+          "properties",
+          "title",
+          "updatedAt"
         ],
         "type": "object"
       },
@@ -4000,6 +4069,41 @@
           "unit"
         ],
         "type": "string"
+      },
+      "ListedFile": {
+        "description": "A file of a board or a wiki as a list of them gives it.",
+        "properties": {
+          "createdAt": {
+            "description": "When it was uploaded, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "extension": {
+            "description": "The lower-cased extension of the name, with its leading dot.",
+            "type": "string"
+          },
+          "fileId": {
+            "description": "The name the file is asked for under (`getFile`), and named by in a body\n(`fileId` of an image or a file block, `fvoci-file://{fileId}` in Markdown).",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name the file was uploaded under.",
+            "type": "string"
+          },
+          "size": {
+            "description": "The size of the file in bytes.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createdAt",
+          "extension",
+          "fileId",
+          "name",
+          "size"
+        ],
+        "type": "object"
       },
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
@@ -13978,7 +14082,7 @@
         },
         "summary": "The boards of a workspace",
         "tags": [
-          "workspaces"
+          "boards"
         ],
         "x-fvoci-api-token": "read"
       },
@@ -14681,7 +14785,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards": {
       "get": {
-        "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. With `preview=true` each card has its `preview` (the first image and the beginning of the\ntext of its body), which a list without it leaves out.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. With `preview=true` each card has its `preview` (the first image and the beginning of the\ntext of its body), which a list without it leaves out.\n\n`q`, `parentId`, `assigneeId`, `propertyId` with `propertyValue` and `updatedSince`\nchoose the cards the page is of, all of them that are sent; `sort` orders them\notherwise. With `compact=true` each card is given in short (`CompactCard`).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCards",
         "parameters": [
           {
@@ -14733,6 +14837,79 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "description": "Only the cards whose title holds this text, whatever the case of its letters; `#12` the card of that number.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`root` gives only the top-level cards, a card's identifier only the cards right below it.",
+            "in": "query",
+            "name": "parentId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the cards a property that gives them to people (`person`, `multiPerson`) gives to this user; `me` is the caller.",
+            "in": "query",
+            "name": "assigneeId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "With `propertyValue`: only the cards whose value of this property is that value, or holds it among its values (an option of a `select` or `multiSelect`, a user of a `person` or `multiPerson`).",
+            "in": "query",
+            "name": "propertyId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The value `propertyId` asks for; sent only with it.",
+            "in": "query",
+            "name": "propertyValue",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the cards changed at or after this time (`updatedAt`), in milliseconds since the Unix epoch. What is typed in a card's body reaches its `updatedAt` up to ten seconds later: ask again from the last `updatedAt` seen minus ten seconds.",
+            "in": "query",
+            "name": "updatedSince",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The order: `created_asc` (the oldest first, as without it), `updated_desc` (the last changed first) or `number_asc` (by number, templates last). Any other value is refused (400).",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` gives each card in short (`CompactCard`). Any other value does not.",
+            "in": "query",
+            "name": "compact",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -14740,10 +14917,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Card"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/CardsOfPage"
                 }
               }
             },
@@ -15624,6 +15798,71 @@
         "tags": [
           "cards"
         ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/files": {
+      "get": {
+        "description": "The files the card shows, for the members of its board: those its body names and\nthose attached to it, each once, oldest first.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "operationId": "listCardFiles",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ListedFile"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The files."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The files of a card",
+        "tags": [
+          "files"
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/property-order": {
@@ -17104,6 +17343,89 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/containers": {
+      "get": {
+        "description": "The boards, wikis, courses and diaries of the workspace the caller reads, as\n`getWorkspaceBoards` lists its boards (an administrator also those they only manage), of\nthe `kind` and `visibility` asked for, whose title holds `q`; with `joinedOnly=true`\nonly those the caller is a member of. Oldest first. A personal API token is given\nno diary.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "operationId": "listWorkspaceContainers",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the containers of this kind: `board`, `wiki`, `course` or `diary` (a personal API token reaches no diary).",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the containers of this visibility: `open` or `private`.",
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the containers whose title holds this text, whatever the case of its letters.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` gives only the containers the caller is a member of, not the open ones they are not.",
+            "in": "query",
+            "name": "joinedOnly",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Container"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The containers."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The containers of a workspace",
+        "tags": [
+          "boards"
+        ],
+        "x-fvoci-api-token": "read"
+      }
+    },
     "/api/v1/w/{workspaceId}/containers-and-blocks": {
       "delete": {
         "description": "Deletes several boards of one workspace, all or none. The request names at least one\nboard, and every block it names must be on one of its boards and be the user's to\ndelete as `deleteBlock` has it; the blocks are checked and nothing more, since a\nboard takes all of its blocks along. The boards go to the trash as `deleteContainer`\nputs them there, and `restoreContainer` brings each back with its blocks. For the\nadmins of every board named.",
@@ -17629,6 +17951,60 @@
       }
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files": {
+      "get": {
+        "description": "The files uploaded to the board or wiki, for whoever reads it, oldest first: what a\nbody names by `fileId` (in Markdown `fvoci-file://{fileId}`). A file no body or\nattachment shows any more is listed until the server lets it go.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "operationId": "listContainerFiles",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board, the wiki, the diary or the course.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ListedFile"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The files."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The files of a board",
+        "tags": [
+          "files"
+        ],
+        "x-fvoci-api-token": "read"
+      },
       "post": {
         "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name of at most 255 characters, without\nU+0000, of which what follows its last `/` is kept. A name whose last segment,\nparted by `/` or `\\`, is blank (`dir/`), `.` or `..` is 400, as is one too long or\nwith U+0000. The file is limited to one part of an\nupload in parts (8 MiB unless the server is configured otherwise), and to the\n`maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where\nthe limit is the part, the refusal has the reason `upload_in_parts`: a file within\n`maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the\nreason is `file_too_large`; where storing the file would exceed the organization's\nstorage limit, the refusal is 413 with the reason `storage_full`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower\ncase, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with\nanything but letters and digits in it, is left off. For editors.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "uploadFile",

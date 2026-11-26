@@ -37,6 +37,35 @@ pub struct FileRecord {
     pub created_by: String,
 }
 
+/// A file of a board or a wiki as a list of them gives it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedFile {
+    /// The name the file is asked for under (`getFile`), and named by in a body
+    /// (`fileId` of an image or a file block, `fvoci-file://{fileId}` in Markdown).
+    pub file_id: String,
+    /// The name the file was uploaded under.
+    pub name: String,
+    /// The lower-cased extension of the name, with its leading dot.
+    pub extension: String,
+    /// The size of the file in bytes.
+    pub size: i64,
+    /// When it was uploaded, in milliseconds since the Unix epoch.
+    pub created_at: i64,
+}
+
+impl From<FileRecord> for ListedFile {
+    fn from(record: FileRecord) -> Self {
+        Self {
+            file_id: record.stored_name,
+            name: record.name,
+            extension: record.extension,
+            size: record.size,
+            created_at: record.created_at,
+        }
+    }
+}
+
 impl Default for FileRecord {
     /// A record of nothing, at its first version.
     fn default() -> Self {

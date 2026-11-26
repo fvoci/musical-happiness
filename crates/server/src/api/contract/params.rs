@@ -116,6 +116,18 @@ parameter!(OidcError: Query "error", String, False, "The provider's code of why 
 parameter!(SharedReadToken: Query "readToken", String, True, "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.");
 parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.");
 parameter!(BodyFormat: Query "format", String, False, "`markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).");
+parameter!(CardText: Query "q", String, False, "Only the cards whose title holds this text, whatever the case of its letters; `#12` the card of that number.");
+parameter!(CardParent: Query "parentId", String, False, "`root` gives only the top-level cards, a card's identifier only the cards right below it.");
+parameter!(CardAssignee: Query "assigneeId", String, False, "Only the cards a property that gives them to people (`person`, `multiPerson`) gives to this user; `me` is the caller.");
+parameter!(CardPropertyId: Query "propertyId", String, False, "With `propertyValue`: only the cards whose value of this property is that value, or holds it among its values (an option of a `select` or `multiSelect`, a user of a `person` or `multiPerson`).");
+parameter!(CardPropertyValue: Query "propertyValue", String, False, "The value `propertyId` asks for; sent only with it.");
+parameter!(UpdatedSince: Query "updatedSince", i64, False, "Only the cards changed at or after this time (`updatedAt`), in milliseconds since the Unix epoch. What is typed in a card's body reaches its `updatedAt` up to ten seconds later: ask again from the last `updatedAt` seen minus ten seconds.");
+parameter!(CardSort: Query "sort", String, False, "The order: `created_asc` (the oldest first, as without it), `updated_desc` (the last changed first) or `number_asc` (by number, templates last). Any other value is refused (400).");
+parameter!(Compact: Query "compact", bool, False, "`true` gives each card in short (`CompactCard`). Any other value does not.");
+parameter!(ContainerKindFilter: Query "kind", String, False, "Only the containers of this kind: `board`, `wiki`, `course` or `diary` (a personal API token reaches no diary).");
+parameter!(ContainerVisibilityFilter: Query "visibility", String, False, "Only the containers of this visibility: `open` or `private`.");
+parameter!(ContainerText: Query "q", String, False, "Only the containers whose title holds this text, whatever the case of its letters.");
+parameter!(JoinedOnly: Query "joinedOnly", bool, False, "`true` gives only the containers the caller is a member of, not the open ones they are not.");
 parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
 parameter!(AsTemplate: Query "asTemplate", bool, False, "`true` makes the copy a template. Any other value does not.");
 parameter!(ToWorkspace: Query "toWorkspace", String, False, "The workspace the copy goes to: one the user works in. Left out, the workspace of the path.");

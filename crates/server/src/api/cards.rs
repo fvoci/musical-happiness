@@ -4,9 +4,10 @@ use axum::body::Bytes;
 use axum::extract::Path;
 use fvoci_model::{
     Block, BlockType, BodyChange, BodyVersion, BodyVersionContent, Card, CardError, CardPatch,
-    KeptBodyVersion, RefusalReason, Refusals,
+    CompactCard, KeptBodyVersion, RefusalReason, Refusals,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -14,11 +15,12 @@ use utoipa_axum::routes;
 use super::contract::bodies::NewCard;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{
-    BoardId, BodyFormat, BodyVersionNumber, CardId, CardNumber, DisableNotify, Page, PerPage,
-    Preview,
+    BoardId, BodyFormat, BodyVersionNumber, CardAssignee, CardId, CardNumber, CardParent,
+    CardPropertyId, CardPropertyValue, CardSort, CardText, Compact, DisableNotify, Page, PerPage,
+    Preview, UpdatedSince,
 };
 use super::contract::tag;
-use super::query::{DisableNotifyQuery, QueryParams, paging_from_strings};
+use super::query::{DisableNotifyQuery, QueryParams, int_param, paging_from_strings};
 use super::workspace::InWorkspace;
 use super::{Delegated, Read, Write};
 
@@ -28,7 +30,7 @@ use super::body_versions::{
 };
 use super::{ApiResult, TRUE, created, json_response};
 use super::{decode_with_document, require_container_permission, require_permission_through};
-use crate::app::{App, Caller, CardPreviews};
+use crate::app::{App, Caller, CardPreviews, CardsFilter, CardsOrder, CardsUnder};
 use crate::auth::now_millis;
 use crate::collab::OverEditors;
 use crate::error::AppError;
@@ -55,6 +57,80 @@ pub(super) struct CardsListQuery {
     pub(super) page: String,
     pub(super) per_page: String,
     pub(super) preview: String,
+    pub(super) q: String,
+    pub(super) parent_id: String,
+    pub(super) assignee_id: String,
+    pub(super) property_id: String,
+    pub(super) property_value: String,
+    pub(super) updated_since: String,
+    pub(super) sort: String,
+    pub(super) compact: String,
+}
+
+impl CardsListQuery {
+    /// Which cards the query asks for, `me` being `user_id`.
+    fn filter(&self, user_id: &str) -> Result<CardsFilter, AppError> {
+        let given = |text: &str| (!text.is_empty()).then(|| text.to_owned());
+        let value = match (given(&self.property_id), given(&self.property_value)) {
+            (Some(property), Some(value)) => Some((property, value)),
+            (None, None) => None,
+            (_, None) => {
+                return Err(refused_parameter(
+                    "propertyValue",
+                    "is sent with propertyId",
+                ));
+            }
+            (None, _) => {
+                return Err(refused_parameter(
+                    "propertyId",
+                    "is sent with propertyValue",
+                ));
+            }
+        };
+        let order = match self.sort.as_str() {
+            "" | "created_asc" => CardsOrder::CreatedFirst,
+            "updated_desc" => CardsOrder::UpdatedLast,
+            "number_asc" => CardsOrder::Numbered,
+            _ => {
+                return Err(refused_parameter(
+                    "sort",
+                    "is created_asc, updated_desc or number_asc",
+                ));
+            }
+        };
+        Ok(CardsFilter {
+            text: given(&self.q),
+            under: match self.parent_id.as_str() {
+                "" => None,
+                "root" => Some(CardsUnder::Top),
+                parent => Some(CardsUnder::Card(parent.to_owned())),
+            },
+            given_to: match self.assignee_id.as_str() {
+                "" => None,
+                "me" => Some(user_id.to_owned()),
+                user => Some(user.to_owned()),
+            },
+            value,
+            updated_since: given(&self.updated_since)
+                .map(|since| int_param(&since, "updatedSince", 0))
+                .transpose()?,
+            order,
+        })
+    }
+}
+
+fn refused_parameter(name: &str, rule: &str) -> AppError {
+    AppError::bad_request(format_args!("the `{name}` parameter {rule}")).with_parameter(name)
+}
+
+/// The cards of a page of a board, whole or in short (`compact=true`).
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(untagged)]
+pub(crate) enum CardsOfPage {
+    /// The cards.
+    Whole(Vec<Card>),
+    /// The cards in short.
+    Compact(Vec<CompactCard>),
 }
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -223,13 +299,31 @@ async fn handle_create_card(
 /// One page of the board's cards, for the board's members. Oldest first; the pages cut
 /// that order. With `preview=true` each card has its `preview` (the first image and the beginning of the
 /// text of its body), which a list without it leaves out.
+///
+/// `q`, `parentId`, `assigneeId`, `propertyId` with `propertyValue` and `updatedSince`
+/// choose the cards the page is of, all of them that are sent; `sort` orders them
+/// otherwise. With `compact=true` each card is given in short (`CompactCard`).
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/boards/{boardId}/cards",
     operation_id = "getCards",
     tag = tag::CARDS,
-    params(MemberWorkspaceId, BoardId, Page, PerPage, Preview),
-    responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
+    params(
+        MemberWorkspaceId,
+        BoardId,
+        Page,
+        PerPage,
+        Preview,
+        CardText,
+        CardParent,
+        CardAssignee,
+        CardPropertyId,
+        CardPropertyValue,
+        UpdatedSince,
+        CardSort,
+        Compact
+    ),
+    responses((status = 200, description = "The cards of the page.", body = CardsOfPage)),
 )]
 async fn handle_get_cards(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
@@ -245,9 +339,21 @@ async fn handle_get_cards(
         "access denied to fetch cards",
     )
     .await?;
-    let cards = cards_page(&ws.app, &board_id, &query).await?;
+    let filter = query.filter(user_id)?;
+    let cards = if filter.is_everything() {
+        cards_page(&ws.app, &board_id, &query).await?
+    } else {
+        let page = paging_from_strings(&query.page, &query.per_page)?;
+        ws.app
+            .filtered_cards(&board_id, &filter, page, previews_of(&query))
+            .await?
+    };
     tracing::debug!(board_id, user_id, count = cards.len(), "GetCards");
-    Ok(json_response(&cards))
+    if query.compact == TRUE {
+        let compact = cards.into_iter().map(CompactCard::from).collect();
+        return Ok(json_response(&CardsOfPage::Compact(compact)));
+    }
+    Ok(json_response(&CardsOfPage::Whole(cards)))
 }
 
 /// The page of the board's cards that the query of a request asks for, as `getCards`
@@ -258,12 +364,16 @@ pub(super) async fn cards_page(
     query: &CardsListQuery,
 ) -> Result<Vec<Card>, AppError> {
     let page = paging_from_strings(&query.page, &query.per_page)?;
-    let previews = if query.preview == TRUE {
+    app.cards_for_board(board_id, page, previews_of(query))
+        .await
+}
+
+fn previews_of(query: &CardsListQuery) -> CardPreviews {
+    if query.preview == TRUE {
         CardPreviews::With
     } else {
         CardPreviews::Without
-    };
-    app.cards_for_board(board_id, page, previews).await
+    }
 }
 
 /// Change a card

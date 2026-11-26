@@ -645,6 +645,8 @@ const ORDERS: &[(&str, &str)] = &[
         "getWorkspaceUsersById",
         "Oldest account first, not in the order of the request",
     ),
+    ("listCardFiles", "oldest first"),
+    ("listContainerFiles", "oldest first"),
     (
         "listCourseExams",
         "ordered by `examDate` ascending (exams without a date last), then by `createdAt` and `id`",
@@ -658,6 +660,7 @@ const ORDERS: &[(&str, &str)] = &[
         "Ordered by `scheduledDate` ascending",
     ),
     ("listMyUnitNotes", "Ordered by `createdAt` descending"),
+    ("listWorkspaceContainers", "Oldest first"),
     (
         "patchContainersAndBlocks",
         "each in the order of the request",
@@ -681,7 +684,11 @@ fn answers_a_list(responses: &Value) -> bool {
         .any(|(_, response)| {
             let schema = &response["content"]["application/json"]["schema"];
             schema["type"] == "array"
-                || schema["$ref"] == "#/components/schemas/ContainersAndBlocks"
+                || [
+                    "#/components/schemas/ContainersAndBlocks",
+                    "#/components/schemas/CardsOfPage",
+                ]
+                .contains(&schema["$ref"].as_str().unwrap_or_default())
         })
 }
 

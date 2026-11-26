@@ -268,6 +268,7 @@ async fn handle_get_shared_cards(
         page: query.page,
         per_page: query.per_page,
         preview: query.preview,
+        ..CardsListQuery::default()
     };
     let mut cards = cards_page(&shared.app, &shared.container_id, &list_query).await?;
     let people = container.person_properties();

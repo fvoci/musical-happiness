@@ -38,6 +38,7 @@ mod files;
 mod invitation_mail;
 mod invitations;
 mod limits;
+mod lists;
 mod members;
 mod notifications;
 mod oidc;
@@ -162,6 +163,7 @@ fn routes() -> Routes {
         .merge(board_ops::routes())
         .merge(card_comments::routes())
         .merge(card_markdown::routes())
+        .merge(lists::routes())
         .merge(cards::routes())
         .merge(today::routes())
         .merge(trash::routes())

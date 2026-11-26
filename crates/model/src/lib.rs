@@ -108,7 +108,9 @@ pub use body_version::{
     BodyVersion, BodyVersionCause, BodyVersionContent, KeptBodyVersion, KeptOutcome,
     ParseBodyVersionCauseError,
 };
-pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, MAX_CARD_DEPTH};
+pub use card::{
+    CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, CompactCard, MAX_CARD_DEPTH,
+};
 pub use card_property::{
     CardPropertyDefinition, CardPropertyError, DATE_PROPERTY_TYPE, ParsePropertyColorError,
     ParsePropertyTypeError, PersonProperties, PropertyColor, PropertyOption, PropertyType,
@@ -173,7 +175,7 @@ pub use diary::{
 };
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
 pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};
-pub use files::{FileKey, FileRecord, is_storage_path};
+pub use files::{FileKey, FileRecord, ListedFile, is_storage_path};
 pub use id::{is_id, new_id};
 pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,

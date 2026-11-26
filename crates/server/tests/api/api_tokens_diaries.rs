@@ -125,6 +125,11 @@ async fn a_token_given_the_own_space_finds_no_diary_by_the_routes_it_takes() {
     // The session finds the diary as the token does not.
     let found: Value = client.get(&format!("{ws}/search?q={WORD}")).await.ok_json();
     assert_eq!(found.as_array().map(Vec::len), Some(1), "{found}");
+    let diaries: Value = client
+        .get(&format!("{ws}/containers?kind=diary"))
+        .await
+        .ok_json();
+    assert!(diaries.to_string().contains(&diary_id), "{diaries}");
 
     let container = format!("{ws}/containers/{diary_id}");
     let file = format!("{container}/files/{file_id}");
@@ -135,6 +140,7 @@ async fn a_token_given_the_own_space_finds_no_diary_by_the_routes_it_takes() {
         format!("{file}/info"),
         format!("{file}/versions"),
         format!("{file}/versions/1"),
+        format!("{container}/files"),
     ] {
         check_not_there(&agent.get(&path).await);
     }
@@ -151,6 +157,8 @@ async fn a_token_given_the_own_space_finds_no_diary_by_the_routes_it_takes() {
         format!("{ws}/search?q={WORD}"),
         format!("{ws}/search?q=2024"),
         format!("{ws}/boards/search?q="),
+        format!("{ws}/containers"),
+        format!("{ws}/containers?kind=diary"),
     ] {
         let found: Value = agent.get(&search).await.ok_json();
         let said = found.to_string();

@@ -143,6 +143,43 @@ pub struct Card {
     pub complex_blocks: Option<Vec<ComplexBlock>>,
 }
 
+/// A card in short, as a list gives it with `compact=true` (`getCards`): enough to tell
+/// the cards apart and choose one to read.
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactCard {
+    /// The card's identifier.
+    pub id: String,
+    /// The card's number on its board (`Card.number`).
+    #[schema(minimum = 1)]
+    pub number: Option<u32>,
+    /// The identifier of the parent card; empty for a top-level card.
+    pub parent_id: String,
+    /// The display title.
+    pub title: String,
+    /// Property values keyed by property identifier, as `Card.properties`.
+    #[schema(value_type = Object)]
+    pub properties: JsonMap,
+    /// Whether the card has a body.
+    pub has_body: bool,
+    /// Last modification time in milliseconds since the Unix epoch.
+    pub updated_at: i64,
+}
+
+impl From<Card> for CompactCard {
+    fn from(card: Card) -> Self {
+        Self {
+            id: card.id,
+            number: card.number,
+            parent_id: card.parent_id,
+            title: card.title,
+            properties: card.properties,
+            has_body: card.has_body,
+            updated_at: card.updated_at,
+        }
+    }
+}
+
 /// What a gallery shows of a card's body.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]

@@ -2742,6 +2742,10 @@ export interface paths {
          *     that order. With `preview=true` each card has its `preview` (the first image and the beginning of the
          *     text of its body), which a list without it leaves out.
          *
+         *     `q`, `parentId`, `assigneeId`, `propertyId` with `propertyValue` and `updatedSince`
+         *     choose the cards the page is of, all of them that are sent; `sort` orders them
+         *     otherwise. With `compact=true` each card is given in short (`CompactCard`).
+         *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCards"];
@@ -2998,6 +3002,29 @@ export interface paths {
          *     cloned blocks or dangling `fileId` references are stored.
          */
         post: operations["duplicateCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The files of a card
+         * @description The files the card shows, for the members of its board: those its body names and
+         *     those attached to it, each once, oldest first.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
+         */
+        get: operations["listCardFiles"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3489,6 +3516,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/containers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The containers of a workspace
+         * @description The boards, wikis, courses and diaries of the workspace the caller reads, as
+         *     `getWorkspaceBoards` lists its boards (an administrator also those they only manage), of
+         *     the `kind` and `visibility` asked for, whose title holds `q`; with `joinedOnly=true`
+         *     only those the caller is a member of. Oldest first. A personal API token is given
+         *     no diary.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
+         */
+        get: operations["listWorkspaceContainers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/containers-and-blocks": {
         parameters: {
             query?: never;
@@ -3692,7 +3745,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The files of a board
+         * @description The files uploaded to the board or wiki, for whoever reads it, oldest first: what a
+         *     body names by `fileId` (in Markdown `fvoci-file://{fileId}`). A file no body or
+         *     attachment shows any more is listed until the server lets it go.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
+         */
+        get: operations["listContainerFiles"];
         put?: never;
         /**
          * Upload a file
@@ -7479,6 +7540,8 @@ export interface components {
             /** @description The kind of values cards hold for this property. Left out in a request, `text`. */
             type: components["schemas"]["PropertyType"];
         };
+        /** @description The cards of a page of a board, whole or in short (`compact=true`). */
+        CardsOfPage: components["schemas"]["Card"][] | components["schemas"]["CompactCard"][];
         /** @description A sidebar category of one user in one workspace. */
         Category: {
             /** @description Whether the category is collapsed in the sidebar. */
@@ -7644,6 +7707,34 @@ export interface components {
              *     each later one who changed the body to it.
              */
             writtenBy: string;
+        };
+        /**
+         * @description A card in short, as a list gives it with `compact=true` (`getCards`): enough to tell
+         *     the cards apart and choose one to read.
+         */
+        CompactCard: {
+            /** @description Whether the card has a body. */
+            hasBody: boolean;
+            /** @description The card's identifier. */
+            id: string;
+            /**
+             * Format: int32
+             * @description The card's number on its board (`Card.number`).
+             */
+            number: number | null;
+            /** @description The identifier of the parent card; empty for a top-level card. */
+            parentId: string;
+            /** @description Property values keyed by property identifier, as `Card.properties`. */
+            properties: {
+                [key: string]: unknown;
+            };
+            /** @description The display title. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updatedAt: number;
         };
         CompleteEmailVerification: {
             /**
@@ -8802,6 +8893,28 @@ export interface components {
          * @enum {string}
          */
         LinkedKind: "card" | "page" | "unit";
+        /** @description A file of a board or a wiki as a list of them gives it. */
+        ListedFile: {
+            /**
+             * Format: int64
+             * @description When it was uploaded, in milliseconds since the Unix epoch.
+             */
+            createdAt: number;
+            /** @description The lower-cased extension of the name, with its leading dot. */
+            extension: string;
+            /**
+             * @description The name the file is asked for under (`getFile`), and named by in a body
+             *     (`fileId` of an image or a file block, `fvoci-file://{fileId}` in Markdown).
+             */
+            fileId: string;
+            /** @description The name the file was uploaded under. */
+            name: string;
+            /**
+             * Format: int64
+             * @description The size of the file in bytes.
+             */
+            size: number;
+        };
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
             /**
@@ -15022,6 +15135,22 @@ export interface operations {
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
+                /** @description Only the cards whose title holds this text, whatever the case of its letters; `#12` the card of that number. */
+                q?: string;
+                /** @description `root` gives only the top-level cards, a card's identifier only the cards right below it. */
+                parentId?: string;
+                /** @description Only the cards a property that gives them to people (`person`, `multiPerson`) gives to this user; `me` is the caller. */
+                assigneeId?: string;
+                /** @description With `propertyValue`: only the cards whose value of this property is that value, or holds it among its values (an option of a `select` or `multiSelect`, a user of a `person` or `multiPerson`). */
+                propertyId?: string;
+                /** @description The value `propertyId` asks for; sent only with it. */
+                propertyValue?: string;
+                /** @description Only the cards changed at or after this time (`updatedAt`), in milliseconds since the Unix epoch. What is typed in a card's body reaches its `updatedAt` up to ten seconds later: ask again from the last `updatedAt` seen minus ten seconds. */
+                updatedSince?: number;
+                /** @description The order: `created_asc` (the oldest first, as without it), `updated_desc` (the last changed first) or `number_asc` (by number, templates last). Any other value is refused (400). */
+                sort?: string;
+                /** @description `true` gives each card in short (`CompactCard`). Any other value does not. */
+                compact?: boolean;
             };
             header?: never;
             path: {
@@ -15040,7 +15169,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Card"][];
+                    "application/json": components["schemas"]["CardsOfPage"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -15516,6 +15645,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCardFiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The files. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListedFile"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -16416,6 +16581,47 @@ export interface operations {
             };
         };
     };
+    listWorkspaceContainers: {
+        parameters: {
+            query?: {
+                /** @description Only the containers of this kind: `board`, `wiki`, `course` or `diary` (a personal API token reaches no diary). */
+                kind?: string;
+                /** @description Only the containers of this visibility: `open` or `private`. */
+                visibility?: string;
+                /** @description Only the containers whose title holds this text, whatever the case of its letters. */
+                q?: string;
+                /** @description `true` gives only the containers the caller is a member of, not the open ones they are not. */
+                joinedOnly?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The containers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Container"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     createContainersAndBlocks: {
         parameters: {
             query?: never;
@@ -16734,6 +16940,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContainersAndBlocks"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listContainerFiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board, the wiki, the diary or the course. */
+                containerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The files. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListedFile"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

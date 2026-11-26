@@ -425,7 +425,7 @@ async fn handle_get_my_workspaces(
     get,
     path = "/w/{workspaceId}/boards",
     operation_id = "getWorkspaceBoards",
-    tag = tag::WORKSPACES,
+    tag = tag::CONTAINERS,
     params(MemberWorkspaceId),
     responses((status = 200, description = "The boards.", body = Vec<Container>)),
 )]
