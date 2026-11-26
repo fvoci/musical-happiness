@@ -59,7 +59,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 49] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 52] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -83,6 +83,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 49] = [
     "deleteOidcProvider",
     "deleteOrgWorkspace",
     "getOidcProvider",
+    "getOrgApiTokens",
     "getOrgAudit",
     "getOrgMembers",
     "getOrgWorkspaces",
@@ -95,7 +96,10 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 49] = [
     "removeOrgMember",
     "renameOrgWorkspace",
     "restoreOrgWorkspace",
+    "revokeOrgApiToken",
     "startOidcTrial",
+    // A token the member never made.
+    "revokeApiToken",
     // A link the member did not make, and the empty body of the sweep.
     "acceptInvitation",
     "revokeInvitation",
@@ -223,6 +227,9 @@ impl Named {
             .replace("{number}", "1")
             // A lease never given: its release is the member's answer as an editor's or not.
             .replace("{leaseId}", "a-lease-never-given")
+            // A token never made: taking it back is the member's answer as its owner's or
+            // an administrator's.
+            .replace("{tokenId}", "a-token-never-made")
     }
 
     fn body(&self, operation: &str) -> Value {
