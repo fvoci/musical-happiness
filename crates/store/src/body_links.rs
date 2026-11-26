@@ -98,6 +98,6 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
         .push_fragment(&gone("source_id"))
         .push(" OR ")
         .push_fragment(&gone("target_id"));
-    scope.execute(scope.sql(statement)).await?;
+    scope.execute(scope.sql(&statement)).await?;
     Ok(())
 }

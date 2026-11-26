@@ -691,7 +691,7 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
             .push(".block_id")
             .push_fragment(&scope.same_organization(&[("d", table)]))
             .push(")");
-        scope.execute(scope.sql(statement)).await?;
+        scope.execute(scope.sql(&statement)).await?;
     }
     Ok(())
 }
@@ -706,7 +706,7 @@ mod tests {
     fn with_room_sql_matches_block_type_with_room() {
         let types = BlockType::WITH_ROOM.map(|with_room| format!("'{}'", with_room.as_str()));
         assert_eq!(
-            crate::db::IntoSql::into_sql_string(with_room_sql("b.type")),
+            crate::db::IntoSql::into_sql_string(&with_room_sql("b.type")),
             format!("b.type IN ({})", types.join(", "))
         );
     }

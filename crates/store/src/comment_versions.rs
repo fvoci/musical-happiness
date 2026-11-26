@@ -199,7 +199,7 @@ pub(crate) async fn forget_gone_comments(scope: &mut Scope<'_>) -> Result<(), St
         .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = comment_versions.block_id")
         .push_fragment(&scope.same_organization(&[("d", "comment_versions")]))
         .push(")");
-    scope.execute(scope.sql(statement)).await?;
+    scope.execute(scope.sql(&statement)).await?;
     Ok(())
 }
 

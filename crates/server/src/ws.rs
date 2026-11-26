@@ -264,7 +264,7 @@ struct Listener {
     login: Option<LoginOrigin>,
     /// How that session was made, and what it confirmed at the handshake or since, as
     /// the rule of which session opens what reads it: `None` for a connection without a
-    /// session (`Track4 H-3`).
+    /// session.
     making: Option<SessionKept>,
     /// The token the session is looked up by while the connection lasts
     /// (`Hub::session_ends`); `None` for a connection without a session.

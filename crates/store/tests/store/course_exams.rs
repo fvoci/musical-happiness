@@ -91,9 +91,13 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
         )
         .await
         .expect("outcome");
-    assert_eq!(over, ExamScoreOutcome::ExceedsMaxScore { max_score: 100.0 });
+    assert_eq!(
+        over,
+        ExamScoreOutcome::ExceedsMaxScore { max_score: 100.0 },
+        "score exceeding max_score rejected"
+    );
 
-    // Snapshot publication progression (`P2-2`) and unjoined reader isolation.
+    // Snapshot publication progression and unjoined reader isolation.
     verify_snapshot_publication_progression(&test, &course_id, &first.id, [&alice, &bob, &carol])
         .await;
 
@@ -106,14 +110,17 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
         [first.id.as_str(), second.id.as_str(), undated.id.as_str()],
         "dated ascending, undated last"
     );
-    assert_eq!(for_alice[0].score_count, 8);
+    assert_eq!(for_alice[0].score_count, 8, "8 total active scorers");
     assert_eq!(
         for_alice[0].average_score, None,
         "unpublished again at end of progression"
     );
     let alice_mine = for_alice[0].my_score.as_ref().expect("alice score");
-    assert_eq!(alice_mine.note, "alice private note");
-    assert!((alice_mine.score - 90.0).abs() < 1e-9);
+    assert_eq!(alice_mine.note, "alice private note", "alice note intact");
+    assert!(
+        (alice_mine.score - 90.0).abs() < 1e-9,
+        "alice score preserved"
+    );
 
     // Patching exam preserves scores and clears exam_date via Clear, and deletions clean up.
     verify_exam_patch_and_deletions(&test, &course_id, &first.id, &alice, &bob).await;
@@ -143,11 +150,12 @@ async fn verify_snapshot_publication_progression(
             )
             .await
             .expect("score saved");
-        assert!(matches!(saved, ExamScoreOutcome::Saved(_)));
+        assert!(
+            matches!(saved, ExamScoreOutcome::Saved(_)),
+            "valid score saved"
+        );
     }
 
-    // Before publication, NO caller (not even course admin Alice or unsubmitted peers) sees
-    // `average_score`, eliminating differential subtraction attacks (`P2-2`).
     let dave = common::user(test, "dave").await;
     let erin = common::user(test, "erin").await;
     let frank = common::user(test, "frank").await;
@@ -162,18 +170,42 @@ async fn verify_snapshot_publication_progression(
         common::works_in(test, &ws_id, extra).await;
         enroll(test, course_id, extra).await;
     }
-    for viewer in [alice, bob, &dave] {
+
+    verify_unpublished_and_initial_publish(test, course_id, exam_id, [alice, bob, &dave, &erin])
+        .await;
+    verify_frozen_snapshot_republish_and_unpublish(
+        test,
+        course_id,
+        exam_id,
+        alice,
+        [&frank, &grace, &heidi],
+    )
+    .await;
+}
+
+async fn verify_unpublished_and_initial_publish(
+    test: &Store,
+    course_id: &str,
+    exam_id: &str,
+    [alice, bob, dave, erin]: [&String; 4],
+) {
+    for viewer in [alice, bob, dave] {
         let listed = test
             .list_course_exams(course_id, Some(viewer))
             .await
             .expect("unpublished list");
-        assert_eq!(listed[0].score_count, 3);
-        assert_eq!(listed[0].average_score, None);
-        assert_eq!(listed[0].results_published_at, None);
-        assert_eq!(listed[0].published_score_bucket, None);
+        assert_eq!(listed[0].score_count, 3, "3 initial scorers");
+        assert_eq!(listed[0].average_score, None, "unpublished average is None");
+        assert_eq!(
+            listed[0].results_published_at, None,
+            "unpublished timestamp is None"
+        );
+        assert_eq!(
+            listed[0].published_score_bucket, None,
+            "unpublished bucket is None"
+        );
     }
 
-    // Publishing with fewer than 5 scorers is refused.
     assert_eq!(
         test.publish_course_exam_results(course_id, exam_id, Some(alice))
             .await
@@ -181,12 +213,13 @@ async fn verify_snapshot_publication_progression(
         Err(ExamPublishError::TooFewScorers {
             active_scorers: 3,
             minimum: 5,
-        })
+        }),
+        "3 scorers rejected by k-anonymity minimum"
     );
     test.upsert_my_exam_score(
         course_id,
         exam_id,
-        &dave,
+        dave,
         &ValidatedMyExamScore {
             score: 81.0,
             note: String::new(),
@@ -201,14 +234,15 @@ async fn verify_snapshot_publication_progression(
         Err(ExamPublishError::TooFewScorers {
             active_scorers: 4,
             minimum: 5,
-        })
+        }),
+        "4 scorers rejected by k-anonymity minimum"
     );
 
     // 5th scorer (`erin = 80.3`): mean = 401.3 / 5 = 80.26 -> rounded to 80.3, bucket = 5.
     test.upsert_my_exam_score(
         course_id,
         exam_id,
-        &erin,
+        erin,
         &ValidatedMyExamScore {
             score: 80.3,
             note: String::new(),
@@ -221,27 +255,47 @@ async fn verify_snapshot_publication_progression(
         .await
         .expect("publish call")
         .expect("5 scorers publish succeeds");
-    assert!(published.results_published_at.is_some());
-    assert_eq!(published.published_score_bucket, Some(5));
-    assert!((published.average_score.expect("published avg") - 80.3).abs() < 1e-9);
+    assert!(
+        published.results_published_at.is_some(),
+        "published timestamp populated"
+    );
+    assert_eq!(published.published_score_bucket, Some(5), "bucket 5");
+    assert!(
+        (published.average_score.expect("published avg") - 80.3).abs() < 1e-9,
+        "published average rounded to 1 decimal place"
+    );
+}
 
-    // Unjoined viewer (`None`) receives neither `my_score` nor snapshot/count stats.
+async fn verify_frozen_snapshot_republish_and_unpublish(
+    test: &Store,
+    course_id: &str,
+    exam_id: &str,
+    alice: &str,
+    [frank, grace, heidi]: [&String; 3],
+) {
     let for_reader = test
         .list_course_exams(course_id, None)
         .await
         .expect("reader list");
-    assert_eq!(for_reader[0].my_score, None);
-    assert_eq!(for_reader[0].average_score, None);
-    assert_eq!(for_reader[0].score_count, 0);
-    assert_eq!(for_reader[0].results_published_at, None);
-    assert_eq!(for_reader[0].published_score_bucket, None);
+    assert_eq!(for_reader[0].my_score, None, "reader has no personal score");
+    assert_eq!(
+        for_reader[0].average_score, None,
+        "reader sees no published average"
+    );
+    assert_eq!(for_reader[0].score_count, 0, "reader sees zero score_count");
+    assert_eq!(
+        for_reader[0].results_published_at, None,
+        "reader sees no published timestamp"
+    );
+    assert_eq!(
+        for_reader[0].published_score_bucket, None,
+        "reader sees no published bucket"
+    );
 
-    // 6th scorer (`frank = 100.0`): snapshot stays frozen at 80.3 / bucket 5, and re-publish
-    // is refused until net scorer delta reaches >= 3.
     test.upsert_my_exam_score(
         course_id,
         exam_id,
-        &frank,
+        frank,
         &ValidatedMyExamScore {
             score: 100.0,
             note: String::new(),
@@ -253,9 +307,16 @@ async fn verify_snapshot_publication_progression(
         .list_course_exams(course_id, Some(alice))
         .await
         .expect("frozen list");
-    assert_eq!(frozen[0].score_count, 6);
-    assert!((frozen[0].average_score.expect("frozen avg") - 80.3).abs() < 1e-9);
-    assert_eq!(frozen[0].published_score_bucket, Some(5));
+    assert_eq!(frozen[0].score_count, 6, "live score_count reaches 6");
+    assert!(
+        (frozen[0].average_score.expect("frozen avg") - 80.3).abs() < 1e-9,
+        "snapshot average remains frozen at 80.3"
+    );
+    assert_eq!(
+        frozen[0].published_score_bucket,
+        Some(5),
+        "snapshot bucket remains frozen at 5"
+    );
     assert_eq!(
         test.publish_course_exam_results(course_id, exam_id, Some(alice))
             .await
@@ -264,11 +325,11 @@ async fn verify_snapshot_publication_progression(
             current_scorers: 6,
             previous_scorers: 5,
             minimum_delta: 3,
-        })
+        }),
+        "re-publish rejected when scorer delta < 3"
     );
 
-    // 7th and 8th scorers (`|8 - 5| == 3`): re-publish succeeds (701.3 / 8 = 87.6625 -> 87.7).
-    for extra in [&grace, &heidi] {
+    for extra in [grace, heidi] {
         test.upsert_my_exam_score(
             course_id,
             exam_id,
@@ -286,16 +347,29 @@ async fn verify_snapshot_publication_progression(
         .await
         .expect("republish call")
         .expect("delta 3 republish succeeds");
-    assert!((republished.average_score.expect("republished avg") - 87.7).abs() < 1e-9);
-    assert_eq!(republished.published_score_bucket, Some(5));
+    assert!(
+        (republished.average_score.expect("republished avg") - 87.7).abs() < 1e-9,
+        "republished average updated to 87.7"
+    );
+    assert_eq!(
+        republished.published_score_bucket,
+        Some(5),
+        "bucket floor for 8 scorers is 5"
+    );
 
     let unpublished = test
         .unpublish_course_exam_results(course_id, exam_id, Some(alice))
         .await
         .expect("unpublish succeeds");
-    assert_eq!(unpublished.average_score, None);
-    assert_eq!(unpublished.results_published_at, None);
-    assert_eq!(unpublished.published_score_bucket, None);
+    assert_eq!(unpublished.average_score, None, "unpublished average None");
+    assert_eq!(
+        unpublished.results_published_at, None,
+        "unpublished timestamp None"
+    );
+    assert_eq!(
+        unpublished.published_score_bucket, None,
+        "unpublished bucket None"
+    );
 }
 
 async fn verify_exam_patch_and_deletions(
@@ -399,8 +473,11 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
         .list_course_exams(&course_id, Some(&owner))
         .await
         .expect("before removal");
-    assert_eq!(before[0].score_count, 3);
-    assert_eq!(before[0].average_score, None);
+    assert_eq!(before[0].score_count, 3, "3 scorers before removal");
+    assert_eq!(
+        before[0].average_score, None,
+        "unpublished average None before removal"
+    );
 
     // Remove Bob from workspace -> Bob's score row deleted (`score_count == 2`).
     test.remove_workspace_member(&test.workspace_id, &bob, &owner)
@@ -410,14 +487,20 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
         .list_course_exams(&course_id, Some(&owner))
         .await
         .expect("listed for owner");
-    assert_eq!(exams_owner[0].score_count, 2);
-    assert_eq!(exams_owner[0].average_score, None);
+    assert_eq!(exams_owner[0].score_count, 2, "2 scorers after bob removed");
+    assert_eq!(
+        exams_owner[0].average_score, None,
+        "unpublished average None for owner"
+    );
     let exams_dave = test
         .list_course_exams(&course_id, Some(&dave))
         .await
         .expect("listed for dave");
-    assert_eq!(exams_dave[0].score_count, 2);
-    assert_eq!(exams_dave[0].average_score, None);
+    assert_eq!(exams_dave[0].score_count, 2, "2 scorers visible to dave");
+    assert_eq!(
+        exams_dave[0].average_score, None,
+        "unpublished average None for dave"
+    );
 
     // Erase Carol -> Carol's score row deleted (`score_count == 1`).
     erase(&test, &carol, fvoci_store::Erasing::AtOnce, T0 + 1000).await;
@@ -425,16 +508,27 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
         .list_course_exams(&course_id, Some(&dave))
         .await
         .expect("listed");
-    assert_eq!(exams[0].score_count, 1);
-    assert_eq!(exams[0].average_score, None);
+    assert_eq!(exams[0].score_count, 1, "1 scorer after carol erased");
+    assert_eq!(
+        exams[0].average_score, None,
+        "unpublished average None after carol erased"
+    );
 
     // Trash & permanently purge course -> exam and remaining score deleted.
     test.delete_container(&course_id, &owner)
         .await
         .expect("trashed");
     test.purge_trash(i64::MAX).await.expect("purged");
-    assert_eq!(test.count_rows("course_exams").await.expect("count"), 0);
-    assert_eq!(test.count_rows("exam_scores").await.expect("count"), 0);
+    assert_eq!(
+        test.count_rows("course_exams").await.expect("count"),
+        0,
+        "purging course deletes exams"
+    );
+    assert_eq!(
+        test.count_rows("exam_scores").await.expect("count"),
+        0,
+        "purging course deletes exam scores"
+    );
     test.teardown().await;
 }
 
@@ -458,19 +552,22 @@ async fn exam_score_enrollment_guard_nan_rejection_and_org_admin_end_joining() {
         .expect("exam");
 
     // Unjoined workspace member cannot store a score directly through the store.
-    assert!(matches!(
-        test.upsert_my_exam_score(
-            &course_id,
-            &exam.id,
-            &unjoined,
-            &ValidatedMyExamScore {
-                score: 50.0,
-                note: String::new(),
-            },
-        )
-        .await,
-        Err(fvoci_store::StoreError::NotFound(_))
-    ));
+    assert!(
+        matches!(
+            test.upsert_my_exam_score(
+                &course_id,
+                &exam.id,
+                &unjoined,
+                &ValidatedMyExamScore {
+                    score: 50.0,
+                    note: String::new(),
+                },
+            )
+            .await,
+            Err(fvoci_store::StoreError::NotFound(_))
+        ),
+        "unjoined member rejected by store enrollment guard"
+    );
     // Non-finite score (NaN) is rejected even if validated struct is constructed directly.
     assert_eq!(
         test.upsert_my_exam_score(
@@ -484,12 +581,16 @@ async fn exam_score_enrollment_guard_nan_rejection_and_org_admin_end_joining() {
         )
         .await
         .expect("outcome"),
-        ExamScoreOutcome::ExceedsMaxScore { max_score: 100.0 }
+        ExamScoreOutcome::ExceedsMaxScore { max_score: 100.0 },
+        "NaN score rejected"
     );
-    assert!(matches!(
-        test.delete_course_exam(&course_id, "not-a-uuid").await,
-        Err(fvoci_store::StoreError::NotFound(_))
-    ));
+    assert!(
+        matches!(
+            test.delete_course_exam(&course_id, "not-a-uuid").await,
+            Err(fvoci_store::StoreError::NotFound(_))
+        ),
+        "malformed exam id returns NotFound"
+    );
 
     // Org admin joins ws2 temporarily (prior = None), enrolls on course, records a score,
     // then ends joining -> score must be removed.

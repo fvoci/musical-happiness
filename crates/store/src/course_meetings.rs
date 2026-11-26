@@ -725,7 +725,7 @@ pub(crate) async fn forget_gone_containers(scope: &mut Scope<'_>) -> Result<(), 
         )
         .push_fragment(&scope.same_organization(&[("d", "course_meetings")]))
         .push(")");
-    let mut sql = scope.sql(del_meetings);
+    let mut sql = scope.sql(&del_meetings);
     sql.changing_no_access();
     scope.execute(sql).await?;
 
@@ -734,7 +734,7 @@ pub(crate) async fn forget_gone_containers(scope: &mut Scope<'_>) -> Result<(), 
     del_attendance
         .push_fragment(&scope.same_organization(&[("m", "meeting_attendance")]))
         .push(")");
-    let mut sql = scope.sql(del_attendance);
+    let mut sql = scope.sql(&del_attendance);
     sql.changing_no_access();
     scope.execute(sql).await?;
     Ok(())

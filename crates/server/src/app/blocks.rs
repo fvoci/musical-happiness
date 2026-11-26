@@ -186,7 +186,7 @@ impl App {
             app.ws()
                 .broadcast_block_change(&container.workspace_id, &block)
                 .await;
-            app.tell_webhooks(&block).await;
+            app.tell_webhooks(&block);
         });
         Ok(())
     }
@@ -317,7 +317,7 @@ impl App {
             app.ws()
                 .broadcast_block_change(&workspace_id, &changed)
                 .await;
-            app.tell_webhooks(&changed).await;
+            app.tell_webhooks(&changed);
         });
     }
 
@@ -383,7 +383,7 @@ impl App {
                 };
                 block.hide_inactive_number();
                 app.ws().broadcast_block_change(&workspace_id, &block).await;
-                app.tell_webhooks(&block).await;
+                app.tell_webhooks(&block);
             }
         });
         Ok(())
@@ -561,7 +561,7 @@ impl App {
                     app.ws()
                         .broadcast_block_change(&container.workspace_id, each)
                         .await;
-                    app.tell_webhooks(each).await;
+                    app.tell_webhooks(each);
                 }
             }
         });

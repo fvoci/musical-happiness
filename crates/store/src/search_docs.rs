@@ -72,6 +72,9 @@ pub(crate) fn select_documents(scope: &Scope<'_>, columns: &'static str) -> Sql 
                 .map(|kind| kind.block_type().as_str().to_owned()),
         )
         .push(")");
+    if let Some(org_id) = scope.org_id() {
+        sql.push_bind(" AND w.org_id = ", Id(&org_id));
+    }
     sql
 }
 

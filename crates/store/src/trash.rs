@@ -22,14 +22,13 @@ pub(crate) use watchers::{
     forget_watcher_of_container, forget_watcher_of_organization, forget_watcher_of_workspace,
 };
 
-use std::collections::HashMap;
-
 use fvoci_model::{
     Block, Body, Container, ContainerKinds, ContainerMember, ContainerVisibility, FileRecord,
     new_id,
 };
 use serde::de::DeserializeOwned;
-use stored::{StoredFiles, StoredPlace};
+pub(crate) use stored::undelete_block;
+use stored::{KnownUsers, StoredFiles, StoredPlace};
 use told::Gone;
 
 use crate::Store;
@@ -45,7 +44,6 @@ use crate::files;
 use crate::loose_objects;
 use crate::members;
 use crate::org_admin;
-use crate::users;
 
 /// A block in the trash.
 #[derive(Debug, Clone, PartialEq)]
@@ -518,7 +516,7 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
         .push(") AND NOT EXISTS (SELECT 1 FROM deleted_containers d WHERE d.id = deleted_blocks.container_id")
         .push_fragment(&scope.same_organization(&[("d", "deleted_blocks")]))
         .push(") RETURNING id");
-    let sql = scope.sql(orphans);
+    let sql = scope.sql(&orphans);
     let records = remove_blocks(scope, sql).await?;
     block_derived::forget_gone_blocks(scope).await?;
     crate::course_meetings::forget_gone_containers(scope).await?;
@@ -802,61 +800,6 @@ pub(crate) async fn take_blocks_out_of_trash(
     Ok(restored)
 }
 
-pub(crate) async fn undelete_block(
-    scope: &mut Scope<'_>,
-    block_id: &str,
-    user_id: &str,
-) -> Result<Vec<Block>, StoreError> {
-    // The trash says which board the block was on. The board must be there to come back
-    // to, and is then held: read again under the lock, the block may be restored already.
-    let mut sql = scope.sql("SELECT container_id FROM deleted_blocks WHERE id = ");
-    sql.bind(Id(block_id));
-    let row = scope
-        .fetch_optional(sql)
-        .await?
-        .ok_or_else(block_not_in_trash)?;
-    if !containers::lock_container(scope, &row.id(0)?).await? {
-        return Err(block_not_in_trash());
-    }
-    let mut sql = scope.sql("SELECT deletion_id FROM deleted_blocks WHERE id = ");
-    sql.bind(Id(block_id));
-    let row = scope
-        .fetch_optional(sql)
-        .await?
-        .ok_or_else(block_not_in_trash)?;
-    let deletion_id = row.id(0)?;
-
-    // For the blocks at the top of what was deleted, validate parent rules and re-root
-    // cards whose parent card is no longer live.
-    let mut sql = scope.sql("SELECT block FROM deleted_blocks WHERE deletion_id = ");
-    sql.bind(Id(&deletion_id));
-    let family: Vec<Block> = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| block_from_json(row, 0))
-        .collect::<Result<_, StoreError>>()?;
-    let rerooted = card_hierarchy::check_restore(scope, &family).await?;
-
-    let now = scope.now_millis();
-    let restored = take_blocks_out_of_trash(scope, &deletion_id, user_id, now, |block| {
-        if rerooted.contains(&block.id) {
-            block.parent_id.clear();
-        }
-    })
-    .await?;
-    if !restored.iter().any(|block| block.id == block_id) {
-        return Err(block_not_in_trash());
-    }
-    let order = parents_first(&restored);
-    let mut slots: Vec<Option<Block>> = restored.into_iter().map(Some).collect();
-    let ordered: Vec<Block> = order
-        .into_iter()
-        .filter_map(|index| slots[index].take())
-        .collect();
-    Ok(ordered)
-}
-
 pub(crate) async fn delete_container(
     scope: &mut Scope<'_>,
     container_id: &str,
@@ -1001,34 +944,4 @@ pub(crate) async fn undelete_container(
     sql.bind(Id(container_id));
     scope.execute(sql).await?;
     Ok(container)
-}
-
-/// Which users still have a row, asked once per user.
-///
-/// What is in the trash refers to nothing, so a user's row can be removed while a board
-/// or block that names the user is there. What comes back cannot name such a user.
-#[derive(Debug, Default)]
-struct KnownUsers(HashMap<String, bool>);
-
-impl KnownUsers {
-    async fn has(&mut self, scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
-        if let Some(known) = self.0.get(user_id) {
-            return Ok(*known);
-        }
-        let known = users::user_row_exists(scope, user_id).await?;
-        self.0.insert(user_id.to_owned(), known);
-        Ok(known)
-    }
-
-    /// Clears `user_id` if it names a user whose row is gone: made by nobody we know.
-    async fn forget_if_gone(
-        &mut self,
-        scope: &mut Scope<'_>,
-        user_id: &mut String,
-    ) -> Result<(), StoreError> {
-        if !user_id.is_empty() && !self.has(scope, user_id).await? {
-            user_id.clear();
-        }
-        Ok(())
-    }
 }

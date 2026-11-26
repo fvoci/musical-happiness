@@ -40,11 +40,11 @@ impl Store {
                 "SELECT b.id IS NOT NULL, ",
                 containers::CONTAINER_SELECT_B,
                 ", bm.role, (\
-                 SELECT MAX(CASE bt.role \
+                 SELECT CAST(MAX(CASE bt.role \
                    WHEN 'editor' THEN 3 \
                    WHEN 'commenter' THEN 2 \
                    WHEN 'viewer' THEN 1 \
-                   ELSE 99 END) \
+                   ELSE 99 END) AS BIGINT) \
                  FROM container_teams bt JOIN ",
             ]);
             sql.push(&crate::teams::present_members(scope))

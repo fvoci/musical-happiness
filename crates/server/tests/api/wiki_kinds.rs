@@ -184,6 +184,8 @@ const REACHED: &[(&str, Reaches)] = &[
     ("deleteCourseExam", Reaches::COURSES),
     ("putMyExamScore", Reaches::COURSES),
     ("deleteMyExamScore", Reaches::COURSES),
+    ("publishCourseExamResults", Reaches::COURSES),
+    ("unpublishCourseExamResults", Reaches::COURSES),
     ("listMyCourseReviews", Reaches::COURSES),
     ("scheduleUnitReview", Reaches::COURSES),
     ("completeUnitReview", Reaches::COURSES),

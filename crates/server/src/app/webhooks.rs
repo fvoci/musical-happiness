@@ -4,7 +4,7 @@
 //! space is, which is its owner's alone.
 //!
 //! Outbound notifications flow through a bounded [`mpsc`] channel drained by at most one
-//! background worker task (`M5`), preventing slow webhook endpoints from spawning
+//! background worker task, preventing slow webhook endpoints from spawning
 //! unbounded tasks or exhausting memory during bulk mutations and archive imports.
 
 use std::sync::Arc;
@@ -132,7 +132,7 @@ impl App {
     /// operator's webhooks on the bounded single-worker channel; nothing is posted if the
     /// organization is an account's own space, or if the server cannot tell whose the
     /// block is.
-    pub(crate) async fn tell_webhooks(&self, block: &Block) {
+    pub(crate) fn tell_webhooks(&self, block: &Block) {
         self.enqueue_webhook(block);
     }
 

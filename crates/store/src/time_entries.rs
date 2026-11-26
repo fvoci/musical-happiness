@@ -183,7 +183,6 @@ impl Store {
                     return Err(StoreError::NotFound("target".to_owned()));
                 }
                 let mut stopped_visible = None;
-                let mut start_at = now;
                 if let Some(mut active) = select_active_with_visibility(scope, reader).await? {
                     let stop_at = now.max(active.entry.started_at);
                     let stop_updated_at = now.max(active.entry.updated_at);
@@ -197,12 +196,11 @@ impl Store {
                     .await?;
                     active.entry.ended_at = Some(stop_at);
                     active.entry.updated_at = stop_updated_at;
-                    start_at = start_at.max(stop_at);
                     if active.visible {
                         stopped_visible = Some(active.entry);
                     }
                 }
-                let entry = build_entry(new, start_at, None, start_at);
+                let entry = build_entry(new, now, None, now);
                 insert_row(scope, org_id, reader.user_id, &entry).await?;
                 Ok(StartedTimeEntry {
                     entry,

@@ -200,8 +200,7 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
     response.check_error(StatusCode::BAD_REQUEST, BELOW_A_COMMENT);
     assert_eq!(response.refused_at(), "/blockPatches/0/parentId");
 
-    // A change of type: a block with blocks below it becomes no comment, and a card
-    // with comments no view.
+    // A change of type is always refused on any existing block.
     insert_one(
         &th.client,
         &child_of(&attachment, BlockType::Attachment, "below the attachment"),
@@ -213,23 +212,14 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
             .client
             .patch(&block_path(board_id, &block.id), &json!({"type": to}))
             .await;
-        response.check_error(
-            StatusCode::BAD_REQUEST,
-            "the type would leave a comment off a card or a page",
-        );
+        response.check_error(StatusCode::BAD_REQUEST, "a block's type does not change");
         assert_eq!(response.refused_at(), "/type", "{to}");
     }
 
-    // On a card it is all as before: a comment is made, moved to another card, and a
-    // block below a card becomes one.
+    // On a card it is all as before: a comment is made and moved to another card.
     let second = insert_one(&th.client, &new_block(board_id, BlockType::Card, "second")).await;
     th.client
         .patch(&path, &json!({"parentId": second.id}))
-        .await
-        .check_no_content();
-    let leaf = insert_one(&th.client, &child_of(card, BlockType::Attachment, "leaf")).await;
-    th.client
-        .patch(&block_path(board_id, &leaf.id), &json!({"type": "comment"}))
         .await
         .check_no_content();
 }
@@ -246,13 +236,14 @@ async fn a_block_comes_back_from_the_trash_only_where_it_may_be() {
     let refused = |what: &str| format!("the block cannot come back where it was: {what}");
 
     delete(&boards.commenter, &content.comment).await;
-    th.client
-        .patch(
-            &block_path(board_id, &content.card.id),
-            &json!({"type": "view"}),
-        )
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE blocks SET type = 'view' WHERE id = '{}'",
+            content.card.id
+        ))
         .await
-        .check_no_content();
+        .expect("legacy card converted to view in DB");
     boards
         .commenter
         .post(&undelete_path(board_id, &content.comment.id), &json!({}))
@@ -271,13 +262,14 @@ async fn a_block_comes_back_from_the_trash_only_where_it_may_be() {
     )
     .await;
     delete(&th.client, &below).await;
-    th.client
-        .patch(
-            &block_path(board_id, &middle.id),
-            &json!({"type": "comment"}),
-        )
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE blocks SET type = 'comment' WHERE id = '{}'",
+            middle.id
+        ))
         .await
-        .check_no_content();
+        .expect("legacy parent converted to comment in DB");
     th.client
         .post(&undelete_path(board_id, &below.id), &json!({}))
         .await
@@ -541,7 +533,7 @@ async fn a_commenter_changes_no_card_and_makes_none() {
         .commenter
         .patch(&path, &json!({"type": "card"}))
         .await
-        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+        .check_error(StatusCode::BAD_REQUEST, "a block's type does not change");
     boards
         .commenter
         .patch(
@@ -734,7 +726,7 @@ async fn a_block_type_cannot_be_mutated_to_comment_even_by_an_admin() {
             .patch(&block_path(board_id, &content.text.id), &into_comment)
             .await;
         single.check_bad_request();
-        assert_eq!(single.refused_at(), "/type");
+        assert_eq!(single.refused_at(), "/type", "single patch refuses /type");
 
         let batch = client
             .patch(
@@ -743,7 +735,11 @@ async fn a_block_type_cannot_be_mutated_to_comment_even_by_an_admin() {
             )
             .await;
         batch.check_bad_request();
-        assert_eq!(batch.refused_at(), "/blockPatches/0/type");
+        assert_eq!(
+            batch.refused_at(),
+            "/blockPatches/0/type",
+            "batch patch refuses /blockPatches/0/type"
+        );
     }
     th.teardown().await;
 }

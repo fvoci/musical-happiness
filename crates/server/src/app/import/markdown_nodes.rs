@@ -9,31 +9,46 @@ use super::bundle::has_url_scheme;
 use super::summary::ImportWarningCode;
 use crate::error::{AppError, Reason};
 
-/// Cumulative maximum ProseMirror nodes across all converted bodies of one external
-/// import (`Trello` or `Notion`) to bound peak `StagedArchive` heap usage (`P1-1`).
+/// Cumulative maximum `ProseMirror` nodes across all converted bodies of one external
+/// import (`Trello` or `Notion`) to bound peak `StagedArchive` heap usage.
 pub(crate) const IMPORT_BODY_NODES: usize = 1_000_000;
 
-/// Tracks cumulative ProseMirror node count across all bodies built during a single
+/// Tracks cumulative `ProseMirror` node count across all bodies built during a single
 /// external import.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct BodyBudget {
     used: usize,
+    limit: usize,
+}
+
+impl Default for BodyBudget {
+    fn default() -> Self {
+        Self {
+            used: 0,
+            limit: IMPORT_BODY_NODES,
+        }
+    }
 }
 
 impl BodyBudget {
-    /// Charges `body`'s total node count against [`IMPORT_BODY_NODES`], refusing with
+    /// Creates a budget with a custom node cap for unit testing.
+    #[cfg(test)]
+    pub(crate) fn new(limit: usize) -> Self {
+        Self { used: 0, limit }
+    }
+
+    /// Charges `body`'s total node count against the configured limit, refusing with
     /// `413` (`Reason::ArchiveTooLarge`) immediately once exceeded.
     pub(crate) fn charge(&mut self, body: Option<&Body>) -> Result<(), AppError> {
         let Some(body) = body else {
             return Ok(());
         };
         self.used = self.used.saturating_add(body.node_count());
-        if self.used > IMPORT_BODY_NODES {
-            let limit = u64::try_from(IMPORT_BODY_NODES).unwrap_or(u64::MAX);
+        if self.used > self.limit {
+            let max_nodes = self.limit;
+            let limit = u64::try_from(max_nodes).unwrap_or(u64::MAX);
             return Err(AppError::too_large(
-                format_args!(
-                    "imported bodies exceed cumulative maximum of {IMPORT_BODY_NODES} nodes"
-                ),
+                format_args!("imported bodies exceed cumulative maximum of {max_nodes} nodes"),
                 limit,
             )
             .with_reason(Reason::ArchiveTooLarge));

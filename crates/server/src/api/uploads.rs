@@ -174,7 +174,8 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
 /// Opens an upload of a file to the board in parts. The answer says how large the
 /// parts are and how many; send each with `putUploadPart`, in any order and again
 /// after a failure, then `completeUpload`. A file larger than `maxFileBytes` of
-/// `getClientConfig` is 413 with the reason `file_too_large`. A user has at most 8
+/// `getClientConfig` is 413 with the reason `file_too_large`, and one that would exceed
+/// the organization's storage limit is 413 with the reason `storage_full`. A user has at most 8
 /// uploads open, holding back at most twice `maxFileBytes` together, and the server's
 /// open uploads hold back at most what it is configured for: an upload over one of
 /// these is 429, with the reason `too_many_uploads`, `uploads_pending` or

@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Category, Container, ContainerVisibility, ContainersAndBlocks, new_id};
+use fvoci_model::{Container, ContainerVisibility, ContainersAndBlocks};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;

@@ -220,6 +220,6 @@ pub(super) async fn get_comment_versions_on(
     Ok(json_response(&versions))
 }
 
-pub(super) fn created_comment(comment: &Block) -> ApiResult {
-    Ok(created(comment))
+pub(super) fn created_comment(comment: &Block) -> axum::response::Response {
+    created(comment)
 }

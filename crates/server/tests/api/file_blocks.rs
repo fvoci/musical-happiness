@@ -105,7 +105,7 @@ async fn a_comment_has_no_file_block() {
         "/blockPatches/0/body",
     );
 
-    // A card with a file block is not made a comment.
+    // A card with a file block is not made a comment (block type is immutable).
     let second: Value = ts
         .client
         .post(
@@ -122,7 +122,8 @@ async fn a_comment_has_no_file_block() {
             &made_comment,
         )
         .await;
-    check_refused_body(&refused, "/body");
+    refused.check_bad_request();
+    assert_eq!(refused.refused_at(), "/type", "{}", refused.text());
 
     // A board made with one: a new board has no file for any block to name, so the comment
     // is refused at its body for that first.

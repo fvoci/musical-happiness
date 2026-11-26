@@ -114,15 +114,18 @@ pub struct Collab {
     inner: Arc<Inner>,
 }
 
+type ContainerLocks = HashMap<(Tenant, String), Arc<tokio::sync::RwLock<()>>>;
+type CardSlots = HashMap<String, (String, Arc<tokio::sync::Mutex<Slot>>)>;
+
 #[derive(Debug)]
 struct Inner {
     workers: Vec<Worker>,
     /// Per `(organization, container_id)`: a deletion excludes document work and changes
     /// to that container's card tree until it is done ([`removal`]).
-    gates: Mutex<HashMap<(Tenant, String), Arc<tokio::sync::RwLock<()>>>>,
+    gates: Mutex<ContainerLocks>,
     /// Per `(organization, container_id)`: serializes `changing_structure` (read) with
     /// the `Deletion::Block` fast-path check (write) without blocking document work.
-    structures: Mutex<HashMap<(Tenant, String), Arc<tokio::sync::RwLock<()>>>>,
+    structures: Mutex<ContainerLocks>,
     /// Home worker index assigned to each organization (`H-3`).
     tenant_slots: Mutex<HashMap<Tenant, usize>>,
     next_tenant_slot: AtomicUsize,
@@ -135,7 +138,7 @@ struct Inner {
     aside: Arc<tokio::sync::Semaphore>,
     /// The documents that are open, or were and are closed for a while, by card: each
     /// entry stores `(container_id, slot)`.
-    slots: Mutex<HashMap<String, (String, Arc<tokio::sync::Mutex<Slot>>)>>,
+    slots: Mutex<CardSlots>,
     /// The next number a document is opened under in a worker.
     numbers: AtomicU64,
     limits: Limits,
@@ -899,96 +902,10 @@ impl Collab {
             .due_writes_left
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
-
-    /// Has the next write of a document's body to its card wait, after it read the card
-    /// and before it writes it, until the second is notified; the first is notified when
-    /// it waits. For the tests of what is written to the card meanwhile.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn pause_next_projection(&self) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
-        let pause = (
-            Arc::new(tokio::sync::Notify::new()),
-            Arc::new(tokio::sync::Notify::new()),
-        );
-        *self
-            .inner
-            .projection_pause
-            .lock()
-            .expect("the pause is not poisoned") = Some(pause.clone());
-        pause
-    }
-
-    /// Waits where [`Collab::pause_next_projection`] asked.
-    #[cfg(feature = "test-util")]
-    async fn paused_before_projection(&self) {
-        let pause = self
-            .inner
-            .projection_pause
-            .lock()
-            .expect("the pause is not poisoned")
-            .take();
-        if let Some((waiting, go)) = pause {
-            waiting.notify_one();
-            go.notified().await;
-        }
-    }
-
-    /// Has the next update wait, after the worker took it and before it is logged,
-    /// until the second is notified; the first is notified when it waits. For the
-    /// tests of what is sent to anybody meanwhile.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn pause_next_log(&self) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
-        let pause = (
-            Arc::new(tokio::sync::Notify::new()),
-            Arc::new(tokio::sync::Notify::new()),
-        );
-        *self
-            .inner
-            .log_pause
-            .lock()
-            .expect("the pause is not poisoned") = Some(pause.clone());
-        pause
-    }
-
-    /// Waits where [`Collab::pause_next_log`] asked.
-    #[cfg(feature = "test-util")]
-    async fn paused_before_log(&self) {
-        let pause = self
-            .inner
-            .log_pause
-            .lock()
-            .expect("the pause is not poisoned")
-            .take();
-        if let Some((waiting, go)) = pause {
-            waiting.notify_one();
-            go.notified().await;
-        }
-    }
-
-    /// Forgets every open document without writing its body, and ends the workers: as
-    /// a server that is killed leaves them, for the tests of what a server that starts
-    /// again makes of that.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    pub async fn abandon(&self) {
-        for slot in self.all_slots() {
-            let (tenant, container_id) = {
-                let guard = slot.lock().await;
-                (guard.tenant, guard.container_id.clone())
-            };
-            let _gate = self.reading(tenant, &container_id).await;
-            let mut slot = slot.lock_owned().await;
-            self.lost(&mut slot);
-            self.retire(&mut slot);
-        }
-        for worker in &self.inner.workers {
-            worker.end().await;
-        }
-    }
 }
+
+#[cfg(feature = "test-util")]
+mod test_pauses;
 
 /// The bytes of an answer that carries them.
 fn bytes(answer: Answer) -> Result<Vec<u8>, AppError> {

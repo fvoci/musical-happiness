@@ -217,15 +217,14 @@ impl WebRoot {
     async fn index_csp_header(&self) -> HeaderValue {
         let csp_path = self.root.join("csp.json");
         match tokio::fs::read_to_string(&csp_path).await {
-            Ok(raw) => match serde_json::from_str::<CspManifest>(&raw)
-                .ok()
-                .and_then(|manifest| strict_index_csp(&manifest.script_src))
-            {
-                Some(policy) => {
+            Ok(raw) => {
+                if let Some(policy) = serde_json::from_str::<CspManifest>(&raw)
+                    .ok()
+                    .and_then(|manifest| strict_index_csp(&manifest.script_src))
+                {
                     self.warned_missing_csp.store(false, Ordering::Relaxed);
                     policy
-                }
-                None => {
+                } else {
                     if !self.warned_missing_csp.swap(true, Ordering::Relaxed) {
                         tracing::warn!(
                             path = %csp_path.display(),
@@ -234,7 +233,7 @@ impl WebRoot {
                     }
                     HeaderValue::from_static(INDEX_DOCUMENT_POLICY)
                 }
-            },
+            }
             Err(error) => {
                 if !self.warned_missing_csp.swap(true, Ordering::Relaxed) {
                     tracing::warn!(

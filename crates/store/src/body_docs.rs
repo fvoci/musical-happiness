@@ -662,11 +662,11 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
         .push(" AND body_docs.block_id = body_updates.block_id")
         .push_fragment(&scope.same_organization(&[("body_docs", "body_updates")]))
         .push(")");
-    scope.execute(scope.sql(updates)).await?;
+    scope.execute(scope.sql(&updates)).await?;
 
     let mut docs = SqlFragment::of(&["DELETE FROM body_docs"]);
     docs.push_fragment(&gone);
-    scope.execute(scope.sql(docs)).await?;
+    scope.execute(scope.sql(&docs)).await?;
     Ok(())
 }
 

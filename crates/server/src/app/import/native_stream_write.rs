@@ -28,7 +28,7 @@ use crate::auth::now_millis;
 use crate::error::AppError;
 
 /// Hard wall-clock deadline for Pass-2 archive streaming so revisit sweeps cannot hold
-/// the organization's visibility write counter indefinitely (`gapfill H-4`).
+/// the organization's visibility write counter indefinitely.
 pub(super) const IMPORT_STREAM_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Maximum number of blocks accumulated in one Pass-2 insert batch.
@@ -254,7 +254,7 @@ impl<'a> BoardStreamer<'a> {
             &entry_label,
         )? {
             line_number += 1;
-            if line_number & 0xFF == 0 {
+            if line_number.trailing_zeros() >= 8 {
                 self.check_deadline()?;
             }
             if pass == StreamPass::Revisit && !self.revisit_lines.contains_key(&line_number) {

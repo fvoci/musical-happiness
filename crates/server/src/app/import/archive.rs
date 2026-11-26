@@ -140,11 +140,10 @@ pub(super) async fn open_archive(path: &Path) -> Result<Archive, AppError> {
 }
 
 /// Maps a [`zip::result::ZipError`] to a sanitized client-facing 400 error without
-/// leaking internal parser messages (`L3`).
+/// leaking internal parser messages.
 pub(super) fn zip_error(error: &zip::result::ZipError) -> AppError {
     use zip::result::ZipError;
     let detail = match error {
-        ZipError::InvalidArchive(_) => "zip: invalid archive",
         ZipError::UnsupportedArchive(_) => "zip: unsupported archive feature",
         ZipError::FileNotFound => "zip: archive entry not found",
         ZipError::InvalidPassword => "zip: encrypted archive entries are not supported",

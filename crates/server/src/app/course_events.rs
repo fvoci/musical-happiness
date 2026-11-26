@@ -159,7 +159,7 @@ impl App {
         Ok(self.store().delete_course_exam(course_id, exam_id).await?)
     }
 
-    /// Publishes or republishes a coarse exam result snapshot on `course_id` (`P2-2`).
+    /// Publishes or republishes a coarse exam result snapshot on `course_id`.
     ///
     /// # Errors
     ///
@@ -182,7 +182,7 @@ impl App {
         }
     }
 
-    /// Unpublishes the exam result snapshot on `course_id` (`P2-2`).
+    /// Unpublishes the exam result snapshot on `course_id`.
     ///
     /// # Errors
     ///

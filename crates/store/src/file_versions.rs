@@ -297,7 +297,7 @@ impl Head {
             head.push(", ").push(org);
         }
         head.push(" FROM files WHERE container_id = ");
-        let mut sql = scope.sql(head);
+        let mut sql = scope.sql(&head);
         sql.bind(Id(container_id))
             .push(" AND name IN (")
             .bind_list(names.iter().copied())

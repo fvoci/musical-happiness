@@ -534,42 +534,48 @@ async fn assign_shared_unit_dates(
     }
 
     for batch in updates.chunks(REDISTRIBUTE_BATCH_SIZE) {
-        let mut sql = match scope.dialect() {
-            Dialect::Sqlite => scope.sql(
-                "UPDATE blocks SET fields = json_set(COALESCE(fields, '{}'), '$.scheduledDate', CASE id",
-            ),
-            Dialect::Postgres => scope.sql(
-                "UPDATE blocks SET fields = jsonb_set(COALESCE(fields::jsonb, '{}'::jsonb), '{scheduledDate}', to_jsonb((CASE id",
-            ),
-        };
-        sql.changing_no_access();
-        for (id, new_date, _) in batch {
-            sql.push_bind(" WHEN ", Id(id))
-                .push_bind(" THEN ", new_date.as_str());
-        }
-        match scope.dialect() {
-            Dialect::Sqlite => {
-                sql.push(" END)");
-            }
-            Dialect::Postgres => {
-                sql.push(" END)::text), true)::json");
-            }
-        }
-        sql.push_bind(", modified_by = ", OptId(user_id))
-            .push(", updated_at = CASE id");
-        for (id, _, updated_at) in batch {
-            sql.push_bind(" WHEN ", Id(id))
-                .push_bind(" THEN ", *updated_at);
-        }
-        sql.push(" ELSE updated_at END WHERE container_id = ")
-            .bind(Id(course_id))
-            .push(" AND id IN (")
-            .bind_list(batch.iter().map(|(id, _, _)| Id(id)))
-            .push(")");
-        scope.execute(sql).await?;
+        execute_scheduled_date_batch(scope, course_id, user_id, batch).await?;
     }
 
     Ok(updates.into_iter().map(|(id, _, _)| id).collect())
+}
+
+async fn execute_scheduled_date_batch(
+    scope: &mut Scope<'_>,
+    course_id: &str,
+    user_id: &str,
+    batch: &[(String, String, i64)],
+) -> Result<(), StoreError> {
+    let mut sql = match scope.dialect() {
+        Dialect::Sqlite => scope.sql(
+            "UPDATE blocks SET fields = json_set(COALESCE(fields, '{}'), '$.scheduledDate', CASE id",
+        ),
+        Dialect::Postgres => scope.sql(
+            "UPDATE blocks SET fields = jsonb_set(COALESCE(fields::jsonb, '{}'::jsonb), '{scheduledDate}', to_jsonb((CASE id",
+        ),
+    };
+    sql.changing_no_access();
+    for (id, new_date, _) in batch {
+        sql.push_bind(" WHEN ", Id(id))
+            .push_bind(" THEN ", new_date.as_str());
+    }
+    match scope.dialect() {
+        Dialect::Sqlite => sql.push(" END)"),
+        Dialect::Postgres => sql.push(" END)::text), true)::json"),
+    };
+    sql.push_bind(", modified_by = ", OptId(user_id))
+        .push(", updated_at = CASE id");
+    for (id, _, updated_at) in batch {
+        sql.push_bind(" WHEN ", Id(id))
+            .push_bind(" THEN ", *updated_at);
+    }
+    sql.push(" ELSE updated_at END WHERE container_id = ")
+        .bind(Id(course_id))
+        .push(" AND id IN (")
+        .bind_list(batch.iter().map(|(id, _, _)| Id(id)))
+        .push(")");
+    scope.execute(sql).await?;
+    Ok(())
 }
 
 async fn upsert_planned_date_row(

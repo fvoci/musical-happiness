@@ -210,7 +210,7 @@ struct Inner {
     telling: tokio::sync::Mutex<()>,
     /// The uploads' turns (`uploads::UploadTurns`).
     upload_turns: uploads::UploadTurns,
-    /// Active `(upload_id, part_number)` receivers and per-user concurrency caps (`P2-1`).
+    /// Active `(upload_id, part_number)` receivers and per-user concurrency caps.
     receiving_parts: uploads::ReceivingParts,
     /// The memory the parts of uploads to the object store may take while they are
     /// received, in KiB (`uploads::PARTS_IN_MEMORY`).
@@ -292,24 +292,7 @@ impl App {
         let security_contact = config.security_contact()?;
         let web = WebRoot::new(&config.web_app_path, &config.server_url)
             .with_security_contact(security_contact);
-        let webhook = Webhook::with_addresses(
-            config.block_change_webhooks.clone(),
-            if config.webhook_allow_private_addresses {
-                Addresses::Any
-            } else {
-                Addresses::PublicOnly
-            },
-        )
-        .context("unable to set up the webhook client")?;
-        let oidc = Fetcher::new(
-            if config.oidc_allow_private_addresses {
-                Addresses::Any
-            } else {
-                Addresses::PublicOnly
-            },
-            &config.oidc_trusted_roots()?,
-        )
-        .context("unable to set up the client of the providers")?;
+        let (webhook, oidc) = Self::outbound_clients(&config)?;
         let part_memory = uploads::part_memory_kib(config.upload_part_bytes);
         let slots =
             |capacity: u32| slots::Slots::new(usize::try_from(capacity).unwrap_or(usize::MAX));
@@ -367,6 +350,28 @@ impl App {
                 schedule_now_millis: std::sync::Mutex::default(),
             }),
         })
+    }
+
+    fn outbound_clients(config: &Configuration) -> anyhow::Result<(Webhook, Fetcher)> {
+        let webhook = Webhook::with_addresses(
+            config.block_change_webhooks.clone(),
+            if config.webhook_allow_private_addresses {
+                Addresses::Any
+            } else {
+                Addresses::PublicOnly
+            },
+        )
+        .context("unable to set up the webhook client")?;
+        let oidc = Fetcher::new(
+            if config.oidc_allow_private_addresses {
+                Addresses::Any
+            } else {
+                Addresses::PublicOnly
+            },
+            &config.oidc_trusted_roots()?,
+        )
+        .context("unable to set up the client of the providers")?;
+        Ok((webhook, oidc))
     }
 
     /// The Prometheus metrics; they do nothing unless `metrics_address` is set.

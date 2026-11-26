@@ -297,7 +297,7 @@ impl Store {
     }
 
     /// Confirms the registration `proof` names at `now` under `policy` in a single
-    /// transaction on fresh and already-bootstrapped instances (`M3`).
+    /// transaction on fresh and already-bootstrapped instances.
     ///
     /// # Errors
     ///

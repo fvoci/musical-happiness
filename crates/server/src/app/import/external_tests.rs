@@ -921,7 +921,7 @@ fn trello_streaming_bounds_and_body_budget() {
     let staged =
         super::trello::convert_trello_bytes(trello_actions.to_string().as_bytes(), &limits)
             .expect("non-comment actions skipped");
-    assert_eq!(staged.containers[0].blocks.len(), 3);
+    assert_eq!(staged.containers[0].blocks.len(), 3, "3 blocks");
 
     let overflow = serde_json::json!({
         "name": "Overflow", "lists": [{"id": "l1", "name": "Todo"}],
@@ -933,7 +933,7 @@ fn trello_streaming_bounds_and_body_budget() {
     };
     let err = super::trello::convert_trello_bytes(overflow.to_string().as_bytes(), &card_limits)
         .expect_err("N+1st Trello card rejected");
-    assert_eq!(err.kind(), ErrorKind::PayloadTooLarge);
+    assert_eq!(err.kind(), ErrorKind::PayloadTooLarge, "card cap 413");
 
     let mut resolver = ExternalOnlyResolver;
     let nodes = markdown_to_blocks("a\n\nb\n\nc", BodyContext::Document, 50, &mut resolver)
@@ -941,10 +941,8 @@ fn trello_streaming_bounds_and_body_budget() {
         .nodes;
     let body = blocks_to_body(nodes).expect("valid").expect("body");
     let mut budget = super::markdown_nodes::BodyBudget::new(2);
-    assert_eq!(
-        budget.charge(&body).expect_err("cap").kind(),
-        ErrorKind::PayloadTooLarge
-    );
+    let cap_err = budget.charge(Some(&body)).expect_err("cap");
+    assert_eq!(cap_err.kind(), ErrorKind::PayloadTooLarge, "budget 413");
 }
 
 #[tokio::test]
@@ -971,20 +969,17 @@ async fn notion_synthetic_ancestors_and_page_limits() {
         super::notion::convert_notion_bundle(&bundle, &tight, fvoci_model::PageLimits::default())
             .await
             .expect_err("ancestors past max_entries");
-    assert_eq!(err.kind(), ErrorKind::PayloadTooLarge);
+    assert_eq!(err.kind(), ErrorKind::PayloadTooLarge, "ancestors 413");
 
     let wide = SafeBundle::open(&deep_zip, dir.path(), BundleLimits::default())
         .await
         .expect("open");
-    let page_err = super::notion::convert_notion_bundle(
-        &wide,
-        &BundleLimits::default(),
-        fvoci_model::PageLimits {
-            pages: 2,
-            depth: 10,
-        },
-    )
-    .await
-    .expect_err("page count checked before markdown");
-    assert_eq!(page_err.kind(), ErrorKind::BadRequest);
+    let lim = fvoci_model::PageLimits {
+        pages: 2,
+        depth: 10,
+    };
+    let page_err = super::notion::convert_notion_bundle(&wide, &BundleLimits::default(), lim)
+        .await
+        .expect_err("page count checked before markdown");
+    assert_eq!(page_err.kind(), ErrorKind::BadRequest, "page limit 400");
 }

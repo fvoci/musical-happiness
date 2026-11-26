@@ -136,7 +136,7 @@ async fn handle_put_unit_progress(
 /// Returns the total number of live units in the course (excluding chapters and trashed
 /// units) and, for enrolled course members and course role managers (`ManageRoles`), the
 /// completed live-unit count for each active course member ordered by `userId`. Unjoined
-/// readers of an open course and non-enrolled guests receive `members: []` (`P2-1`).
+/// readers of an open course and non-enrolled guests receive `members: []`.
 /// Accounts that have been deleted, are pending deletion, or are no longer active members
 /// of the workspace or course are excluded. Never discloses which units a member
 /// completed, completion timestamps, planned dates, or last positions. Unreadable private

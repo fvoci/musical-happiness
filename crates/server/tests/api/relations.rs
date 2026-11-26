@@ -731,11 +731,13 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
     let odd = client
         .patch(&format!("{blocks}/{}", id_of("odd")), &to_card)
         .await;
-    check_refused(&odd, REASON, "/updatedFields");
-    client
+    odd.check_bad_request();
+    assert_eq!(odd.refused_at(), "/type", "{}", odd.text());
+    let fine = client
         .patch(&format!("{blocks}/{}", id_of("fine")), &to_card)
-        .await
-        .check_no_content();
+        .await;
+    fine.check_bad_request();
+    assert_eq!(fine.refused_at(), "/type", "{}", fine.text());
     let after: Vec<Block> = client.get(&blocks).await.ok_json();
     let type_of = |title: &str| {
         after
@@ -743,7 +745,15 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
             .find(|block| block.title == title)
             .map(|block| block.block_type)
     };
-    assert_eq!(type_of("odd"), Some(fvoci_model::BlockType::View));
-    assert_eq!(type_of("fine"), Some(fvoci_model::BlockType::Card));
+    assert_eq!(
+        type_of("odd"),
+        Some(fvoci_model::BlockType::View),
+        "odd stays view"
+    );
+    assert_eq!(
+        type_of("fine"),
+        Some(fvoci_model::BlockType::View),
+        "fine stays view"
+    );
     th.teardown().await;
 }

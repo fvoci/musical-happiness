@@ -84,7 +84,7 @@ impl App {
         let workspace_id = match container.as_ref() {
             Some(container) if container.is_builtin => self.workspace.as_deref().unwrap_or(""),
             Some(container) => &container.workspace_id,
-            None => "",
+            None => self.workspace.as_deref().unwrap_or(""),
         };
         let actor = self.actor(user_id, workspace_id).await?;
         let Some(container) = container else {

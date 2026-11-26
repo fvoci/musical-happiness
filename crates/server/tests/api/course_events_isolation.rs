@@ -300,7 +300,7 @@ async fn assert_k_anonymity_api_progression(ts: &TestServer, a: &IsolationActors
         a.ws2, a.course_id, a.exam.id
     );
     // 2nd and 3rd scorers (guest = 85, Bob = 90): before snapshot publication, NOBODY
-    // (not even course admin Bob) sees `averageScore` (`P2-2`).
+    // (not even course admin Bob) sees `averageScore`.
     for (scorer, score, note) in [
         (&a.guest, 85.0, "guest private"),
         (&a.bob, 90.0, "bob private"),
@@ -365,20 +365,42 @@ async fn assert_k_anonymity_api_progression(ts: &TestServer, a: &IsolationActors
     }
     // 5 scorers (95 + 85 + 90 + 81 + 80.3 = 431.3 -> 86.26 -> 86.3, bucket 5).
     let published: CourseExam = a.bob.post(&pub_path, &json!({})).await.ok_json();
-    assert!(published.results_published_at.is_some());
-    assert_eq!(published.published_score_bucket, Some(5));
-    assert!((published.average_score.expect("published avg") - 86.3).abs() < 1e-9);
+    assert!(
+        published.results_published_at.is_some(),
+        "published timestamp populated"
+    );
+    assert_eq!(published.published_score_bucket, Some(5), "bucket 5");
+    assert!(
+        (published.average_score.expect("published avg") - 86.3).abs() < 1e-9,
+        "published average rounded to 86.3"
+    );
+    assert_post_publish_freeze_and_unpublish(a, &frank, &pub_path).await;
+}
 
+async fn assert_post_publish_freeze_and_unpublish(
+    a: &IsolationActors,
+    frank: &Client,
+    pub_path: &str,
+) {
     // Unjoined reader STILL sees count 0 and no published snapshot.
     let unjoined_view: Vec<CourseExam> = a
         .unjoined
         .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
         .await
         .ok_json();
-    assert_eq!(unjoined_view[0].score_count, 0);
-    assert_eq!(unjoined_view[0].average_score, None);
-    assert_eq!(unjoined_view[0].results_published_at, None);
-    assert_eq!(unjoined_view[0].published_score_bucket, None);
+    assert_eq!(unjoined_view[0].score_count, 0, "unjoined count 0");
+    assert_eq!(
+        unjoined_view[0].average_score, None,
+        "unjoined average None"
+    );
+    assert_eq!(
+        unjoined_view[0].results_published_at, None,
+        "unjoined published_at None"
+    );
+    assert_eq!(
+        unjoined_view[0].published_score_bucket, None,
+        "unjoined bucket None"
+    );
 
     // 6th scorer (`frank = 100.0`): snapshot stays frozen at 86.3, and republish with delta 1 fails 409.
     frank
@@ -396,19 +418,28 @@ async fn assert_k_anonymity_api_progression(ts: &TestServer, a: &IsolationActors
         .get(&format!("{}/courses/{}/exams", a.ws2, a.course_id))
         .await
         .ok_json();
-    assert_eq!(frozen[0].score_count, 6);
-    assert!((frozen[0].average_score.expect("frozen avg") - 86.3).abs() < 1e-9);
+    assert_eq!(frozen[0].score_count, 6, "live count 6");
+    assert!(
+        (frozen[0].average_score.expect("frozen avg") - 86.3).abs() < 1e-9,
+        "snapshot average frozen at 86.3"
+    );
     assert_eq!(
-        a.bob.post(&pub_path, &json!({})).await.status,
+        a.bob.post(pub_path, &json!({})).await.status,
         StatusCode::CONFLICT,
         "republish requires >= 3 net scorer delta"
     );
 
     // Unpublish clears snapshot fields back to None.
-    let unpublished: CourseExam = a.bob.delete(&pub_path).await.ok_json();
-    assert_eq!(unpublished.average_score, None);
-    assert_eq!(unpublished.results_published_at, None);
-    assert_eq!(unpublished.published_score_bucket, None);
+    let unpublished: CourseExam = a.bob.delete(pub_path).await.ok_json();
+    assert_eq!(unpublished.average_score, None, "unpublished average None");
+    assert_eq!(
+        unpublished.results_published_at, None,
+        "unpublished timestamp None"
+    );
+    assert_eq!(
+        unpublished.published_score_bucket, None,
+        "unpublished bucket None"
+    );
 }
 
 async fn assert_removed_public_cross_org_and_own_space(ts: &TestServer, a: &IsolationActors) {
@@ -683,38 +714,7 @@ async fn meeting_attendance_permission_matrix() {
         .await
         .check_forbidden();
 
-    let unjoined_meetings: Vec<CourseMeeting> = unjoined
-        .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
-        .await
-        .ok_json();
-    assert!(
-        unjoined_meetings[0].attendance.is_empty(),
-        "unjoined open-course reader must receive empty attendance list (`P2-1`)"
-    );
-    let viewer_meetings: Vec<CourseMeeting> = viewer
-        .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
-        .await
-        .ok_json();
-    assert!(
-        !viewer_meetings[0].attendance.is_empty()
-            && viewer_meetings[0]
-                .attendance
-                .iter()
-                .all(|rec| rec.updated_at == 0),
-        "non-manager enrolled member receives attendance with `updated_at = 0` (`P2-1`)"
-    );
-    let admin_meetings: Vec<CourseMeeting> = ts
-        .client
-        .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
-        .await
-        .ok_json();
-    assert!(
-        admin_meetings[0]
-            .attendance
-            .iter()
-            .all(|rec| rec.updated_at > 0),
-        "course role manager receives attendance timestamps (`P2-1`)"
-    );
+    assert_attendance_visibility_redaction(&ts, &course_id, &unjoined, &viewer).await;
     unjoined
         .put(&att_path(&unjoined_id), &json!({"status": "present"}))
         .await
@@ -730,6 +730,46 @@ async fn meeting_attendance_permission_matrix() {
         .check_not_found();
 
     ts.teardown().await;
+}
+
+async fn assert_attendance_visibility_redaction(
+    ts: &TestServer,
+    course_id: &str,
+    unjoined: &Client,
+    viewer: &Client,
+) {
+    let unjoined_meetings: Vec<CourseMeeting> = unjoined
+        .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
+        .await
+        .ok_json();
+    assert!(
+        unjoined_meetings[0].attendance.is_empty(),
+        "unjoined open-course reader must receive empty attendance list"
+    );
+    let viewer_meetings: Vec<CourseMeeting> = viewer
+        .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
+        .await
+        .ok_json();
+    assert!(
+        !viewer_meetings[0].attendance.is_empty()
+            && viewer_meetings[0]
+                .attendance
+                .iter()
+                .all(|rec| rec.updated_at == 0),
+        "non-manager enrolled member receives attendance with `updated_at = 0`"
+    );
+    let admin_meetings: Vec<CourseMeeting> = ts
+        .client
+        .get(&format!("{TEST_WS}/courses/{course_id}/meetings"))
+        .await
+        .ok_json();
+    assert!(
+        admin_meetings[0]
+            .attendance
+            .iter()
+            .all(|rec| rec.updated_at > 0),
+        "course role manager receives attendance timestamps"
+    );
 }
 
 /// Upcoming-meeting notifications (`App::notify_upcoming_meetings`) deliver once to active
@@ -869,8 +909,8 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
         .get(&format!("{ROOT_WS}/courses/{course_id}/exams"))
         .await
         .ok_json();
-    assert_eq!(before[0].score_count, 3);
-    assert_eq!(before[0].average_score, None);
+    assert_eq!(before[0].score_count, 3, "3 scorers before erasure");
+    assert_eq!(before[0].average_score, None, "unpublished before erasure");
 
     socket_request(
         &sock,
@@ -886,23 +926,30 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
         .get(&format!("{ROOT_WS}/courses/{course_id}/meetings"))
         .await
         .ok_json();
-    assert_eq!(meetings[0].attendance.len(), 1);
-    assert_eq!(meetings[0].attendance[0].user_id, a_id);
-    assert_eq!(meetings[0].attendance[0].status, AttendanceStatus::Present);
+    assert_eq!(meetings[0].attendance.len(), 1, "attendance tombstone kept");
+    assert_eq!(meetings[0].attendance[0].user_id, a_id, "erased user_id");
+    assert_eq!(
+        meetings[0].attendance[0].status,
+        AttendanceStatus::Present,
+        "attendance status kept"
+    );
 
     let after: Vec<CourseExam> = ts
         .client
         .get(&format!("{ROOT_WS}/courses/{course_id}/exams"))
         .await
         .ok_json();
-    assert_eq!(after[0].score_count, 2);
-    assert_eq!(after[0].average_score, None);
+    assert_eq!(after[0].score_count, 2, "2 scorers after erasure");
+    assert_eq!(after[0].average_score, None, "unpublished after erasure");
     let after_obs: Vec<CourseExam> = observer
         .get(&format!("{ROOT_WS}/courses/{course_id}/exams"))
         .await
         .ok_json();
-    assert_eq!(after_obs[0].score_count, 2);
-    assert_eq!(after_obs[0].average_score, None);
+    assert_eq!(after_obs[0].score_count, 2, "observer sees 2 scorers");
+    assert_eq!(
+        after_obs[0].average_score, None,
+        "observer sees unpublished None"
+    );
     assert_eq!(
         ts.app
             .store()

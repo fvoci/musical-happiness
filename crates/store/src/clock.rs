@@ -57,7 +57,11 @@ impl Clock {
     #[must_use]
     pub fn now_millis(&self) -> i64 {
         let raw = if self.inner.has_source.load(Ordering::Acquire) {
-            let guard = self.inner.source.read().expect("clock source lock");
+            let guard = self
+                .inner
+                .source
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             guard.as_ref().map_or_else(system_millis, |f| f())
         } else {
             system_millis()
@@ -69,7 +73,11 @@ impl Clock {
     /// timeline (for deterministic tests).
     #[cfg(any(test, feature = "test-util"))]
     pub fn set_source(&self, source: impl Fn() -> i64 + Send + Sync + 'static) {
-        let mut guard = self.inner.source.write().expect("clock source lock");
+        let mut guard = self
+            .inner
+            .source
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *guard = Some(Arc::new(source));
         self.inner.floor.store(0, Ordering::SeqCst);
         self.inner.has_source.store(true, Ordering::Release);
@@ -78,7 +86,11 @@ impl Clock {
     /// Restores [`SystemTime::now`] as the backing time source.
     #[cfg(any(test, feature = "test-util"))]
     pub fn clear_source(&self) {
-        let mut guard = self.inner.source.write().expect("clock source lock");
+        let mut guard = self
+            .inner
+            .source
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *guard = None;
         self.inner.floor.store(0, Ordering::SeqCst);
         self.inner.has_source.store(false, Ordering::Release);
@@ -106,10 +118,7 @@ mod tests {
         assert_eq!(clock.now_millis(), 1_000);
 
         let raw = AtomicI64::new(5_000);
-        clock.set_source(move || {
-            let prev = raw.fetch_sub(100, Ordering::SeqCst);
-            prev
-        });
+        clock.set_source(move || raw.fetch_sub(100, Ordering::SeqCst));
         assert_eq!(clock.now_millis(), 5_000);
         assert_eq!(clock.now_millis(), 5_000, "backward step must clamp");
     }

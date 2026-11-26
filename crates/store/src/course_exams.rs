@@ -29,11 +29,11 @@ use crate::db::{Dialect, Id, Param, Row, Scope};
 use crate::error::StoreError;
 
 /// Minimum active enrolled course members with a recorded score required to publish an
-/// exam result snapshot (`P2-2`).
+/// exam result snapshot.
 pub const MIN_SCORERS_TO_PUBLISH: u32 = 5;
 
 /// Minimum absolute change in active scorer count since the last published snapshot
-/// required before republishing exam results (`P2-2`).
+/// required before republishing exam results.
 pub const MIN_SCORER_DELTA_TO_REPUBLISH: u32 = 3;
 
 /// Outcome of recording the caller's personal exam score.
@@ -103,20 +103,21 @@ struct StoredExam {
 }
 
 impl StoredExam {
-    fn into_view(
+    fn into_unjoined_view(self) -> CourseExam {
+        self.exam
+    }
+
+    fn into_enrolled_view(
         mut self,
-        caller_present: bool,
         live_score_count: u32,
         my_score: Option<MyExamScore>,
     ) -> CourseExam {
-        if caller_present {
-            self.exam.score_count = live_score_count;
-            self.exam.my_score = my_score;
-            if self.results_published_at.is_some() {
-                self.exam.results_published_at = self.results_published_at;
-                self.exam.average_score = self.published_average_score;
-                self.exam.published_score_bucket = self.published_score_bucket;
-            }
+        self.exam.score_count = live_score_count;
+        self.exam.my_score = my_score;
+        if self.results_published_at.is_some() {
+            self.exam.results_published_at = self.results_published_at;
+            self.exam.average_score = self.published_average_score;
+            self.exam.published_score_bucket = self.published_score_bucket;
         }
         self.exam
     }
@@ -178,7 +179,7 @@ impl Store {
             let Some(uid) = caller_user_id else {
                 return Ok(stored
                     .into_iter()
-                    .map(|item| item.into_view(false, 0, None))
+                    .map(StoredExam::into_unjoined_view)
                     .collect());
             };
             let mut counts = fetch_exam_counts(scope, course_id, &org, None).await?;
@@ -188,7 +189,7 @@ impl Store {
                 .map(|item| {
                     let count = counts.remove(&item.exam.id).unwrap_or(0);
                     let mine = my_scores.remove(&item.exam.id);
-                    item.into_view(true, count, mine)
+                    item.into_enrolled_view(count, mine)
                 })
                 .collect())
         })
@@ -315,9 +316,9 @@ impl Store {
                     let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
                         .await?
                         .remove(exam_id);
-                    Ok(existing.into_view(true, count, mine))
+                    Ok(existing.into_enrolled_view(count, mine))
                 }
-                None => Ok(existing.into_view(false, 0, None)),
+                None => Ok(existing.into_unjoined_view()),
             }
         })
         .await
@@ -330,7 +331,7 @@ impl Store {
     /// Requires at least [`MIN_SCORERS_TO_PUBLISH`] active enrolled course members with a
     /// recorded score, and when republishing an already-published exam requires at least
     /// [`MIN_SCORER_DELTA_TO_REPUBLISH`] net scorer count change since the previous
-    /// snapshot (`P2-2`).
+    /// snapshot.
     ///
     /// # Errors
     ///
@@ -396,9 +397,9 @@ impl Store {
                     let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
                         .await?
                         .remove(exam_id);
-                    Ok(Ok(existing.into_view(true, count, mine)))
+                    Ok(Ok(existing.into_enrolled_view(count, mine)))
                 }
-                None => Ok(Ok(existing.into_view(false, 0, None))),
+                None => Ok(Ok(existing.into_unjoined_view())),
             }
         })
         .await
@@ -455,9 +456,9 @@ impl Store {
                     let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
                         .await?
                         .remove(exam_id);
-                    Ok(existing.into_view(true, count, mine))
+                    Ok(existing.into_enrolled_view(count, mine))
                 }
-                None => Ok(existing.into_view(false, 0, None)),
+                None => Ok(existing.into_unjoined_view()),
             }
         })
         .await

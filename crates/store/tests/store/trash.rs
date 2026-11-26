@@ -186,8 +186,8 @@ async fn a_comment_does_not_come_back_onto_what_is_no_card() {
 }
 
 /// A corrupt snapshot row in `deleted_blocks` is skipped during trash listing without
-/// failing the container's trash read (`3ab H-3`), while single-row fetch and restore
-/// still fail closed.
+/// failing the container's trash read, while single-row fetch and restore still fail
+/// closed.
 #[tokio::test]
 async fn corrupt_trash_row_is_skipped_when_listing_deleted_blocks() {
     let test = common::setup().await;
@@ -232,22 +232,31 @@ async fn corrupt_trash_row_is_skipped_when_listing_deleted_blocks() {
         .expect("corrupt snapshot inserted");
 
     let listed = store
-        .get_deleted_blocks(&private_board.id, Some(BlockType::Card))
+        .get_deleted_cards(&private_board.id, None)
         .await
         .expect("listing skips corrupt row");
     assert_eq!(
-        listed.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(),
+        listed
+            .iter()
+            .map(|d| d.block.id.as_str())
+            .collect::<Vec<_>>(),
         [card_id.as_str()],
         "valid trashed card returned while corrupt row is skipped"
     );
-    assert!(matches!(
-        store.get_deleted_block(&corrupt_id).await,
-        Err(StoreError::Corrupt { .. })
-    ));
-    assert!(matches!(
-        store.undelete_block(&corrupt_id, &alice).await,
-        Err(StoreError::Corrupt { .. })
-    ));
+    assert!(
+        matches!(
+            store.get_deleted_block(&corrupt_id).await,
+            Err(StoreError::Corrupt { .. })
+        ),
+        "corrupt deleted_block must fail get_deleted_block"
+    );
+    assert!(
+        matches!(
+            store.undelete_block(&corrupt_id, &alice).await,
+            Err(StoreError::Corrupt { .. })
+        ),
+        "corrupt deleted_block must fail undelete_block"
+    );
 
     test.teardown().await;
 }

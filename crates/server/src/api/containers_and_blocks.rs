@@ -196,21 +196,20 @@ async fn handle_patch_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Api
         container_ids.insert(container_id.as_str());
 
         let names_a_kind = names_a_kind.get(index).copied().unwrap_or_default();
-        let access = match access_by_container.get(container_id.as_str()) {
-            Some(found) => found,
-            None => {
-                let loaded = ws.app.container_access(user_id, container_id).await?;
-                let grant = loaded.as_ref().map_or(Grant::NONE, |found| found.grant);
-                require_granted(
-                    grant,
-                    ContainerPermission::ManageProperties,
-                    "access denied to modifying board properties",
-                )?;
-                let found = loaded.ok_or_else(|| AppError::not_found("board"))?;
-                access_by_container
-                    .entry(container_id.as_str())
-                    .or_insert(found)
-            }
+        let access = if let Some(found) = access_by_container.get(container_id.as_str()) {
+            found
+        } else {
+            let loaded = ws.app.container_access(user_id, container_id).await?;
+            let grant = loaded.as_ref().map_or(Grant::NONE, |found| found.grant);
+            require_granted(
+                grant,
+                ContainerPermission::ManageProperties,
+                "access denied to modifying board properties",
+            )?;
+            let found = loaded.ok_or_else(|| AppError::not_found("board"))?;
+            access_by_container
+                .entry(container_id.as_str())
+                .or_insert(found)
         };
         require_granted(
             access.grant,

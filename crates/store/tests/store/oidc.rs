@@ -49,6 +49,12 @@ fn join_task(
 /// the organization: the identifier of each.
 async fn known_account_and_provider(test: &Store) -> (String, String, String) {
     let account = common::user(&test.scoped(Tenant::Unset), "existing-identity").await;
+    test.system()
+        .execute_unchecked(&format!(
+            "UPDATE users SET email_verified_at = created_at WHERE id = '{account}'"
+        ))
+        .await
+        .expect("fixture account has verified address");
     let password_hash = test
         .get_user_by_id(&account)
         .await

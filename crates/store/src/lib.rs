@@ -68,6 +68,7 @@ mod oidc_former;
 mod oidc_held;
 mod oidc_identities;
 mod oidc_pending;
+mod open;
 mod operator_records;
 mod org_admin;
 mod org_leaving;
@@ -107,8 +108,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::Connection as _;
-use sqlx::postgres::{PgPool, PgPoolOptions};
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::postgres::PgPool;
+use sqlx::sqlite::SqlitePool;
 
 pub use account_deletion::{DeletionAsking, DeletionStanding};
 pub use account_erasure::{Erasing, ErasureEnd, ErasureStart, HandedOver, LeftFrom};
@@ -127,8 +128,7 @@ pub use clock::Clock;
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
-pub use container_team_access::ContainerAccessFacts;
-pub use containers::{Joined, MemberChange, PublicContainers};
+pub use containers::{ContainerAccessFacts, Joined, MemberChange, PublicContainers};
 pub use containers_and_blocks::{StreamBatch, StreamCreateError};
 pub use course_exams::{
     ExamPublishError, ExamScoreOutcome, MIN_SCORER_DELTA_TO_REPUBLISH, MIN_SCORERS_TO_PUBLISH,
@@ -397,149 +397,6 @@ impl Store {
     }
 
     /// Brings the schema of the database up to date, as [`Store::connect`] does: for a
-    /// caller that looks at the connection ([`Store::role_past_the_wall`]) before
-    /// anything is changed through it.
-    ///
-    /// A database whose schema is this build's already is left as it is, so that a role
-    /// that does not own the tables may serve it once their owner brought them up to
-    /// date. Then only the changes of the data the migrations left to the server are
-    /// done, if any are still to do.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::SchemaNotOwned`] if the schema is to be changed and the
-    /// role may not change it (it does not own the tables), [`StoreError::Schema`] if
-    /// the database is not this server's to open or the role may not read and write
-    /// its tables, and [`StoreError::Database`] if a statement fails.
-    pub async fn migrate(&self) -> Result<(), StoreError> {
-        let state = schema::state(self).await?;
-        let may_change = schema::may_change(self).await?;
-        let reason = match (state, may_change) {
-            (schema::SchemaState::Current, true) => None,
-            (schema::SchemaState::Current, false) => {
-                let ungranted = schema::ungranted_tables(self).await?;
-                if !ungranted.is_empty() {
-                    let (role, schema) = schema::whereabouts(self).await?;
-                    return Err(StoreError::Schema(format!(
-                        "the role {role} may not read and write the tables {} of the schema \
-                         {schema}: grant it SELECT, INSERT, UPDATE and DELETE on them \
-                         (SELECT on _sqlx_migrations)",
-                        ungranted.join(", ")
-                    )));
-                }
-                None
-            }
-            (schema::SchemaState::Behind | schema::SchemaState::Foreign(_), true) => {
-                schema::migrate(self, None).await?;
-                None
-            }
-            (schema::SchemaState::Behind, false) => {
-                Some("migrations of this server are not applied yet".to_owned())
-            }
-            (schema::SchemaState::Foreign(reason), false) => Some(reason),
-        };
-        if let Some(reason) = reason {
-            let (role, schema) = schema::whereabouts(self).await?;
-            return Err(StoreError::SchemaNotOwned {
-                role,
-                schema,
-                reason,
-            });
-        }
-        data_steps::run(self).await
-    }
-
-    /// Connects to the database and leaves its schema as it is. Nothing but
-    /// [`Store::role_past_the_wall`] works on such a store before [`Store::migrate`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Config`] if `database_connection` cannot be used, and
-    /// [`StoreError::Database`] if the database cannot be reached.
-    pub async fn open(db_type: DbType, connection: &str) -> Result<Self, StoreError> {
-        Self::open_with_max_connections(db_type, connection, DEFAULT_MAX_CONNECTIONS).await
-    }
-
-    /// Connects to the database with an explicit pool size limit (`max_connections`) and
-    /// leaves its schema as it is.
-    ///
-    /// # Errors
-    ///
-    /// As [`Store::open`].
-    pub async fn open_with_max_connections(
-        db_type: DbType,
-        connection: &str,
-        max_connections: u32,
-    ) -> Result<Self, StoreError> {
-        let max_connections = max_connections.max(1);
-        let mut lock_file = None;
-        // What an abandoned write may still take to land (`visibility::settle_after`).
-        let longest_wait = match db_type {
-            DbType::Sqlite => connect::sqlite_settings(connection)?.busy_timeout,
-            DbType::Postgres => Duration::ZERO,
-        };
-        let pool = match db_type {
-            DbType::Sqlite => {
-                let settings = connect::sqlite_settings(connection)?;
-                let database =
-                    (!settings.in_memory).then(|| settings.options.get_filename().to_path_buf());
-                let options = if settings.in_memory {
-                    // The database exists only while a connection to it does, and a single
-                    // connection sidesteps the table-level locks of SQLite's shared cache.
-                    SqlitePoolOptions::new()
-                        .max_connections(1)
-                        .min_connections(1)
-                        .idle_timeout(None)
-                        .max_lifetime(None)
-                } else {
-                    SqlitePoolOptions::new().max_connections(max_connections)
-                };
-                let pool = options.connect_with(settings.options).await?;
-                // Once connected, the file of the database is there to be followed to.
-                lock_file = database.as_deref().map(server_lock::file_beside);
-                Pool::Sqlite(pool)
-            }
-            DbType::Postgres => {
-                let settings = connect::postgres_settings(connection)?;
-                let mut options = PgPoolOptions::new().max_connections(max_connections);
-                if let Some(timeout) = settings.connect_timeout {
-                    options = options.acquire_timeout(timeout.max(Duration::from_secs(1)));
-                }
-                Pool::Postgres(options.connect_with(settings.options).await?)
-            }
-        };
-
-        Ok(Self {
-            tenant: Tenant::Unset,
-            noting: db::Noting::Named,
-            inner: Arc::new(Inner {
-                pool,
-                sqlite_writers: tokio::sync::Mutex::new(()),
-                comment_versions_kept: std::sync::atomic::AtomicUsize::new(
-                    usize::try_from(comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT)
-                        .unwrap_or(usize::MAX),
-                ),
-                search_outbox: std::sync::atomic::AtomicBool::new(false),
-                body_versions_kept: std::sync::atomic::AtomicU32::new(
-                    body_versions::DEFAULT_BODY_VERSIONS_KEPT,
-                ),
-                body_versions_max_bytes: std::sync::atomic::AtomicU64::new(
-                    body_versions::DEFAULT_BODY_VERSIONS_MAX_BYTES,
-                ),
-                file_versions_kept: std::sync::atomic::AtomicU32::new(
-                    file_versions::DEFAULT_FILE_VERSIONS_KEPT,
-                ),
-                observer: std::sync::OnceLock::new(),
-                visibility: visibility::Visibility::settling_for(visibility::settle_after(
-                    longest_wait,
-                )),
-                other_spellings: tokio::sync::OnceCell::new(),
-                clock: clock::Clock::new(),
-                lock_file,
-            }),
-        })
-    }
-
     /// Returns the store's shared monotonic [`Clock`].
     #[must_use]
     pub fn clock(&self) -> &clock::Clock {

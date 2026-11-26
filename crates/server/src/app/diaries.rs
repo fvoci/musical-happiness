@@ -306,7 +306,7 @@ impl App {
         let workspace_id = workspace_id.to_owned();
         self.spawn_background(async move {
             app.ws().broadcast_block_change(&workspace_id, &entry).await;
-            app.tell_webhooks(&entry).await;
+            app.tell_webhooks(&entry);
         });
     }
 }

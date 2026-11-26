@@ -266,24 +266,26 @@ fn is_whole_number_in(value: &Value, low: i32, high: i32) -> bool {
 }
 
 /// Whether a stored file name (`fileId`) of an image or file block is well-formed:
-/// 1 to 100 ASCII characters of `[A-Za-z0-9_-]+` optionally followed by a single
-/// `.[A-Za-z0-9]+` extension. Rejects path separators, `..`, `.`, control characters,
-/// whitespace, and non-ASCII text.
+/// 1 to 100 ASCII characters of dot-separated `[A-Za-z0-9_-]+` segments whose final
+/// extension (when a dot is present) is `[A-Za-z0-9]+`. Rejects path separators, `..`,
+/// leading or trailing `.`, control characters, whitespace, and non-ASCII text.
 #[must_use]
 pub fn is_file_id(name: &str) -> bool {
     if !(1..=100).contains(&name.len()) {
         return false;
     }
-    let is_stem = |part: &str| {
+    let is_part = |part: &str| {
         !part.is_empty()
             && part
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     };
-    match name.split_once('.') {
-        None => is_stem(name),
+    match name.rsplit_once('.') {
+        None => is_part(name),
         Some((stem, ext)) => {
-            is_stem(stem) && !ext.is_empty() && ext.bytes().all(|b| b.is_ascii_alphanumeric())
+            stem.split('.').all(is_part)
+                && !ext.is_empty()
+                && ext.bytes().all(|b| b.is_ascii_alphanumeric())
         }
     }
 }
@@ -625,6 +627,8 @@ mod tests {
             "7abc.png",
             "x.png",
             "Ab-_9.jpg",
+            "agenda.en.docx",
+            "viewer-sample.ko.docx",
             "noext",
             "f0",
             &"f".repeat(100),

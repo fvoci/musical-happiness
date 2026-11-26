@@ -250,7 +250,7 @@ async fn handle_import(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let slot = ws.app.start_import(&user_id)?;
     let app = ws.app.clone();
     // Run inside `spawn_tracked` so a client disconnect mid-import never drops an
-    // in-flight S3 multipart upload or leaves staged objects uncleaned (`Track4 H-8`).
+    // in-flight S3 multipart upload or leaves staged objects uncleaned.
     let summary = ws
         .app
         .spawn_tracked(async move {

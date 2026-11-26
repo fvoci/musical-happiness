@@ -129,8 +129,8 @@ WHERE email <> '' AND erased_at = 0;
 
 ALTER TABLE course_exams ADD COLUMN results_published_at BIGINT;
 ALTER TABLE course_exams ADD COLUMN published_average_score DOUBLE PRECISION;
-ALTER TABLE course_exams ADD COLUMN published_score_bucket INTEGER;
-ALTER TABLE course_exams ADD COLUMN published_submission_count INTEGER;
+ALTER TABLE course_exams ADD COLUMN published_score_bucket BIGINT;
+ALTER TABLE course_exams ADD COLUMN published_submission_count BIGINT;
 
 CREATE FUNCTION course_child_of_its_course() RETURNS trigger
 LANGUAGE plpgsql AS $$

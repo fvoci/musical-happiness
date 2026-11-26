@@ -240,7 +240,7 @@ impl Hub {
 
     /// Ends the affected subscription on recipients whose check was overtaken by
     /// permission writes every time so their client re-subscribes and reloads without
-    /// dropping the entire WebSocket connection (`gapfill H-3`).
+    /// dropping the entire WebSocket connection.
     fn give_up(&self, ids: &[ListenerId], message_type: &str, access: Access<'_>) {
         tracing::warn!(
             message_type,

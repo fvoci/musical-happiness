@@ -632,13 +632,29 @@ async fn postgres_org_isolation_and_cross_org_key_safety() {
         .expect_err("org A cannot touch org B unit");
     assert!(err.is_not_found(), "{err:?}");
 
+    let cross_org_course_err = test
+        .execute_unchecked(&format!(
+            "INSERT INTO unit_progress (unit_id, container_id, user_id, completed_at, updated_at) \
+             VALUES ('{}', '{}', '{user_b}', 100, 100)",
+            unit_b.id, course_b.id
+        ))
+        .await;
+    assert!(
+        matches!(
+            cross_org_course_err,
+            Err(fvoci_store::StoreError::Database(_))
+        ),
+        "org A cannot point unit_progress at org B's course: {cross_org_course_err:?}"
+    );
+
+    let course_a = create_course(&test, &test.workspace_id, &user_a).await;
     test.execute_unchecked(&format!(
         "INSERT INTO unit_progress (unit_id, container_id, user_id, completed_at, updated_at) \
          VALUES ('{}', '{}', '{user_b}', 100, 100)",
-        unit_b.id, course_b.id
+        unit_b.id, course_a.id
     ))
     .await
-    .expect("org A inserts its own row");
+    .expect("org A inserts its own row under its own course");
     store_b
         .upsert_unit_progress(
             &course_b.id,
@@ -654,10 +670,13 @@ async fn postgres_org_isolation_and_cross_org_key_safety() {
     assert_eq!(unset.count_rows("unit_progress").await.expect("unset"), 0);
     assert_eq!(store_b.count_rows("unit_progress").await.expect("org b"), 1);
 
-    test.system()
-        .purge_trash(0)
+    test.delete_container(&course_a.id, &user_a)
         .await
-        .expect("system purge removes org A orphan row");
+        .expect("trash org A course");
+    test.system()
+        .purge_trash(i64::MAX)
+        .await
+        .expect("system purge removes org A purged-course row");
     assert_eq!(test.count_rows("unit_progress").await.expect("org a"), 0);
     assert_eq!(store_b.count_rows("unit_progress").await.expect("org b"), 1);
     test.teardown().await;

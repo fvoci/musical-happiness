@@ -947,7 +947,7 @@ fn first_missing_run(
         })
 }
 
-/// Per-client sorted, merged deletion intervals for `O(log D)` overlap queries (`H1`).
+/// Per-client sorted, merged deletion intervals for `O(log D)` overlap queries.
 struct DeleteIndex(HashMap<u64, Vec<(u32, u32)>>);
 
 impl DeleteIndex {

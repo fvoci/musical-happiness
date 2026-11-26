@@ -240,7 +240,7 @@ impl App {
                     }
                 };
                 app.ws().broadcast_block_change(&workspace_id, &block).await;
-                app.tell_webhooks(&block).await;
+                app.tell_webhooks(&block);
             }
         });
     }

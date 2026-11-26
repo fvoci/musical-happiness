@@ -141,7 +141,7 @@ pub(crate) fn category(workspace_id: &str, user_id: &str, name: &str) -> Categor
 }
 
 /// Subscribes an authenticated socket to a workspace and waits for its `workspaceSubscribed`
-/// acknowledgement (`M2`).
+/// acknowledgement.
 pub(crate) async fn subscribe_to_workspace(
     _th: &TestServer,
     socket: &mut Socket,
@@ -499,19 +499,19 @@ async fn block_subscription_needs_the_read_token() {
     let mut reader = Socket::connect(&th).await;
     reader.send(subscribe(&token)).await;
 
-    // No acknowledgement: broadcast until the reader's subscription shows.
-    let mut received = None;
-    for _ in 0..50 {
-        th.app
-            .ws()
-            .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
-            .await;
-        if let Some(message) = reader.next_json(Duration::from_millis(100)).await {
-            received = Some(message);
-            break;
-        }
-    }
-    let message = received.expect("the reader is told about the block");
+    let ack = reader
+        .next_json(PATIENCE)
+        .await
+        .expect("blocksSubscribed ACK");
+    assert_eq!(ack["type"], json!("blocksSubscribed"), "{ack}");
+    th.app
+        .ws()
+        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
+        .await;
+    let message = reader
+        .next_json(PATIENCE)
+        .await
+        .expect("the reader is told about the block");
     assert_eq!(message["type"], json!("blockChanged"), "{message}");
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
 
@@ -693,16 +693,18 @@ pub(crate) async fn follow_block_on(
             "blockIds": [block.id],
         }))
         .await;
-    for _ in 0..50 {
-        th.app
-            .ws()
-            .broadcast_block_change(ROOT_WORKSPACE_ID, block)
-            .await;
-        if let Some(message) = reader.next_json(Duration::from_millis(100)).await {
-            // Later broadcasts may still be queued; let them drain.
-            while reader.next_json(Duration::from_millis(150)).await.is_some() {}
-            return (reader, message);
-        }
+    let ack = reader
+        .next_json(PATIENCE)
+        .await
+        .expect("blocksSubscribed ACK");
+    assert_eq!(ack["type"], json!("blocksSubscribed"), "{ack}");
+    th.app
+        .ws()
+        .broadcast_block_change(ROOT_WORKSPACE_ID, block)
+        .await;
+    if let Some(message) = reader.next_json(PATIENCE).await {
+        while reader.next_json(Duration::from_millis(150)).await.is_some() {}
+        return (reader, message);
     }
     panic!("the reader was never told about the block");
 }
@@ -1384,13 +1386,17 @@ async fn hear_the_endings(
             "blockIds": [block.id], "readToken": token}),
         )
         .await;
-    while socket.next_json(QUIET).await.is_some() {}
+    contract_check.hear(socket, "blocksSubscribed").await;
     th.app.ws().end_readers_of_container(&block.container_id);
     contract_check.hear(socket, "blocksUnsubscribed").await;
     th.app
         .ws()
         .workspace_role_changed(ROOT_WORKSPACE_ID, user_id);
     contract_check.hear(socket, "workspaceUnsubscribed").await;
+    socket
+        .send(json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))
+        .await;
+    contract_check.hear(socket, "workspaceSubscribed").await;
 }
 
 /// A private board of the root workspace with the text properties `a`, `b` and `c`, in that

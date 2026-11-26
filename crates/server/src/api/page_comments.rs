@@ -45,7 +45,10 @@ pub(crate) struct NewPageComment {
     /// The comment's text, as a page's body is written; neither empty nor `null`.
     #[serde(default)]
     #[schema(value_type = Body)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "body is extracted via decode_with_document while ToSchema exposes it"
+    )]
     body: BodyChange,
 }
 
@@ -57,7 +60,10 @@ pub(crate) struct PageCommentPatch {
     /// The comment's new text, as a page's body is written; neither empty nor `null`.
     #[serde(default)]
     #[schema(value_type = Body)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "body is extracted via decode_with_document while ToSchema exposes it"
+    )]
     body: BodyChange,
     /// The `updatedAt` of the comment as the client read it: if the comment has changed
     /// since, the patch is refused with 409 and changes nothing.
@@ -126,7 +132,7 @@ async fn handle_create_page_comment(
     .await?;
     let comment = create_comment_on::<NewPageComment>(&ws, &wiki_id, page, "page", &body).await?;
     tracing::debug!(wiki_id, page_id, comment_id = %comment.id, user_id, "CreatePageComment");
-    created_comment(&comment)
+    Ok(created_comment(&comment))
 }
 
 /// Change a comment on a page

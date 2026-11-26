@@ -252,7 +252,8 @@ pub(super) async fn container_file_record(
 /// `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
 /// the limit is the part, the refusal has the reason `upload_in_parts`: a file within
 /// `maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the
-/// reason is `file_too_large`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
+/// reason is `file_too_large`; where storing the file would exceed the organization's
+/// storage limit, the refusal is 413 with the reason `storage_full`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
 /// case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
 /// anything but letters and digits in it, is left off. For editors.
 #[utoipa::path(

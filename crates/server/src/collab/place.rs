@@ -311,14 +311,14 @@ impl Collab {
                     )
                 });
                 if entry.0.is_empty() && !container_id.is_empty() {
-                    entry.0 = container_id.to_owned();
+                    container_id.clone_into(&mut entry.0);
                 }
                 Arc::clone(&entry.1)
             };
             let mut slot = shared.lock_owned().await;
             if !slot.retired {
                 if slot.container_id.is_empty() && !container_id.is_empty() {
-                    slot.container_id = container_id.to_owned();
+                    container_id.clone_into(&mut slot.container_id);
                 }
                 return slot;
             }

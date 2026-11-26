@@ -1,7 +1,5 @@
 //! Sending an existing invitation under the same permissions as making its link.
 
-use std::collections::BTreeMap;
-
 use fvoci_model::{Invitation, InvitationMail, WorkspaceRole};
 
 use super::super::language::Language;
@@ -40,7 +38,7 @@ impl App {
             .with_reason(Reason::TooManyRecipients)
             .with_limit(u64::from(limit)));
         }
-        let mut recipients = BTreeMap::new();
+        let mut recipients = std::collections::BTreeSet::new();
         for recipient in &request.recipients {
             let normalized = recipient.trim().to_owned();
             if recipient.contains(['\r', '\n'])
@@ -52,9 +50,7 @@ impl App {
                 )
                 .with_field("recipients"));
             }
-            recipients
-                .entry(normalized.to_lowercase())
-                .or_insert_with(|| with_lowercase_domain(&normalized));
+            recipients.insert(with_lowercase_domain(&normalized));
         }
         if recipients.is_empty() {
             return Err(AppError::bad_request("at least one recipient is required")
@@ -102,7 +98,7 @@ impl App {
                         .with_reason(Reason::MailQueueFull)
                 }
             })?;
-        request.recipients = recipients.into_values().collect();
+        request.recipients = recipients.into_iter().collect();
         let admitted = self
             .inner
             .mail
@@ -262,26 +258,31 @@ impl App {
                 Delivered::Refused | Delivered::GivenUp | Delivered::Withdrawn
             ) && let Some((id, _)) = made
             {
-                match self
-                    .store()
-                    .revoke_invitation(workspace_id, &id, Some(sender), now_millis())
-                    .await
-                {
-                    Ok(true) => tracing::info!(
-                        invitation_id = %id,
-                        workspace_id,
-                        "a link nobody received was revoked"
-                    ),
-                    Ok(false) => {}
-                    Err(error) => tracing::warn!(
-                        %error,
-                        invitation_id = %id,
-                        "a link nobody received could not be revoked"
-                    ),
-                }
+                self.revoke_undelivered_guest_link(workspace_id, sender, &id)
+                    .await;
             }
         }
         Ok(())
+    }
+
+    async fn revoke_undelivered_guest_link(&self, workspace_id: &str, sender: &str, id: &str) {
+        match self
+            .store()
+            .revoke_invitation(workspace_id, id, Some(sender), now_millis())
+            .await
+        {
+            Ok(true) => tracing::info!(
+                invitation_id = %id,
+                workspace_id,
+                "a link nobody received was revoked"
+            ),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(
+                %error,
+                invitation_id = %id,
+                "a link nobody received could not be revoked"
+            ),
+        }
     }
 
     /// Whether an invitation message written a while ago still stands: the link it was

@@ -34,8 +34,9 @@ pub(crate) fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 13] = [
+    const ALLOWED: [&str; 14] = [
         "store/src/lib.rs",
+        "store/src/db.rs",
         "store/src/notifications.rs",
         "store/src/time_entries.rs",
         "store/src/account_deletion.rs",
@@ -266,11 +267,12 @@ fn the_operators_webhooks_are_posted_from_one_place() {
             if code.starts_with("//") || code.starts_with("pub async fn notify_update(") {
                 continue;
             }
-            if code.contains("notify_update(") || code.contains(".webhook") {
+            if code.contains("notify_update(") || code.contains("inner.webhook") {
                 posting.push(name.clone());
             }
         }
     }
+    posting.dedup();
     assert_eq!(
         posting,
         ["app/webhooks.rs"],

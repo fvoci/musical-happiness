@@ -939,28 +939,7 @@ async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreEr
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// Ties an identity to an account, as the provider gave its address.
-pub(crate) async fn insert_identity(
-    scope: &mut Scope<'_>,
-    identity: Identity<'_>,
-    user_id: &str,
-    email: &str,
-    now: i64,
-) -> Result<(), StoreError> {
-    let mut sql = scope
-        .sql("INSERT INTO user_identities (issuer, subject, user_id, email, created_at) VALUES (");
-    sql.bind(identity.issuer)
-        .push_bind(", ", identity.subject)
-        .push_bind(", ", Id(user_id))
-        .push_bind(", ", email)
-        .push_bind(", ", now)
-        .push(")");
-    match scope.execute(sql).await {
-        Ok(_) => Ok(()),
-        Err(StoreError::Database(error)) => Err(crate::users::unique_violation(error)),
-        Err(error) => Err(error),
-    }
-}
+pub(crate) use crate::oidc_identities::insert_identity;
 
 fn provider_from_row(row: &Row) -> Result<StoredProvider, StoreError> {
     Ok(StoredProvider {

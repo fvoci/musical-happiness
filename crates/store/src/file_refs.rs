@@ -277,7 +277,7 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
         .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = file_refs.block_id")
         .push_fragment(&scope.same_organization(&[("d", "file_refs")]))
         .push(")");
-    let sql = scope.sql(statement);
+    let sql = scope.sql(&statement);
     scope.execute(sql).await?;
     Ok(())
 }

@@ -299,18 +299,23 @@ impl Store {
         .await
     }
 
-    /// Returns the distinct blocks matching `ids`, oldest first. Duplicate identifiers in
-    /// `ids` are deduplicated before querying.
+    /// Returns the blocks matching `ids`, oldest first.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotAllFound`] unless every distinct identifier in `ids`
-    /// resolves to a live block.
+    /// Returns [`StoreError::NotAllFound`] unless every identifier in `ids` resolves to
+    /// a distinct live block (duplicate identifiers count as missing).
     pub async fn get_blocks_by_ids(&self, ids: &[String]) -> Result<Vec<Block>, StoreError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         let unique: BTreeSet<&str> = ids.iter().map(String::as_str).collect();
+        if unique.len() != ids.len() {
+            return Err(StoreError::NotAllFound {
+                entity: "block",
+                ids: ids.to_vec(),
+            });
+        }
         self.with_conn(async |scope| {
             let mut sql = select_blocks(scope);
             sql.push(" WHERE id IN (")
@@ -318,7 +323,7 @@ impl Store {
                 .push(")")
                 .push(OLDEST_FIRST);
             let blocks = fetch_blocks(scope, sql).await?;
-            if blocks.len() == unique.len() {
+            if blocks.len() == ids.len() {
                 Ok(blocks)
             } else {
                 Err(StoreError::NotAllFound {
@@ -573,7 +578,7 @@ impl Store {
             for chunk in container_ids.chunks(CHUNK) {
                 let mut sql = scope.sql("SELECT id FROM blocks WHERE container_id IN (");
                 sql.bind_list(chunk.iter().map(|id| Id(id))).push(") AND ");
-                sql.push(body_versions::with_room_sql("type"));
+                sql.push(&body_versions::with_room_sql("type"));
                 for row in scope.fetch_all(sql).await? {
                     found.insert(row.id(0)?);
                 }
@@ -681,7 +686,7 @@ fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &[&'static 
         head.push(part);
     }
     head.push(" FROM blocks WHERE 1 = 1");
-    let mut sql = scope.sql(head);
+    let mut sql = scope.sql(&head);
     if let Some(container_id) = &filter.container_id {
         sql.push_bind(" AND container_id = ", Id(container_id));
     }
@@ -849,38 +854,32 @@ async fn insert_block_inner(
     how: Written,
     preloaded: Option<(ContainerKind, Block)>,
 ) -> Result<Vec<NamedCards>, StoreError> {
-    let Written {
-        new_files,
-        body_write,
-        telling,
-    } = how;
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
         id: block.id.clone(),
         source,
     };
     block.validate().map_err(|source| invalid(block, source))?;
-    let (kind, existing) = match preloaded {
-        Some((kind, existing)) => (kind, Some(existing)),
-        None => {
-            // One writer per board at a time, from before anything is read: the parent
-            // that is found below is still there when the block is stored.
-            let Some(kind) = containers::lock_container_of_kind(scope, &block.container_id).await?
-            else {
-                return Err(StoreError::not_found(format_args!(
-                    "board ID={} of block {}",
-                    block.container_id, block.id
-                )));
-            };
-            let existing = find_block(scope, &block.id).await?;
-            (kind, existing)
-        }
+    let (kind, existing) = if let Some((kind, existing)) = preloaded {
+        (kind, Some(existing))
+    } else {
+        // One writer per board at a time, from before anything is read: the parent
+        // that is found below is still there when the block is stored.
+        let Some(kind) = containers::lock_container_of_kind(scope, &block.container_id).await?
+        else {
+            return Err(StoreError::not_found(format_args!(
+                "board ID={} of block {}",
+                block.container_id, block.id
+            )));
+        };
+        let existing = find_block(scope, &block.id).await?;
+        (kind, existing)
     };
+    let parent = info_of_parent(scope, block).await?;
     if let Some(before) = &existing
         && block.block_type != before.block_type
     {
         return Err(invalid(block, BlockError::TypeChanges));
     }
-    let parent = info_of_parent(scope, block).await?;
     let parent_type = parent.as_ref().map(|info| &info.block_type);
     let now = at.unwrap_or_else(|| scope.now_millis());
     block.updated_at = now;
@@ -902,268 +901,21 @@ async fn insert_block_inner(
     let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     card_numbers::number_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
-        // Every change of a block moves its `updatedAt` on, also within one millisecond
-        // and when the clock steps back: a writer that read the block before this
-        // change is told so (`readAt`).
-        block.created_by.clone_from(&existing.created_by);
-        block.created_at = existing.created_at;
-        block.updated_at = now.max(existing.updated_at.saturating_add(1));
-        crate::diaries::stamp_entry_body_time(block, Some(&existing));
-        // A block stays on its board: the update is keyed by the board too, and a block
-        // of that identifier on another board is not this block.
-        let mut sql = scope.sql("UPDATE blocks SET ");
-        sql.push_bind("parent_id = ", OptId(&block.parent_id))
-            .push_bind(", modified_by = ", OptId(&block.modified_by))
-            .push_bind(", title = ", &block.title)
-            .push_bind(", fields = ", Param::json(&block.fields)?)
-            .push_bind(", number = ", card_numbers::number_param(block.number))
-            .push_bind(", updated_at = ", block.updated_at);
-        push_body(&mut sql, block.body.as_ref(), BodyColumns::Assign)?;
-        sql.push_bind(" WHERE id = ", Id(&block.id))
-            .push_bind(" AND container_id = ", Id(&block.container_id));
-        if scope.execute(sql).await? == 0 {
-            return Err(StoreError::not_found(format_args!(
-                "block ID={} on board {}",
-                block.id, block.container_id
-            )));
-        }
-        block.edited_at =
-            if comment_versions::record_change(scope, &existing, block, user_id).await? {
-                block.updated_at
-            } else {
-                existing.edited_at
-            };
-        // Before the files are put down: what the body before showed is still shown
-        // by its version.
-        if let Some(cause) = body_write.kept_after() {
-            body_versions::record_change(scope, &existing, block, user_id, cause).await?;
-        }
-        block_derived::refresh(scope, block, Before::Stored(&existing), new_files).await?;
-        notification_noting::note_named(scope, block, Some(&existing), user_id, telling).await?;
+        write::update_existing_block_row(scope, &existing, block, user_id, now, how).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.created_at = now;
         block.edited_at = 0;
         crate::diaries::stamp_entry_body_time(block, None);
-        insert_block_row(scope, block, new_files).await?;
-        notification_noting::note_named(scope, block, None, user_id, telling).await?;
+        insert_block_row(scope, block, how.new_files).await?;
+        notification_noting::note_named(scope, block, None, user_id, how.telling).await?;
     }
     Ok(named)
 }
 
-/// Inserts a block row with every column as `block` has it. For a new block, and for
-/// one that comes back from the trash; its body's files are asked as `new_files` says.
-pub(crate) async fn insert_block_row(
-    scope: &mut Scope<'_>,
-    block: &Block,
-    new_files: NewBodyFiles,
-) -> Result<(), StoreError> {
-    let mut sql = scope.sql([
-        "INSERT INTO blocks (",
-        BLOCK_COLUMNS,
-        ", ",
-        BODY_SUMMARY_COLUMNS,
-        ") VALUES (",
-    ]);
-    sql.bind(Id(&block.id))
-        .push_bind(", ", OptId(&block.parent_id))
-        .push_bind(", ", OptId(&block.created_by))
-        .push_bind(", ", OptId(&block.modified_by))
-        .push_bind(", ", block.block_type.as_str())
-        .push_bind(", ", &block.title)
-        .push_bind(", ", Param::json(&block.fields)?)
-        .push_bind(", ", block.created_at)
-        .push_bind(", ", block.updated_at)
-        .push_bind(", ", Id(&block.container_id))
-        .push_bind(", ", card_numbers::number_param(block.number));
-    push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
-    sql.push(")");
-    scope.execute(sql).await?;
-    block_derived::refresh(scope, block, Before::Absent, new_files).await
-}
-
-/// How [`push_body`] writes the body's columns.
-#[derive(Debug, Clone, Copy)]
-enum BodyColumns {
-    /// As `, column = value` for an `UPDATE`.
-    Assign,
-    /// As `, value` in the order of [`BLOCK_COLUMNS`]' `body` and then
-    /// [`BODY_SUMMARY_COLUMNS`], for an `INSERT`.
-    List,
-}
-
-/// Appends the body and what is worked out from it (`body_version`, `body_text`,
-/// `body_tasks_total`, `body_tasks_done`, `body_first_image`).
-fn push_body(sql: &mut Sql, body: Option<&Body>, how: BodyColumns) -> Result<(), StoreError> {
-    let tasks = body.map(Body::tasks).unwrap_or_default();
-    let first_image = body.and_then(Body::first_image_file_id).map(str::to_owned);
-    let values = [
-        (", body = ", Param::opt_jsonb(body.map(Body::document))?),
-        (
-            ", body_version = ",
-            Param::OptInt(body.map(|_| BODY_VERSION)),
-        ),
-        (", body_text = ", Param::OptText(body.map(Body::text))),
-        (", body_tasks_total = ", Param::Int(i64::from(tasks.total))),
-        (", body_tasks_done = ", Param::Int(i64::from(tasks.done))),
-        (", body_first_image = ", Param::OptText(first_image)),
-    ];
-    for (assign, value) in values {
-        match how {
-            BodyColumns::Assign => sql.push_bind(assign, value),
-            BodyColumns::List => sql.push_bind(", ", value),
-        };
-    }
-    Ok(())
-}
-
-pub(crate) async fn insert_blocks(
-    scope: &mut Scope<'_>,
-    blocks: &mut [Block],
-    user_id: &str,
-    new_files: NewBodyFiles,
-    telling: Telling,
-) -> Result<(), StoreError> {
-    for block in blocks.iter() {
-        block
-            .validate()
-            .map_err(|source| StoreError::InvalidBlock {
-                id: block.id.clone(),
-                source,
-            })?;
-    }
-    card_hierarchy::check_batch_cycles(blocks)?;
-    containers::lock_containers(
-        scope,
-        blocks.iter().map(|block| block.container_id.as_str()),
-    )
-    .await?;
-    // One time for all of them. They are stored parents first, which is not the order
-    // they were given in, and a list of blocks is by creation time and then by
-    // identifier: with a time for each, where a millisecond happened to end would
-    // decide the order they are listed in. With one time it is that of their
-    // identifiers, which whoever made them made in the order that is meant.
-    let now = scope.now_millis();
-    // What relation values name is asked for once all are stored: two new cards may
-    // name each other.
-    let mut named = Vec::new();
-    for index in parents_first(blocks) {
-        let block = &mut blocks[index];
-        named.extend(
-            insert_block_at(
-                scope,
-                block,
-                user_id,
-                Some(now),
-                Written {
-                    new_files,
-                    body_write: BodyWrite::Whole,
-                    telling,
-                },
-            )
-            .await?,
-        );
-    }
-    card_values::check_named_cards(scope, &named).await
-}
-
-/// The positions of the blocks in an order in which every block comes after its parent,
-/// if the parent is among them. Blocks that are in a cycle of parents come last, in the
-/// order they were given; they have no order that would work.
-pub(crate) fn parents_first(blocks: &[Block]) -> Vec<usize> {
-    let position: std::collections::HashMap<&str, usize> = blocks
-        .iter()
-        .enumerate()
-        .map(|(index, block)| (block.id.as_str(), index))
-        .collect();
-    let mut placed: HashSet<usize> = HashSet::with_capacity(blocks.len());
-    let mut order = Vec::with_capacity(blocks.len());
-    loop {
-        let before = order.len();
-        for (index, block) in blocks.iter().enumerate() {
-            if placed.contains(&index) {
-                continue;
-            }
-            let waits_for_parent = position
-                .get(block.parent_id.as_str())
-                .is_some_and(|parent| *parent != index && !placed.contains(parent));
-            if !waits_for_parent {
-                placed.insert(index);
-                order.push(index);
-            }
-        }
-        if order.len() == blocks.len() {
-            return order;
-        }
-        if order.len() == before {
-            order.extend((0..blocks.len()).filter(|index| !placed.contains(index)));
-            return order;
-        }
-    }
-}
-
-/// Applies a patch to a block and returns the updated block; the versions of a card's
-/// body are kept as `body_write` says, and the people the patched block newly names told
-/// as `telling` says.
-pub(crate) async fn patch_block(
-    scope: &mut Scope<'_>,
-    block_id: &str,
-    patch: &BlockPatch,
-    user_id: &str,
-    body_write: BodyWrite,
-    telling: Telling,
-) -> Result<Block, StoreError> {
-    // Only the owning `container_id` is fetched before locking, avoiding a full block
-    // read before acquiring the container lock and another full read inside `insert_block`.
-    let container_id = find_container_id(scope, block_id)
-        .await?
-        .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))?;
-    let Some(kind) = containers::lock_container_of_kind(scope, &container_id).await? else {
-        return Err(StoreError::not_found(format_args!(
-            "board ID={container_id} of block {block_id}"
-        )));
-    };
-    let existing = get_block(scope, block_id).await?;
-    let (min_read_at, stored_updated_at) = crate::diaries::read_at_window(&existing);
-    let mut block = existing.clone();
-    // What the block was stored with before it was refused is not the patch's fault.
-    block.drop_malformed_fields();
-    patch.apply(&mut block);
-    // A patch whose block breaks the limits of a block (title, fields) is refused as
-    // such (400) before it is refused for being made against an older block (409). The
-    // checks of the parent still come after, in `insert_block_inner`.
-    block
-        .validate()
-        .map_err(|source| StoreError::InvalidBlock {
-            id: block.id.clone(),
-            source,
-        })?;
-    if let Some(read_at) = patch.read_at
-        && !(min_read_at..=stored_updated_at).contains(&read_at)
-    {
-        return Err(StoreError::Stale {
-            id: block.id,
-            read_at,
-            updated_at: stored_updated_at,
-        });
-    }
-    let how = Written {
-        new_files: NewBodyFiles::Recorded,
-        body_write,
-        telling,
-    };
-    let named = insert_block_inner(
-        scope,
-        &mut block,
-        user_id,
-        None,
-        how,
-        Some((kind, existing)),
-    )
-    .await?;
-    card_values::check_named_cards(scope, &named).await?;
-    Ok(block)
-}
+mod write;
+use write::{BodyColumns, push_body};
+pub(crate) use write::{insert_block_row, insert_blocks, parents_first, patch_block};
 
 #[cfg(test)]
 mod tests;

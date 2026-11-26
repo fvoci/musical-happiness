@@ -23,6 +23,8 @@ use crate::{container_kinds, members, subscriptions};
 /// and by identifier where that is the same.
 pub(crate) const OLDEST_CONTAINER_FIRST: &str = " ORDER BY b.created_at, b.id";
 
+pub use crate::container_team_access::ContainerAccessFacts;
+
 /// The name of every board column, in the order rows are read and written.
 pub(crate) const CONTAINER_COLUMNS: &str = "id, workspace_id, created_by, modified_by, \
      visibility, minimum_role, title, description, icon, show_description, is_template, \
@@ -584,7 +586,8 @@ pub(crate) async fn insert_container(
         }
         let access_unchanged = existing.visibility == container.visibility
             && existing.minimum_role == container.minimum_role
-            && existing.is_template == container.is_template;
+            && existing.is_template == container.is_template
+            && existing.card_properties == container.card_properties;
         // A board stays in its workspace, and who made it and when does not change: `container`
         // comes back with what is stored, whatever the caller put there.
         container.workspace_id = existing.workspace_id;

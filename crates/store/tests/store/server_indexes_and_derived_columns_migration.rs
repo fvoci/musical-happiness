@@ -6,12 +6,12 @@
 //! - Backfilling `users.email_verified_at` (`created_at` for active non-empty email, `0`
 //!   for empty-email OIDC accounts and erased accounts).
 //! - Aligning PostgreSQL `containers.visibility` column default to `'private'` to match
-//!   SQLite (`0070`, `mythos-audit-3ab H-6`).
+//!   SQLite (`0070`).
 //! - Dropping redundant indexes (`blocks_parent_id_idx`, `deleted_blocks_container_id_idx`)
 //!   and adding composite/partial/author/erasure indexes.
 //! - Enforcing the 6 course child table integrity triggers (`unit_progress`, `unit_reviews`,
 //!   `unit_notes`, `course_meetings`, `course_exams`, `exam_scores`) against live and
-//!   trashed courses (`1.4.3 H-7`).
+//!   trashed courses.
 
 use fvoci_model::{BlockType, ContainerRole, new_id};
 use fvoci_store::{DbType, Store, StoreError};
@@ -49,8 +49,8 @@ async fn seed_pre0077(pre: &Store) -> Pre0077Fixture {
              VALUES ('{oidc_user}', 'oidc0077', '', '', 2345, 2345, false, '')"
         ),
         format!(
-            "INSERT INTO users (id, username, email, password_hash, created_at, updated_at, erased_at, is_admin, display_name) \
-             VALUES ('{erased_user}', '', 'ghost@example.com', '', 3456, 4000, 4000, false, '')"
+            "INSERT INTO users (id, username, email, password_hash, created_at, updated_at, deleted_at, erase_started_at, erased_at, is_admin, display_name) \
+             VALUES ('{erased_user}', '', 'ghost@example.com', '', 3456, 4000, 3900, 3900, 4000, false, '')"
         ),
         format!(
             "INSERT INTO organizations (id, name, kind, settings, created_at, updated_at) \
@@ -71,10 +71,36 @@ async fn seed_pre0077(pre: &Store) -> Pre0077Fixture {
             .expect("seed pre-0077 global");
     }
 
-    let scoped = pre.for_org(&org_id).expect("org handle");
-    let (board_id, live_course_id, trashed_course_id) = (new_id(), new_id(), new_id());
-    let (image_card_id, plain_card_id) = (new_id(), new_id());
-    let (trashed_card_id, trashed_comment_id, trashed_nul_page_id) = (new_id(), new_id(), new_id());
+    let fx = Pre0077Fixture {
+        org_id,
+        ws_id,
+        verified_user,
+        oidc_user,
+        erased_user,
+        board_id: new_id(),
+        live_course_id: new_id(),
+        trashed_course_id: new_id(),
+        image_card_id: new_id(),
+        plain_card_id: new_id(),
+        trashed_card_id: new_id(),
+        trashed_comment_id: new_id(),
+        trashed_nul_page_id: new_id(),
+    };
+    seed_pre0077_org_rows(pre, &fx).await;
+    fx
+}
+
+async fn seed_pre0077_org_rows(pre: &Store, fx: &Pre0077Fixture) {
+    let scoped = pre.for_org(&fx.org_id).expect("org handle");
+    let (board_id, live_course_id, trashed_course_id) =
+        (&fx.board_id, &fx.live_course_id, &fx.trashed_course_id);
+    let (image_card_id, plain_card_id) = (&fx.image_card_id, &fx.plain_card_id);
+    let (trashed_card_id, trashed_comment_id, trashed_nul_page_id) = (
+        &fx.trashed_card_id,
+        &fx.trashed_comment_id,
+        &fx.trashed_nul_page_id,
+    );
+    let (ws_id, verified_user) = (&fx.ws_id, &fx.verified_user);
 
     let nested_body = json!({
         "type": "doc",
@@ -94,66 +120,13 @@ async fn seed_pre0077(pre: &Store) -> Pre0077Fixture {
     })
     .to_string()
     .replace('\'', "''");
-
-    let body_cast = if pre.db_type() == DbType::Postgres {
-        "::jsonb"
+    let (body_cast, trash_cast) = if pre.db_type() == DbType::Postgres {
+        ("::jsonb", "::json")
     } else {
-        ""
+        ("", "")
     };
-    let trashed_card_doc = json!({
-        "id": trashed_card_id,
-        "containerId": board_id,
-        "parentId": "",
-        "createdBy": verified_user,
-        "modifiedBy": verified_user,
-        "type": "card",
-        "title": "Trashed Card",
-        "fields": {},
-        "createdAt": 1000,
-        "updatedAt": 1000,
-        "deletedAt": 2000,
-        "number": 2
-    })
-    .to_string()
-    .replace('\'', "''");
-    let trashed_comment_doc = json!({
-        "id": trashed_comment_id,
-        "containerId": board_id,
-        "parentId": image_card_id,
-        "createdBy": verified_user,
-        "modifiedBy": verified_user,
-        "type": "comment",
-        "title": "",
-        "fields": {},
-        "createdAt": 1000,
-        "updatedAt": 1000,
-        "deletedAt": 2001
-    })
-    .to_string()
-    .replace('\'', "''");
-    let nul_text = if pre.db_type() == DbType::Postgres {
-        r"nul:\u0000"
-    } else {
-        "plain"
-    };
-    let trashed_nul_doc = format!(
-        r#"{{"id":"{trashed_nul_page_id}","containerId":"{board_id}","parentId":"","createdBy":"{verified_user}","modifiedBy":"{verified_user}","type":"page","title":"{nul_text}","fields":{{}},"createdAt":1000,"updatedAt":1000,"deletedAt":2002}}"#
-    )
-    .replace('\'', "''");
-    let trashed_course_doc = json!({
-        "id": trashed_course_id,
-        "workspaceId": ws_id,
-        "createdBy": verified_user,
-        "modifiedBy": verified_user,
-        "visibility": "private",
-        "kind": "course",
-        "title": "Trashed Course",
-        "createdAt": 1000,
-        "updatedAt": 1000,
-        "deletedAt": 2500
-    })
-    .to_string()
-    .replace('\'', "''");
+    let (trashed_card_doc, trashed_comment_doc, trashed_nul_doc, trashed_course_doc) =
+        build_pre0077_trashed_docs(pre.db_type(), fx);
 
     for sql in [
         format!(
@@ -177,13 +150,16 @@ async fn seed_pre0077(pre: &Store) -> Pre0077Fixture {
         format!(
             "INSERT INTO deleted_containers \
              (id, workspace_id, deleted_at, deleted_by, deletion_id, container, members, files, places) \
-             VALUES ('{trashed_course_id}', '{ws_id}', 2500, '{verified_user}', '{}', '{trashed_course_doc}'{body_cast}, '[]'{body_cast}, '[]'{body_cast}, '[]'{body_cast})",
+             VALUES ('{trashed_course_id}', '{ws_id}', 2500, '{verified_user}', '{}', '{trashed_course_doc}'{trash_cast}, '[]'{trash_cast}, '[]'{trash_cast}, '[]'{trash_cast})",
             new_id()
         ),
         format!(
-            "INSERT INTO files (id, container_id, name, path, size, created_by, created_at) VALUES \
-             ('7first.png', '{board_id}', 'first.png', 'p/7first.png', 10, '{verified_user}', 1000), \
-             ('7second.png', '{board_id}', 'second.png', 'p/7second.png', 10, '{verified_user}', 1000)"
+            "INSERT INTO files \
+             (id, container_id, name, original_name, extension, size, path, created_at, version, created_by) VALUES \
+             ('{}', '{board_id}', '7first.png', 'first.png', 'png', 10, 'p/7first.png', 1000, 1, '{verified_user}'), \
+             ('{}', '{board_id}', '7second.png', 'second.png', 'png', 10, 'p/7second.png', 1000, 1, '{verified_user}')",
+            new_id(),
+            new_id()
         ),
         format!(
             "INSERT INTO blocks \
@@ -194,9 +170,9 @@ async fn seed_pre0077(pre: &Store) -> Pre0077Fixture {
         format!(
             "INSERT INTO deleted_blocks \
              (id, container_id, parent_id, deleted_at, deleted_by, deletion_id, block) VALUES \
-             ('{trashed_card_id}', '{board_id}', NULL, 2000, '{verified_user}', '{}', '{trashed_card_doc}'{body_cast}), \
-             ('{trashed_comment_id}', '{board_id}', '{image_card_id}', 2001, '{verified_user}', '{}', '{trashed_comment_doc}'{body_cast}), \
-             ('{trashed_nul_page_id}', '{board_id}', NULL, 2002, '{verified_user}', '{}', '{trashed_nul_doc}'{body_cast})",
+             ('{trashed_card_id}', '{board_id}', NULL, 2000, '{verified_user}', '{}', '{trashed_card_doc}'{trash_cast}), \
+             ('{trashed_comment_id}', '{board_id}', '{image_card_id}', 2001, '{verified_user}', '{}', '{trashed_comment_doc}'{trash_cast}), \
+             ('{trashed_nul_page_id}', '{board_id}', NULL, 2002, '{verified_user}', '{}', '{trashed_nul_doc}'{trash_cast})",
             new_id(),
             new_id(),
             new_id()
@@ -207,22 +183,70 @@ async fn seed_pre0077(pre: &Store) -> Pre0077Fixture {
             .await
             .expect("seed pre-0077 org");
     }
+}
 
-    Pre0077Fixture {
-        org_id,
-        ws_id,
-        verified_user,
-        oidc_user,
-        erased_user,
-        board_id,
-        live_course_id,
-        trashed_course_id,
-        image_card_id,
-        plain_card_id,
-        trashed_card_id,
-        trashed_comment_id,
-        trashed_nul_page_id,
-    }
+fn build_pre0077_trashed_docs(db: DbType, fx: &Pre0077Fixture) -> (String, String, String, String) {
+    let trashed_card_doc = json!({
+        "id": fx.trashed_card_id,
+        "containerId": fx.board_id,
+        "parentId": "",
+        "createdBy": fx.verified_user,
+        "modifiedBy": fx.verified_user,
+        "type": "card",
+        "title": "Trashed Card",
+        "fields": {},
+        "createdAt": 1000,
+        "updatedAt": 1000,
+        "deletedAt": 2000,
+        "number": 2
+    })
+    .to_string()
+    .replace('\'', "''");
+    let trashed_comment_doc = json!({
+        "id": fx.trashed_comment_id,
+        "containerId": fx.board_id,
+        "parentId": fx.image_card_id,
+        "createdBy": fx.verified_user,
+        "modifiedBy": fx.verified_user,
+        "type": "comment",
+        "title": "",
+        "fields": {},
+        "createdAt": 1000,
+        "updatedAt": 1000,
+        "deletedAt": 2001
+    })
+    .to_string()
+    .replace('\'', "''");
+    let nul_text = if db == DbType::Postgres {
+        r"nul:\u0000"
+    } else {
+        "plain"
+    };
+    let trashed_nul_doc = format!(
+        r#"{{"id":"{}","containerId":"{}","parentId":"","createdBy":"{}","modifiedBy":"{}","type":"page","title":"{nul_text}","fields":{{}},"createdAt":1000,"updatedAt":1000,"deletedAt":2002}}"#,
+        fx.trashed_nul_page_id, fx.board_id, fx.verified_user, fx.verified_user
+    )
+    .replace('\'', "''");
+    let trashed_course_doc = json!({
+        "id": fx.trashed_course_id,
+        "workspaceId": fx.ws_id,
+        "createdBy": fx.verified_user,
+        "modifiedBy": fx.verified_user,
+        "visibility": "private",
+        "kind": "course",
+        "title": "Trashed Course",
+        "createdAt": 1000,
+        "updatedAt": 1000,
+        "deletedAt": 2500
+    })
+    .to_string()
+    .replace('\'', "''");
+    (
+        trashed_card_doc,
+        trashed_comment_doc,
+        trashed_nul_doc,
+        trashed_course_doc,
+    )
 }
 
 #[tokio::test]
@@ -244,17 +268,27 @@ async fn migration_0077_backfills_derived_columns_aligns_visibility_default_and_
     let scoped = migrated.for_org(&fx.org_id).expect("org handle");
     let _ = &fx.ws_id;
 
-    // 1. `blocks.body_first_image` backfilled & `get_card_previews` returns first image without body.
+    // 1. `blocks.body_first_image` backfilled & `get_listed_blocks(..., Previews::With)` returns first image without body.
     let previews = scoped
-        .get_card_previews(&fx.board_id, 0, 10)
+        .get_listed_blocks(
+            &fvoci_store::BlockFilter::container(&fx.board_id).with_type(BlockType::Card),
+            fvoci_store::Previews::With,
+        )
         .await
         .expect("previews");
-    assert_eq!(previews.len(), 2);
+    assert_eq!(previews.len(), 2, "two cards returned");
     let img_prev = previews
         .iter()
         .find(|p| p.block.id == fx.image_card_id)
         .expect("image card preview");
-    assert_eq!(img_prev.first_image_file_id.as_deref(), Some("7first.png"));
+    assert_eq!(
+        img_prev
+            .preview
+            .as_ref()
+            .and_then(|p| p.first_image.as_deref()),
+        Some("7first.png"),
+        "document-order first image backfilled"
+    );
     assert!(
         img_prev.block.body.is_none(),
         "preview must not load 8 MiB body"
@@ -263,7 +297,14 @@ async fn migration_0077_backfills_derived_columns_aligns_visibility_default_and_
         .iter()
         .find(|p| p.block.id == fx.plain_card_id)
         .expect("plain card preview");
-    assert_eq!(plain_prev.first_image_file_id, None);
+    assert_eq!(
+        plain_prev
+            .preview
+            .as_ref()
+            .and_then(|p| p.first_image.as_deref()),
+        None,
+        "card without image has None first_image"
+    );
 
     // 2. `deleted_blocks.block_type` backfilled across normal and `\u0000` rows.
     for (id, expected) in [
@@ -288,12 +329,16 @@ async fn migration_0077_backfills_derived_columns_aligns_visibility_default_and_
         ))
         .await
         .expect("email_verified_at read");
-    assert_eq!(verified_vals, ["1234", "0", "0"]);
+    assert_eq!(
+        verified_vals,
+        ["1234", "0", "0"],
+        "email_verified_at backfilled for active vs OIDC/erased accounts"
+    );
 
-    // 4. `containers.visibility` default parity (`'private'`) and index checks (`3ab H-6`).
+    // 4. `containers.visibility` default parity (`'private'`) and index checks.
     assert_visibility_default_and_indexes(&sys).await;
 
-    // 5. Course child integrity triggers allow live & trashed courses and reject boards/missing (`H-7`).
+    // 5. Course child integrity triggers allow live & trashed courses and reject boards/missing.
     assert_course_child_triggers(&scoped, &fx).await;
 
     migrated.close().await;
@@ -314,7 +359,7 @@ async fn assert_visibility_default_and_indexes(sys: &Store) {
         .texts_unchecked(default_sql)
         .await
         .expect("containers.visibility default");
-    assert_eq!(defaults.len(), 1);
+    assert_eq!(defaults.len(), 1, "expected 1 visibility default row");
     assert!(
         defaults[0] == "'private'" || defaults[0] == "'private'::text",
         "containers.visibility default must be 'private', got {:?}",
@@ -359,10 +404,15 @@ async fn assert_course_child_triggers(scoped: &Store, fx: &Pre0077Fixture) {
     let unit_id = new_id();
     let exam_id = new_id();
     let trashed_exam_id = new_id();
+    let json_cast = if scoped.db_type() == DbType::Postgres {
+        "::jsonb"
+    } else {
+        ""
+    };
     scoped
         .execute_unchecked(&format!(
             "INSERT INTO blocks (id, container_id, created_by, modified_by, type, title, fields, created_at, updated_at) \
-             VALUES ('{unit_id}', '{}', '{}', '{}', 'unit', 'U1', '{{}}', 1000, 1000)",
+             VALUES ('{unit_id}', '{}', '{}', '{}', 'unit', 'U1', '{{}}'{json_cast}, 1000, 1000)",
             fx.live_course_id, fx.verified_user, fx.verified_user
         ))
         .await
@@ -397,8 +447,8 @@ async fn assert_course_child_triggers(scoped: &Store, fx: &Pre0077Fixture) {
                 fx.org_id
             ),
             format!(
-                "INSERT INTO course_meetings (id, container_id, org_id, title, starts_at, location, notes, created_at, updated_at) \
-                 VALUES ('{}', '{course_id}', '{}', 'M1', 1000, '', '', 1000, 1000)",
+                "INSERT INTO course_meetings (id, container_id, org_id, title, starts_at, location, unit_ids, notes, created_at, updated_at) \
+                 VALUES ('{}', '{course_id}', '{}', 'M1', 1000, '', '[]'{json_cast}, '', 1000, 1000)",
                 new_id(),
                 fx.org_id
             ),
@@ -408,8 +458,8 @@ async fn assert_course_child_triggers(scoped: &Store, fx: &Pre0077Fixture) {
                 fx.org_id
             ),
             format!(
-                "INSERT INTO exam_scores (exam_id, container_id, user_id, org_id, score, note, created_at, updated_at) \
-                 VALUES ('{ex_id}', '{course_id}', '{}', '{}', 95.0, '', 1000, 1000)",
+                "INSERT INTO exam_scores (exam_id, container_id, user_id, org_id, score, note, updated_at) \
+                 VALUES ('{ex_id}', '{course_id}', '{}', '{}', 95.0, '', 1000)",
                 fx.verified_user, fx.org_id
             ),
         ] {
@@ -420,6 +470,16 @@ async fn assert_course_child_triggers(scoped: &Store, fx: &Pre0077Fixture) {
         }
     }
 
+    assert_course_child_trigger_rejections(scoped, fx, &unit_id, &exam_id, json_cast).await;
+}
+
+async fn assert_course_child_trigger_rejections(
+    scoped: &Store,
+    fx: &Pre0077Fixture,
+    unit_id: &str,
+    exam_id: &str,
+    json_cast: &str,
+) {
     // Pointing any of the 6 tables at a `board` container or a missing ID must fail in DB triggers.
     for bad_container in [&fx.board_id, &new_id()] {
         for (table, sql) in [
@@ -456,8 +516,8 @@ async fn assert_course_child_triggers(scoped: &Store, fx: &Pre0077Fixture) {
             (
                 "course_meetings",
                 format!(
-                    "INSERT INTO course_meetings (id, container_id, org_id, title, starts_at, location, notes, created_at, updated_at) \
-                     VALUES ('{}', '{bad_container}', '{}', 'Bad', 1000, '', '', 1000, 1000)",
+                    "INSERT INTO course_meetings (id, container_id, org_id, title, starts_at, location, unit_ids, notes, created_at, updated_at) \
+                     VALUES ('{}', '{bad_container}', '{}', 'Bad', 1000, '', '[]'{json_cast}, '', 1000, 1000)",
                     new_id(),
                     fx.org_id
                 ),
@@ -474,8 +534,8 @@ async fn assert_course_child_triggers(scoped: &Store, fx: &Pre0077Fixture) {
             (
                 "exam_scores",
                 format!(
-                    "INSERT INTO exam_scores (exam_id, container_id, user_id, org_id, score, note, created_at, updated_at) \
-                     VALUES ('{exam_id}', '{bad_container}', '{}', '{}', 50.0, '', 1000, 1000)",
+                    "INSERT INTO exam_scores (exam_id, container_id, user_id, org_id, score, note, updated_at) \
+                     VALUES ('{exam_id}', '{bad_container}', '{}', '{}', 50.0, '', 1000)",
                     new_id(),
                     fx.org_id
                 ),

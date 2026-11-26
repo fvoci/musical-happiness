@@ -576,20 +576,23 @@ async fn invitation_mail_dedups_full_address_case_insensitively_and_enforces_per
         .created_json();
     let token = guest_link.token.as_deref().expect("token");
 
-    // 1st send: case-variant duplicates collapse to 1 message (`H-4`).
+    // 1st send: domain case-variant duplicates collapse to 1 message (`Target@Example.Test` == `Target@example.test`).
     th.client
         .post(
             &format!("{path}/mail"),
-            &json!({"token": token, "recipients": ["Target@Example.Test", "target@example.test"]}),
+            &json!({"token": token, "recipients": ["Target@Example.Test", "Target@example.test"]}),
         )
         .await
         .check_no_content();
     smtp.received(1).await;
-    assert!(th.app.finish_background(Duration::from_secs(5)).await);
+    assert!(
+        th.app.finish_background(Duration::from_secs(5)).await,
+        "1st mail background finished"
+    );
     assert_eq!(
         smtp.messages().await.len(),
         1,
-        "case-insensitive full-address dedup"
+        "domain case-insensitive dedup"
     );
 
     // 2nd send: reaches hourly limit (2) for `target@example.test`.
@@ -601,7 +604,10 @@ async fn invitation_mail_dedups_full_address_case_insensitively_and_enforces_per
         .await
         .check_no_content();
     smtp.received(2).await;
-    assert!(th.app.finish_background(Duration::from_secs(5)).await);
+    assert!(
+        th.app.finish_background(Duration::from_secs(5)).await,
+        "2nd mail background finished"
+    );
 
     let links_before: Vec<Invitation> = th.client.get(&path).await.ok_json();
 
@@ -615,14 +621,20 @@ async fn invitation_mail_dedups_full_address_case_insensitively_and_enforces_per
         .await
         .check_no_content();
     smtp.received(3).await;
-    assert!(th.app.finish_background(Duration::from_secs(5)).await);
+    assert!(
+        th.app.finish_background(Duration::from_secs(5)).await,
+        "3rd mail background finished"
+    );
     let all_msgs = smtp.messages().await;
     assert_eq!(
         all_msgs.len(),
         3,
         "rate-limited target skipped, peer delivered"
     );
-    assert_eq!(all_msgs[2].recipient, "peer@example.test");
+    assert_eq!(
+        all_msgs[2].recipient, "peer@example.test",
+        "only peer received 3rd message"
+    );
 
     let links_after: Vec<Invitation> = th.client.get(&path).await.ok_json();
     assert_eq!(

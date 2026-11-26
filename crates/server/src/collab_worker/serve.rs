@@ -415,7 +415,10 @@ impl Worker {
         match self.restore_after_dirty(doc, checkpoint) {
             Ok(()) => Ok(Err(refusal)),
             Err(error) => {
-                debug_assert!(!self.docs.contains_key(&doc));
+                debug_assert!(
+                    !self.docs.contains_key(&doc),
+                    "failed dirty restore must remove document"
+                );
                 #[cfg(feature = "test-util")]
                 return Err(error);
                 #[cfg(not(feature = "test-util"))]

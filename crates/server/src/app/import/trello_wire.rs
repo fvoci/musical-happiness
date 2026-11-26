@@ -1,6 +1,6 @@
 //! Deserialization wire types for Trello board JSON exports.
 //!
-//! Uses streaming [`Bounded`] and [`CommentActions`] visitors (`P1-1`) so an oversized
+//! Uses streaming [`Bounded`] and [`CommentActions`] visitors so an oversized
 //! JSON array is rejected immediately at element `N + 1` instead of allocating unbounded
 //! vectors before post-parse count checks run.
 

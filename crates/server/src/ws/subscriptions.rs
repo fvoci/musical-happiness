@@ -17,10 +17,10 @@ use crate::app::App;
 use crate::error::AppError;
 use crate::metrics::Disconnect;
 
-/// Maximum distinct block IDs accepted in one `subscribeBlocks` command (`gapfill H-2`).
+/// Maximum distinct block IDs accepted in one `subscribeBlocks` command.
 const MOST_BLOCKS_PER_COMMAND: usize = 200;
 
-/// Truncates an untrusted command type to 64 characters for debug diagnostics (`3ab H-2`).
+/// Truncates an untrusted command type to 64 characters for debug diagnostics.
 fn truncated_command_kind(kind: &str) -> &str {
     match kind.char_indices().nth(64) {
         Some((idx, _)) => &kind[..idx],

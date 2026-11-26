@@ -101,7 +101,7 @@ impl Store {
     }
 
     /// Returns the total bytes stored or held open for the handle's organization across
-    /// live `files`, archived `file_versions`, and open `uploads` (`P2-2`).
+    /// live `files`, archived `file_versions`, and open `uploads`.
     ///
     /// # Errors
     ///
@@ -283,7 +283,7 @@ pub(crate) async fn other_spellings(scope: &mut Scope<'_>) -> Result<Vec<String>
         .push(trashed_files)
         .push(" WHERE ")
         .push_fragment(&rough_trashed);
-    let sql = scope.sql(statement);
+    let sql = scope.sql(&statement);
     let mut found = Vec::new();
     for row in scope.fetch_all(sql).await? {
         let path = row.text(0)?;

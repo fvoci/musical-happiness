@@ -521,6 +521,16 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/courses/{courseId}/exams/{examId}/my-score",
         "deleteMyExamScore",
     ),
+    (
+        "POST",
+        "/courses/{courseId}/exams/{examId}/results-publication",
+        "publishCourseExamResults",
+    ),
+    (
+        "DELETE",
+        "/courses/{courseId}/exams/{examId}/results-publication",
+        "unpublishCourseExamResults",
+    ),
     ("GET", "/courses/{courseId}/reviews", "listMyCourseReviews"),
     (
         "POST",
@@ -650,6 +660,8 @@ const REACHED_BY_ITEM: &[&str] = &[
     "deleteCourseExam",
     "putMyExamScore",
     "deleteMyExamScore",
+    "publishCourseExamResults",
+    "unpublishCourseExamResults",
     "listMyCourseReviews",
     "scheduleUnitReview",
     "completeUnitReview",

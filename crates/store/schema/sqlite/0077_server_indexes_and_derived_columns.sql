@@ -82,8 +82,8 @@ WHERE email <> '' AND erased_at = 0;
 
 ALTER TABLE course_exams ADD COLUMN results_published_at BIGINT;
 ALTER TABLE course_exams ADD COLUMN published_average_score REAL;
-ALTER TABLE course_exams ADD COLUMN published_score_bucket INTEGER;
-ALTER TABLE course_exams ADD COLUMN published_submission_count INTEGER;
+ALTER TABLE course_exams ADD COLUMN published_score_bucket BIGINT;
+ALTER TABLE course_exams ADD COLUMN published_submission_count BIGINT;
 
 UPDATE unit_progress
 SET org_id = COALESCE(

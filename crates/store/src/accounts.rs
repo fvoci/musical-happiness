@@ -29,7 +29,7 @@ pub enum Founding {
 }
 
 /// Single-transaction policy deciding how [`Store::sign_up_with_policy`] and
-/// [`Store::confirm_signup_with_policy`] found an organization (`M3`).
+/// [`Store::confirm_signup_with_policy`] found an organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FoundingPolicy {
     /// Require the registrant to be the instance's very first user, returning
@@ -111,7 +111,7 @@ impl Store {
     }
 
     /// Stores the account of somebody who signs up and the organization `policy` chooses
-    /// in a single transaction on fresh and already-bootstrapped instances (`M3`).
+    /// in a single transaction on fresh and already-bootstrapped instances.
     ///
     /// # Errors
     ///

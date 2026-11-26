@@ -506,8 +506,11 @@ async fn updated(socket: &mut Socket, phase: &str) {
         while let Some(frame) = socket.next().await {
             if let Message::Text(text) = frame.expect("update frame") {
                 let message: Value = serde_json::from_str(&text).expect("JSON update");
-                // A user who renamed themselves is told too; that is not this test's.
-                if message["type"] == "userChanged" {
+                // A user who renamed themselves is told too, as is a subscription ACK.
+                if matches!(
+                    message["type"].as_str(),
+                    Some("userChanged" | "blocksSubscribed" | "workspaceSubscribed")
+                ) {
                     continue;
                 }
                 assert_eq!(message["type"], "blockChanged", "{phase}: a block update");

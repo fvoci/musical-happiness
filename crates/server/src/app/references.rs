@@ -72,22 +72,17 @@ impl App {
             .iter()
             .map(|block| (block.id.as_str(), block))
             .collect();
-        let mut checked_containers: HashMap<&str, Option<Container>> = HashMap::new();
+        let mut readable_containers: HashMap<&str, Container> = HashMap::new();
         let mut told = Vec::new();
         for id in asked {
             let block = named.get(id);
             let container_id = block.map_or(id, |block| block.container_id.as_str());
-            let container = match checked_containers.get(container_id) {
-                Some(cached) => cached.as_ref(),
-                None => {
-                    let resolved = self.container_read(user_id, container_id).await?;
-                    checked_containers
-                        .entry(container_id)
-                        .or_insert(resolved)
-                        .as_ref()
-                }
-            };
-            if let (Some(block), Some(container)) = (block, container)
+            if !readable_containers.contains_key(container_id)
+                && let Some(resolved) = self.container_read(user_id, container_id).await?
+            {
+                readable_containers.insert(container_id, resolved);
+            }
+            if let (Some(block), Some(container)) = (block, readable_containers.get(container_id))
                 && let Some(linked) = LinkedBlock::of(block, container)
             {
                 told.push(linked);

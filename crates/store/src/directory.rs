@@ -16,19 +16,19 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{
     ContainerKind, ContainerKinds, ContainerMember, ContainerVisibility, OrgKind, OrgRole, User,
-    UserOrganization, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    UserOrganization, UserWorkspace, Workspace, WorkspaceRole,
 };
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
 use crate::container_kinds;
 use crate::container_team_access;
-use crate::db::{Dialect, Id, Row, Scope, Sql};
+use crate::db::{Dialect, Id, Scope, Sql};
 use crate::error::StoreError;
 use crate::files;
 use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id, workspaces};
+use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id};
 
 mod every_organization;
 mod session_taken;
@@ -953,67 +953,5 @@ impl Store {
     }
 }
 
-async fn create_organization(
-    scope: &mut Scope<'_>,
-    name: &str,
-    workspace: &Workspace,
-) -> Result<String, StoreError> {
-    let id = new_id();
-    workspaces::insert_organization(scope, Id(&id), name, workspace).await?;
-    Ok(id)
-}
-
-/// Reads a role from a column.
-fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
-    row: &Row,
-    index: usize,
-) -> Result<R, StoreError> {
-    row.text(index)?
-        .parse()
-        .map_err(|error: fvoci_model::UnknownRole| StoreError::Corrupt {
-            column: "role",
-            reason: error.to_string(),
-        })
-}
-
-/// Reads the kind of an organization from a column.
-pub(crate) fn org_kind(row: &Row, index: usize) -> Result<OrgKind, StoreError> {
-    row.text(index)?
-        .parse()
-        .map_err(|error: fvoci_model::UnknownOrgKind| StoreError::Corrupt {
-            column: "kind",
-            reason: error.to_string(),
-        })
-}
-
-/// The instance's own organization as `scope` reaches the organizations: the oldest
-/// non-system one in use that people work in together
-/// ([`Store::instance_organization`]). No account's own space is it, however old.
-pub(crate) async fn oldest_organization(
-    scope: &mut Scope<'_>,
-) -> Result<Option<String>, StoreError> {
-    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-    sql.bind(false).push(" AND deleted_at IS NULL");
-    of_people(&mut sql, "kind");
-    sql.push(" ORDER BY created_at, id LIMIT 1");
-    scope
-        .fetch_optional(sql)
-        .await?
-        .map(|row| row.id(0))
-        .transpose()
-}
-
-/// The organization that is the space of the account `user_id`, in use or not, by
-/// who owns it: in a scope that reaches every organization.
-pub(crate) async fn space_of(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-) -> Result<Option<String>, StoreError> {
-    let mut sql = scope.sql("SELECT id FROM organizations WHERE owner_id = ");
-    sql.bind(Id(user_id));
-    scope
-        .fetch_optional(sql)
-        .await?
-        .map(|row| row.id(0))
-        .transpose()
-}
+use every_organization::{create_organization, role};
+pub(crate) use every_organization::{oldest_organization, org_kind, space_of};

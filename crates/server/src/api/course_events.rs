@@ -65,7 +65,7 @@ async fn course_view_access(
 /// Enrolled course members and course role managers (`ManageRoles`) receive per-member
 /// `attendance` records (ordered by `userId`), with `updatedAt` populated only for
 /// `ManageRoles` managers (`0` for non-manager members); unjoined open-course readers and
-/// non-enrolled guests receive `attendance: []` (`P2-1`). Non-course containers and
+/// non-enrolled guests receive `attendance: []`. Non-course containers and
 /// unreadable private courses answer 404.
 #[utoipa::path(
     get,
@@ -263,7 +263,7 @@ async fn handle_put_meeting_attendance(
 /// coarse snapshot (`averageScore` rounded to one decimal place, `resultsPublishedAt`, and
 /// `publishedScoreBucket` rounded down to a multiple of 5). Before publication,
 /// `averageScore` is `null` for every role (including admins) so individual scores cannot be
-/// recovered by differencing (`P2-2`). Unjoined readers receive `myScore: null`,
+/// recovered by differencing. Unjoined readers receive `myScore: null`,
 /// `averageScore: null`, and `scoreCount: 0`. Another member's individual score or note is
 /// never returned under any role.
 #[utoipa::path(

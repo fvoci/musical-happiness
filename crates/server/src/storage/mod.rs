@@ -154,8 +154,22 @@ impl FileBackend {
             Self::Faulty(inner, faults, _) => {
                 let kind = inner.backend_kind();
                 metrics.files_known(kind);
+                let inner = Box::new(inner.with_multipart_metrics(metrics.clone()));
                 Self::Faulty(inner, faults, FaultyMetrics(Some((metrics, kind))))
             }
+        }
+    }
+
+    #[cfg(feature = "test-util")]
+    fn with_multipart_metrics(self, metrics: Metrics) -> Self {
+        match self {
+            Self::Local(files) => Self::Local(files),
+            Self::S3(files) => Self::S3(files.measured_multipart(metrics)),
+            Self::Faulty(inner, faults, measured) => Self::Faulty(
+                Box::new(inner.with_multipart_metrics(metrics)),
+                faults,
+                measured,
+            ),
         }
     }
 

@@ -719,6 +719,11 @@ async fn team_removal_forgets_trashed_card_watchers() {
     let alice = common::user(&test, "alice-team-trash").await;
     let bob = common::user(&test, "bob-team-trash").await;
     let workspace_id = common::workspace_of(&test, &[&alice, &bob]).await;
+    test.execute_unchecked(&format!(
+        "UPDATE workspace_members SET role = 'admin' WHERE workspace_id = '{workspace_id}' AND user_id = '{alice}'"
+    ))
+    .await
+    .expect("alice admin role");
 
     let mut private_board = fvoci_model::Container {
         id: new_id(),
@@ -735,14 +740,15 @@ async fn team_removal_forgets_trashed_card_watchers() {
         .create_team(&workspace_id, "Reviewers", &alice)
         .await
         .expect("team");
-    test.add_team_member(&workspace_id, &team.id, &bob, &alice)
+    test.add_team_member(&workspace_id, &team, &bob, &alice)
         .await
         .expect("bob in team");
-    test.save_container_team(
-        &private_board.id,
+    test.set_container_team(
         &workspace_id,
-        &team.id,
-        fvoci_model::ContainerRole::Editor,
+        &private_board.id,
+        &team,
+        Some(fvoci_model::MinimumRole::Editor),
+        &alice,
     )
     .await
     .expect("team on board");
@@ -755,10 +761,11 @@ async fn team_removal_forgets_trashed_card_watchers() {
         ..Block::default()
     }];
     common::insert_blocks(&test, &mut cards, &alice).await;
-    test.create_subscription(&fvoci_model::Subscription {
+    test.create_subscription(fvoci_model::Subscription {
         block_type: BlockType::Card,
         block_id: card_id.clone(),
         user_id: bob.clone(),
+        notified_at: 0,
         created_at: 0,
         deleted_at: None,
     })
@@ -768,7 +775,7 @@ async fn team_removal_forgets_trashed_card_watchers() {
     test.delete_block(&card_id, &alice)
         .await
         .expect("card trashed");
-    test.delete_container_team(&private_board.id, &team.id)
+    test.set_container_team(&workspace_id, &private_board.id, &team, None, &alice)
         .await
         .expect("team removed from board");
     test.undelete_block(&card_id, &alice)
@@ -779,7 +786,7 @@ async fn team_removal_forgets_trashed_card_watchers() {
             .await
             .expect("bob subscriptions")
             .is_empty(),
-        "former team member must not regain subscription on card restore (`3ab H-1`)"
+        "former team member must not regain subscription on card restore"
     );
     test.teardown().await;
 }

@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 use sqlx::types::Uuid;
 use tokio::sync::watch;
 
-use crate::{Store, Tenant};
+use crate::Tenant;
 
 /// The least time after an abandoned authorization write that reads are not cached:
 /// longer than a commit that was already sent takes on PostgreSQL with asynchronous
@@ -54,40 +54,9 @@ pub(crate) fn settle_after(longest_wait: Duration) -> Duration {
     SETTLE.max(longest_wait.saturating_mul(2))
 }
 
-/// Writers of a part of the data, its revision, and until when its reads are not
-/// cached after one of its writes was abandoned.
-#[derive(Debug, Default, Clone, Copy)]
-struct Count {
-    revision: u64,
-    writers: usize,
-    unsettled_until: Option<Instant>,
-}
-
-impl Count {
-    fn start(&mut self) {
-        self.writers += 1;
-        self.revision = self.revision.wrapping_add(1);
-    }
-
-    fn end(&mut self, unsettled_until: Option<Instant>) {
-        self.end_many(1, unsettled_until);
-    }
-
-    fn end_many(&mut self, count: usize, unsettled_until: Option<Instant>) {
-        self.writers = self.writers.saturating_sub(count);
-        self.revision = self.revision.wrapping_add(1);
-        if unsettled_until.is_some() {
-            self.unsettled_until = unsettled_until;
-        }
-    }
-
-    fn settled_at(self, now: Instant) -> bool {
-        self.unsettled_until.is_none_or(|until| now >= until)
-    }
-}
-
-/// One count behind a lock of its own: a dispatch holds it while it queues.
-type Guarded = Arc<Mutex<Count>>;
+mod count;
+use count::{Count, Guarded};
+pub use count::{VisibilityScope, VisibilityVersion};
 
 /// Whose rows a reader depends on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -303,52 +272,6 @@ impl Visibility {
 
 fn lock(count: &Mutex<Count>) -> MutexGuard<'_, Count> {
     count.lock().expect("visibility revision lock")
-}
-
-/// A committed authorization revision of what one organization reads (or of
-/// everything), and whether its reads may be cached.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VisibilityVersion {
-    reach: Reach,
-    shared: u64,
-    revision: u64,
-    cacheable: bool,
-}
-
-impl VisibilityVersion {
-    /// False for a while after an abandoned write whose outcome was not known: reads
-    /// are made anew each time then.
-    pub fn cacheable(self) -> bool {
-        self.cacheable
-    }
-
-    /// What the version is of: two versions of one scope may share a cache slot.
-    pub fn scope(self) -> VisibilityScope {
-        VisibilityScope(self.reach)
-    }
-}
-
-/// What a [`VisibilityVersion`] is of: one organization, or everything.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VisibilityScope(Reach);
-
-impl Store {
-    /// The revision of the authorization data this handle's organization reads, after
-    /// its pending writers finish (of every write, for a handle of none). Cached reads
-    /// are reusable only at the same cacheable revision.
-    pub async fn visibility_version(&self) -> VisibilityVersion {
-        self.inner.visibility.version(self.tenant).await
-    }
-
-    /// Runs a dispatch only while its checked revision is current and settled: no
-    /// write of its scope started or ended since. It holds the lock of that scope's
-    /// revision alone: writes of another organization go on meanwhile, and so do other
-    /// organizations' dispatches. The callback must be synchronous, short (what it
-    /// queues is made before), and must not call back into the store. Returns false if
-    /// authorization must be checked again.
-    pub fn if_visibility_current(&self, version: VisibilityVersion, send: impl FnOnce()) -> bool {
-        self.inner.visibility.if_current(version, send)
-    }
 }
 
 /// Which counts a [`Writing`] actually incremented, so `Drop` releases only what
@@ -579,6 +502,7 @@ fn notes_for_later(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Store;
 
     #[tokio::test]
     async fn what_a_write_notes_for_later_moves_no_revision() {

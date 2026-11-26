@@ -757,6 +757,6 @@ fn invitation_address_quota_admits_up_to_hourly_limit_case_insensitively() {
     assert_eq!(
         third,
         [false, true],
-        "third to target in the same hour is silently skipped while fresh address passes (`P2-1`)"
+        "third to target in the same hour is silently skipped while fresh address passes"
     );
 }

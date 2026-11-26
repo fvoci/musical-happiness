@@ -3207,7 +3207,8 @@ export interface paths {
          *     `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
          *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
          *     `maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the
-         *     reason is `file_too_large`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
+         *     reason is `file_too_large`; where storing the file would exceed the organization's
+         *     storage limit, the refusal is 413 with the reason `storage_full`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
          *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
          *     anything but letters and digits in it, is left off. For editors.
          */
@@ -3647,7 +3648,8 @@ export interface paths {
          * @description Opens an upload of a file to the board in parts. The answer says how large the
          *     parts are and how many; send each with `putUploadPart`, in any order and again
          *     after a failure, then `completeUpload`. A file larger than `maxFileBytes` of
-         *     `getClientConfig` is 413 with the reason `file_too_large`. A user has at most 8
+         *     `getClientConfig` is 413 with the reason `file_too_large`, and one that would exceed
+         *     the organization's storage limit is 413 with the reason `storage_full`. A user has at most 8
          *     uploads open, holding back at most twice `maxFileBytes` together, and the server's
          *     open uploads hold back at most what it is configured for: an upload over one of
          *     these is 429, with the reason `too_many_uploads`, `uploads_pending` or
@@ -3708,7 +3710,7 @@ export interface paths {
          *     coarse snapshot (`averageScore` rounded to one decimal place, `resultsPublishedAt`, and
          *     `publishedScoreBucket` rounded down to a multiple of 5). Before publication,
          *     `averageScore` is `null` for every role (including admins) so individual scores cannot be
-         *     recovered by differencing (`P2-2`). Unjoined readers receive `myScore: null`,
+         *     recovered by differencing. Unjoined readers receive `myScore: null`,
          *     `averageScore: null`, and `scoreCount: 0`. Another member's individual score or note is
          *     never returned under any role.
          */
@@ -3830,7 +3832,7 @@ export interface paths {
          *     Enrolled course members and course role managers (`ManageRoles`) receive per-member
          *     `attendance` records (ordered by `userId`), with `updatedAt` populated only for
          *     `ManageRoles` managers (`0` for non-manager members); unjoined open-course readers and
-         *     non-enrolled guests receive `attendance: []` (`P2-1`). Non-course containers and
+         *     non-enrolled guests receive `attendance: []`. Non-course containers and
          *     unreadable private courses answer 404.
          */
         get: operations["listCourseMeetings"];
@@ -3999,7 +4001,7 @@ export interface paths {
          * @description Returns the total number of live units in the course (excluding chapters and trashed
          *     units) and, for enrolled course members and course role managers (`ManageRoles`), the
          *     completed live-unit count for each active course member ordered by `userId`. Unjoined
-         *     readers of an open course and non-enrolled guests receive `members: []` (`P2-1`).
+         *     readers of an open course and non-enrolled guests receive `members: []`.
          *     Accounts that have been deleted, are pending deletion, or are no longer active members
          *     of the workspace or course are excluded. Never discloses which units a member
          *     completed, completion timestamps, planned dates, or last positions. Unreadable private

@@ -155,24 +155,32 @@ async fn card_visibility_changes_for_type_and_trash_but_not_content() {
         "ordinary content preserves grants"
     );
     card.block_type = BlockType::View;
-    store
+    let refused = store
         .insert_block(&mut card, &user_id)
         .await
-        .expect("type changed");
-    let changed_type = store.visibility_version().await;
-    assert_ne!(
-        before, changed_type,
-        "a former card invalidates document grants"
+        .expect_err("block_type is immutable once stored");
+    assert!(
+        matches!(
+            refused,
+            fvoci_store::StoreError::InvalidBlock {
+                source: fvoci_model::BlockError::TypeChanges,
+                ..
+            }
+        ),
+        "expected TypeChanges, got {refused:?}"
+    );
+    card.block_type = BlockType::Card;
+    assert_eq!(
+        before,
+        store.visibility_version().await,
+        "refused type change leaves grants intact"
     );
     store
         .delete_block(&card.id, &user_id)
         .await
         .expect("block trashed");
     let deleted = store.visibility_version().await;
-    assert_ne!(
-        changed_type, deleted,
-        "trash invalidates document existence"
-    );
+    assert_ne!(before, deleted, "trash invalidates document existence");
     store
         .undelete_block(&card.id, &user_id)
         .await

@@ -808,9 +808,9 @@ fn native_archive_entries(entries: &[(&str, &str)]) -> Vec<u8> {
     writer.finish().expect("finish").into_inner()
 }
 
-/// `gapfill P1-1` (#1): `container × containerMember` amplification (>64 containers per
-/// `container.jsonl` or >10,000 member lines) is rejected immediately with 413
-/// `archive_too_large` and leaves zero DB rows, files, or upload temp residue.
+/// `container × containerMember` amplification (>64 containers per `container.jsonl`
+/// or >10,000 member lines) is rejected immediately with 413 `archive_too_large` and
+/// leaves zero DB rows, files, or upload temp residue.
 #[tokio::test]
 async fn native_archive_container_member_amplification_is_rejected_with_413_and_zero_residue() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -831,7 +831,11 @@ async fn native_archive_container_member_amplification_is_rejected_with_413_and_
     let too_many_containers = native_archive_entries(&[("b0/container.jsonl", &lines_65)]);
     let r1 = import(&ts.client, TEST_WORKSPACE_ID, &too_many_containers).await;
     assert_eq!(r1.status, StatusCode::PAYLOAD_TOO_LARGE, "{}", r1.text());
-    assert_eq!(r1.error_reason(), "archive_too_large");
+    assert_eq!(
+        r1.error_reason(),
+        "archive_too_large",
+        "container amplification reason"
+    );
 
     // 2. 10,001 `containerMember` lines in one `container.jsonl` (> MAX_MEMBER_LINES = 10_000) -> 413.
     let mut many_members = json!({
@@ -852,7 +856,11 @@ async fn native_archive_container_member_amplification_is_rejected_with_413_and_
     let too_many_members = native_archive_entries(&[("b1/container.jsonl", &many_members)]);
     let r2 = import(&ts.client, TEST_WORKSPACE_ID, &too_many_members).await;
     assert_eq!(r2.status, StatusCode::PAYLOAD_TOO_LARGE, "{}", r2.text());
-    assert_eq!(r2.error_reason(), "archive_too_large");
+    assert_eq!(
+        r2.error_reason(),
+        "archive_too_large",
+        "member line amplification reason"
+    );
 
     assert_eq!(
         boards_of(&ts).await.len(),
@@ -880,9 +888,9 @@ async fn native_archive_container_member_amplification_is_rejected_with_413_and_
     ts.teardown().await;
 }
 
-/// `gapfill P1-1` (#2, #3) & `3ab H-4`: 1,000 duplicate `containerMember` lines deduplicate
-/// to a single membership (`200 OK`), normal export/import round-trips cleanly, and retired
-/// pre-`0071` v1 view keys are rejected with `400 Bad Request`.
+/// 1,000 duplicate `containerMember` lines deduplicate to a single membership (`200 OK`),
+/// normal export/import round-trips cleanly, and retired pre-`0071` v1 view keys are
+/// rejected with `400 Bad Request`.
 #[tokio::test]
 async fn native_archive_deduplicates_members_round_trips_and_rejects_retired_v1_view_keys() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -927,7 +935,7 @@ async fn native_archive_deduplicates_members_round_trips_and_rejects_retired_v1_
         "1,000 duplicate member lines produce a single membership: {members:?}"
     );
 
-    // Normal export -> import round-trip (`gapfill P1-1` #3).
+    // Normal export -> import round-trip.
     let exported = ts
         .client
         .get(&format!(
@@ -946,7 +954,7 @@ async fn native_archive_deduplicates_members_round_trips_and_rejects_retired_v1_
         "round-trip imported"
     );
 
-    // `3ab H-4`: retired pre-`0071` view field keys in `.fvoci` v1 archive are rejected with 400.
+    // Retired pre-`0071` view field keys in `.fvoci` v1 archive are rejected with 400.
     for retired_key in [
         "hiddenOptionIds",
         "visibleOptionIds",

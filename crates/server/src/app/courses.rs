@@ -196,7 +196,7 @@ impl App {
         self.spawn_background(async move {
             for block in &told {
                 app.ws().broadcast_block_change(&workspace_id, block).await;
-                app.tell_webhooks(block).await;
+                app.tell_webhooks(block);
             }
         });
     }

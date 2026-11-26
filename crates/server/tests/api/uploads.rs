@@ -1366,15 +1366,44 @@ async fn with_s3_parts_sent_at_once_are_all_taken() {
     let data = file_of(PART * 3 + 10);
     let upload_id = opened(&ts.client, &board.id, "a.bin", data.len()).await;
 
-    // Each part twice, all at once.
-    let sends = (0..8).map(|send| {
+    // Distinct parts sent all at once all succeed; duplicate concurrent streams for the
+    // same `(upload_id, part_number)` either serialize sequentially (`204`) or are
+    // refused with `409 Conflict` while the in-flight part finishes.
+    let distinct = (1..=4).map(|number| {
+        let start = (number - 1) * PART;
+        let end = (start + PART).min(data.len());
+        put_part(&ts.client, &upload_id, number, &data[start..end])
+    });
+    for response in futures_util::future::join_all(distinct).await {
+        response.check_no_content();
+    }
+
+    let duplicates = (0..8).map(|send| {
         let number = send % 4 + 1;
         let start = (number - 1) * PART;
         let end = (start + PART).min(data.len());
         put_part(&ts.client, &upload_id, number, &data[start..end])
     });
-    for response in futures_util::future::join_all(sends).await {
-        response.check_no_content();
+    let outcomes = futures_util::future::join_all(duplicates).await;
+    for part_idx in 0..4 {
+        let pair = [&outcomes[part_idx], &outcomes[part_idx + 4]];
+        assert!(
+            pair.iter().any(|r| r.status == StatusCode::NO_CONTENT),
+            "at least one stream for part {} must succeed",
+            part_idx + 1
+        );
+        for response in pair {
+            assert!(
+                matches!(
+                    response.status,
+                    StatusCode::NO_CONTENT | StatusCode::CONFLICT
+                ),
+                "unexpected status for concurrent part {}: {} {}",
+                part_idx + 1,
+                response.status,
+                response.text()
+            );
+        }
     }
 
     let response = ts

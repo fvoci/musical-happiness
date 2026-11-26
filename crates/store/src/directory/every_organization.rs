@@ -8,11 +8,11 @@
 //! one other place that opens a transaction's wall: a registration's statement on the
 //! one link it was made by (`signups.rs`).
 
-use fvoci_model::{OrgKind, UserOrganization};
+use fvoci_model::{OrgKind, UserOrganization, Workspace, new_id};
 
-use super::{oldest_organization, role};
-use crate::db::{Dialect, Id, Scope, Sql};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
+use crate::workspaces;
 
 /// What the reach of a transaction was before its wall was opened.
 #[must_use = "the wall is closed again with `close_wall`"]
@@ -33,7 +33,7 @@ pub(crate) async fn open_wall(scope: &mut Scope<'_>) -> Result<OpenedWall, Store
         return Ok(OpenedWall { was_open: true });
     }
     set_reach(scope, "on").await?;
-    scope.set_wall_open(true);
+    scope.open_wall();
     Ok(OpenedWall { was_open: false })
 }
 
@@ -47,7 +47,7 @@ pub(crate) async fn close_wall(scope: &mut Scope<'_>, wall: OpenedWall) -> Resul
         return Ok(());
     }
     set_reach(scope, "off").await?;
-    scope.set_wall_open(false);
+    scope.close_wall();
     Ok(())
 }
 
@@ -173,4 +173,68 @@ pub(crate) fn of_people(sql: &mut Sql, kind: &'static str) {
         .push(" = '")
         .push(OrgKind::Shared.as_str())
         .push("'");
+}
+
+pub(super) async fn create_organization(
+    scope: &mut Scope<'_>,
+    name: &str,
+    workspace: &Workspace,
+) -> Result<String, StoreError> {
+    let id = new_id();
+    workspaces::insert_organization(scope, Id(&id), name, workspace).await?;
+    Ok(id)
+}
+
+/// Reads a role from a column.
+pub(super) fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
+    row: &Row,
+    index: usize,
+) -> Result<R, StoreError> {
+    row.text(index)?
+        .parse()
+        .map_err(|error: fvoci_model::UnknownRole| StoreError::Corrupt {
+            column: "role",
+            reason: error.to_string(),
+        })
+}
+
+/// Reads the kind of an organization from a column.
+pub(crate) fn org_kind(row: &Row, index: usize) -> Result<OrgKind, StoreError> {
+    row.text(index)?
+        .parse()
+        .map_err(|error: fvoci_model::UnknownOrgKind| StoreError::Corrupt {
+            column: "kind",
+            reason: error.to_string(),
+        })
+}
+
+/// The instance's own organization as `scope` reaches the organizations: the oldest
+/// non-system one in use that people work in together.
+pub(crate) async fn oldest_organization(
+    scope: &mut Scope<'_>,
+) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+    sql.bind(false).push(" AND deleted_at IS NULL");
+    of_people(&mut sql, "kind");
+    sql.push(" ORDER BY created_at, id LIMIT 1");
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
+}
+
+/// The organization that is the space of the account `user_id`, in use or not, by
+/// who owns it: in a scope that reaches every organization.
+pub(crate) async fn space_of(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE owner_id = ");
+    sql.bind(Id(user_id));
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
 }

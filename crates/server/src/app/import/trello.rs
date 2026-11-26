@@ -78,25 +78,7 @@ pub(crate) fn convert_trello_bytes(
     bytes: &[u8],
     limits: &BundleLimits,
 ) -> Result<StagedArchive, AppError> {
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
-    check_json_safety(bytes, limits.max_json_nesting_depth)?;
-    let board: TrelloBoard = serde_json::from_slice(bytes).map_err(|error| {
-        let msg = error.to_string();
-        if let Some((_, rest)) = msg.split_once(TRELLO_LIMIT_PREFIX) {
-            let parsed_limit = rest
-                .split(|ch: char| !ch.is_ascii_digit())
-                .next()
-                .and_then(|digits| digits.parse::<usize>().ok())
-                .unwrap_or(usize::MAX);
-            return too_many("items", parsed_limit);
-        }
-        AppError::bad_request(format_args!("invalid Trello board JSON: {error}"))
-    })?;
-    if board.lists.is_none() && board.cards.is_none() {
-        return Err(AppError::bad_request(
-            "JSON does not look like a Trello board export: missing `lists` and `cards`",
-        ));
-    }
+    let board = decode_trello_board(bytes, limits)?;
     let lists = board.lists.map(|b| b.0).unwrap_or_default();
     let cards = board.cards.map(|b| b.0).unwrap_or_default();
     let labels = board.labels.0;
@@ -181,6 +163,29 @@ pub(crate) fn convert_trello_bytes(
         }],
         summary,
     })
+}
+
+fn decode_trello_board(bytes: &[u8], limits: &BundleLimits) -> Result<TrelloBoard, AppError> {
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    check_json_safety(bytes, limits.max_json_nesting_depth)?;
+    let board: TrelloBoard = serde_json::from_slice(bytes).map_err(|error| {
+        let msg = error.to_string();
+        if let Some((_, rest)) = msg.split_once(TRELLO_LIMIT_PREFIX) {
+            let parsed_limit = rest
+                .split(|ch: char| !ch.is_ascii_digit())
+                .next()
+                .and_then(|digits| digits.parse::<usize>().ok())
+                .unwrap_or(usize::MAX);
+            return too_many("items", parsed_limit);
+        }
+        AppError::bad_request(format_args!("invalid Trello board JSON: {error}"))
+    })?;
+    if board.lists.is_none() && board.cards.is_none() {
+        return Err(AppError::bad_request(
+            "JSON does not look like a Trello board export: missing `lists` and `cards`",
+        ));
+    }
+    Ok(board)
 }
 
 fn build_trello_container(

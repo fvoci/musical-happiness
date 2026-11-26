@@ -247,10 +247,12 @@ async fn a_card_with_what_no_version_holds_is_seen_to_and_no_other_block() {
     assert_eq!(unfinished().await, both);
 
     assert!(keep(store, &kept).await.is_some());
-    let mut view = store.get_block(&changed).await.expect("the card");
-    view.block_type = BlockType::View;
-    view.body = None;
-    common::insert_blocks(store, std::slice::from_mut(&mut view), &author).await;
+    store
+        .execute_unchecked(&format!(
+            "UPDATE blocks SET type = 'view', body = NULL WHERE id = '{changed}'"
+        ))
+        .await
+        .expect("legacy non-card block row");
     assert_eq!(keep(store, &changed).await, None, "no card, no version");
     assert_eq!(unfinished().await, Vec::<String>::new());
     test.teardown().await;

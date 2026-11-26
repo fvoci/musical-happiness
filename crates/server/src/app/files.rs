@@ -99,7 +99,7 @@ impl App {
     }
 
     /// Verifies that storing `added_bytes` more in this handle's organization stays
-    /// within `max_org_storage_bytes` (`Track4 P2-2`).
+    /// within `max_org_storage_bytes`.
     pub(crate) async fn check_org_storage_room(&self, added_bytes: u64) -> Result<(), AppError> {
         let max_bytes = self.limits().max_storage_bytes;
         let current = self.store().organization_storage_bytes().await?;

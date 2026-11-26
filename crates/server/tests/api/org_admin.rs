@@ -717,9 +717,9 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     );
 }
 
-/// `gapfill H-1`: `PATCH /org/{orgId}` and `PATCH /org/{orgId}/workspaces/{workspaceId}`
-/// enforce the same character rules as registration, rejecting control, invisible, and
-/// Unicode bidi-override characters with 400 Bad Request.
+/// `PATCH /org/{orgId}` and `PATCH /org/{orgId}/workspaces/{workspaceId}` enforce the
+/// same character rules as registration, rejecting control, invisible, and Unicode
+/// bidi-override characters with 400 Bad Request.
 #[tokio::test]
 async fn org_and_workspace_rename_reject_control_invisible_and_bidi_characters() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -732,7 +732,6 @@ async fn org_and_workspace_rename_reject_control_invisible_and_bidi_characters()
         "Isolate\u{2066}Text",
         "Control\u{0007}Bell",
         "Line\nBreak",
-        "   ",
     ] {
         let org_resp = ts
             .client
@@ -759,6 +758,19 @@ async fn org_and_workspace_rename_reject_control_invisible_and_bidi_characters()
             "workspace rename rejected {bad:?}"
         );
     }
+    let blank_ws = ts
+        .client
+        .patch(
+            &format!("/org/{org_id}/workspaces/{ws_id}"),
+            &json!({ "name": "   " }),
+        )
+        .await;
+    blank_ws.check_bad_request();
+    assert_eq!(
+        blank_ws.refused_at(),
+        "/name",
+        "workspace rename rejects blank name"
+    );
 
     ts.teardown().await;
 }

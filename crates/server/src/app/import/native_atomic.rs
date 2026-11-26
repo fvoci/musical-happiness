@@ -18,14 +18,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fvoci_model::{Container, ContainerKind, ContainerMember, FileRecord, ValidatedCourseSchedule};
-use fvoci_store::StreamCreateError;
+use fvoci_store::{StreamBatch, StreamCreateError};
 use tokio::fs;
 
 use super::archive::{Archive, entry_name, unpack_entry};
 use super::native_stream::{BoardWritePlan, StreamPlan, too_many_archive_items};
 use super::native_stream_write::{
     ArchiveStreamShared, BlockIdCollection, IMPORT_STREAM_TIMEOUT, StreamedBoardHandle,
-    spawn_archive_streamer,
+    StreamedBoardStats, spawn_archive_streamer,
 };
 use super::{
     ANNOUNCE_CHUNK_BLOCKS, ArchiveFiles, ImportCounts, ImportOptions, Imported, name_in,
@@ -41,7 +41,7 @@ use crate::collab::AccessScope;
 use crate::error::AppError;
 use crate::metrics::{ContainerWork, CourseSource};
 
-/// Total expanded `container_members` ceiling across an entire `.fvoci` import (`gapfill P1-1`).
+/// Total expanded `container_members` ceiling across an entire `.fvoci` import.
 pub(super) const MAX_IMPORTED_MEMBERSHIPS: usize = 50_000;
 
 /// Prepared metadata across every planned board in a native archive.
@@ -117,7 +117,7 @@ impl App {
             stats: streamer_handle,
         } = spawn_archive_streamer(
             zip.clone(),
-            prepared.stream_plans,
+            std::mem::take(&mut prepared.stream_plans),
             ArchiveStreamShared {
                 file_map: Arc::clone(&staged.file_map),
                 all_copies,
@@ -126,37 +126,15 @@ impl App {
             },
         );
 
-        let write_future = self
-            .store()
-            .create_imported_containers_blocks_files_members_and_schedules_streamed(
-                &mut prepared.containers,
-                &staged.records,
-                &prepared.extra_members,
-                &prepared.schedules,
+        let (members, mut stats) = self
+            .run_timed_archive_stream(
+                &mut prepared,
+                &staged,
                 &options.modified_by,
                 rx,
-            );
-        let write_result = match tokio::time::timeout(IMPORT_STREAM_TIMEOUT, write_future).await {
-            Ok(outcome) => outcome,
-            Err(_) => {
-                streamer_handle.abort();
-                self.clean_written_paths(&staged.written_paths).await;
-                return Err(AppError::bad_request(
-                    "archive import exceeded maximum transaction time limit",
-                ));
-            }
-        };
-        let streamer_outcome = streamer_handle.await;
-        let members = match write_result {
-            Ok(members) => members,
-            Err(error) => {
-                self.clean_written_paths(&staged.written_paths).await;
-                return Err(map_stream_write_error(error));
-            }
-        };
-        let mut stats = streamer_outcome.map_err(|error| {
-            AppError::internal(format_args!("archive stream task failed: {error}"))
-        })?;
+                streamer_handle,
+            )
+            .await?;
 
         self.finish_streamed_native_commit(
             &prepared.containers,
@@ -177,6 +155,46 @@ impl App {
             stats.counts,
             container_ids,
         ))
+    }
+
+    async fn run_timed_archive_stream(
+        &self,
+        prepared: &mut PreparedStreamedArchive,
+        staged: &StagedNativeFiles,
+        modified_by: &str,
+        rx: tokio::sync::mpsc::Receiver<StreamBatch<AppError>>,
+        streamer_handle: tokio::task::JoinHandle<StreamedBoardStats>,
+    ) -> Result<(Vec<ContainerMember>, StreamedBoardStats), AppError> {
+        let write_future = self
+            .store()
+            .create_imported_containers_blocks_files_members_and_schedules_streamed(
+                &mut prepared.containers,
+                &staged.records,
+                &prepared.extra_members,
+                &prepared.schedules,
+                modified_by,
+                rx,
+            );
+        let Ok(write_result) = tokio::time::timeout(IMPORT_STREAM_TIMEOUT, write_future).await
+        else {
+            streamer_handle.abort();
+            self.clean_written_paths(&staged.written_paths).await;
+            return Err(AppError::bad_request(
+                "archive import exceeded maximum transaction time limit",
+            ));
+        };
+        let streamer_outcome = streamer_handle.await;
+        let members = match write_result {
+            Ok(members) => members,
+            Err(error) => {
+                self.clean_written_paths(&staged.written_paths).await;
+                return Err(map_stream_write_error(error));
+            }
+        };
+        let stats = streamer_outcome.map_err(|error| {
+            AppError::internal(format_args!("archive stream task failed: {error}"))
+        })?;
+        Ok((members, stats))
     }
 
     async fn prepare_streamed_archive(
@@ -218,16 +236,15 @@ impl App {
                     left_out.insert(member.user_id);
                     continue;
                 }
-                let workspace_role = match actor_cache.get(&member.user_id) {
-                    Some(cached) => *cached,
-                    None => {
-                        let resolved = self
-                            .actor(&member.user_id, &options.workspace_id)
-                            .await?
-                            .workspace;
-                        actor_cache.insert(member.user_id.clone(), resolved);
-                        resolved
-                    }
+                let workspace_role = if let Some(cached) = actor_cache.get(&member.user_id) {
+                    *cached
+                } else {
+                    let resolved = self
+                        .actor(&member.user_id, &options.workspace_id)
+                        .await?
+                        .workspace;
+                    actor_cache.insert(member.user_id.clone(), resolved);
+                    resolved
                 };
                 match workspace_role {
                     Some(workspace_role) => {
@@ -451,7 +468,7 @@ impl App {
                 Ok(blocks) => {
                     for block in &blocks {
                         self.ws().broadcast_block_change(workspace_id, block).await;
-                        self.tell_webhooks(block).await;
+                        self.tell_webhooks(block);
                     }
                 }
                 Err(error) => {
