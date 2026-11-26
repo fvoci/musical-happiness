@@ -118,7 +118,7 @@ describe('the bubble over chosen text', () => {
   it('asks for the address of a link, and refuses one that is not a link', async () => {
     const editor = await choose(doc(paragraph(text('see the site'))), 9, 13);
     await fireEvent.click(tool('link'));
-    const field = document.querySelector<HTMLInputElement>('.doc-bubble-field');
+    const field = document.querySelector<HTMLInputElement>('.doc-link-field');
     expect(field).not.toBeNull();
     expect(document.activeElement).toBe(field);
     if (!field) return;
@@ -136,16 +136,48 @@ describe('the bubble over chosen text', () => {
     );
   });
 
+  it('takes a host and its port for a web address, and leaves the Enter of a syllable alone', async () => {
+    const editor = await choose(doc(paragraph(text('see the site'))), 9, 13);
+    await fireEvent.click(tool('link'));
+    const field = found(document.querySelector<HTMLInputElement>('.doc-link-field'), 'field');
+    await fireEvent.input(field, { target: { value: 'localhost:3000/x' } });
+    // Safari ends a syllable with an Enter it marks only by its key code.
+    await fireEvent.keyDown(field, { key: 'Enter', keyCode: 229 });
+    expect(JSON.stringify(stored(editor))).not.toContain('link');
+    await fireEvent.keyDown(field, { key: 'Enter' });
+    expect(stored(editor)).toEqual(
+      doc(paragraph(text('see the '), text('site', link('https://localhost:3000/x')))),
+    );
+  });
+
+  it('keeps the focus in the editor on a press between its buttons', async () => {
+    await choose(doc(paragraph(text('hello world'))), 1, 6);
+    const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    found(bubble(), 'bubble').dispatchEvent(press);
+    expect(press.defaultPrevented).toBe(true);
+  });
+
+  it('shows over text chosen by a drag that ended in a drop', async () => {
+    const editor = await choose(doc(paragraph(text('hello world'))), 1, 6);
+    // ProseMirror asks where a press is; a simulated page has no layout to say it.
+    Object.defineProperty(document, 'elementFromPoint', { value: () => null, configurable: true });
+    await fireEvent.mouseDown(editor.view.dom);
+    expect(bubble()).toBeNull();
+    await fireEvent(document, new Event('dragend', { bubbles: true }));
+    expect(bubble()).not.toBeNull();
+    Reflect.deleteProperty(document, 'elementFromPoint');
+  });
+
   it('goes back on Escape without letting it reach what the body is in', async () => {
     await choose(doc(paragraph(text('see the site'))), 9, 13);
     await fireEvent.click(tool('link'));
     const outside = vi.fn();
     document.addEventListener('keydown', outside);
-    const field = document.querySelector<HTMLInputElement>('.doc-bubble-field');
+    const field = document.querySelector<HTMLInputElement>('.doc-link-field');
     if (field) await fireEvent.keyDown(field, { key: 'Escape' });
     document.removeEventListener('keydown', outside);
     expect(outside).not.toHaveBeenCalled();
-    expect(document.querySelector('.doc-bubble-field')).toBeNull();
+    expect(document.querySelector('.doc-link-field')).toBeNull();
   });
 
   it('makes chosen text a formula', async () => {
@@ -213,7 +245,11 @@ describe('an image opened larger', () => {
     });
     const picture = (): HTMLImageElement =>
       found(container.querySelector<HTMLImageElement>('.ProseMirror img'), 'image');
+    // The press is the image's alone: what the body is in (a card that joins on a press) has none.
+    const outside = vi.fn();
+    container.addEventListener('click', outside);
     await fireEvent.click(picture());
+    expect(outside).not.toHaveBeenCalled();
     expect(lightbox()?.getAttribute('aria-label')).toBe('Image');
     await fireEvent.click(found(lightbox()?.querySelector('button'), 'close'));
 
@@ -272,6 +308,8 @@ describe('the bar over a phone’s keyboard', () => {
       'italic',
       'strike',
       'code',
+      'link',
+      'formula',
       'undo',
       'redo',
     ]);
@@ -293,5 +331,41 @@ describe('the bar over a phone’s keyboard', () => {
     editor.view.dom.blur();
     await tick();
     expect(bar()).toBeNull();
+  });
+
+  it('shows for an editor given the focus as it is made', async () => {
+    onAPhone();
+    const { container } = render(BodyEditor, {
+      doc: doc(paragraph(text('today'))),
+      onEditor: (made: Editor) => {
+        made.view.focus();
+      },
+    });
+    await tick();
+    expect(container.querySelector('[data-testid="mobile-editor-toolbar"]')).not.toBeNull();
+  });
+
+  it('puts a link on chosen text from an address asked for in the bar', async () => {
+    onAPhone();
+    const editor = await choose(doc(paragraph(text('see the site'))), 9, 13);
+    // A press on a button that cannot be pressed now goes through to the bar, which keeps the focus.
+    const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    found(document.querySelector('[data-testid="mobile-editor-toolbar"]'), 'bar').dispatchEvent(
+      press,
+    );
+    expect(press.defaultPrevented).toBe(true);
+    expect(tool('formula').disabled).toBe(false);
+    await fireEvent.click(tool('link'));
+    const field = found(document.querySelector<HTMLInputElement>('.doc-link-field'), 'field');
+    expect(field.closest('[data-testid="mobile-editor-toolbar"]')).not.toBeNull();
+    expect(document.activeElement).toBe(field);
+    await fireEvent.input(field, { target: { value: 'example.com' } });
+    await fireEvent.keyDown(field, { key: 'Enter' });
+    expect(stored(editor)).toEqual(
+      doc(paragraph(text('see the '), text('site', link('https://example.com')))),
+    );
+    expect(document.activeElement).toBe(editor.view.dom);
+    expect(document.querySelector('.doc-link-field')).toBeNull();
+    expect(tool('link').getAttribute('aria-pressed')).toBe('true');
   });
 });

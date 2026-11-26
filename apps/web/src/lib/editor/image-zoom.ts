@@ -61,7 +61,9 @@ export function zoomImagesOf(
   const pressed = (event: MouseEvent): void => {
     const image = imageOf(event.target);
     if (!image || event.button !== 0 || !when()) return;
+    // The image's press, and nothing else's: not one that joins a board to write (CardBody.svelte).
     event.preventDefault();
+    event.stopPropagation();
     open(lightboxOf(image));
   };
   const keyed = (event: KeyboardEvent): void => {

@@ -3,12 +3,12 @@
 
   Over chosen text: bold, italic, strikethrough, code, a link and a formula
   (format-actions.ts), each pressed again to take it off. "Link" asks for
-  the address in the bubble itself; Enter puts it on, an empty address takes
-  the link off, Escape goes back. Over a chosen image: "View larger"
-  (ImageLightbox.svelte, which the caller opens).
+  the address in the bubble itself (LinkField.svelte). Over a chosen image:
+  "View larger" (ImageLightbox.svelte, which the caller opens).
 
-  A press on a button keeps the focus and the selection in the editor. Tab
-  from the editor reaches the bubble, whose arrows go along it. It stays
+  A press anywhere on it but the address keeps the focus and the selection in
+  the editor, a press of a button that cannot be pressed now too. Tab from
+  the editor stops once in the bubble, whose arrows go along it. It stays
   while the focus is in it (`within`), and goes with the selection.
 -->
 <script lang="ts">
@@ -24,7 +24,7 @@
   import { placeBubble, selectionRect } from './bubble-place.ts';
   import { FORMULA_ACTION, MARK_ACTIONS, type FormatAction } from './format-actions.ts';
   import { lightboxOf, type LightboxImage } from './image-zoom.ts';
-  import { isAllowedHref } from './schema.ts';
+  import LinkField from './LinkField.svelte';
 
   interface Props {
     editor: Editor;
@@ -54,9 +54,8 @@
     onZoom,
   }: Props = $props();
 
-  /** The address of a link being written; undefined while none is. */
-  let address = $state<string>();
-  let refused = $state(false);
+  /** The address of a link is being written. */
+  let linking = $state(false);
 
   /** The image chosen, as it is drawn. */
   function chosenImage(): HTMLImageElement | undefined {
@@ -104,55 +103,10 @@
     ),
   );
 
-  /** The address as a link takes it: one without a scheme is a web address, or mail. */
-  function withScheme(typed: string): string {
-    if (/^[a-z][a-z0-9+.-]*:/i.test(typed)) return typed;
-    return /^[^\s/@]+@[^\s/@]+$/.test(typed) ? `mailto:${typed}` : `https://${typed}`;
-  }
-
-  function startLink(): void {
-    const href: unknown = editor.getAttributes('link').href;
-    address = typeof href === 'string' ? href : '';
-    refused = false;
-  }
-
-  function endLink(): void {
-    address = undefined;
-    refused = false;
-    editor.commands.focus();
-  }
-
-  function applyLink(): void {
-    const typed = (address ?? '').trim();
-    const chain = editor.chain().focus().extendMarkRange('link');
-    if (typed === '') {
-      chain.unsetLink().run();
-    } else {
-      const href = withScheme(typed);
-      if (!isAllowedHref(href)) {
-        refused = true;
-        return;
-      }
-      chain.setLink({ href }).run();
-    }
-    address = undefined;
-    refused = false;
-  }
-
-  function addressKeys(event: KeyboardEvent): void {
-    if (event.isComposing) return;
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      applyLink();
-    } else if (event.key === 'Escape') {
-      // Not for the dialog of a card it is in, which would close.
-      event.preventDefault();
-      event.stopPropagation();
-      endLink();
-    }
-  }
-
-  /** Placed again as what is chosen changes (`moved`), and as the page scrolls or changes its size. */
+  /**
+   * Placed again as what is chosen changes (`moved`), as the page scrolls or changes its size, and
+   * as the bubble does (a refused address is said in it).
+   */
   function placed(bubble: HTMLElement, ..._moved: unknown[]): () => void {
     const place = (): void => {
       const target = selectionRect(editor);
@@ -162,16 +116,14 @@
     const page = bubble.ownerDocument.defaultView ?? window;
     const scrolled = on(page, 'scroll', place, { capture: true, passive: true });
     const resized = on(page, 'resize', place);
+    const sized = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place);
+    sized?.observe(bubble);
     return () => {
       scrolled();
       resized();
+      sized?.disconnect();
     };
   }
-
-  const focusField = (field: HTMLInputElement): void => {
-    field.focus();
-    field.select();
-  };
 </script>
 
 {#snippet button(state: { action: FormatAction; can: boolean; on: boolean })}
@@ -183,7 +135,6 @@
     aria-pressed={state.action.active ? state.on : undefined}
     disabled={!state.can}
     tabindex={state.action.id === stop ? 0 : -1}
-    onmousedown={keepEditorFocus}
     onclick={() => {
       state.action.run(editor);
     }}
@@ -200,7 +151,8 @@
     aria-label={m.editor_format_bar()}
     data-bubble={kind}
     data-editor-tool="bubble"
-    {@attach (bubble: HTMLElement) => placed(bubble, changes, kind, address, refused)}
+    {@attach (bubble: HTMLElement) => placed(bubble, changes, kind, linking)}
+    onmousedown={keepEditorFocus}
     onfocusin={(event) => {
       within = true;
       last = focusedFormat(event) ?? last;
@@ -209,10 +161,10 @@
       const next = event.relatedTarget;
       if (next instanceof Node && event.currentTarget.contains(next)) return;
       within = false;
-      address = undefined;
+      linking = false;
     }}
     onkeydown={(event) => {
-      if (address === undefined) moveAlongBar(event, event.currentTarget);
+      if (!linking) moveAlongBar(event, event.currentTarget);
     }}
   >
     {#if kind === 'image'}
@@ -220,7 +172,6 @@
         type="button"
         class="doc-bubble-word"
         data-format="zoom"
-        onmousedown={keepEditorFocus}
         onclick={() => {
           const image = chosenImage();
           if (image) onZoom(lightboxOf(image));
@@ -229,22 +180,8 @@
         <Maximize2Icon aria-hidden="true" />
         {m.editor_image_zoom()}
       </button>
-    {:else if address !== undefined}
-      <input
-        class="doc-bubble-field"
-        type="text"
-        inputmode="url"
-        autocomplete="url"
-        aria-label={m.editor_format_link_address()}
-        aria-invalid={refused || undefined}
-        placeholder="https://"
-        bind:value={address}
-        onkeydown={addressKeys}
-        {@attach focusField}
-      />
-      {#if refused}
-        <p class="doc-bubble-problem" role="alert">{m.editor_format_link_refused()}</p>
-      {/if}
+    {:else if linking}
+      <LinkField {editor} ondone={() => (linking = false)} />
     {:else}
       {#each states.marks as state (state.action.id)}
         {@render button(state)}
@@ -256,8 +193,7 @@
         title={m.editor_format_link()}
         aria-pressed={states.link}
         tabindex={stop === 'link' ? 0 : -1}
-        onmousedown={keepEditorFocus}
-        onclick={startLink}
+        onclick={() => (linking = true)}
       >
         <LinkIcon aria-hidden="true" />
       </button>
@@ -310,10 +246,10 @@
   }
   .doc-bubble button:disabled {
     opacity: 0.4;
-    cursor: default;
+    /* A press goes through to the bubble, which keeps the focus in the editor. */
+    pointer-events: none;
   }
-  .doc-bubble button:focus-visible,
-  .doc-bubble-field:focus-visible {
+  .doc-bubble button:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 1px;
   }
@@ -323,22 +259,6 @@
   }
   .doc-bubble-word {
     padding: 0 0.625rem;
-  }
-  .doc-bubble-field {
-    width: min(18rem, calc(100vw - 3rem));
-    height: 2rem;
-    padding: 0 0.5rem;
-    border: 1px solid var(--input-border);
-    border-radius: var(--radius-md);
-    background: var(--background);
-    color: var(--foreground);
-    /* No smaller than this, or a phone zooms in when the field takes the focus. */
-    font-size: var(--text-base);
-  }
-  .doc-bubble-problem {
-    flex-basis: 100%;
-    margin: 0.25rem 0.25rem 0;
-    color: var(--destructive);
   }
   @media (pointer: coarse) {
     .doc-bubble button {

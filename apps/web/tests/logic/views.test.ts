@@ -373,6 +373,14 @@ describe('CSV rows', () => {
     expect(csvCell('-42')).toBe('"-42"');
     expect(csvCell('+1.5e3')).toBe('"+1.5e3"');
     expect(csvCell('a=b')).toBe('"a=b"');
+    // After what a spreadsheet passes by, and in the full width of East Asian text.
+    const hidden = [' =1+1', '\n=1+1', '\u00a0=1+1', '\u3000=1+1', '\u200b=1+1', '\ufeff=1+1'];
+    for (const formula of [...hidden, '\u202e=1', '＝1+1', '＋1+1', '－1+1', '＠1']) {
+      expect(csvCell(formula), JSON.stringify(formula)).toBe(`"'${formula}"`);
+    }
+    // A number so written is still a number.
+    expect(csvCell(' -5')).toBe('" -5"');
+    expect(csvCell('－5')).toBe('"－5"');
     const titled = tableRows([card('1', '=1+2')], [], view, 'Name', context);
     expect(lines(csvText(titled))[1]).toBe(`"'=1+2"`);
   });

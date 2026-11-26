@@ -42,7 +42,11 @@ export function moveAlongBar(event: KeyboardEvent, bar: HTMLElement): boolean {
   return true;
 }
 
-/** A press that must not take the focus, nor the selection, out of the editor. */
+/**
+ * A press on a bar that must not take the focus, nor the selection, out of the editor: on a
+ * button, between them, or on one that cannot be pressed now. A field in the bar takes it.
+ */
 export function keepEditorFocus(event: MouseEvent): void {
+  if (event.target instanceof Element && event.target.closest('input, textarea')) return;
   event.preventDefault();
 }

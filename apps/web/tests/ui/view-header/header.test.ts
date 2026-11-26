@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { csvFileName } from '$lib/features/view-header/view-csv.ts';
 import type { FilterGroup } from '$lib/logic/wire.ts';
 import { BackendError, type BoardStore, type Workspace } from '$lib/state/index.ts';
 import type { MemoryBackend } from '$lib/state/memory/backend.ts';
@@ -933,5 +934,14 @@ describe('the sort', () => {
     await settled();
     expect(view().fields.sort).toEqual([{ propertyId: STATUS, reversed: false }]);
     expect(add).toHaveFocus();
+  });
+});
+
+describe('the file of a view', () => {
+  it('is named by the board and the view, without what a system refuses or what turns the name', () => {
+    expect(csvFileName('Plan', 'Week 1')).toBe('Plan - Week 1.csv');
+    expect(csvFileName('a/b: c?', 'd')).toBe('a_b_ c_ - d.csv');
+    // U+202E would show the name backwards; U+200B is not seen.
+    expect(csvFileName('Report\u202eplh', 'x\u200by')).toBe('Reportplh - xy.csv');
   });
 });

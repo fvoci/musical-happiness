@@ -2,8 +2,9 @@
   The bar over a phone's keyboard while a body is written in: one row that
   scrolls sideways, of what is done to the line (format-actions.ts: three
   headings, a to-do list, two lists, a quote, a table, a file) and to the
-  text (the marks), with undo and redo at its end, always in reach. Each
-  button is as tall and as wide as a finger needs (44px).
+  chosen text (the marks, a link, a formula), with undo and redo at its end,
+  always in reach. Each button is as tall and as wide as a finger needs
+  (44px). "Link" asks for the address in the bar itself (LinkField.svelte).
 
   It is fixed to the bottom of the frame the body is in (the window, or a
   card's dialog, which is moved and so holds what is fixed in it), lifted
@@ -13,10 +14,12 @@
   (a card's comment field). Fixed, it takes
   no room: the page does not move when it comes or goes, so a press below
   the body that takes the focus away lands where it was aimed. The editor
-  keeps the caret clear of it (EditorTools.svelte). A press on it keeps the
-  focus, and so the keyboard, in the editor.
+  keeps the caret clear of it (EditorTools.svelte). A press on it but on the
+  address keeps the focus, and so the keyboard, in the editor; a press of a
+  button that cannot be pressed now too.
 -->
 <script lang="ts">
+  import LinkIcon from '@lucide/svelte/icons/link';
   import type { Editor } from '@tiptap/core';
   import { on } from 'svelte/events';
 
@@ -25,11 +28,14 @@
   import { focusedFormat, keepEditorFocus, moveAlongBar, tabStop } from './bar-keys.ts';
   import { scrollingBox } from './bubble-place.ts';
   import {
+    FORMULA_ACTION,
     HISTORY_ACTIONS,
     MARK_ACTIONS,
     lineActions,
     type FormatAction,
   } from './format-actions.ts';
+  import { canLink } from './link-address.ts';
+  import LinkField from './LinkField.svelte';
 
   interface Props {
     editor: Editor;
@@ -43,7 +49,20 @@
 
   let { editor, changes, uploads, within = $bindable(false) }: Props = $props();
 
-  const line = $derived([...lineActions(uploads), ...MARK_ACTIONS]);
+  /** The address of a link is being written, in place of the buttons. */
+  let linking = $state(false);
+  const LINK_ACTION: FormatAction = {
+    id: 'link',
+    label: m.editor_format_link,
+    icon: LinkIcon,
+    active: (chosen) => chosen.isActive('link'),
+    can: canLink,
+    run: () => {
+      linking = true;
+    },
+  };
+
+  const line = $derived([...lineActions(uploads), ...MARK_ACTIONS, LINK_ACTION, FORMULA_ACTION]);
 
   /** Each button's state where the selection is now; asked again on each change. */
   function statesNow(..._changed: unknown[]) {
@@ -103,7 +122,6 @@
     aria-pressed={state.action.active ? state.on : undefined}
     disabled={!state.can}
     tabindex={state.action.id === stop ? 0 : -1}
-    onmousedown={keepEditorFocus}
     onclick={() => {
       state.action.run(editor);
     }}
@@ -120,28 +138,37 @@
   data-testid="mobile-editor-toolbar"
   data-editor-tool="bar"
   {@attach lifted}
+  onmousedown={keepEditorFocus}
   onfocusin={(event) => {
     within = true;
     last = focusedFormat(event) ?? last;
   }}
   onfocusout={(event) => {
     const next = event.relatedTarget;
-    if (!(next instanceof Node && event.currentTarget.contains(next))) within = false;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    within = false;
+    linking = false;
   }}
   onkeydown={(event) => {
-    moveAlongBar(event, event.currentTarget);
+    if (!linking) moveAlongBar(event, event.currentTarget);
   }}
 >
-  <div class="doc-keyboard-bar-line">
-    {#each states.line as state (state.action.id)}
-      {@render button(state)}
-    {/each}
-  </div>
-  <div class="doc-keyboard-bar-history">
-    {#each states.history as state (state.action.id)}
-      {@render button(state)}
-    {/each}
-  </div>
+  {#if linking}
+    <div class="doc-keyboard-bar-link">
+      <LinkField {editor} ondone={() => (linking = false)} />
+    </div>
+  {:else}
+    <div class="doc-keyboard-bar-line">
+      {#each states.line as state (state.action.id)}
+        {@render button(state)}
+      {/each}
+    </div>
+    <div class="doc-keyboard-bar-history">
+      {#each states.history as state (state.action.id)}
+        {@render button(state)}
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -202,6 +229,20 @@
   }
   .doc-keyboard-bar button:disabled {
     opacity: 0.35;
+    /* A press goes through to the bar, which keeps the focus in the editor. */
+    pointer-events: none;
+  }
+  .doc-keyboard-bar-link {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 0.375rem 0.5rem;
+  }
+  .doc-keyboard-bar-link :global(.doc-link-field) {
+    flex: 1 1 auto;
+    width: auto;
+    height: 2.75rem;
   }
   .doc-keyboard-bar button:focus-visible {
     outline: 2px solid var(--ring);

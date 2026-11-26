@@ -8,7 +8,7 @@
   A phone is a screen of touch and of the compact width (app.css
   `--container-medium`): there the bar shows while the editor has the
   focus, and the bubble offers only what it does with a chosen image, since
-  the marks are on the bar. Elsewhere the bubble offers the marks over
+  the marks, the link and the formula are on the bar. Elsewhere the bubble offers the marks over
   chosen text, once a press of the mouse that is choosing it has ended. On
   a touch screen it stands under the text, away from the screen's own menu.
 -->
@@ -55,6 +55,9 @@
 
   /** Follows the focus of the editor and the presses that choose text in it. */
   function followed(current: Editor): () => void {
+    // From where it is now: an editor may be given the focus as it is made, before this listens
+    // (a diary's day, a card's body where it was pressed).
+    focused = current.isFocused;
     // An editor taken out of the page blurs while Svelte takes it out (BodyEditor.svelte `fromEditor`).
     const focus = (): void => {
       untrack(() => (focused = true));
@@ -77,11 +80,14 @@
       choosing = event.button === 0;
     });
     const released = on(page, 'mouseup', () => (choosing = false));
+    // Chosen text dragged elsewhere ends with no `mouseup`.
+    const dropped = on(page, 'dragend', () => (choosing = false));
     return () => {
       current.off('focus', focus);
       current.off('blur', blur);
       pressed();
       released();
+      dropped();
     };
   }
 

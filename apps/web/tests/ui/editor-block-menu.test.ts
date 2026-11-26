@@ -230,4 +230,29 @@ describe('the menu under an input method', () => {
     list.onExit?.({} as SuggestionProps<SuggestionEntry, SuggestionEntry>);
     expect(document.querySelector('[data-suggestions]')).toBeNull();
   });
+
+  it('takes an entry pressed while a syllable is composed once it is written', () => {
+    vi.useFakeTimers();
+    const editor = create(...placeNamed('an empty line'));
+    let composing = true;
+    Object.defineProperty(editor.view, 'composing', { get: () => composing });
+    const entries = slashEntries(editor, false);
+    const choose = vi.fn();
+    const list = suggestionList({ kind: 'slash', label: () => 'Add a block' })();
+    list.onStart?.({
+      editor,
+      items: entries,
+      command: choose,
+      clientRect: () => new DOMRect(),
+    } as unknown as SuggestionProps<SuggestionEntry, SuggestionEntry>);
+    const option = document.querySelectorAll('[data-suggestions] [role="option"]')[1];
+    option?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    expect(choose).not.toHaveBeenCalled();
+    composing = false;
+    editor.view.dom.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    vi.advanceTimersByTime(30);
+    expect(choose).toHaveBeenCalledWith(entries[1]);
+    list.onExit?.({} as SuggestionProps<SuggestionEntry, SuggestionEntry>);
+    vi.useRealTimers();
+  });
 });

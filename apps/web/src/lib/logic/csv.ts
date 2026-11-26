@@ -8,9 +8,11 @@
  *
  * Anyone who may write on a board writes what a reader then opens in a
  * spreadsheet, which would run a text that starts like a formula (`=`, `+`,
- * `-`, `@`, a tab, a carriage return). Such a text is written after an
- * apostrophe, which the spreadsheet shows as text; a plain number (`-5`)
- * is no formula and stays a number.
+ * `-`, `@`, a tab, a carriage return), also after spaces, line breaks or
+ * invisible marks, and in the full width of East Asian text (`＝`, `＋`).
+ * Such a text is written after an apostrophe, which the spreadsheet shows
+ * as text, the apostrophe with it in some (a phone number `+82 …` too); a
+ * plain number (`-5`) is no formula and stays a number.
  */
 import { displayProperty } from './calendar.ts';
 import type { DisplayContext } from './format.ts';
@@ -20,8 +22,10 @@ import { cardProperty, type Card, type PropertyTemplate, type ViewQuery } from '
 /** The mark at the start of the file that says it is UTF-8. */
 export const CSV_BOM = '﻿';
 
-/** How a text a spreadsheet would take for a formula starts. */
-const FORMULA_START = /^[=+\-@\t\r]/;
+/** How a text a spreadsheet would take for a formula starts, once what it passes by is gone. */
+const FORMULA_START = /^[=+\-@]/;
+/** What a spreadsheet may pass by before a formula: spaces, line breaks, controls, invisible marks. */
+const PASSED_BY = /^[\s\p{Cc}\p{Cf}]+/u;
 /** A number as a spreadsheet reads one, with its sign. */
 const PLAIN_NUMBER = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i;
 
@@ -57,11 +61,18 @@ export function tableRows(
   return rows;
 }
 
+/** Whether a spreadsheet could run a text as a formula: it is read as the spreadsheet reads it. */
+function runsAsFormula(text: string): boolean {
+  if (text.startsWith('\t') || text.startsWith('\r')) return true;
+  const head = text.normalize('NFKC').replace(PASSED_BY, '');
+  return FORMULA_START.test(head) && !PLAIN_NUMBER.test(head);
+}
+
 /** One cell as the file has it: a number bare, a text guarded and quoted, nothing as nothing. */
 export function csvCell(cell: ExportCell): string {
   if (typeof cell === 'number') return Number.isFinite(cell) ? String(cell) : '';
   if (cell === '') return '';
-  const guarded = FORMULA_START.test(cell) && !PLAIN_NUMBER.test(cell) ? `'${cell}` : cell;
+  const guarded = runsAsFormula(cell) ? `'${cell}` : cell;
   return `"${guarded.replaceAll('"', '""')}"`;
 }
 

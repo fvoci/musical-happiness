@@ -7,7 +7,7 @@ import { TextSelection } from '@tiptap/pm/state';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { bodyExtensions } from '$lib/editor/extensions.ts';
-import { looksLikeMarkdown } from '$lib/editor/markdown-paste.ts';
+import { looksLikeMarkdown, pastedMarkdown } from '$lib/editor/markdown-paste.ts';
 import { toStoredDoc, validateDoc, type DocNode } from '$lib/editor/schema.ts';
 
 const editors: Editor[] = [];
@@ -75,6 +75,8 @@ describe('what is taken for Markdown', () => {
     ['seven hashes', '####### no\nheading'],
     ['plain lines', 'Dear all,\nsee you at 3.'],
     ['a quote mark without a space', '>not\n>quoted'],
+    ['dates as Korean writes them', '2026. 11. 26. 주간 회의\n2026. 11. 27. 워크숍'],
+    ['dates without the year', '11. 26. 주간 회의\n11. 27. 워크숍'],
   ])('not %s', (_kind, text) => {
     expect(looksLikeMarkdown(text)).toBe(false);
   });
@@ -136,6 +138,23 @@ describe('Markdown pasted as text', () => {
     pasteText(editor, '## Plan\n- [ ] write');
     expect(blocks(editor)).toEqual(['codeBlock']);
     expect(editor.state.doc.firstChild?.textContent).toBe('## Plan\n- [ ] write');
+  });
+
+  it('keeps a line that starts with a date text, among lines that are Markdown', () => {
+    const editor = create(doc(paragraph()));
+    atEnd(editor);
+    pasteText(editor, '## 일정\n\n2026. 11. 26. 주간 회의\n\n2026. 11. 27. 워크숍');
+    expect(blocks(editor)).toEqual(['heading', 'paragraph', 'paragraph']);
+    expect(editor.state.doc.child(1).textContent).toBe('2026. 11. 26. 주간 회의');
+    expect(editor.state.doc.child(2).textContent).toBe('2026. 11. 27. 워크숍');
+  });
+
+  it('tells a table by its lines in one pass, however long they are', () => {
+    const editor = create(doc(paragraph()));
+    const started = performance.now();
+    // A rule, many spaces and a letter: no line under a table's head, and no Markdown.
+    expect(pastedMarkdown(`a | b\n-${' '.repeat(200_000)}x\nc`, editor.schema)).toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 
   it('text that only looks like a table over a rule stays text', () => {

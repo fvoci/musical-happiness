@@ -264,7 +264,10 @@ test('a phone gets a bar over its keyboard, a finger wide', async ({ page }, inf
   // The marks are on the bar: chosen text gets no bubble of them.
   await page.keyboard.press('Shift+ArrowLeft');
   await expect(bubble(page)).toHaveCount(0);
-  // With a keyboard, Tab stops in the bar once, the arrows go along it, and Tab goes on past it.
+  // With a keyboard, Tab stops in the bar once, the arrows go along it, and Tab goes on past it;
+  // from a line of text, since in a list Tab moves the line in.
+  await bar.getByRole('button', { name: 'Undo' }).tap();
+  await expect(toDo).toHaveCount(0);
   await page.keyboard.press('Tab');
   const focusedButton = bar.locator('button:focus');
   await expect(focusedButton).toHaveCount(1);

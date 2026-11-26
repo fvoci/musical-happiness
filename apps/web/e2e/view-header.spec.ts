@@ -1620,7 +1620,8 @@ test.describe('the file of a view', () => {
     await expect(cards(page).filter({ hasText: 'Build' }).first()).toBeVisible();
 
     const { name, text } = await saveCsv(page);
-    expect(name).toBe('Project schedule - Task table.csv');
+    // WebKit writes the spaces of a name it is given as underscores.
+    expect(name.replaceAll('_', ' ')).toBe('Project schedule - Task table.csv');
     // UTF-8 said once at the start, then lines ended by CRLF.
     expect(text.startsWith('\uFEFF')).toBe(true);
     const lines = text.slice(1).split('\r\n');
