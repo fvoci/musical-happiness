@@ -32,6 +32,9 @@ use crate::app::{App, BodyInMarkdown, Caller};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
+/// How many of the cards below a card `get_item` gives.
+const CHILDREN_GIVEN: usize = 50;
+
 /// A workspace as `list_workspaces` answers with it.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -198,8 +201,16 @@ pub(super) async fn list_cards(
         ContainerKinds::BOARDS,
     )
     .await?;
+    // The tool counts pages from 1, as people do; the route from 0.
+    let page = match arguments.page {
+        None => None,
+        Some(page) => Some(
+            page.checked_sub(1)
+                .ok_or_else(|| ToolError::arguments("page counts from 1"))?,
+        ),
+    };
     let query = CardsListQuery {
-        page: text(arguments.page),
+        page: text(page),
         per_page: text(arguments.per_page),
         q: text(arguments.q),
         parent_id: text(arguments.parent_id),
@@ -219,7 +230,7 @@ pub(super) async fn list_cards(
 }
 
 /// `item`, a card, page or unit as JSON, with its body in Markdown in place of it.
-fn in_markdown(mut item: Value, written: BodyInMarkdown) -> Value {
+fn in_markdown(mut item: Value, written: BodyInMarkdown) -> Result<Value, AppError> {
     if let Value::Object(members) = &mut item {
         members.remove("body");
         members.insert("bodyMarkdown".to_owned(), Value::String(written.markdown));
@@ -229,16 +240,10 @@ fn in_markdown(mut item: Value, written: BodyInMarkdown) -> Value {
         );
         members.insert(
             "complexBlocks".to_owned(),
-            Value::Array(
-                written
-                    .complex_blocks
-                    .iter()
-                    .filter_map(|block| serde_json::to_value(block).ok())
-                    .collect(),
-            ),
+            to_json(&written.complex_blocks)?,
         );
     }
-    item
+    Ok(item)
 }
 
 /// `item` of the container `container_id` as JSON, with `body` in Markdown.
@@ -252,7 +257,7 @@ async fn written(
         .app
         .body_in_markdown(ws.markdown_reader(), container_id, body)
         .await?;
-    Ok(in_markdown(to_json(item)?, markdown))
+    in_markdown(to_json(item)?, markdown)
 }
 
 /// A card as JSON, its body in Markdown (`getCard` with `format=markdown`).
@@ -453,20 +458,25 @@ async fn card_item(ws: &InWorkspace, arguments: &GetItemArguments) -> Result<Val
             ));
         }
     };
+    // One more than are given, to tell whether there are more.
     let below = CardsListQuery {
         parent_id: card.id.clone(),
+        per_page: (CHILDREN_GIVEN + 1).to_string(),
         ..CardsListQuery::default()
     };
-    let children: Vec<CompactCard> = cards_of_board(ws, &card.board_id, &below)
+    let mut children: Vec<CompactCard> = cards_of_board(ws, &card.board_id, &below)
         .await?
         .into_iter()
         .map(CompactCard::from)
         .collect();
+    let has_more = children.len() > CHILDREN_GIVEN;
+    children.truncate(CHILDREN_GIVEN);
     let files = files_of_card(ws, &card.board_id, &card.id).await?;
     Ok(json!({
         "kind": "card",
         "item": card_json(&card)?,
         "children": children,
+        "hasMoreChildren": has_more,
         "files": files,
     }))
 }

@@ -6,6 +6,8 @@
 //! and does there what the route does, through the same functions: what a token may
 //! read, write and reach is asked of it in one place, whichever way it came.
 
+use std::sync::LazyLock;
+
 use fvoci_model::{ApiTokenScope, ContainerKinds};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
@@ -126,7 +128,7 @@ impl Tool {
             Self::FindPeople => {
                 "Up to ten people of the workspace whose login name or name holds q, as the caller \
                  sees them (no email): the ids to give a card's people property or mention in \
-                 Markdown as [name](fvoci-user://<id>)."
+                 Markdown as @[name](fvoci-user://<id>)."
             }
             Self::SearchWorkspace => {
                 "Search what the cards, pages and units of the workspace say, by words that a hit's \
@@ -142,8 +144,9 @@ impl Tool {
                 "A card, a page or a unit with its body in Markdown (bodyMarkdown), whether the body \
                  has blocks Markdown does not hold (hasComplexBlocks: then add to it with \
                  appendMarkdown rather than writing it whole), the items below it and the files it \
-                 shows. A card by id, or by containerId and number; a page or unit by containerId \
-                 and id."
+                 shows: of a card, the first 50 cards below it (hasMoreChildren: list_cards with \
+                 parentId reads them all). A card by id, or by containerId and number; a page or \
+                 unit by containerId and id."
             }
             Self::GetOutline => {
                 "The tree of a wiki's pages, or of a course's chapters and units with the caller's own \
@@ -224,9 +227,23 @@ impl Tool {
     }
 }
 
+/// The answers to `tools/list`, made once: for a token that reads, and for one that
+/// writes.
+static LISTED: LazyLock<[Value; 2]> =
+    LazyLock::new(|| [listing(ApiTokenScope::Read), listing(ApiTokenScope::Write)]);
+
 /// The answer to `tools/list` for a token of `scope`: the tools it covers, and no
 /// other, so that an agent that may only read is not told of what it may not do.
 pub(super) fn listed_for(scope: ApiTokenScope) -> Value {
+    let [read, write] = &*LISTED;
+    match scope {
+        ApiTokenScope::Read => read.clone(),
+        ApiTokenScope::Write => write.clone(),
+    }
+}
+
+/// The tools a token of `scope` covers, as `tools/list` lists them.
+fn listing(scope: ApiTokenScope) -> Value {
     let tools: Vec<Value> = TOOLS
         .into_iter()
         .filter(|tool| scope.covers(tool.scope()))
@@ -242,6 +259,18 @@ pub(super) enum ToolError {
     Arguments(String),
     /// The application refused, or failed.
     App(AppError),
+    /// The application refused, or failed, after the tool wrote something.
+    Partly(Box<Partly>),
+}
+
+/// A refusal, or a failure, after a tool wrote something.
+#[derive(Debug)]
+pub(super) struct Partly {
+    /// What refused, or failed.
+    pub(super) error: AppError,
+    /// What was written: its identifier and whether it was made or changed, told of
+    /// with the problem.
+    pub(super) written: Value,
 }
 
 impl From<AppError> for ToolError {
@@ -314,7 +343,21 @@ pub(super) async fn call(
             "{name}: {why}"
         )))),
         Err(ToolError::App(error)) => refused(error),
+        Err(ToolError::Partly(partly)) => Ok(refused_after(&partly.error, partly.written)),
     }
+}
+
+/// What a tool answers for an error of the application after it wrote `written`: the
+/// problem with what was written (`written`), marked `isError`, whatever the error,
+/// for the agent to change what is there rather than make it again. A failure of the
+/// server is the server's problem, its reason in its log.
+fn refused_after(error: &AppError, written: Value) -> Value {
+    error.log();
+    let mut problem = serde_json::to_value(error.body()).expect("a problem is JSON");
+    if let Value::Object(members) = &mut problem {
+        members.insert("written".to_owned(), written);
+    }
+    refused_with(&problem)
 }
 
 /// What a tool answers for an error of the application.

@@ -351,6 +351,15 @@ async fn what_a_tool_refuses_it_writes_nothing_of() {
         let problem = refused(&agent, "save_page_or_unit", &arguments).await;
         assert_eq!(problem["status"], 400, "{body}: {problem}");
     }
+    // Nor is one with progress: a chapter has none.
+    let problem = refused(
+        &agent,
+        "save_page_or_unit",
+        &json!({"workspaceId": TEST_WORKSPACE_ID, "kind": "unit", "containerId": course,
+                "unitKind": "chapter", "title": "Part two", "progress": {"completed": true}}),
+    )
+    .await;
+    assert_eq!(problem["status"], 400, "{problem}");
     let outline = called(
         &agent,
         "get_outline",
@@ -362,6 +371,83 @@ async fn what_a_tool_refuses_it_writes_nothing_of() {
         json!([]),
         "no chapter was made: {outline}"
     );
+
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn a_card_made_with_its_body_keeps_the_body_as_the_agents() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerVisibility::Private)
+        .await;
+    let agent = agent_writing(&th, &th.client).await;
+    for body in [
+        json!({"bodyMarkdown": "Made **whole**."}),
+        json!({"appendMarkdown": "Made by adding."}),
+    ] {
+        let mut arguments =
+            json!({"workspaceId": TEST_WORKSPACE_ID, "boardId": board.id, "title": "new"});
+        arguments
+            .as_object_mut()
+            .expect("an object")
+            .extend(body.as_object().expect("an object").clone());
+        let made = called(&agent, "save_card", &arguments).await;
+        check_says(&made["bodyMarkdown"], &["Made"]);
+        let card_id = made["id"].as_str().expect("an id");
+        check_an_agents_version(&versions(&th.client, card_id).await);
+    }
+
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn a_comment_that_names_nobody_or_someone_unseen_is_kept_and_read_without_their_name() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerVisibility::Private)
+        .await;
+    let card: Value = th
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "talked of"}),
+        )
+        .await
+        .created_json();
+    let agent = agent_writing(&th, &th.client).await;
+    let mut named = vec![(UNKNOWN_ID.to_owned(), "ghost".to_owned())];
+    // An account of another organization is somebody, whom the reader does not see.
+    if fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres {
+        let (theirs, _, _) = crate::workspaces::another_organization(&th).await;
+        let mut stranger = fvoci_model::User {
+            id: fvoci_model::new_id(),
+            username: "stranger.elsewhere".to_owned(),
+            email: "stranger.elsewhere@sample.com".to_owned(),
+            ..fvoci_model::User::default()
+        };
+        theirs
+            .create_user(&mut stranger)
+            .await
+            .expect("their user is stored");
+        named.push((stranger.id, stranger.username));
+    }
+    let on_the_card = json!({"workspaceId": TEST_WORKSPACE_ID, "kind": "card",
+                             "containerId": board.id, "itemId": card["id"]});
+    for (id, name) in &named {
+        let mut posted = on_the_card.clone();
+        posted["markdown"] = json!(format!("ask @[{name}](fvoci-user://{id})"));
+        let comment = called(&agent, "post_comment", &posted).await;
+        let said = comment["markdown"].as_str().expect("Markdown");
+        assert!(said.contains(&format!("fvoci-user://{id}")), "{comment}");
+        assert!(!said.contains(name.as_str()), "{comment}");
+    }
+    let listed = called(&agent, "list_comments", &on_the_card).await;
+    let comments = listed["comments"].as_array().expect("comments");
+    assert_eq!(comments.len(), named.len(), "{listed}");
+    for (_, name) in &named {
+        assert!(!listed.to_string().contains(name.as_str()), "{listed}");
+    }
 
     th.teardown().await;
 }

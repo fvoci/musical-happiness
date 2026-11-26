@@ -6,7 +6,7 @@ use std::path::Path;
 use fvoci_model::ApiTokenScope;
 use serde_json::{Map, Value, json};
 
-use super::rpc::{self, INVALID_REQUEST, Incoming, PARSE_ERROR};
+use super::rpc::{self, INVALID_PARAMS, INVALID_REQUEST, Incoming, PARSE_ERROR};
 use super::tools::{TOOLS, Tool, listed_for};
 use super::{PROTOCOL_VERSIONS, initialized};
 
@@ -122,7 +122,6 @@ fn the_body_of_a_request_is_one_message() {
         r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#,
         r#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#,
         r#"{"jsonrpc":"2.0","id":1,"method":7}"#,
-        r#"{"jsonrpc":"2.0","id":1,"method":"ping","params":[1]}"#,
         r#"{"jsonrpc":"2.0","id":1}"#,
     ] {
         assert_eq!(
@@ -131,6 +130,28 @@ fn the_body_of_a_request_is_one_message() {
             "{refused}"
         );
     }
+}
+
+#[test]
+fn a_batch_is_refused_before_it_is_read_and_a_request_with_wrong_params_by_its_id() {
+    // No JSON, and refused all the same as a batch.
+    assert_eq!(
+        rpc::read(b"  [ not even JSON").map_err(|error| error.code),
+        Err(INVALID_REQUEST)
+    );
+    let wrong = br#"{"jsonrpc":"2.0","id":4,"method":"ping","params":[1]}"#;
+    match rpc::read(wrong) {
+        Ok(Incoming::Refused { id, error }) => {
+            assert_eq!(id, json!(4));
+            assert_eq!(error.code, INVALID_PARAMS);
+        }
+        other => panic!("a request with params that are no object: {other:?}"),
+    }
+    let notified = br#"{"jsonrpc":"2.0","method":"ping","params":[1]}"#;
+    assert_eq!(
+        rpc::read(notified).map_err(|error| error.code),
+        Err(INVALID_REQUEST)
+    );
 }
 
 #[test]

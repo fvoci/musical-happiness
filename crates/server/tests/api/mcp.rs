@@ -443,41 +443,7 @@ async fn a_token_lists_the_workspaces_it_was_given_and_reaches_no_diary() {
     )
     .await;
     assert!(!files.to_string().contains(&file_id), "{files}");
-    for (tool, arguments) in [
-        (
-            "get_outline",
-            json!({"workspaceId": own, "containerId": diary_id}),
-        ),
-        (
-            "list_files",
-            json!({"workspaceId": own, "containerId": diary_id}),
-        ),
-        (
-            "list_cards",
-            json!({"workspaceId": own, "boardId": diary_id}),
-        ),
-        (
-            "get_item",
-            json!({"workspaceId": own, "kind": "page", "containerId": diary_id, "id": entry_id}),
-        ),
-        (
-            "get_item",
-            json!({"workspaceId": own, "kind": "card", "id": entry_id}),
-        ),
-        (
-            "list_comments",
-            json!({"workspaceId": own, "kind": "page", "containerId": diary_id, "itemId": entry_id}),
-        ),
-        (
-            "post_comment",
-            json!({"workspaceId": own, "kind": "page", "containerId": diary_id,
-                   "itemId": entry_id, "markdown": "seen"}),
-        ),
-        (
-            "save_page_or_unit",
-            json!({"workspaceId": own, "kind": "page", "containerId": diary_id, "title": "in"}),
-        ),
-    ] {
+    for (tool, arguments) in calls_on_a_diary(&own, &diary_id, &entry_id, &file_id) {
         let problem = refused(&agent, tool, &arguments).await;
         assert_eq!(problem["status"], 404, "{tool} {arguments}: {problem}");
     }
@@ -599,4 +565,133 @@ async fn a_search_of_one_container_counts_its_hits_alone() {
     assert_eq!(hits[0]["id"], alone["id"], "{found}");
 
     ts.teardown().await;
+}
+
+#[tokio::test]
+async fn a_client_that_adds_no_header_is_told_to_send_a_token_from_any_origin_but_another() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let agent = agent_of(&ts, &ts.client, "read", &[TEST_WORKSPACE_ID]).await;
+    let ping = request("ping", &json!({}));
+    // No client of the protocol sends the header a page of the server's own sends.
+    for (who, client) in [
+        ("nobody", ts.anonymous()),
+        ("a browser's session", ts.client.as_browser()),
+    ] {
+        let answer = Client::send(client.bare_request(Method::POST, MCP).json(&ping)).await;
+        assert_eq!(
+            answer.status,
+            StatusCode::UNAUTHORIZED,
+            "{who}: {}",
+            answer.text()
+        );
+        assert_eq!(answer.header("www-authenticate"), "Bearer", "{who}");
+    }
+    Client::send(agent.bare_request(Method::POST, MCP).json(&ping))
+        .await
+        .check_ok();
+    // A page of another site is refused all the same.
+    let foreign = agent
+        .bare_request(Method::POST, MCP)
+        .header("Origin", "https://elsewhere.example")
+        .json(&ping);
+    Client::send(foreign)
+        .await
+        .check_status(StatusCode::FORBIDDEN);
+
+    ts.teardown().await;
+}
+
+#[tokio::test]
+async fn the_pages_of_a_boards_cards_count_from_one_and_hold_each_card_once() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
+        .await;
+    let mut made = Vec::new();
+    for title in ["one", "two", "three"] {
+        let card: Value = ts
+            .client
+            .post(
+                &format!("{TEST_WS}/boards/{}/cards", board.id),
+                &json!({"title": title}),
+            )
+            .await
+            .created_json();
+        made.push(card["id"].as_str().expect("an id").to_owned());
+    }
+    let agent = agent_of(&ts, &ts.client, "read", &[TEST_WORKSPACE_ID]).await;
+    let page = |page: u32| {
+        json!({"workspaceId": TEST_WORKSPACE_ID, "boardId": board.id, "page": page,
+               "perPage": 2})
+    };
+    let first = ids_of(&called(&agent, "list_cards", &page(1)).await, "cards");
+    let second = ids_of(&called(&agent, "list_cards", &page(2)).await, "cards");
+    assert_eq!(first.len(), 2, "{first:?}");
+    assert_eq!(second.len(), 1, "{second:?}");
+    let mut all: Vec<String> = first.into_iter().chain(second).collect();
+    all.sort();
+    made.sort();
+    assert_eq!(all, made, "each card once, none left out");
+    let call = json!({"name": "list_cards", "arguments": page(0)});
+    let answer: Value = send(&agent, &request("tools/call", &call)).await.ok_json();
+    assert_eq!(answer["error"]["code"], -32602, "{answer}");
+
+    ts.teardown().await;
+}
+
+/// The calls a token makes of the diary `diary_id` of its space `own`, of its entry
+/// `entry_id` and of its file `file_id`: each refused as for a diary that is not there.
+fn calls_on_a_diary(
+    own: &str,
+    diary_id: &str,
+    entry_id: &str,
+    file_id: &str,
+) -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "get_outline",
+            json!({"workspaceId": own, "containerId": diary_id}),
+        ),
+        (
+            "list_files",
+            json!({"workspaceId": own, "containerId": diary_id}),
+        ),
+        (
+            "list_cards",
+            json!({"workspaceId": own, "boardId": diary_id}),
+        ),
+        (
+            "get_item",
+            json!({"workspaceId": own, "kind": "page", "containerId": diary_id, "id": entry_id}),
+        ),
+        (
+            "get_item",
+            json!({"workspaceId": own, "kind": "card", "id": entry_id}),
+        ),
+        (
+            "list_comments",
+            json!({"workspaceId": own, "kind": "page", "containerId": diary_id, "itemId": entry_id}),
+        ),
+        (
+            "post_comment",
+            json!({"workspaceId": own, "kind": "page", "containerId": diary_id,
+               "itemId": entry_id, "markdown": "seen"}),
+        ),
+        (
+            "save_page_or_unit",
+            json!({"workspaceId": own, "kind": "page", "containerId": diary_id, "title": "in"}),
+        ),
+        // Whether the body names a file of the diary or one that is nowhere: nothing of
+        // the diary is read before the token is refused it.
+        (
+            "save_page_or_unit",
+            json!({"workspaceId": own, "kind": "page", "containerId": diary_id, "title": "in",
+               "bodyMarkdown": format!("[x](fvoci-file://{file_id})")}),
+        ),
+        (
+            "save_page_or_unit",
+            json!({"workspaceId": own, "kind": "page", "containerId": diary_id, "title": "in",
+               "bodyMarkdown": format!("[x](fvoci-file://{UNKNOWN_ID})")}),
+        ),
+    ]
 }

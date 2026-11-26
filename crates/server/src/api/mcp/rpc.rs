@@ -56,6 +56,20 @@ pub(super) enum Incoming {
     },
     /// A notification, or the answer to a request of the server's: nothing to answer.
     Accepted,
+    /// A request, by its `id`, that is refused before it is done: answered with the
+    /// error and the `id`, for the client to know which of its requests it was.
+    Refused { id: Value, error: RpcError },
+}
+
+/// What a request whose params are no object is refused for.
+const NOT_AN_OBJECT: &str = "the params are an object";
+
+/// The error of a body that holds a batch, or other JSON than one message.
+fn not_one_message() -> RpcError {
+    RpcError::new(
+        INVALID_REQUEST,
+        "one JSON-RPC message is sent at a time: no batch, and no other JSON",
+    )
 }
 
 /// Reads one message of a body.
@@ -65,13 +79,14 @@ pub(super) enum Incoming {
 /// Returns the error to answer without an `id`: `-32700` for a body that is no JSON,
 /// `-32600` for JSON that is no single JSON-RPC 2.0 message (a batch among them).
 pub(super) fn read(body: &[u8]) -> Result<Incoming, RpcError> {
+    // A batch is refused before it is read, whatever is in it.
+    if body.iter().find(|byte| !byte.is_ascii_whitespace()) == Some(&b'[') {
+        return Err(not_one_message());
+    }
     let message: Value = serde_json::from_slice(body)
         .map_err(|error| RpcError::new(PARSE_ERROR, format!("the body is no JSON: {error}")))?;
     let Value::Object(mut message) = message else {
-        return Err(RpcError::new(
-            INVALID_REQUEST,
-            "one JSON-RPC message is sent at a time: no batch, and no other JSON",
-        ));
+        return Err(not_one_message());
     };
     if message.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
         return Err(RpcError::new(INVALID_REQUEST, "jsonrpc is \"2.0\""));
@@ -87,22 +102,28 @@ pub(super) fn read(body: &[u8]) -> Result<Incoming, RpcError> {
     let Value::String(method) = method else {
         return Err(RpcError::new(INVALID_REQUEST, "the method is a string"));
     };
-    let params = match message.remove("params") {
-        None => Map::new(),
-        Some(Value::Object(params)) => params,
+    let id = match message.remove("id") {
+        None => None,
+        Some(id @ (Value::String(_) | Value::Number(_))) => Some(id),
         Some(_) => {
-            return Err(RpcError::new(INVALID_REQUEST, "the params are an object"));
+            return Err(RpcError::new(
+                INVALID_REQUEST,
+                "the id is a string or a number",
+            ));
         }
     };
-    match message.remove("id") {
-        None => Ok(Incoming::Accepted),
-        Some(id @ (Value::String(_) | Value::Number(_))) => {
-            Ok(Incoming::Request { id, method, params })
+    let params = match (message.remove("params"), id) {
+        (None, id) => (Map::new(), id),
+        (Some(Value::Object(params)), id) => (params, id),
+        (Some(_), Some(id)) => {
+            let error = RpcError::invalid_params(NOT_AN_OBJECT);
+            return Ok(Incoming::Refused { id, error });
         }
-        Some(_) => Err(RpcError::new(
-            INVALID_REQUEST,
-            "the id is a string or a number",
-        )),
+        (Some(_), None) => return Err(RpcError::new(INVALID_REQUEST, NOT_AN_OBJECT)),
+    };
+    match params {
+        (_, None) => Ok(Incoming::Accepted),
+        (params, Some(id)) => Ok(Incoming::Request { id, method, params }),
     }
 }
 

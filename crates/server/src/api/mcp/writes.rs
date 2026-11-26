@@ -16,7 +16,8 @@ use super::arguments::{
     SavePageOrUnitArguments,
 };
 use super::reads::{card_in_markdown, listed_comment, page_in_markdown, to_json, unit_in_markdown};
-use super::tools::{ToolError, enter};
+use super::tools::{Partly, ToolError, enter};
+use crate::api::access::require_container_permission;
 use crate::api::card_comments::{CardCommentParent, NewCardComment};
 use crate::api::card_markdown::append_to_card;
 use crate::api::cards::{card_with_permission, create_card_from, patch_card_from};
@@ -69,6 +70,71 @@ fn one_body(
     Ok(())
 }
 
+/// What a tool wrote before what came after it was refused: told of with the refusal
+/// (`written`, its identifier and whether it was made or changed), so that an agent
+/// changes what is there by its identifier rather than make it again.
+struct Done {
+    /// The identifier of what is written.
+    id: String,
+    /// Whether it was made, or one that was there was changed.
+    made: bool,
+    /// Whether anything of it is written yet.
+    wrote: bool,
+}
+
+impl Done {
+    /// The card, page, unit or comment `id`, just made.
+    fn made(id: &str) -> Self {
+        Self {
+            id: id.to_owned(),
+            made: true,
+            wrote: true,
+        }
+    }
+
+    /// The card, page or unit `id`, which is there, before anything of it is changed.
+    fn changing(id: &str) -> Self {
+        Self {
+            id: id.to_owned(),
+            made: false,
+            wrote: false,
+        }
+    }
+
+    /// Something of it is written.
+    fn wrote(&mut self) {
+        self.wrote = true;
+    }
+
+    /// `error`, which refused what came after what is written, if anything is.
+    fn told(&self, error: AppError) -> ToolError {
+        if !self.wrote {
+            return error.into();
+        }
+        let was = if self.made { "made" } else { "changed" };
+        ToolError::Partly(Box::new(Partly {
+            error,
+            written: json!({ "id": self.id, "was": was }),
+        }))
+    }
+}
+
+/// The body `markdown` writes whole over `current` in the container `container_id`,
+/// checked as the routes check it before they write it.
+async fn body_checked(
+    ws: &InWorkspace,
+    container_id: &str,
+    current: Option<&Body>,
+    markdown: &str,
+) -> Result<BodyChange, AppError> {
+    let change = body_of_markdown(current, markdown)?;
+    ws.app
+        .check_body_files(container_id, change.new_body())
+        .await
+        .map_err(|error| error.moved("/body", "/bodyMarkdown"))?;
+    Ok(change)
+}
+
 pub(super) async fn save_card(
     app: &App,
     caller: &Caller,
@@ -95,40 +161,80 @@ pub(super) async fn save_card(
         ContainerKinds::BOARDS,
     )
     .await?;
-    let card_id = match (arguments.card_id, &arguments.board_id) {
-        (None, Some(board_id)) => {
-            if arguments.read_at.is_some() || arguments.deleted_properties.is_some() {
-                return Err(ToolError::arguments(
-                    "readAt and deletedProperties change a card: a new card has neither",
-                ));
-            }
-            // A new card has no body to add to: what is added is its body, made with it.
-            let body_markdown = arguments.body_markdown.or(arguments.append_markdown);
-            let new = members([
-                ("title", arguments.title.map(Value::String)),
-                ("icon", arguments.icon.map(Value::String)),
-                ("parentId", arguments.parent_id.map(Value::String)),
-                ("properties", arguments.properties.map(Value::Object)),
-                ("bodyMarkdown", body_markdown.map(Value::String)),
-            ]);
-            let body = request_body(&new)?;
-            let card = create_card_from(&ws, board_id, &body, ChangeNotification::Send).await?;
-            return Ok(card_in_markdown(&ws, &card.id).await?);
-        }
-        (Some(card_id), None) => card_id,
-        _ => {
-            return Err(ToolError::arguments(
-                "boardId makes a card and cardId changes one: send one of them",
-            ));
-        }
-    };
+    match (arguments.card_id.clone(), arguments.board_id.clone()) {
+        (None, Some(board_id)) => new_card(&ws, &board_id, arguments).await,
+        (Some(card_id), None) => change_card(&ws, &card_id, arguments).await,
+        _ => Err(ToolError::arguments(
+            "boardId makes a card and cardId changes one: send one of them",
+        )),
+    }
+}
+
+/// Makes a card on the board `board_id`. Its body, if it has one, is checked before the
+/// card is made and written after it as the agent's change, as a page's is: kept as a
+/// version by the token, and told to the card's people as the agent's.
+async fn new_card(
+    ws: &InWorkspace,
+    board_id: &str,
+    arguments: SaveCardArguments,
+) -> Result<Value, ToolError> {
+    if arguments.read_at.is_some() || arguments.deleted_properties.is_some() {
+        return Err(ToolError::arguments(
+            "readAt and deletedProperties change a card: a new card has neither",
+        ));
+    }
+    // A new card has no body to add to: what is added is its body.
+    let body_markdown = arguments.body_markdown.or(arguments.append_markdown);
+    if let Some(markdown) = &body_markdown {
+        // Asked before anything of the board is read for the body.
+        require_container_permission(
+            &ws.app,
+            &ws.caller.user_id,
+            board_id,
+            ContainerPermission::ManageCards,
+            "access denied to create card",
+        )
+        .await?;
+        body_checked(ws, board_id, None, markdown).await?;
+    }
+    let new = members([
+        ("title", arguments.title.map(Value::String)),
+        ("icon", arguments.icon.map(Value::String)),
+        ("parentId", arguments.parent_id.map(Value::String)),
+        ("properties", arguments.properties.map(Value::Object)),
+    ]);
+    let card =
+        create_card_from(ws, board_id, &request_body(&new)?, ChangeNotification::Send).await?;
+    let done = Done::made(&card.id);
+    if let Some(markdown) = body_markdown {
+        let patch = CardPatch {
+            body_markdown: Some(markdown),
+            read_at: Some(card.updated_at),
+            ..CardPatch::default()
+        };
+        let body = request_body(&patch).map_err(|error| done.told(error))?;
+        patch_card_from(ws, &card.id, &body, ChangeNotification::Send)
+            .await
+            .map_err(|error| done.told(error))?;
+    }
+    card_in_markdown(ws, &card.id)
+        .await
+        .map_err(|error| done.told(error))
+}
+
+/// Changes the card `card_id`: the fields first, then what is added to the body.
+async fn change_card(
+    ws: &InWorkspace,
+    card_id: &str,
+    arguments: SaveCardArguments,
+) -> Result<Value, ToolError> {
     // What is added after the other changes is checked before them, so that nothing is
     // changed when it is refused.
     if let Some(markdown) = &arguments.append_markdown {
         let card = card_with_permission(
             &ws.app,
             &ws.caller.user_id,
-            &card_id,
+            card_id,
             ContainerPermission::ManageCards,
             "access denied to change card",
         )
@@ -147,18 +253,25 @@ pub(super) async fn save_card(
         read_at: arguments.read_at,
         body_markdown: arguments.body_markdown,
     };
+    let mut done = Done::changing(card_id);
     if patch != CardPatch::default() {
         let body = request_body(&patch)?;
-        patch_card_from(&ws, &card_id, &body, ChangeNotification::Send).await?;
+        patch_card_from(ws, card_id, &body, ChangeNotification::Send).await?;
+        done.wrote();
     } else if arguments.append_markdown.is_none() {
         return Err(ToolError::arguments("there is nothing to change"));
     }
-    // The fields first, then what is added to the body: the body's room is asked for
-    // last, by the one write that keeps what its editors type.
+    // The body's room is asked for last, by the one write that keeps what its editors
+    // type.
     if let Some(markdown) = &arguments.append_markdown {
-        append_to_card(&ws, &card_id, markdown).await?;
+        append_to_card(ws, card_id, markdown)
+            .await
+            .map_err(|error| done.told(error))?;
+        done.wrote();
     }
-    Ok(card_in_markdown(&ws, &card_id).await?)
+    card_in_markdown(ws, card_id)
+        .await
+        .map_err(|error| done.told(error))
 }
 
 pub(super) async fn save_page_or_unit(
@@ -222,14 +335,7 @@ async fn body_writes(
     };
     let whole = match whole {
         None => BodyChange::Keep,
-        Some(markdown) => {
-            let change = body_of_markdown(current, &markdown)?;
-            ws.app
-                .check_body_files(container_id, change.new_body())
-                .await
-                .map_err(|error| error.moved("/body", "/bodyMarkdown"))?;
-            change
-        }
+        Some(markdown) => body_checked(ws, container_id, current, &markdown).await?,
     };
     if let Some(markdown) = &added {
         ws.app.markdown_to_append(container_id, markdown).await?;
@@ -263,6 +369,19 @@ async fn progress_checked(
     ))
 }
 
+/// Refuses a page or unit to be made in the container `container_id` by a caller who
+/// may not, before anything of it is read for the body: as the route asks.
+async fn may_make_in(ws: &InWorkspace, container_id: &str, what: &str) -> Result<(), AppError> {
+    require_container_permission(
+        &ws.app,
+        &ws.caller.user_id,
+        container_id,
+        ContainerPermission::ManageCards,
+        &format!("access denied to create {what}"),
+    )
+    .await
+}
+
 async fn save_page(
     app: &App,
     caller: &Caller,
@@ -283,7 +402,10 @@ async fn save_page(
     .await?;
     let wiki_id = arguments.container_id.as_str();
     let current = match &arguments.id {
-        None => None,
+        None => {
+            may_make_in(&ws, wiki_id, "page").await?;
+            None
+        }
         Some(page_id) => Some(
             page_with_permission(
                 &ws,
@@ -299,7 +421,6 @@ async fn save_page(
     let fields = arguments.title.is_some() || arguments.icon.is_some();
     if !is_new
         && !fields
-        && arguments.read_at.is_none()
         && arguments.body_markdown.is_none()
         && arguments.append_markdown.is_none()
     {
@@ -313,7 +434,7 @@ async fn save_page(
         arguments.append_markdown,
     )
     .await?;
-    let (page_id, patch) = match current {
+    let (mut done, patch) = match current {
         None => {
             let new = members([
                 ("title", arguments.title.map(Value::String)),
@@ -327,7 +448,7 @@ async fn save_page(
                 body: writes.whole,
                 ..PagePatch::default()
             };
-            (page.id, patch)
+            (Done::made(&page.id), patch)
         }
         Some(page) => {
             let patch = PagePatch {
@@ -336,18 +457,26 @@ async fn save_page(
                 body: writes.whole,
                 read_at: arguments.read_at,
             };
-            (page.id, patch)
+            (Done::changing(&page.id), patch)
         }
     };
     if !patch.body.is_keep() || (!is_new && fields) {
-        patch_page_from(&ws, wiki_id, &page_id, &request_body(&patch)?).await?;
+        let body = request_body(&patch).map_err(|error| done.told(error))?;
+        patch_page_from(&ws, wiki_id, &done.id, &body)
+            .await
+            .map_err(|error| done.told(error))?;
+        done.wrote();
     }
     if let Some(markdown) = &writes.added {
         ws.app
-            .append_markdown(&ws.caller, &page_id, wiki_id, markdown)
-            .await?;
+            .append_markdown(&ws.caller, &done.id, wiki_id, markdown)
+            .await
+            .map_err(|error| done.told(error))?;
+        done.wrote();
     }
-    Ok(page_in_markdown(&ws, wiki_id, &page_id).await?)
+    page_in_markdown(&ws, wiki_id, &done.id)
+        .await
+        .map_err(|error| done.told(error))
 }
 
 async fn save_unit(
@@ -374,15 +503,20 @@ async fn save_unit(
     let course_id = arguments.container_id.as_str();
     let has_body = arguments.body_markdown.is_some() || arguments.append_markdown.is_some();
     let changes = arguments.title.is_some() || arguments.read_at.is_some() || has_body;
-    // Progress alone is a reader's to record; a change is an editor's.
-    let needs = if changes {
-        ContainerPermission::ManageCards
-    } else {
-        ContainerPermission::View
+    let current = match arguments.id.as_deref() {
+        None => {
+            may_make_in(&ws, course_id, "unit").await?;
+            None
+        }
+        // Progress alone is a reader's to record; a change is an editor's.
+        Some(unit_id) if changes => {
+            Some(unit_there(&ws, course_id, unit_id, ContainerPermission::ManageCards).await?)
+        }
+        Some(unit_id) => {
+            Some(unit_there(&ws, course_id, unit_id, ContainerPermission::View).await?)
+        }
     };
-    let current = unit_there(&ws, course_id, arguments.id.as_deref(), needs).await?;
-    let is_new = current.is_none();
-    if !is_new && !changes && arguments.progress.is_none() {
+    if current.is_some() && !changes && arguments.progress.is_none() {
         return Err(ToolError::arguments("there is nothing to change"));
     }
     let kind = current
@@ -390,6 +524,13 @@ async fn save_unit(
         .map_or_else(|| kind_asked(arguments.unit_kind), |unit| unit.kind);
     if kind == UnitKind::Chapter && has_body {
         return Err(AppError::from(BlockError::BodyNotAllowed).into());
+    }
+    if kind == UnitKind::Chapter && arguments.progress.is_some() {
+        return Err(
+            AppError::bad_request("a chapter has no progress: its units have")
+                .with_field("progress")
+                .into(),
+        );
     }
     // Everything that is written is checked before the first of it.
     let progress = progress_checked(&ws, course_id, arguments.progress.as_ref()).await?;
@@ -401,63 +542,103 @@ async fn save_unit(
         arguments.append_markdown,
     )
     .await?;
-    let (unit_id, patch) = match current {
-        None => {
-            let new = members([
-                ("kind", Some(Value::String(kind_name(kind).to_owned()))),
-                ("title", arguments.title.map(Value::String)),
-                ("parentId", arguments.parent_id.map(Value::String)),
-                ("after", arguments.after.map(Value::String)),
-            ]);
-            let unit = create_unit_from(&ws, course_id, &request_body(&new)?).await?;
-            let patch = UnitPatch {
-                read_at: Some(unit.updated_at),
-                body: writes.whole,
-                ..UnitPatch::default()
-            };
-            (unit.id, patch)
-        }
-        Some(unit) => {
-            let patch = UnitPatch {
-                title: arguments.title,
-                body: writes.whole,
-                read_at: arguments.read_at,
-                ..UnitPatch::default()
-            };
-            (unit.id, patch)
-        }
+    let entry = Entry {
+        title: arguments.title,
+        parent_id: arguments.parent_id,
+        after: arguments.after,
+        read_at: arguments.read_at,
     };
-    if !patch.body.is_keep() || (!is_new && patch.title.is_some()) {
-        patch_unit_from(&ws, course_id, &unit_id, &request_body(&patch)?).await?;
-    }
-    if let Some(markdown) = &writes.added {
-        ws.app
-            .append_markdown(&ws.caller, &unit_id, course_id, markdown)
-            .await?;
-    }
-    let mut saved = unit_in_markdown(&ws, course_id, &unit_id).await?;
+    let done = unit_written(&ws, course_id, current, kind, entry, writes).await?;
+    let mut saved = unit_in_markdown(&ws, course_id, &done.id)
+        .await
+        .map_err(|error| done.told(error))?;
     if let Some(progress) = &progress {
-        let recorded = record_progress(&ws, course_id, &unit_id, progress).await?;
+        let recorded = record_progress(&ws, course_id, &done.id, progress)
+            .await
+            .map_err(|error| done.told(error))?;
         if let Value::Object(members) = &mut saved {
-            members.insert("myProgress".to_owned(), to_json(&recorded)?);
+            members.insert(
+                "myProgress".to_owned(),
+                to_json(&recorded).map_err(|error| done.told(error))?,
+            );
         }
     }
     Ok(saved)
 }
 
-/// The unit `unit_id` of the course `course_id`, if one is named, for a caller who has
-/// `permission` there.
+/// What of a unit is written besides its body: its title, and where a new one goes.
+struct Entry {
+    title: Option<String>,
+    parent_id: Option<String>,
+    after: Option<String>,
+    read_at: Option<i64>,
+}
+
+/// Makes the unit of `kind` in the course `course_id`, or changes `current`, with
+/// `entry` and the checked `writes` of its body: what is made or changed, and whether
+/// anything is.
+async fn unit_written(
+    ws: &InWorkspace,
+    course_id: &str,
+    current: Option<Unit>,
+    kind: UnitKind,
+    entry: Entry,
+    writes: BodyWrites,
+) -> Result<Done, ToolError> {
+    let is_new = current.is_none();
+    let (mut done, patch) = match current {
+        None => {
+            let new = members([
+                ("kind", Some(Value::String(kind_name(kind).to_owned()))),
+                ("title", entry.title.map(Value::String)),
+                ("parentId", entry.parent_id.map(Value::String)),
+                ("after", entry.after.map(Value::String)),
+            ]);
+            let unit = create_unit_from(ws, course_id, &request_body(&new)?).await?;
+            let patch = UnitPatch {
+                read_at: Some(unit.updated_at),
+                body: writes.whole,
+                ..UnitPatch::default()
+            };
+            (Done::made(&unit.id), patch)
+        }
+        Some(unit) => {
+            let patch = UnitPatch {
+                title: entry.title,
+                body: writes.whole,
+                read_at: entry.read_at,
+                ..UnitPatch::default()
+            };
+            (Done::changing(&unit.id), patch)
+        }
+    };
+    if !patch.body.is_keep() || (!is_new && patch.title.is_some()) {
+        let body = request_body(&patch).map_err(|error| done.told(error))?;
+        patch_unit_from(ws, course_id, &done.id, &body)
+            .await
+            .map_err(|error| done.told(error))?;
+        done.wrote();
+    }
+    if let Some(markdown) = &writes.added {
+        ws.app
+            .append_markdown(&ws.caller, &done.id, course_id, markdown)
+            .await
+            .map_err(|error| done.told(error))?;
+        done.wrote();
+    }
+    Ok(done)
+}
+
+/// The unit `unit_id` of the course `course_id`, for a caller who has `permission`
+/// there.
 async fn unit_there(
     ws: &InWorkspace,
     course_id: &str,
-    unit_id: Option<&str>,
+    unit_id: &str,
     permission: ContainerPermission,
-) -> Result<Option<Unit>, AppError> {
-    let Some(unit_id) = unit_id else {
-        return Ok(None);
-    };
+) -> Result<Unit, AppError> {
     let block = unit_with_permission(ws, course_id, unit_id, permission, CHANGE_DENIED).await?;
-    Ok(Some(Unit::from(block)))
+    Ok(Unit::from(block))
 }
 
 /// What a new entry of a course is, as `unitKind` asks: a unit if it is left out.
@@ -498,7 +679,7 @@ pub(super) async fn post_comment(
         ContainerKinds::EVERY,
     )
     .await?;
-    let comment = match kind {
+    match kind {
         ItemKind::Card => {
             comment_on::<CardCommentParent, NewCardComment>(
                 ws,
@@ -507,7 +688,7 @@ pub(super) async fn post_comment(
                 "card",
                 &body,
             )
-            .await?
+            .await
         }
         ItemKind::Page => {
             comment_on::<PageCommentParent, NewPageComment>(
@@ -517,7 +698,7 @@ pub(super) async fn post_comment(
                 "page",
                 &body,
             )
-            .await?
+            .await
         }
         ItemKind::Unit => {
             comment_on::<UnitCommentParent, NewUnitComment>(
@@ -527,10 +708,9 @@ pub(super) async fn post_comment(
                 "unit",
                 &body,
             )
-            .await?
+            .await
         }
-    };
-    Ok(comment)
+    }
 }
 
 /// Writes the comment `body` on the item `parent_id` of `container_id`, as the route
@@ -541,7 +721,7 @@ async fn comment_on<K, T>(
     parent_id: &str,
     parent_what: &'static str,
     body: &Bytes,
-) -> Result<Value, AppError>
+) -> Result<Value, ToolError>
 where
     K: CommentParentKind,
     T: serde::de::DeserializeOwned,
@@ -556,9 +736,11 @@ where
         ChangeNotification::Send,
     )
     .await?;
-    let listed = listed_comment(&commenter.ws, &commenter.container_id, comment).await?;
-    serde_json::to_value(listed)
-        .map_err(|error| AppError::internal(format_args!("a comment as JSON: {error}")))
+    let done = Done::made(&comment.id);
+    let listed = listed_comment(&commenter.ws, &commenter.container_id, comment)
+        .await
+        .map_err(|error| done.told(error))?;
+    to_json(&listed).map_err(|error| done.told(error))
 }
 
 #[cfg(test)]
@@ -572,6 +754,25 @@ mod tests {
             ("icon", None),
         ]);
         assert_eq!(body, json!({ "title": "A" }));
+    }
+
+    #[test]
+    fn a_refusal_after_a_write_names_what_was_written() {
+        let mut done = Done::changing("card-1");
+        assert!(matches!(
+            done.told(AppError::not_found("card")),
+            ToolError::App(_)
+        ));
+        done.wrote();
+        let ToolError::Partly(partly) = done.told(AppError::not_found("card")) else {
+            panic!("a refusal after a change is told of with it");
+        };
+        assert_eq!(partly.written, json!({ "id": "card-1", "was": "changed" }));
+        let ToolError::Partly(partly) = Done::made("page-1").told(AppError::conflict("late"))
+        else {
+            panic!("a refusal after a page is made is told of with it");
+        };
+        assert_eq!(partly.written, json!({ "id": "page-1", "was": "made" }));
     }
 
     #[test]

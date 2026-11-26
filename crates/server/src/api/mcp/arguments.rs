@@ -136,9 +136,9 @@ pub(super) struct ListCardsArguments {
     #[serde(default)]
     #[schema(minimum = 1)]
     pub(super) page: Option<u32>,
-    /// How many cards a page has.
+    /// How many cards a page has, from 1 to 1000; 50 if left out.
     #[serde(default)]
-    #[schema(minimum = 1)]
+    #[schema(minimum = 1, maximum = 1000)]
     pub(super) per_page: Option<u32>,
 }
 
@@ -173,6 +173,7 @@ pub(super) struct GetItemArguments {
     pub(super) container_id: Option<String>,
     /// The card's number on its board, as `#12` names it.
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub(super) number: Option<u32>,
 }
 
@@ -323,7 +324,7 @@ pub(super) struct SavePageOrUnitArguments {
     /// The page or unit to change; left out, one is made.
     #[serde(default)]
     pub(super) id: Option<String>,
-    /// The title; needed to make one.
+    /// The title; a new one made without it has none.
     #[serde(default)]
     pub(super) title: Option<String>,
     /// A page's icon: one emoji, or empty for none.
@@ -376,7 +377,7 @@ pub(super) struct PostCommentArguments {
     pub(super) container_id: String,
     /// The card, page or unit.
     pub(super) item_id: String,
-    /// The comment in Markdown. A person is mentioned as `[name](fvoci-user://<id>)`
+    /// The comment in Markdown. A person is mentioned as `@[name](fvoci-user://<id>)`
     /// (`find_people` gives the identifier).
     pub(super) markdown: String,
 }

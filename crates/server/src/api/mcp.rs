@@ -42,6 +42,9 @@ use crate::auth::token::bearer_token;
 use crate::client_address::ClientAddress;
 use crate::error::{AppError, ErrorKind};
 
+/// Where the server is, under the API's prefix: the `path` of [`handle_mcp`].
+pub(super) const PATH: &str = "/mcp";
+
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_mcp))
 }
@@ -59,11 +62,13 @@ their workspaces. This server acts \
 for the person who made the token, and reaches only the workspaces the token was given, never \
 a diary. Start with list_workspaces, then get_workspace_overview for the boards, wikis and \
 courses of a workspace and the properties a board's cards take. Bodies and comments are \
-read and written in Markdown; a person is named [name](fvoci-user://<id>) and a file \
+read and written in Markdown; a person is named @[name](fvoci-user://<id>) and a file \
 [name](fvoci-file://<fileId>). To add to a body that people may be typing in, use \
 appendMarkdown: it keeps what they type, where bodyMarkdown writes the body whole and is \
 refused while they do. What a token may not do is refused in the tool's result (isError), \
-with the reason, as the HTTP API refuses it.";
+with the reason, as the HTTP API refuses it; a refusal that came after the tool wrote \
+something names it (written: its id, and whether it was made or changed), to be changed by \
+its id rather than made again.";
 
 /// The caller of a request that sends a personal API token, which is all this server
 /// takes: a session, in a cookie or as a bearer, is refused.
@@ -166,6 +171,7 @@ async fn handle_mcp(
     let (id, method, params) = match rpc::read(&body) {
         Ok(Incoming::Request { id, method, params }) => (id, method, params),
         Ok(Incoming::Accepted) => return StatusCode::ACCEPTED.into_response(),
+        Ok(Incoming::Refused { id, error }) => return rpc::error(&id, &error),
         Err(error) => return rpc::unread(&error),
     };
     match method.as_str() {

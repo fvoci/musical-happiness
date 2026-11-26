@@ -79,7 +79,7 @@ mod workspace_members;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{DefaultBodyLimit, Request, State};
+use axum::extract::{DefaultBodyLimit, MatchedPath, Request, State};
 use axum::http::header::CACHE_CONTROL;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
@@ -300,6 +300,10 @@ pub fn admin_router() -> Router<App> {
 /// `GET`, `HEAD` and `OPTIONS` requests change nothing and are not checked: an image or
 /// a link can point at the API. A request without any session is checked like one with the cookie:
 /// a forged login would sign the browser in to somebody else's account.
+///
+/// The MCP server ([`mcp`]) needs no header: it reads no cookie, so a browser sends it
+/// nothing a page of another site could use, and a client that sends no token is told
+/// so (401) as the transport has it. Its `Origin` is checked all the same.
 pub(crate) async fn guard_against_forgery(
     State(app): State<App>,
     request: Request,
@@ -318,7 +322,12 @@ pub(crate) async fn guard_against_forgery(
         tracing::debug!("a request from another origin was refused");
         return foreign_origin().into_response();
     }
-    let sent_on_purpose = crate::auth::token::bearer_token(headers).is_some()
+    let reads_no_cookie = request
+        .extensions()
+        .get::<MatchedPath>()
+        .is_some_and(|path| path.as_str().ends_with(mcp::PATH));
+    let sent_on_purpose = reads_no_cookie
+        || crate::auth::token::bearer_token(headers).is_some()
         || headers
             .get(HEADER_REQUESTED_WITH)
             .and_then(|value| value.to_str().ok())

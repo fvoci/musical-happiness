@@ -51,7 +51,7 @@
         "readOnlyHint": true,
         "title": "Find people"
       },
-      "description": "Up to ten people of the workspace whose login name or name holds q, as the caller sees them (no email): the ids to give a card's people property or mention in Markdown as [name](fvoci-user://<id>).",
+      "description": "Up to ten people of the workspace whose login name or name holds q, as the caller sees them (no email): the ids to give a card's people property or mention in Markdown as @[name](fvoci-user://<id>).",
       "inputSchema": {
         "additionalProperties": false,
         "description": "People to find in a workspace.",
@@ -182,8 +182,9 @@
             ]
           },
           "perPage": {
-            "description": "How many cards a page has.",
+            "description": "How many cards a page has, from 1 to 1000; 50 if left out.",
             "format": "int32",
+            "maximum": 1000,
             "minimum": 1,
             "type": [
               "integer",
@@ -258,7 +259,7 @@
         "readOnlyHint": true,
         "title": "Read a card, page or unit"
       },
-      "description": "A card, a page or a unit with its body in Markdown (bodyMarkdown), whether the body has blocks Markdown does not hold (hasComplexBlocks: then add to it with appendMarkdown rather than writing it whole), the items below it and the files it shows. A card by id, or by containerId and number; a page or unit by containerId and id.",
+      "description": "A card, a page or a unit with its body in Markdown (bodyMarkdown), whether the body has blocks Markdown does not hold (hasComplexBlocks: then add to it with appendMarkdown rather than writing it whole), the items below it and the files it shows: of a card, the first 50 cards below it (hasMoreChildren: list_cards with parentId reads them all). A card by id, or by containerId and number; a page or unit by containerId and id.",
       "inputSchema": {
         "additionalProperties": false,
         "description": "An item to read.",
@@ -289,7 +290,7 @@
           "number": {
             "description": "The card's number on its board, as `#12` names it.",
             "format": "int32",
-            "minimum": 0,
+            "minimum": 1,
             "type": [
               "integer",
               "null"
@@ -655,7 +656,7 @@
             ]
           },
           "title": {
-            "description": "The title; needed to make one.",
+            "description": "The title; a new one made without it has none.",
             "type": [
               "string",
               "null"
@@ -723,7 +724,7 @@
             "type": "string"
           },
           "markdown": {
-            "description": "The comment in Markdown. A person is mentioned as `[name](fvoci-user://<id>)`\n(`find_people` gives the identifier).",
+            "description": "The comment in Markdown. A person is mentioned as `@[name](fvoci-user://<id>)`\n(`find_people` gives the identifier).",
             "type": "string"
           },
           "workspaceId": {
