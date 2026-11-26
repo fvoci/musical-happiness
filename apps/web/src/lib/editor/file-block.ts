@@ -16,6 +16,7 @@
 import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeSelection, Plugin, Selection } from '@tiptap/pm/state';
 
+import { noTypingFromControls } from './browser-edits.ts';
 import { FILE_BLOCK_ATTRIBUTE, FILE_ID_ATTRIBUTE } from './drawing.ts';
 import { drawFileBlock, pressFileOf } from './file-view.ts';
 import { isFileId } from './schema.ts';
@@ -177,15 +178,7 @@ export const FileBlock = Node.create({
               event.preventDefault();
               return true;
             },
-            // With the focus on a file block's name or download, nothing is typed into the body:
-            // an edit comes to the editor itself, and WebKit would make it where the caret was.
-            beforeinput: (view, event) => {
-              const focused = view.dom.ownerDocument.activeElement;
-              if (!(focused instanceof Element) || !focused.matches(FILE_CONTROLS)) return false;
-              if (!view.dom.contains(focused)) return false;
-              event.preventDefault();
-              return true;
-            },
+            beforeinput: noTypingFromControls(FILE_CONTROLS),
           },
         },
       }),
