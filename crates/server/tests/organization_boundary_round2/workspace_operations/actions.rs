@@ -22,6 +22,12 @@ pub(super) async fn exercise(case: &mut Case) {
     wikis(case).await;
     courses(case).await;
     let card = cards(case, &board).await;
+    case.run(
+        "appendCardMarkdown",
+        &[("cardId", &card)],
+        json!({"markdown": format!("{} added", case.label)}),
+    )
+    .await;
     categories(case, &board).await;
     let audited = people(case, &board).await;
     subscriptions(case, &card).await;
@@ -59,6 +65,7 @@ pub(super) async fn exercise(case: &mut Case) {
 async fn boards(case: &mut Case, board: &str) {
     let at = &[("boardId", board)];
     case.present("getWorkspaceBoards", &[], board).await;
+    case.present("listWorkspaceContainers", &[], board).await;
     case.present("getContainer", at, board).await;
     case.run("getMyContainerPermissions", at, json!({})).await;
     let ws = case.workspace.clone();

@@ -109,6 +109,7 @@ pub(super) const REACHED_BY_ITEM: &[&str] = &[
     "getFile",
     "getFileRecord",
     "getFileVersions",
+    "listContainerFiles",
     "addFileVersion",
     "getFileVersion",
     "restoreFileVersion",
@@ -157,4 +158,6 @@ pub(super) const REACHED_BY_ITEM: &[&str] = &[
     "restoreCardComment",
     "getCardCommentVersions",
     "createCardAttachment",
+    "listCardFiles",
+    "appendCardMarkdown",
 ];

@@ -59,6 +59,22 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/audit", "getWorkspaceAudit"),
     ("POST", "/boards", "createBoard"),
     ("GET", "/boards", "getWorkspaceBoards"),
+    ("GET", "/containers", "listWorkspaceContainers"),
+    (
+        "GET",
+        "/containers/{containerId}/files",
+        "listContainerFiles",
+    ),
+    (
+        "POST",
+        "/cards/{cardId}/body/markdown",
+        "appendCardMarkdown",
+    ),
+    (
+        "GET",
+        "/boards/{boardId}/cards/{cardId}/files",
+        "listCardFiles",
+    ),
     (
         "POST",
         "/containers-and-blocks",
@@ -764,16 +780,19 @@ fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
         | "resolveReferences" => json!([]),
         "importArchive" => json!({"uploadId": "missing-upload"}),
         "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
+        "appendCardMarkdown" => json!({"markdown": "said"}),
         _ => json!({}),
     }
 }
 
 /// The operations of `WORKSPACE_ROUTES` that answer a guest of a workspace that has
-/// nothing for them with an empty list: the boards and the wikis the guest is on, what
+/// nothing for them with an empty list: the boards, the wikis and the containers of any
+/// kind the guest is on, what
 /// the references of no body name, what a reference of the guest may name, and what a
 /// search of their bodies finds.
 const EMPTY_FOR_A_GUEST: &[&str] = &[
     "getWorkspaceBoards",
+    "listWorkspaceContainers",
     "getWikis",
     "getCourses",
     "getWorkspaceTodayReviews",
