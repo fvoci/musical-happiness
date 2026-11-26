@@ -68,6 +68,21 @@ impl App {
             .await?)
     }
 
+    /// Returns the boards of a workspace that a user is a member of, of the kinds the
+    /// handle reaches: [`App::containers_for_user_and_workspace`] without the open ones.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the query fails.
+    pub async fn joined_containers(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Result<Vec<Container>, AppError> {
+        self.containers_for_user_and_workspace(user_id, workspace_id, PublicContainers::Exclude)
+            .await
+    }
+
     /// Creates a board without members and files it under the default category of
     /// `user_id`, unless it is a template. The board gets a new identifier.
     ///

@@ -19,7 +19,6 @@ use super::files::require_file_reader;
 use super::query::QueryParams;
 use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, Delegated, Read, TRUE, json_response};
-use fvoci_store::PublicContainers;
 
 use crate::app::App;
 use crate::error::AppError;
@@ -68,9 +67,7 @@ async fn handle_list_workspace_containers(
 ) -> ApiResult {
     let user_id = ws.caller.user_id.as_str();
     let containers = if query.joined_only == TRUE {
-        ws.app
-            .containers_for_user_and_workspace(user_id, &ws.workspace_id, PublicContainers::Exclude)
-            .await?
+        ws.app.joined_containers(user_id, &ws.workspace_id).await?
     } else {
         ws.app
             .workspace_containers(user_id, &ws.workspace_id, ws.role)
@@ -108,16 +105,9 @@ async fn handle_list_container_files(
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_file_reader(&ws.app, &ws.caller.user_id, &container_id).await?;
-    let files: Vec<ListedFile> = ws
-        .app
-        .store()
-        .get_files_of_container(&container_id)
-        .await
-        .map_err(AppError::from)?
-        .into_iter()
-        .map(ListedFile::from)
-        .collect();
-    Ok(json_response(&files))
+    Ok(json_response(
+        &ws.app.files_of_container(&container_id).await?,
+    ))
 }
 
 /// The files of a card

@@ -43,8 +43,8 @@ impl Collab {
     /// Adds `nodes`, top-level nodes of a body, after the last of the body of the card
     /// `card_id` of `app`'s organization, by `by`, and writes the body to the
     /// card. Opens the document if it is not open; an open room is sent the update. An
-    /// agent's addition is kept as its version, after the body before
-    /// ([`Collab::keep_before_agent`]).
+    /// agent's addition is kept as its version, after the body before, which keeps what
+    /// the editors typed until then.
     ///
     /// # Errors
     ///

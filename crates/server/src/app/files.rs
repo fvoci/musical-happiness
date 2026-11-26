@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockPatchBatch, Body, Container, FileKey, FileRecord, JsonMap,
-    Upload, new_id,
+    ListedFile, Upload, new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -72,6 +72,25 @@ impl FilePlace {
 }
 
 impl App {
+    /// The files uploaded to a board or wiki, oldest first, by the name its bodies give
+    /// them: those no body or attachment shows any more too, until they are let go.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the query fails.
+    pub async fn files_of_container(
+        &self,
+        container_id: &str,
+    ) -> Result<Vec<ListedFile>, AppError> {
+        Ok(self
+            .store()
+            .get_files_of_container(container_id)
+            .await?
+            .into_iter()
+            .map(ListedFile::from)
+            .collect())
+    }
+
     /// Stores an uploaded file for a board and returns the name it is stored under,
     /// which is what blocks refer to it by.
     ///
