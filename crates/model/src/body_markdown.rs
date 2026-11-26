@@ -29,4 +29,7 @@ pub enum ComplexBlockReason {
     /// A formula whose `LaTeX` has a `$` of its own, begins or ends with a space, or
     /// (one of its own block) has a line that Markdown would read as a block.
     UnwrittenFormula,
+    /// A heading holds a line break: a heading of Markdown is one line, and is written
+    /// without its breaks.
+    HeadingWithBreak,
 }

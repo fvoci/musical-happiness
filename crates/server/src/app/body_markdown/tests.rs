@@ -296,3 +296,37 @@ fn a_mention_of_whom_the_reader_does_not_see_is_written_by_no_name() {
         .expect("a body");
     assert_eq!(read.document(), body.document(), "{}", written.markdown);
 }
+
+#[test]
+fn a_heading_with_a_line_break_is_written_on_one_line_and_named() {
+    let body = doc(&json!([
+        {"type": "heading", "attrs": {"level": 2}, "content": [
+            text("one"), {"type": "hardBreak"}, text("two"),
+        ]},
+        paragraph(&[text("after")]),
+    ]));
+    let written = body_to_markdown(body.document(), &Names::default());
+    assert_eq!(written.markdown, "## one two\n\nafter");
+    let named: Vec<(&str, ComplexBlockReason)> = written
+        .complex
+        .iter()
+        .map(|block| (block.path.as_str(), block.reason))
+        .collect();
+    assert_eq!(
+        named,
+        [("/content/0", ComplexBlockReason::HeadingWithBreak)]
+    );
+    // Read back, the heading is one, and what follows it is as it was.
+    let read = markdown_body(&written.markdown, "markdown")
+        .expect("read")
+        .expect("a body");
+    assert_eq!(
+        read.document()["content"],
+        json!([
+            {"type": "heading", "attrs": {"level": 2}, "content": [text("one two")]},
+            paragraph(&[text("after")]),
+        ]),
+        "{}",
+        written.markdown
+    );
+}
