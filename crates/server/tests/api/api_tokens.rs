@@ -427,3 +427,8 @@ async fn a_token_is_held_to_its_requests_a_minute_and_its_owner_is_not() {
 
     ts.teardown().await;
 }
+
+/// A token of `client`'s user that writes in the test workspace, as an agent holds it.
+pub(crate) async fn agent_writing(ts: &TestServer, client: &Client) -> Client {
+    agent(ts, &make_token(client, "write", &[TEST_WORKSPACE_ID]).await)
+}

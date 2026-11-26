@@ -138,6 +138,7 @@ impl Worker {
                 Refusal::Unappliable,
                 TakeMode::Retake,
             ),
+            Request::Append { doc, nodes } => self.append(doc, &nodes),
             Request::StateVector(doc) => Ok(self
                 .usable_doc(doc, Refusal::OutOfOrder)
                 .map(|body| Answer::Bytes(body.state_vector()))),
@@ -401,6 +402,45 @@ impl Worker {
             }
         };
         self.commit_taken(doc, update, mode, checkpoint, changed)
+    }
+
+    /// Adds `nodes`, the JSON of a list of a body's top-level nodes, after the last of a
+    /// document, written by a client of its own ([`fvoci_collab::BodyDoc::append_update`]),
+    /// and takes that update as a client's is taken, within the limits of a document:
+    /// the update is the server's, which an update's own limit does not hold.
+    fn append(&mut self, doc: DocNumber, nodes: &[u8]) -> Result<Response, FrameError> {
+        let nodes: Vec<serde_json::Value> = match serde_json::from_slice(nodes) {
+            Ok(nodes) => nodes,
+            Err(error) => {
+                return Ok(Err(refused(
+                    Refusal::Unreadable,
+                    &format!("the nodes are no list of JSON: {error}"),
+                )));
+            }
+        };
+        let update = match self.usable_doc(doc, Refusal::OutOfOrder) {
+            Ok(body) => match body.append_update(&nodes) {
+                Ok(update) => update,
+                Err(error) => return Ok(Err(refused(Refusal::Unappliable, &error.to_string()))),
+            },
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let limits = UpdateLimits {
+            update_bytes: self.update_limits.state_bytes,
+            ..self.update_limits
+        };
+        let taken = self.take(
+            doc,
+            &update,
+            limits,
+            take_refused,
+            Refusal::OutOfOrder,
+            TakeMode::Live,
+        )?;
+        Ok(taken.map(|taken| Answer::Appended {
+            update,
+            taken: Box::new(taken),
+        }))
     }
 
     /// Restores `doc` after a post-mutation refusal, or, if restoration fails, closes `doc`

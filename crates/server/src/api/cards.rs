@@ -58,7 +58,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 ///
 /// The path names a card and no board. So for a user who may not read the card's board
 /// there is no such card, and neither is there for anyone if the block is no card.
-async fn card_with_permission(
+pub(super) async fn card_with_permission(
     app: &App,
     user_id: &str,
     card_id: &str,

@@ -527,6 +527,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewUpload", Members::Only(&["name", "size"])),
     ("OrganizationPatch", Members::Only(&[])),
     ("NewApiToken", Members::Only(&["name", "scope"])),
+    ("MarkdownAppend", Members::Only(&["markdown"])),
     ("OrgRoleChange", Members::AsWritten),
     ("WorkspaceName", Members::AsWritten),
     (

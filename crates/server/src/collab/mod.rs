@@ -28,6 +28,7 @@
 //! ([`Collab::recover`]).
 
 mod admission;
+mod append;
 mod caret;
 #[cfg(unix)]
 mod child;
@@ -46,6 +47,7 @@ mod versions;
 mod whole;
 pub mod worker;
 
+pub use append::Appender;
 pub use queue::Outgoing;
 pub(crate) use removal::Deletion;
 #[cfg(feature = "test-util")]

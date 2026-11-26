@@ -9,8 +9,9 @@ use super::super::frame::{self, Sync};
 use super::super::messages::{self, reason_of};
 use super::super::place::Unanswered;
 use super::super::queue::Queued;
-use super::super::{Collab, refusals};
+use super::super::{Collab, Taken, refusals};
 use super::{Connection, Member, Room, held};
+use crate::app::App;
 use crate::permissions::DocMode;
 
 impl Collab {
@@ -109,6 +110,46 @@ impl Collab {
             }
         }
         self.shut_if_empty(room, &mut turn).await;
+    }
+
+    /// Sends the room of a card of `app`'s organization, if one is open, the update that
+    /// added an agent's nodes to its document at `epoch` ([`Collab::append`]), as an
+    /// editor's is sent on: to every member, and what a repair changed after it. A member
+    /// an immediate check holds is sent the document once it keeps them. A document made
+    /// again since is sent whole, as it holds the nodes; one of another epoch sent it
+    /// already. Who came into the room after the nodes were added holds them, and is
+    /// sent nothing it lacks: an update taken twice is taken once.
+    pub(in crate::collab) async fn send_appended(
+        &self,
+        app: &App,
+        card_id: &str,
+        epoch: i64,
+        update: &[u8],
+        taken: &Taken,
+    ) {
+        let room = self
+            .rooms_index()
+            .get(app.store().tenant(), card_id)
+            .map(Arc::clone);
+        let Some(room) = room else {
+            return;
+        };
+        let mut turn = room.turn.lock().await;
+        if taken.remade {
+            self.anew(&room, &mut turn, None).await;
+        } else if turn.epoch == epoch {
+            if turn.awaits_first_miss() {
+                turn.miss(&held::Missed::Whole);
+            }
+            for sent in std::iter::once(update).chain(taken.repair.as_deref()) {
+                let sent = frame::message(Sync::Update, sent);
+                turn.send(
+                    |member| !member.is_held(),
+                    |member| [Queued::sync(member.doc, epoch, &sent)],
+                );
+            }
+        }
+        self.shut_if_empty(&room, &mut turn).await;
     }
 
     /// Sends a connection what the room's document has that a holder of

@@ -101,6 +101,15 @@ pub enum Request {
         /// The update, version 1.
         update: Vec<u8>,
     },
+    /// Adds nodes after the last of a document, written by a client that has written
+    /// nothing in it, and takes that as an update ([`Answer::Appended`]): what an agent
+    /// adds to a body while its editors type in it.
+    Append {
+        /// The document.
+        doc: DocNumber,
+        /// The nodes, the JSON of a list of a body's top-level nodes.
+        nodes: Vec<u8>,
+    },
     /// The state vector of a document.
     StateVector(DocNumber),
     /// What a document has that a holder of a state vector has not.
@@ -175,6 +184,13 @@ pub enum Answer {
         /// Whether the updates held since the last checkpoint have grown enough that
         /// the server should fold the document's state soon.
         fold: bool,
+    },
+    /// Nodes were added ([`Request::Append`]).
+    Appended {
+        /// The update that added them, version 1, for every editor.
+        update: Vec<u8>,
+        /// What taking it came to: an [`Answer::Taken`].
+        taken: Box<Answer>,
     },
     /// Bytes: a state vector, a diff or a state.
     Bytes(Vec<u8>),
@@ -279,6 +295,9 @@ impl Request {
             Self::Retake { doc, update } => {
                 out.tag(10).number(*doc).bytes(update);
             }
+            Self::Append { doc, nodes } => {
+                out.tag(12).number(*doc).bytes(nodes);
+            }
             Self::StateVector(doc) => {
                 out.tag(4).number(*doc);
             }
@@ -342,6 +361,10 @@ impl Request {
             10 => Self::Retake {
                 doc: input.number()?,
                 update: input.bytes()?,
+            },
+            12 => Self::Append {
+                doc: input.number()?,
+                nodes: input.bytes()?,
             },
             4 => Self::StateVector(input.number()?),
             5 => Self::Diff {
@@ -479,6 +502,11 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
         Ok(Answer::Remake) => {
             out.tag(6);
         }
+        Ok(Answer::Appended { update, taken }) => {
+            out.tag(7)
+                .bytes(update)
+                .bytes(&encode_response(&Ok((**taken).clone())));
+        }
         Err(refused) => {
             out.tag(REFUSED)
                 .tag(refused.refusal.byte())
@@ -520,6 +548,16 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
         4 => Ok(Answer::Bytes(input.bytes()?)),
         5 => Ok(Answer::Body(input.optional()?)),
         6 => Ok(Answer::Remake),
+        7 => {
+            let update = input.bytes()?;
+            match decode_response(&input.bytes()?)? {
+                Ok(taken @ Answer::Taken { .. }) => Ok(Answer::Appended {
+                    update,
+                    taken: Box::new(taken),
+                }),
+                _ => return Err(input.malformed()),
+            }
+        }
         REFUSED => {
             let refusal = Refusal::of_byte(input.tag()?).ok_or_else(|| input.malformed())?;
             let message = String::from_utf8_lossy(&input.bytes()?).into_owned();
@@ -690,6 +728,10 @@ mod tests {
                 doc: 1,
                 update: vec![0, 1],
             },
+            Request::Append {
+                doc: 1,
+                nodes: b"[]".to_vec(),
+            },
             Request::StateVector(2),
             Request::Diff {
                 doc: 3,
@@ -714,6 +756,20 @@ mod tests {
     fn every_answer_reads_back_as_it_was_written() {
         let mut responses = vec![
             Ok(Answer::Done),
+            Ok(Answer::Appended {
+                update: vec![1, 2],
+                taken: Box::new(Answer::Taken {
+                    repair: Some(vec![3]),
+                    state_bytes: 9,
+                    clients: 2,
+                    changes: 4,
+                    client_changes: 3,
+                    steps_ahead: 1,
+                    files: vec!["a.png".to_owned()],
+                    remake: false,
+                    fold: false,
+                }),
+            }),
             Ok(Answer::Opened {
                 state: Some(vec![1]),
                 state_bytes: 1,

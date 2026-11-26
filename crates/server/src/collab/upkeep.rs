@@ -67,6 +67,65 @@ impl Collab {
             }
             answered => answered?,
         };
+        self.record_taken(app, card_id, slot, epoch, user_id, update, answer)
+            .await
+    }
+
+    /// Adds nodes (`nodes`, the JSON of a list of a body's top-level nodes) after the
+    /// last of the document of a held slot, as `user_id` through `sender` (the key its
+    /// deaths are put down to, [`super::senders`]), and logs the update that added them
+    /// as an editor's is logged. Returns the update, for the editors.
+    pub(super) async fn append_in(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        user_id: &str,
+        sender: &str,
+        nodes: &[u8],
+    ) -> Result<(Vec<u8>, i64, Taken), Unanswered> {
+        self.ensure_open(app, card_id, slot).await?;
+        let epoch = slot.open.as_ref().expect("the document is open").epoch;
+        let request = |doc| Request::Append {
+            doc,
+            nodes: nodes.to_vec(),
+        };
+        let answer = match self
+            .ask_for(app, card_id, slot, request, AskedFor::Sender(sender))
+            .await
+        {
+            Err(refused @ (Unanswered::Refused(_) | Unanswered::TooManySteps(_))) => {
+                self.remake_refused(app, card_id, slot, &refused).await;
+                return Err(refused.into_error().into());
+            }
+            answered => answered?,
+        };
+        let Answer::Appended { update, taken } = answer else {
+            return Err(unexpected(&answer).into());
+        };
+        let taken = self
+            .record_taken(app, card_id, slot, epoch, user_id, &update, *taken)
+            .await?;
+        Ok((update, epoch, taken))
+    }
+
+    /// Keeps what the worker answered (`answer`) of an update it took into the document
+    /// of a held slot at `epoch`: logs the update with what a repair deleted, and the
+    /// document's numbers as they are now.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the update taken, its answer, and where and by whom, on the held slot"
+    )]
+    async fn record_taken(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        epoch: i64,
+        user_id: &str,
+        update: &[u8],
+        answer: Answer,
+    ) -> Result<Taken, Unanswered> {
         let Answer::Taken {
             repair,
             state_bytes,

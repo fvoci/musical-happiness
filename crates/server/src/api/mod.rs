@@ -14,6 +14,7 @@ mod board_ops;
 mod body;
 mod body_versions;
 mod card_comments;
+mod card_markdown;
 mod cards;
 mod categories;
 mod comments;
@@ -160,6 +161,7 @@ fn routes() -> Routes {
         .merge(containers_and_blocks::routes())
         .merge(board_ops::routes())
         .merge(card_comments::routes())
+        .merge(card_markdown::routes())
         .merge(cards::routes())
         .merge(today::routes())
         .merge(trash::routes())

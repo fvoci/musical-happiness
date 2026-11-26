@@ -11,6 +11,7 @@ mod admin;
 mod admins;
 mod alone;
 mod api_tokens;
+mod api_tokens_append;
 mod api_tokens_diaries;
 mod api_tokens_ended;
 mod behind_a_tunnel;

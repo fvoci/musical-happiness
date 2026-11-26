@@ -736,6 +736,48 @@ export interface paths {
         patch: operations["patchOrganization"];
         trace?: never;
     };
+    "/api/v1/org/{orgId}/api-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The personal API tokens that reach an organization
+         * @description The tokens of its members that reach a workspace of it and open anything now, the
+         *     newest first, each with those of its workspaces it reaches.
+         */
+        get: operations["getOrgApiTokens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/api-tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take back a personal API token that reaches an organization
+         * @description From now on the token opens nothing, in this organization or any other. 404 for one
+         *     that reaches no workspace of it, or was taken back.
+         */
+        delete: operations["revokeOrgApiToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/{orgId}/audit": {
         parameters: {
             query?: never;
@@ -1623,6 +1665,61 @@ export interface paths {
         patch: operations["patchMe"];
         trace?: never;
     };
+    "/api/v1/users/me/api-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The personal API tokens of the user
+         * @description The tokens of the user of the session that are not taken back, the newest first,
+         *     each with the workspaces it reaches; those past their end too, until they are taken
+         *     back. Never a token itself.
+         */
+        get: operations["getApiTokens"];
+        put?: never;
+        /**
+         * Make a personal API token
+         * @description Makes a token for an agent to act as the user with, and answers it once: it is not
+         *     stored, only its digest, and is not shown again. It reaches the workspaces of
+         *     `workspaceIds`, each one the user works in (no guest's) and the session opens, and
+         *     the user's own space if `allowPersonalSpace` (with the account's `password`, if it
+         *     has one), never a diary. `scope` says whether it reads, or reads and writes the
+         *     content of what it reaches. A workspace of an organization that takes only sessions
+         *     made through its provider is given only if the organization lets it (403,
+         *     `api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as
+         *     `expiresInDays` asks, 90 unless it asks, at most 365.
+         */
+        post: operations["createApiToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/api-tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take back a personal API token
+         * @description From now on the token opens nothing. 404 for one that is not the user's, or was
+         *     taken back.
+         */
+        delete: operations["revokeApiToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/client-state": {
         parameters: {
             query?: never;
@@ -2255,6 +2352,8 @@ export interface paths {
         /**
          * A workspace
          * @description Its name, and whether the admins of its boards may invite guests to them.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getWorkspace"];
         put?: never;
@@ -2422,6 +2521,8 @@ export interface paths {
          *     of the workspace (what is on a private board they are no member of stays 404 to
          *     them). Templates are not among them. Oldest first. 404 unless the user is a member of
          *     the workspace.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getWorkspaceBoards"];
         put?: never;
@@ -2454,6 +2555,8 @@ export interface paths {
          *     `field=property_name` those whose own `properties` have a member of exactly that
          *     name, whatever its value (`null` too). A `field` that is neither is 400. Templates are
          *     never found, and an empty term finds nothing. Oldest first.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["searchWorkspaceBoards"];
         put?: never;
@@ -2481,6 +2584,8 @@ export interface paths {
          *     list is every block of the board. A parameter with an empty value counts as left
          *     out. Oldest first; the blocks that one request made come in the order that request
          *     had them in.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getBlocks"];
         put?: never;
@@ -2612,6 +2717,8 @@ export interface paths {
          *     whether it was. For the board's members, also in the trash: the versions go only
          *     when the comment is gone for good. Not for a reader by the board's read token. A
          *     block that is no comment is not there (404).
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCommentVersions"];
         put?: never;
@@ -2634,6 +2741,8 @@ export interface paths {
          * @description One page of the board's cards, for the board's members. Oldest first; the pages cut
          *     that order. With `preview=true` each card has its `preview` (the first image and the beginning of the
          *     text of its body), which a list without it leaves out.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCards"];
         put?: never;
@@ -2661,6 +2770,8 @@ export interface paths {
          *     identifier on the board, which is also the answer for a card of another board. Every
          *     write of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)
          *     the values it changes, and does not ask again for a card that a value named before.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["createCard"];
         delete?: never;
@@ -2727,6 +2838,8 @@ export interface paths {
          *     number is none, the board is one the user does not read (a private board they are
          *     no member of, one they only manage, one they are no guest of), or is no board of
          *     this workspace (of another workspace or organization, a wiki, or none at all).
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCardByNumber"];
         put?: never;
@@ -2750,6 +2863,8 @@ export interface paths {
          * Attach an uploaded file to a card
          * @description Verifies under the board lock that `fileId` belongs to `boardId`, sets the attachment
          *     block's trusted filename and size from `files`, and stores the attachment block.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["createCardAttachment"];
         delete?: never;
@@ -2770,6 +2885,8 @@ export interface paths {
          * @description Every comment on the card, oldest first, as blocks of the `type` `comment` whose
          *     parent is the card. For who reads the board: its members, and of an open board
          *     whoever works in the workspace. A card in the trash is not there (404).
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCardComments"];
         put?: never;
@@ -2779,6 +2896,8 @@ export interface paths {
          *     without joining it is refused with 403). The server chooses the identifier, the
          *     author and the times. Every image of the text shows a file of the board (400
          *     otherwise), and the text has no file block (400).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["createCardComment"];
         delete?: never;
@@ -2801,6 +2920,8 @@ export interface paths {
          * Delete a comment on a card
          * @description Moves the comment to the trash: by its author from the commenter's role up, and the
          *     comment of somebody else by the board's admins only (403).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         delete: operations["deleteCardComment"];
         options?: never;
@@ -2809,6 +2930,8 @@ export interface paths {
          * Change a comment on a card
          * @description Writes a new text over the comment: by its author from the commenter's role up, and
          *     the comment of somebody else by the board's admins only (403).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         patch: operations["patchCardComment"];
         trace?: never;
@@ -2846,6 +2969,8 @@ export interface paths {
          * Earlier versions of a comment on a card
          * @description Returns every prior version of the comment's body (excluding its current text), the
          *     first version first, for who reads the board.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCardCommentVersions"];
         put?: never;
@@ -3021,6 +3146,8 @@ export interface paths {
          * A card
          * @description For the members of the card's board. To a user who is no member of it there is no
          *     such card.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCard"];
         put?: never;
@@ -3035,6 +3162,8 @@ export interface paths {
          *     `parentId` reparents the card within the same board (empty or `null` moves it to the
          *     top level; left out keeps its current parent), checked for cycles and maximum depth 3
          *     including any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         patch: operations["patchCard"];
         trace?: never;
@@ -3060,6 +3189,8 @@ export interface paths {
          *     their role; to a user who is no member of it there is no such card, and a reader by
          *     the board's read token has no session to ask with. A card in the trash is not
          *     there (404); its versions come back with it, and go when it is gone for good.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCardBodyVersions"];
         put?: never;
@@ -3100,6 +3231,8 @@ export interface paths {
          * @description The version with its body, as `getCard` gives a body. For whom
          *     `getCardBodyVersions` is for. A number the card has no version of, or has none of
          *     any more, is 404.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCardBodyVersion"];
         put?: never;
@@ -3132,6 +3265,33 @@ export interface paths {
          *     a file (an image, a file block) the board no longer has, is 409.
          */
         post: operations["restoreCardBodyVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body/markdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Markdown after the last of a card's body
+         * @description For editors of the card's board. The Markdown is read into blocks and written into
+         *     the card's document after its last block, as one more editor writes: whoever edits
+         *     the card meanwhile keeps what they typed, sent or not, and is sent the blocks as
+         *     another editor's. The body is written to the card before the answer. 400 at
+         *     `/markdown` for Markdown that adds nothing or names a file the board does not have;
+         *     413 (`document_too_large`) where the document would be larger than it may.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
+         */
+        post: operations["appendCardMarkdown"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3375,6 +3535,8 @@ export interface paths {
          * A board
          * @description For a user who may see the board: a member of it, or for an open board anyone in
          *     its workspace.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getContainer"];
         put?: never;
@@ -3540,6 +3702,8 @@ export interface paths {
          *     storage limit, the refusal is 413 with the reason `storage_full`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
          *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
          *     anything but letters and digits in it, is left off. For editors.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["uploadFile"];
         delete?: never;
@@ -3569,6 +3733,8 @@ export interface paths {
          *     must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
          *     download: the `Last-Modified` of an answer is the time of that answer, so a request
          *     with the `If-Modified-Since` of an earlier answer gets the whole file again.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getFile"];
         put?: never;
@@ -3590,6 +3756,8 @@ export interface paths {
          * What is known about a file
          * @description The name a file was uploaded under, its size and when it was uploaded. For the
          *     board's members.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getFileRecord"];
         put?: never;
@@ -3669,6 +3837,8 @@ export interface paths {
          *     upload. The server keeps the newest versions of a file (its setting
          *     `max_file_versions`, fifty unless set otherwise), so the numbers may begin above 1.
          *     For who reads the board or the wiki; a file of another is 404.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getFileVersions"];
         put?: never;
@@ -3710,6 +3880,8 @@ export interface paths {
          *     as a download under the name the file was uploaded with, with one range honoured. For whom
          *     `getFileVersions` is for. A number the file has no version of, or has none of any
          *     more, is 404.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getFileVersion"];
         put?: never;
@@ -3865,6 +4037,8 @@ export interface paths {
          * Caller's effective permissions on a container
          * @description Returns the caller-scoped `ContainerPermissions` on `containerId` without embedding
          *     caller permissions inside `Container` or WebSocket broadcasts.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getMyContainerPermissions"];
         put?: never;
@@ -4006,6 +4180,8 @@ export interface paths {
          *     `server_uploads_pending`. An upload is open until it is completed, abandoned or
          *     ends; one that ends is thrown away with its parts within the hour. For editors, as
          *     `uploadFile`.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["createUpload"];
         delete?: never;
@@ -4028,6 +4204,8 @@ export interface paths {
          *     of the workspace (the units of a private course they are no member of stay 404 to
          *     them). Each is a container of the `kind` `course`. Oldest first. 404 unless the user
          *     is a member of the workspace.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCourses"];
         put?: never;
@@ -4065,6 +4243,8 @@ export interface paths {
          *     (including admins). Unjoined readers receive `myScore: null`, `averageScore: null`,
          *     and `scoreCount: 0`. Another member's individual score or note is never returned under
          *     any role.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["listCourseExams"];
         put?: never;
@@ -4188,6 +4368,8 @@ export interface paths {
          *     `ManageRoles` managers (`0` for non-manager members); unjoined open-course readers and
          *     non-enrolled guests receive `attendance: []`. Non-course containers and
          *     unreadable private courses answer 404.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["listCourseMeetings"];
         put?: never;
@@ -4333,6 +4515,8 @@ export interface paths {
          *     and personal-space owners receive their own rows; an unjoined reader of an open course
          *     receives an empty array `[]`. Other users' personal rows are never returned. Non-course
          *     containers and unreadable private courses answer 404.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getMyCourseProgress"];
         put?: never;
@@ -4458,6 +4642,8 @@ export interface paths {
          *     (`!completed && effectiveDate < today`). Unjoined readers of an open course receive
          *     `myPlannedDate: null` and `completed: false`. Other users' personal planned dates are
          *     never disclosed. Overdue units never auto-shift when read.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getCourseSchedule"];
         /**
@@ -4549,6 +4735,8 @@ export interface paths {
          *     unit) and its `kind` (`unit` or `chapter`). By `order` as strings compare by code
          *     unit, then by `id`: the siblings of one parent are in their order when taken out of
          *     the list as it is.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getUnitTree"];
         put?: never;
@@ -4574,6 +4762,8 @@ export interface paths {
          *     The course's listeners are told with `blockChanged`, whose block of the `type` `unit`
          *     or `chapter` carries its `order` among its `fields`. Any sibling numbered anew to
          *     leave room is told of too.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["createUnit"];
         delete?: never;
@@ -4593,6 +4783,8 @@ export interface paths {
          * A unit or chapter
          * @description The unit with its body, or the chapter (`body` is `null`), for whoever reads its
          *     course.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getUnit"];
         put?: never;
@@ -4616,6 +4808,8 @@ export interface paths {
          *     since, and nothing is changed. Where the body is being edited together, what the
          *     editors typed is written to the unit first, so a writer who read it before is refused
          *     and reads it again. Where the node stands in the course does not change here.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         patch: operations["patchUnit"];
         trace?: never;
@@ -4634,6 +4828,8 @@ export interface paths {
          *     reads the course, whatever their role: its members, and of an open course whoever
          *     works in the workspace. A chapter or a unit in the trash is not there (404); a unit's
          *     versions are kept while it is in the trash, and go when it is gone for good.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getUnitBodyVersions"];
         put?: never;
@@ -4664,6 +4860,8 @@ export interface paths {
          * @description The version with its body, as `getUnit` gives a body. For whom `getUnitBodyVersions`
          *     is for. A chapter, or a number the unit has no version of (or has none of any more),
          *     is 404.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getUnitBodyVersion"];
         put?: never;
@@ -4713,6 +4911,8 @@ export interface paths {
          * @description Every comment on the unit, oldest first, as blocks of the `type` `comment` whose
          *     parent is the unit. For who reads the course: its members, and of an open course
          *     whoever works in the workspace. A chapter or a unit in the trash is not there (404).
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getUnitComments"];
         put?: never;
@@ -4720,6 +4920,8 @@ export interface paths {
          * Write a comment on a unit
          * @description For the course's members from the commenter's role up (whoever reads an open course
          *     without joining it is refused with 403).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["createUnitComment"];
         delete?: never;
@@ -4742,6 +4944,8 @@ export interface paths {
          * Delete a comment on a unit
          * @description The comment goes to the trash: by its author from the commenter's role up, and the
          *     comment of somebody else by the course's admins only (403).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         delete: operations["deleteUnitComment"];
         options?: never;
@@ -4750,6 +4954,8 @@ export interface paths {
          * Change a comment on a unit
          * @description Writes a new text over the comment: by its author from the commenter's role up, and
          *     the comment of somebody else by the course's admins only (403).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         patch: operations["patchUnitComment"];
         trace?: never;
@@ -4787,6 +4993,8 @@ export interface paths {
          * What a comment on a unit said before
          * @description The earlier texts of the comment: every version but the one it has now, the first
          *     one first, with who wrote it and when.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getUnitCommentVersions"];
         put?: never;
@@ -4880,6 +5088,8 @@ export interface paths {
          *     null` clears it. Personal progress writes never broadcast over websockets, never
          *     enter search indexes or archives, and emit no webhooks or audit logs. Chapters,
          *     trashed units, units of another course, and non-course containers answer 404.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         put: operations["putUnitProgress"];
         post?: never;
@@ -5457,6 +5667,8 @@ export interface paths {
          *     course creation order, then outline order. Never includes private courses the caller
          *     is not enrolled in (even for workspace or organization admins) and never reads
          *     another user's personal `plannedDate` or completion status.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getWorkspaceLearningToday"];
         put?: never;
@@ -5598,6 +5810,8 @@ export interface paths {
          *     of those (such as a chapter of a course).
          *     The body names at most 100 identifiers (more is 400, as an entry that has not the
          *     form of an identifier is); an empty list answers an empty list.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         post: operations["resolveReferences"];
         delete?: never;
@@ -5622,6 +5836,8 @@ export interface paths {
          *     Bodies are not looked into. What is in the trash, what is on a template, a chapter of
          *     a course, and a block whose `isTemplate` is `true` (for a card, a template of its
          *     board's cards) are never found. A `q` of more than 200 characters is 400.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["searchReferences"];
         put?: never;
@@ -5649,6 +5865,8 @@ export interface paths {
          *
          *     404 unless the block is a card, a page or a unit the user reads, as
          *     `resolveReferences` tells of it: for anything else, as for an identifier of nothing.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getReferencesTo"];
         put?: never;
@@ -5702,6 +5920,8 @@ export interface paths {
          *     than three seconds, the answer is 503 with the reason `search_unavailable`: nothing
          *     else of the server waits for it, and the database does not stand in for a search
          *     server.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["searchWorkspaceContent"];
         put?: never;
@@ -5912,6 +6132,8 @@ export interface paths {
          * @description Returns the caller's due/overdue incomplete cards, scheduled course units, due
          *     reviews, and upcoming study meetings inside `workspaceId`. 404 for guests and
          *     non-members.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getWorkspaceToday"];
         put?: never;
@@ -5960,6 +6182,8 @@ export interface paths {
          * Get an upload
          * @description The upload and the parts it has received: what a client that lost its place sends
          *     next. Another user's upload, and one that has ended, is 404.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         get: operations["getUpload"];
         put?: never;
@@ -5968,6 +6192,8 @@ export interface paths {
          * Abandon an upload
          * @description Ends the upload and throws its parts away. An upload that is being completed is
          *     409.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         delete: operations["deleteUpload"];
         options?: never;
@@ -5992,6 +6218,8 @@ export interface paths {
          *     the upload was opened: a user who may not upload to the board any more is refused,
          *     and the upload is thrown away. An upload that is being completed is 409; an upload
          *     of an archive is 400, and is imported with `importArchive`.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["completeUpload"];
         delete?: never;
@@ -6019,6 +6247,8 @@ export interface paths {
          *     `Content-Digest` carries the part's SHA-256. A part whose length or digest differs
          *     is 400 and is not kept; a part sent again replaces the one received. An upload that
          *     is being completed or abandoned is 409.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         put: operations["putUploadPart"];
         post?: never;
@@ -6043,6 +6273,8 @@ export interface paths {
          *     part of whose name (either way round, and the name they wrote) has that text in it,
          *     whatever the case of the letters, without it the ten oldest accounts. Oldest account
          *     first.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getWorkspaceUsers"];
         put?: never;
@@ -6066,6 +6298,8 @@ export interface paths {
          *     time: a page shows a deleted user where it wrote or is mentioned.
          *     `deletedAt` is present for a writer whose account waits to be deleted, who is
          *     answered as they are, with their name.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;
@@ -6085,6 +6319,8 @@ export interface paths {
          * A user of a workspace
          * @description A user the user sees in the workspace, as `getWorkspaceUsersById` finds them; anybody
          *     else is 404, as one who does not exist.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getWorkspaceUser"];
         put?: never;
@@ -6109,6 +6345,8 @@ export interface paths {
          *     of the workspace (the pages of a private wiki they are no member of stay 404 to
          *     them). Each is a board of the `kind` `wiki`. Oldest first. 404 unless the user is a
          *     member of the workspace.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getWikis"];
         put?: never;
@@ -6138,6 +6376,8 @@ export interface paths {
          *     it is below (`parentId`, empty at the top of the wiki), which is how they are a
          *     tree. By `order` as strings compare by code unit, then by `id`: the pages of one
          *     parent are in their order when they are taken out of the list as it is.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getPageTree"];
         put?: never;
@@ -6159,6 +6399,8 @@ export interface paths {
          *     has the icon and the order among its `fields`. Where the pages of the parent had no
          *     room left between them (two of one order, or orders grown long), they are numbered
          *     anew, and each that changed is told of too.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["createPage"];
         delete?: never;
@@ -6177,6 +6419,8 @@ export interface paths {
         /**
          * A page
          * @description The page with its body, for the members of its wiki.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getPage"];
         put?: never;
@@ -6198,6 +6442,8 @@ export interface paths {
          *     changed since, and nothing is changed. Where the body is being edited together, what
          *     the editors typed is written to the page first, so a writer who read it before is
          *     refused and reads it again. Where the page is in the tree does not change here.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         patch: operations["patchPage"];
         trace?: never;
@@ -6215,6 +6461,8 @@ export interface paths {
          *     kept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).
          *     For who reads the wiki, whatever their role: its members, and of an open wiki
          *     whoever works in the workspace. A page in the trash is not there (404); its versions are kept while it is there, and go when it is gone for good.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getPageBodyVersions"];
         put?: never;
@@ -6245,6 +6493,8 @@ export interface paths {
          * @description The version with its body, as `getPage` gives a body. For whom
          *     `getPageBodyVersions` is for. A number the page has no version of, or has none of
          *     any more, is 404.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getPageBodyVersion"];
         put?: never;
@@ -6295,6 +6545,8 @@ export interface paths {
          *     changed when that last happened (`editedAt`). For who reads the wiki: its members,
          *     and of an open wiki whoever works in the workspace. A page in the trash is not
          *     there (404).
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getPageComments"];
         put?: never;
@@ -6304,6 +6556,8 @@ export interface paths {
          *     identifier, the author and the times. Every image of the text shows a file of the
          *     wiki (400 otherwise), and the text has no file block (400). Who reads the wiki is
          *     told with `blockChanged`, as of a comment on a card.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         post: operations["createPageComment"];
         delete?: never;
@@ -6328,6 +6582,8 @@ export interface paths {
          *     commenter's role up, and the comment of somebody else by the wiki's admins only
          *     (403, `access denied to delete other users' comments`). Who reads the wiki is told
          *     with `blockChanged` with `deletedAt` set.
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         delete: operations["deletePageComment"];
         options?: never;
@@ -6339,6 +6595,8 @@ export interface paths {
          *     admins only (403, `access denied to change other users' comments`); an editor may
          *     not change it. The text it had is kept (`getPageCommentVersions`), and the comment's
          *     `editedAt` says when it last changed. The text has no file block (400).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         patch: operations["patchPageComment"];
         trace?: never;
@@ -6377,6 +6635,8 @@ export interface paths {
          * @description The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:
          *     every version but the one it has now, the first one first, with who wrote it and
          *     when.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
          */
         get: operations["getPageCommentVersions"];
         put?: never;
@@ -6652,6 +6912,66 @@ export interface components {
          * @enum {string}
          */
         AmountUnit: "minutes" | "pages" | "problems";
+        /**
+         * @description A personal API token as its owner, or an administrator of an organization it
+         *     reaches, sees it: never the token itself, which is shown once, when it is made.
+         */
+        ApiToken: {
+            /** @description Whether it reaches the owner's own space too (never its diaries). */
+            allowPersonalSpace: boolean;
+            /**
+             * Format: int64
+             * @description When it was made.
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description When it stops opening anything.
+             */
+            expiresAt: number;
+            /** @description The token's identifier. */
+            id: string;
+            /** @description The address it was last used from; absent if never, or unknown. */
+            lastUsedAddress?: string | null;
+            /**
+             * Format: int64
+             * @description When it was last used, in milliseconds since the Unix epoch, to within five
+             *     minutes; absent if never.
+             */
+            lastUsedAt?: number | null;
+            /** @description The name its owner gave it. */
+            name: string;
+            /** @description Whether its owner is told of what it does, as of anybody's doing. */
+            notifySelf: boolean;
+            /** @description What it may do. */
+            scope: components["schemas"]["ApiTokenScope"];
+            /**
+             * @description The first characters of the token (`fvoci_pat_` and six more): enough to tell
+             *     which token a client holds, never to sign in.
+             */
+            tokenPrefix: string;
+            /** @description Whose it is. */
+            userId: string;
+            /**
+             * @description The workspaces of organizations it reaches. For an administrator's list, those
+             *     of the administrator's organization alone.
+             */
+            workspaces: components["schemas"]["ApiTokenWorkspace"][];
+        };
+        /**
+         * @description What a token may do with the content it reaches.
+         * @enum {string}
+         */
+        ApiTokenScope: "read" | "write";
+        /** @description A workspace a token reaches, as its list shows it. */
+        ApiTokenWorkspace: {
+            /** @description Its name. */
+            name: string;
+            /** @description Its organization. */
+            orgId: string;
+            /** @description The workspace. */
+            workspaceId: string;
+        };
         /**
          * @description A member's attendance status for a course study meeting.
          * @enum {string}
@@ -8293,6 +8613,16 @@ export interface components {
             /** @description The token of the link. */
             token: string;
         };
+        /** @description A token as it is made: the only time the token itself is told. */
+        IssuedApiToken: {
+            /** @description The token as its list shows it. */
+            apiToken: components["schemas"]["ApiToken"];
+            /**
+             * @description The token, to be sent as `Authorization: Bearer <token>`. It is not stored, and
+             *     not shown again.
+             */
+            token: string;
+        };
         /** @description The answer to an editor who asked to keep a body as a version now. */
         KeptBodyVersion: {
             /** @description Whether a version was kept, and if not, why. */
@@ -8462,6 +8792,15 @@ export interface components {
             /** @description The user name to log in with. */
             username?: string;
         };
+        /** @description Markdown to add after the last of a body. */
+        MarkdownAppend: {
+            /**
+             * @description The Markdown (`CommonMark` with the tables, strikethrough and task lists of
+             *     GFM). A file of the card's board is named `fvoci-file://{fileId}`: an image as
+             *     `![alt](fvoci-file://{fileId})`, any other file as `[name](fvoci-file://{fileId})`.
+             */
+            markdown: string;
+        };
         /**
          * @description The user of a session, as their own account is answered to them: the user, and what
          *     nobody else is told of the account.
@@ -8583,6 +8922,35 @@ export interface components {
             password: string;
             /** @description The login name. */
             username: string;
+        };
+        /** @description What the owner of an account asks a new token to be (`createApiToken`). */
+        NewApiToken: {
+            /**
+             * @description Whether it reaches the owner's own space too. An account with a password gives
+             *     it in `password`.
+             */
+            allowPersonalSpace?: boolean;
+            /**
+             * Format: int32
+             * @description How many days it lasts, 1 to 365; 90 if absent. A token that reaches an
+             *     organization that takes only sessions made through its provider lasts no longer
+             *     than such a session may: what is asked beyond that is cut to it.
+             */
+            expiresInDays?: number | null;
+            /** @description Its name, 1 to 80 characters after trimming. */
+            name: string;
+            /** @description Whether the owner is told of what it does. On unless given. */
+            notifySelf?: boolean;
+            /** @description The account's password, for a token that reaches the owner's own space. */
+            password?: string | null;
+            /** @description What it may do. */
+            scope: components["schemas"]["ApiTokenScope"];
+            /**
+             * @description The workspaces of organizations it reaches: at most 50, each one the owner works
+             *     in (no guest's), and none of the owner's own space, which `allowPersonalSpace`
+             *     says.
+             */
+            workspaceIds?: string[];
         };
         /** @description A block to insert. */
         NewBlock: {
@@ -9251,6 +9619,12 @@ export interface components {
         /** @description An organization as its administrators see it. */
         Organization: {
             /**
+             * @description Whether members may give its workspaces to personal API tokens, while it takes
+             *     only sessions made through its provider. One that takes any session lets them
+             *     whatever this says.
+             */
+            allowApiTokens: boolean;
+            /**
              * @description Whether members may copy boards, wikis, and courses out of this organization
              *     into another organization or into their personal space.
              */
@@ -9279,6 +9653,12 @@ export interface components {
         };
         /** @description A change of an organization: what is left out stays as it is. */
         OrganizationPatch: {
+            /**
+             * @description Whether members may give its workspaces to personal API tokens while it takes
+             *     only sessions made through its provider. Switched off, the tokens that reach
+             *     them open nothing of it until it is switched on again.
+             */
+            allowApiTokens?: boolean | null;
             /** @description Whether members may copy containers out to external organizations or personal spaces. */
             allowCopyOut?: boolean | null;
             /** @description The new name, at most `MAX_NAME_CHARS` characters; may be empty. */
@@ -11675,6 +12055,70 @@ export interface operations {
             };
         };
     };
+    getOrgApiTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tokens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiToken"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeOrgApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers. */
+                orgId: string;
+                /** @description The identifier of the personal API token. */
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token opens nothing. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getOrgAudit: {
         parameters: {
             query?: {
@@ -12893,6 +13337,98 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["User"];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getApiTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tokens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiToken"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewApiToken"];
+            };
+        };
+        responses: {
+            /** @description The token, told this once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedApiToken"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the personal API token. */
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token opens nothing. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -15374,6 +15910,44 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description The card as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    appendCardMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkdownAppend"];
+            };
+        };
         responses: {
             /** @description The card as it is now. */
             200: {

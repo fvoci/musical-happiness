@@ -42,6 +42,7 @@ mod limits;
 mod list_page;
 mod loose_objects;
 mod mail;
+mod markdown_append;
 mod notifications;
 mod oidc;
 mod oidc_account;

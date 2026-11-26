@@ -22,7 +22,8 @@ use crate::error::AppError;
 /// The operations that take a personal API token, by their `operationId`, with the
 /// scope a token needs for each: those whose handler takes [`Delegated`], as a test of
 /// the sources holds it. The contract says it of each of them.
-pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 68] = [
+pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 69] = [
+    ("appendCardMarkdown", ApiTokenScope::Write),
     ("completeUpload", ApiTokenScope::Write),
     ("createCard", ApiTokenScope::Write),
     ("createCardAttachment", ApiTokenScope::Write),

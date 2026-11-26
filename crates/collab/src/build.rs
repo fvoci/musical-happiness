@@ -235,8 +235,18 @@ fn push_unmarked_nodes(
 }
 
 fn fill_unmarked_element(txn: &mut TransactionMut<'_>, element: &XmlElementRef, node: &Value) {
-    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
     push_unmarked_nodes(txn, element, content_of(node), None);
+    write_attributes(txn, element, node);
+}
+
+/// Writes the attributes of a node's element as an editor gives them: each the node
+/// has, and those it leaves out with the value an editor writes for them.
+pub(crate) fn write_attributes(
+    txn: &mut TransactionMut<'_>,
+    element: &XmlElementRef,
+    node: &Value,
+) {
+    let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
     let given = node.get("attrs");
     for attribute in crate::schema::node_attributes(kind).unwrap_or(&[]) {
         let value = match given.and_then(|attrs| attrs.get(attribute.name)) {
@@ -274,25 +284,25 @@ fn doc_from_encoded(state: &[u8], client: u64) -> Doc {
 }
 
 /// The content of a node; none if it has none.
-fn content_of(node: &Value) -> &[Value] {
+pub(crate) fn content_of(node: &Value) -> &[Value] {
     node.get("content")
         .and_then(Value::as_array)
         .map_or(&[], Vec::as_slice)
 }
 
-fn is_text(node: &Value) -> bool {
+pub(crate) fn is_text(node: &Value) -> bool {
     node.get("type").and_then(Value::as_str) == Some("text")
 }
 
 /// The letters of a text node.
-fn letters_of(node: &Value) -> &str {
+pub(crate) fn letters_of(node: &Value) -> &str {
     node.get("text").and_then(Value::as_str).unwrap_or_default()
 }
 
 /// A JSON value as a value of the shared content. A number that is whole is written as
 /// a whole number, however the JSON wrote it (`1`, `1.0`, `1e0`): JavaScript has one
 /// kind of number, and the editors write a whole one as an integer.
-fn any_of(value: &Value) -> Any {
+pub(crate) fn any_of(value: &Value) -> Any {
     match value {
         Value::Null => Any::Null,
         Value::Bool(truth) => Any::Bool(*truth),

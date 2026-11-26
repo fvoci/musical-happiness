@@ -435,7 +435,7 @@ mod archive;
 mod bundle;
 #[cfg(test)]
 mod external_tests;
-mod markdown;
+pub(super) mod markdown;
 mod markdown_nodes;
 mod native_atomic;
 mod native_stream;

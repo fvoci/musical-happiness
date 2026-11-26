@@ -4035,6 +4035,20 @@
         ],
         "type": "object"
       },
+      "MarkdownAppend": {
+        "additionalProperties": false,
+        "description": "Markdown to add after the last of a body.",
+        "properties": {
+          "markdown": {
+            "description": "The Markdown (`CommonMark` with the tables, strikethrough and task lists of\nGFM). A file of the card's board is named `fvoci-file://{fileId}`: an image as\n`![alt](fvoci-file://{fileId})`, any other file as `[name](fvoci-file://{fileId})`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "markdown"
+        ],
+        "type": "object"
+      },
       "Me": {
         "allOf": [
           {
@@ -16339,6 +16353,69 @@
         "tags": [
           "cards"
         ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/cards/{cardId}/body/markdown": {
+      "post": {
+        "description": "For editors of the card's board. The Markdown is read into blocks and written into\nthe card's document after its last block, as one more editor writes: whoever edits\nthe card meanwhile keeps what they typed, sent or not, and is sent the blocks as\nanother editor's. The body is written to the card before the answer. 400 at\n`/markdown` for Markdown that adds nothing or names a file the board does not have;\n413 (`document_too_large`) where the document would be larger than it may.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "operationId": "appendCardMarkdown",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkdownAppend"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Add Markdown after the last of a card's body",
+        "tags": [
+          "cards"
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/categories": {
