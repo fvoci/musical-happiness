@@ -170,7 +170,8 @@ pub(super) async fn card_comments(
 /// without joining it is refused with 403). The server chooses the identifier, the
 /// author and the times. Every image of the text shows a file of the board (400
 /// otherwise), and the text has no file block (400). Written with a personal API token,
-/// the comment names the token in `fields.agentTokenName`.
+/// the comment names the token in `fields.agentTokenName`; the server alone sets that
+/// member, on every route, as the comment's text is written.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments",

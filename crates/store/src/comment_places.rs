@@ -100,9 +100,9 @@ pub(crate) fn restore_refusal(
 }
 
 /// Says in a comment that is written which agent wrote its text
-/// (`fields.agentTokenName`): the server's to say, never the writer's. An agent that
-/// writes a new comment, or the text of one, names its token; any other write leaves
-/// the name as it was stored (none for a new comment), whatever the writer sent.
+/// (`fields.agentTokenName`): the server's to say, never the writer's. Who writes a new
+/// comment, or the text of one, signs it: an agent by its token's name, a person by
+/// none. Any other write leaves the name as it was stored, whatever the writer sent.
 pub(crate) fn sign(block: &mut Block, existing: Option<&Block>, agent: Option<ByAgent<'_>>) {
     if block.block_type != BlockType::Comment {
         return;
@@ -110,9 +110,9 @@ pub(crate) fn sign(block: &mut Block, existing: Option<&Block>, agent: Option<By
     let text_written = existing.is_none_or(|existing| {
         crate::body_digest(existing.body.as_ref()) != crate::body_digest(block.body.as_ref())
     });
-    let signed = match agent {
-        Some(agent) if text_written => Some(Value::String(agent.token_name.to_owned())),
-        _ => existing.and_then(|existing| existing.fields.get(COMMENT_AGENT_TOKEN_NAME).cloned()),
+    let signed = match (existing, text_written) {
+        (Some(existing), false) => existing.fields.get(COMMENT_AGENT_TOKEN_NAME).cloned(),
+        _ => agent.map(|agent| Value::String(agent.token_name.to_owned())),
     };
     match signed {
         Some(name) => {
