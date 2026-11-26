@@ -249,7 +249,9 @@
   const joinOnPress = (body: HTMLElement): (() => void) =>
     on(body, 'click', (event) => {
       const target = event.target;
-      if (!(target instanceof Element) || !target.closest('.ProseMirror')) return;
+      // The editor's root, by its own mark: its library's class would carry the library's name
+      // into this piece, which is fetched before the editor (e2e/card.spec.ts).
+      if (!(target instanceof Element) || !target.closest('[data-body-editor]')) return;
       if (target.closest('a[href], button, input, select, textarea, [role="button"]')) return;
       if (document.getSelection()?.isCollapsed === false) return;
       if (container.canEdit && room?.status === 'joined' && room.mode === 'read') {
