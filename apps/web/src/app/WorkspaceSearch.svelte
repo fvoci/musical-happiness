@@ -54,7 +54,7 @@
 
   let open = $state(false);
   let session = $state.raw<SearchSession | undefined>(undefined);
-  let dialog = $state<{ focusField: () => void }>();
+  let dialog = $state<{ focusField: () => void; leaving: () => void }>();
   const opener = new Opener();
 
   /** Asked of each backend the workspace has (one, for the life of the page). */
@@ -163,6 +163,7 @@
 
   /** Closes the search, then opens a board, a wiki, a diary or a course, as from the sidebar. */
   async function jump(container: Container): Promise<void> {
+    dialog?.leaving();
     session?.close();
     open = false;
     await tick();

@@ -894,7 +894,7 @@
   "shell_import_format_notion": "Markdown·CSV 묶음 (.zip) — Notion 내보내기 포함",
   "shell_import_hint": "이 앱이 내보낸 아카이브입니다. 그 보드나 위키가 {workspace}에 만들어지고, 내가 관리자가 됩니다.",
   "shell_import_hint_trello": "Trello에서 JSON으로 내보낸 보드입니다. 리스트, 카드, 체크리스트, 라벨, 댓글이 {workspace}에 보드로 들어옵니다.",
-  "shell_import_hint_notion": "Notion의 Markdown 및 CSV ZIP 내보내기입니다. 페이지는 위키로, CSV 데이터베이스는 보드로 {workspace}에 들어옵니다.",
+  "shell_import_hint_notion": "Notion 내보내기를 포함한 Markdown 및 CSV ZIP 묶음입니다. 페이지는 위키로, CSV 데이터베이스는 보드로 {workspace}에 들어옵니다.",
   "shell_import_left_out": "아카이브의 보드나 위키 구성원 {count}명은 {workspace}에 없어 빠졌습니다.",
   "shell_import_summary_title": "가져오기 완료",
   "shell_import_count_boards": "보드 {count}",

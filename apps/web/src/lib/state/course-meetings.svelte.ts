@@ -31,6 +31,8 @@ export interface CourseMeetingsHost {
   readonly workspace: Workspace;
   courses(): Courses;
   canEdit(): boolean;
+  /** Who manages the course's roles, as the server asks of a publication of results. */
+  canManageRoles(): boolean;
   canTrack(): boolean;
   isClosed(): boolean;
 }
@@ -323,7 +325,8 @@ export class CourseMeetingsState {
 
   /**
    * Publishes the snapshot of an exam's results, or takes it back: for who
-   * manages the course. Refused (409: too few scores, or too few new ones since
+   * manages the course's roles (`ManageRoles`, as the server asks and as the
+   * button is shown), whether or not they edit it. Refused (409: too few scores, or too few new ones since
    * the last), it says so (`refused`), and the exam stays as it was; any other
    * failure is reported as a write's.
    */
@@ -331,7 +334,7 @@ export class CourseMeetingsState {
     examId: string,
     published: boolean,
   ): Promise<'done' | 'refused' | 'failed'> {
-    if (!this.#host.canEdit() || this.busy) return 'failed';
+    if (!this.#host.canManageRoles() || this.busy) return 'failed';
     this.busy = true;
     try {
       const updated = await this.#host

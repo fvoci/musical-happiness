@@ -351,7 +351,7 @@
           class="relative flex min-h-full w-[calc(var(--gantt-title)+var(--gantt-width))] min-w-full flex-col"
         >
           <AxisHeader {axis} scale={chart.scale} {todayX} {today} {locale} />
-          <div class="relative flex-1 pb-(--safe-bottom)">
+          <div class="relative flex-1 pb-[calc(var(--fab-room,0px)+var(--safe-bottom))]">
             <!-- Under the rows: a line at each week or month, and the line of today. -->
             <div
               aria-hidden="true"

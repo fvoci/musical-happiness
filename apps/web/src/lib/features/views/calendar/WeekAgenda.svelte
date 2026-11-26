@@ -120,7 +120,7 @@
   {/if}
   <div
     {@attach attachList}
-    class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-[calc(0.5rem+var(--safe-bottom))]"
+    class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-[calc(max(0.5rem,var(--fab-room,0px))+var(--safe-bottom))]"
   >
     {#each week as date (date)}
       {@const cards = placed.on(date)}

@@ -894,7 +894,7 @@
   "shell_import_format_notion": "Markdown & CSV bundle (.zip) — Notion exports included",
   "shell_import_hint": "An archive this app exported. Its boards and wikis are made in {workspace}, with you as their admin.",
   "shell_import_hint_trello": "A Trello board JSON export. Lists, cards, checklists, labels, and comments are imported as a board in {workspace}.",
-  "shell_import_hint_notion": "A Notion Markdown & CSV ZIP export. Pages become a wiki and CSV databases become boards in {workspace}.",
+  "shell_import_hint_notion": "A Markdown & CSV ZIP bundle, Notion exports included. Pages become a wiki and CSV databases become boards in {workspace}.",
   "shell_import_left_out": "Members left out of the archive's boards and wikis, not in {workspace}: {count}.",
   "shell_import_summary_title": "Import complete",
   "shell_import_count_boards": "Boards: {count}",

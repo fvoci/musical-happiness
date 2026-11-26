@@ -21,7 +21,10 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="max-w-lg" data-testid="time-entry-dialog">
+  <Dialog.Content
+    class="max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom)-var(--keyboard))] max-w-lg overflow-y-auto"
+    data-testid="time-entry-dialog"
+  >
     <Dialog.Header>
       <Dialog.Title>
         {mode === 'create' ? m.time_dialog_add_title() : m.time_dialog_edit_title()}

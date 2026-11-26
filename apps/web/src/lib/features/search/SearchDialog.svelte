@@ -129,8 +129,16 @@
   }
 
   function go(hit: SearchHit): void {
-    went = true;
+    leaving();
     onGo(hit);
+  }
+
+  /**
+   * The dialog is to close because the reader goes elsewhere, by what was
+   * found or by a jump to a place (`jumps`): the focus is then the new page's.
+   */
+  export function leaving(): void {
+    went = true;
   }
 
   /** Puts the focus in the field, what it holds chosen: ⌘K again while the dialog is open. */

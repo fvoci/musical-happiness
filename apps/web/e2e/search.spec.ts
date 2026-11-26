@@ -149,7 +149,8 @@ test.describe('the search of cards and pages', () => {
     page,
   }) => {
     await openWithSearch(page);
-    await page.keyboard.press(await primaryKey(page, 'k'));
+    const open = topBar(page).getByTestId('open-search');
+    await open.click();
     const jumps = dialog(page).getByTestId('search-jumps').locator('[data-search-jump]');
     await expect(jumps.first()).toBeVisible();
     await search(page, 'STUDY');
@@ -161,6 +162,9 @@ test.describe('the search of cards and pages', () => {
     await expect(dialog(page)).toHaveCount(0);
     await expect(page).toHaveURL(ON_A_VIEW);
     await expect(topBar(page)).toContainText('Study notes');
+    // Gone elsewhere: the focus is the new page's, not back on the button that opened the search.
+    await expect(page.locator('main')).toBeFocused();
+    await expect(open).not.toBeFocused();
   });
 
   test('finds a card by a word of its body and opens it, by the keyboard alone', async ({
