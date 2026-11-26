@@ -181,5 +181,57 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
     let listed: Vec<Value> = th.client.get(&comments).await.ok_json();
     assert_eq!(listed[0]["fields"]["agentTokenName"], "agent");
 
+    // The agent writes the person's text over: the comment is the agent's.
+    let id_of = |comment: &Value| comment["id"].as_str().expect("an id").to_owned();
+    let rewritten: Value = agent
+        .patch(
+            &format!("{comments}/{}", id_of(&by_person)),
+            &json!({"body": paragraphs(&["a word more"]), "readAt": by_person["updatedAt"]}),
+        )
+        .await
+        .ok_json();
+    assert_eq!(rewritten["fields"]["agentTokenName"], "agent", "{rewritten}");
+    // What a person sends of the name is no one's word: it is the server's to say.
+    let comment_block = |comment: &Value| fvoci_model::Block {
+        id: id_of(comment),
+        container_id: board.id.clone(),
+        ..fvoci_model::Block::default()
+    };
+    th.client
+        .patch(
+            &crate::blocks::block_path(&board.id, &id_of(&by_agent)),
+            &json!({"updatedFields": {"agentTokenName": "forged"}}),
+        )
+        .await
+        .check_no_content();
+    th.client
+        .patch(
+            &crate::blocks::block_path(&board.id, &id_of(&by_person)),
+            &json!({"deletedFields": ["agentTokenName"]}),
+        )
+        .await
+        .check_no_content();
+    let mut forged = crate::blocks::child_of(
+        &comment_block(&card),
+        fvoci_model::BlockType::Comment,
+        "",
+    );
+    forged.body = fvoci_model::Body::parse(text.clone()).expect("a body");
+    forged
+        .fields
+        .insert("agentTokenName".to_owned(), json!("forged"));
+    let forged = crate::blocks::insert_one(&th.client, &forged).await;
+    assert!(
+        !forged.fields.contains_key("agentTokenName"),
+        "{:?}",
+        forged.fields
+    );
+    let listed: Vec<Value> = th.client.get(&comments).await.ok_json();
+    let names: Vec<&Value> = listed
+        .iter()
+        .map(|comment| &comment["fields"]["agentTokenName"])
+        .collect();
+    assert_eq!(names, [&json!("agent"), &json!("agent"), &Value::Null], "{listed:?}");
+
     th.teardown().await;
 }
