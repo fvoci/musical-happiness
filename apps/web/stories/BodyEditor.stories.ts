@@ -41,7 +41,7 @@ export const Unreadable: Story = { args: { doc: INVALID } };
 /** References: type `[[` for the cards and pages there are to name; each shows what it names as it is now. */
 export const References: Story = { args: { doc: REFERENCES } };
 /**
- * File blocks: type `/` for the slash menu and choose "파일·이미지", or paste or drop a
+ * File blocks: type `/` for the slash menu and choose "파일/이미지", or paste or drop a
  * file that is no picture. Select a block with the arrows and Enter saves its file;
  * select an image and its bubble opens it larger.
  */

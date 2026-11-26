@@ -1586,10 +1586,10 @@ test.describe('the file of a view', () => {
       page.waitForEvent('download'),
       page.getByRole('menuitem', { name: 'Export to CSV' }).click(),
     ]);
-    return {
-      name: download.suggestedFilename(),
-      text: readFileSync(await download.path(), 'utf8'),
-    };
+    // Saved where the test keeps its files: a browser run elsewhere (WebKit) has no path of it here.
+    const saved = test.info().outputPath(download.suggestedFilename());
+    await download.saveAs(saved);
+    return { name: download.suggestedFilename(), text: readFileSync(saved, 'utf8') };
   }
 
   test('"…" saves the cards the view shows, named and guarded, as a spreadsheet reads them', async ({

@@ -244,10 +244,12 @@ test('a phone gets a bar over its keyboard, a finger wide', async ({ page }, inf
   const box = await bar.getByRole('button', { name: 'To-do list' }).boundingBox();
   expect(box?.height).toBeGreaterThanOrEqual(44);
   expect(box?.width).toBeGreaterThanOrEqual(44);
+  // In sight, and clear of the comment field pinned under the body.
   const barBox = await bar.boundingBox();
-  expect((barBox?.y ?? 0) + (barBox?.height ?? 0)).toBeLessThanOrEqual(
-    page.viewportSize()?.height ?? 0,
-  );
+  const composer = await page.getByTestId('comment-composer').boundingBox();
+  const barBottom = (barBox?.y ?? 0) + (barBox?.height ?? 0);
+  expect(barBottom).toBeLessThanOrEqual(page.viewportSize()?.height ?? 0);
+  expect(barBottom).toBeLessThanOrEqual((composer?.y ?? 0) + 1);
   await picture(page, 'mobile-toolbar');
 
   const toDo = body.locator('ul[data-type="taskList"] > li', { hasText: 'Buy milk' });
@@ -262,6 +264,15 @@ test('a phone gets a bar over its keyboard, a finger wide', async ({ page }, inf
   // The marks are on the bar: chosen text gets no bubble of them.
   await page.keyboard.press('Shift+ArrowLeft');
   await expect(bubble(page)).toHaveCount(0);
+  // With a keyboard, Tab stops in the bar once, the arrows go along it, and Tab goes on past it.
+  await page.keyboard.press('Tab');
+  const focusedButton = bar.locator('button:focus');
+  await expect(focusedButton).toHaveCount(1);
+  const first = await focusedButton.getAttribute('data-format');
+  await page.keyboard.press('ArrowRight');
+  await expect(focusedButton).not.toHaveAttribute('data-format', first ?? '');
+  await page.keyboard.press('Tab');
+  await expect(bar).toHaveCount(0);
 });
 
 test('an image opens larger from its bubble, and Escape closes only it', async ({ page }) => {
@@ -293,12 +304,13 @@ test('an image opens larger from its bubble, and Escape closes only it', async (
   await expect(lightbox(page)).toHaveCount(0);
   await expect(page.getByTestId('card-dialog')).toBeVisible();
 
-  // Beside the image, and its close button.
-  await image.click();
+  // Beside the image, and its close button. Each press of the image is at another point of it:
+  // two within half a second at one point are a double click to ProseMirror, which chooses no image.
+  await image.click({ position: { x: 20, y: 20 } });
   await zoom.click();
   await lightbox(page).click({ position: { x: 4, y: 200 } });
   await expect(lightbox(page)).toHaveCount(0);
-  await image.click();
+  await image.click({ position: { x: 60, y: 60 } });
   await zoom.click();
   await lightbox(page).getByRole('button', { name: 'Close' }).click();
   await expect(lightbox(page)).toHaveCount(0);

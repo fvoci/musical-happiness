@@ -177,9 +177,9 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   await editor.click();
   await page.keyboard.type('Agenda and minutes:');
   await page.keyboard.press('Enter');
-  await page.keyboard.type('/fi');
+  await page.keyboard.type('/file');
   const menu = page.locator('[data-suggestions="slash"]');
-  await expect(menu.getByRole('option')).toHaveText(['File']);
+  await expect(menu.getByRole('option')).toHaveText(['File or image']);
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     page.keyboard.press('Enter'),

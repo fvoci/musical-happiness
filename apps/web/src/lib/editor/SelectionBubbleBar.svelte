@@ -20,7 +20,7 @@
 
   import { m } from '$lib/i18n/paraglide/messages.js';
 
-  import { keepEditorFocus, moveAlongBar } from './bar-keys.ts';
+  import { focusedFormat, keepEditorFocus, moveAlongBar, tabStop } from './bar-keys.ts';
   import { placeBubble, selectionRect } from './bubble-place.ts';
   import { FORMULA_ACTION, MARK_ACTIONS, type FormatAction } from './format-actions.ts';
   import { lightboxOf, type LightboxImage } from './image-zoom.ts';
@@ -91,6 +91,18 @@
     };
   }
   const states = $derived(statesNow(kind, changes));
+
+  /** The mark's button focused last; Tab comes back to it, the arrows go to the rest. */
+  let last = $state<string>();
+  const stop = $derived(
+    tabStop(
+      [...states.marks, { action: { id: 'link' }, can: true }, states.formula].map((state) => ({
+        id: state.action.id,
+        can: state.can,
+      })),
+      last,
+    ),
+  );
 
   /** The address as a link takes it: one without a scheme is a web address, or mail. */
   function withScheme(typed: string): string {
@@ -170,6 +182,7 @@
     title={state.action.label()}
     aria-pressed={state.action.active ? state.on : undefined}
     disabled={!state.can}
+    tabindex={state.action.id === stop ? 0 : -1}
     onmousedown={keepEditorFocus}
     onclick={() => {
       state.action.run(editor);
@@ -186,8 +199,12 @@
     tabindex="-1"
     aria-label={m.editor_format_bar()}
     data-bubble={kind}
+    data-editor-tool="bubble"
     {@attach (bubble: HTMLElement) => placed(bubble, changes, kind, address, refused)}
-    onfocusin={() => (within = true)}
+    onfocusin={(event) => {
+      within = true;
+      last = focusedFormat(event) ?? last;
+    }}
     onfocusout={(event) => {
       const next = event.relatedTarget;
       if (next instanceof Node && event.currentTarget.contains(next)) return;
@@ -238,6 +255,7 @@
         aria-label={m.editor_format_link()}
         title={m.editor_format_link()}
         aria-pressed={states.link}
+        tabindex={stop === 'link' ? 0 : -1}
         onmousedown={keepEditorFocus}
         onclick={startLink}
       >

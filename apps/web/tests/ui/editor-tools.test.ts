@@ -69,6 +69,11 @@ const tool = (format: string): HTMLButtonElement => {
   if (!found) throw new Error(`no ${format}`);
   return found;
 };
+/** The buttons of the tools that Tab stops at: one in each bar. */
+const tabStops = (): (string | undefined)[] =>
+  [...document.querySelectorAll<HTMLElement>('[role="toolbar"] [tabindex="0"]')].map(
+    (button) => button.dataset.format,
+  );
 const lightbox = (): HTMLDialogElement | null =>
   document.querySelector('[data-testid="image-lightbox"]');
 
@@ -91,6 +96,7 @@ describe('the bubble over chosen text', () => {
     expect(
       [...(bubble()?.querySelectorAll('button') ?? [])].map((button) => button.dataset.format),
     ).toEqual(['bold', 'italic', 'strike', 'code', 'link', 'formula']);
+    expect(tabStops()).toEqual(['bold']);
     await fireEvent.click(tool('bold'));
     expect(stored(editor)).toEqual(doc(paragraph(text('hello', { type: 'bold' }), text(' world'))));
     expect(tool('bold').getAttribute('aria-pressed')).toBe('true');
@@ -155,6 +161,8 @@ describe('the bubble over chosen text', () => {
     expect(document.activeElement).toBe(tool('italic'));
     await fireEvent.keyDown(tool('italic'), { key: 'End' });
     expect(document.activeElement).toBe(tool('formula'));
+    // Tab comes back to the button focused last.
+    expect(tabStops()).toEqual(['formula']);
   });
 });
 
@@ -268,6 +276,7 @@ describe('the bar over a phone’s keyboard', () => {
       'redo',
     ]);
     expect(tool('undo').disabled).toBe(true);
+    expect(tabStops()).toEqual(['heading-1']);
     await fireEvent.click(tool('task-list'));
     expect(stored(editor)).toEqual(doc(tasks(task(false, paragraph(text('buy milk'))))));
     expect(tool('task-list').getAttribute('aria-pressed')).toBe('true');

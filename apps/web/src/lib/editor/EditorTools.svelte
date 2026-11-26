@@ -59,8 +59,16 @@
     const focus = (): void => {
       untrack(() => (focused = true));
     };
-    const blur = (): void => {
-      untrack(() => (focused = false));
+    const blur = ({ event }: { event: FocusEvent }): void => {
+      // Going on into a tool: it holds the focus from now, or Svelte would take it away
+      // between this blur and its focus, and the focus would fall out of the page.
+      const next = event.relatedTarget;
+      const tool = next instanceof Element ? next.closest('[data-editor-tool]') : null;
+      untrack(() => {
+        focused = false;
+        if (tool?.getAttribute('data-editor-tool') === 'bar') inBar = true;
+        if (tool?.getAttribute('data-editor-tool') === 'bubble') inBubble = true;
+      });
     };
     current.on('focus', focus);
     current.on('blur', blur);

@@ -7,8 +7,10 @@
 
   It is fixed to the bottom of the frame the body is in (the window, or a
   card's dialog, which is moved and so holds what is fixed in it), lifted
-  by the part of that frame the keyboard covers: measured, since a card's
-  frame is already shrunk by `--keyboard` and a page is not. Fixed, it takes
+  to the bottom of what can be seen of the box that scrolls the body: above
+  the keyboard (measured, since a card's frame is already shrunk by
+  `--keyboard` and a page is not), and above what is pinned under that box
+  (a card's comment field). Fixed, it takes
   no room: the page does not move when it comes or goes, so a press below
   the body that takes the focus away lands where it was aimed. The editor
   keeps the caret clear of it (EditorTools.svelte). A press on it keeps the
@@ -20,7 +22,8 @@
 
   import { m } from '$lib/i18n/paraglide/messages.js';
 
-  import { keepEditorFocus, moveAlongBar } from './bar-keys.ts';
+  import { focusedFormat, keepEditorFocus, moveAlongBar, tabStop } from './bar-keys.ts';
+  import { scrollingBox } from './bubble-place.ts';
   import {
     HISTORY_ACTIONS,
     MARK_ACTIONS,
@@ -53,27 +56,41 @@
   }
   const states = $derived(statesNow(changes, line));
 
+  /** The button focused last; Tab comes back to it, the arrows go to the rest. */
+  let last = $state<string>();
+  const stop = $derived(
+    tabStop(
+      [...states.line, ...states.history].map((state) => ({ id: state.action.id, can: state.can })),
+      last,
+    ),
+  );
+
   /** Zoomed in, the part of the page seen is smaller for another reason than a keyboard. */
   const ZOOMED = 1.01;
 
-  /** Lifts the bar by the part of its frame that the keyboard covers. */
+  /** Lifts the bar to the bottom of what can be seen of its scrolling box. */
   function lifted(bar: HTMLElement): (() => void) | undefined {
     const viewport = bar.ownerDocument.defaultView?.visualViewport;
     if (!viewport) return undefined;
+    const box = scrollingBox(bar);
     const lift = (): void => {
       // At the frame's bottom first, to read where that bottom is.
       bar.style.bottom = '0px';
-      const { bottom } = bar.getBoundingClientRect();
-      const seen = viewport.offsetTop + viewport.height;
-      const covered = viewport.scale > ZOOMED ? 0 : Math.max(0, Math.round(bottom - seen));
-      bar.style.bottom = `${String(covered)}px`;
+      const frame = bar.getBoundingClientRect().bottom;
+      const seen = viewport.scale > ZOOMED ? frame : viewport.offsetTop + viewport.height;
+      const floor = Math.min(box?.getBoundingClientRect().bottom ?? frame, seen);
+      bar.style.bottom = `${String(Math.max(0, Math.round(frame - floor)))}px`;
     };
     lift();
     const resized = on(viewport, 'resize', lift);
     const scrolled = on(viewport, 'scroll', lift);
+    // What is pinned under the box (a comment being written) may grow.
+    const sized = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(lift);
+    if (box) sized?.observe(box);
     return () => {
       resized();
       scrolled();
+      sized?.disconnect();
     };
   }
 </script>
@@ -85,6 +102,7 @@
     aria-label={state.action.label()}
     aria-pressed={state.action.active ? state.on : undefined}
     disabled={!state.can}
+    tabindex={state.action.id === stop ? 0 : -1}
     onmousedown={keepEditorFocus}
     onclick={() => {
       state.action.run(editor);
@@ -100,8 +118,12 @@
   tabindex="-1"
   aria-label={m.editor_format_bar()}
   data-testid="mobile-editor-toolbar"
+  data-editor-tool="bar"
   {@attach lifted}
-  onfocusin={() => (within = true)}
+  onfocusin={(event) => {
+    within = true;
+    last = focusedFormat(event) ?? last;
+  }}
   onfocusout={(event) => {
     const next = event.relatedTarget;
     if (!(next instanceof Node && event.currentTarget.contains(next))) within = false;
