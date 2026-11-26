@@ -16,8 +16,8 @@ import { FOLLOWS_DEVICE } from '$lib/state/time-zone-sync.svelte.ts';
 
 import { setup } from './support.ts';
 
-/** A zone no test machine is in. */
-const ELSEWHERE = 'Pacific/Kiritimati';
+/** A zone the device is not in (the tests run in several: `tools/test-zones.ts`). */
+const ELSEWHERE = browserTimeZone() === 'America/Lima' ? 'Europe/Oslo' : 'America/Lima';
 
 async function entered(timeZone: string, follows?: boolean) {
   const made = setup();
