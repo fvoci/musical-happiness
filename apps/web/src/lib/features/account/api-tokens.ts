@@ -5,7 +5,12 @@
  * status, reason and the member it points at, never from the server's detail.
  */
 import { m } from '$lib/i18n/paraglide/messages.js';
-import { isBackendError, type ApiTokenScope, type WorkspaceInfo } from '$lib/state/index.ts';
+import {
+  isBackendError,
+  type ApiToken,
+  type ApiTokenScope,
+  type WorkspaceInfo,
+} from '$lib/state/index.ts';
 
 /** How many days a new token lasts unless it is asked otherwise. */
 export const TOKEN_DAYS = 90;
@@ -37,6 +42,15 @@ export function tokenWorkspaces(workspaces: readonly WorkspaceInfo[]): TokenWork
   return workspaces
     .filter((one) => one.kind !== 'personal' && one.role !== 'guest')
     .map((one) => ({ id: one.id, name: one.title }));
+}
+
+/** When, and from where, `token` was last used, by `dates`; or that it was not. */
+export function lastUsedOf(token: ApiToken, dates: Intl.DateTimeFormat): string {
+  if (token.lastUsedAt === undefined) return m.account_api_tokens_unused();
+  const date = dates.format(token.lastUsedAt);
+  return token.lastUsedAddress
+    ? m.account_api_tokens_used_from({ date, address: token.lastUsedAddress })
+    : m.account_api_tokens_used({ date });
 }
 
 export function scopeLabel(scope: ApiTokenScope): string {

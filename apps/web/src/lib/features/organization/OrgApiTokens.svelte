@@ -30,6 +30,13 @@
   let heading: HTMLElement | null = null;
 
   const dates = $derived(new Intl.DateTimeFormat(getLocale(), { dateStyle: 'medium' }));
+  const lastUsed = (token: ApiToken): string => {
+    if (token.lastUsedAt === undefined) return m.account_api_tokens_unused();
+    const date = dates.format(token.lastUsedAt);
+    return token.lastUsedAddress
+      ? m.account_api_tokens_used_from({ date, address: token.lastUsedAddress })
+      : m.account_api_tokens_used({ date });
+  };
   const scopeOf = (token: ApiToken): string =>
     token.scope === 'read' ? m.account_api_tokens_read() : m.account_api_tokens_write();
 
@@ -98,7 +105,8 @@
             </span>
             <span class="truncate text-xs text-muted-foreground">
               <span translate="no">{token.tokenPrefix}…</span> ·
-              {m.account_api_tokens_expires({ date: dates.format(token.expiresAt) })}
+              {m.account_api_tokens_expires({ date: dates.format(token.expiresAt) })} ·
+              {lastUsed(token)}
             </span>
           </span>
           <Button

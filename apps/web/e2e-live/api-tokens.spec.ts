@@ -9,6 +9,8 @@
  */
 import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test';
 
+import { clipboardPermissions } from '../e2e/keyboard.support.ts';
+
 import {
   ADMIN,
   boardPath,
@@ -22,7 +24,7 @@ import {
 } from './support.ts';
 import { openVersions, rows } from './versions.support.ts';
 
-test.use({ locale: 'en-US', permissions: ['clipboard-read', 'clipboard-write'] });
+test.use({ locale: 'en-US' });
 
 /** Makes a token in the settings, `write` or read only, and gives its name and the token itself. */
 async function makeToken(
@@ -30,6 +32,8 @@ async function makeToken(
   base: string,
   scope: 'Read only' | 'Read and write content',
 ): Promise<{ name: string; token: string }> {
+  const engine = page.context().browser()?.browserType().name() ?? 'chromium';
+  await page.context().grantPermissions(clipboardPermissions(engine));
   await page.getByTestId('open-settings').click();
   const section = page.getByTestId('settings-dialog').getByTestId('api-tokens');
   await section.getByTestId('api-token-new').click();
@@ -127,6 +131,9 @@ test('a token made in the settings works as its owner, says whose agent wrote, a
   // Ended in the settings, it opens nothing.
   await page.getByTestId('open-settings').click();
   const section = page.getByTestId('settings-dialog').getByTestId('api-tokens');
+  await expect(section.getByTestId('api-token').filter({ hasText: name })).toContainText(
+    'Last used',
+  );
   await section.getByRole('button', { name: `End: ${name}` }).click();
   await expect(section.getByRole('status')).toHaveText('The token is ended.');
   await expect(section.getByTestId('api-token').filter({ hasText: name })).toHaveCount(0);

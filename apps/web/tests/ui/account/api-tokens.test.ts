@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import ApiTokensSection from '$lib/features/account/ApiTokensSection.svelte';
 import {
   defaultTokenName,
+  lastUsedOf,
   mcpCommand,
   tokenProblemOf,
   tokenWorkspaces,
@@ -192,6 +193,13 @@ describe('the settings', () => {
     expect(row).toHaveTextContent('Read and write content · Studio');
     expect(row).toHaveTextContent('fvoci_pat_abcdef…');
     expect(row).toHaveTextContent('Not used yet');
+    const dates = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
+    expect(
+      lastUsedOf(
+        made({ lastUsedAt: Date.UTC(2026, 10, 28), lastUsedAddress: '203.0.113.7' }),
+        dates,
+      ),
+    ).toBe('Last used Nov 28, 2026 from 203.0.113.7');
     await fireEvent.click(within(row).getByRole('button', { name: 'End: Agent · 11/27' }));
     expect(revoke).toHaveBeenCalledWith('tok-1');
     expect(await screen.findByText('The token is ended.')).toBeInTheDocument();

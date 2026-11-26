@@ -15,7 +15,13 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import ApiTokenForm from './ApiTokenForm.svelte';
-  import { mcpCommand, scopeLabel, tokenProblemOf, type TokenWorkspace } from './api-tokens.ts';
+  import {
+    lastUsedOf,
+    mcpCommand,
+    scopeLabel,
+    tokenProblemOf,
+    type TokenWorkspace,
+  } from './api-tokens.ts';
 
   interface Props {
     /** The reader's tokens, the newest first. */
@@ -202,9 +208,7 @@
             <span class="truncate text-xs text-muted-foreground">
               <span translate="no">{token.tokenPrefix}…</span> ·
               {m.account_api_tokens_expires({ date: dates.format(token.expiresAt) })} ·
-              {token.lastUsedAt === undefined
-                ? m.account_api_tokens_unused()
-                : m.account_api_tokens_used({ date: dates.format(token.lastUsedAt) })}
+              {lastUsedOf(token, dates)}
             </span>
           </span>
           <Button

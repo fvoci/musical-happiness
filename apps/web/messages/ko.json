@@ -2398,5 +2398,6 @@
   "card_version_cause_agent": "에이전트",
   "org_api_tokens_revoke_title": "{name} 토큰을 끝낼까요?",
   "org_api_tokens_revoke_info": "이 토큰은 지금부터 이 조직과 다른 모든 곳에서 아무것도 열지 못합니다.",
-  "account_api_tokens_copy_failed": "복사하지 못했습니다. 명령을 골라 직접 복사하세요."
+  "account_api_tokens_copy_failed": "복사하지 못했습니다. 명령을 골라 직접 복사하세요.",
+  "account_api_tokens_used_from": "마지막 사용 {date}, {address}에서"
 }

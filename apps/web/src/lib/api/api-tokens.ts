@@ -24,6 +24,7 @@ function tokenOf(token: Schemas['ApiToken']): ApiToken {
     createdAt: token.createdAt,
     expiresAt: token.expiresAt,
     lastUsedAt: token.lastUsedAt ?? undefined,
+    lastUsedAddress: token.lastUsedAddress ?? undefined,
   };
 }
 

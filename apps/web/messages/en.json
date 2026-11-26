@@ -2398,5 +2398,6 @@
   "card_version_cause_agent": "Agent",
   "org_api_tokens_revoke_title": "End the token {name}?",
   "org_api_tokens_revoke_info": "From now on the token opens nothing, in this organization or anywhere else.",
-  "account_api_tokens_copy_failed": "Could not copy. Select the command and copy it yourself."
+  "account_api_tokens_copy_failed": "Could not copy. Select the command and copy it yourself.",
+  "account_api_tokens_used_from": "Last used {date} from {address}"
 }

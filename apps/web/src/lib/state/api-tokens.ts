@@ -29,6 +29,8 @@ export interface ApiToken {
   expiresAt: number;
   /** When it was last used, to within five minutes; `undefined` if never. */
   lastUsedAt?: number | undefined;
+  /** The address it was last used from; `undefined` if never, or unknown. */
+  lastUsedAddress?: string | undefined;
 }
 
 /** What a new token is asked to be. */
