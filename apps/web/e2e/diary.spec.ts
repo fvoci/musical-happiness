@@ -366,8 +366,8 @@ test('`[[` in an entry puts a reference to a page of the own space, which leads 
     return (await dev.backend.wiki.createPage(id, { title: 'Packing list' })).id;
   }, wikiId);
 
-  await showSidebar(page);
-  await sidebar(page).getByTestId('open-diary').click();
+  // Back to the day, as the browser's back button goes.
+  await page.goBack();
   await expect(page).toHaveURL(ON_A_DAY);
   const today = year(page, '2026-11-21');
   await editorOf(today).click();
