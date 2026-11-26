@@ -137,7 +137,7 @@
                       >
                     {/if}
                   </span>
-                  <span class="truncate text-xs text-muted-foreground">
+                  <span class="text-xs text-pretty text-muted-foreground">
                     {#if item.below}
                       <span data-testid="trash-below">{belowLabel(item.below)}</span> ·
                     {/if}

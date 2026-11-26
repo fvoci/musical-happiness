@@ -56,7 +56,11 @@
   const outside = (ws: WorkspaceInfo): boolean =>
     source !== undefined && copyOutPlace(ws) !== copyOutPlace(source);
   const allowed = $derived(places.filter((ws) => !keptIn || !outside(ws)));
-  /** The place chosen, or the first allowed while the one chosen is not (any longer). */
+  /**
+   * The place chosen, or the first allowed while the one chosen is not (any
+   * longer); none while none is allowed, when the list shows the first, which
+   * cannot be chosen, rather than nothing.
+   */
   const targetId = $derived(
     allowed.some((ws) => ws.id === chosenId) ? chosenId : (allowed[0]?.id ?? ''),
   );
@@ -124,16 +128,18 @@
           {m.shell_copy_to_workspace_only({ name: labelOf(only) })}
         </p>
       {:else}
-        <div class="grid gap-1.5">
+        <div class="grid min-w-0 gap-1.5">
           <label for="{uid}-target" class="text-sm font-medium">
             {m.shell_copy_to_workspace_target()}
           </label>
           <select
             id="{uid}-target"
             data-testid="copy-to-workspace-target"
-            class="h-9 rounded-md border border-input-border bg-background px-3 text-base md:text-sm roomy:h-touch"
+            class="h-9 w-full min-w-0 truncate rounded-md border border-input-border bg-background px-3 text-base md:text-sm roomy:h-touch"
             aria-describedby={keptIn ? `${uid}-kept` : undefined}
-            bind:value={() => targetId, (next: string) => (chosenId = next)}
+            bind:value={
+              () => targetId || (places[0]?.id ?? ''), (next: string) => (chosenId = next)
+            }
           >
             {#each places as ws (ws.id)}
               <option value={ws.id} disabled={keptIn && outside(ws)}>{labelOf(ws)}</option>
