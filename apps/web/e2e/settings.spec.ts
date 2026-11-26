@@ -296,6 +296,19 @@ test('time zone: picked from a list that can be searched; a refused change goes 
   await page.getByRole('option', { name: /^Automatic \(/ }).click();
   await expect(button).toContainText(automatic);
   await expect.poll(async () => (await stored(page)).timeZone).toBe(device);
+  // The choice is kept with the account, apart from the settings.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { backend } = (
+          window as unknown as {
+            fvociDev: { backend: { screenState: () => Promise<Record<string, string>> } };
+          }
+        ).fvociDev;
+        return (await backend.screenState()).timeZoneFollowsDevice;
+      }),
+    )
+    .toBe('1');
   await page.reload();
   await expect(page.getByTestId('board-page')).toBeVisible();
   await openSettings(page);
