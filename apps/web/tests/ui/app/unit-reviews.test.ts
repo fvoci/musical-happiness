@@ -337,7 +337,7 @@ describe('course unit reviews & notes UI', () => {
     store.close();
   });
 
-  it('syncs device timeZone on TodayReviewsPage and reloads when settings.timeZone changes', async () => {
+  it('reads TodayReviewsPage anew when settings.timeZone changes', async () => {
     // 2026-11-24T16:30:00Z is 2026-11-24 in UTC and 2026-11-25 in Asia/Seoul.
     const made = setup();
     made.world.useClock(() => Date.UTC(2026, 10, 24, 16, 30, 0));
@@ -357,16 +357,9 @@ describe('course unit reviews & notes UI', () => {
       intervalDays: 1,
     });
 
-    // Start with explicit 'auto' so TodayReviewsPage triggers syncDeviceTimeZone on mount.
-    const patchSpy = vi.spyOn(made.backend, 'patchSettings');
     const router = new Router('');
     router.go({ workspaceId: wsId, reviewsToday: true });
-
     render(TodayReviewsPage, { workspace: made.workspace, router });
-    await waitFor(() => {
-      expect(patchSpy).toHaveBeenCalledTimes(1);
-      expect(typeof patchSpy.mock.calls[0]?.[0]?.timeZone).toBe('string');
-    });
 
     // Explicitly switch to UTC -> 2026-11-25 review is in the future (empty).
     await made.workspace.changeSettings({ timeZone: 'UTC' });

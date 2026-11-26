@@ -26,6 +26,7 @@
   import PageViewers from '$lib/features/wiki/PageViewers.svelte';
   import { TreeOpen } from '$lib/features/wiki/tree-open.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { courseTreeRules, type PagePlace } from '$lib/logic/page-moves.ts';
   import { ancestorsOf, firstUnit } from '$lib/logic/page-tree.ts';
   import {
@@ -66,6 +67,13 @@
   );
 
   const course = $derived(courseId ? new CourseStore(workspace, courseId) : undefined);
+  nameWindow(() => {
+    const unit = unitId ? course?.unit(unitId) : undefined;
+    return [
+      unit && (unit.title || m.course_unit_untitled()),
+      course?.course && (course.course.title || m.course_untitled()),
+    ];
+  });
   const rules = courseTreeRules<CourseUnit>();
 
   $effect(() => {

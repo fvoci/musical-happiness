@@ -262,6 +262,18 @@
   {/if}
 </div>
 
+{#if todayHub && workspace.me?.id}
+  <div class="shrink-0 px-2 pb-1">
+    <SidebarNavButton
+      testId="open-today-hub"
+      active={todayHub.active}
+      label={m.today_hub_title()}
+      onclick={todayHub.onOpen}
+      icon={SunIcon}
+    />
+  </div>
+{/if}
+
 <nav class="flex min-h-0 flex-1 flex-col" aria-label={m.shell_boards()}>
   <SidebarList
     {workspace}
@@ -344,15 +356,6 @@
       <UsersIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
     </button>
-  {/if}
-  {#if todayHub && workspace.me?.id}
-    <SidebarNavButton
-      testId="open-today-hub"
-      active={todayHub.active}
-      label={m.today_hub_title()}
-      onclick={todayHub.onOpen}
-      icon={SunIcon}
-    />
   {/if}
   {#if reviewsToday && workspace.backend.course && workspace.info && workspace.me?.id}
     <SidebarNavButton

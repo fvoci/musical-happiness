@@ -11,7 +11,7 @@
   import CalendarClockIcon from '@lucide/svelte/icons/calendar-clock';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { syncDeviceTimeZone, type CourseStore } from '$lib/state/index.ts';
+  import type { CourseStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import CourseScheduleDialog from './CourseScheduleDialog.svelte';
@@ -25,15 +25,11 @@
   let dialogOpen = $state(false);
   let lastZone: string | undefined;
 
+  // In another time zone, today may be another day: the schedule is read anew.
   $effect(() => {
-    const ws = course.workspace;
-    const zone = ws.settings.timeZone;
+    const zone = course.workspace.settings.timeZone;
     untrack(() => {
-      if (zone === 'auto') {
-        void syncDeviceTimeZone(ws);
-      } else if (lastZone !== undefined && lastZone !== zone) {
-        void course.schedule.refresh();
-      }
+      if (lastZone !== undefined && lastZone !== zone) void course.schedule.refresh();
       lastZone = zone;
     });
   });

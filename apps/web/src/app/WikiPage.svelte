@@ -41,6 +41,7 @@
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { holdSaveKey } from '$lib/editor/save-key.ts';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
@@ -75,6 +76,13 @@
 
   /** The wiki of the address, made anew for another one. */
   const wiki = $derived(wikiId ? new WikiStore(workspace, wikiId) : undefined);
+  nameWindow(() => {
+    const shownPage = wiki?.openPage && wiki.page(wiki.openPage.pageId);
+    return [
+      shownPage && (shownPage.title || m.wiki_page_untitled()),
+      wiki?.wiki && (wiki.wiki.title || m.wiki_untitled()),
+    ];
+  });
   // Read while it is shown, and closed when it goes. The board shown before lets go.
   $effect(() => {
     const store = wiki;

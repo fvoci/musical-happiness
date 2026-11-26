@@ -92,6 +92,17 @@
   <IconButton label={m.shell_expand_sidebar()} data-testid="expand-sidebar" onclick={onExpand}>
     <PanelLeftOpenIcon />
   </IconButton>
+  {#if todayHub && workspace.me?.id}
+    <IconButton
+      label={m.today_hub_title()}
+      aria-current={todayHub.active ? 'page' : undefined}
+      data-testid="strip-open-today-hub"
+      class={todayHub.active ? 'bg-sidebar-accent ring-1 ring-input-border' : undefined}
+      onclick={todayHub.onOpen}
+    >
+      <SunIcon />
+    </IconButton>
+  {/if}
   <div class="my-1 w-8 shrink-0 border-t"></div>
   <ul
     class="flex min-h-0 w-full flex-1 [scrollbar-width:none] flex-col items-center gap-1 overflow-y-auto overscroll-contain py-1"
@@ -120,17 +131,6 @@
     {/each}
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
-  {#if todayHub && workspace.me?.id}
-    <IconButton
-      label={m.today_hub_title()}
-      aria-current={todayHub.active ? 'page' : undefined}
-      data-testid="strip-open-today-hub"
-      class={todayHub.active ? 'bg-sidebar-accent ring-1 ring-input-border' : undefined}
-      onclick={todayHub.onOpen}
-    >
-      <SunIcon />
-    </IconButton>
-  {/if}
   {#if reviewsToday && workspace.backend.course && workspace.info && workspace.me?.id}
     <IconButton
       label={m.today_reviews_title()}

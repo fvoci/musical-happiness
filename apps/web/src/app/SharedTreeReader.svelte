@@ -16,6 +16,7 @@
   import { PageOutline } from '$lib/features/wiki/page-outline.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { pane } from '$lib/layout/room.svelte.ts';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { firstPage, firstUnit, pageRows, pageTree } from '$lib/logic/page-tree.ts';
   import { isBackendError, type Backend } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -43,10 +44,12 @@
     kind: 'wiki' | 'course';
     backend: Backend;
     containerId: string;
+    /** What the window is named after, below the item shown. */
+    containerTitle?: string | undefined;
     router: Router;
   }
 
-  let { kind, backend, containerId, router }: Props = $props();
+  let { kind, backend, containerId, containerTitle, router }: Props = $props();
 
   let status = $state<'loading' | 'ready' | 'failed'>('loading');
   let items = $state.raw<SharedNode[]>([]);
@@ -169,6 +172,7 @@
   const emptyBodyText = $derived(
     kind === 'wiki' ? m.wiki_page_body_empty() : m.course_unit_body_empty(),
   );
+  nameWindow(() => [shown ? shown.title || untitledItem : undefined, containerTitle]);
   const rootTestId = $derived(kind === 'wiki' ? 'shared-wiki' : 'shared-course');
   const treeTestId = $derived(kind === 'wiki' ? 'shared-page-tree' : 'shared-unit-tree');
   const articleTestId = $derived(kind === 'wiki' ? 'shared-page' : 'shared-unit');

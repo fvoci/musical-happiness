@@ -16,7 +16,8 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardView, DoneRule } from '$lib/logic/wire.ts';
+  import { doneChoices as doneChoicesOf, doneChoiceValue } from '$lib/logic/done-rule.ts';
+  import type { BoardView } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Switch } from '$lib/ui/switch/index.js';
 
@@ -83,34 +84,8 @@
   const dateProperties = $derived(
     (board.board?.cardProperties ?? []).filter((prop) => prop.type === 'date'),
   );
-  const doneChoices = $derived.by(() => {
-    const out: { value: string; label: string; rule: DoneRule }[] = [];
-    for (const prop of board.board?.cardProperties ?? []) {
-      if (prop.type === 'checkbox') {
-        out.push({
-          value: `checkbox:${prop.id}`,
-          label: prop.name,
-          rule: { kind: 'checkbox', propertyId: prop.id },
-        });
-      } else if (prop.type === 'select' || prop.type === 'multiSelect') {
-        for (const opt of prop.options) {
-          out.push({
-            value: `option:${prop.id}:${opt.id}`,
-            label: `${prop.name}: ${opt.label}`,
-            rule: { kind: 'option', propertyId: prop.id, optionIds: [opt.id] },
-          });
-        }
-      }
-    }
-    return out;
-  });
-  const selectedDoneValue = $derived.by(() => {
-    const rule = board.board?.doneWhen;
-    if (!rule) return '';
-    if (rule.kind === 'checkbox') return `checkbox:${rule.propertyId}`;
-    const first = rule.optionIds[0];
-    return first ? `option:${rule.propertyId}:${first}` : '';
-  });
+  const doneChoices = $derived(doneChoicesOf(board.board?.cardProperties ?? []));
+  const selectedDoneValue = $derived(doneChoiceValue(board.board?.doneWhen));
 
   function changeDueProperty(value: string): void {
     void board.changeBoard((current) => {

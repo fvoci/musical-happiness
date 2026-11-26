@@ -249,10 +249,13 @@ test('time zone: picked from a list that can be searched; a refused change goes 
   page,
 }) => {
   await openApp(page);
+  // Left to follow the device, the zone is the device's once the space is ready.
+  const device = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  await expect.poll(async () => (await stored(page)).timeZone).toBe(device);
   await openSettings(page);
   const button = setting(page, 'timeZone').getByRole('button');
-  await expect(button).toContainText('Automatic (');
-  await expect(button).toHaveAccessibleName(/^Time zone Automatic/);
+  await expect(button).toContainText(device);
+  await expect(button).toHaveAccessibleName(new RegExp(`^Time zone ${device}`));
 
   await button.click();
   const search = page.getByRole('combobox', { name: 'Search time zones' });

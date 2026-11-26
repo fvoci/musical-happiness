@@ -24,13 +24,14 @@
   import {
     confirmPassword,
     isOwnSpace,
+    syncDeviceTimeZone,
     type Workspace,
     type WorkspaceInfo,
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import BoardPage from './BoardPage.svelte';
-  import { lastPlace, rememberPlace } from './last-workspace.ts';
+  import { lastPlace, rememberPlace, TODAY_PLACE } from './last-workspace.ts';
   import LazyView from './LazyView.svelte';
   import NotFound from './NotFound.svelte';
   import { placeRoute, shownContainerId, workspaceIdOf, type Router } from './router.svelte.ts';
@@ -71,14 +72,30 @@
     if (!shown || router.route.kind !== 'workspace') return;
     const listed = workspace.sidebar.flatMap((entry) => entry.containers);
     const last = workspace.me && lastPlace(workspace.me.id, shown.id);
+    if (last === TODAY_PLACE) {
+      router.go({ todayHub: true }, { replace: true });
+      return;
+    }
     const chosen = listed.find((container) => container.id === last) ?? listed[0];
     if (chosen) router.go(placeRoute(chosen), { replace: true });
   });
 
-  // Remember the active container for this workspace.
+  // Remember the active container for this workspace, or the hub of today opened from it.
   $effect(() => {
+    const info = workspace.info;
+    const me = workspace.me;
+    if (!info || !me) return;
+    if (router.route.kind === 'todayHub') {
+      rememberPlace(me.id, info.id, TODAY_PLACE);
+      return;
+    }
     const listed = workspace.containers.find((container) => container.id === placeId);
-    if (shown && listed && workspace.me) rememberPlace(workspace.me.id, shown.id, listed.id);
+    if (shown && listed) rememberPlace(me.id, shown.id, listed.id);
+  });
+
+  // The device's time zone, for who leaves it to follow the device, once the workspace is ready.
+  $effect(() => {
+    if (workspace.entered === 'ready' && workspace.me) void syncDeviceTimeZone(workspace);
   });
 </script>
 
