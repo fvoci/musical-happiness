@@ -832,7 +832,6 @@
   "shell_trash_boards_description": "관리자였던 보드와 위키입니다. 휴지통은 일정 기간이 지나면 비워집니다.",
   "shell_trash_cards": "지운 카드",
   "shell_bar_more": "더 보기",
-  "shell_bar_more_marked": "더 보기: {what}",
   "shell_trash_cards_description": "이 보드에서 지운 카드입니다. 휴지통은 일정 기간이 지나면 비워집니다.",
   "shell_trash_empty": "비어 있습니다.",
   "shell_trash_deleted_by": "지운 사람: {name}",
@@ -1450,7 +1449,7 @@
   "org_refused_failed": "바꾸지 못했습니다.",
   "shell_switch_workspace": "공간 바꾸기",
   "shell_organization": "조직 관리",
-  "shell_settings_workspace": "워크스페이스",
+  "shell_settings_workspace": "공간",
   "audit_title": "참여 기록",
   "audit_description": "읽을 수 없던 곳에 들어간 일입니다. 이 워크스페이스의 구성원 모두가 봅니다.",
   "audit_none": "기록이 없습니다.",
@@ -2038,7 +2037,7 @@
   "review_completed_status": "복습을 완료했습니다.",
   "review_completed_next_status": "복습을 완료했습니다. 다음 복습이 {date}에 예약되었습니다.",
   "today_reviews_title": "오늘의 복습",
-  "today_reviews_subtitle": "이 워크스페이스에서 오늘까지 복습할 내 단원 목록입니다.",
+  "today_reviews_subtitle": "이 공간에서 오늘까지 복습할 내 단원 목록입니다.",
   "today_reviews_refresh": "새로고침",
   "today_reviews_summary": "총 {total}건 (밀린 복습 {overdue}건)",
   "today_reviews_empty": "오늘 예정된 복습이 없습니다.",
@@ -2335,5 +2334,6 @@
   "new_kind_diary_hint": "날마다 적을 때",
   "new_templates_board": "보드 템플릿",
   "new_templates_course": "학습 템플릿",
-  "new_templates_wiki": "위키 템플릿"
+  "new_templates_wiki": "위키 템플릿",
+  "space_of_org": "{org} · {space}"
 }

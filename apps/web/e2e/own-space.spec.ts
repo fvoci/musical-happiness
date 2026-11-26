@@ -20,6 +20,7 @@ import {
   FIRST_BOARD,
   hideSidebar,
   openApp,
+  pressInBar,
   showSidebar,
   sidebar,
 } from './shell.support.ts';
@@ -114,7 +115,7 @@ test('a board of the own space is shared by its public link alone, with nobody t
   await openApp(page);
   // In the shared workspace the board has its members and the whole dialog.
   await expect(page.getByTestId('board-people')).toBeVisible();
-  await page.getByTestId('share-board').click();
+  await pressInBar(page, 'share');
   const dialog = page.getByTestId('share-dialog');
   await expect(dialog.getByTestId('share-open')).toBeVisible();
   await expect(dialog.getByTestId('share-members')).toBeVisible();
@@ -127,7 +128,7 @@ test('a board of the own space is shared by its public link alone, with nobody t
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(page.getByTestId('board-people')).toHaveCount(0);
-  await page.getByTestId('share-board').click();
+  await pressInBar(page, 'share');
   await expect(dialog.getByTestId('share-public-section')).toBeVisible();
   await expect(dialog.getByTestId('share-open')).toHaveCount(0);
   await expect(dialog.getByTestId('share-members')).toHaveCount(0);

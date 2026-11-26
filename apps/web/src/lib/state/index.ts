@@ -226,6 +226,7 @@ export {
 export type { EmailChange } from './email-change.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
+export { OrganizationNames, organizationNames } from './organization-names.svelte.ts';
 export type {
   GuestContainerRole,
   Invitation,

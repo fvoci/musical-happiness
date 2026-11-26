@@ -3,9 +3,8 @@
  * somebody else writes on a card the reader wrote shows on the bell at once,
  * without a reload; the notification opens the card at that comment and is
  * read by it; and the switch of comments, turned off in the settings, is
- * kept, and nothing is told while it is off. Runs at the three stages: where
- * the pane is narrow the bell is a line of the bar's menu ("…"), which shows
- * the count.
+ * kept, and nothing is told while it is off. Runs at the three stages: the
+ * bell stays in the bar at every width, and in a narrow pane opens a sheet.
  *
  * Somebody else is the other person of the same world (`fvociDev.someoneElse`).
  */
@@ -30,31 +29,16 @@ interface Place {
 }
 
 const bell = (page: Page): Locator => page.getByTestId('open-notifications');
-const barMenu = (page: Page): Locator => page.getByTestId('top-bar').getByTestId('bar-menu');
-/** What stands for the bell: the bell, or the bar's menu where the pane is narrow. */
-const bellOrMenu = (page: Page): Locator => bell(page).or(barMenu(page)).filter({ visible: true });
-/** The count, on whichever stands for the bell. */
-const badge = (page: Page): Locator =>
-  page
-    .getByTestId('unread-notifications')
-    .or(page.getByTestId('bar-menu-mark'))
-    .filter({ visible: true });
+const badge = (page: Page): Locator => page.getByTestId('unread-notifications');
 const inbox = (page: Page): Locator => page.getByTestId('notifications');
 
-/** Opens the list: by the bell, or by its line of the bar's menu. */
+/** Opens the list by the bell: a popover, or a sheet of the whole screen in a narrow pane. */
 async function openInbox(page: Page): Promise<void> {
-  if (await bell(page).isVisible()) {
-    await bell(page).click();
-    return;
-  }
-  await barMenu(page).click();
-  await page.getByRole('menuitem', { name: /^Notifications/ }).click();
+  await bell(page).click();
 }
 
-/** Whichever stands for the bell is called by the count. */
 async function expectBellNamed(page: Page, name: string): Promise<void> {
-  if (await bell(page).isVisible()) await expect(bell(page)).toHaveAccessibleName(name);
-  else await expect(barMenu(page)).toHaveAccessibleName(`More: ${name}`);
+  await expect(bell(page)).toHaveAccessibleName(name);
 }
 
 /** A card the reader writes on the board shown, which the other person is a member of. */
@@ -103,7 +87,7 @@ test('a comment on the reader’s card rings the bell at once, and opens the car
 }) => {
   await openApp(page);
   const place = await cardOfMine(page, 'Watched plan');
-  await expect(bellOrMenu(page)).toBeVisible();
+  await expect(bell(page)).toBeVisible();
   await expect(badge(page)).toBeHidden();
 
   const commentId = await theyComment(page, place, 'Looks good to me');
@@ -174,7 +158,7 @@ test('the switch of comments is kept off, and nothing is told while it is', asyn
 test.describe('the notifications sheet of a narrow pane', () => {
   test.use({ viewport: { width: 393, height: 800 }, hasTouch: true });
 
-  test('takes the focus, closes on back without leaving the page, and returns the focus to the menu', async ({
+  test('is opened by the bell, takes the focus, closes on back without leaving the page, and returns the focus to the bell', async ({
     page,
   }) => {
     await openApp(page);
@@ -186,8 +170,8 @@ test.describe('the notifications sheet of a narrow pane', () => {
     const secondUrl = page.url();
     expect(secondUrl).not.toBe(firstUrl);
 
-    // Open the notifications sheet from the bar's menu: focus moves into the sheet and stays
-    // there after the bottom sheet closes.
+    // The bell stands in the bar, outside "…", and opens the sheet: the focus moves into it.
+    await expect(page.getByTestId('bar-menu')).toBeVisible();
     await openInbox(page);
     await expect(inbox(page)).toBeVisible();
     await expect(page.getByRole('menu')).toHaveCount(0);
@@ -196,8 +180,7 @@ test.describe('the notifications sheet of a narrow pane', () => {
       .poll(() => inbox(page).evaluate((dialog) => dialog.contains(document.activeElement)))
       .toBe(true);
 
-    // Wait for the overlay entry to settle after the menu sheet's step back, then press Back:
-    // the sheet closes and the page underneath stays.
+    // Wait for the sheet's overlay entry, then press Back: the sheet closes and the page underneath stays.
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -209,9 +192,9 @@ test.describe('the notifications sheet of a narrow pane', () => {
     await expect(inbox(page)).toBeHidden();
     expect(page.url()).toBe(secondUrl);
     await expect(page.getByTestId('board-title')).toHaveValue('Issue tracker');
-    await expect(barMenu(page)).toBeFocused();
+    await expect(bell(page)).toBeFocused();
 
-    // Escape closes the sheet and returns focus to the bar's menu button.
+    // Escape closes the sheet and returns focus to the bell.
     await openInbox(page);
     await expect(inbox(page)).toBeVisible();
     await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
@@ -224,7 +207,7 @@ test.describe('the notifications sheet of a narrow pane', () => {
       .toBe(true);
     await page.keyboard.press('Escape');
     await expect(inbox(page)).toBeHidden();
-    await expect(barMenu(page)).toBeFocused();
+    await expect(bell(page)).toBeFocused();
 
     // Closing with Escape gave the overlay entry back, so Back returns to the first board.
     await expect

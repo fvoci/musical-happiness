@@ -13,6 +13,9 @@
   tooltip where the dropdown cuts it (`cutTitle`). The sheet's lines wrap
   instead, and have none: a finger finds no tooltip.
 
+  A line may begin a group, named above it (`heading`): its lines say the
+  group in their `ariaLabel`, as the heading is only shown.
+
   A line may end in tools (`MenuTool`), commands about its thing that leave
   the menu open, and `status` says what they did. Their keys (Alt and an
   arrow, say) run them from the line, which keeps the focus wherever it
@@ -283,6 +286,14 @@
           data-line={action.tools ? action.id : undefined}
           class={[action.separated && 'mt-1 border-t pt-1', action.tools && 'flex items-center']}
         >
+          {#if action.heading}
+            <span
+              aria-hidden="true"
+              class="block px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground"
+            >
+              {action.heading}
+            </span>
+          {/if}
           {#if action.href === undefined}
             <button
               type="button"
@@ -366,6 +377,9 @@
       {#each actions as action, index (action.id)}
         {#if action.separated}
           <DropdownMenu.Separator />
+        {/if}
+        {#if action.heading}
+          <DropdownMenu.Label aria-hidden="true">{action.heading}</DropdownMenu.Label>
         {/if}
         {#if action.tools}
           <!-- One row: the line, and the buttons of its tools after it, items of the menu

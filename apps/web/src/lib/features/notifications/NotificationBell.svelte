@@ -9,9 +9,9 @@
   keeps them up to date while the page is open; the list is read when the
   bell is opened.
 
-  A narrow pane (a phone) has no room for the bell in the bar: it stands
-  there as a line of the bar's menu, which opens the same list as a sheet of
-  the whole screen (`openSheet`).
+  Each says where it happened under it: the board, wiki or course, and the
+  organization (`sourceOf`). In a narrow pane (a phone) the bell opens the
+  same list as a sheet of the whole screen.
 -->
 <script lang="ts">
   import BellIcon from '@lucide/svelte/icons/bell';
@@ -21,6 +21,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
+  import { pane } from '$lib/layout/room.svelte.ts';
   import { relativeTime } from '$lib/logic/format.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
   import type { NotificationInbox } from '$lib/state/notification-inbox.svelte.ts';
@@ -39,9 +40,11 @@
     hrefOf: (notification: Notification) => string;
     /** Goes to a notification's card or page; the bell has closed by then. */
     onGo: (notification: Notification) => void;
+    /** Where a notification happened, "board · organization"; empty where that is not known. */
+    sourceOf: (notification: Notification) => string;
   }
 
-  let { inbox, locale, hrefOf, onGo }: Props = $props();
+  let { inbox, locale, hrefOf, onGo, sourceOf }: Props = $props();
 
   /** The list as a sheet of the whole screen, as a narrow pane opens it. */
   let sheet = $state(false);
@@ -53,11 +56,6 @@
       sheetToggled(false);
     },
   );
-
-  /** Opens the list as a sheet: what stands for the bell in a narrow pane does. */
-  export function openSheet(): void {
-    sheetToggled(true);
-  }
 
   let open = $state(false);
   /** When the list was last shown: the times are written from it. */
@@ -73,7 +71,12 @@
     return user ? userDisplayName(user) : undefined;
   }
 
+  /** The bell pressed opens the popover, or in a narrow pane the sheet in its place. */
   function toggled(next: boolean): void {
+    if (next && pane.measured && !pane.columns) {
+      sheetToggled(true);
+      return;
+    }
     open = next;
     shown(next);
   }
@@ -114,12 +117,7 @@
 <Popover.Root bind:open={() => open, toggled}>
   <Popover.Trigger>
     {#snippet child({ props }: { props: Record<string, unknown> })}
-      <IconButton
-        {...props}
-        {label}
-        data-testid="open-notifications"
-        class="relative @max-columns/pane:hidden"
-      >
+      <IconButton {...props} {label} data-testid="open-notifications" class="relative">
         <BellIcon />
         {#if inbox.unread > 0}
           <span
@@ -221,6 +219,7 @@
 {/snippet}
 
 {#snippet line(notification: Notification, unread: boolean)}
+  {@const source = sourceOf(notification)}
   <span
     class={['mt-1.5 size-2 shrink-0 rounded-full', unread ? 'bg-primary' : 'bg-transparent']}
     aria-hidden="true"
@@ -232,6 +231,11 @@
       {/if}
       <span>{notificationText(notification.subject, nameOf(notification))}</span>
     </span>
+    {#if source}
+      <span class="truncate text-xs text-muted-foreground" data-testid="notification-source">
+        {source}
+      </span>
+    {/if}
     <span class="text-xs text-muted-foreground">
       {relativeTime(notification.updatedAt, locale, Math.max(now, notification.updatedAt))}
       {#if unread}<span class="sr-only">· {m.notifications_unread()}</span>{/if}

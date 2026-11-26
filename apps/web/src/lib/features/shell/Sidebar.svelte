@@ -28,6 +28,7 @@
     firstDiary,
     isGuest,
     isOwnSpace,
+    organizationNames,
     peopleOf,
     whileHere,
     type Category,
@@ -85,6 +86,10 @@
 
   const shown = $derived(workspace.info ?? workspace.closed);
   const ownSpace = $derived(isOwnSpace(shown));
+  const orgNames = $derived(organizationNames(workspace));
+  $effect(() => {
+    orgNames.follow(workspace.workspaces);
+  });
 
   let query = $state('');
   const boardSearch = new BoardSearch(async (text) =>
@@ -200,6 +205,7 @@
     <WorkspaceSwitcher
       workspaces={workspace.workspaces}
       current={shown?.id}
+      orgName={(orgId: string | undefined) => orgNames.of(orgId)}
       onSwitch={onSwitchWorkspace}
       {onCreateOrganization}
     />

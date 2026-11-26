@@ -25,6 +25,8 @@ interface MenuLine {
   destructive?: boolean;
   /** A line above this one sets it off from what came before. */
   separated?: boolean;
+  /** Names the group this line begins (shown above it, after the line `separated` draws). */
+  heading?: string;
   disabled?: boolean;
   /**
    * The line is a link to this address. A click or Enter that asks for a new

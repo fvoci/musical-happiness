@@ -128,12 +128,12 @@ test('a wiki: the pages of its tree are a finger high where they are pressed', a
   await expectPageStill(page);
 });
 
-/** Of the bar's undo, redo and deleted cards, and its menu, those that show. */
+/** Of the bar's undo, redo, deleted cards and sharing, and its menu, those that show. */
 async function shownInBar(page: Page): Promise<string[]> {
   return page
     .getByTestId('top-bar')
     .locator(
-      '[data-testid="undo"], [data-testid="redo"], [data-testid="open-card-trash"], [data-testid="bar-menu"]',
+      '[data-testid="undo"], [data-testid="redo"], [data-testid="open-card-trash"], [data-testid="share-board"], [data-testid="bar-menu"]',
     )
     .evaluateAll((buttons) =>
       buttons
@@ -149,11 +149,12 @@ for (const width of [360, 393]) {
 
     /**
      * The bar's buttons, a finger wide and on the screen, none of them over another or
-     * over the title; undo, redo and the deleted cards are in the menu at the end.
+     * over the title; the bell among them, and undo, redo, the deleted cards and sharing in
+     * the menu at the end.
      */
     async function expectBarFits(page: Page, people: string): Promise<void> {
       const bar = page.getByTestId('top-bar');
-      const ids = ['open-sidebar', people, 'share-board', 'open-search', 'bar-menu'];
+      const ids = ['open-sidebar', people, 'open-search', 'open-notifications', 'bar-menu'];
       const boxes = [];
       for (const id of ids) {
         await expectFingerSized(bar.getByTestId(id), id);
@@ -173,7 +174,8 @@ for (const width of [360, 393]) {
       if (!title || !group) throw new Error('no title or people');
       expect(title.x + title.width).toBeLessThanOrEqual(group.x);
       // Room for the name: 74 pixels at 360 and 107 at 393 in Chromium, alone or not (14 at
-      // both while undo, redo and the deleted cards were buttons beside the search's).
+      // both while undo, redo and the deleted cards were buttons beside the search's; the bell
+      // took the room sharing left for the menu).
       expect(title.width).toBeGreaterThanOrEqual(width === 360 ? 70 : 100);
       await expectPageStill(page);
     }
@@ -253,7 +255,7 @@ test.describe('the menu of a phone’s bar', () => {
     // A compact page's pane is the whole window: 544 is where two kanban columns fit.
     for (const [width, shown] of [
       [543, ['bar-menu']],
-      [544, ['open-card-trash', 'undo', 'redo']],
+      [544, ['share-board', 'open-card-trash', 'undo', 'redo']],
     ] as const) {
       await page.setViewportSize({ width, height: 800 });
       await expect.poll(() => shownInBar(page)).toEqual(shown);
