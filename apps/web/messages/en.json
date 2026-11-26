@@ -1994,6 +1994,7 @@
   "course_unit_more": "More for the unit {title}",
   "course_unit_watch": "Watch this unit",
   "course_unit_watching": "Watching this unit",
+  "watch_label": "Watch",
   "app_problem_card_too_deep": "Cards go no more than {limit} levels deep. Nothing was changed.",
   "card_parent_breadcrumb": "Parent cards",
   "card_parent_set": "Set parent card",

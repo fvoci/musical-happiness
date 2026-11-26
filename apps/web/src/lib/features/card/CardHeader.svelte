@@ -1,8 +1,9 @@
 <!--
   The top row of an open card: how to leave it, where it belongs (the board
   and the view it was opened from, and its number there), how the saving of
-  its body stands, and its menu. Deleting from the menu is not asked: undo, and the trash, take
-  it back.
+  its body stands, whether the reader watches it (`WatchToggle`), and its
+  menu. Deleting from the menu is not asked: undo, and the trash, take it
+  back.
 
   Leaving is a back arrow at the left when the card fills the screen, as a
   page would have it, and a close button at the right when it is a panel or a
@@ -30,6 +31,8 @@
   import type { CardFrame } from '$lib/layout/presentation.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
+
+  import WatchToggle from '../shell/WatchToggle.svelte';
 
   import type { SaveState } from './save-state.ts';
 
@@ -187,6 +190,9 @@
   </p>
   {#if extraActions}
     {@render extraActions(card)}
+  {/if}
+  {#if there && board.role !== '' && !card.summary?.fields.isTemplate}
+    <WatchToggle {workspace} blockId={card.cardId} kind="card" />
   {/if}
   <span
     class="shrink-0 px-1 text-xs text-muted-foreground"

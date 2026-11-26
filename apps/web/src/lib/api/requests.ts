@@ -34,6 +34,7 @@ import { ServerNotifications } from './notifications.ts';
 import { ServerPeople } from './people.ts';
 import { ServerReferences } from './references.ts';
 import { ServerTime } from './time.ts';
+import { ServerWatches } from './watches.ts';
 import { ServerWikis } from './wikis.ts';
 
 /** A path under a workspace, as the contract writes it after `/api/v1/w/{workspaceId}`. */
@@ -78,6 +79,8 @@ export class ServerRequests extends AccountRequests implements TrashReads {
   readonly apiTokens: ApiTokens;
   /** What the reader was told, of every workspace. */
   readonly notifications: ServerNotifications;
+  /** What the reader watches, the cards, pages and units they are told of. */
+  readonly watches: ServerWatches;
   /** Personal time tracking entries and active timer of the signed-in reader. */
   readonly time: ServerTime;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
@@ -105,6 +108,9 @@ export class ServerRequests extends AccountRequests implements TrashReads {
       (path, params, signal) => this.inWorkspaceBytes(path, params, signal),
     );
     this.references = new ServerReferences((path, params, options, workspaceId) =>
+      this.inWorkspace(path, params, options, workspaceId),
+    );
+    this.watches = new ServerWatches((path, params, options, workspaceId) =>
       this.inWorkspace(path, params, options, workspaceId),
     );
     const request = this.#inContainer.bind(this);

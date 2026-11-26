@@ -1,8 +1,17 @@
-/** Unit notification subscriptions in the in-memory backend. */
+/**
+ * What the reader watches in the in-memory backend (`Backend.watches`, and the
+ * units' of `Backend.course`): a card, a page or a unit is watched by who
+ * wrote it or commented on it, in the shared workspace, unless they stopped;
+ * and by whoever started.
+ */
+import type { WatchedKind, Watches } from '../watch-types.ts';
+
 import { reads } from './container-access.ts';
 import { fail } from './refuse.ts';
 import { checkWorkspace } from './spaces.ts';
 import type { World } from './world.ts';
+
+const WATCHED: ReadonlySet<string> = new Set<WatchedKind>(['card', 'page', 'unit']);
 
 export function setUnitWatch(
   world: World,
@@ -23,13 +32,14 @@ export function memoryWatchingUnits(
   sessionUserId: string,
   workspaceId: string,
   userId: string,
+  only: WatchedKind | 'any' = 'unit',
 ): string[] {
   checkWorkspace(world, sessionUserId, workspaceId);
   if (userId !== sessionUserId) fail(404, 'no such user');
   const explicit = world.unitWatchers.get(userId);
   const ids: string[] = [];
   for (const block of world.blocks.values()) {
-    if (block.type !== 'unit') continue;
+    if (!WATCHED.has(block.type) || (only !== 'any' && block.type !== only)) continue;
     const container = world.containers.get(block.containerId);
     if (container?.workspaceId !== workspaceId || !reads(world, userId, container.id)) {
       continue;
@@ -63,7 +73,7 @@ export function memoryWatchUnit(
     !block ||
     world.containers.get(block.containerId)?.workspaceId !== workspaceId ||
     !reads(world, sessionUserId, block.containerId) ||
-    block.type !== 'unit'
+    !WATCHED.has(block.type)
   ) {
     fail(404, 'no such block');
   }
@@ -80,4 +90,31 @@ export function memoryUnwatchUnit(
   checkWorkspace(world, sessionUserId, workspaceId);
   if (userId !== sessionUserId) fail(404, 'no such subscription');
   setUnitWatch(world, userId, unitId, false);
+}
+
+/** `Backend.watches` of the world: of what the reader `of.userId` watches. */
+export class MemoryWatches implements Watches {
+  readonly #of: { readonly world: World; readonly userId: string };
+  readonly #enter: () => Promise<void>;
+
+  constructor(of: { readonly world: World; readonly userId: string }, enter: () => Promise<void>) {
+    this.#of = of;
+    this.#enter = enter;
+  }
+
+  async watching(workspaceId: string, userId: string): Promise<string[]> {
+    await this.#enter();
+    const { world, userId: me } = this.#of;
+    return memoryWatchingUnits(world, me, workspaceId, userId, 'any');
+  }
+
+  async watch(workspaceId: string, blockId: string, _: WatchedKind, userId: string): Promise<void> {
+    await this.#enter();
+    memoryWatchUnit(this.#of.world, this.#of.userId, workspaceId, blockId, userId);
+  }
+
+  async unwatch(workspaceId: string, blockId: string, userId: string): Promise<void> {
+    await this.#enter();
+    memoryUnwatchUnit(this.#of.world, this.#of.userId, workspaceId, blockId, userId);
+  }
 }

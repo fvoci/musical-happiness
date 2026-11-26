@@ -1994,6 +1994,7 @@
   "course_unit_more": "{title} 단원 더 보기",
   "course_unit_watch": "이 단원 지켜보기",
   "course_unit_watching": "이 단원을 지켜보는 중",
+  "watch_label": "지켜보기",
   "app_problem_card_too_deep": "카드는 {limit}단계까지만 계층을 둘 수 있습니다. 아무것도 바뀌지 않았습니다.",
   "card_parent_breadcrumb": "상위 카드 경로",
   "card_parent_set": "상위 카드 지정",

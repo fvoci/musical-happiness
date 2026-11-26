@@ -37,6 +37,7 @@
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
   import PageMenu from '$lib/features/wiki/PageMenu.svelte';
   import TrashDialog from '$lib/features/shell/TrashDialog.svelte';
+  import WatchToggle from '$lib/features/shell/WatchToggle.svelte';
   import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
@@ -328,8 +329,10 @@
         {#snippet pageActions(page: PageStore)}
           {@const shown = wiki.page(page.pageId) ?? page.meta}
           {#if shown}
+            <WatchToggle {workspace} blockId={page.pageId} kind="page" />
             <PageMenu
               page={shown}
+              href={router.href({ ...router.route, pageId: page.pageId })}
               onVersions={() => {
                 versions = {
                   pageId: page.pageId,
