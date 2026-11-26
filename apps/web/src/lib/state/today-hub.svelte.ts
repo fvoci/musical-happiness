@@ -36,6 +36,16 @@ export interface TodayBoard {
   canChooseDone: boolean;
 }
 
+/**
+ * Whether the rule of done of `board` gives a card a value: a box ticked, or the first
+ * option it names, of a property the board still has.
+ */
+function givesDone(board: Container): boolean {
+  const rule = board.doneWhen;
+  if (!rule || !board.cardProperties.some((prop) => prop.id === rule.propertyId)) return false;
+  return rule.kind === 'checkbox' || rule.optionIds.length > 0;
+}
+
 /** Whether `runs` have `today` among their days. */
 function writtenOn(runs: readonly DiaryRun[], today: CalendarDate): boolean {
   return runs.some((run) => run.from <= today && today <= run.to);
@@ -57,9 +67,9 @@ export class TodayHubStore {
     this.workspace = workspace;
     this.#stop = workspace.backend.watchSelf((change) => {
       if (this.#closed) return;
-      if (change.kind === 'resync' || change.kind === 'notifications') {
-        void this.load();
-      }
+      // A notification changes what is due, not what the diaries have written.
+      if (change.kind === 'resync') void this.load();
+      else if (change.kind === 'notifications') void this.load({ diaries: false });
     });
   }
 
@@ -68,7 +78,8 @@ export class TodayHubStore {
     return this.#closed;
   }
 
-  async load(): Promise<void> {
+  /** Reads it all again; the diaries' days too unless `diaries` is false. */
+  async load({ diaries: withDiaries = true }: { diaries?: boolean } = {}): Promise<void> {
     if (this.#isClosed()) return;
     this.#readings += 1;
     const reading = this.#readings;
@@ -76,7 +87,7 @@ export class TodayHubStore {
     try {
       const [today, diaries] = await Promise.all([
         this.workspace.backend.accountToday(),
-        this.#readDiaries(),
+        withDiaries ? this.#readDiaries() : this.diaries,
       ]);
       if (this.#isClosed() || reading !== this.#readings) return;
       this.data = today;
@@ -95,28 +106,41 @@ export class TodayHubStore {
     return this.boards.find((one) => one.board.id === boardId);
   }
 
-  /** Gives `card` the value its board's rule calls done, and leaves it off the list. */
+  /** Whether a card of `boardId` can be made done from here: its board's rule gives a value, and the reader may write. */
+  canMarkDone(boardId: string): boolean {
+    const read = this.board(boardId);
+    return read !== undefined && read.canEdit && givesDone(read.board);
+  }
+
+  /**
+   * Gives `card` the value its board's rule calls done, and leaves it off the list. A read
+   * on its way, which may have it still, is dropped, and what is due is read again after.
+   */
   async markDone(card: TodayCardItem): Promise<void> {
     const board = this.board(card.boardId)?.board;
     const rule = board?.doneWhen;
-    if (!board || !rule) return;
+    if (!board || !rule || !this.canMarkDone(card.boardId)) return;
     const backend = this.workspace.backend;
     const property = board.cardProperties.find((prop) => prop.id === rule.propertyId);
-    this.#withoutCard(card.cardId);
+    this.#leave((data) => ({
+      ...data,
+      cards: data.cards.filter((one) => one.cardId !== card.cardId),
+    }));
     try {
       const had =
         property?.type === 'multiSelect'
           ? (await backend.card(card.boardId, card.cardId)).fields.properties[rule.propertyId]
           : undefined;
       const value = doneValue(rule, property, had);
-      if (value === undefined) return;
-      await backend.patchCard(card.boardId, card.cardId, {
-        updatedProperties: { [rule.propertyId]: value },
-      });
+      if (value !== undefined) {
+        await backend.patchCard(card.boardId, card.cardId, {
+          updatedProperties: { [rule.propertyId]: value },
+        });
+      }
     } catch (error) {
       this.workspace.report('save', error);
-      void this.load();
     }
+    void this.load({ diaries: false });
   }
 
   /** Makes `rule` what calls a card of `boardId` done; the cards it calls done already leave. */
@@ -127,7 +151,7 @@ export class TodayHubStore {
         one.board.id === boardId ? { ...one, board: changed } : one,
       );
       this.workspace.receiveContainer(changed);
-      void this.load();
+      void this.load({ diaries: false });
     } catch (error) {
       this.workspace.report('save', error);
     }
@@ -139,7 +163,7 @@ export class TodayHubStore {
     const today = this.data?.today;
     if (!course || !today) return;
     const plannedDate = addDays(today as CalendarDate, days);
-    this.#without((data) => ({
+    this.#leave((data) => ({
       ...data,
       units: data.units.filter((one) => one.unitId !== unit.unitId),
     }));
@@ -152,8 +176,8 @@ export class TodayHubStore {
       );
     } catch (error) {
       this.workspace.report('save', error);
-      void this.load();
     }
+    void this.load({ diaries: false });
   }
 
   close(): void {
@@ -162,14 +186,9 @@ export class TodayHubStore {
     this.#stop();
   }
 
-  #withoutCard(cardId: string): void {
-    this.#without((data) => ({
-      ...data,
-      cards: data.cards.filter((one) => one.cardId !== cardId),
-    }));
-  }
-
-  #without(change: (data: AccountToday) => AccountToday): void {
+  /** Leaves what was acted on off the list: a read on its way, which may have it still, is dropped. */
+  #leave(change: (data: AccountToday) => AccountToday): void {
+    this.#readings += 1;
     if (this.data) this.data = change(this.data);
   }
 

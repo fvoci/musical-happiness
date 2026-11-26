@@ -59,6 +59,40 @@ describe('the hub of today', () => {
     hub.close();
   });
 
+  it('keeps a card made done off the list where a read on its way had it still', async () => {
+    const { board, backend, workspace, card } = await dueToday();
+    const hub = new TodayHubStore(workspace);
+    await hub.load();
+    await expect.poll(() => hub.canMarkDone(board.boardId)).toBe(true);
+    const item = hub.data?.cards.find((one) => one.cardId === card.id);
+    if (!item) throw new Error('the card is not due on the hub');
+
+    // A read goes out (a notification came), and the card is made done before it answers.
+    backend.latency = 20;
+    const reading = hub.load({ diaries: false });
+    const done = hub.markDone(item);
+    await Promise.all([reading, done]);
+    backend.latency = 0;
+    await expect.poll(() => hub.status).toBe('ready');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(hub.data?.cards.some((one) => one.cardId === card.id)).toBe(false);
+    hub.close();
+  });
+
+  it('offers no done for a board whose rule names no option, and does not drop its card', async () => {
+    const { board, workspace, card, rule } = await dueToday();
+    await board.changeBoard((cur) => ({ ...cur, doneWhen: { ...rule, optionIds: [] } }));
+    const hub = new TodayHubStore(workspace);
+    await hub.load();
+    await expect.poll(() => hub.board(board.boardId)?.canEdit).toBe(true);
+    expect(hub.canMarkDone(board.boardId)).toBe(false);
+    const item = hub.data?.cards.find((one) => one.cardId === card.id);
+    if (!item) throw new Error('the card is not due on the hub');
+    await hub.markDone(item);
+    expect(hub.data?.cards.some((one) => one.cardId === card.id)).toBe(true);
+    hub.close();
+  });
+
   it('offers the choices of a board with no rule, and the chosen one is the board’s', async () => {
     const { board, backend, workspace } = await dueToday();
     await board.changeBoard((cur) => ({ ...cur, doneWhen: null }));
