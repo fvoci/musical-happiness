@@ -103,13 +103,32 @@ export interface SidebarCategory {
   containers: Container[];
 }
 
+/** Who reads the sidebar, for what of it waits to be joined (`memberships.svelte.ts`). */
+export interface SidebarReader {
+  id: string | undefined;
+  /** A guest of the workspace, who joins nothing by themselves: what they were let into is theirs. */
+  guest: boolean;
+  /** The containers the reader is known to be a member of, directly or by a group. */
+  memberOf: ReadonlySet<string>;
+}
+
+/** One about whom nothing is known: what others made open waits to be joined. */
+const NOBODY: SidebarReader = { id: undefined, guest: false, memberOf: new Set() };
+
 /**
  * Whether a container no category of the reader's files is one they neither
  * made nor joined: an open one of the workspace, which the server files once
- * it is joined. It waits at the foot of the sidebar (`openToJoinOf`).
+ * it is joined. It waits at the foot of the sidebar (`openToJoinOf`). Not to a
+ * guest, who cannot join it, nor where the reader is known to be a member.
  */
-function waitsToBeJoined(container: Container, meId: string | undefined): boolean {
-  return container.visibility === 'open' && !container.isTemplate && container.createdBy !== meId;
+function waitsToBeJoined(container: Container, reader: SidebarReader): boolean {
+  return (
+    !reader.guest &&
+    container.visibility === 'open' &&
+    !container.isTemplate &&
+    container.createdBy !== reader.id &&
+    !reader.memberOf.has(container.id)
+  );
 }
 
 /**
@@ -124,7 +143,7 @@ export function sidebarOf(
   categories: readonly Category[],
   containers: readonly Container[],
   locale: string,
-  meId?: string,
+  reader: SidebarReader = NOBODY,
 ): SidebarCategory[] {
   const compare = textOrder(locale);
   const ordered = [...categories].sort(
@@ -146,7 +165,7 @@ export function sidebarOf(
   const hidden = new Set(categories.flatMap((category) => category.hiddenContainerIds));
   const loose = byTitle(
     containers.filter(
-      (board) => !filed.has(board.id) && !hidden.has(board.id) && !waitsToBeJoined(board, meId),
+      (board) => !filed.has(board.id) && !hidden.has(board.id) && !waitsToBeJoined(board, reader),
     ),
     locale,
   );
@@ -160,13 +179,13 @@ export function openToJoinOf(
   categories: readonly Category[],
   containers: readonly Container[],
   locale: string,
-  meId: string | undefined,
+  reader: SidebarReader,
 ): Container[] {
   const filed = new Set(
     categories.flatMap((category) => [...category.containerIds, ...category.hiddenContainerIds]),
   );
   return byTitle(
-    containers.filter((board) => !filed.has(board.id) && waitsToBeJoined(board, meId)),
+    containers.filter((board) => !filed.has(board.id) && waitsToBeJoined(board, reader)),
     locale,
   );
 }

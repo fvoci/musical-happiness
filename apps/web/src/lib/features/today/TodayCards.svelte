@@ -93,7 +93,7 @@
                   {dueOf(card)}
                 </span>
               </button>
-              {#if read?.board.doneWhen && read.canEdit}
+              {#if store.canMarkDone(card.boardId)}
                 <IconButton
                   label={m.today_hub_card_done({ title })}
                   data-testid="today-hub-card-done"

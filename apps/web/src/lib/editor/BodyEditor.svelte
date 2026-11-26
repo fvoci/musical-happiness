@@ -19,6 +19,11 @@
   form, `null` for an empty body. A body the validator refuses is not
   loaded: editing it would mean saving the editor's guess at what it meant
   over the original. The editor then stays empty and read-only and says so.
+
+  Around the text: `/` offers the kinds of block (block-menu.ts); chosen
+  text gets a bubble of marks, and on a phone a bar over the keyboard does
+  what the bubble and the menu do (EditorTools.svelte). An image opens
+  larger from its bubble, or on a press while the editor is read-only.
 -->
 <script lang="ts">
   import { Editor } from '@tiptap/core';
@@ -29,6 +34,8 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 
+  import { slashEntries } from './block-menu.ts';
+  import EditorTools from './EditorTools.svelte';
   import { BODY_FIELD, type BodyEditorProps, type BodyReferences } from './body-editor.ts';
   import { CheckedCollaboration, hasInvalidContent } from './content-check.ts';
   import { drawReferences } from './reference-chip.ts';
@@ -46,7 +53,6 @@
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
   import { SlashMenu } from './slash-menu.ts';
-  import { tableEntries } from './table-menu.ts';
   import { BodyUpload, fromUpload } from './uploads.ts';
   import { SaveKey } from './save-key.ts';
 
@@ -191,21 +197,9 @@
     },
   });
 
-  /** The slash menu: a file where files can be added, and tables (table-menu.ts). */
+  /** The slash menu: the kinds of block, tables, and a file where files can be added (block-menu.ts). */
   const slashMenu = SlashMenu.configure({
-    entries: (current) => [
-      ...(uploadFile
-        ? [
-            {
-              value: 'file',
-              label: m.editor_slash_file(),
-              words: ['file', 'attachment', 'upload', '파일', '첨부'],
-              run: (chosen: Editor) => chosen.storage.bodyUpload.choose(),
-            },
-          ]
-        : []),
-      ...tableEntries(current),
-    ],
+    entries: (current) => slashEntries(current, uploadFile !== undefined),
     render: suggestionList({ kind: 'slash', label: m.editor_slash_label }),
   });
 
@@ -423,4 +417,12 @@
   <p class="doc-editor-status" role="status" data-shown={status === '' ? undefined : ''}>
     {status}
   </p>
+  {#if editor}
+    <EditorTools
+      {editor}
+      {changes}
+      editable={editable && !unreadable}
+      uploads={uploadFile !== undefined}
+    />
+  {/if}
 </div>

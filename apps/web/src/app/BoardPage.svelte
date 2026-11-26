@@ -219,6 +219,7 @@
         router.openView(viewId);
       }}
       onAddCard={() => void addCard()}
+      exportCards={isSharedRoute(router.route) ? undefined : () => cards}
     />
     <div class="min-h-0 flex-1">
       {#if view.fields.viewType === 'board'}

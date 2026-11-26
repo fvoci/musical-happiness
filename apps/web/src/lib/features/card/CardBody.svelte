@@ -67,7 +67,8 @@
   interface Props {
     /**
      * The board, or the wiki: who may write, and who can be mentioned. One the reader is to
-     * join by writing (`writeJoined`) is joined as its body is pressed, which lets them write.
+     * join by writing (`writeJoined`) is joined as the caret is put in its body, which lets them
+     * write.
      */
     container: Pick<BoardStore, 'workspace' | 'canEdit' | 'orderedMembers'> & {
       writeJoined?: <T>(write: () => Promise<T>) => Promise<T>;
@@ -239,12 +240,24 @@
       if (!event.repeat) void keepNow();
     });
 
-  /** Pressed where the reader may write once joined, and the room still reads: joins. */
-  function joinToWrite(): void {
-    if (container.canEdit && room?.status === 'joined' && room.mode === 'read') {
-      void container.writeJoined?.(() => Promise.resolve());
-    }
-  }
+  /**
+   * Pressed in the editor to put the caret there, where the reader may write once joined and the
+   * room still reads: joins. Not a press that selected words (to copy them), nor one on a control
+   * in the body (a link, a file's buttons), nor the focus passing through by the keyboard. The
+   * editor that reads takes no focus: the keyboard joins by a write elsewhere (a title, a comment).
+   */
+  const joinOnPress = (body: HTMLElement): (() => void) =>
+    on(body, 'click', (event) => {
+      const target = event.target;
+      // The editor's root, by its own mark: its library's class would carry the library's name
+      // into this piece, which is fetched before the editor (e2e/card.spec.ts).
+      if (!(target instanceof Element) || !target.closest('[data-body-editor]')) return;
+      if (target.closest('a[href], button, input, select, textarea, [role="button"]')) return;
+      if (document.getSelection()?.isCollapsed === false) return;
+      if (container.canEdit && room?.status === 'joined' && room.mode === 'read') {
+        void container.writeJoined?.(() => Promise.resolve());
+      }
+    });
 
   $effect(() => {
     if (!late) return;
@@ -260,8 +273,7 @@
 
 <section
   {@attach keysOutside}
-  onpointerdown={joinToWrite}
-  onfocusin={joinToWrite}
+  {@attach joinOnPress}
   aria-label={words.label()}
   class="flex flex-col gap-3 border-t pt-5"
   data-testid={testId}

@@ -24,6 +24,8 @@ export interface DisplayContext {
   unknownOption?: string;
   /** The title of a card of the board; undefined for a card that is not there (deleted). */
   cardTitle?: (cardId: string) => string | undefined;
+  /** The name a person is shown by, from the identifier of the user; a CSV names people by it. */
+  personName?: (userId: string) => string;
 }
 
 const isValid = (instant: number): boolean => Number.isFinite(instant);

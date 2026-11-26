@@ -1,10 +1,10 @@
 /**
- * Tables pasted into a body.
+ * Tables pasted into a body, and Markdown pasted as text.
  *
- * - Text that holds a Markdown table (from a Markdown file, a chat, a
- *   terminal) is read as Markdown (markdown.ts), so that its table is a
- *   table; other text is pasted as text, and so is any pasted as plain text
- *   (Ctrl+Shift+V) or into a code block.
+ * - Text that is Markdown (markdown-paste.ts: a table, a heading, a fence of
+ *   code, tasks, a list, a quote) is read as Markdown, so that its table is a
+ *   table and its heading a heading; other text is pasted as text, and so is
+ *   any pasted as plain text (Ctrl+Shift+V) or into a code block.
  * - A table past 200 rows or 20 columns, from text or from a page, is pasted
  *   as its rows, each a line of its cells' text between ` | `, as the
  *   Markdown reader writes one out; a block of a cell with no text (a
@@ -19,7 +19,7 @@ import { Fragment, Slice, type Node as DocumentNode, type Schema } from '@tiptap
 import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
 import { cellAround, CellSelection, isInTable, TableMap } from '@tiptap/pm/tables';
 
-import { markdownToBlocks } from './markdown.ts';
+import { pastedMarkdown } from './markdown-paste.ts';
 import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from './table-grid.ts';
 
 /** Whether a table is past 200 rows or 20 columns. */
@@ -30,18 +30,6 @@ export function isPastLimits(table: DocumentNode): boolean {
 
 /** What a parser of the clipboard gives back for what it leaves to the editor's own. */
 const LEFT = undefined as unknown as Slice;
-
-/** A line of a Markdown table that parts its head from its body: `|---|:--:|`. */
-const DELIMITER_ROW = /^ {0,3}\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/m;
-
-/** The blocks of a Markdown text that holds a table; undefined for any other text. */
-export function markdownTable(text: string, schema: Schema): DocumentNode[] | undefined {
-  if (!text.includes('|') || !DELIMITER_ROW.test(text)) return undefined;
-  const { content, notes } = markdownToBlocks(text);
-  // A table past the limits is in it as its rows.
-  if (!content.some((node) => node.type === 'table') && !notes.table) return undefined;
-  return content.map((node) => schema.nodeFromJSON(node));
-}
 
 /**
  * A table's rows as lines: each the text of its cells between ` | `, each
@@ -110,7 +98,7 @@ export function tablePaste(): Plugin {
     props: {
       clipboardTextParser(text, $context, plain, view) {
         if (plain || $context.parent.type.spec.code) return LEFT;
-        const blocks = markdownTable(text, view.state.schema);
+        const blocks = pastedMarkdown(text, view.state.schema);
         if (!blocks) return LEFT;
         // A paragraph at either end joins the line pasted into; a table stays whole.
         return Slice.maxOpen(Fragment.fromArray(blocks), false);

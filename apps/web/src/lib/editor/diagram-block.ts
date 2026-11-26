@@ -25,6 +25,7 @@ import type { Decoration, EditorView, NodeView, ViewMutationRecord } from '@tipt
 
 import { m } from '$lib/i18n/paraglide/messages.js';
 
+import { contentWasSplit } from './browser-edits.ts';
 import { CodeBlockView } from './code-block-view.ts';
 import { codeHighlight } from './code-highlight.ts';
 import type { DiagramResult } from './diagram.ts';
@@ -216,9 +217,7 @@ class DiagramView implements NodeView {
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {
     if (mutation.type === 'selection') return false;
-    // Native Enter on iOS may split the source's pre element. Its parent
-    // mutation must reach the editor so its Enter handler can reconcile it.
-    if (mutation.type === 'childList' && mutation.target.contains(this.contentDOM)) return false;
+    if (contentWasSplit(mutation, this.contentDOM)) return false;
     return !this.contentDOM.contains(mutation.target);
   }
 

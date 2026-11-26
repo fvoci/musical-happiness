@@ -3,7 +3,8 @@
   notes visible strictly to the caller. Supports kind filtering, creation,
   inline editing (content and kind), and deletion. A unit without notes shows
   only the button that starts one. Never mounted on public share links or
-  chapters; unjoined open-course readers see a join hint.
+  chapters; nothing for a reader of an open course who has not joined it (the
+  course's banner joins).
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
@@ -307,7 +308,7 @@
         placeholder={m.unit_notes_placeholder()}
         disabled={store.notesBusy}
         data-testid="unit-note-input"
-        class="w-full resize-y rounded-md border border-input-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        class="w-full resize-y rounded-md border border-input-border bg-background px-3 py-2 text-base placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:text-sm"
         oninput={(event) => {
           setDraft(event.currentTarget.value);
         }}
@@ -404,7 +405,7 @@
                   aria-describedby={editError !== '' ? `${uid}-edit-error` : undefined}
                   disabled={busy}
                   data-testid="unit-note-edit-input"
-                  class="w-full resize-y rounded-md border border-input-border bg-background px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  class="w-full resize-y rounded-md border border-input-border bg-background px-3 py-2 text-base focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:text-sm"
                   oninput={() => {
                     if (editError !== '') editError = contentErrorText(editContent);
                   }}

@@ -30,6 +30,7 @@ import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
 import { memberId } from './user-names.ts';
 import { joinedPermissions, JoinOnWrite, joinsOnWrite, listOpened } from './join-on-write.ts';
+import { noteMembership } from './memberships.svelte.ts';
 import { joinOpenWiki, performPageLooks, performWikiLooks } from './wiki-parts.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
@@ -59,7 +60,15 @@ export class WikiStore {
   joining = $state(false);
   wiki = $state.raw<Container | undefined>(undefined);
   pages = $state.raw<WikiPage[]>([]);
-  members = $state.raw<ContainerMember[]>([]);
+  #members = $state.raw<ContainerMember[]>([]);
+  /** Its members as read; whether the reader is one is told to the sidebar (`noteMembership`). */
+  get members(): ContainerMember[] {
+    return this.#members;
+  }
+  set members(members: ContainerMember[]) {
+    this.#members = members;
+    noteMembership(this.workspace, this.wikiId, members);
+  }
   permissions = $state.raw<ContainerPermissions>({ ...READ_ONLY_PERMISSIONS });
   openPage = $state.raw<PageStore | undefined>(undefined);
 

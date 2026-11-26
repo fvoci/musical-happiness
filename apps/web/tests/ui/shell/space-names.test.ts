@@ -28,6 +28,19 @@ describe('the name of a workspace', () => {
   it('is its own while the organization’s name is not known', () => {
     expect(spaceName(solo, all, () => '')).toBe('General');
   });
+
+  it('is said as its place says one without a title, where it goes by its own', () => {
+    const untitled: WorkspaceInfo = { ...solo, title: '' };
+    expect(
+      spaceName(
+        untitled,
+        all,
+        () => '',
+        () => 'this workspace',
+      ),
+    ).toBe('this workspace');
+    expect(spaceName(untitled, all, orgName, () => 'this workspace')).toBe('Acme');
+  });
 });
 
 describe('the lines of the switcher', () => {
@@ -44,6 +57,17 @@ describe('the lines of the switcher', () => {
       'Acme',
       'Globex · Design',
       'Globex · Sales',
+    ]);
+    expect(lines.map((line) => line.separated)).toEqual([false, false, true, false]);
+  });
+
+  it('sets the organization of one workspace that follows a group apart from it', () => {
+    const lines = spaceLines([own, first, second, solo], orgName);
+    expect(lines.map((line) => [line.label, line.separated])).toEqual([
+      ['My space', false],
+      ['Design', true],
+      ['Sales', false],
+      ['Acme', true],
     ]);
   });
 });

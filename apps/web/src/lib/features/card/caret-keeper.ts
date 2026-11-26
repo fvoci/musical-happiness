@@ -68,6 +68,9 @@ export function keepCaret(): CaretKeeper {
     watch(view) {
       let down: { x: number; y: number } | undefined;
       const pressed = (event: PointerEvent): void => {
+        // A press that opens an image larger is the image's, not a place for the caret.
+        const target = event.target;
+        if (target instanceof Element && target.closest('[data-zoomable]')) return;
         down = { x: event.clientX, y: event.clientY };
       };
       const released = (event: PointerEvent): void => {

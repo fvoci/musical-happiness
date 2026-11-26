@@ -4,8 +4,9 @@
   unit's menu, `openings.review`). Shows pending and completed reviews, allows
   manual scheduling, completing a review (with optional atomic follow-up
   scheduling), and deleting.
-  Unjoined open-course readers see a join hint; never mounted on public links
-  or chapters.
+  Nothing for who cannot keep reviews (`canTrackProgress`: a reader of an open
+  course who has not joined it joins by the course's banner); never mounted on
+  public links or chapters.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';

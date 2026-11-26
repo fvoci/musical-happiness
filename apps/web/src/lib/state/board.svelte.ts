@@ -31,6 +31,7 @@ import {
 } from './backend.ts';
 import { handleBoardLoadFailure, joinOpenBoard, readBoard } from './board-load.ts';
 import { joinedPermissions, JoinOnWrite, joinsOnWrite } from './join-on-write.ts';
+import { noteMembership } from './memberships.svelte.ts';
 import {
   changeBoardCard,
   changeBoardContainer,
@@ -93,7 +94,15 @@ export class BoardStore {
   board = $state.raw<Container | undefined>(undefined);
   views = $state.raw<BoardView[]>([]);
   cards = $state.raw<CardSummary[]>([]);
-  members = $state.raw<ContainerMember[]>([]);
+  #members = $state.raw<ContainerMember[]>([]);
+  /** Its members as read; whether the reader is one is told to the sidebar (`noteMembership`). */
+  get members(): ContainerMember[] {
+    return this.#members;
+  }
+  set members(members: ContainerMember[]) {
+    this.#members = members;
+    noteMembership(this.workspace, this.boardId, members);
+  }
   permissions = $state.raw<ContainerPermissions>({ ...READ_ONLY_PERMISSIONS });
   permissionsRole = $state<MemberRole | undefined>(undefined);
   openCard = $state.raw<CardStore | undefined>(undefined);
@@ -172,7 +181,7 @@ export class BoardStore {
   evicted = false;
   #evictionGen = 0;
   joining = $state(false);
-  readonly #joinOnWrite = new JoinOnWrite(this, () => this.#refreshPermissions());
+  readonly #joinOnWrite = new JoinOnWrite(this, (role) => this.#refreshPermissions(role));
   revalidating = $state(false);
   #closed = false;
   #parked = false;
@@ -206,12 +215,13 @@ export class BoardStore {
     };
   }
 
-  async #refreshPermissions(): Promise<void> {
+  /** Reads what the reader may do, as one of `role` (the role they have now, or the one a join gave). */
+  async #refreshPermissions(role: MemberRole = this.role): Promise<void> {
     const visit = this.visit;
     try {
       const permissions = await this.#backend.myPermissions(this.boardId);
       if (!this.#isInactive() && this.visit === visit) {
-        [this.permissions, this.permissionsRole] = [permissions, this.role];
+        [this.permissions, this.permissionsRole] = [permissions, role];
       }
     } catch {
       // Handled on next load/refresh if access ended.

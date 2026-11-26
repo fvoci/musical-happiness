@@ -195,7 +195,19 @@
   }
 
   const noopAttach: Attachment<HTMLElement> = () => undefined;
+
+  /**
+   * The meetings and the exams read again as the reader comes back to the window: the
+   * server tells nobody of them, so the first one somebody else made (and the tab it brings)
+   * shows here then.
+   */
+  function readEventsAgain(): void {
+    if (document.visibilityState === 'visible') void course.events.refreshAll();
+  }
 </script>
+
+<svelte:window onfocus={readEventsAgain} />
+<svelte:document onvisibilitychange={readEventsAgain} />
 
 <div
   class="relative flex h-full min-h-0 outline-none"

@@ -50,6 +50,8 @@ export function attachmentVersions(
     if (row && row.size !== written.size) card.receive({ ...row, size: written.size });
     return written;
   };
+  /** Where it is the reader's first write on an open board, sent once they have joined it. */
+  const joined = <T>(write: () => Promise<T>): Promise<T> => board.writeJoined(write);
   return {
     get canWrite() {
       return board.canEdit;
@@ -63,17 +65,17 @@ export function attachmentVersions(
         file,
         send: (options) => {
           given = options.signal;
-          return backend.upload(boardId, file, options);
+          return joined(() => backend.upload(boardId, file, options));
         },
       }).done;
       return uploaded ?? (given?.aborted ? 'stopped' : undefined);
     },
     add: async (baseVersion, upload) =>
-      resized(await versions.add(boardId, fileId, baseVersion, upload)),
+      resized(await joined(() => versions.add(boardId, fileId, baseVersion, upload))),
     restore: async (version, baseVersion) =>
-      resized(await versions.restore(boardId, fileId, version, baseVersion)),
+      resized(await joined(() => versions.restore(boardId, fileId, version, baseVersion))),
     async attachApart(upload) {
-      card.receive(await backend.createAttachment(boardId, card.cardId, upload));
+      card.receive(await joined(() => backend.createAttachment(boardId, card.cardId, upload)));
     },
     refusalOf: versionRefusal,
     userName: (userId) => workspace.userName(userId),
@@ -84,7 +86,8 @@ export function attachmentVersions(
     lease: () => versions.lease(boardId, fileId),
     async holdLease(leaseId) {
       try {
-        return await versions.holdLease(boardId, fileId, leaseId);
+        // Taken by the first input in the file: a write, which joins first.
+        return await joined(() => versions.holdLease(boardId, fileId, leaseId));
       } catch (error) {
         if (isBackendError(error) && error.reason === FILE_BEING_EDITED) return 'editing';
         throw error;

@@ -154,6 +154,8 @@ describe('what the read-only view is made of', () => {
     expect(graphOf('src/lib/editor/BodyView.svelte')).toEqual({
       files: [
         'src/lib/editor/BodyView.svelte',
+        // An image opened larger (image-zoom.ts finds what is pressed), and its close button's icon.
+        'src/lib/editor/ImageLightbox.svelte',
         // What draws a code block's bar, colours and line numbers, fetched when there is one.
         'src/lib/editor/code-block.css',
         'src/lib/editor/code-copy-texts.ts',
@@ -173,6 +175,7 @@ describe('what the read-only view is made of', () => {
         'src/lib/editor/embeds.ts',
         'src/lib/editor/file-view.ts',
         'src/lib/editor/files.ts',
+        'src/lib/editor/image-zoom.ts',
         'src/lib/editor/katex.css',
         'src/lib/editor/math.ts',
         'src/lib/editor/reference-chip.ts',
@@ -189,6 +192,7 @@ describe('what the read-only view is made of', () => {
       ],
       packages: [
         '$lib/i18n/paraglide/messages.js',
+        '@lucide/svelte/icons/x',
         ...CODE_GRAMMARS.map((grammar) => `highlight.js/lib/languages/${grammar}`),
         'katex',
         'lowlight',

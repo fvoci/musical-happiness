@@ -86,7 +86,7 @@
         class="max-h-28 overflow-hidden mask-b-from-60% [&_img]:max-h-20 [&_img]:w-auto"
         data-testid="entry-preview"
       >
-        <BodyView doc={entry.body} class="text-base">
+        <BodyView doc={entry.body} zoomImages={false} class="text-base">
           {#snippet empty()}
             <p class="text-muted-foreground">{m.diary_entry_empty()}</p>
           {/snippet}

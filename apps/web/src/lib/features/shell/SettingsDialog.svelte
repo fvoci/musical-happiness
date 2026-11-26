@@ -54,7 +54,13 @@
     type WeekStartSetting,
   } from '$lib/logic/regional.ts';
   import { browserTimeZone } from '$lib/regional.ts';
-  import { isOwnSpace, type ImportSummary, type Workspace } from '$lib/state/index.ts';
+  import {
+    chooseTimeZone,
+    followsDeviceTimeZone,
+    isOwnSpace,
+    type ImportSummary,
+    type Workspace,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
@@ -294,8 +300,8 @@
           label={m.shell_settings_time_zone()}
           searchLabel={m.shell_settings_time_zone_search()}
           items={timeZones}
-          value={settings.timeZone}
-          onPick={(timeZone: string) => void workspace.changeSettings({ timeZone })}
+          value={followsDeviceTimeZone(workspace) ? AUTO : settings.timeZone}
+          onPick={(timeZone: string) => void chooseTimeZone(workspace, timeZone)}
         />
         <SettingChoice
           name="weekStart"

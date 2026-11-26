@@ -319,6 +319,8 @@ test.describe('a course in a shared workspace', () => {
     await page.getByTestId('course-first-unit').click();
     await nameTheUnit(page, 'Quokka Orientation');
     const unitId = coursePlaceOf(page.url()).unitId;
+    // The window is named by the unit before its course.
+    await expect(page).toHaveTitle('Quokka Orientation · Searchable Course — fvoci');
 
     // Leave the course so navigation from search is observable.
     await showSidebar(page);

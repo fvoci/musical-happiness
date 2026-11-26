@@ -60,7 +60,12 @@
 
 <ActionMenu title={m.course_unit_more({ title })} subtitle={title} align="end" {actions}>
   {#snippet trigger(props: Record<string, unknown>)}
-    <IconButton {...props} label={m.course_unit_more({ title })} data-testid="unit-menu">
+    <IconButton
+      {...props}
+      label={m.course_unit_more({ title })}
+      data-testid="unit-menu"
+      data-unit-menu
+    >
       <EllipsisIcon aria-hidden="true" />
     </IconButton>
   {/snippet}

@@ -12,6 +12,7 @@ import type { Node as DocumentNode } from '@tiptap/pm/model';
 import { TextSelection } from '@tiptap/pm/state';
 import type { EditorView, NodeView, ViewMutationRecord } from '@tiptap/pm/view';
 
+import { contentWasSplit } from './browser-edits.ts';
 import './code-block.css';
 import { copyControls, type CopyControls } from './code-copy.ts';
 import { CODE_COPY_TEXTS } from './code-copy-texts.ts';
@@ -132,9 +133,7 @@ export class CodeBlockView implements NodeView {
   ignoreMutation(mutation: ViewMutationRecord): boolean {
     // The focus in the list's field is no selection of the text.
     if (mutation.type === 'selection') return this.#bar.contains(mutation.target);
-    // Native Enter on iOS may split the pre element. Its parent mutation must
-    // reach the editor so its Enter handler can reconcile it.
-    if (mutation.type === 'childList' && mutation.target.contains(this.contentDOM)) return false;
+    if (contentWasSplit(mutation, this.contentDOM)) return false;
     return !this.contentDOM.contains(mutation.target);
   }
 

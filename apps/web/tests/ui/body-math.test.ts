@@ -402,7 +402,7 @@ describe('the component', () => {
     });
     await rerender({ doc: doc(paragraph(text('still none'))) });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(container.textContent).toBe('still none');
+    expect(container.querySelector('.doc-body')?.textContent).toBe('still none');
     expect(loadMath).not.toHaveBeenCalled();
     expect(drawDiagram).not.toHaveBeenCalled();
 

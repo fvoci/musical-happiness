@@ -1,19 +1,23 @@
 /**
  * The slash menu: typing `/` at the start of a line or after a space offers
  * what is put into a body, or done to it, by something other than typing:
- * a file where the body takes files (uploads.ts asks for it and puts its
- * block in), a table, and in a table what changes it (table-menu.ts). What
- * it offers depends on where the reader is; with nothing to offer, no menu.
+ * the kinds of block (block-menu.ts), a table and in a table what changes it
+ * (table-menu.ts), and a file where the body takes files (uploads.ts asks
+ * for it and puts its block in). What it offers depends on where the reader
+ * is; with nothing to offer, no menu.
  *
  * What follows the slash narrows the entries by their names in any of the
- * reader's words (`/파일`, `/file`). Not in a code block, whose text is
- * code, nor after anything but a space (`http:/`, `a/b`).
+ * reader's words (`/파일`, `/file`), Korean by its letters as it is being
+ * composed (`/제`, `/젬`, `/ㅈㅁ`: letters.ts). The arrows and Enter choose,
+ * never while an input method composes (suggestion-list.ts). Not in a code
+ * block, whose text is code, nor after anything but a space (`http:/`, `a/b`).
  */
 import { Extension, type Editor } from '@tiptap/core';
 import { PluginKey } from '@tiptap/pm/state';
 import { Suggestion } from '@tiptap/suggestion';
 
 import type { SuggestionEntry, SuggestionRenderer } from './extensions.ts';
+import { finds } from './letters.ts';
 
 /** One thing the menu offers. */
 export interface SlashEntry {
@@ -33,14 +37,10 @@ export interface SlashMenuOptions {
   render?: SuggestionRenderer;
 }
 
-/** The entries whose names have `query` in them, in the order given. */
+/** The entries that what was typed finds by one of their names, in the order given. */
 export function matching(entries: SlashEntry[], query: string): SlashEntry[] {
-  const wanted = query.trim().toLowerCase();
-  return entries.filter(
-    (entry) =>
-      wanted === '' ||
-      entry.label.toLowerCase().includes(wanted) ||
-      entry.words.some((word) => word.includes(wanted)),
+  return entries.filter((entry) =>
+    [entry.label, ...entry.words].some((name) => finds(name, query)),
   );
 }
 

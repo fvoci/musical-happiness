@@ -9,6 +9,7 @@ import type { ContainerMember, MemberRole } from '../logic/container-members.ts'
 import type { Container } from '../logic/wire.ts';
 
 import { permissionsOfRole, type ContainerPermissions } from './authority-types.ts';
+import { roleOf } from './board-parts.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /** The role joining gives: the least role, as the server grants it (an editor's where none is set). */
@@ -50,11 +51,11 @@ export interface JoinOnWriteHost {
  */
 export class JoinOnWrite {
   readonly #host: JoinOnWriteHost;
-  /** Reads again what the reader may do, now a member. */
-  readonly #refreshPermissions: () => Promise<void>;
+  /** Reads again what the reader may do, now a member of `role`: what is read is theirs as one. */
+  readonly #refreshPermissions: (role: MemberRole) => Promise<void>;
   #joining: Promise<void> | undefined;
 
-  constructor(host: JoinOnWriteHost, refreshPermissions: () => Promise<void>) {
+  constructor(host: JoinOnWriteHost, refreshPermissions: (role: MemberRole) => Promise<void>) {
     this.#host = host;
     this.#refreshPermissions = refreshPermissions;
   }
@@ -77,8 +78,9 @@ export class JoinOnWrite {
     } catch {
       return;
     }
-    // What a member may do is read before the reader is one, so that nothing reads as before in between.
-    await this.#refreshPermissions();
+    // What a member may do is read before the reader is one, so that nothing reads as before in
+    // between; it is told as the joined member's role's, which the reader has from then on.
+    await this.#refreshPermissions(roleOf(member));
     host.members = [...host.members.filter((one) => one.userId !== member.userId), member];
   }
 }

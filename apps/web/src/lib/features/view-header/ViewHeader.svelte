@@ -23,6 +23,9 @@
   A reader who may not edit the board can switch views and search. The
   other tools change the view for everyone and are not shown.
 
+  "…" also saves the view as a CSV file (view-csv.ts), for every reader but
+  one who came by a public link: in both rows, after the tools it holds.
+
   The view shown is said to a screen reader as it changes (a quiet status
   with its name): chosen from the list, added, copied, or reached by the
   browser's back.
@@ -32,6 +35,7 @@
   import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import EyeIcon from '@lucide/svelte/icons/eye';
+  import FileSpreadsheetIcon from '@lucide/svelte/icons/file-spreadsheet';
   import GitForkIcon from '@lucide/svelte/icons/git-fork';
   import LayersIcon from '@lucide/svelte/icons/layers';
   import ListFilterIcon from '@lucide/svelte/icons/list-filter';
@@ -45,7 +49,7 @@
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { pane } from '$lib/layout/room.svelte.ts';
-  import type { BoardView, PropertyTemplate } from '$lib/logic/wire.ts';
+  import type { BoardView, Card, PropertyTemplate } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -55,6 +59,7 @@
   import PropertiesPanel from './PropertiesPanel.svelte';
   import SortEditor from './SortEditor.svelte';
   import { asideTools, viewTitle, type Icon } from './texts.ts';
+  import { saveViewCsv } from './view-csv.ts';
   import {
     dependenciesChoices,
     dependenciesName,
@@ -82,9 +87,19 @@
     onOpenView: (viewId: string) => void;
     /** Makes a card the view will show, and opens it. */
     onAddCard: () => void;
+    /** The cards the view shows now, for a CSV of it; not given on a public link. */
+    exportCards?: (() => readonly Card[]) | undefined;
   }
 
-  let { board, view, search = $bindable(), viewHref, onOpenView, onAddCard }: Props = $props();
+  let {
+    board,
+    view,
+    search = $bindable(),
+    viewHref,
+    onOpenView,
+    onAddCard,
+    exportCards,
+  }: Props = $props();
 
   const pickers = new PickerPresentation();
 
@@ -226,6 +241,23 @@
       },
     ),
   );
+
+  /** The lines of "…": the tools it holds for an editor, then the file of the view. */
+  const moreActions = $derived.by<MenuAction[]>(() => {
+    const tools = canEdit ? asideActions : [];
+    if (!exportCards) return tools;
+    const cards = exportCards;
+    const save: MenuAction = {
+      id: 'export-csv',
+      label: m['ViewHeader.export-csv'](),
+      icon: FileSpreadsheetIcon,
+      separated: tools.length > 0,
+      run: () => {
+        saveViewCsv(board, view, cards());
+      },
+    };
+    return [...tools, save];
+  });
 
   /** A tool that is not drawn: an unseen element where "…" is in the row, for its popover to open at. */
   const ASIDE = 'invisible absolute top-1/2 size-8 -translate-y-1/2 roomy:size-touch';
@@ -380,30 +412,28 @@
     {/if}
   </div>
 
-  {#if canEdit}
-    <div class="contents" inert={searchBar}>
-      <!-- The tools without a button of their own in the row as it is (none, but in a Gantt chart, in the whole row). -->
-      {#if asideActions.length > 0}
-        <ActionMenu
-          title={m['ViewHeader.view-menu']()}
-          subtitle={viewTitle(view)}
-          actions={asideActions}
-        >
-          {#snippet trigger(props: Record<string, unknown>)}
-            <IconButton {...props} label={m['ViewHeader.view-menu']()} data-tool="more">
-              <EllipsisIcon />
-            </IconButton>
-          {/snippet}
-        </ActionMenu>
-      {/if}
-      {#if row}
-        <Button class="ml-1 shrink-0 roomy:h-touch" data-testid="new-card" onclick={onAddCard}>
-          <PlusIcon data-icon="inline-start" />
-          {m['ViewHeader.new']()}
-        </Button>
-      {/if}
-    </div>
-  {/if}
+  <div class="contents" inert={searchBar}>
+    <!-- The tools without a button of their own in the row as it is (none, but in a Gantt chart, in the whole row), and the file of the view. -->
+    {#if moreActions.length > 0}
+      <ActionMenu
+        title={m['ViewHeader.view-menu']()}
+        subtitle={viewTitle(view)}
+        actions={moreActions}
+      >
+        {#snippet trigger(props: Record<string, unknown>)}
+          <IconButton {...props} label={m['ViewHeader.view-menu']()} data-tool="more">
+            <EllipsisIcon />
+          </IconButton>
+        {/snippet}
+      </ActionMenu>
+    {/if}
+    {#if canEdit && row}
+      <Button class="ml-1 shrink-0 roomy:h-touch" data-testid="new-card" onclick={onAddCard}>
+        <PlusIcon data-icon="inline-start" />
+        {m['ViewHeader.new']()}
+      </Button>
+    {/if}
+  </div>
 </div>
 
 {#if canEdit && !row}

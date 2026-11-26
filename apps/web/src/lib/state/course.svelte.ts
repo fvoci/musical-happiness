@@ -40,6 +40,7 @@ import type {
 export type { CourseLooks };
 import { HierarchyWriteQueue } from './hierarchy-writes.ts';
 import { MemberWrites } from './member-writes.ts';
+import { noteMembership } from './memberships.svelte.ts';
 import { orderMembers } from './order.ts';
 import type { TreeSource } from './tree-source.ts';
 import { UnitStore } from './unit.svelte.ts';
@@ -59,7 +60,15 @@ export class CourseStore implements TreeSource<CourseUnit> {
   joining = $state(false);
   course = $state.raw<Container | undefined>(undefined);
   units = $state.raw<CourseUnit[]>([]);
-  members = $state.raw<ContainerMember[]>([]);
+  #members = $state.raw<ContainerMember[]>([]);
+  /** Its members as read; whether the reader is one is told to the sidebar (`noteMembership`). */
+  get members(): ContainerMember[] {
+    return this.#members;
+  }
+  set members(members: ContainerMember[]) {
+    this.#members = members;
+    noteMembership(this.workspace, this.courseId, members);
+  }
   permissions = $state.raw<ContainerPermissions>({ ...READ_ONLY_PERMISSIONS });
   openUnit = $state.raw<UnitStore | undefined>(undefined);
 

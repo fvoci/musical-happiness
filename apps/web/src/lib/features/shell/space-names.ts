@@ -1,12 +1,19 @@
 /**
- * How a workspace is named where the reader tells theirs apart: the own space
- * as "My space"; one that is its organization's only workspace of the reader's
- * by the organization's name alone; one of several by "organization · workspace",
- * and grouped under the organization in the switcher.
+ * How a workspace is named wherever the reader sees it named (the top bar, the
+ * switcher, the share dialog, the window of new things, the hub of today):
+ * the own space as "My space"; one that is its organization's only workspace
+ * of the reader's by the organization's name alone; one of several by
+ * "organization · workspace", and grouped under the organization in the
+ * switcher.
  */
 import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
-import { isOwnSpace, type WorkspaceInfo } from '$lib/state/index.ts';
+import {
+  isOwnSpace,
+  organizationNames,
+  type Workspace,
+  type WorkspaceInfo,
+} from '$lib/state/index.ts';
 
 /** The name of an organization by its identifier; empty where it is not known. */
 export type OrgName = (orgId: string | undefined) => string;
@@ -19,6 +26,8 @@ export interface SpaceLine {
   heading?: string;
   /** The whole name, "organization · workspace", for one under a heading. */
   fullName: string;
+  /** A line between it and the one before: it heads its organization's group, or follows one. */
+  separated: boolean;
 }
 
 const titleOf = (workspace: WorkspaceInfo | undefined): string =>
@@ -33,17 +42,34 @@ function countsOf(workspaces: readonly WorkspaceInfo[]): Map<string, number> {
   return counts;
 }
 
-/** The name `workspace` goes by among `workspaces`, as the top bar and the switcher's button show it. */
+/**
+ * The name `workspace` goes by among `workspaces`, as the top bar and the switcher's button
+ * show it. One that has no title of its own and goes by it is said as `unnamed` says it.
+ */
 export function spaceName(
   workspace: WorkspaceInfo | undefined,
   workspaces: readonly WorkspaceInfo[],
   orgName: OrgName,
+  unnamed: () => string = m.org_untitled_workspace,
 ): string {
-  if (!workspace || isOwnSpace(workspace)) return titleOf(workspace);
+  if (!workspace || isOwnSpace(workspace)) return nameOfWorkspace(workspace, unnamed);
   const org = orgName(workspace.orgId);
-  if (!org || !workspace.orgId) return titleOf(workspace);
+  if (!org || !workspace.orgId) return nameOfWorkspace(workspace, unnamed);
   if ((countsOf(workspaces).get(workspace.orgId) ?? 0) < 2) return org;
   return m.space_of_org({ org, space: titleOf(workspace) });
+}
+
+/**
+ * The name the reader's workspace `info` (the one shown, where none is given) goes by
+ * among theirs, with the names of their organizations as `workspace` reads them.
+ */
+export function shownSpaceName(
+  workspace: Workspace,
+  unnamed: () => string,
+  info: WorkspaceInfo | undefined = workspace.info,
+): string {
+  const names = organizationNames(workspace);
+  return spaceName(info, workspace.workspaces, (orgId) => names.of(orgId), unnamed);
 }
 
 /**
@@ -60,7 +86,10 @@ export function spaceLines(workspaces: readonly WorkspaceInfo[], orgName: OrgNam
     workspace,
     label: titleOf(workspace),
     fullName: titleOf(workspace),
+    separated: false,
   }));
+  /** The group before was an organization's of several: what follows it is set apart from it. */
+  let afterGroup = false;
   for (const orgId of orgs) {
     const inOrg = shared.filter((one) => one.orgId === orgId);
     const org = orgName(orgId);
@@ -71,9 +100,11 @@ export function spaceLines(workspaces: readonly WorkspaceInfo[], orgName: OrgNam
         workspace,
         label: several ? titleOf(workspace) : fullName,
         fullName,
+        separated: index === 0 && (several || afterGroup),
         ...(several && index === 0 ? { heading: org } : {}),
       });
     }
+    afterGroup = several;
   }
   return lines;
 }
