@@ -39,6 +39,7 @@ import {
   placeFooter,
   placeIn,
 } from './editing-place.ts';
+import { isLanguage } from './schema.ts';
 
 type Shown = 'pending' | 'drawn' | 'error' | 'empty';
 type DiagramFailed = Extract<DiagramResult, { ok: false }>;
@@ -351,6 +352,25 @@ const diagramsOf = new WeakMap<EditorView, Set<DiagramView>>();
 
 /** The code block of the body: plain, or a diagram when its language is that of diagrams. */
 export const BodyCodeBlock = CodeBlock.extend({
+  addAttributes() {
+    const parent = (this.parent?.() ?? {}) as Record<string, Record<string, unknown> | undefined>;
+    return {
+      ...parent,
+      language: {
+        ...parent.language,
+        default: null,
+        parseHTML: (element: HTMLElement) => {
+          const prefix = this.options.languageClassPrefix ?? 'language-';
+          const classes = [...(element.firstElementChild?.classList ?? [])];
+          const found = classes
+            .filter((name) => name.startsWith(prefix))
+            .map((name) => name.slice(prefix.length))[0];
+          return found && isLanguage(found) ? found : null;
+        },
+      },
+    };
+  },
+
   addNodeView() {
     return ({ node, view, getPos, decorations }) => {
       if (!isDiagramNode(node)) return new CodeBlockView(node, view, getPos);

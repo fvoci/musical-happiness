@@ -280,34 +280,60 @@ describe('the server backend', () => {
     expect(comment).toMatchObject({ id: 'm', type: 'comment', body });
   });
 
-  it('changes a comment by its block with the version it was read at, and reads it again', async () => {
+  it('changes a comment by its block with readAt and reads back the updated version', async () => {
     const body = {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New' }] }],
     };
-    const comment = { ...BLOCK, id: 'm', type: 'comment', title: '', updatedAt: 9, body };
+    let updatedAt = 7;
     const sent: Sent[] = [];
     vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      const parsedBody =
+        typeof init.body === 'string'
+          ? (JSON.parse(init.body) as Record<string, unknown>)
+          : undefined;
       sent.push({
         url,
         method: init.method ?? 'GET',
         headers: {},
-        body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+        body: parsedBody,
       });
+      if (init.method === 'PATCH') {
+        if (parsedBody?.readAt !== updatedAt) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                type: '/problems/conflict',
+                title: 'Conflict',
+                status: 409,
+                detail: 'stale readAt',
+              }),
+              { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+            ),
+          );
+        }
+        updatedAt += 2;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
       return Promise.resolve(
-        init.method === 'PATCH'
-          ? new Response(null, { status: 204 })
-          : new Response(JSON.stringify([comment]), { status: 200 }),
+        new Response(
+          JSON.stringify([{ ...BLOCK, id: 'm', type: 'comment', title: '', updatedAt, body }]),
+          { status: 200 },
+        ),
       );
     });
-    const changed = await serverBackend('').patchComment('b', 'm', { body, readAt: 7 });
+    const backend = serverBackend('');
+    const changed = await backend.patchComment('b', 'm', { body, readAt: 7 });
     expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
-      'GET /api/v1/w/w1/boards/b/blocks?blockId=m',
       'PATCH /api/v1/w/w1/boards/b/blocks/m',
       'GET /api/v1/w/w1/boards/b/blocks?blockId=m',
     ]);
-    expect(sent[1]?.body).toEqual({ body, readAt: 7 });
+    expect(sent[0]?.body).toEqual({ body, readAt: 7 });
     expect(changed).toMatchObject({ id: 'm', body, updatedAt: 9 });
+
+    // Back-to-back edit using the returned updatedAt succeeds without self-conflict 409.
+    const second = await backend.patchComment('b', 'm', { body, readAt: changed.updatedAt });
+    expect(second.updatedAt).toBe(11);
 
     // No text is no comment: refused before anything is sent.
     const none = serve([]);
@@ -317,13 +343,16 @@ describe('the server backend', () => {
     expect(isBackendError(empty) && empty.status).toBe(400);
     expect(none).toHaveLength(0);
 
-    // A block that is not a comment is not changed.
-    const other = serve([{ ...BLOCK, id: 'c', type: 'card', title: 'x' }]);
+    // Server refusal (404 / 409) propagates in one round-trip.
+    const other = serve(
+      { type: '/problems/not-found', title: 'Not found', status: 404, detail: 'no comment' },
+      404,
+    );
     const refused = await serverBackend('')
       .patchComment('b', 'c', { body, readAt: 1 })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(404);
-    expect(other.map((one) => one.method)).toEqual(['GET']);
+    expect(other.map((one) => one.method)).toEqual(['PATCH']);
   });
 
   it('reads the earlier texts of a comment, and says when and by whom it was changed', async () => {
@@ -611,24 +640,13 @@ describe('the problems of the server', () => {
 });
 
 describe('changing a view on the server', () => {
-  it('patches its block and reads it again', async () => {
-    const sent = serve([
-      {
-        ...BLOCK,
-        id: 'v',
-        parentId: '',
-        type: 'view',
-        title: 'Board',
-        fields: { cardOrder: ['c2', 'c1'] },
-      },
-    ]);
+  it('patches its block in one PATCH request without extra GET round-trips', async () => {
+    const sent = serve(undefined, 204);
     const view = await serverBackend('').patchView('b', 'v', {
       updatedFields: { cardOrder: ['c2', 'c1'] },
     });
     expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
-      ['GET', '/api/v1/w/w1/boards/b/blocks?blockId=v', undefined],
       ['PATCH', '/api/v1/w/w1/boards/b/blocks/v', { updatedFields: { cardOrder: ['c2', 'c1'] } }],
-      ['GET', '/api/v1/w/w1/boards/b/blocks?blockId=v', undefined],
     ]);
     expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
   });
@@ -642,26 +660,28 @@ describe('changing a view on the server', () => {
     fields: { cardOrder: ['c1', 'c2'] },
   };
 
-  it('changes no block that is not a view', async () => {
-    const sent = serve([{ ...VIEW, type: 'card' }]);
+  it('propagates 404 when the server refuses the view patch', async () => {
+    const sent = serve(
+      { type: '/problems/not-found', title: 'Not found', status: 404, detail: 'no view' },
+      404,
+    );
     const refused = await serverBackend('')
       .patchView('b', 'v', { updatedFields: { cardOrder: [] } })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(404);
-    expect(sent.map((one) => one.method)).toEqual(['GET']);
+    expect(sent.map((one) => one.method)).toEqual(['PATCH']);
   });
 
-  it('keeps a change that was saved when only reading the view back fails', async () => {
-    let calls = 0;
-    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
-      calls += 1;
-      if (calls === 3) return Promise.reject(new TypeError('offline'));
-      if (init.method === 'PATCH') return Promise.resolve(new Response(null, { status: 204 }));
-      return Promise.resolve(new Response(JSON.stringify([VIEW]), { status: 200 }));
-    });
-    const view = await serverBackend('').patchView('b', 'v', {
+  it('preserves previously read view metadata when patching fields in 1 round-trip', async () => {
+    const backend = serverBackend('');
+    serve([VIEW]);
+    await backend.views('b');
+    const sent = serve(undefined, 204);
+    const view = await backend.patchView('b', 'v', {
       updatedFields: { cardOrder: ['c2', 'c1'] },
     });
+    expect(sent).toHaveLength(1);
+    expect(view.title).toBe('Board');
     expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
   });
 
@@ -693,26 +713,22 @@ describe('changing a view on the server', () => {
     expect(isBackendError(refused) && refused.status).toBe(500);
   });
 
-  it('sends two quick changes of one view one after the other', async () => {
+  it('sends two quick changes of one view one after the other in two PATCH requests', async () => {
     const order: string[] = [];
     vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
       order.push(`${init.method ?? 'GET'} ${typeof init.body === 'string' ? init.body : url}`);
-      // The first change's request is the slower one: it would arrive last.
-      await new Promise((resolve) => setTimeout(resolve, order.length === 2 ? 20 : 1));
-      if (init.method === 'PATCH') return new Response(null, { status: 204 });
-      return new Response(JSON.stringify([VIEW]), { status: 200 });
+      await new Promise((resolve) => setTimeout(resolve, order.length === 1 ? 20 : 1));
+      return new Response(null, { status: 204 });
     });
     const backend = serverBackend('');
     await Promise.all([
       backend.patchView('b', 'v', { updatedFields: { cardOrder: ['a'] } }),
       backend.patchView('b', 'v', { updatedFields: { cardOrder: ['b'] } }),
     ]);
-    expect(order.filter((line) => line.startsWith('PATCH'))).toEqual([
+    expect(order).toEqual([
       'PATCH {"updatedFields":{"cardOrder":["a"]}}',
       'PATCH {"updatedFields":{"cardOrder":["b"]}}',
     ]);
-    expect(order).toHaveLength(6);
-    expect(order[3]).toMatch(/^GET/);
   });
 
   it('sends readAt on patchView when given, forwards it along queued writes, and stops on failure', async () => {
@@ -761,26 +777,34 @@ describe('changing a view on the server', () => {
     });
     const backend = serverBackend('');
     // Two queued conditional writes with the same initial readAt: the second advances to 11.
-    await Promise.all([
+    const [firstView, secondView] = await Promise.all([
       backend.patchView('b', 'v', { updatedFields: { order: 'V' }, readAt: 10 }),
       backend.patchView('b', 'v', { updatedFields: { order: 'W' }, readAt: 10 }),
     ]);
+    expect([firstView.updatedAt, secondView.updatedAt]).toEqual([11, 12]);
+    // Sequential conditional write using returned updatedAt also succeeds without WS echo.
+    const thirdView = await backend.patchView('b', 'v', {
+      updatedFields: { order: 'U' },
+      readAt: secondView.updatedAt,
+    });
+    expect(thirdView.updatedAt).toBe(13);
     expect(patches).toEqual([
       { updatedFields: { order: 'V' }, readAt: 10 },
       { updatedFields: { order: 'W' }, readAt: 11 },
+      { updatedFields: { order: 'U' }, readAt: 12 },
     ]);
 
     // When the first fails with 409, the second keeps its stale readAt and also gets 409.
     patches.length = 0;
     updatedAt = 20;
     const results = await Promise.allSettled([
-      backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 12 }),
-      backend.patchView('b', 'v', { updatedFields: { order: 'Y' }, readAt: 12 }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'X' }, readAt: 13 }),
+      backend.patchView('b', 'v', { updatedFields: { order: 'Y' }, readAt: 13 }),
     ]);
     expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
     expect(patches).toEqual([
-      { updatedFields: { order: 'X' }, readAt: 12 },
-      { updatedFields: { order: 'Y' }, readAt: 12 },
+      { updatedFields: { order: 'X' }, readAt: 13 },
+      { updatedFields: { order: 'Y' }, readAt: 13 },
     ]);
 
     // Unconditional write over a view somebody else already bumped does not advance a stale queued readAt.
@@ -926,14 +950,21 @@ describe('the sidebar on the server', () => {
   ];
   const CATEGORIES = [{ ...CATEGORY, containerMetadata: FILED }];
 
-  it('makes a category of the reader, under their identifier', async () => {
+  it('makes a category of the reader without re-calling me() once known', async () => {
     const sent = serveRoutes([
       ['GET /api/v1/users/me', { id: 'me', username: 'me', createdAt: 1, updatedAt: 1 }],
       ['POST /api/v1/w/t/categories', CATEGORY, 201],
     ]);
-    const made = await serverBackend('').createCategory('t', { name: 'Work' });
-    expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/w/t/categories']);
+    const backend = serverBackend('');
+    const made = await backend.createCategory('t', { name: 'Work' });
+    await backend.createCategory('t', { name: 'Next' });
+    expect(sentLines(sent)).toEqual([
+      'GET /api/v1/users/me',
+      'POST /api/v1/w/t/categories',
+      'POST /api/v1/w/t/categories',
+    ]);
     expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', workspaceId: 't' });
+    expect(sent[2]?.body).toEqual({ name: 'Next', userId: 'me', workspaceId: 't' });
     expect(made).toMatchObject({ id: 'k1', containerIds: [], hiddenContainerIds: [] });
   });
 
@@ -1106,8 +1137,8 @@ describe('boards on the server', () => {
   it('changes, deletes and brings back a board by its routes', async () => {
     const sent = serveRoutes([
       ['PATCH /api/v1/w/w1/containers/b1', { ...BOARD, title: 'New' }],
-      ['DELETE /api/v1/w/w1/containers/b1', undefined, 204],
-      ['POST /api/v1/w/w1/containers/b1/restore', BOARD],
+      ['DELETE /api/v1/w/t/containers/b1', undefined, 204],
+      ['POST /api/v1/w/t/containers/b1/restore', BOARD],
     ]);
     const backend = serverBackend('');
     expect(
@@ -1117,8 +1148,8 @@ describe('boards on the server', () => {
     expect((await backend.restoreContainer('b1')).id).toBe('b1');
     expect(sentLines(sent)).toEqual([
       'PATCH /api/v1/w/w1/containers/b1',
-      'DELETE /api/v1/w/w1/containers/b1',
-      'POST /api/v1/w/w1/containers/b1/restore',
+      'DELETE /api/v1/w/t/containers/b1',
+      'POST /api/v1/w/t/containers/b1/restore',
     ]);
     expect(sent[0]?.body).toEqual({ title: 'New', minimumRole: 'viewer' });
   });
@@ -1288,7 +1319,8 @@ describe('templates on the server', () => {
   it('reads the templates, copies a board either way, and makes the welcome board', async () => {
     const sent = serveRoutes([
       ['GET /api/v1/w/t/templates', [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }]],
-      ['POST /api/v1/w/w1/containers/', { containers: [BOARD], blocks: [] }, 201],
+      ['POST /api/v1/w/w1/containers/tp/duplicate', { containers: [BOARD], blocks: [] }, 201],
+      ['POST /api/v1/w/t/containers/b2/duplicate', { containers: [BOARD], blocks: [] }, 201],
       ['POST /api/v1/w/t/onboard', { boardId: 'w1' }],
     ]);
     const backend = serverBackend('');
@@ -1300,7 +1332,7 @@ describe('templates on the server', () => {
     expect(sentLines(sent)).toEqual([
       'GET /api/v1/w/t/templates',
       'POST /api/v1/w/w1/containers/tp/duplicate?asTemplate=false&toWorkspace=t',
-      'POST /api/v1/w/w1/containers/b2/duplicate?asTemplate=true&toWorkspace=t',
+      'POST /api/v1/w/t/containers/b2/duplicate?asTemplate=true&toWorkspace=t',
       'POST /api/v1/w/t/onboard',
     ]);
   });

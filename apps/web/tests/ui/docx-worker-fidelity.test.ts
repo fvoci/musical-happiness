@@ -121,6 +121,72 @@ describe('the frame builds only plain names, and nothing that runs', () => {
     expect(into.querySelector('svg')?.namespaceURI).toBe('http://www.w3.org/2000/svg');
   });
 
+  it('filters href, src, and xlink:href to safe URL schemes only', async () => {
+    const into = document.createElement('div');
+    await build(
+      [
+        OPEN,
+        'div',
+        0,
+        0,
+        OPEN,
+        'a',
+        0,
+        1,
+        'href',
+        'javascript:alert(1)',
+        TEXT,
+        'bad',
+        CLOSE,
+        OPEN,
+        'a',
+        0,
+        1,
+        'href',
+        'https://example.com/ok',
+        TEXT,
+        'ok',
+        CLOSE,
+        OPEN,
+        'a',
+        0,
+        1,
+        'href',
+        '#mark',
+        TEXT,
+        'anchor',
+        CLOSE,
+        OPEN,
+        'img',
+        0,
+        1,
+        'src',
+        'data:image/svg+xml;base64,PHN2Zz4=',
+        CLOSE,
+        OPEN,
+        'img',
+        0,
+        1,
+        'src',
+        'blob:null/1234',
+        CLOSE,
+        OPEN,
+        'img',
+        0,
+        1,
+        'src',
+        'data:image/png;base64,iVBORw0KGgo=',
+        CLOSE,
+        CLOSE,
+      ],
+      into,
+    );
+    const links = [...into.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual([null, 'https://example.com/ok', '#mark']);
+    const images = [...into.querySelectorAll('img')].map((img) => img.getAttribute('src'));
+    expect(images).toEqual([null, 'blob:null/1234', 'data:image/png;base64,iVBORw0KGgo=']);
+  });
+
   it('refuses steps out of shape', async () => {
     await expect(build([OPEN, 'p', 0, 1, 'class'], document.createElement('div'))).rejects.toThrow(
       BrokenSteps,

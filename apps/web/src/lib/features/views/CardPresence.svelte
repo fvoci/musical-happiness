@@ -8,10 +8,8 @@
     cardId,
     class: className,
   }: { board: BoardStore; cardId: string; class?: string } = $props();
-  /** Who else has the card open: the reader knows their own. */
-  const people = $derived(
-    boardPresence(board).others.filter((person) => person.cardIds.includes(cardId)),
-  );
+  /** Who else has the card open: O(1) indexed lookup with frozen empty identity (§1.2.1). */
+  const people = $derived(boardPresence(board).forCard(cardId));
   const names = $derived(
     people
       .map((person) => board.workspace.userName(person.userId) ?? m['centerPanel.unknown-user']())

@@ -18,6 +18,7 @@ import { NodeSelection, Plugin, Selection } from '@tiptap/pm/state';
 
 import { FILE_BLOCK_ATTRIBUTE, FILE_ID_ATTRIBUTE } from './drawing.ts';
 import { drawFileBlock, pressFileOf } from './file-view.ts';
+import { isFileId } from './schema.ts';
 
 /** A file block's controls, which the focus may be on. */
 const FILE_CONTROLS = 'button.doc-file-open, a.doc-file-download';
@@ -112,7 +113,13 @@ export const FileBlock = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: `div[${FILE_BLOCK_ATTRIBUTE}][${FILE_ID_ATTRIBUTE}]` }];
+    return [
+      {
+        tag: `div[${FILE_BLOCK_ATTRIBUTE}][${FILE_ID_ATTRIBUTE}]`,
+        getAttrs: (element: HTMLElement) =>
+          isFileId(element.getAttribute(FILE_ID_ATTRIBUTE)) ? null : false,
+      },
+    ];
   },
 
   renderHTML({ HTMLAttributes }) {

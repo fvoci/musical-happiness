@@ -1,72 +1,74 @@
 <!--
-  A board read by its public link (`/shared/<board>/<view>/<card>?r=<token>`):
-  its views, its cards with their bodies, comments and files, and nothing
-  else; or a wiki, its tree and its pages (`SharedWiki`), the kind the server
-  gives the link's board saying which. No sidebar, no settings, nobody named, nothing to change: the backend
-  of the link writes nothing (`startShared`). Whoever opens the link reads it
-  so, signed in or not; no session goes along. Nothing changes while it is
-  open: reading again shows what is new. A wrong token, a link turned off and
-  a board in the trash all show the same "not found".
+  A board, wiki, or course read by its public link (`/shared/<container>/<view>/<card>?r=<token>`).
+  Reacts to `router.route` changes (`popstate`) so navigating Back/Forward between
+  two shared links reloads cleanly (`W1.5`).
 -->
+<script lang="ts" module>
+  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
+
+  const sharedBoardChunk = new LazyChunk(() => import('./BoardPage.svelte'));
+  const sharedTreeChunk = new LazyChunk(() => import('./SharedTreeReader.svelte'));
+</script>
+
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { untrack } from 'svelte';
 
   import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
   import { setViewedFileSource } from '$lib/components/file-viewer/viewing.svelte.ts';
-  import { pane } from '$lib/layout/room.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { pane } from '$lib/layout/room.svelte.ts';
   import type { ContainerKind } from '$lib/logic/wire.ts';
   import { fileSourceOf } from '$lib/state/file-source.ts';
   import { isBackendError, Workspace, type Backend } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { startShared } from './backend.ts';
-  import BoardPage from './BoardPage.svelte';
+  import LazyView from './LazyView.svelte';
   import { currentLocale } from './locale.ts';
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
-  import SharedCourse from './SharedCourse.svelte';
-  import SharedWiki from './SharedWiki.svelte';
 
   let { router }: { router: Router } = $props();
 
   let workspace = $state.raw<Workspace | undefined>(undefined);
   let backend = $state.raw<Backend | undefined>(undefined);
-  /**
-   * What the link opens, once read: a board's screen, a wiki's, or a course's;
-   * `missing` for nothing (a wrong token, a link turned off), `failed` for a
-   * reading that did not come, to try again.
-   */
   let kind = $state<ContainerKind | 'missing' | 'failed' | undefined>(undefined);
-  /** Reads what the link opens (again, after a reading that failed). */
   let readKind: (() => Promise<void>) | undefined;
-  /** The title at the head of the page for a wiki or course. */
   let meta = $state.raw<{ title: string; icon: string } | undefined>(undefined);
   let place = '';
-  /** The screen could not start (its code did not load): nothing is read. */
   let unstarted = $state(false);
 
-  /** The board, wiki, or course read, once it is: its title heads the page. */
+  const sharedContainerId = $derived(
+    router.route.kind === 'shared' ? router.route.boardId : undefined,
+  );
+  const sharedReadToken = $derived(
+    router.route.kind === 'shared' ? router.route.readToken : undefined,
+  );
   const container = $derived(kind === 'wiki' || kind === 'course' ? meta : workspace?.board?.board);
 
-  onMount(() => {
-    const { boardId: containerId, readToken } = router.route;
-    if (!containerId || !readToken) return;
+  $effect(() => {
+    const containerId = sharedContainerId;
+    const readToken = sharedReadToken;
+    untrack(() => {
+      workspace = undefined;
+      backend = undefined;
+      kind = undefined;
+      readKind = undefined;
+      meta = undefined;
+      unstarted = false;
+    });
+    if (!containerId || !readToken) return undefined;
     let made: Workspace | undefined;
     let left = false;
-    /** Asked as a function: `left` changes while a reading waits, which TypeScript does not see. */
     const isLeft = (): boolean => left;
     void startShared(containerId, readToken).then(
       async (started) => {
-        // Gone before the backend came: nothing is read.
         if (left) return;
         const read = started.backend;
         place = started.place;
         const shown = new Workspace({ backend: read, locale: currentLocale });
         made = shown;
-        // The bodies name their images and file blocks by file: the link's board or wiki has them,
-        // which the viewer shows the reader as it shows them to its members.
         const files = fileSourceOf(
           read,
           () => containerId,
@@ -78,7 +80,9 @@
         workspace = made;
         backend = read;
         await made.load(place);
+        if (isLeft()) return;
         readKind = async () => {
+          if (isLeft()) return;
           kind = undefined;
           try {
             const opened = await read.container(containerId);
@@ -105,7 +109,6 @@
   });
 </script>
 
-<!-- The page is what is inside the edges the device keeps (#app has them as padding). -->
 <div
   class="flex h-[calc(100dvh-var(--safe-top))] min-h-0 flex-col overflow-hidden bg-background"
   data-testid="shared-board"
@@ -124,7 +127,7 @@
     {/if}
   </header>
   <main class="@container/pane flex min-h-0 min-w-0 flex-1 flex-col" {@attach pane.attach}>
-    {#if !router.route.boardId || !router.route.readToken}
+    {#if !sharedContainerId || !sharedReadToken}
       <NotFound {router} />
     {:else if unstarted}
       <div class="grid h-full place-items-center p-6 text-center">
@@ -154,14 +157,28 @@
           </Button>
         </div>
       </div>
-    {:else if kind === 'wiki' && backend}
-      <SharedWiki {backend} wikiId={router.route.boardId} {router} />
-    {:else if kind === 'course' && backend}
-      <SharedCourse {backend} courseId={router.route.boardId} {router} />
+    {:else if (kind === 'wiki' || kind === 'course') && backend}
+      {@const treeKind = kind}
+      {@const treeBackend = backend}
+      <LazyView chunk={sharedTreeChunk}>
+        {#snippet children(SharedTreeReader)}
+          <SharedTreeReader
+            kind={treeKind}
+            backend={treeBackend}
+            containerId={sharedContainerId}
+            {router}
+          />
+        {/snippet}
+      </LazyView>
     {:else if kind === 'diary'}
       <NotFound {router} />
     {:else}
-      <BoardPage {workspace} {router} />
+      {@const shownWorkspace = workspace}
+      <LazyView chunk={sharedBoardChunk}>
+        {#snippet children(BoardPage)}
+          <BoardPage workspace={shownWorkspace} {router} />
+        {/snippet}
+      </LazyView>
     {/if}
   </main>
 </div>

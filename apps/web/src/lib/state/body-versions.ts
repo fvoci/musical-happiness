@@ -57,7 +57,7 @@ export interface BodyVersions {
    * and a card that has that body already is left as it is. 409 for a
    * version that cannot be stored any more.
    */
-  restore(boardId: string, cardId: string, version: number): Promise<void>;
+  restore(boardId: string, cardId: string, version: number): Promise<unknown>;
   /**
    * Keeps the card's body as a version now, for who edits the board: what
    * its room's editors typed is in it first, and the editors' documents are

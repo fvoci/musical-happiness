@@ -1,78 +1,98 @@
 /**
- * One open page of a wiki: its body, edited together in its room.
- *
- * The title and the icon are not here: they are in the wiki's list of pages
- * (`page`), so that the tree and the page never disagree, and are changed
- * there (`WikiStore.changePage`).
- *
- * The body is the card's way (`card.svelte.ts`): the page's room
- * (`Backend.openDoc` with the page in place of the card) holds the document
- * the reader sees and writes, and the server writes the page's body from it.
- * `body` is the body as the page was last read, shown until the room's
- * document has arrived, and read again when the page changes while no room's
- * document is held. The comments on the page are `comments`
- * (`page-comments.svelte.ts`), read with it.
+ * One open page of a wiki: its body, edited together in its room, and its
+ * comment thread (`CommentThreadStore`).
  */
+import { sameDocNode } from '../editor/same-doc.ts';
 import type { DocNode } from '../editor/schema.ts';
 import {
   isBackendError,
-  type BodyDoc,
   type BodyDocState,
   type WikiPage,
   type WikiPageDetail,
+  type Wikis,
 } from './backend.ts';
 import { BodyUploads } from './body-uploads.svelte.ts';
-import { REJOIN_SPACING, afterPutOut } from './card-parts.ts';
-import { PageComments } from './page-comments.svelte.ts';
+import { CollaborativeBodyState } from './collab-body.svelte.ts';
+import { CommentThreadStore } from './comment-thread.svelte.ts';
+import type { OpenHierarchyNode } from './hierarchy-writes.ts';
 import { mentionedIn } from './user-names.ts';
 import type { WikiStore } from './wiki.svelte.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 
-const sameDoc = (first: DocNode | null, second: DocNode | null): boolean =>
-  JSON.stringify(first) === JSON.stringify(second);
-
-export class PageStore {
+export class PageStore implements OpenHierarchyNode {
   readonly wiki: WikiStore;
   readonly pageId: string;
 
   status = $state<LoadStatus>('idle');
-  /** The page is gone (deleted here or by somebody else), or never was. */
   missing = $state(false);
-  /**
-   * The page was shown and is gone since: by somebody else (`others`, to be
-   * told), or by the reader (deleted, or its making undone). Its title as it was.
-   */
   removed = $state.raw<{ by: 'others' | 'reader'; title: string } | undefined>(undefined);
-  /** The page's metadata as read directly, available before the full wiki page list arrives. */
   meta = $state.raw<WikiPage | undefined>(undefined);
-  /** The body as it is stored, as far as this store knows. */
   body = $state.raw<DocNode | null>(null);
-  /** The body in its room, while it is open there (`openBody`). */
-  room = $state.raw<BodyDocState | undefined>(undefined);
-  /** Why things of the reader's were dropped, each once, until dismissed (`CardStore.lost`). */
-  lost = $state.raw<readonly string[]>([]);
 
-  /** The version of the page the body was read at. */
   #readAt = 0;
-  #bodyDoc: BodyDoc | undefined;
   #closed = false;
   #speculative: boolean;
-  #rejoinedAt = -Infinity;
-  /** News of the page heard while the body was the room's: read once it is not. */
   #news: WikiPage | undefined;
-  /** Readings of the body begun: the latest is the one that counts. */
   #readings = 0;
-  /** The page was shown (read once): its going is told, whoever finds out first. */
   #shown = false;
 
-  /** The comments on the page. */
-  readonly comments: PageComments;
+  readonly comments: CommentThreadStore;
+  readonly #collab: CollaborativeBodyState;
+  readonly #bodyUploads: BodyUploads;
 
   constructor(wiki: WikiStore, pageId: string, options: { speculative?: boolean } = {}) {
     this.wiki = wiki;
     this.pageId = pageId;
     this.#speculative = Boolean(options.speculative);
-    this.comments = new PageComments(wiki, pageId, () => this.#speculative);
+    this.#bodyUploads = new BodyUploads(() => this.wiki.workspace);
+    this.#collab = new CollaborativeBodyState({
+      workspace: wiki.workspace,
+      probeStillThere: () => this.#read(),
+      onGone: () => {
+        this.gone();
+      },
+      onDocReleased: () => {
+        this.#catchUp();
+      },
+    });
+    this.comments = new CommentThreadStore({
+      workspace: wiki.workspace,
+      parentId: pageId,
+      role: () => this.wiki.role,
+      joinable: () => this.wiki.joinable,
+      isSpeculative: () => this.#speculative,
+      api: {
+        list: () => this.#wikis.comments(this.#wikiId, this.pageId),
+        create: (body) => this.#wikis.createComment(this.#wikiId, this.pageId, body),
+        patch: (commentId, write) =>
+          this.#wikis.patchComment(this.#wikiId, this.pageId, commentId, write),
+        remove: (commentId) => this.#wikis.deleteComment(this.#wikiId, this.pageId, commentId),
+        restore: (commentId) => this.#wikis.restoreComment(this.#wikiId, this.pageId, commentId),
+        versions: (commentId) => this.#wikis.commentVersions(this.#wikiId, this.pageId, commentId),
+      },
+    });
+  }
+
+  get id(): string {
+    return this.pageId;
+  }
+
+  get fallbackTitle(): string {
+    return this.meta?.title ?? '';
+  }
+
+  get room(): BodyDocState | undefined {
+    return this.#collab.room;
+  }
+
+  get lost(): readonly string[] {
+    return this.#collab.lost;
+  }
+
+  get #wikis(): Wikis {
+    const wikis = this.wiki.workspace.backend.wiki;
+    if (!wikis) throw new Error('this backend has no wikis');
+    return wikis;
   }
 
   get #wikiId(): string {
@@ -90,13 +110,35 @@ export class PageStore {
     await Promise.all([this.#readBody(true), this.comments.read(true)]);
   }
 
-  /** Reads the body and the comments again after changes may have been missed (the wiki's `resync`). */
   async refresh(): Promise<void> {
     if (this.status !== 'ready') return;
     await Promise.all([
       this.#busy() ? undefined : this.#readBody(false),
       this.comments.read(false),
     ]);
+  }
+
+  #applyDetail(detail: WikiPageDetail): void {
+    this.#readAt = detail.updatedAt;
+    this.meta = {
+      id: detail.id,
+      wikiId: detail.wikiId,
+      parentId: detail.parentId,
+      title: detail.title,
+      icon: detail.icon,
+      order: detail.order,
+      createdAt: detail.createdAt,
+      updatedAt: detail.updatedAt,
+    };
+    if (!sameDocNode(detail.body, this.body)) this.body = detail.body;
+    void this.wiki.workspace.learnUsers(mentionedIn(detail.body));
+  }
+
+  /** Applies an authoritative restored `WikiPageDetail` immediately (W1.4). */
+  applyRestored(detail: WikiPageDetail): void {
+    if (this.#closed) return;
+    this.#applyDetail(detail);
+    this.wiki.receivePage(this.meta ?? detail);
   }
 
   async #readBody(first: boolean): Promise<void> {
@@ -106,20 +148,7 @@ export class PageStore {
       const detail = await this.#read();
       if (this.#closed || reading !== this.#readings) return;
       if (!first && detail.updatedAt <= this.#readAt) return;
-      this.#readAt = detail.updatedAt;
-      this.meta = {
-        id: detail.id,
-        wikiId: detail.wikiId,
-        parentId: detail.parentId,
-        title: detail.title,
-        icon: detail.icon,
-        order: detail.order,
-        createdAt: detail.createdAt,
-        updatedAt: detail.updatedAt,
-      };
-      if (!sameDoc(detail.body, this.body)) this.body = detail.body;
-      // Somebody the page mentions may be no member any more: their name is asked for.
-      void this.wiki.workspace.learnUsers(mentionedIn(detail.body));
+      this.#applyDetail(detail);
       [this.status, this.missing] = ['ready', false];
       this.#shown = true;
       this.#speculative = false;
@@ -153,12 +182,6 @@ export class PageStore {
     this.#bodyUploads.giveUp();
   }
 
-  /**
-   * The page was deleted (with one above it, perhaps): nothing more is read or
-   * written of it. `by` says who, when it was shown; `title` is its title then.
-   * Who is known from the wiki's list only: the room or a reading may find the
-   * page gone first (no `by`), and the list then says who.
-   */
   gone(by?: 'others' | 'reader', title = ''): void {
     if (by && this.#shown && !this.removed) this.removed = { by, title };
     this.missing = true;
@@ -166,7 +189,6 @@ export class PageStore {
     this.closeBody();
   }
 
-  /** The page changed in the wiki's list: its body is read again unless the room's is shown. */
   pageChanged(page: WikiPage): void {
     if (page.id !== this.pageId || this.missing) return;
     if (!this.meta || page.updatedAt >= this.meta.updatedAt) this.meta = page;
@@ -178,9 +200,8 @@ export class PageStore {
     void this.#readBody(false);
   }
 
-  /** The body shown is the room's document, or the page is closed. */
   #busy(): boolean {
-    return this.#closed || this.room?.doc !== undefined;
+    return this.#closed || this.#collab.hasDoc;
   }
 
   #catchUp(): void {
@@ -192,80 +213,39 @@ export class PageStore {
 
   // --------------------------------------------------------------- body
 
-  /** Opens the body in its room, unless it is open there, gone, or the backend has no rooms. */
   openBody(): void {
-    const backend = this.wiki.workspace.backend;
-    const workspaceId = this.wiki.workspace.info?.id;
-    if (this.#bodyDoc || this.#closed || this.missing || !backend.openDoc || !workspaceId) return;
-    const opened = backend.openDoc(workspaceId, this.#wikiId, this.pageId, {
-      state: (state) => {
-        if (this.#bodyDoc !== opened) return;
-        const shut = state.status === 'out' && state.reason === 'not_found';
-        if (shut && this.room?.reason !== 'not_found') {
-          void this.#stillThere(opened, this.room?.doc !== undefined);
-        }
-        this.room = state;
-        if (!state.doc) this.#catchUp();
-      },
-      discarded: (why) => {
-        if (this.#bodyDoc === opened) this.sayLost(why);
-      },
-    });
-    this.#bodyDoc = opened;
-    this.room = opened.state;
+    if (this.#closed || this.missing) return;
+    this.#collab.open(
+      this.wiki.workspace.backend,
+      this.wiki.workspace.info?.id,
+      this.#wikiId,
+      this.pageId,
+    );
   }
 
-  /**
-   * The room let the reader go as for a page that is not there: read again,
-   * gone it is missing; still there, a room that gave the reader its
-   * document is joined again, not sooner than `REJOIN_SPACING` after the last.
-   */
-  async #stillThere(opened: BodyDoc, heldDoc: boolean): Promise<void> {
-    const read = await afterPutOut(() => this.#read());
-    if (this.#bodyDoc !== opened) return;
-    if (read.found === 'there' && heldDoc && Date.now() - this.#rejoinedAt >= REJOIN_SPACING) {
-      this.#rejoinedAt = Date.now();
-      opened.retry();
-    }
-    if (read.found === 'ended') this.wiki.workspace.report('load', read.error);
-    if (read.found === 'gone') this.gone();
-  }
-
-  /** Leaves the body's room; what waits is sent first. */
   closeBody(): void {
-    const opened = this.#bodyDoc;
-    this.#bodyDoc = undefined;
-    this.room = undefined;
-    opened?.close();
+    this.#collab.close();
   }
 
   retryBody(): void {
-    this.#bodyDoc?.retry();
+    this.#collab.retry();
   }
 
-  /** Sends what the reader wrote at once; settles when the server has it, or cannot now. */
   settleBody(): Promise<void> {
-    return this.#bodyDoc?.settle() ?? Promise.resolve();
+    return this.#collab.settle();
   }
 
   sayLost(why: string): void {
-    if (!this.lost.includes(why)) this.lost = [...this.lost, why];
+    this.#collab.sayLost(why);
   }
 
   dismissLost(): void {
-    this.lost = [];
+    this.#collab.dismissLost();
   }
 
-  /**
-   * Uploads a file for the body, a file of the wiki, and gives the identifier
-   * its image or file block names. Closing the page gives it up.
-   */
   uploadFile(file: File): Promise<string> {
     return this.#bodyUploads.run(file, (options) =>
       this.wiki.workspace.backend.upload(this.#wikiId, file, options),
     );
   }
-
-  /** The uploads of files for the body under way, given up when the page closes. */
-  readonly #bodyUploads = new BodyUploads(() => this.wiki.workspace);
 }

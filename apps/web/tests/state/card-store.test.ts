@@ -146,7 +146,8 @@ describe('an open card', () => {
       expect(card.room?.status).toBe('joined');
     });
     expect(card.lost).toEqual(['document_reset']);
-    expect(bodyOf(card.room?.doc ?? doc)).toEqual(text('theirs'));
+    const currentRoom = card.room as { doc?: Y.Doc } | undefined;
+    expect(bodyOf(currentRoom?.doc ?? doc)).toEqual(text('theirs'));
     card.dismissLost();
     expect(card.lost).toEqual([]);
     card.close();
@@ -488,6 +489,24 @@ describe('deleted and brought back', () => {
     await workspace.undoLast();
     expect(workspace.problems).toHaveLength(0);
     expect(board.card(made.id)).toBeUndefined();
+  });
+
+  it('shows a deleted comment again on card.refresh() when it was restored while offline', async () => {
+    const { card, backend, board, cardId } = await openAlpha();
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Restored note' }] }],
+    };
+    const created = await backend.createComment(board.boardId, cardId, body);
+    card.receive(created);
+    expect(card.comments.map((c) => c.id)).toContain(created.id);
+
+    // Simulate comment deletion recorded locally, then restored on the backend without live echo.
+    card.forget([created.id]);
+    expect(card.comments.map((c) => c.id)).not.toContain(created.id);
+
+    await card.refresh();
+    expect(card.comments.map((c) => c.id)).toContain(created.id);
   });
 });
 

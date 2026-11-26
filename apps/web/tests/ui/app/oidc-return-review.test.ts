@@ -19,9 +19,9 @@ it('returns to the challenged organization after signing in through its provider
 
   // App.resume passes the saved, parsed route to this same router operation.
   const route = parseRoute(kept, router.basePath);
-  expect(route.unknown).toBe(false);
+  expect(route.kind).toBe('org');
   router.go(route, { replace: true });
 
-  expect(router.route.orgId).toBe('00000000-0000-7000-8000-000000000001');
+  expect(router.route).toEqual({ kind: 'org', orgId: '00000000-0000-7000-8000-000000000001' });
   expect(location.pathname).toBe(destination);
 });

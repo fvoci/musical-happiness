@@ -48,10 +48,10 @@
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
-  const diaryId = $derived(router.route.diaryId);
-  const asked = $derived(router.route.monthDay);
+  const diaryId = $derived(router.route.kind === 'diary' ? router.route.diaryId : undefined);
+  const asked = $derived(router.route.kind === 'diary' ? router.route.monthDay : undefined);
   const monthDay = $derived(asked === undefined ? undefined : parseMonthDay(asked));
-  const askedYear = $derived(router.route.year);
+  const askedYear = $derived(router.route.kind === 'diary' ? router.route.year : undefined);
 
   /** The diary of the address, made anew for another one. */
   const diary = $derived(diaryId ? new DiaryStore(workspace, diaryId) : undefined);
@@ -62,11 +62,13 @@
   $effect(() => {
     const store = diary;
     if (!store) return;
+    let deactivate: (() => void) | undefined;
     untrack(() => {
-      workspace.closeBoard();
+      deactivate = workspace.activateContainer(store);
     });
     return () => {
       store.close();
+      deactivate?.();
     };
   });
 
@@ -174,14 +176,16 @@
 
   let renaming = $state(false);
   let deleting = $state(false);
-  const openEntry = $derived(open ? diary?.entries.find((one) => one.date === open) : undefined);
+  const openEntryId = $derived(
+    open ? diary?.entries.find((one) => one.date === open)?.id : undefined,
+  );
   /** The versions of the open entry, read anew each time their dialog opens; resets when the open entry changes. */
   let versions = $derived<{
     entryId: string | undefined;
     reading: VersionsReading | undefined;
     open: boolean;
   }>({
-    entryId: openEntry?.id,
+    entryId: openEntryId,
     reading: undefined,
     open: false,
   });
@@ -204,7 +208,7 @@
       return true;
     });
     if (!done || workspace.containers.some((left) => left.id === store.diaryId)) return;
-    if (router.route.diaryId !== store.diaryId) return;
+    if (router.route.kind !== 'diary' || router.route.diaryId !== store.diaryId) return;
     const next = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (next) router.openContainer(next);
     else router.go({ workspaceId: workspace.info?.id }, { replace: true });
@@ -283,7 +287,7 @@
                   const dayStore = store.day(date);
                   if (!dayStore.entry) return;
                   versions = {
-                    entryId: dayStore.entry.id,
+                    entryId: versions.entryId ?? dayStore.entry.id,
                     reading: new VersionsReading(entryVersions(dayStore)),
                     open: true,
                   };

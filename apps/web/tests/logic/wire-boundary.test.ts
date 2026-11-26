@@ -25,11 +25,11 @@ function offenders(directory: string, allowed: RegExp, pattern: RegExp): string[
 
 describe('only wire.ts knows the wire shapes', () => {
   it('no other logic module reads the fields of a block', () => {
-    expect(offenders(LOGIC, /^wire\.ts$/, /\.fields\b/)).toEqual([]);
+    expect(offenders(LOGIC, /^wire(?:-|\.)/, /\.fields\b/)).toEqual([]);
   });
 
   it('no other logic module parses or writes JSON', () => {
-    expect(offenders(LOGIC, /^wire\.ts$/, /JSON\.(parse|stringify)/)).toEqual([]);
+    expect(offenders(LOGIC, /^wire(?:-|\.)/, /JSON\.(parse|stringify)/)).toEqual([]);
   });
 
   it('no test but those of wire.ts reads the fields of a block', () => {

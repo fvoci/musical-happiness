@@ -26,6 +26,7 @@ import {
 } from '../state/backend.ts';
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { FileDetails } from '../editor/files.ts';
+import { isFileId } from '../editor/schema.ts';
 import { pagesTogether } from '../state/page-reads.ts';
 import { summaryOfBody } from '../state/body-summary.ts';
 import type { Courses } from '../state/course-types.ts';
@@ -215,6 +216,8 @@ export class SharedBackend implements Backend {
   readonly #containerId: string;
   readonly #readToken: string;
   readonly #settings: AccountSettings;
+  #containerPromise: Promise<Container> | undefined;
+  #cardsPromise: Promise<CardSummary[]> | undefined;
 
   /**
    * `basePath` as `ServerBackend` takes it; the board or wiki and the token are the
@@ -284,8 +287,13 @@ export class SharedBackend implements Backend {
 
   async container(containerId: string): Promise<Container> {
     this.#only(containerId);
-    const board = containerOf(await this.#read<Schemas['Container']>(''));
-    return { ...board, workspaceId: SHARED_PLACE };
+    this.#containerPromise ??= this.#read<Schemas['Container']>('')
+      .then((raw) => ({ ...containerOf(raw), workspaceId: SHARED_PLACE }))
+      .catch((error: unknown) => {
+        this.#containerPromise = undefined;
+        throw error;
+      });
+    return { ...(await this.#containerPromise) };
   }
 
   async views(boardId: string): Promise<BoardView[]> {
@@ -296,10 +304,15 @@ export class SharedBackend implements Backend {
 
   async cards(boardId: string): Promise<CardSummary[]> {
     this.#only(boardId);
-    const cards = await pagesTogether((paging) =>
+    this.#cardsPromise ??= pagesTogether((paging) =>
       this.#read<Schemas['Card'][]>('/cards', {}, { ...paging }),
-    );
-    return cards.map(cardOf);
+    )
+      .then((raw) => raw.map(cardOf))
+      .catch((error: unknown) => {
+        this.#cardsPromise = undefined;
+        throw error;
+      });
+    return [...(await this.#cardsPromise)];
   }
 
   async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
@@ -354,7 +367,7 @@ export class SharedBackend implements Backend {
   }
 
   fileUrl(containerId: string, fileId: string): string | undefined {
-    if (containerId !== this.#containerId) return undefined;
+    if (containerId !== this.#containerId || !isFileId(fileId)) return undefined;
     return this.#http.url(
       '/api/v1/shared/{containerId}/files/{fileId}',
       { containerId, fileId },

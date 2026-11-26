@@ -60,6 +60,7 @@ export class NotificationInbox {
     void this.#readCount();
     return this.#backend.watchSelf((change) => {
       if (change.kind === 'notifications' || change.kind === 'resync') void this.refresh();
+      else if (change.kind === 'user') void this.#refreshUser(change.userId);
     });
   }
 
@@ -106,6 +107,7 @@ export class NotificationInbox {
     this.#forgetReadings();
     const now = Date.now();
     this.items = this.items.map((one) => (one.readAt === 0 ? { ...one, readAt: now } : one));
+    this.unread = 0;
     await this.#write(() => this.#notifications.readAll(through));
     await this.refresh();
   }
@@ -161,6 +163,32 @@ export class NotificationInbox {
       void this.#name(items);
     } catch (error) {
       if (reading === this.#listReading) this.#refused(error);
+    }
+  }
+
+  /** Re-reads an actor's profile across workspaces that named them when `userChanged` arrives. */
+  async #refreshUser(userId: string): Promise<void> {
+    if (!this.people.has(userId)) return;
+    for (const key of [...this.#asked]) {
+      if (key.endsWith(`/${userId}`)) this.#asked.delete(key);
+    }
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- local deduplication set
+    const workspaces = new Set<string>();
+    for (const { subject } of this.items) {
+      if (subject?.actorId === userId && subject.workspaceId) workspaces.add(subject.workspaceId);
+    }
+    for (const workspaceId of workspaces) {
+      try {
+        const found = await this.#backend.usersById(workspaceId, [userId]);
+        const updated = found.find((one) => one.id === userId);
+        if (updated) {
+          this.people.set(userId, updated);
+          this.#asked.add(`${workspaceId}/${userId}`);
+          return;
+        }
+      } catch {
+        // Ignore transient lookup failures; next list open retries.
+      }
     }
   }
 

@@ -47,10 +47,13 @@ afterEach(() => {
 const organizations = (): ServerOrganizations => new ServerOrganizations(new Http(''));
 
 describe('the organization on the server', () => {
-  it('finds the organization the reader administers, and none where every one is not there', async () => {
+  it('finds the organization the reader administers in a single request, without probing /org/{id}', async () => {
     const sent = serve({
-      'GET /api/v1/org/o2': {
-        body: { id: 'o2', name: '', publicLinks: true, defaultWorkspaceId: 'w2' },
+      'GET /api/v1/users/me/organizations': {
+        body: [
+          { id: 'o1', name: 'One', role: 'member' },
+          { id: 'o2', name: 'Two', role: 'admin' },
+        ],
       },
     });
     const listed = [
@@ -58,40 +61,58 @@ describe('the organization on the server', () => {
       { id: 'w2', title: '', orgId: 'o2', role: 'admin' },
     ] as const;
     expect(await organizations().administered(listed)).toBe('o2');
-    // The reader's workspaces are the shell's: they are not read again.
-    expect(sent.map((one) => one.url)).toEqual(['/api/v1/org/o1', '/api/v1/org/o2']);
+    expect(sent.map((one) => one.url)).toEqual(['/api/v1/users/me/organizations']);
 
-    serve({});
+    serve({
+      'GET /api/v1/users/me/organizations': {
+        body: [{ id: 'o1', name: 'One', role: 'member' }],
+      },
+    });
     expect(await organizations().administered(listed.slice(0, 1))).toBeUndefined();
   });
 
-  it('does not ask for the reader’s own space, which nobody administers', async () => {
+  it('skips the request completely when only personal workspaces exist', async () => {
     const sent = serve({});
-    const listed = [
-      { id: 'w1', title: '', orgId: 'o1', kind: 'shared', role: 'member' },
+    const onlyPersonal = [
       { id: 'own', title: '', orgId: 'mine', kind: 'personal', role: 'admin' },
     ] as const;
-    expect(await organizations().administered(listed)).toBeUndefined();
-    expect(sent.map((one) => one.url)).toEqual(['/api/v1/org/o1']);
+    expect(await organizations().administered(onlyPersonal)).toBeUndefined();
+    expect(sent).toEqual([]);
+
+    const withShared = [
+      { id: 'w1', title: '', orgId: 'o1', kind: 'shared', role: 'member' },
+      ...onlyPersonal,
+    ] as const;
+    const sharedSent = serve({
+      'GET /api/v1/users/me/organizations': {
+        body: [{ id: 'o1', name: 'One', role: 'member' }],
+      },
+    });
+    expect(await organizations().administered(withShared)).toBeUndefined();
+    expect(sharedSent.map((one) => one.url)).toEqual(['/api/v1/users/me/organizations']);
   });
 
   it('passes over an organization the session does not open, for the next it administers', async () => {
-    const closed = { status: 401, body: { status: 401, reason: 'sso_required', orgId: 'o1' } };
     const mine = [
       { id: 'w1', title: '', orgId: 'o1', role: 'admin', ssoRequired: true },
       { id: 'w2', title: '', orgId: 'o2', role: 'admin' },
     ] as const;
     serve({
-      'GET /api/v1/org/o1': closed,
-      'GET /api/v1/org/o2': { body: { id: 'o2', name: '', publicLinks: true } },
+      'GET /api/v1/users/me/organizations': {
+        body: [
+          { id: 'o1', name: 'One', role: 'admin' },
+          { id: 'o2', name: 'Two', role: 'admin' },
+        ],
+      },
     });
     expect(await organizations().administered(mine)).toBe('o2');
 
-    serve({ 'GET /api/v1/org/o1': closed });
+    const onlyClosedSent = serve({});
     expect(await organizations().administered(mine.slice(0, 1))).toBeUndefined();
+    expect(onlyClosedSent).toEqual([]);
 
     // A session that is over is no organization passed over: it is told.
-    serve({ 'GET /api/v1/org/o1': { status: 401, body: { status: 401 } } });
+    serve({ 'GET /api/v1/users/me/organizations': { status: 401, body: { status: 401 } } });
     await expect(organizations().administered(mine)).rejects.toMatchObject({ status: 401 });
   });
 

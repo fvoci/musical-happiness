@@ -75,7 +75,7 @@ function entryPatchOf(patch: EntryPatch): Schemas['DiaryEntryPatch'] {
 }
 
 export class ServerDiaries implements Diaries {
-  readonly bodyVersions: ServerEntryVersions;
+  readonly bodyVersions: ServerEntryVersions<DiaryEntryDetail>;
   /** A request under the workspace of the diary `params.diaryId` names (`WikiRequest`'s way). */
   readonly #request: WikiRequest;
   /** Keeps the workspace of each diary read, for the paths under it. */
@@ -84,8 +84,9 @@ export class ServerDiaries implements Diaries {
   constructor(request: WikiRequest, learn: (diaries: readonly Schemas['Container'][]) => void) {
     this.#request = request;
     this.#learn = learn;
-    this.bodyVersions = new ServerEntryVersions((path, params, options) =>
-      this.#request(path, params, options),
+    this.bodyVersions = new ServerEntryVersions(
+      (path, params, options) => this.#request(path, params, options),
+      entryDetailOf,
     );
   }
 

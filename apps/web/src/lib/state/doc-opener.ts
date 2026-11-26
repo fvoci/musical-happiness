@@ -4,6 +4,7 @@
  * client (`doc-client.ts`, and Yjs with it) is fetched behind it, so that
  * neither is part of what the first screen loads.
  */
+import { noteChunkFailure } from '../chunk-reload.svelte.ts';
 import type { RoomLine } from '../logic/doc-room-types.ts';
 
 import type { BodyDoc, BodyDocHears, BodyDocState } from './backend.ts';
@@ -50,6 +51,7 @@ export function openLater(
         }
       },
       () => {
+        void noteChunkFailure();
         if (closed) return;
         failed = true;
         hears.state(NOT_LOADED_STATE);

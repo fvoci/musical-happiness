@@ -8,7 +8,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { KeepOutcome } from '$lib/features/card/body-versions.svelte.ts';
 import CardBody from '$lib/features/card/CardBody.svelte';
-import type { BoardStore, CardStore } from '$lib/state/index.ts';
+import { BoardStore, CardStore, Workspace } from '$lib/state/index.ts';
+import { MemoryBackend } from '$lib/state/memory/backend.ts';
+import { seedWorld } from '$lib/state/memory/seed.ts';
 
 import { doc, paragraph, text } from '../../support/body-docs.ts';
 
@@ -19,18 +21,23 @@ afterEach(() => {
 
 /** A card's body with no room (none is opened: the workspace is not known), kept by `keep`. */
 function body(keep: () => Promise<KeepOutcome>): ReturnType<typeof render> {
-  const container = {
-    workspace: { info: undefined, userName: () => undefined, user: () => undefined },
-    canEdit: true,
-    orderedMembers: [],
-  } as unknown as Pick<BoardStore, 'workspace' | 'canEdit' | 'orderedMembers'>;
-  const card = {
-    room: undefined,
-    body: doc(paragraph(text('The body'))),
-    lost: [],
-    openBody: () => undefined,
-    closeBody: () => undefined,
-  } as unknown as CardStore;
+  const { world, readerId } = seedWorld([]);
+  const workspace = new Workspace({
+    backend: new MemoryBackend(world, readerId),
+    locale: () => 'en',
+  });
+  workspace.me = {
+    id: 'u1',
+    username: 'ada',
+    displayName: 'Ada',
+    email: '',
+    createdAt: 0,
+    updatedAt: 0,
+  };
+  const container = new BoardStore(workspace, 'b1');
+  container.members = [{ containerId: 'b1', userId: 'u1', role: 'editor', synthetic: false }];
+  const card = new CardStore(container, 'c1', () => undefined);
+  card.body = doc(paragraph(text('The body')));
   return render(CardBody, { props: { container, card, keep } });
 }
 

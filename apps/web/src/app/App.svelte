@@ -15,26 +15,32 @@
   (`OrgPage`), in place of the workspace; the way to it is in the sidebar of
   whoever administers one. Only the server has organizations.
 -->
+<script lang="ts" module>
+  import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
+
+  const orgHostChunk = new LazyChunk(() => import('./OrgHost.svelte'));
+  const invitePageChunk = new LazyChunk(() => import('$lib/features/account/InvitePage.svelte'));
+  const accountLeavingChunk = new LazyChunk(
+    () => import('$lib/features/account/AccountLeaving.svelte'),
+  );
+</script>
+
 <script lang="ts">
   import { onMount } from 'svelte';
 
   import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
-  import { setViewedFileSource } from '$lib/components/file-viewer/viewing.svelte.ts';
-  import AccountLeaving from '$lib/features/account/AccountLeaving.svelte';
+  import { setViewedFileSource, viewing } from '$lib/components/file-viewer/viewing.svelte.ts';
   import { daysLeft } from '$lib/features/account/account-deletion.ts';
-  import InvitePage from '$lib/features/account/InvitePage.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import AppShell, { type PaneTools } from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
-    BackendError,
     isBackendError,
     isOpen,
     isSignedOut,
     passwordChanged,
     providePeople,
     startOrganization,
-    whileHere,
     Workspace,
     type AcceptedInvitation,
     type Account,
@@ -51,7 +57,8 @@
   import { acceptedRoute } from './accepted-route.ts';
   import { followAddress } from './address.svelte.ts';
   import { resendLink, startBackend } from './backend.ts';
-  import { lastWorkspace } from './last-workspace.ts';
+  import { forgetInviteToken } from '$lib/fragment-token.ts';
+  import { forgetUnscoped, forgetUser, lastWorkspace } from './last-workspace.ts';
   import {
     browserLocale,
     currentLocale,
@@ -59,10 +66,11 @@
     locales,
     shownLanguage,
   } from './locale.ts';
-  import OrgHost from './OrgHost.svelte';
+  import LazyView from './LazyView.svelte';
   import Problems from './Problems.svelte';
   import { keepReturn, resume, takeReturn } from './return-to.ts';
-  import { placeRoute, shownContainerId, type Router } from './router.svelte.ts';
+  import { placeRoute, shownContainerId, workspaceIdOf, type Router } from './router.svelte.ts';
+  import { completePasswordSignIn } from './sign-in-flow.ts';
   import { signInWays } from './sign-in-organizations.ts';
   import AccountSettings from './AccountSettings.svelte';
   import PasswordNoticeHost from './PasswordNoticeHost.svelte';
@@ -98,7 +106,8 @@
    * while the reader is signed in: told in the page, until they go on.
    */
   let refusal = $state(cameBack.get('oidc_error'));
-  const refused = $derived(router.route.unknown ? refusal : null);
+  const refused = $derived(router.route.kind === 'unknown' ? refusal : null);
+  let leftSession = false;
 
   function openLinked(): void {
     linkedAsked = true;
@@ -141,30 +150,30 @@
           inviteLink: (token: string) => new URL(router.inviteHref(token), location.origin).href,
         });
       }
-      // The bodies of cards and pages name their images and file blocks by file; the board or
-      // wiki shown has them. A file block that cannot be saved says why, as an attachment does.
+      // The bodies of cards and pages name their images and file blocks by file; only the
+      // container currently shown in the route provides them (W2.5: never stale off-board).
       const files = fileSourceOf(
         backend,
-        () =>
-          router.route.wikiId ??
-          router.route.diaryId ??
-          router.route.courseId ??
-          made.board?.boardId,
+        () => shownContainerId(router.route),
         (error) => {
           made.report('load', error);
         },
       );
       setViewedFileSource(files);
       workspace = made;
-      // On the handle of the browser tests and the console too, where there is
-      // one (the backend in memory): a test undoes through it.
       const dev = (window as unknown as { fvociDev?: object }).fvociDev;
       if (dev) Object.assign(dev, { workspace: made });
-      await made.load(router.route.workspaceId, followsLanguage);
+      await made.load(workspaceIdOf(router.route), followsLanguage);
     });
     return () => {
       workspace?.close();
     };
+  });
+
+  // Leaving a board screen for any non-board route parks the open board immediately (§1.4.1).
+  $effect(() => {
+    const kind = router.route.kind;
+    if (kind !== 'board' && kind !== 'shared') workspace?.closeBoard();
   });
 
   /**
@@ -179,7 +188,7 @@
 
   /** Reads the workspace again after a failure, and follows its language as the first load does. */
   async function retryLoad(): Promise<void> {
-    await workspace?.load(router.route.workspaceId, followsLanguage);
+    await workspace?.load(workspaceIdOf(router.route), followsLanguage);
   }
 
   /**
@@ -198,6 +207,16 @@
    * end the session (no answer, a refusal), the page stays as it is and
    * says so; a session that was over already (401) counts as signed out.
    */
+  function leaveAccount(): void {
+    forgetUnscoped();
+    viewing.forget();
+    workspace?.close();
+    takeReturn();
+    forgetInviteToken();
+    leftSession = true;
+    document.getElementById('app')?.replaceChildren();
+  }
+
   async function signOut(): Promise<void> {
     try {
       await account?.signOut();
@@ -207,25 +226,19 @@
         return;
       }
     }
-    workspace?.close();
-    // Where this account was going is not where the next one starts.
-    takeReturn();
+    leaveAccount();
     router.restart({});
   }
 
-  /**
-   * Asks for the account to be deleted: every session of it is over, and the
-   * page starts again at the sign-in, which says in how many days it goes.
-   */
   async function askDeletion(username: string, password: string): Promise<void> {
     const due = await signedIn(async () => account?.requestDeletion(username, password));
-    workspace?.close();
-    takeReturn();
+    if (workspace?.me) forgetUser(workspace.me.id);
+    leaveAccount();
     router.restart({}, { query: `account_leaving=${daysLeft(due ?? 0, Date.now())}` });
   }
 
-  /** The token of the invitation the address is the link of, if it is one. */
-  const invitation = $derived(router.route.invitation);
+  /** The token of the invitation (`/invite/<token>`), already captured & stripped by `Router` (H-8, S10). */
+  const invitation = $derived(router.route.kind === 'invite' ? router.invitation : undefined);
 
   followAddress(
     () => router,
@@ -257,11 +270,11 @@
     router.go({ meTime: true });
   };
   const openReviewsToday = (): void => {
-    const workspaceId = workspace?.info?.id ?? router.route.workspaceId;
+    const workspaceId = workspace?.info?.id ?? workspaceIdOf(router.route);
     if (workspaceId) router.go({ workspaceId, reviewsToday: true });
   };
   const openLearningToday = (): void => {
-    const workspaceId = workspace?.info?.id ?? router.route.workspaceId;
+    const workspaceId = workspace?.info?.id ?? workspaceIdOf(router.route);
     if (workspaceId) router.go({ workspaceId, learningToday: true });
   };
 </script>
@@ -288,7 +301,10 @@
 <!-- Back by the browser's "back" from a provider the reader left for: nothing is on its way any more. -->
 <svelte:window
   onpageshow={(event: PageTransitionEvent) => {
-    if (event.persisted) takeReturn();
+    if (event.persisted) {
+      takeReturn();
+      if (leftSession) location.reload();
+    }
   }}
 />
 
@@ -301,85 +317,64 @@
   </main>
 {:else if workspace.status === 'leaving' && account}
   {@const waiting = account}
-  <AccountLeaving
-    read={() => waiting.deletion()}
-    onCancel={async () => {
-      await waiting.cancelDeletion();
-      location.reload();
-    }}
-    onStale={() => void retryLoad()}
-    onSignOut={() => void signOut()}
-    locale={currentLocale()}
-  />
+  <LazyView chunk={accountLeavingChunk}>
+    {#snippet children(AccountLeaving)}
+      <AccountLeaving
+        read={() => waiting.deletion()}
+        onCancel={async () => {
+          await waiting.cancelDeletion();
+          location.reload();
+        }}
+        onStale={() => void retryLoad()}
+        onSignOut={() => void signOut()}
+        locale={currentLocale()}
+      />
+    {/snippet}
+  </LazyView>
   <Problems {workspace} />
 {:else if invitation !== undefined && account}
   {@const signedInAs = workspace.status === 'ready' ? workspace.me : undefined}
   {@const accounts = account}
-  <InvitePage
-    token={invitation}
-    signedInAs={signedInAs && userDisplayName(signedInAs)}
-    preview={(token: string) => accounts.previewInvitation(token)}
-    accept={(token: string, made?: NewAccount) =>
-      accounts.acceptInvitation(token, made, currentLocale())}
-    onResend={resendLink}
-    onSignIn={(login: string, password: string) => accounts.signIn(login, password)}
-    onSso={(orgId: string) => toProvider(orgId)}
-    onJoined={(accepted: AcceptedInvitation) => {
-      // Loaded afresh where the invitation let the reader in: what the page
-      // has in memory is of whoever was, or was not, signed in before. In
-      // place of the link, whose token is not to stay in the history.
-      router.restart(acceptedRoute(accepted), { replace: true });
-    }}
-    onSessionEnded={() => {
-      location.reload();
-    }}
-    homeHref={router.href({})}
-  />
+  <LazyView chunk={invitePageChunk}>
+    {#snippet children(InvitePage)}
+      <InvitePage
+        token={invitation}
+        signedInAs={signedInAs && userDisplayName(signedInAs)}
+        preview={(token: string) => accounts.previewInvitation(token)}
+        accept={(token: string, made?: NewAccount) =>
+          accounts.acceptInvitation(token, made, currentLocale())}
+        onResend={resendLink}
+        onSignIn={(login: string, password: string) => accounts.signIn(login, password)}
+        onSso={(orgId: string) => toProvider(orgId)}
+        onJoined={(accepted: AcceptedInvitation) => {
+          router.restart(acceptedRoute(accepted), { replace: true });
+        }}
+        onSessionEnded={() => {
+          location.reload();
+        }}
+        homeHref={router.href({})}
+      />
+    {/snippet}
+  </LazyView>
 {:else if workspace.status === 'signedOut' && account}
   <SignInPage
     leavingDays={Number(cameBack.get('account_leaving')) || undefined}
-    onSignIn={async (login: string, password: string) => {
-      await account?.signIn(login, password);
-      // A session that ended while working here: what is on the page (the
-      // open board, undo, problems) was the old session's. Start afresh, as
-      // signing out does: at the same address when it is the same person,
-      // else at the root, where they are taken to a workspace of theirs.
-      const before = workspace?.me;
-      if (workspace && before) {
-        const now = await workspace.backend.me().catch(() => undefined);
-        if (now?.id === before.id) location.reload();
-        else router.restart({});
-        return;
-      }
-      // Signed in on no page of the app (`/login` after a refused provider sign-in): the first.
-      if (router.route.unknown) router.go({}, { replace: true });
-      // A new account is in the language of the page it was made on, and is shown its board first.
-      const isNew = login === registered?.username || login === registered?.email;
-      await workspace?.load(router.route.workspaceId, isNew ? undefined : followsLanguage);
-      // Signed in, yet the next request is not: the browser did not keep the
-      // session (a cookie for https on a page over http, or cookies blocked).
-      if (workspace?.status === 'signedOut') {
-        throw new BackendError(401, {
-          reason: 'session_not_kept',
-          detail: 'the session was not kept',
-        });
-      }
-      // A new account starts on its own copy of the welcome board, made once.
-      if (registered && workspace?.status === 'ready') {
-        registered = undefined;
-        if (isNew) {
-          const signedIn = workspace;
-          const where = signedIn.info?.id;
-          const welcome = await whileHere(signedIn, () => signedIn.onboard());
-          // The page may be on it already (the first board is shown by itself).
-          if (welcome && where && router.route.boardId !== welcome) {
-            router.openContainer({ id: welcome, workspaceId: where });
-          }
-        }
-      }
-      // Last: the page may load again in the account's language.
-      if (workspace?.status === 'ready') followsLanguage(workspace.settings);
-    }}
+    onSignIn={(login: string, password: string) =>
+      completePasswordSignIn(
+        {
+          account,
+          workspace,
+          router,
+          registered,
+          clearRegistered: () => {
+            registered = undefined;
+          },
+          leaveAccount,
+          followsLanguage,
+        },
+        login,
+        password,
+      )}
     onRegister={async (registration: Registration) => {
       const made = (await account?.register(registration, currentLocale())) ?? 'made';
       if (made === 'made')
@@ -399,16 +394,23 @@
       </Button>
     </div>
   </main>
-{:else if router.route.orgId}
-  <OrgHost
-    {workspace}
-    {organizations}
-    orgId={router.route.orgId}
-    {router}
-    {openWorkspaces}
-    onSso={toProvider}
-    onOpenLinked={openLinked}
-  />
+{:else if router.route.kind === 'org'}
+  {@const orgId = router.route.orgId}
+  {@const shownWorkspace = workspace}
+  <LazyView chunk={orgHostChunk}>
+    {#snippet children(OrgHost)}
+      <OrgHost
+        workspace={shownWorkspace}
+        {organizations}
+        {orgId}
+        {router}
+        {openWorkspaces}
+        onSso={toProvider}
+        onOpenLinked={openLinked}
+      />
+    {/snippet}
+  </LazyView>
+  <Problems {workspace} />
 {:else}
   <AppShell
     {workspace}
@@ -421,14 +423,14 @@
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
     containerId={shownContainerId(router.route)}
-    meTime={router.route.meTime === true}
+    meTime={router.route.kind === 'meTime'}
     timeHref={workspace.backend.time ? router.href({ meTime: true }) : undefined}
     onOpenTime={openTime}
     reviewsToday={workspace.backend.course
-      ? { active: router.route.reviewsToday === true, onOpen: openReviewsToday }
+      ? { active: router.route.kind === 'reviewsToday', onOpen: openReviewsToday }
       : undefined}
     learningToday={workspace.backend.course
-      ? { active: router.route.learningToday === true, onOpen: openLearningToday }
+      ? { active: router.route.kind === 'learningToday', onOpen: openLearningToday }
       : undefined}
     containerHref={(container: ContainerPlace) => router.href(placeRoute(container))}
     sharedHref={(containerId: string, readToken: string) =>

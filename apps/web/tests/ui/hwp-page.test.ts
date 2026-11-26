@@ -30,9 +30,10 @@ describe("a page's picture is copied, not taken as it is", () => {
         '<style>@import url("https://example.invalid/a.css");</style>',
         '<rect width="10" height="10" onclick="alert(1)" onload="alert(2)" style="fill:red" class="page"/>',
         '<set attributeName="fill" to="red"/>',
+        '<meta http-equiv="refresh" content="0;url=https://example.invalid"/>',
       ].join(''),
     );
-    expect(made.querySelector('script, foreignObject, style, set')).toBeNull();
+    expect(made.querySelector('script, foreignObject, style, set, meta')).toBeNull();
     expect(made.textContent).not.toContain('form');
     const rect = made.querySelector('rect');
     expect(rect?.getAttributeNames().sort()).toEqual(['height', 'width']);

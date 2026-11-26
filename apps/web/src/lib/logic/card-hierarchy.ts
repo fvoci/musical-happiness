@@ -207,8 +207,9 @@ export function canAddSubcard(cardId: string, byId: ReadonlyMap<string, Hierarch
 export function eligibleParentsFor<T extends HierarchyCard>(
   cardId: string,
   cards: readonly T[],
+  index: HierarchyIndex<T> = buildHierarchyIndex(cards),
 ): T[] {
-  const { byId, childrenMap } = buildHierarchyIndex(cards);
+  const { byId, childrenMap } = index;
   const moving = byId.get(cardId);
   if (!moving || isCardTemplate(moving)) return [];
   const movingHeight = subtreeHeight(cardId, childrenMap);
@@ -234,8 +235,9 @@ export function eligibleParentsFor<T extends HierarchyCard>(
 export function eligibleSubcardsFor<T extends HierarchyCard>(
   parentId: string,
   cards: readonly T[],
+  index: HierarchyIndex<T> = buildHierarchyIndex(cards),
 ): T[] {
-  const { byId, childrenMap } = buildHierarchyIndex(cards);
+  const { byId, childrenMap } = index;
   if (!canAddSubcard(parentId, byId)) return [];
   const parentDepth = cardDepth(parentId, byId);
   const forbidden = new Set<string>([
@@ -293,8 +295,11 @@ function isCompletedWith(
 }
 
 /** Whether `card` counts as completed according to the board's status or checkbox property. */
-export function isCardCompleted(card: Card, properties: readonly PropertyTemplate[]): boolean {
-  const prop = statusPropertyOf(properties);
+export function isCardCompleted(
+  card: Card,
+  properties: readonly PropertyTemplate[],
+  prop: PropertyTemplate | undefined = statusPropertyOf(properties),
+): boolean {
   const hasKeywordOption =
     prop?.type === 'select' && prop.options.some((option) => isDoneOptionLabel(option.label));
   return isCompletedWith(card, prop, hasKeywordOption);
@@ -305,11 +310,11 @@ export function subcardProgress(
   cardId: string,
   childrenMap: ReadonlyMap<string, readonly Card[]>,
   properties: readonly PropertyTemplate[],
+  prop: PropertyTemplate | undefined = statusPropertyOf(properties),
 ): SubcardProgress {
   const children = directChildrenOf(cardId, childrenMap);
   const total = children.length;
   if (total === 0) return { done: 0, total: 0, percent: 0 };
-  const prop = statusPropertyOf(properties);
   const hasKeywordOption =
     prop?.type === 'select' && prop.options.some((option) => isDoneOptionLabel(option.label));
   let done = 0;

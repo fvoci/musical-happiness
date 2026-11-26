@@ -28,13 +28,13 @@
   import CardMenu from '../kanban/CardMenu.svelte';
   import { CARD_MENU_BUTTON } from '../kanban/kanban.ts';
   import type { ViewProps } from '../props.ts';
-  import { CardPreviews, whileHere } from '$lib/state/index.ts';
+  import { whileHere } from '$lib/state/index.ts';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
 
   const uid = $props.id();
   const face = $derived(faceContextOf(board, view));
-  const previews = $derived(new CardPreviews(board.workspace.backend, board.boardId));
+  const previews = $derived(board.previews);
 
   // Each card's menu is mounted only when asked for, so a large gallery builds plain buttons.
   const menusMade = new SvelteSet<string>();
@@ -82,8 +82,8 @@
   }
 </script>
 
-<!-- The previews are read and followed while the gallery is on screen. -->
-<div class="h-full overflow-y-auto" data-testid="gallery" {@attach () => previews.start()}>
+<!-- The previews are read once per open board visit and reused across view switches (§1.3.6). -->
+<div class="h-full overflow-y-auto" data-testid="gallery" {@attach () => previews.retain()}>
   <!-- MIN_CARD is the 14rem below: a card is never narrower, unless the box itself is. -->
   <ul
     aria-label={m.gallery_cards()}

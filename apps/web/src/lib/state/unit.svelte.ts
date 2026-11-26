@@ -1,70 +1,103 @@
 /**
- * One open unit of a course: its body, edited together in its room.
- *
- * The title is not kept here: it lives in the course's outline (`CourseStore.units`),
- * so the outline and the unit view never disagree, and is changed through
- * `CourseStore.changeUnitTitle`. Comments and body versions belong to t5.
+ * One open unit of a course: its body, edited together in its room, and its
+ * comment thread (`CommentThreadStore`).
  */
+import { sameDocNode } from '../editor/same-doc.ts';
 import type { DocNode } from '../editor/schema.ts';
 
 import {
   isBackendError,
   isOwnSpace,
-  type BodyDoc,
   type BodyDocState,
+  type Courses,
   type CourseUnit,
+  type CourseUnitDetail,
 } from './backend.ts';
 import { BodyUploads } from './body-uploads.svelte.ts';
-import { REJOIN_SPACING, afterPutOut } from './card-parts.ts';
+import { CollaborativeBodyState } from './collab-body.svelte.ts';
+import { CommentThreadStore } from './comment-thread.svelte.ts';
 import type { CourseStore } from './course.svelte.ts';
-import { UnitComments } from './unit-comments.svelte.ts';
+import type { OpenHierarchyNode } from './hierarchy-writes.ts';
 import { mentionedIn } from './user-names.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 
-const sameDoc = (first: DocNode | null, second: DocNode | null): boolean =>
-  JSON.stringify(first) === JSON.stringify(second);
-
-export class UnitStore {
+export class UnitStore implements OpenHierarchyNode {
   readonly course: CourseStore;
   readonly unitId: string;
 
   status = $state<LoadStatus>('idle');
-  /** The unit is gone (deleted here or by somebody else), is a chapter, or never was. */
   missing = $state(false);
-  /** The unit was shown and removed since (`others` to announce, `reader` for own deletion). */
   removed = $state.raw<{ by: 'others' | 'reader'; title: string } | undefined>(undefined);
-  /** The body as stored, as far as this store knows. */
   body = $state.raw<DocNode | null>(null);
-  /** The body in its room, while open (`openBody`). */
-  room = $state.raw<BodyDocState | undefined>(undefined);
-  /** Reasons changes were dropped, each once, until dismissed. */
-  lost = $state.raw<readonly string[]>([]);
-  /** Whether the reader is watching this unit for comment notifications (shared workspaces only). */
   watching = $state<boolean | undefined>(undefined);
   watchingBusy = $state(false);
 
   #readAt = 0;
-  #bodyDoc: BodyDoc | undefined;
   #closed = false;
-  #rejoinedAt = -Infinity;
+  #speculative: boolean;
   #news: CourseUnit | undefined;
   #readings = 0;
   #watchGen = 0;
   #shown = false;
 
-  readonly comments: UnitComments;
+  readonly comments: CommentThreadStore;
+  readonly #collab: CollaborativeBodyState;
   readonly #bodyUploads: BodyUploads;
 
-  constructor(course: CourseStore, unitId: string) {
+  constructor(course: CourseStore, unitId: string, options: { speculative?: boolean } = {}) {
     this.course = course;
     this.unitId = unitId;
-    this.comments = new UnitComments(course, unitId, () => {
-      if (this.canWatch) {
-        this.#watchGen += 1;
-        this.watching = true;
-      }
-    });
+    this.#speculative = Boolean(options.speculative);
     this.#bodyUploads = new BodyUploads(() => this.course.workspace);
+    this.#collab = new CollaborativeBodyState({
+      workspace: course.workspace,
+      probeStillThere: () => this.#read(),
+      onGone: () => {
+        this.gone();
+      },
+      onDocReleased: () => {
+        this.#catchUp();
+      },
+    });
+    this.comments = new CommentThreadStore({
+      workspace: course.workspace,
+      parentId: unitId,
+      role: () => this.course.role,
+      joinable: () => this.course.joinable,
+      isSpeculative: () => this.#speculative,
+      onCommented: () => {
+        if (this.canWatch) {
+          this.#watchGen += 1;
+          this.watching = true;
+          this.course.noteWatching(this.unitId, true);
+        }
+      },
+      api: {
+        list: () => this.#courses.comments(this.#courseId, this.unitId),
+        create: (body) => this.#courses.createComment(this.#courseId, this.unitId, body),
+        patch: (commentId, write) =>
+          this.#courses.patchComment(this.#courseId, this.unitId, commentId, write),
+        remove: (commentId) => this.#courses.deleteComment(this.#courseId, this.unitId, commentId),
+        restore: (commentId) =>
+          this.#courses.restoreComment(this.#courseId, this.unitId, commentId),
+        versions: (commentId) =>
+          this.#courses.commentVersions(this.#courseId, this.unitId, commentId),
+      },
+    });
+  }
+
+  get id(): string {
+    return this.unitId;
+  }
+
+  readonly fallbackTitle = '';
+
+  get room(): BodyDocState | undefined {
+    return this.#collab.room;
+  }
+
+  get lost(): readonly string[] {
+    return this.#collab.lost;
   }
 
   get canWatch(): boolean {
@@ -72,11 +105,17 @@ export class UnitStore {
     return Boolean(info?.id && me?.id && !isOwnSpace(info));
   }
 
+  get #courses(): Courses {
+    const courses = this.course.workspace.backend.course;
+    if (!courses) throw new Error('this backend has no courses');
+    return courses;
+  }
+
   get #courseId(): string {
     return this.course.courseId;
   }
 
-  #read(): Promise<{ kind: 'unit' | 'chapter'; body: DocNode | null; updatedAt: number }> {
+  #read(): Promise<CourseUnitDetail> {
     const courses = this.course.workspace.backend.course;
     if (!courses) return Promise.reject(new Error('this backend has no courses'));
     return courses.unit(this.#courseId, this.unitId);
@@ -87,28 +126,22 @@ export class UnitStore {
     await Promise.all([this.#readBody(true), this.comments.read(true), this.#readWatch()]);
   }
 
-  /** Reads the body and comments again after changes may have been missed (`resync`). */
   async refresh(): Promise<void> {
     if (this.status !== 'ready') return;
     await Promise.all([
       this.#busy() ? undefined : this.#readBody(false),
       this.comments.read(false),
+      this.#readWatch(),
     ]);
   }
 
   async #readWatch(): Promise<void> {
     if (!this.canWatch) return;
-    const courses = this.course.workspace.backend.course;
-    const workspaceId = this.course.workspace.info?.id;
-    const meId = this.course.workspace.me?.id;
-    if (!courses || !workspaceId || !meId) return;
     this.#watchGen += 1;
     const gen = this.#watchGen;
-    try {
-      const ids = await courses.watching(workspaceId, meId);
-      if (!this.#closed && gen === this.#watchGen) this.watching = ids.includes(this.unitId);
-    } catch {
-      // Non-critical: the unit opens even if subscriptions could not be read.
+    const isWatching = await this.course.isWatchingUnit(this.unitId);
+    if (!this.#closed && gen === this.#watchGen && isWatching !== undefined) {
+      this.watching = isWatching;
     }
   }
 
@@ -121,6 +154,7 @@ export class UnitStore {
     const before = this.watching;
     this.#watchGen += 1;
     this.watching = next;
+    this.course.noteWatching(this.unitId, next);
     this.watchingBusy = true;
     try {
       if (next) await courses.watchUnit(workspaceId, this.unitId, meId);
@@ -129,13 +163,25 @@ export class UnitStore {
       if (this.#closed) return;
       if (!next && isBackendError(error) && error.status === 404) {
         this.watching = false;
+        this.course.noteWatching(this.unitId, false);
       } else {
         this.watching = before;
+        if (before !== undefined) this.course.noteWatching(this.unitId, before);
         this.course.workspace.report('save', error);
       }
     } finally {
       this.watchingBusy = false;
     }
+  }
+
+  /** Applies an authoritative restored `CourseUnitDetail` immediately (W1.4). */
+  applyRestored(detail: CourseUnitDetail): void {
+    if (this.#closed || detail.kind === 'chapter') return;
+    this.#readAt = detail.updatedAt;
+    if (!sameDocNode(detail.body, this.body)) this.body = detail.body;
+    void this.course.workspace.learnUsers(mentionedIn(detail.body));
+    const { body: _body, createdBy: _cb, modifiedBy: _mb, ...summary } = detail;
+    this.course.receiveUnit(summary);
   }
 
   async #readBody(first: boolean): Promise<void> {
@@ -144,17 +190,18 @@ export class UnitStore {
     try {
       const detail = await this.#read();
       if (this.#closed || reading !== this.#readings) return;
-      // A chapter has no body or room: it is not opened as a unit.
       if (detail.kind === 'chapter') {
-        this.gone();
+        if (this.#speculative) this.course.clearSpeculativeUnit(this.unitId);
+        else this.gone();
         return;
       }
       if (!first && detail.updatedAt <= this.#readAt) return;
       this.#readAt = detail.updatedAt;
-      if (!sameDoc(detail.body, this.body)) this.body = detail.body;
+      if (!sameDocNode(detail.body, this.body)) this.body = detail.body;
       void this.course.workspace.learnUsers(mentionedIn(detail.body));
       [this.status, this.missing] = ['ready', false];
       this.#shown = true;
+      this.#speculative = false;
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
       if (isBackendError(error) && error.status === 401) {
@@ -164,7 +211,7 @@ export class UnitStore {
         this.gone();
       } else if (first) {
         this.status = 'failed';
-        this.course.workspace.report('load', error);
+        if (!this.#speculative) this.course.workspace.report('load', error);
       }
     }
   }
@@ -183,7 +230,6 @@ export class UnitStore {
     this.closeBody();
   }
 
-  /** The unit changed in the outline: re-read its body unless the room holds it. */
   unitChanged(unit: CourseUnit): void {
     if (unit.id !== this.unitId || unit.updatedAt <= this.#readAt || this.missing) return;
     if (this.#busy()) {
@@ -194,7 +240,7 @@ export class UnitStore {
   }
 
   #busy(): boolean {
-    return this.#closed || this.room?.doc !== undefined;
+    return this.#closed || this.#collab.hasDoc;
   }
 
   #catchUp(): void {
@@ -205,59 +251,33 @@ export class UnitStore {
   }
 
   openBody(): void {
-    const backend = this.course.workspace.backend;
-    const workspaceId = this.course.workspace.info?.id;
-    if (this.#bodyDoc || this.#closed || this.missing || !backend.openDoc || !workspaceId) return;
-    const opened = backend.openDoc(workspaceId, this.#courseId, this.unitId, {
-      state: (state) => {
-        if (this.#bodyDoc !== opened) return;
-        const shut = state.status === 'out' && state.reason === 'not_found';
-        if (shut && this.room?.reason !== 'not_found') {
-          void this.#stillThere(opened, this.room?.doc !== undefined);
-        }
-        this.room = state;
-        if (!state.doc) this.#catchUp();
-      },
-      discarded: (why) => {
-        if (this.#bodyDoc === opened) this.sayLost(why);
-      },
-    });
-    this.#bodyDoc = opened;
-    this.room = opened.state;
-  }
-
-  async #stillThere(opened: BodyDoc, heldDoc: boolean): Promise<void> {
-    const read = await afterPutOut(() => this.#read());
-    if (this.#bodyDoc !== opened) return;
-    if (read.found === 'there' && heldDoc && Date.now() - this.#rejoinedAt >= REJOIN_SPACING) {
-      this.#rejoinedAt = Date.now();
-      opened.retry();
-    }
-    if (read.found === 'ended') this.course.workspace.report('load', read.error);
-    if (read.found === 'gone') this.gone();
+    if (this.#closed || this.missing) return;
+    this.#collab.open(
+      this.course.workspace.backend,
+      this.course.workspace.info?.id,
+      this.#courseId,
+      this.unitId,
+    );
   }
 
   closeBody(): void {
-    const opened = this.#bodyDoc;
-    this.#bodyDoc = undefined;
-    this.room = undefined;
-    opened?.close();
+    this.#collab.close();
   }
 
   retryBody(): void {
-    this.#bodyDoc?.retry();
+    this.#collab.retry();
   }
 
   settleBody(): Promise<void> {
-    return this.#bodyDoc?.settle() ?? Promise.resolve();
+    return this.#collab.settle();
   }
 
   sayLost(why: string): void {
-    if (!this.lost.includes(why)) this.lost = [...this.lost, why];
+    this.#collab.sayLost(why);
   }
 
   dismissLost(): void {
-    this.lost = [];
+    this.#collab.dismissLost();
   }
 
   uploadFile(file: File): Promise<string> {

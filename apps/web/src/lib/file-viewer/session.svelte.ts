@@ -200,7 +200,11 @@ export class ViewerSession {
     let loads = 0;
     const onLoad = (): void => {
       loads += 1;
-      if (loads > 1) this.#fail('renderer');
+      if (loads > 1) {
+        frame.src = 'about:blank';
+        frame.remove();
+        this.#fail('renderer');
+      }
     };
     window.addEventListener('message', onMessage);
     frame.addEventListener('load', onLoad);

@@ -94,6 +94,12 @@
    * for the body (shown in its place), the card stays open once, so that
    * nothing is lost by a careless tap. Leaving again leaves.
    */
+  function canLeaveNow(): boolean {
+    const open = card;
+    if (!open || held === open) return true;
+    return !(open.bodyPending || open.filesGoingUp);
+  }
+
   async function mayLeave(): Promise<boolean> {
     const open = card;
     // Asked before and after the sending: a function, so that the second answer is not taken for the first.
@@ -108,8 +114,14 @@
     return true;
   }
 
-  async function close(): Promise<void> {
-    if (await mayLeave()) onClose();
+  function close(): void {
+    if (canLeaveNow()) {
+      onClose();
+      return;
+    }
+    void mayLeave().then((ok) => {
+      if (ok) onClose();
+    });
   }
 
   /** Shows another card in place of this one, when this one may be left. */
@@ -130,6 +142,14 @@
   /** Back to the card on the board: the one this was opened from, or the one shown last. */
   function focusOnClose(event: Event): void {
     if (shown === undefined) return;
+    const viaTitle = document.querySelector<HTMLElement>(
+      `[data-card-return="${CSS.escape(shown)}"]`,
+    );
+    if (viaTitle) {
+      event.preventDefault();
+      viaTitle.focus({ preventScroll: true });
+      return;
+    }
     const onBoard = document.querySelector<HTMLElement>(`[data-card="${CSS.escape(shown)}"]`);
     if (!onBoard || onBoard.tabIndex < 0) return;
     event.preventDefault();
@@ -148,7 +168,7 @@
   bind:open={
     () => cardId !== undefined,
     (open) => {
-      if (!open) void close();
+      if (!open) close();
     }
   }
 >
@@ -174,7 +194,7 @@
           {card}
           {frame}
           {cardHref}
-          onClose={() => void close()}
+          onClose={close}
           onOpenCard={(otherId: string) => void openOther(otherId)}
           {headerActions}
         />

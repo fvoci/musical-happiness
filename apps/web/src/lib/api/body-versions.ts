@@ -11,7 +11,7 @@ import type {
   KeptBodyVersion,
 } from '../state/body-versions.ts';
 
-import { bodyOf, type Schemas } from './convert.ts';
+import { bodyOf, cardDetailOf, type Schemas } from './convert.ts';
 import type { RequestOptions } from './http.ts';
 import type { WorkspacePath } from './requests.ts';
 
@@ -44,11 +44,13 @@ export class ServerBodyVersions implements BodyVersions {
     return { ...kept, body: bodyOf(kept.body) };
   }
 
-  async restore(boardId: string, cardId: string, version: number): Promise<void> {
-    await this.#ask<Schemas['Card']>(
-      '/cards/{cardId}/body-versions/{version}/restore',
-      { cardId, boardId, version: String(version) },
-      { method: 'POST' },
+  async restore(boardId: string, cardId: string, version: number): Promise<unknown> {
+    return cardDetailOf(
+      await this.#ask<Schemas['Card']>(
+        '/cards/{cardId}/body-versions/{version}/restore',
+        { cardId, boardId, version: String(version) },
+        { method: 'POST' },
+      ),
     );
   }
 
@@ -68,11 +70,13 @@ export class ServerBodyVersions implements BodyVersions {
  * named where a card's board is, and the page where the card is. The page
  * restored comes to the wiki through the socket too.
  */
-export class ServerPageVersions implements BodyVersions {
+export class ServerPageVersions<T = unknown> implements BodyVersions {
   readonly #ask: Ask;
+  readonly #map: ((page: Schemas['Page']) => T) | undefined;
 
-  constructor(ask: Ask) {
+  constructor(ask: Ask, map?: (page: Schemas['Page']) => T) {
     this.#ask = ask;
+    this.#map = map;
   }
 
   list(wikiId: string, pageId: string): Promise<BodyVersion[]> {
@@ -90,12 +94,13 @@ export class ServerPageVersions implements BodyVersions {
     return { ...kept, body: bodyOf(kept.body) };
   }
 
-  async restore(wikiId: string, pageId: string, version: number): Promise<void> {
-    await this.#ask<Schemas['Page']>(
+  async restore(wikiId: string, pageId: string, version: number): Promise<T | undefined> {
+    const page = await this.#ask<Schemas['Page']>(
       '/wikis/{wikiId}/pages/{pageId}/body-versions/{version}/restore',
       { wikiId, pageId, version: String(version) },
       { method: 'POST' },
     );
+    return this.#map?.(page);
   }
 
   keep(wikiId: string, pageId: string): Promise<KeptBodyVersion> {
@@ -111,11 +116,13 @@ export class ServerPageVersions implements BodyVersions {
  * The versions of a course unit's body on the server (`getUnitBodyVersions`,
  * `getUnitBodyVersion`, `restoreUnitBodyVersion`, `keepUnitBodyVersion`).
  */
-export class ServerUnitVersions implements BodyVersions {
+export class ServerUnitVersions<T = unknown> implements BodyVersions {
   readonly #ask: Ask;
+  readonly #map: ((unit: Schemas['Unit']) => T) | undefined;
 
-  constructor(ask: Ask) {
+  constructor(ask: Ask, map?: (unit: Schemas['Unit']) => T) {
     this.#ask = ask;
+    this.#map = map;
   }
 
   list(courseId: string, unitId: string): Promise<BodyVersion[]> {
@@ -133,12 +140,13 @@ export class ServerUnitVersions implements BodyVersions {
     return { ...kept, body: bodyOf(kept.body) };
   }
 
-  async restore(courseId: string, unitId: string, version: number): Promise<void> {
-    await this.#ask<Schemas['Unit']>(
+  async restore(courseId: string, unitId: string, version: number): Promise<T | undefined> {
+    const unit = await this.#ask<Schemas['Unit']>(
       '/courses/{courseId}/units/{unitId}/body-versions/{version}/restore',
       { courseId, unitId, version: String(version) },
       { method: 'POST' },
     );
+    return this.#map?.(unit);
   }
 
   keep(courseId: string, unitId: string): Promise<KeptBodyVersion> {
@@ -155,11 +163,13 @@ export class ServerUnitVersions implements BodyVersions {
  * `getDiaryEntryBodyVersion`, `restoreDiaryEntryBodyVersion`,
  * `keepDiaryEntryBodyVersion`).
  */
-export class ServerEntryVersions implements BodyVersions {
+export class ServerEntryVersions<T = unknown> implements BodyVersions {
   readonly #ask: Ask;
+  readonly #map: ((entry: Schemas['DiaryEntry']) => T) | undefined;
 
-  constructor(ask: Ask) {
+  constructor(ask: Ask, map?: (entry: Schemas['DiaryEntry']) => T) {
     this.#ask = ask;
+    this.#map = map;
   }
 
   list(diaryId: string, entryId: string): Promise<BodyVersion[]> {
@@ -177,12 +187,13 @@ export class ServerEntryVersions implements BodyVersions {
     return { ...kept, body: bodyOf(kept.body) };
   }
 
-  async restore(diaryId: string, entryId: string, version: number): Promise<void> {
-    await this.#ask<Schemas['DiaryEntry']>(
+  async restore(diaryId: string, entryId: string, version: number): Promise<T | undefined> {
+    const entry = await this.#ask<Schemas['DiaryEntry']>(
       '/diaries/{diaryId}/entries/{entryId}/body-versions/{version}/restore',
       { diaryId, entryId, version: String(version) },
       { method: 'POST' },
     );
+    return this.#map?.(entry);
   }
 
   keep(diaryId: string, entryId: string): Promise<KeptBodyVersion> {

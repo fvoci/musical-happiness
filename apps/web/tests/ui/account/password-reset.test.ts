@@ -11,11 +11,8 @@ afterEach(() => {
 });
 
 it('recognizes the reset page under the deployment path', () => {
-  expect(parseRoute('/boards/reset-password', 'boards')).toMatchObject({
-    passwordReset: true,
-    unknown: false,
-  });
-  expect(parseRoute('/reset-password/secret', '').unknown).toBe(true);
+  expect(parseRoute('/boards/reset-password', 'boards')).toEqual({ kind: 'passwordReset' });
+  expect(parseRoute('/reset-password/secret', '').kind).toBe('unknown');
 });
 
 it('sets the new password, forgets the secret and offers sign in', async () => {

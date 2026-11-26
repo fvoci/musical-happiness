@@ -27,10 +27,6 @@ export function matchLocale(tag: string): Locale | undefined {
   const lower = tag.toLowerCase();
   const exact = locales.find((locale) => locale.toLowerCase() === lower);
   if (exact) return exact;
-  if (lower.startsWith('zh')) {
-    return /-(hant|tw|hk|mo)\b/.test(lower) ? 'zh-Hant' : 'zh-Hans';
-  }
-  if (lower.startsWith('pt')) return 'pt-BR';
   const language = lower.split('-')[0];
   return isLocale(language) ? language : undefined;
 }

@@ -31,7 +31,6 @@
   import {
     CourseStore,
     referenceTitles,
-    shownCourse,
     unitTrash,
     whileHere,
     type CourseUnit,
@@ -47,7 +46,7 @@
   import ManagedContainer from './ManagedContainer.svelte';
   import NotFound from './NotFound.svelte';
   import { referencePlaces } from './reference-places.ts';
-  import type { CourseTab, Router } from './router.svelte.ts';
+  import { isSharedRoute, workspaceIdOf, type CourseTab, type Router } from './router.svelte.ts';
   import TimeTargetControl from './TimeTargetControl.svelte';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
@@ -57,10 +56,14 @@
   });
 
   const uid = $props.id();
-  const courseId = $derived(router.route.courseId);
-  const unitId = $derived(router.route.unitId);
-  const activeTab = $derived<CourseTab>(router.route.courseTab ?? 'units');
-  const focusMeetingId = $derived(router.route.meetingId);
+  const courseId = $derived(router.route.kind === 'course' ? router.route.courseId : undefined);
+  const unitId = $derived(router.route.kind === 'course' ? router.route.unitId : undefined);
+  const activeTab = $derived<CourseTab>(
+    router.route.kind === 'course' ? (router.route.courseTab ?? 'units') : 'units',
+  );
+  const focusMeetingId = $derived(
+    router.route.kind === 'course' ? router.route.meetingId : undefined,
+  );
 
   const course = $derived(courseId ? new CourseStore(workspace, courseId) : undefined);
   const rules = courseTreeRules<CourseUnit>();
@@ -68,10 +71,9 @@
   $effect(() => {
     const store = course;
     if (!store) return;
-    const holder = shownCourse(workspace);
+    let deactivate: (() => void) | undefined;
     untrack(() => {
-      workspace.closeBoard();
-      holder.current = store;
+      deactivate = workspace.activateContainer(store);
       notice = undefined;
       joined = false;
       made = undefined;
@@ -84,22 +86,21 @@
         false,
         false,
       ];
-      void store.load();
+      void store.load({ unitId, activeTab });
     });
     return () => {
       store.close();
-      if (holder.current === store) holder.current = undefined;
+      deactivate?.();
     };
   });
 
-  // Refresh meetings or exams when switching to those tabs so teammates' updates appear immediately.
+  // Refresh meetings or exams only when switching to those tabs (§1.3.1).
   $effect(() => {
     const shown = course;
     const tab = activeTab;
     if (shown?.status !== 'ready') return;
     untrack(() => {
-      if (tab === 'meetings') void shown.events.refreshMeetings();
-      else if (tab === 'exams') void shown.events.refreshExams();
+      shown.setActiveTab(tab);
     });
   });
 
@@ -153,7 +154,7 @@
     router.openUnit(firstUnit(course.units)?.id, { replace: true });
   });
 
-  $effect(() => {
+  $effect.pre(() => {
     course?.presence.setCard(unitId);
   });
 
@@ -167,7 +168,10 @@
   $effect(() => {
     const shown = course;
     if (shown?.status === 'ready' && !shown.missing && placed) {
-      return untrack(() => shown.presence.start());
+      return untrack(() => {
+        shown.presence.setCard(unitId);
+        return shown.presence.start();
+      });
     }
     return undefined;
   });
@@ -265,7 +269,7 @@
       return true;
     });
     if (!done || workspace.containers.some((left) => left.id === store.courseId)) return;
-    if (router.route.courseId !== store.courseId) return;
+    if (router.route.kind !== 'course' || router.route.courseId !== store.courseId) return;
     const next = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (next) router.openContainer(next);
     else router.go({ workspaceId: workspace.info?.id }, { replace: true });
@@ -276,6 +280,9 @@
 <svelte:window
   onkeydown={(event: KeyboardEvent) => {
     if (course?.openUnit) holdSaveKey(event);
+  }}
+  onpagehide={() => {
+    void course?.settleBody();
   }}
 />
 
@@ -289,7 +296,7 @@
     {workspace}
     {store}
     kind="course"
-    shown={() => shownCourse(workspace).current === store}
+    shown={() => workspace.activeContainer === store}
     {router}
     onJoined={() => {
       joined = true;
@@ -375,8 +382,8 @@
             {creating}
             pageHref={(id: string) =>
               router.href({
-                workspaceId: router.route.workspaceId,
-                courseId: router.route.courseId,
+                workspaceId: workspaceIdOf(router.route),
+                courseId,
                 unitId: id,
               })}
             {closeDrawer}
@@ -421,7 +428,7 @@
         {#snippet unitActions(unit: UnitStore)}
           {@const shown = store.unit(unit.unitId)}
           {#if shown?.kind === 'unit'}
-            {#if !router.route.shared && !store.course?.isTemplate && workspace.backend.time && workspace.me?.id}
+            {#if !isSharedRoute(router.route) && !store.course?.isTemplate && workspace.backend.time && workspace.me?.id}
               <TimeTargetControl
                 {workspace}
                 workspaceId={store.course?.workspaceId}

@@ -7,6 +7,7 @@
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
 
+  import { reloadForNewVersion, staleBuild } from '$lib/chunk-reload.svelte.ts';
   import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { humanFileSize } from '$lib/logic/format.ts';
@@ -91,6 +92,16 @@
   aria-live="polite"
   data-testid="problems"
 >
+  {#if staleBuild.detected}
+    <button
+      type="button"
+      class="pointer-events-auto max-w-md rounded-lg border bg-popover px-3 py-2 text-left text-sm font-medium text-popover-foreground shadow-md hover:bg-muted roomy:min-h-touch"
+      data-testid="new-version-banner"
+      onclick={() => void reloadForNewVersion()}
+    >
+      {m['BoardPage.newVersion']()}
+    </button>
+  {/if}
   {#each workspace.problems as problem (problem.id)}
     <div
       class="pointer-events-auto flex max-w-md items-center gap-2 rounded-lg border bg-popover py-2 pr-2 pl-3 text-popover-foreground shadow-md"

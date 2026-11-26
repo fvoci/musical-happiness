@@ -392,7 +392,7 @@ describe('the versions of a body, from the server', () => {
     expect(sent).toEqual(['GET /api/v1/w/w1/cards/c/body-versions/2']);
 
     sent = serve({ id: 'c' });
-    await expect(versions.restore('b', 'c', 2)).resolves.toBeUndefined();
+    await expect(versions.restore('b', 'c', 2)).resolves.toMatchObject({ id: 'c', body: null });
     expect(sent).toEqual(['POST /api/v1/w/w1/cards/c/body-versions/2/restore']);
   });
 

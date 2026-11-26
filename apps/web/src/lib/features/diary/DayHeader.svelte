@@ -10,6 +10,7 @@
   page was open.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import CalendarIcon from '@lucide/svelte/icons/calendar-days';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -83,10 +84,13 @@
 
   /** The calendar opens with its day in hand: the one it opens on, else the first of the month. */
   function focusDay(event: Event): void {
-    const day = picker?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]');
-    if (!day) return;
     event.preventDefault();
-    day.focus();
+    picker?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]')?.focus();
+    void tick().then(() => {
+      if (!picking || !picker) return;
+      const target = picker.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]');
+      if (target && document.activeElement !== target) target.focus();
+    });
   }
 
   function pick(date: CalendarDate): void {

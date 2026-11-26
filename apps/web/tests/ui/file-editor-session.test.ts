@@ -281,8 +281,11 @@ describe('a document handed to the editor’s frame', () => {
     await away.opened();
     away.frame.dispatchEvent(new Event('load'));
     expect(away.session.status.name).toBe('ready');
+    expect(away.frame.isConnected).toBe(true);
     away.frame.dispatchEvent(new Event('load'));
     expect(away.session.status).toEqual({ name: 'failed', reason: 'editor' });
+    expect(away.frame.isConnected).toBe(false);
+    expect(away.frame.src).toBe('about:blank');
   });
 
   it('hears only its own frame, and only the protocol’s messages', async () => {
@@ -325,14 +328,50 @@ describe('a document handed to the editor’s frame', () => {
 });
 
 describe('saving what was edited', () => {
-  it('makes it the file’s new version, written from the one opened, and then from that', async () => {
+  it('ignores save-asked without userActivation, and requires parent confirmation when save-asked is active', async () => {
+    const { session, made, opened, exports, settled, kinds, says } = editing();
+    await opened();
+    Object.defineProperty(navigator, 'userActivation', {
+      value: { isActive: false, hasBeenActive: false },
+      configurable: true,
+    });
+    says({ kind: 'save-asked' });
+    expect(session.saving).toEqual({ name: 'idle' });
+    expect(kinds()).toEqual(['open']);
+
+    Object.defineProperty(navigator, 'userActivation', {
+      value: { isActive: true, hasBeenActive: true },
+      configurable: true,
+    });
+    says({ kind: 'save-asked' });
+    expect(session.saving).toEqual({ name: 'exporting' });
+    exports(HWPX);
+    await settled();
+    // Even with zero losses, frame-initiated saves stop at parent confirmation first.
+    expect(session.saving).toMatchObject({ name: 'confirm' });
+    expect(made.uploads).toEqual([]);
+    session.dismiss();
+    expect(session.saving).toEqual({ name: 'idle' });
+    expect(made.uploads).toEqual([]);
+
+    says({ kind: 'save-asked' });
+    exports(HWPX);
+    await settled();
+    expect(session.saving).toMatchObject({ name: 'confirm' });
+    session.confirmSave();
+    await settled();
+    expect(made.added.map(({ base }) => base)).toEqual([4]);
+    expect(session.saved).toMatchObject({ as: 'version', version: { version: 5 } });
+  });
+
+  it('makes it the file’s new version when saved from the parent toolbar, written from the one opened, and then from that', async () => {
     const { session, made, opened, exports, settled, kinds, says, frame } = editing();
     session.save();
     expect(kinds()).toEqual([]);
     await opened();
     says({ kind: 'changed', dirty: true });
     const focus = vi.spyOn(frame, 'focus');
-    says({ kind: 'save-asked' });
+    session.save();
     expect(session.saving).toEqual({ name: 'exporting' });
     expect(session.busy).toBe(true);
     // Asked once: a second request while the first is under way is not sent.
