@@ -14,7 +14,7 @@
  * (a table without grouping, where the cards are a plain list; the tests that
  * count and order cards use it).
  */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -306,9 +306,11 @@ test.describe('the two rows', () => {
     for (const name of ['views', 'properties', 'group', 'filter', 'sort', 'search']) {
       await expect(tool(page, name)).toBeVisible();
     }
-    // No tabs, and no "…": every tool of a board has its own button in the row.
+    // No tabs, and every tool of a board has its own button in the row: "…" holds only the file.
     await expect(header(page).getByRole('link')).toHaveCount(0);
-    await expect(tool(page, 'more')).toHaveCount(0);
+    await tool(page, 'more').click();
+    await expect(page.getByRole('menuitem')).toHaveText(['Export to CSV']);
+    await page.keyboard.press('Escape');
     await expect(tool(page, 'views')).toHaveText('Status board');
     expect(await cut()).toBe(false);
     // "New" is in the row, and the row is as wide as its content.
@@ -1319,10 +1321,14 @@ test.describe('a board the reader may only look at', () => {
   test('has the views and search, and nothing that changes the view', async ({ page }) => {
     await open(page);
     await open(page, await boardAddress(page, 'Study notes'));
-    for (const name of ['properties', 'group', 'filter', 'sort', 'more', 'rename']) {
+    for (const name of ['properties', 'group', 'filter', 'sort', 'rename']) {
       await expect(tool(page, name)).toHaveCount(0);
     }
     await expect(page.getByTestId('new-card')).toHaveCount(0);
+    // "…" saves the view as a file, which changes nothing of it, and holds nothing else.
+    await tool(page, 'more').click();
+    await expect(page.getByRole('menuitem')).toHaveText(['Export to CSV']);
+    await page.keyboard.press('Escape');
 
     await showView(page, 'By subject');
     expect((await storedView(page)).title).toBe('By subject');
@@ -1570,4 +1576,79 @@ test.describe('pictures', () => {
       });
     }
   }
+});
+
+test.describe('the file of a view', () => {
+  /** Saves the view shown through "…", and gives the name and the text of the file. */
+  async function saveCsv(page: Page): Promise<{ name: string; text: string }> {
+    await tool(page, 'more').click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('menuitem', { name: 'Export to CSV' }).click(),
+    ]);
+    return {
+      name: download.suggestedFilename(),
+      text: readFileSync(await download.path(), 'utf8'),
+    };
+  }
+
+  test('"…" saves the cards the view shows, named and guarded, as a spreadsheet reads them', async ({
+    page,
+  }) => {
+    await open(page);
+    await showView(page, 'Task table');
+    // The reader owns "Build"; one card's title begins as a formula would.
+    await page.evaluate(async () => {
+      interface Store {
+        board: { cardProperties: { id: string; name: string }[] };
+        cards: { id: string; title: string }[];
+        setCardProperty(cardId: string, propertyId: string, value: unknown): Promise<void>;
+        setCardTitle?(cardId: string, title: string): Promise<void>;
+      }
+      const dev = (
+        window as unknown as {
+          fvociDev: { workspace: { board: Store; me: { id: string } } };
+        }
+      ).fvociDev;
+      const store = dev.workspace.board;
+      const owner = store.board.cardProperties.find((property) => property.name === 'Owner');
+      const build = store.cards.find((card) => card.title === 'Build');
+      if (!owner || !build) throw new Error('no Owner, or no card "Build"');
+      await store.setCardProperty(build.id, owner.id, dev.workspace.me.id);
+    });
+    await expect(page.locator('[data-card]', { hasText: 'Build' })).toBeVisible();
+
+    const { name, text } = await saveCsv(page);
+    expect(name).toBe('Project schedule - Task table.csv');
+    // UTF-8 said once at the start, then lines ended by CRLF.
+    expect(text.startsWith('\uFEFF')).toBe(true);
+    const lines = text.slice(1).split('\r\n');
+    expect(lines[0]).toBe(
+      '"Title","Status","Phase","Owner","Period","Comes after","Estimated hours","Milestone"',
+    );
+    expect(lines).toHaveLength(8);
+    const build = lines.find((line) => line.startsWith('"Build"')) ?? '';
+    // The owner by name, never by identifier; the card before it by its title; hours a number.
+    expect(build).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    expect(build).toContain(',"Design the screens",80,FALSE');
+    expect(build.split(',')[3]).toMatch(/^"[^"]+"$/);
+    expect(lines.find((line) => line.startsWith('"Launch"'))).toMatch(/,4,TRUE$/);
+  });
+
+  test('the file has the cards the search leaves, in the order of the view', async ({ page }) => {
+    await open(page);
+    await showView(page, 'Task table');
+    await tool(page, 'search').click();
+    await header(page).getByRole('searchbox', { name: 'Search cards' }).fill('the');
+    await expect.poll(() => cards(page).count()).toBeLessThan(6);
+    const shown = await cards(page).count();
+    const { text } = await saveCsv(page);
+    const titles = text
+      .slice(1)
+      .split('\r\n')
+      .slice(1, -1)
+      .map((line) => line.split('","')[0]?.replace(/^"/, ''));
+    expect(titles).toHaveLength(shown);
+    for (const title of titles) expect(title?.toLowerCase()).toContain('the');
+  });
 });

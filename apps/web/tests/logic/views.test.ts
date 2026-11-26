@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { mergeBlocks } from '$lib/logic/block-tree.ts';
-import { csvText, tableRows } from '$lib/logic/csv.ts';
+import { CSV_BOM, csvCell, csvText, tableRows } from '$lib/logic/csv.ts';
 import { calendarDate } from '$lib/logic/dates.ts';
 import { diagnostics } from '$lib/logic/diagnostics.ts';
 import {
@@ -15,7 +15,6 @@ import {
 } from '$lib/logic/filter-conditions.ts';
 import { getVisibleAndHiddenGroups } from '$lib/logic/group.ts';
 import {
-  HASH_SIGN_TOKEN,
   PROPERTY_BEHAVIORS,
   propertyBehavior,
   SELECTABLE_PROPERTY_TYPES,
@@ -331,26 +330,109 @@ describe('CSV rows', () => {
     notes: 'a, b',
     amount: '012.50',
   });
+  /** The lines of a file, its byte order mark taken off. */
+  const lines = (text: string): string[] => text.slice(CSV_BOM.length).split('\r\n');
 
   it('writes a header and a row per card, properties in the order of the board', () => {
     const rows = tableRows([first, card('2', 'Empty')], templates, view, 'Name', context);
     expect(rows).toEqual([
-      ['"Name"', '"Status"', '"Tags"', '"Notes"', '"Amount"'],
-      [`"Say ""hi"" ${HASH_SIGN_TOKEN}1"`, '"Done"', 'Urgent|Backend work', '"a, b"', '12.5'],
-      ['"Empty"', '""', '', '', ''],
+      ['Name', 'Status', 'Tags', 'Notes', 'Amount'],
+      ['Say "hi" #1', 'Done', 'Urgent, Backend work', 'a, b', 12.5],
+      ['Empty', '', '', '', ''],
     ]);
-    expect(csvText(rows).split('\r\n')).toHaveLength(4);
+    expect(lines(csvText(rows))).toEqual([
+      '"Name","Status","Tags","Notes","Amount"',
+      // A `#` stays what it is; a comma or a quote stays in its cell.
+      '"Say ""hi"" #1","Done","Urgent, Backend work","a, b",12.5',
+      '"Empty",,,,',
+      '',
+    ]);
+  });
+
+  it('starts the file with the mark that tells a spreadsheet it is UTF-8', () => {
+    const text = csvText([['이름'], ['한글 제목']]);
+    expect(text.startsWith('\uFEFF')).toBe(true);
+    expect(text.indexOf(CSV_BOM, 1)).toBe(-1);
+    expect(lines(text)).toEqual(['"이름"', '"한글 제목"', '']);
+  });
+
+  it('quotes a text with a comma, a quote or a line break as RFC 4180 has it', () => {
+    expect(csvCell('a, b')).toBe('"a, b"');
+    expect(csvCell('say "hi"')).toBe('"say ""hi"""');
+    expect(csvCell('one\r\ntwo\nthree')).toBe('"one\r\ntwo\nthree"');
+    expect(csvCell('')).toBe('');
+    expect(csvCell(-3.5)).toBe('-3.5');
+    expect(csvCell(Number.NaN)).toBe('');
+  });
+
+  it('writes a text a spreadsheet would run as a formula after an apostrophe', () => {
+    for (const formula of ['=HYPERLINK("x")', '+1+2', '-2+3', '@SUM(A1)', '\tTab', '\rReturn']) {
+      expect(csvCell(formula)).toBe(`"'${formula.replaceAll('"', '""')}"`);
+    }
+    // A plain number is no formula, signed or not, and a sign inside a text is nothing.
+    expect(csvCell('-42')).toBe('"-42"');
+    expect(csvCell('+1.5e3')).toBe('"+1.5e3"');
+    expect(csvCell('a=b')).toBe('"a=b"');
+    const titled = tableRows([card('1', '=1+2')], [], view, 'Name', context);
+    expect(lines(csvText(titled))[1]).toBe(`"'=1+2"`);
+  });
+
+  it('names people by the names the reader knows them by, never by their identifiers', () => {
+    const helpers: PropertyTemplate = {
+      id: 'helpers',
+      name: 'Helpers',
+      type: 'multiPerson',
+      options: [],
+    };
+    const by: PropertyTemplate = { id: 'by', name: 'By', type: 'createdBy', options: [] };
+    const changed: PropertyTemplate = { id: 'last', name: 'Last', type: 'updatedBy', options: [] };
+    const made = card('1', 't', { owner: 'user-1', helpers: ['user-2', 'user-3'] });
+    made.createdBy = 'user-1';
+    made.modifiedBy = 'user-3';
+    const names: Record<string, string> = { 'user-1': 'Ann (@ann)', 'user-2': 'bo' };
+    const people = { ...context, personName: (id: string) => names[id] ?? 'Unknown user' };
+    const shown = { ...view, shownProperties: ['owner', 'helpers', 'by', 'last'] };
+    const rows = tableRows([made], [owner, helpers, by, changed], shown, 'Name', people);
+    expect(rows[1]).toEqual(['t', 'Ann (@ann)', 'bo, Unknown user', 'Ann (@ann)', 'Unknown user']);
+  });
+
+  it('writes a box as a truth value, ticked or not', () => {
+    const done: PropertyTemplate = { id: 'ok', name: 'OK', type: 'checkbox', options: [] };
+    const shown = { ...view, shownProperties: ['ok'] };
+    const rows = tableRows(
+      [card('1', 'a', { ok: 'true' }), card('2', 'b')],
+      [done],
+      shown,
+      'N',
+      context,
+    );
+    expect(rows.slice(1)).toEqual([
+      ['a', 'TRUE'],
+      ['b', 'FALSE'],
+    ]);
+  });
+
+  it('writes a number as a number, and what is no number as its text', () => {
+    const shown = { ...view, shownProperties: ['amount'] };
+    const rows = tableRows(
+      [card('1', 'a', { amount: '-7' }), card('2', 'b', { amount: 'about 3' })],
+      templates,
+      shown,
+      'Name',
+      context,
+    );
+    expect(lines(csvText(rows)).slice(1, 3)).toEqual(['"a",-7', '"b","about 3"']);
   });
 
   it('adds the date a calendar view places its cards by', () => {
     const calendar = { ...view, viewType: 'calendar' as const, dateProperty: 'due' };
     expect(tableRows([], templates, calendar, 'Name', context)[0]).toEqual([
-      '"Name"',
-      '"Status"',
-      '"Tags"',
-      '"Notes"',
-      '"Amount"',
-      '"Due"',
+      'Name',
+      'Status',
+      'Tags',
+      'Notes',
+      'Amount',
+      'Due',
     ]);
     expect(
       tableRows([], templates, { ...view, dateProperty: 'due' }, 'Name', context)[0],
@@ -359,26 +441,18 @@ describe('CSV rows', () => {
 
   it('adds the date a calendar falls back to where it names none', () => {
     const calendar = { ...view, viewType: 'calendar' as const };
-    expect(tableRows([], templates, calendar, 'Name', context)[0]?.at(-1)).toBe('"Due"');
+    expect(tableRows([], templates, calendar, 'Name', context)[0]?.at(-1)).toBe('Due');
   });
 
   it('adds the date a Gantt view places its cards by, the one it falls back to too', () => {
     const gantt = { ...view, viewType: 'gantt' as const };
-    expect(tableRows([], templates, gantt, 'Name', context)[0]?.at(-1)).toBe('"Due"');
+    expect(tableRows([], templates, gantt, 'Name', context)[0]?.at(-1)).toBe('Due');
     expect(
       tableRows([], templates, { ...gantt, dateProperty: 'due' }, 'Name', context)[0],
     ).toHaveLength(6);
     // Shown already: not twice.
     const shown = { ...gantt, shownProperties: ['due'] };
-    expect(tableRows([], templates, shown, 'Name', context)[0]).toEqual(['"Name"', '"Due"']);
-  });
-
-  it('exports who created a card from the card itself', () => {
-    const by: PropertyTemplate = { id: 'by', name: 'By', type: 'createdBy', options: [] };
-    const created = card('1', 't');
-    created.createdBy = 'user-1';
-    const rows = tableRows([created], [by], { ...view, shownProperties: ['by'] }, 'Name', context);
-    expect(rows[1]).toEqual(['"t"', '"user-1"']);
+    expect(tableRows([], templates, shown, 'Name', context)[0]).toEqual(['Name', 'Due']);
   });
 
   it('quotes the headings too, so a comma in a property name stays in its cell (Q12)', () => {
@@ -389,7 +463,7 @@ describe('CSV rows', () => {
       options: [],
     };
     const rows = tableRows([], [awkward], { ...view, shownProperties: ['c'] }, 'Name', context);
-    expect(csvText(rows)).toBe(`"Name","Cost, ""total"" ${HASH_SIGN_TOKEN}1"\r\n`);
+    expect(csvText(rows)).toBe(`${CSV_BOM}"Name","Cost, ""total"" #1"\r\n`);
   });
 });
 

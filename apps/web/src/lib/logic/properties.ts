@@ -34,6 +34,9 @@ export type FilterValueType =
 
 export type CalculationOption = 'none' | CalculationId;
 
+/** A value as one cell of a CSV file: a text, or a number written as it is (csv.ts writes the file). */
+export type ExportCell = string | number;
+
 type Display = (
   value: PropertyValue | undefined,
   card: Card,
@@ -50,13 +53,13 @@ export interface PropertyBehavior {
   calculationOptions: readonly CalculationOption[];
   /** The text shown for a value; a list for several options. */
   displayValue: Display;
-  /** The value as one cell of a CSV file, quoted where needed. */
+  /** The value as one cell of a CSV file: what is shown, several values between commas. */
   exportValue: (
     value: PropertyValue | undefined,
     card: Card,
     template: PropertyTemplate,
     context: DisplayContext,
-  ) => string;
+  ) => ExportCell;
   /**
    * For the date kinds: the first and last day a card occupies in a calendar,
    * as the reader's calendar has them.
@@ -89,21 +92,43 @@ const NUMBER_CALCULATIONS = [
 ] as const;
 const TIME_CALCULATIONS = [...COMMON_CALCULATIONS, 'earliest', 'latest', 'dateRange'] as const;
 
-/** Marks the `#` of a cell; the code that builds the download link turns it into `%23`. */
-export const HASH_SIGN_TOKEN = '___hash_sign___';
-
-/** The text of a CSV cell: quotes doubled, `#` replaced by its token. */
-export function encodeCsvText(text: string): string {
-  return text.replace(/"/g, '""').replace(/#/g, HASH_SIGN_TOKEN);
-}
+/** Between the values of one cell that holds several. */
+const EXPORT_SEPARATOR = ', ';
 
 function exportDisplayed(display: Display): PropertyBehavior['exportValue'] {
   return (value, card, template, context) => {
     const shown = display(value, card, template, context);
-    if (typeof shown === 'string') return `"${encodeCsvText(shown)}"`;
-    if (Array.isArray(shown)) return `"${encodeCsvText(shown.join('|'))}"`;
-    return '';
+    return Array.isArray(shown) ? shown.join(EXPORT_SEPARATOR) : (shown ?? '');
   };
+}
+
+/** The identifiers of the people a stored value names. */
+function storedPeople(value: PropertyValue | undefined): string[] {
+  const plain = plainPropertyValue(value);
+  if (Array.isArray(plain)) return plain;
+  return plain ? [plain] : [];
+}
+
+/**
+ * The people of a value by the names the reader knows them by
+ * (`personName`), never by their identifiers where there is a way to look
+ * names up.
+ */
+function exportPeople(
+  people: (value: PropertyValue | undefined, card: Card) => readonly string[],
+): PropertyBehavior['exportValue'] {
+  return (value, card, _template, context) => {
+    const named = context.personName ?? ((id: string) => id);
+    return people(value, card).map(named).join(EXPORT_SEPARATOR);
+  };
+}
+
+/** A number as a spreadsheet reads one; a value that is no number, as it is written. */
+function exportNumber(value: PropertyValue | undefined): ExportCell {
+  const plain = plainPropertyValue(value);
+  if (typeof plain !== 'string' || plain.trim() === '') return '';
+  const number = Number(plain);
+  return Number.isFinite(number) ? number : plain;
 }
 
 function behavior(overrides: Partial<PropertyBehavior>): PropertyBehavior {
@@ -188,7 +213,7 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
   phone: textLike,
   number: behavior({
     calculationOptions: NUMBER_CALCULATIONS,
-    exportValue: (value) => (value ? Number(value).toString() : ''),
+    exportValue: exportNumber,
   }),
   select: behavior({
     canGroup: true,
@@ -200,11 +225,6 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     canFilter: true,
     filterValueType: 'options',
     displayValue: displayMultiSelect,
-    // Not quoted, unlike every other kind.
-    exportValue: (value, card, template, context) => {
-      const shown = displayMultiSelect(value, card, template, context);
-      return Array.isArray(shown) ? shown.join('|') : '';
-    },
   }),
   date: behavior({
     canFilter: true,
@@ -212,9 +232,23 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     displayValue: displayDateValue,
     days: (value, _card, timeZone) => daysOf(parseDateValue(value), timeZone),
   }),
-  person: behavior({ canGroup: true, canFilter: true, filterValueType: 'person' }),
-  multiPerson: behavior({ canFilter: true, filterValueType: 'person' }),
-  checkbox: behavior({ canFilter: true, filterValueType: 'boolean' }),
+  person: behavior({
+    canGroup: true,
+    canFilter: true,
+    filterValueType: 'person',
+    exportValue: exportPeople(storedPeople),
+  }),
+  multiPerson: behavior({
+    canFilter: true,
+    filterValueType: 'person',
+    exportValue: exportPeople(storedPeople),
+  }),
+  // As a spreadsheet writes a truth value; an unset box is not ticked.
+  checkbox: behavior({
+    canFilter: true,
+    filterValueType: 'boolean',
+    exportValue: (value) => (plainPropertyValue(value) === 'true' ? 'TRUE' : 'FALSE'),
+  }),
   createdTime: behavior({
     canFilter: true,
     filterValueType: 'date',
@@ -237,12 +271,14 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     canFilter: true,
     filterValueType: 'person',
     isReadOnly: true,
+    exportValue: exportPeople((_value, card) => (card.createdBy ? [card.createdBy] : [])),
   }),
   updatedBy: behavior({
     canGroup: true,
     canFilter: true,
     filterValueType: 'person',
     isReadOnly: true,
+    exportValue: exportPeople((_value, card) => (card.modifiedBy ? [card.modifiedBy] : [])),
   }),
   // Not grouped by and not calculated; a filter asks only whether there is a value.
   relation: behavior({
