@@ -63,13 +63,16 @@ impl Collab {
                     let appended = collab
                         .append_in(app, card_id, slot, &user_id, &sender, &nodes)
                         .await;
-                    if appended.is_ok() {
-                        collab
-                            .write_pending(app, card_id, slot, whole::DueVersion::Keep)
-                            .await?;
-                    }
+                    let written = match appended {
+                        Ok(_) => {
+                            collab
+                                .write_pending(app, card_id, slot, whole::DueVersion::Keep)
+                                .await
+                        }
+                        Err(_) => Ok(()),
+                    };
                     collab.retire(slot);
-                    Ok(appended)
+                    written.map(|()| appended)
                 },
             )
             .await?

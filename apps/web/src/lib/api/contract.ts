@@ -3163,6 +3163,13 @@ export interface paths {
          *     top level; left out keeps its current parent), checked for cycles and maximum depth 3
          *     including any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).
          *
+         *     `bodyMarkdown` writes the body whole from Markdown, as `getCard` with
+         *     `format=markdown` reads it: refused with 409 `complex_blocks_use_append` while the body
+         *     has blocks its Markdown does not hold as they are. With a personal API token a body
+         *     written whole (`body` or `bodyMarkdown`) is refused with 409 `room_has_active_editors`
+         *     while people may write in the card's body, as it would lose what they typed and have
+         *     not sent: `appendCardMarkdown` adds to it instead.
+         *
          *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
          */
         patch: operations["patchCard"];
@@ -7254,6 +7261,22 @@ export interface components {
             boardId: string;
             body: components["schemas"]["Body"] | null;
             /**
+             * @description The body in Markdown, as `getCard` with `format=markdown` gives it in place of
+             *     `body`, left out otherwise: `bodyMarkdown` of `patchCard` writes it back, and
+             *     `appendCardMarkdown` adds to it. Files of the board are named
+             *     `fvoci-file://{fileId}` (an image `![alt](fvoci-file://…)`, a file
+             *     `[name](fvoci-file://…)`), people `@[name](fvoci-user://{userId})`, cards and
+             *     pages `[[id]]`; a formula is `$…$`, one of its own block `$$…$$`. A ``, ``,
+             *     `$` or any other mark Markdown would read is written after a backslash in text.
+             *     An empty paragraph is not written.
+             */
+            bodyMarkdown?: string;
+            /**
+             * @description With `bodyMarkdown`: the blocks it does not hold as they are, in the order of
+             *     the body.
+             */
+            complexBlocks?: components["schemas"]["ComplexBlock"][];
+            /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
@@ -7267,6 +7290,12 @@ export interface components {
             deletedAt?: number;
             /** @description Whether the card has a body. */
             hasBody: boolean;
+            /**
+             * @description With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as
+             *     they are (`complexBlocks`), which `bodyMarkdown` may not be written over (409
+             *     `complex_blocks_use_append`).
+             */
+            hasComplexBlocks?: boolean;
             /** @description The card's icon; at most one grapheme. */
             icon: string;
             /** @description The card's identifier. */
@@ -7383,6 +7412,14 @@ export interface components {
         /** @description What a card is changed to. A member that is left out stays as it is. */
         CardPatch: {
             body?: components["schemas"]["Body"] | null;
+            /**
+             * @description The new body in Markdown, as `getCard` with `format=markdown` gives it
+             *     (`Card.bodyMarkdown`), in place of `body`; Markdown that says nothing takes the
+             *     body away. Sent only with `readAt`, never with `body`. Refused with 409
+             *     `complex_blocks_use_append` while the body has blocks its Markdown does not hold
+             *     as they are (`Card.hasComplexBlocks`): `appendCardMarkdown` adds to it instead.
+             */
+            bodyMarkdown?: string | null;
             /**
              * @description Identifiers of properties whose value the card is to lose. A property named here
              *     and in `updatedProperties` loses its value.
@@ -7644,6 +7681,21 @@ export interface components {
              */
             suggestedNextIntervalDays: number;
         };
+        /** @description A block of a body that its Markdown does not hold as it is. */
+        ComplexBlock: {
+            /**
+             * @description Where the block is in the body, as a JSON pointer into it (`/content/2` is the
+             *     third block of the body).
+             */
+            path: string;
+            /** @description Why the Markdown does not hold it. */
+            reason: components["schemas"]["ComplexBlockReason"];
+        };
+        /**
+         * @description Why the Markdown of a body does not hold one of its blocks as it is.
+         * @enum {string}
+         */
+        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula";
         ConfirmEmailChange: {
             /** @description The secret from the confirmation link's fragment. */
             token: string;
@@ -9056,6 +9108,8 @@ export interface components {
             /** @description The board of the path, if it is there at all. */
             boardId?: string;
             body?: components["schemas"]["Body"] | null;
+            /** @description The card's body in Markdown, as `Card.bodyMarkdown` says, in place of `body`. */
+            bodyMarkdown?: string;
             /** @description The card's icon; at most one grapheme. */
             icon?: string;
             /** @description Whether the card is a template. */
@@ -15718,7 +15772,10 @@ export interface operations {
     };
     getCard: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
+                format?: string;
+            };
             header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */

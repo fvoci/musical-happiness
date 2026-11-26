@@ -10,6 +10,7 @@ use super::list_page::ListPage;
 
 use super::{App, ChangeNotification};
 use crate::auth::now_millis;
+use crate::collab::OverEditors;
 use crate::error::AppError;
 
 /// Whether a list of cards gives each card its preview.
@@ -125,19 +126,20 @@ impl App {
     ///
     /// Returns a bad request if the patch is not valid (an icon of more than one
     /// grapheme), an internal error if the patched block is no card, and otherwise the
-    /// errors of [`App::patch_block`] with the message prefixed by `cannot patch card
-    /// {id}`.
+    /// errors of [`App::patch_block_over`] with the message prefixed by `cannot patch
+    /// card {id}`; a body written whole is written `over` its editors.
     pub async fn patch_card(
         &self,
         patch: &CardPatch,
         card_id: &str,
         user_id: &str,
         notification: ChangeNotification,
+        over: OverEditors,
     ) -> Result<Card, AppError> {
         // An invalid icon is a bad request, matching new card validation.
         let block_patch = patch.to_block_patch()?;
         let block = self
-            .patch_block(card_id, &block_patch, user_id, notification)
+            .patch_block_over(card_id, &block_patch, user_id, notification, over)
             .await
             .map_err(|error| error.context(format_args!("cannot patch card {card_id}")))?;
         self.with_last_comment_at(card_from_stored_block(&block, now_millis())?)

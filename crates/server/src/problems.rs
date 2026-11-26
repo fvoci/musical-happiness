@@ -644,6 +644,19 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              of its database and has not gone down yet), and this one leaves it alone. The \
              document is as it was stored before. Try again later."
         }
+        Reason::ComplexBlocksUseAppend => {
+            "Status 409. A body is written whole from Markdown (`bodyMarkdown`) over one \
+             with blocks its Markdown does not hold as they are (`complexBlocks` of \
+             `getCard` with `format=markdown`): merged cells, cells of more than a line, \
+             formulas Markdown cannot write. Nothing was changed. Add Markdown after the \
+             body (`appendCardMarkdown`), or write it as JSON (`body`)."
+        }
+        Reason::RoomHasActiveEditors => {
+            "Status 409. A personal API token writes a card's body whole while people may \
+             write in it, which would lose what they typed and have not sent yet. Nothing \
+             was changed. Add Markdown after the body (`appendCardMarkdown`), which keeps \
+             what they type, or try again once they have left."
+        }
         other => describe_rooms(other),
     }
 }

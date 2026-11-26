@@ -115,6 +115,7 @@ parameter!(OidcCode: Query "code", String, False, "The authorization code the pr
 parameter!(OidcError: Query "error", String, False, "The provider's code of why it did not let the person sign in.");
 parameter!(SharedReadToken: Query "readToken", String, True, "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.");
 parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.");
+parameter!(BodyFormat: Query "format", String, False, "`markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).");
 parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
 parameter!(AsTemplate: Query "asTemplate", bool, False, "`true` makes the copy a template. Any other value does not.");
 parameter!(ToWorkspace: Query "toWorkspace", String, False, "The workspace the copy goes to: one the user works in. Left out, the workspace of the path.");

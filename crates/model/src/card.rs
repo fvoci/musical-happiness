@@ -8,6 +8,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::JsonMap;
 use crate::block::{Block, BlockPatch, BlockType, PropertyChanges};
 use crate::body::{Body, BodyChange, BodySummary};
+use crate::body_markdown::ComplexBlock;
 use crate::card_property::{PersonProperties, check_card_property_values};
 use crate::id::new_id;
 use crate::refusal::{RefusalReason, Refusals};
@@ -118,6 +119,28 @@ pub struct Card {
     /// it; what it sends is not stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<CardPreview>,
+    /// The body in Markdown, as `getCard` with `format=markdown` gives it in place of
+    /// `body`, left out otherwise: `bodyMarkdown` of `patchCard` writes it back, and
+    /// `appendCardMarkdown` adds to it. Files of the board are named
+    /// `fvoci-file://{fileId}` (an image `![alt](fvoci-file://…)`, a file
+    /// `[name](fvoci-file://…)`), people `@[name](fvoci-user://{userId})`, cards and
+    /// pages `[[id]]`; a formula is `$…$`, one of its own block `$$…$$`. A `[`, `]`,
+    /// `$` or any other mark Markdown would read is written after a backslash in text.
+    /// An empty paragraph is not written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub body_markdown: Option<String>,
+    /// With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as
+    /// they are (`complexBlocks`), which `bodyMarkdown` may not be written over (409
+    /// `complex_blocks_use_append`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub has_complex_blocks: Option<bool>,
+    /// With `bodyMarkdown`: the blocks it does not hold as they are, in the order of
+    /// the body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub complex_blocks: Option<Vec<ComplexBlock>>,
 }
 
 /// What a gallery shows of a card's body.
@@ -311,6 +334,9 @@ impl Card {
             // A block does not know its comments.
             last_comment_at: 0,
             preview: None,
+            body_markdown: None,
+            has_complex_blocks: None,
+            complex_blocks: None,
         };
         card.populate(now);
         Ok(card)
@@ -382,6 +408,13 @@ pub struct CardPatch {
     /// checked whenever it is sent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_at: Option<i64>,
+    /// The new body in Markdown, as `getCard` with `format=markdown` gives it
+    /// (`Card.bodyMarkdown`), in place of `body`; Markdown that says nothing takes the
+    /// body away. Sent only with `readAt`, never with `body`. Refused with 409
+    /// `complex_blocks_use_append` while the body has blocks its Markdown does not hold
+    /// as they are (`Card.hasComplexBlocks`): `appendCardMarkdown` adds to it instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_markdown: Option<String>,
 }
 
 impl CardPatch {

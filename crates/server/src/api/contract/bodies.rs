@@ -179,6 +179,9 @@ pub(crate) struct NewCard {
     properties: Option<JsonMap>,
     /// The card's body; left out or `null` for none.
     body: Option<Body>,
+    /// The card's body in Markdown, as `Card.bodyMarkdown` says, in place of `body`.
+    #[schema(nullable = false)]
+    body_markdown: Option<String>,
 }
 
 /// A sidebar category to make.

@@ -857,6 +857,24 @@ impl Collab {
     /// until the document is closed, so that the next opens it after. A room that one
     /// who typed has left, or writes in no more, asks for what was typed to be kept as
     /// a version: it is, unless another who typed it is still there to write.
+    /// Whether anybody who may write is in the room of the card `card_id` of `app`'s
+    /// organization.
+    pub(super) async fn has_editors(&self, app: &App, card_id: &str) -> bool {
+        let room = self
+            .rooms_index()
+            .get(app.store().tenant(), card_id)
+            .map(Arc::clone);
+        let Some(room) = room else {
+            return false;
+        };
+        let turn = room.turn.lock().await;
+        !turn.closed
+            && turn
+                .members
+                .iter()
+                .any(|member| member.mode == DocMode::Write)
+    }
+
     async fn shut_if_empty(&self, room: &Arc<Room>, turn: &mut Turn) {
         if turn.closed {
             return;

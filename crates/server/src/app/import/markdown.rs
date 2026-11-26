@@ -8,7 +8,7 @@
 //! inside the uploaded bundle.
 
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, is_id};
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd};
 use serde_json::{Map, Value, json};
 
 pub(crate) use super::markdown_nodes::{
@@ -23,6 +23,9 @@ use super::markdown_nodes::{
 };
 use super::summary::{ImportWarningCode, truncate_chars};
 use crate::error::AppError;
+
+mod fvoci;
+pub(crate) use fvoci::fvoci_markdown_to_blocks;
 
 /// Early cap on raw inline/cell items before merging to prevent unbounded vector growth.
 const MAX_RAW_INLINES: usize = BODY_MAX_NODES * 4;
@@ -45,14 +48,26 @@ pub(crate) fn markdown_to_blocks(
     max_depth: usize,
     resolver: &mut dyn AssetResolver,
 ) -> Result<MarkdownBlocks, AppError> {
+    convert(markdown, context, max_depth, resolver, Options::empty())
+}
+
+fn convert(
+    markdown: &str,
+    context: BodyContext,
+    max_depth: usize,
+    resolver: &mut dyn AssetResolver,
+    dialect: Options,
+) -> Result<MarkdownBlocks, AppError> {
     if markdown.contains('\0') {
         return Err(AppError::bad_request(
             "markdown content contains U+0000 character",
         ));
     }
     let clean = markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown);
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | dialect;
     let parser = Parser::new_ext(clean, options);
     let mut state = Converter::new(context, max_depth, resolver);
     for event in parser {
@@ -110,6 +125,8 @@ enum Frame {
     Link {
         dest: String,
         title_dropped: bool,
+        /// Written `[[…]]` (fvoci's dialect): text as written unless it names a block.
+        wiki: bool,
         inlines: Vec<InlineItem>,
     },
     Image {
@@ -244,7 +261,9 @@ impl<'r> Converter<'r> {
                 }
                 Ok(())
             }
-            Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => Ok(()),
+            Event::InlineMath(latex) => self.push_math("inlineMath", &latex),
+            Event::DisplayMath(latex) => self.push_math("blockMath", &latex),
+            Event::FootnoteReference(_) => Ok(()),
         }
     }
 
@@ -306,10 +325,14 @@ impl<'r> Converter<'r> {
                 self.mark_counts[MARK_STRIKE] = self.mark_counts[MARK_STRIKE].saturating_add(1);
             }
             Tag::Link {
-                dest_url, title, ..
+                link_type,
+                dest_url,
+                title,
+                ..
             } => self.push_frame(Frame::Link {
                 dest: dest_url.into_string(),
                 title_dropped: !title.is_empty(),
+                wiki: matches!(link_type, LinkType::WikiLink { .. }),
                 inlines: Vec::new(),
             })?,
             Tag::Image { dest_url, .. } => self.push_frame(Frame::Image {
@@ -635,11 +658,15 @@ impl<'r> Converter<'r> {
         let Some(Frame::Link {
             dest,
             title_dropped,
+            wiki,
             inlines,
         }) = self.frames.pop()
         else {
             return Ok(());
         };
+        if wiki && !is_id(&dest) {
+            return self.push_text(&format!("[[{}]]", collect_plain_text(&inlines)));
+        }
         if title_dropped {
             self.note(
                 ImportWarningCode::MarkdownDegraded,
@@ -657,6 +684,13 @@ impl<'r> Converter<'r> {
                 self.bump_nodes(1)?;
                 self.push_inline(InlineItem::BlockBreak(
                     json!({"type": "file", "attrs": {"fileId": file_id}}),
+                ))?;
+            }
+            ResolvedTarget::Mention { user_id } => {
+                self.drop_mention_sign();
+                self.bump_nodes(1)?;
+                self.push_inline(InlineItem::Node(
+                    json!({"type": "mention", "attrs": {"userId": user_id}}),
                 ))?;
             }
             ResolvedTarget::LocalFile { .. } => {
@@ -753,6 +787,7 @@ impl<'r> Converter<'r> {
             }
             ResolvedTarget::MissingLocal
             | ResolvedTarget::InternalReference { .. }
+            | ResolvedTarget::Mention { .. }
             | ResolvedTarget::LocalFile { .. } => {
                 self.note(
                     ImportWarningCode::MissingLocalAsset,

@@ -3,8 +3,8 @@
 use axum::body::Bytes;
 use axum::extract::Path;
 use fvoci_model::{
-    Block, BlockType, BodyVersion, BodyVersionContent, Card, CardError, CardPatch, KeptBodyVersion,
-    RefusalReason, Refusals,
+    Block, BlockType, BodyChange, BodyVersion, BodyVersionContent, Card, CardError, CardPatch,
+    KeptBodyVersion, RefusalReason, Refusals,
 };
 use serde::Deserialize;
 
@@ -14,7 +14,8 @@ use utoipa_axum::routes;
 use super::contract::bodies::NewCard;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{
-    BoardId, BodyVersionNumber, CardId, CardNumber, DisableNotify, Page, PerPage, Preview,
+    BoardId, BodyFormat, BodyVersionNumber, CardId, CardNumber, DisableNotify, Page, PerPage,
+    Preview,
 };
 use super::contract::tag;
 use super::query::{DisableNotifyQuery, QueryParams, paging_from_strings};
@@ -27,10 +28,26 @@ use super::body_versions::{
 };
 use super::{ApiResult, TRUE, created, json_response};
 use super::{decode_with_document, require_container_permission, require_permission_through};
-use crate::app::{App, CardPreviews};
+use crate::app::{App, Caller, CardPreviews};
 use crate::auth::now_millis;
+use crate::collab::OverEditors;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
+
+/// How a card's body is given (`format`).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum BodyFormatValue {
+    #[default]
+    Json,
+    Markdown,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct CardQuery {
+    format: BodyFormatValue,
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -58,6 +75,39 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 ///
 /// The path names a card and no board. So for a user who may not read the card's board
 /// there is no such card, and neither is there for anyone if the block is no card.
+/// Where a request sent the body it writes: `/bodyMarkdown` if it sent Markdown.
+fn body_member(markdown: Option<&String>) -> &'static str {
+    if markdown.is_some() {
+        "/bodyMarkdown"
+    } else {
+        "/body"
+    }
+}
+
+/// Refuses a request that sends a body both as `body` and as `bodyMarkdown`.
+fn refuse_both_bodies(body: &BodyChange) -> Result<(), AppError> {
+    if body.is_keep() {
+        return Ok(());
+    }
+    let mut refused = Refusals::new();
+    refused.refuse(
+        "bodyMarkdown",
+        RefusalReason::Invalid,
+        "a body is sent as body or as bodyMarkdown, not as both",
+    );
+    Err(refused.into())
+}
+
+/// What a body the caller writes whole does to the people editing it: an agent's is
+/// refused while they do, as it would lose what they typed and have not sent.
+fn over_editors(caller: &Caller) -> OverEditors {
+    if caller.delegation().is_some() {
+        OverEditors::Refuse
+    } else {
+        OverEditors::Replace
+    }
+}
+
 pub(super) async fn card_with_permission(
     app: &App,
     user_id: &str,
@@ -138,10 +188,22 @@ async fn handle_create_card(
         );
     }
     refused.into_result()?;
-    card.body = document.into_body();
+    let body_at = body_member(card.body_markdown.as_ref());
+    card.body = match card.body_markdown.take() {
+        Some(markdown) => {
+            refuse_both_bodies(&document)?;
+            ws.app
+                .body_of_markdown(&board_id, None, &markdown)
+                .await?
+                .into_body()
+        }
+        None => document.into_body(),
+    };
+    (card.has_complex_blocks, card.complex_blocks) = (None, None);
     ws.app
         .check_body_files(&board_id, card.body.as_ref())
-        .await?;
+        .await
+        .map_err(|error| error.moved("/body", body_at))?;
     card.board_id.clone_from(&board_id);
     card.populate(now_millis());
     card.validate().map_err(AppError::bad_request)?;
@@ -211,6 +273,13 @@ pub(super) async fn cards_page(
 /// `parentId` reparents the card within the same board (empty or `null` moves it to the
 /// top level; left out keeps its current parent), checked for cycles and maximum depth 3
 /// including any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).
+///
+/// `bodyMarkdown` writes the body whole from Markdown, as `getCard` with
+/// `format=markdown` reads it: refused with 409 `complex_blocks_use_append` while the body
+/// has blocks its Markdown does not hold as they are. With a personal API token a body
+/// written whole (`body` or `bodyMarkdown`) is refused with 409 `room_has_active_editors`
+/// while people may write in the card's body, as it would lose what they typed and have
+/// not sent: `appendCardMarkdown` adds to it instead.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/cards/{cardId}",
@@ -240,15 +309,30 @@ async fn handle_patch_card(
     // The block, read to check the permission, is the card as it was.
     let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
     patch.body = document;
+    let body_at = body_member(patch.body_markdown.as_ref());
+    if let Some(markdown) = patch.body_markdown.take() {
+        refuse_both_bodies(&patch.body)?;
+        patch.body = ws
+            .app
+            .body_of_markdown(&card.container_id, card.body.as_ref(), &markdown)
+            .await?;
+    }
     // Everything of the request's shape that is refused, before the store is asked.
     patch.check_request()?;
     ws.app
         .check_body_files(&card.container_id, patch.body.new_body())
-        .await?;
+        .await
+        .map_err(|error| error.moved("/body", body_at))?;
 
     let patched = ws
         .app
-        .patch_card(&patch, &card.id, user_id, notification)
+        .patch_card(
+            &patch,
+            &card.id,
+            user_id,
+            notification,
+            over_editors(&ws.caller),
+        )
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))?;
     tracing::debug!(board_id = %patched.board_id, card_id = %patched.id, user_id, "PatchCard");
@@ -264,12 +348,13 @@ async fn handle_patch_card(
     path = "/w/{workspaceId}/cards/{cardId}",
     operation_id = "getCard",
     tag = tag::CARDS,
-    params(MemberWorkspaceId, CardId),
+    params(MemberWorkspaceId, CardId, BodyFormat),
     responses((status = 200, description = "The card.", body = Card)),
 )]
 async fn handle_get_card(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, card_id)): Path<(String, String)>,
+    QueryParams(query): QueryParams<CardQuery>,
 ) -> ApiResult {
     let user_id = ws.caller.user_id.as_str();
     let block = card_with_permission(
@@ -280,7 +365,10 @@ async fn handle_get_card(
         "access denied to fetch card",
     )
     .await?;
-    let card = ws.app.card_of_block(&block).await?;
+    let mut card = ws.app.card_of_block(&block).await?;
+    if query.format == BodyFormatValue::Markdown {
+        ws.app.put_card_in_markdown(&mut card).await?;
+    }
     tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
     Ok(json_response(&card))
 }

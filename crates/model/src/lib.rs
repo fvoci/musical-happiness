@@ -15,6 +15,7 @@ mod block;
 mod block_ids;
 mod board_ops;
 mod body;
+mod body_markdown;
 mod body_version;
 mod card;
 mod card_property;
@@ -102,6 +103,7 @@ pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
     BodySummary, TaskCount,
 };
+pub use body_markdown::{ComplexBlock, ComplexBlockReason};
 pub use body_version::{
     BodyVersion, BodyVersionCause, BodyVersionContent, KeptBodyVersion, KeptOutcome,
     ParseBodyVersionCauseError,

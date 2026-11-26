@@ -4,7 +4,7 @@ use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion}
 use fvoci_store::{BlockFilter, DeletedBlock, DuplicateAs};
 
 use super::App;
-use crate::collab::Deletion;
+use crate::collab::{Deletion, OverEditors};
 use crate::error::AppError;
 
 /// Whether the people a change to a block newly names (those its body mentions, those
@@ -320,6 +320,29 @@ impl App {
         modified_by: &str,
         notification: ChangeNotification,
     ) -> Result<Block, AppError> {
+        self.patch_block_over(
+            block_id,
+            patch,
+            modified_by,
+            notification,
+            OverEditors::Replace,
+        )
+        .await
+    }
+
+    /// As [`App::patch_block`], a body it writes whole done `over` its editors.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::patch_block`], and 409 `room_has_active_editors` (`over`).
+    pub async fn patch_block_over(
+        &self,
+        block_id: &str,
+        patch: &BlockPatch,
+        modified_by: &str,
+        notification: ChangeNotification,
+        over: OverEditors,
+    ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let container = self.store().get_container(&old_block.container_id).await?;
         // A whole body is written around the document of a body edited together.
@@ -330,18 +353,20 @@ impl App {
         };
         let (block_id, patch, modified_by) =
             (block_id.to_owned(), patch.clone(), modified_by.to_owned());
-        let mut block = self
-            .write_blocks(
-                vec![old_block.container_id],
-                whole_body_cards,
-                async move |app| {
-                    Ok(app
-                        .store_telling(notification)
-                        .patch_block(&block_id, &patch, &modified_by)
-                        .await?)
-                },
-            )
-            .await?;
+        let write = async move |app: Self| {
+            Ok(app
+                .store_telling(notification)
+                .patch_block(&block_id, &patch, &modified_by)
+                .await?)
+        };
+        let mut block = if whole_body_cards.is_empty() {
+            self.write_blocks(vec![old_block.container_id], whole_body_cards, write)
+                .await?
+        } else {
+            self.collab()
+                .write_whole_over(self, whole_body_cards, over, write)
+                .await?
+        };
         block.hide_inactive_number();
         self.tell_of_update(&container.workspace_id, &block, notification);
         Ok(block)

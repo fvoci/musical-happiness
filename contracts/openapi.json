@@ -977,6 +977,17 @@
               }
             ]
           },
+          "bodyMarkdown": {
+            "description": "The body in Markdown, as `getCard` with `format=markdown` gives it in place of\n`body`, left out otherwise: `bodyMarkdown` of `patchCard` writes it back, and\n`appendCardMarkdown` adds to it. Files of the board are named\n`fvoci-file://{fileId}` (an image `![alt](fvoci-file://…)`, a file\n`[name](fvoci-file://…)`), people `@[name](fvoci-user://{userId})`, cards and\npages `[[id]]`; a formula is `$…$`, one of its own block `$$…$$`. A ``, ``,\n`$` or any other mark Markdown would read is written after a backslash in text.\nAn empty paragraph is not written.",
+            "type": "string"
+          },
+          "complexBlocks": {
+            "description": "With `bodyMarkdown`: the blocks it does not hold as they are, in the order of\nthe body.",
+            "items": {
+              "$ref": "#/components/schemas/ComplexBlock"
+            },
+            "type": "array"
+          },
           "createdAt": {
             "description": "Creation time in milliseconds since the Unix epoch.",
             "format": "int64",
@@ -993,6 +1004,10 @@
           },
           "hasBody": {
             "description": "Whether the card has a body.",
+            "type": "boolean"
+          },
+          "hasComplexBlocks": {
+            "description": "With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as\nthey are (`complexBlocks`), which `bodyMarkdown` may not be written over (409\n`complex_blocks_use_append`).",
             "type": "boolean"
           },
           "icon": {
@@ -1201,6 +1216,13 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "bodyMarkdown": {
+            "description": "The new body in Markdown, as `getCard` with `format=markdown` gives it\n(`Card.bodyMarkdown`), in place of `body`; Markdown that says nothing takes the\nbody away. Sent only with `readAt`, never with `body`. Refused with 409\n`complex_blocks_use_append` while the body has blocks its Markdown does not hold\nas they are (`Card.hasComplexBlocks`): `appendCardMarkdown` adds to it instead.",
+            "type": [
+              "string",
+              "null"
             ]
           },
           "deletedProperties": {
@@ -1675,6 +1697,34 @@
           "suggestedNextIntervalDays"
         ],
         "type": "object"
+      },
+      "ComplexBlock": {
+        "description": "A block of a body that its Markdown does not hold as it is.",
+        "properties": {
+          "path": {
+            "description": "Where the block is in the body, as a JSON pointer into it (`/content/2` is the\nthird block of the body).",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/ComplexBlockReason",
+            "description": "Why the Markdown does not hold it."
+          }
+        },
+        "required": [
+          "path",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "ComplexBlockReason": {
+        "description": "Why the Markdown of a body does not hold one of its blocks as it is.",
+        "enum": [
+          "merged_cell",
+          "cell_with_blocks",
+          "uneven_table",
+          "unwritten_formula"
+        ],
+        "type": "string"
       },
       "ConfirmEmailChange": {
         "properties": {
@@ -4458,6 +4508,10 @@
               }
             ]
           },
+          "bodyMarkdown": {
+            "description": "The card's body in Markdown, as `Card.bodyMarkdown` says, in place of `body`.",
+            "type": "string"
+          },
           "icon": {
             "description": "The card's icon; at most one grapheme.",
             "type": "string"
@@ -6373,6 +6427,16 @@
             "reason": "token_rate_limited",
             "title": "Too many requests of personal API tokens",
             "type": "/problems/token-rate-limited"
+          },
+          {
+            "reason": "complex_blocks_use_append",
+            "title": "Body that Markdown does not hold",
+            "type": "/problems/complex-blocks-use-append"
+          },
+          {
+            "reason": "room_has_active_editors",
+            "title": "Body edited by people now",
+            "type": "/problems/room-has-active-editors"
           },
           {
             "reason": "relation_not_a_list",
@@ -16023,6 +16087,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "`markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -16054,7 +16127,7 @@
         "x-fvoci-api-token": "read"
       },
       "patch": {
-        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.\n`parentId` reparents the card within the same board (empty or `null` moves it to the\ntop level; left out keeps its current parent), checked for cycles and maximum depth 3\nincluding any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.\n`parentId` reparents the card within the same board (empty or `null` moves it to the\ntop level; left out keeps its current parent), checked for cycles and maximum depth 3\nincluding any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).\n\n`bodyMarkdown` writes the body whole from Markdown, as `getCard` with\n`format=markdown` reads it: refused with 409 `complex_blocks_use_append` while the body\nhas blocks its Markdown does not hold as they are. With a personal API token a body\nwritten whole (`body` or `bodyMarkdown`) is refused with 409 `room_has_active_editors`\nwhile people may write in the card's body, as it would lose what they typed and have\nnot sent: `appendCardMarkdown` adds to it instead.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "patchCard",
         "parameters": [
           {

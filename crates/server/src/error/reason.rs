@@ -194,6 +194,12 @@ reasons! {
     /// A personal API token, or the tokens that reach one organization together, sent
     /// more requests than they may in a minute.
     TokenRateLimited => "token_rate_limited", "Too many requests of personal API tokens";
+    /// A body is written whole from Markdown over one that has blocks its Markdown does
+    /// not hold as they are (`complexBlocks`): Markdown is added after it instead.
+    ComplexBlocksUseAppend => "complex_blocks_use_append", "Body that Markdown does not hold";
+    /// A personal API token writes a body whole while people edit it: what they typed
+    /// and did not send yet would be lost. Markdown is added after it instead.
+    RoomHasActiveEditors => "room_has_active_editors", "Body edited by people now";
     /// The value of a card relation is neither `null` nor a list of identifiers.
     RelationNotAList => "relation_not_a_list", "Card relation that is no list";
     /// A card relation names the card it is the value of.
