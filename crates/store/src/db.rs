@@ -8,16 +8,16 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use fvoci_model::is_id;
-use serde_json::Value;
-use sqlx::postgres::{PgConnection, PgRow};
-use sqlx::sqlite::{SqliteConnection, SqliteRow};
+use sqlx::AssertSqlSafe;
+use sqlx::postgres::PgConnection;
+use sqlx::sqlite::SqliteConnection;
 use sqlx::types::Uuid;
-use sqlx::{AssertSqlSafe, Row as _};
 
 use crate::Tenant;
+use crate::clock::Clock;
 use crate::error::StoreError;
 
 /// The SQL dialect of the connected database.
@@ -29,12 +29,102 @@ pub enum Dialect {
     Postgres,
 }
 
-/// Returns the current time in milliseconds since the Unix epoch.
-pub(crate) fn now_millis() -> i64 {
-    let since_epoch = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    i64::try_from(since_epoch.as_millis()).unwrap_or(i64::MAX)
+/// Compile-time-checked SQL text fragment built exclusively from `'static` SQL pieces
+/// and validated table aliases. Prevents accidental `format!` runtime interpolation into
+/// SQL statements (`H-6`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct SqlFragment(String);
+
+impl SqlFragment {
+    pub(crate) fn new() -> Self {
+        Self(String::new())
+    }
+
+    pub(crate) fn of(parts: &[&'static str]) -> Self {
+        Self(parts.concat())
+    }
+
+    pub(crate) fn push(&mut self, part: &'static str) -> &mut Self {
+        self.0.push_str(part);
+        self
+    }
+
+    pub(crate) fn push_fragment(&mut self, part: &Self) -> &mut Self {
+        self.0.push_str(&part.0);
+        self
+    }
+}
+
+mod sealed {
+    pub(crate) trait Sealed {}
+}
+
+/// Sealed trait implemented only for `'static` SQL string slices/arrays and
+/// [`SqlFragment`], rejecting dynamic `String` / `&str` formatting at compile time.
+pub(crate) trait IntoSql: sealed::Sealed {
+    fn into_sql_string(self) -> String;
+    fn push_sql_into(self, out: &mut String);
+}
+
+impl sealed::Sealed for &'static str {}
+impl IntoSql for &'static str {
+    fn into_sql_string(self) -> String {
+        self.to_owned()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        out.push_str(self);
+    }
+}
+
+impl<const N: usize> sealed::Sealed for [&'static str; N] {}
+impl<const N: usize> IntoSql for [&'static str; N] {
+    fn into_sql_string(self) -> String {
+        self.concat()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        for part in self {
+            out.push_str(part);
+        }
+    }
+}
+
+impl<const N: usize> sealed::Sealed for &[&'static str; N] {}
+impl<const N: usize> IntoSql for &[&'static str; N] {
+    fn into_sql_string(self) -> String {
+        self.concat()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        for part in self {
+            out.push_str(part);
+        }
+    }
+}
+
+impl sealed::Sealed for &[&'static str] {}
+impl IntoSql for &[&'static str] {
+    fn into_sql_string(self) -> String {
+        self.concat()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        for part in self {
+            out.push_str(part);
+        }
+    }
+}
+
+impl sealed::Sealed for &SqlFragment {}
+impl IntoSql for &SqlFragment {
+    fn into_sql_string(self) -> String {
+        self.0.clone()
+    }
+
+    fn push_sql_into(self, out: &mut String) {
+        out.push_str(&self.0);
+    }
 }
 
 /// A query parameter.
@@ -223,9 +313,9 @@ impl Sql {
         self
     }
 
-    /// Appends SQL text. The text must not contain values; bind those instead.
-    pub(crate) fn push(&mut self, text: &str) -> &mut Self {
-        self.text.push_str(text);
+    /// Appends static SQL text. The text must not contain values; bind those instead.
+    pub(crate) fn push(&mut self, text: impl IntoSql) -> &mut Self {
+        text.push_sql_into(&mut self.text);
         self
     }
 
@@ -250,7 +340,7 @@ impl Sql {
     }
 
     /// Appends `text` followed by a placeholder: `push("id = ").bind(id)` in one call.
-    pub(crate) fn push_bind(&mut self, text: &str, param: impl Into<Bound>) -> &mut Self {
+    pub(crate) fn push_bind(&mut self, text: impl IntoSql, param: impl Into<Bound>) -> &mut Self {
         self.push(text).bind(param)
     }
 
@@ -292,6 +382,10 @@ pub(crate) struct Scope<'c> {
     /// Whose rows the operation reaches. On PostgreSQL the transaction was told so when
     /// it began.
     tenant: Tenant,
+    /// Whether `fvoci.system` is currently `'on'` in this PostgreSQL transaction.
+    wall_open: bool,
+    /// Monotonic clock shared with the owning [`crate::Store`].
+    clock: Option<&'c Clock>,
     /// Whether a statement ran that may have changed something: anything but a plain
     /// `SELECT`. Set when the statement starts.
     wrote: bool,
@@ -372,6 +466,8 @@ impl<'c> Scope<'c> {
         Self {
             conn,
             tenant,
+            wall_open: matches!(tenant, Tenant::System),
+            clock: None,
             wrote: false,
             writes: None,
             visibility: None,
@@ -379,6 +475,32 @@ impl<'c> Scope<'c> {
             search_outbox: None,
             noting: Noting::Named,
         }
+    }
+
+    /// Attaches the owning store's monotonic [`Clock`] to this scope.
+    pub(crate) fn with_clock(self, clock: &'c Clock) -> Self {
+        Self {
+            clock: Some(clock),
+            ..self
+        }
+    }
+
+    /// Current monotonic time in milliseconds since the Unix epoch.
+    pub(crate) fn now_millis(&self) -> i64 {
+        self.clock
+            .map_or_else(crate::clock::system_millis, Clock::now_millis)
+    }
+
+    pub(crate) fn is_wall_open(&self) -> bool {
+        self.wall_open
+    }
+
+    pub(crate) fn open_wall(&mut self) {
+        self.wall_open = true;
+    }
+
+    pub(crate) fn close_wall(&mut self) {
+        self.wall_open = false;
     }
 
     /// The same scope, whose writes of blocks note whom to tell as `noting` says.
@@ -430,13 +552,6 @@ impl<'c> Scope<'c> {
         self.wrote = true;
         if let Some(writes) = self.writes {
             writes.store(true, Ordering::Relaxed);
-        }
-    }
-
-    /// A structural change affects visibility even though its SQL also writes ordinary fields.
-    pub(crate) fn invalidate_visibility(&self) {
-        if let Some(visibility) = self.visibility {
-            visibility.invalidate();
         }
     }
 
@@ -532,7 +647,7 @@ impl<'c> Scope<'c> {
         if self.dialect() != Dialect::Postgres {
             return Ok(());
         }
-        let mut sql = self.sql(&format!("SELECT set_config('{}', ", crate::ORG_SETTING));
+        let mut sql = self.sql(["SELECT set_config('", crate::ORG_SETTING, "', "]);
         sql.bind(tenant.org_id().unwrap_or_default())
             .push(", true)");
         self.fetch_optional(sql).await?;
@@ -545,14 +660,25 @@ impl<'c> Scope<'c> {
     /// on SQLite. For the statements that reach across every organization and match rows
     /// by an identifier that the keys of the schema do not hold to one organization, or
     /// that do not take the keys on trust.
-    pub(crate) fn same_organization(&self, pairs: &[(&str, &str)]) -> String {
-        if self.dialect() == Dialect::Sqlite {
-            return String::new();
+    pub(crate) fn same_organization(&self, pairs: &[(&'static str, &'static str)]) -> SqlFragment {
+        for &(row, parent) in pairs {
+            assert!(
+                is_sql_ident(row) && is_sql_ident(parent),
+                "invalid SQL table alias in same_organization: ({row:?}, {parent:?})"
+            );
         }
-        pairs
-            .iter()
-            .map(|(row, parent)| [" AND ", row, ".org_id = ", parent, ".org_id"].concat())
-            .collect()
+        if self.dialect() == Dialect::Sqlite {
+            return SqlFragment::new();
+        }
+        let mut out = SqlFragment::new();
+        for &(row, parent) in pairs {
+            out.push(" AND ")
+                .push(row)
+                .push(".org_id = ")
+                .push(parent)
+                .push(".org_id");
+        }
+        out
     }
 
     /// How many earlier versions of a comment are kept, at least one.
@@ -578,8 +704,20 @@ impl<'c> Scope<'c> {
         }
     }
 
-    /// Starts a statement with the given text.
-    pub(crate) fn sql(&self, text: &str) -> Sql {
+    /// Starts a statement with static SQL text.
+    pub(crate) fn sql(&self, text: impl IntoSql) -> Sql {
+        Sql {
+            dialect: self.dialect(),
+            text: text.into_sql_string(),
+            params: Vec::new(),
+            invalid_id: None,
+            changes_no_access: false,
+        }
+    }
+
+    /// Starts a statement from raw SQL text in test code only.
+    #[cfg(any(test, feature = "test-util"))]
+    pub(crate) fn sql_unchecked(&self, text: &str) -> Sql {
         Sql {
             dialect: self.dialect(),
             text: text.to_owned(),
@@ -762,234 +900,15 @@ fn is_plain_select(text: &str) -> bool {
     text.trim_start().starts_with("SELECT ")
 }
 
-/// A result row from either database, read by column position.
-///
-/// The getters treat SQL `NULL` as the empty value of their type. The columns that may
-/// be `NULL` are references that may be absent (a block's parent, a creator), and the
-/// model spells "none" as the empty string.
-#[derive(Debug)]
-pub(crate) enum Row {
-    Sqlite(SqliteRow),
-    Postgres(PgRow),
+fn is_sql_ident(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
-impl Row {
-    /// Reads a text column.
-    pub(crate) fn text(&self, index: usize) -> Result<String, StoreError> {
-        let value: Option<String> = match self {
-            Self::Sqlite(row) => row.try_get(index)?,
-            Self::Postgres(row) => row.try_get(index)?,
-        };
-        Ok(value.unwrap_or_default())
-    }
-
-    /// Reads a text column that may be `NULL`, as `None`: for where no value and an
-    /// empty one are told apart.
-    pub(crate) fn opt_text(&self, index: usize) -> Result<Option<String>, StoreError> {
-        Ok(match self {
-            Self::Sqlite(row) => row.try_get(index)?,
-            Self::Postgres(row) => row.try_get(index)?,
-        })
-    }
-
-    /// Reads a 64-bit integer column that may be `NULL`, as `None`.
-    pub(crate) fn opt_int(&self, index: usize) -> Result<Option<i64>, StoreError> {
-        Ok(match self {
-            Self::Sqlite(row) => row.try_get(index)?,
-            Self::Postgres(row) => row.try_get(index)?,
-        })
-    }
-
-    /// Reads an identifier column: `uuid` on PostgreSQL, text on SQLite. `NULL` reads
-    /// as the empty string, which is how the model says "none".
-    pub(crate) fn id(&self, index: usize) -> Result<String, StoreError> {
-        match self {
-            Self::Sqlite(row) => {
-                let value: Option<String> = row.try_get(index)?;
-                Ok(value.unwrap_or_default())
-            }
-            Self::Postgres(row) => {
-                let value: Option<Uuid> = row.try_get(index)?;
-                Ok(value.map(sqlite_id).unwrap_or_default())
-            }
-        }
-    }
-
-    /// Reads a 64-bit integer column. Narrower PostgreSQL integer columns must be cast to
-    /// `BIGINT` in the query.
-    pub(crate) fn int(&self, index: usize) -> Result<i64, StoreError> {
-        let value: Option<i64> = match self {
-            Self::Sqlite(row) => row.try_get(index)?,
-            Self::Postgres(row) => row.try_get(index)?,
-        };
-        Ok(value.unwrap_or_default())
-    }
-
-    /// Reads a 64-bit floating-point column (`DOUBLE PRECISION` on PostgreSQL, `REAL` on
-    /// SQLite).
-    pub(crate) fn float(&self, index: usize) -> Result<f64, StoreError> {
-        let value: Option<f64> = match self {
-            Self::Sqlite(row) => row.try_get(index)?,
-            Self::Postgres(row) => row.try_get(index)?,
-        };
-        Ok(value.unwrap_or_default())
-    }
-
-    /// Reads a 64-bit floating-point column that may be `NULL`, as `None`.
-    pub(crate) fn opt_float(&self, index: usize) -> Result<Option<f64>, StoreError> {
-        Ok(match self {
-            Self::Sqlite(row) => row.try_get(index)?,
-            Self::Postgres(row) => row.try_get(index)?,
-        })
-    }
-
-    /// Reads a column of bytes: `bytea` on PostgreSQL, `BLOB` on SQLite. `NULL` reads
-    /// as no bytes.
-    pub(crate) fn bytes(&self, index: usize) -> Result<Vec<u8>, StoreError> {
-        let value: Option<Vec<u8>> = match self {
-            Self::Sqlite(row) => row.try_get(index)?,
-            Self::Postgres(row) => row.try_get(index)?,
-        };
-        Ok(value.unwrap_or_default())
-    }
-
-    /// Reads a boolean column.
-    pub(crate) fn bool(&self, index: usize) -> Result<bool, StoreError> {
-        let value: Option<bool> = match self {
-            Self::Sqlite(row) => row.try_get(index)?,
-            Self::Postgres(row) => row.try_get(index)?,
-        };
-        Ok(value.unwrap_or_default())
-    }
-
-    /// Reads a JSON column: `json` or `jsonb` on PostgreSQL, JSON as text or as a blob on
-    /// SQLite.
-    ///
-    /// `NULL` and empty text read as JSON `null`.
-    pub(crate) fn json(&self, index: usize, column: &'static str) -> Result<Value, StoreError> {
-        match self {
-            Self::Sqlite(row) => {
-                // Read as bytes, which accepts both storage classes: this server writes
-                // JSON as text, and SQLite keeps what is bound as bytes as a BLOB even
-                // in a text column.
-                let bytes: Option<Vec<u8>> = row.try_get(index)?;
-                match bytes.as_deref() {
-                    None | Some([]) => Ok(Value::Null),
-                    Some(bytes) => {
-                        serde_json::from_slice(bytes).map_err(|error| StoreError::Corrupt {
-                            column,
-                            reason: error.to_string(),
-                        })
-                    }
-                }
-            }
-            Self::Postgres(row) => {
-                let value: Option<Value> = row.try_get(index)?;
-                Ok(value.unwrap_or(Value::Null))
-            }
-        }
-    }
-
-    /// Reads a JSON column that holds an object. Anything else, including `null`, reads
-    /// as an empty object.
-    pub(crate) fn json_map(
-        &self,
-        index: usize,
-        column: &'static str,
-    ) -> Result<fvoci_model::JsonMap, StoreError> {
-        match self.json(index, column)? {
-            Value::Object(map) => Ok(map),
-            _ => Ok(fvoci_model::JsonMap::new()),
-        }
-    }
-}
+mod row;
+pub(crate) use row::Row;
 
 #[cfg(test)]
-mod tests {
-    use super::is_plain_select;
-
-    #[test]
-    fn only_a_statement_that_begins_with_select_is_taken_for_a_read() {
-        assert!(
-            is_plain_select("SELECT id FROM containers WHERE id = $1"),
-            "a read"
-        );
-        assert!(is_plain_select("  SELECT 1"), "leading white space");
-        for statement in [
-            "WITH gone AS (DELETE FROM blocks RETURNING id) SELECT id FROM gone",
-            "DELETE FROM data_steps WHERE name = $1 RETURNING name",
-            "UPDATE users SET updated_at = $1 RETURNING id",
-            "INSERT INTO containers (id) VALUES ($1) RETURNING id",
-            "select 1",
-            "SELECTED",
-        ] {
-            assert!(!is_plain_select(statement), "{statement}");
-        }
-    }
-
-    #[tokio::test]
-    async fn a_statement_that_runs_past_its_time_is_stopped_and_the_connection_serves_on() {
-        use std::time::{Duration, Instant};
-
-        use super::Dialect;
-        use crate::Store;
-        use crate::testing::TestDatabase;
-
-        let directory =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deadline-tests");
-        let database = TestDatabase::create(&directory).await;
-        let store = Store::connect(database.db_type(), database.database_connection())
-            .await
-            .expect("test store");
-        let counting = |to: u64| {
-            format!(
-                "SELECT count(*) FROM (WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL \
-                 SELECT x + 1 FROM n WHERE x < {to}) SELECT x FROM n) AS counted"
-            )
-        };
-        let endless = match store.dialect() {
-            Dialect::Sqlite => counting(u64::MAX / 2),
-            Dialect::Postgres => "SELECT pg_sleep(60)".to_owned(),
-        };
-        let run = async |text: &str, by: Instant| {
-            store
-                .with_conn(async |scope| {
-                    let sql = scope.sql(text);
-                    scope.fetch_all_by(sql, by).await
-                })
-                .await
-        };
-
-        let started = Instant::now();
-        let stopped = run(&endless, started + Duration::from_millis(300)).await;
-        let took = started.elapsed();
-        let late = run(&counting(10), started).await;
-        // Long past the time of the statement that was stopped: its handler is gone.
-        let mut after = Vec::new();
-        for _ in 0..4 {
-            after.push(run(&counting(300_000), Instant::now() + Duration::from_secs(30)).await);
-        }
-        let plain = store
-            .with_conn(async |scope| {
-                let sql = scope.sql(&counting(300_000));
-                scope.fetch_all(sql).await
-            })
-            .await;
-        store.close().await;
-        database.remove().await;
-
-        assert!(matches!(stopped, Ok(None)), "{stopped:?}");
-        assert!(took < Duration::from_secs(5), "stopped in time: {took:?}");
-        assert!(
-            matches!(late, Ok(None)),
-            "nothing asked past the time: {late:?}"
-        );
-        for rows in after {
-            assert!(
-                matches!(rows, Ok(Some(ref rows)) if rows.len() == 1),
-                "{rows:?}"
-            );
-        }
-        assert!(plain.is_ok(), "{plain:?}");
-    }
-}
+mod tests;

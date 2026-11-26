@@ -216,6 +216,9 @@ pub enum Refusal {
     /// The request is not one the worker takes now (a second configuration, a request
     /// before the first).
     OutOfOrder,
+    /// The document could not be restored after a post-mutation refusal and was closed
+    /// alone so the server reopens it from what is stored without ending the worker.
+    Closed,
 }
 
 /// The answer to a request.
@@ -229,6 +232,9 @@ pub struct Refused {
     pub refusal: Refusal,
     /// What the worker said.
     pub message: String,
+    /// Whether the worker applied the update in place and had to rebuild the document
+    /// from its checkpoint to refuse it.
+    pub rolled_back: bool,
 }
 
 /// Bytes that are no request or answer.
@@ -362,7 +368,7 @@ const REFUSED: u8 = 0x7f;
 impl Refusal {
     /// Every refusal, for the tests of its byte.
     #[cfg(test)]
-    const ALL: [Self; 12] = [
+    const ALL: [Self; 13] = [
         Self::UpdateTooLarge,
         Self::Unreadable,
         Self::MissingChanges,
@@ -375,6 +381,7 @@ impl Refusal {
         Self::OutOfOrder,
         Self::TooManySteps,
         Self::TableTooLarge,
+        Self::Closed,
     ];
 
     /// The byte of the refusal in an answer.
@@ -392,6 +399,7 @@ impl Refusal {
             Self::OutOfOrder => 9,
             Self::TooManySteps => 10,
             Self::TableTooLarge => 11,
+            Self::Closed => 12,
         }
     }
 
@@ -410,6 +418,7 @@ impl Refusal {
             9 => Self::OutOfOrder,
             10 => Self::TooManySteps,
             11 => Self::TableTooLarge,
+            12 => Self::Closed,
             _ => return None,
         })
     }
@@ -473,7 +482,8 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
         Err(refused) => {
             out.tag(REFUSED)
                 .tag(refused.refusal.byte())
-                .bytes(refused.message.as_bytes());
+                .bytes(refused.message.as_bytes())
+                .tag(u8::from(refused.rolled_back));
         }
     }
     out.0
@@ -513,7 +523,12 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
         REFUSED => {
             let refusal = Refusal::of_byte(input.tag()?).ok_or_else(|| input.malformed())?;
             let message = String::from_utf8_lossy(&input.bytes()?).into_owned();
-            Err(Refused { refusal, message })
+            let rolled_back = input.flag()?;
+            Err(Refused {
+                refusal,
+                message,
+                rolled_back,
+            })
         }
         _ => return Err(input.malformed()),
     };
@@ -742,10 +757,13 @@ mod tests {
             Ok(Answer::Body(None)),
             Ok(Answer::Remake),
         ];
-        responses.extend(Refusal::ALL.iter().map(|refusal| {
-            Err(Refused {
-                refusal: *refusal,
-                message: "why".to_owned(),
+        responses.extend(Refusal::ALL.iter().flat_map(|refusal| {
+            [false, true].map(|rolled_back| {
+                Err(Refused {
+                    refusal: *refusal,
+                    message: "why".to_owned(),
+                    rolled_back,
+                })
             })
         }));
         for response in responses {

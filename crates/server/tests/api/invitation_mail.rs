@@ -548,3 +548,101 @@ async fn a_guest_link_to_a_wiki_is_mailed_and_lets_its_recipient_onto_the_wiki()
     th.teardown().await;
     smtp.stop().await;
 }
+
+/// `deferred P2-1 & H-4`: recipient deduplication folds the entire address to lowercase
+/// (`Outside@Example.Test` and `outside@example.test` send once), and exceeding
+/// `invitation_mail_per_address_hour` silently skips the rate-limited address (still
+/// returning `204` with no extra guest child link created in the store).
+#[tokio::test]
+async fn invitation_mail_dedups_full_address_case_insensitively_and_enforces_per_address_quota_silently()
+ {
+    let smtp = FakeSmtp::start_on(0).await;
+    let mut settings = smtp.settings();
+    settings.invitation_mail_per_address_hour = 2;
+    let th = Setup::native()
+        .smtp(settings)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = th
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerVisibility::Private)
+        .await;
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
+    let guest_link: Invitation = th
+        .client
+        .post(&path, &json!({"role": "guest", "containerId": board.id}))
+        .await
+        .created_json();
+    let token = guest_link.token.as_deref().expect("token");
+
+    // 1st send: domain case-variant duplicates collapse to 1 message (`Target@Example.Test` == `Target@example.test`).
+    th.client
+        .post(
+            &format!("{path}/mail"),
+            &json!({"token": token, "recipients": ["Target@Example.Test", "Target@example.test"]}),
+        )
+        .await
+        .check_no_content();
+    smtp.received(1).await;
+    assert!(
+        th.app.finish_background(Duration::from_secs(5)).await,
+        "1st mail background finished"
+    );
+    assert_eq!(
+        smtp.messages().await.len(),
+        1,
+        "domain case-insensitive dedup"
+    );
+
+    // 2nd send: reaches hourly limit (2) for `target@example.test`.
+    th.client
+        .post(
+            &format!("{path}/mail"),
+            &json!({"token": token, "recipients": ["TARGET@example.test"]}),
+        )
+        .await
+        .check_no_content();
+    smtp.received(2).await;
+    assert!(
+        th.app.finish_background(Duration::from_secs(5)).await,
+        "2nd mail background finished"
+    );
+
+    let links_before: Vec<Invitation> = th.client.get(&path).await.ok_json();
+
+    // 3rd send: `target@example.test` is over quota and silently skipped (`Queued::pass`,
+    // creating NO child guest invitation row), while `peer@example.test` still receives mail!
+    th.client
+        .post(
+            &format!("{path}/mail"),
+            &json!({"token": token, "recipients": ["target@example.test", "peer@example.test"]}),
+        )
+        .await
+        .check_no_content();
+    smtp.received(3).await;
+    assert!(
+        th.app.finish_background(Duration::from_secs(5)).await,
+        "3rd mail background finished"
+    );
+    let all_msgs = smtp.messages().await;
+    assert_eq!(
+        all_msgs.len(),
+        3,
+        "rate-limited target skipped, peer delivered"
+    );
+    assert_eq!(
+        all_msgs[2].recipient, "peer@example.test",
+        "only peer received 3rd message"
+    );
+
+    let links_after: Vec<Invitation> = th.client.get(&path).await.ok_json();
+    assert_eq!(
+        links_after.len(),
+        links_before.len() + 1,
+        "only delivered peer got a one-time guest invitation row, none created for skipped target"
+    );
+
+    th.teardown().await;
+    smtp.stop().await;
+}

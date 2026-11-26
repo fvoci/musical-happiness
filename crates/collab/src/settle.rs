@@ -257,7 +257,15 @@ pub(crate) fn from_state_settled(
     let encoded = state_of(&doc);
     if same_state(&encoded, state) {
         let state_bytes = encoded.len();
-        let reading_cache = reading_cache.filter(|rc| rc.state_bytes() == state_bytes);
+        let reading_cache = reading_cache.filter(|rc| {
+            let kept = rc.state_bytes() == state_bytes;
+            debug_assert!(
+                kept,
+                "reading cache counted {} bytes of a {state_bytes}-byte state",
+                rc.state_bytes()
+            );
+            kept
+        });
         return Ok(Settled {
             doc,
             state: Some(encoded),
@@ -429,9 +437,15 @@ pub(crate) fn settled_from(
 
 fn rebuilt_settled(counted: Counted, state: Vec<u8>, prior_client_changes: u64) -> Settled {
     let state_bytes = state.len();
-    let reading_cache = counted
-        .reading_cache
-        .filter(|rc| rc.state_bytes() == state_bytes);
+    let reading_cache = counted.reading_cache.filter(|rc| {
+        let kept = rc.state_bytes() == state_bytes;
+        debug_assert!(
+            kept,
+            "reading cache counted {} bytes of a {state_bytes}-byte state",
+            rc.state_bytes()
+        );
+        kept
+    });
     Settled {
         doc: counted.doc,
         state: Some(state),

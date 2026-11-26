@@ -3771,11 +3771,10 @@ async fn move_block(
             parent_id.clone_into(&mut block.parent_id);
             store.insert_block(&mut block, user_id).await
         }
-        MoveBy::Patch => {
-            store
-                .patch_block(block_id, &parent_patch(parent_id), user_id)
-                .await
-        }
+        MoveBy::Patch => store
+            .patch_block(block_id, &parent_patch(parent_id), user_id)
+            .await
+            .map(|_| ()),
     }
 }
 

@@ -201,6 +201,12 @@ const ADA_NEW: &str = "ada-at-the-new-provider";
 
 pub(crate) async fn moved(old: &FakeProvider, new: &FakeProvider) -> Moved {
     let ts = server_for_two(old, new, |_| {}).await;
+    ts.app
+        .store()
+        .system()
+        .execute_unchecked("UPDATE users SET email_verified_at = created_at WHERE email <> ''")
+        .await
+        .expect("fixture accounts have verified addresses");
     let org_id = org_of(&ts).await;
     set_provider(&ts, &org_id, old).await;
     old.sign_in_as(Person::new(ADA, "ada@old.example.com"));

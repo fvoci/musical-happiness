@@ -29,7 +29,7 @@ impl Store {
                 let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE state_hash = ");
                 sql.bind(state_hash)
                     .push_bind(" AND browser_hash = ", browser_hash)
-                    .push(&format!(" RETURNING {FLOW_COLUMNS}"));
+                    .push([" RETURNING ", FLOW_COLUMNS]);
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };

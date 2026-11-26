@@ -144,36 +144,42 @@ async fn a_patch_does_not_make_a_block_of_another_type() {
     let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
-    let to_text = json!({"type": "text"});
-    let response = th
-        .client
-        .patch(&block_path(&board.id, &card.id), &to_text)
-        .await;
-    response.check_bad_request();
-    assert_eq!(response.refused_at(), "/type", "one patch");
-    let batch = json!({
-        "blockIds": [card.id],
-        "blockPatches": [to_text],
-    });
-    let response = th.client.patch(&blocks_path(&board.id), &batch).await;
-    response.check_bad_request();
-    assert_eq!(response.refused_at(), "/blockPatches/0/type", "a batch");
-    let combined = json!({
-        "containerIds": [board.id],
-        "containerPatches": [{}],
-        "blockIds": [card.id],
-        "blockPatches": [to_text],
-    });
-    let response = th
-        .client
-        .patch(&format!("{TEST_WS}/containers-and-blocks"), &combined)
-        .await;
-    response.check_bad_request();
-    assert_eq!(
-        response.refused_at(),
-        "/blockPatches/0/type",
-        "containers-and-blocks"
-    );
+    for attempted in ["text", "view", "comment", "card"] {
+        let to_type = json!({"type": attempted});
+        let response = th
+            .client
+            .patch(&block_path(&board.id, &card.id), &to_type)
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.refused_at(), "/type", "one patch: {attempted}");
+        let batch = json!({
+            "blockIds": [card.id],
+            "blockPatches": [to_type],
+        });
+        let response = th.client.patch(&blocks_path(&board.id), &batch).await;
+        response.check_bad_request();
+        assert_eq!(
+            response.refused_at(),
+            "/blockPatches/0/type",
+            "a batch: {attempted}"
+        );
+        let combined = json!({
+            "containerIds": [board.id],
+            "containerPatches": [{}],
+            "blockIds": [card.id],
+            "blockPatches": [to_type],
+        });
+        let response = th
+            .client
+            .patch(&format!("{TEST_WS}/containers-and-blocks"), &combined)
+            .await;
+        response.check_bad_request();
+        assert_eq!(
+            response.refused_at(),
+            "/blockPatches/0/type",
+            "containers-and-blocks: {attempted}"
+        );
+    }
     assert_eq!(
         blocks_of(&th.client, &board.id).await[0].block_type,
         BlockType::Card,

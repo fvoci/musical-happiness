@@ -5,7 +5,8 @@ use std::collections::HashSet;
 use fvoci_model::{Block, BlockType};
 use serde_json::Value;
 
-use crate::blocks::{DuplicateAs, OLDEST_FIRST, block_read_columns, fetch_blocks, insert_blocks};
+use crate::blocks::{BLOCK_COLUMNS, DuplicateAs, OLDEST_FIRST, fetch_blocks, insert_blocks};
+use crate::comment_versions::EDITED_AT_COLUMN;
 use crate::db::Id;
 use crate::file_refs::NewBodyFiles;
 use crate::notification_noting::Telling;
@@ -82,10 +83,13 @@ impl Store {
                 return Err(not_found());
             }
             let mut sql = with_tree_of(scope, block_id);
-            sql.push(&format!(
-                "SELECT {} FROM blocks WHERE id IN (SELECT id FROM tree) AND container_id = ",
-                block_read_columns()
-            ))
+            sql.push([
+                "SELECT ",
+                BLOCK_COLUMNS,
+                ", ",
+                EDITED_AT_COLUMN,
+                " FROM blocks WHERE id IN (SELECT id FROM tree) AND container_id = ",
+            ])
             .bind(Id(container_id))
             .push(OLDEST_FIRST);
             let family = fetch_blocks(scope, sql).await?;

@@ -29,7 +29,9 @@ mod version;
 mod worker;
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use tokio::time::Instant;
 
 pub use find::{Asked, AskedError, MAX_LIMIT, MAX_TEXT_CHARS};
 pub use upkeep::{reindex, tend};

@@ -44,6 +44,7 @@ pub(super) fn refused(refused: &Refused, limits: &Limits) -> AppError {
             AppError::service_unavailable("the server holds as many documents as it may")
                 .with_reason(Reason::TooManyDocuments)
         }
+        Refusal::Closed => unavailable(),
         Refusal::UnknownDocument | Refusal::OutOfOrder => {
             return AppError::internal(format_args!("the worker refused a request: {refused}"));
         }

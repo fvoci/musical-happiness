@@ -15,7 +15,7 @@ use serde_json::Value;
 use crate::Store;
 // Re-exported through `containers` so newer modules avoid naming the legacy table module.
 pub(crate) use crate::container_team_access::inherited_members_source;
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::{container_kinds, members, subscriptions};
 
@@ -23,11 +23,18 @@ use crate::{container_kinds, members, subscriptions};
 /// and by identifier where that is the same.
 pub(crate) const OLDEST_CONTAINER_FIRST: &str = " ORDER BY b.created_at, b.id";
 
-/// The name of every board column, in the order rows are written.
-const CONTAINER_COLUMNS: &str = "id, workspace_id, created_by, modified_by, visibility, minimum_role, \
-     title, description, icon, show_description, is_template, \
-     is_builtin, template_version, properties, card_properties, \
-     created_at, updated_at, kind";
+pub use crate::container_team_access::ContainerAccessFacts;
+
+/// The name of every board column, in the order rows are read and written.
+pub(crate) const CONTAINER_COLUMNS: &str = "id, workspace_id, created_by, modified_by, \
+     visibility, minimum_role, title, description, icon, show_description, is_template, \
+     is_builtin, template_version, properties, card_properties, created_at, updated_at, kind";
+
+/// Select list of every board column qualified with alias `b.`.
+pub(crate) const CONTAINER_SELECT_B: &str = "b.id, b.workspace_id, b.created_by, b.modified_by, \
+     b.visibility, b.minimum_role, b.title, b.description, b.icon, b.show_description, \
+     b.is_template, b.is_builtin, b.template_version, b.properties, b.card_properties, \
+     b.created_at, b.updated_at, b.kind";
 
 /// Whether a board query also returns the open boards the user is not a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -394,24 +401,9 @@ impl Store {
     }
 }
 
-/// The select list of a board, in the order [`container_from_row`] reads it. `alias` is
-/// empty or a table alias followed by a dot.
-pub(crate) fn container_select_list(alias: &str) -> String {
-    format!(
-        "{alias}id, {alias}workspace_id, {alias}created_by, {alias}modified_by, \
-         {alias}visibility, {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
-         {alias}show_description, {alias}is_template, {alias}is_builtin, \
-         {alias}template_version, {alias}properties, {alias}card_properties, \
-         {alias}created_at, {alias}updated_at, {alias}kind"
-    )
-}
-
-/// Starts `SELECT <board columns> FROM boards`.
+/// Starts `SELECT <board columns> FROM containers`.
 fn select_containers(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!(
-        "SELECT {} FROM containers",
-        container_select_list("")
-    ))
+    scope.sql(["SELECT ", CONTAINER_COLUMNS, " FROM containers"])
 }
 
 pub(crate) async fn fetch_containers(
@@ -427,25 +419,29 @@ pub(crate) async fn fetch_containers(
 }
 
 fn container_from_row(row: &Row) -> Result<Container, StoreError> {
+    container_from_row_at(row, 0)
+}
+
+pub(crate) fn container_from_row_at(row: &Row, base: usize) -> Result<Container, StoreError> {
     Ok(Container {
-        id: row.id(0)?,
-        workspace_id: row.id(1)?,
-        created_by: row.id(2)?,
-        modified_by: row.id(3)?,
-        visibility: visibility_from_text(&row.text(4)?)?,
-        kind: container_kinds::kind_from_text(&row.text(17)?)?,
-        minimum_role: minimum_role_from_text(&row.text(5)?)?,
-        title: row.text(6)?,
-        description: row.text(7)?,
-        icon: row.text(8)?,
-        show_description: row.bool(9)?,
-        is_template: row.bool(10)?,
-        is_builtin: row.bool(11)?,
-        template_version: row.int(12)?,
-        properties: row.json_map(13, "properties")?,
-        card_properties: card_properties_from_json(row.json(14, "card_properties")?)?,
-        created_at: row.int(15)?,
-        updated_at: row.int(16)?,
+        id: row.id(base)?,
+        workspace_id: row.id(base + 1)?,
+        created_by: row.id(base + 2)?,
+        modified_by: row.id(base + 3)?,
+        visibility: visibility_from_text(&row.text(base + 4)?)?,
+        kind: container_kinds::kind_from_text(&row.text(base + 17)?)?,
+        minimum_role: minimum_role_from_text(&row.text(base + 5)?)?,
+        title: row.text(base + 6)?,
+        description: row.text(base + 7)?,
+        icon: row.text(base + 8)?,
+        show_description: row.bool(base + 9)?,
+        is_template: row.bool(base + 10)?,
+        is_builtin: row.bool(base + 11)?,
+        template_version: row.int(base + 12)?,
+        properties: row.json_map(base + 13, "properties")?,
+        card_properties: card_properties_from_json(row.json(base + 14, "card_properties")?)?,
+        created_at: row.int(base + 15)?,
+        updated_at: row.int(base + 16)?,
         // A board that exists is not deleted.
         deleted_at: None,
     })
@@ -507,11 +503,12 @@ pub(crate) fn select_containers_of_user(
     public_containers: PublicContainers,
     kinds: ContainerKinds,
 ) -> Sql {
-    let mut sql = scope.sql(&format!(
-        "SELECT DISTINCT {} FROM containers AS b LEFT JOIN container_members AS bm ON b.id = bm.container_id \
+    let mut sql = scope.sql([
+        "SELECT DISTINCT ",
+        CONTAINER_SELECT_B,
+        " FROM containers AS b LEFT JOIN container_members AS bm ON b.id = bm.container_id \
          WHERE b.is_template = ",
-        container_select_list("b.")
-    ));
+    ]);
     sql.bind(false);
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);
     match public_containers {
@@ -573,7 +570,7 @@ pub(crate) async fn insert_container(
         Some(existing) => existing.is_builtin,
         None => user_id.is_empty() && container.is_template,
     };
-    let now = now_millis();
+    let now = scope.now_millis();
     user_id.clone_into(&mut container.modified_by);
     container.updated_at = now;
     container.deleted_at = None;
@@ -587,12 +584,19 @@ pub(crate) async fn insert_container(
             }
             .into());
         }
+        let access_unchanged = existing.visibility == container.visibility
+            && existing.minimum_role == container.minimum_role
+            && existing.is_template == container.is_template
+            && existing.card_properties == container.card_properties;
         // A board stays in its workspace, and who made it and when does not change: `container`
         // comes back with what is stored, whatever the caller put there.
         container.workspace_id = existing.workspace_id;
         container.created_by = existing.created_by;
         container.created_at = existing.created_at;
         let mut sql = scope.sql("UPDATE containers SET ");
+        if access_unchanged {
+            sql.changing_no_access();
+        }
         sql.push_bind("modified_by = ", OptId(&container.modified_by))
             .push_bind(", visibility = ", container.visibility.as_str())
             .push_bind(", minimum_role = ", container.minimum_role.as_str())
@@ -631,9 +635,7 @@ pub(crate) async fn insert_container_row(
     container: &Container,
 ) -> Result<(), StoreError> {
     crate::diaries::check_place(scope, container).await?;
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO containers ({CONTAINER_COLUMNS}) VALUES ("
-    ));
+    let mut sql = scope.sql(["INSERT INTO containers (", CONTAINER_COLUMNS, ") VALUES ("]);
     sql.bind(Id(&container.id))
         .push_bind(", ", Id(&container.workspace_id))
         .push_bind(", ", OptId(&container.created_by))

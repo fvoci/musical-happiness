@@ -94,7 +94,7 @@ impl App {
     ) -> Result<(DiaryEntry, EntryAnswer), AppError> {
         let diary = self.store().get_container(diary_id).await?;
         let written = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, diary_id).await;
             self.store()
                 .create_diary_entry(diary_id, date, new, ENTRIES_PER_DIARY, user_id)
                 .await?
@@ -184,8 +184,9 @@ impl App {
                 patch.clone(),
                 modified_by.to_owned(),
             );
+            let cards = vec![(entry_id.clone(), diary_id.clone())];
             self.collab()
-                .write_whole(self, vec![entry_id.clone()], async move |app| {
+                .write_whole(self, cards, async move |app| {
                     app.store()
                         .patch_diary_entry(&diary_id, &entry_id, &patch, &modified_by)
                         .await
@@ -193,7 +194,7 @@ impl App {
                 })
                 .await?
         } else {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, diary_id).await;
             self.store()
                 .patch_diary_entry(diary_id, entry_id, patch, modified_by)
                 .await
@@ -281,7 +282,7 @@ impl App {
     ) -> Result<DiaryEntry, AppError> {
         let diary = self.store().get_container(diary_id).await?;
         let restored = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, diary_id).await;
             self.store()
                 .undelete_diary_entry(diary_id, entry_id, ENTRIES_PER_DIARY, user_id)
                 .await
@@ -306,7 +307,7 @@ impl App {
         let workspace_id = workspace_id.to_owned();
         self.spawn_background(async move {
             app.ws().broadcast_block_change(&workspace_id, &entry).await;
-            app.tell_webhooks(&entry).await;
+            app.tell_webhooks(&entry);
         });
     }
 }

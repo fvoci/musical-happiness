@@ -41,6 +41,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_put_my_exam_score,
             handle_delete_my_exam_score
         ))
+        .routes(routes!(
+            handle_publish_course_exam_results,
+            handle_unpublish_course_exam_results
+        ))
 }
 
 async fn course_view_access(
@@ -57,11 +61,12 @@ async fn course_view_access(
 
 /// Study meetings of a course
 ///
-/// Returns every study meeting of the course together with its attendance records
-/// (`attendance`, ordered by `userId`), ordered by `startsAt` ascending, then by `id`.
-/// Readable by anyone who can view the course (including unjoined workspace members on an
-/// open course and personal-space owners). Non-course containers and unreadable private
-/// courses answer 404.
+/// Returns every study meeting of the course ordered by `startsAt` ascending, then by `id`.
+/// Enrolled course members and course role managers (`ManageRoles`) receive per-member
+/// `attendance` records (ordered by `userId`), with `updatedAt` populated only for
+/// `ManageRoles` managers (`0` for non-manager members); unjoined open-course readers and
+/// non-enrolled guests receive `attendance: []`. Non-course containers and
+/// unreadable private courses answer 404.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/courses/{courseId}/meetings",
@@ -74,15 +79,26 @@ async fn handle_list_course_meetings(
     InCourse(ws): InCourse,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
-    require_container_permission(
+    let access = course_view_access(
         &ws.app,
         &ws.session.user_id,
         &course_id,
-        ContainerPermission::View,
         "access denied to course meetings",
     )
     .await?;
-    let meetings = ws.app.list_course_meetings(&course_id).await?;
+    let mut meetings = ws.app.list_course_meetings(&course_id).await?;
+    let is_manager = access.grant.allows(ContainerPermission::ManageRoles);
+    if !access.has_membership() && !is_manager {
+        for meeting in &mut meetings {
+            meeting.attendance.clear();
+        }
+    } else if !is_manager {
+        for meeting in &mut meetings {
+            for record in &mut meeting.attendance {
+                record.updated_at = 0;
+            }
+        }
+    }
     Ok(json_response(&meetings))
 }
 
@@ -241,12 +257,17 @@ async fn handle_put_meeting_attendance(
 /// Exams of a course
 ///
 /// Returns every exam of the course ordered by `examDate` ascending (exams without a date
-/// last), then by `createdAt` and `id`. Enrolled members receive `scoreCount` across active
-/// enrolled course members, `averageScore` when at least two other active members have
-/// submitted a score (`scoreCount >= 3` if the caller submitted, `scoreCount >= 2` if not;
-/// `null` otherwise), and `myScore` containing only the caller's own score. Unjoined readers
-/// receive `myScore: null`, `averageScore: null`, and `scoreCount: 0`. Another member's
-/// individual score or note is never returned under any role.
+/// last), then by `createdAt` and `id`. Enrolled course managers (`ManageRoles`) receive
+/// the exact `scoreCount` across active enrolled course members; other enrolled members
+/// receive `scoreCount` rounded down to a multiple of `5` so single-student score
+/// submissions are not exposed. Every enrolled member receives `myScore` containing only
+/// their own score and — once a course manager publishes a result snapshot
+/// (`publishCourseExamResults`) — the frozen coarse snapshot (`averageScore` rounded to
+/// one decimal place, `resultsPublishedAt`, and `publishedScoreBucket` rounded down to a
+/// multiple of `5`). Before publication, `averageScore` is `null` for every role
+/// (including admins). Unjoined readers receive `myScore: null`, `averageScore: null`,
+/// and `scoreCount: 0`. Another member's individual score or note is never returned under
+/// any role.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/courses/{courseId}/exams",
@@ -267,8 +288,10 @@ async fn handle_list_course_exams(
         "access denied to course exams",
     )
     .await?;
-    let viewer = access.has_membership().then_some(caller_id);
-    let exams = ws.app.list_course_exams(&course_id, viewer).await?;
+    let exams = ws
+        .app
+        .list_course_exams(&course_id, &access, caller_id)
+        .await?;
     Ok(json_response(&exams))
 }
 
@@ -338,10 +361,9 @@ async fn handle_patch_course_exam(
     )?;
     let patch: CourseExamPatch = decode_object(&body)?;
     let change = patch.check_request()?;
-    let viewer = access.has_membership().then_some(caller_id);
     let exam = ws
         .app
-        .patch_course_exam(&course_id, &exam_id, viewer, &change)
+        .patch_course_exam(&course_id, &exam_id, &access, caller_id, &change)
         .await?;
     Ok(json_response(&exam))
 }
@@ -455,4 +477,82 @@ async fn handle_delete_my_exam_score(
         .delete_my_exam_score(&course_id, &exam_id, user_id)
         .await?;
     Ok(no_content())
+}
+
+/// Publish a course exam's aggregate result snapshot
+///
+/// Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and
+/// `publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course
+/// role management (`ManageRoles`) and at least 5 active enrolled scorers. When a previous
+/// snapshot exists, recomputing requires a net scorer count change of at least 3 (`409`
+/// if already published; restores the frozen snapshot without recomputing if currently
+/// unpublished).
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/courses/{courseId}/exams/{examId}/results-publication",
+    operation_id = "publishCourseExamResults",
+    tag = tag::COURSES,
+    params(MemberWorkspaceId, CourseId, ExamId),
+    responses((status = 200, description = "The exam with its published result snapshot.", body = CourseExam)),
+)]
+async fn handle_publish_course_exam_results(
+    InCourse(ws): InCourse,
+    Path((_, course_id, exam_id)): Path<(String, String, String)>,
+) -> ApiResult {
+    let caller_id = ws.session.user_id.as_str();
+    let access = course_view_access(
+        &ws.app,
+        caller_id,
+        &course_id,
+        "access denied to publish course exam results",
+    )
+    .await?;
+    require_granted(
+        access.grant,
+        ContainerPermission::ManageRoles,
+        "access denied to publish course exam results",
+    )?;
+    let exam = ws
+        .app
+        .publish_course_exam_results(&course_id, &exam_id, &access, caller_id)
+        .await?;
+    Ok(json_response(&exam))
+}
+
+/// Unpublish a course exam's aggregate result snapshot
+///
+/// Hides the published result snapshot on the exam so `averageScore`,
+/// `resultsPublishedAt`, and `publishedScoreBucket` return to `null` while retaining the
+/// snapshot baseline against republication differencing. Requires course role management
+/// (`ManageRoles`).
+#[utoipa::path(
+    delete,
+    path = "/w/{workspaceId}/courses/{courseId}/exams/{examId}/results-publication",
+    operation_id = "unpublishCourseExamResults",
+    tag = tag::COURSES,
+    params(MemberWorkspaceId, CourseId, ExamId),
+    responses((status = 200, description = "The exam with its result snapshot unpublished.", body = CourseExam)),
+)]
+async fn handle_unpublish_course_exam_results(
+    InCourse(ws): InCourse,
+    Path((_, course_id, exam_id)): Path<(String, String, String)>,
+) -> ApiResult {
+    let caller_id = ws.session.user_id.as_str();
+    let access = course_view_access(
+        &ws.app,
+        caller_id,
+        &course_id,
+        "access denied to unpublish course exam results",
+    )
+    .await?;
+    require_granted(
+        access.grant,
+        ContainerPermission::ManageRoles,
+        "access denied to unpublish course exam results",
+    )?;
+    let exam = ws
+        .app
+        .unpublish_course_exam_results(&course_id, &exam_id, &access, caller_id)
+        .await?;
+    Ok(json_response(&exam))
 }

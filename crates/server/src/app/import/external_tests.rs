@@ -696,9 +696,10 @@ async fn security_review_nested_zip_fd_bomb_and_multi_csv_row_bomb() {
     let bundle = SafeBundle::open(&multi_csv, dir.path(), tight)
         .await
         .expect("open multi-csv bundle");
-    let multi_err = super::notion::convert_notion_bundle(&bundle, &tight)
-        .await
-        .expect_err("multi-CSV cumulative rows past max_entries must fail");
+    let multi_err =
+        super::notion::convert_notion_bundle(&bundle, &tight, fvoci_model::PageLimits::default())
+            .await
+            .expect_err("multi-CSV cumulative rows past max_entries must fail");
     assert_eq!(
         multi_err.kind(),
         ErrorKind::PayloadTooLarge,
@@ -854,9 +855,13 @@ async fn notion_importer_emits_native_view_field_keys() {
     let bundle = SafeBundle::open(&notion_zip, dir.path(), BundleLimits::default())
         .await
         .expect("open notion zip");
-    let notion_staged = super::notion::convert_notion_bundle(&bundle, &BundleLimits::default())
-        .await
-        .expect("notion bundle converts");
+    let notion_staged = super::notion::convert_notion_bundle(
+        &bundle,
+        &BundleLimits::default(),
+        fvoci_model::PageLimits::default(),
+    )
+    .await
+    .expect("notion bundle converts");
     let notion_views: Vec<&Block> = notion_staged
         .containers
         .iter()
@@ -897,4 +902,84 @@ async fn notion_importer_emits_native_view_field_keys() {
             );
         }
     }
+}
+
+#[test]
+fn trello_streaming_bounds_and_body_budget() {
+    let trello_actions = serde_json::json!({
+        "name": "Bounded", "lists": [{"id": "l1", "name": "Todo"}],
+        "cards": [{"id": "c1", "name": "One", "idList": "l1"}],
+        "actions": [
+            {"type": "updateCard", "data": {"card": {"id": "c1"}, "text": "ignored"}},
+            {"type": "commentCard", "idMemberCreator": "m1", "data": {"card": {"id": "c1"}, "text": "kept"}}
+        ]
+    });
+    let limits = BundleLimits {
+        max_trello_comments: 1,
+        ..BundleLimits::default()
+    };
+    let staged =
+        super::trello::convert_trello_bytes(trello_actions.to_string().as_bytes(), &limits)
+            .expect("non-comment actions skipped");
+    assert_eq!(staged.containers[0].blocks.len(), 3, "3 blocks");
+
+    let overflow = serde_json::json!({
+        "name": "Overflow", "lists": [{"id": "l1", "name": "Todo"}],
+        "cards": [{"id": "c1", "name": "A", "idList": "l1"}, {"id": "c2", "name": "B", "idList": "l1"}]
+    });
+    let card_limits = BundleLimits {
+        max_trello_cards: 1,
+        ..BundleLimits::default()
+    };
+    let err = super::trello::convert_trello_bytes(overflow.to_string().as_bytes(), &card_limits)
+        .expect_err("N+1st Trello card rejected");
+    assert_eq!(err.kind(), ErrorKind::PayloadTooLarge, "card cap 413");
+
+    let mut resolver = ExternalOnlyResolver;
+    let nodes = markdown_to_blocks("a\n\nb\n\nc", BodyContext::Document, 50, &mut resolver)
+        .expect("markdown")
+        .nodes;
+    let body = blocks_to_body(nodes).expect("valid").expect("body");
+    let mut budget = super::markdown_nodes::BodyBudget::new(2);
+    let cap_err = budget.charge(Some(&body)).expect_err("cap");
+    assert_eq!(cap_err.kind(), ErrorKind::PayloadTooLarge, "budget 413");
+}
+
+#[tokio::test]
+async fn notion_synthetic_ancestors_and_page_limits() {
+    let dir = TestDir::new();
+    let stored = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let deep_zip = dir.path().join("deep.zip");
+    write_zip_entries(
+        &deep_zip,
+        &[(
+            "a/b/c/Leaf 11111111111111111111111111111111.md",
+            b"# Leaf\n\nhello",
+            stored,
+        )],
+    );
+    let tight = BundleLimits {
+        max_entries: 3,
+        ..BundleLimits::default()
+    };
+    let bundle = SafeBundle::open(&deep_zip, dir.path(), tight)
+        .await
+        .expect("open");
+    let err =
+        super::notion::convert_notion_bundle(&bundle, &tight, fvoci_model::PageLimits::default())
+            .await
+            .expect_err("ancestors past max_entries");
+    assert_eq!(err.kind(), ErrorKind::PayloadTooLarge, "ancestors 413");
+
+    let wide = SafeBundle::open(&deep_zip, dir.path(), BundleLimits::default())
+        .await
+        .expect("open");
+    let lim = fvoci_model::PageLimits {
+        pages: 2,
+        depth: 10,
+    };
+    let page_err = super::notion::convert_notion_bundle(&wide, &BundleLimits::default(), lim)
+        .await
+        .expect_err("page count checked before markdown");
+    assert_eq!(page_err.kind(), ErrorKind::BadRequest, "page limit 400");
 }

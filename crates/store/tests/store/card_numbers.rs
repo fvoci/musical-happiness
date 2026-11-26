@@ -274,23 +274,10 @@ async fn a_card_made_a_template_keeps_its_stored_number_and_restores_it_when_mad
         .await
         .expect("fresh template becomes a card");
     assert_eq!(number_of(&test, &fresh_template.id).await, Some(4));
-
-    // Non-card blocks still lose their number when changing type away from card.
-    let to_type = |block_type| BlockPatch {
-        block_type: Some(block_type),
-        ..BlockPatch::default()
-    };
-    test.patch_block(&view.id, &to_type(BlockType::Card), &user_id)
-        .await
-        .expect("the view becomes a card");
-    assert_eq!(number_of(&test, &view.id).await, Some(5));
-    test.patch_block(&view.id, &to_type(BlockType::View), &user_id)
-        .await
-        .expect("and a view again");
     assert_eq!(number_of(&test, &view.id).await, None);
     assert_eq!(
         new_card(&test, &board_id, "next", &user_id).await.number,
-        Some(6)
+        Some(5)
     );
     test.teardown().await;
 }

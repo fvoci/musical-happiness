@@ -35,6 +35,13 @@ impl Configuration {
                 self.max_pending_upload_bytes
             );
         }
+        if self.max_org_storage_bytes < max_file_bytes {
+            bail!(
+                "max_org_storage_bytes must be at least max_file_bytes ({max_file_bytes}), \
+                 not {}",
+                self.max_org_storage_bytes
+            );
+        }
         // An archive comes as an upload in parts too.
         if self.max_import_bytes == 0 || self.max_import_bytes > largest {
             bail!(

@@ -74,6 +74,11 @@ pub struct User {
     /// The email address.
     #[serde(skip)]
     pub email: String,
+    /// When `email` was verified (by confirmation link or by the operator), in
+    /// milliseconds since the Unix epoch; zero when `email` is empty or was entered
+    /// without mail verification.
+    #[serde(skip)]
+    pub email_verified_at: i64,
     /// The hash of the password, as a PHC string.
     #[serde(skip)]
     pub password_hash: String,
@@ -132,6 +137,7 @@ impl fmt::Debug for User {
             .field("username", &self.username)
             .field("display_name", &self.display_name)
             .field("email", &self.email)
+            .field("email_verified_at", &self.email_verified_at)
             .field("password_locked_at", &self.password_locked_at)
             .field("name", &self.name)
             .field("created_at", &self.created_at)

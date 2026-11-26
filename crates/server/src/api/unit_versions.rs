@@ -12,7 +12,9 @@ use fvoci_model::{BodyVersion, BodyVersionContent, KeptBodyVersion, Unit};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::version_number;
+use super::body_versions::{
+    get_body_version, keep_body_version, list_body_versions, restore_body_version,
+};
 use super::contract::params::{CourseId, MemberWorkspaceId, UnitId, UnitVersionNumber};
 use super::contract::tag;
 use super::courses::{READ_DENIED, content_unit_with_permission};
@@ -58,8 +60,7 @@ async fn handle_get_unit_body_versions(
         READ_DENIED,
     )
     .await?;
-    let versions = ws.app.body_versions(&unit.id).await?;
-    Ok(json_response(&versions))
+    list_body_versions(&ws.app, &unit.id).await
 }
 
 /// Keep a unit's body as a version now
@@ -90,7 +91,7 @@ async fn handle_keep_unit_body_version(
         "access denied to keep a version of the unit's body",
     )
     .await?;
-    let kept = ws.app.keep_body_version_now(&unit.id).await?;
+    let kept = keep_body_version(&ws.app, &unit.id).await?;
     tracing::debug!(course_id, unit_id, user_id, outcome = ?kept.outcome, "KeepUnitBodyVersion");
     Ok(json_response(&kept))
 }
@@ -120,11 +121,7 @@ async fn handle_get_unit_body_version(
         READ_DENIED,
     )
     .await?;
-    let version = ws
-        .app
-        .body_version(&unit.id, version_number(&version)?)
-        .await?;
-    Ok(json_response(&version))
+    get_body_version(&ws.app, &unit.id, &version).await
 }
 
 /// Go back to a version of a unit's body
@@ -158,10 +155,7 @@ async fn handle_restore_unit_body_version(
         "access denied to restore a version of the unit's body",
     )
     .await?;
-    let block = ws
-        .app
-        .restore_body_version(&unit, version_number(&version)?, user_id)
-        .await?;
+    let block = restore_body_version(&ws.app, &unit, &version, user_id).await?;
     tracing::debug!(course_id, unit_id, user_id, "RestoreUnitBodyVersion");
     Ok(json_response(&Unit::from(block)))
 }

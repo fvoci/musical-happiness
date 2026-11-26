@@ -14,7 +14,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::body::decode_object;
-use super::cards::version_number;
+use super::body_versions::version_number;
 use super::contract::bodies::Binary;
 use super::contract::params::{ContainerId, FileId, FileVersionNumber, MemberWorkspaceId};
 use super::contract::tag;

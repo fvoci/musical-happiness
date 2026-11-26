@@ -136,12 +136,16 @@ impl InWorkspace {
             .enter_workspace(&session, &workspace_id)
             .await?
             .ok_or_else(workspace_not_found)?;
+        let actor = Actor {
+            org: entered.org_role,
+            workspace: Some(entered.role),
+        };
         Ok(Self {
             // What a route under a workspace is about is a board's, unless its extractor
             // says otherwise (`InWiki`, `InContainer`).
             app: entered
                 .app
-                .in_workspace(&workspace_id)
+                .in_workspace_with_actor(&workspace_id, &session.user_id, actor)
                 .reaching(ContainerKinds::BOARDS),
             session,
             workspace_id,

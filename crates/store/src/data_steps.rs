@@ -83,18 +83,33 @@ async fn claim(scope: &mut Scope<'_>, step: &str) -> Result<bool, StoreError> {
 /// the files they showed. A file that no block shows any more is marked, to be collected
 /// after the grace period like any other. Returns how many blocks were deleted.
 async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
+    let org = org_column(scope);
     // `UNION`, not `UNION ALL`: a cycle of parents ends.
-    let mut sql =
-        scope.sql("WITH RECURSIVE tree(id) AS (SELECT id FROM blocks WHERE type NOT IN (");
+    let mut sql = match org {
+        Some(_) => scope.sql(
+            "WITH RECURSIVE tree(org_id, id) AS (SELECT org_id, id FROM blocks WHERE type NOT IN (",
+        ),
+        None => scope.sql("WITH RECURSIVE tree(id) AS (SELECT id FROM blocks WHERE type NOT IN ("),
+    };
     for (index, block_type) in KEPT_TYPES.iter().enumerate() {
         sql.push_bind(if index == 0 { "" } else { ", " }, *block_type);
     }
-    let org = org_column(scope);
-    sql.push(&format!(
-        ") UNION SELECT b.id FROM blocks AS b JOIN tree ON b.parent_id = tree.id) \
-         DELETE FROM blocks WHERE id IN (SELECT id FROM tree) RETURNING {}",
-        key(org, "")
-    ));
+    match org {
+        Some(_) => {
+            sql.push(
+                ") UNION SELECT b.org_id, b.id FROM blocks AS b \
+                 JOIN tree ON b.parent_id = tree.id AND b.org_id = tree.org_id) \
+                 DELETE FROM blocks WHERE (org_id, id) IN (SELECT org_id, id FROM tree) \
+                 RETURNING org_id, id",
+            );
+        }
+        None => {
+            sql.push(
+                ") UNION SELECT b.id FROM blocks AS b JOIN tree ON b.parent_id = tree.id) \
+                 DELETE FROM blocks WHERE id IN (SELECT id FROM tree) RETURNING id",
+            );
+        }
+    }
     let live = keys_of(&scope.fetch_all(sql).await?, org)?;
     let mut deleted = u64::try_from(live.len()).unwrap_or(u64::MAX);
 
@@ -119,25 +134,38 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
 /// organizations: a block is named by its organization and its identifier.
 async fn board_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     let org = org_column(scope);
-    let (key, key_of_b) = (key(org, ""), key(org, "b."));
-    let containers = touched_containers(scope).await?;
+    let containers = touched_containers(scope, org).await?;
     // `UNION`, not `UNION ALL`: a cycle of parents ends.
-    let mut sql = scope.sql(&format!(
-        "WITH RECURSIVE tree({key}) AS (SELECT {key} FROM blocks WHERE type = "
-    ));
-    sql.bind(BOARD_TYPE).push(&format!(
-        " UNION SELECT {key_of_b} FROM blocks AS b JOIN tree ON b.parent_id = tree.id{}) \
-         DELETE FROM blocks WHERE ({key}) IN (SELECT {key} FROM tree) RETURNING {key}",
-        scope.same_organization(&[("b", "tree")]),
-    ));
+    let mut sql = match org {
+        Some(_) => scope
+            .sql("WITH RECURSIVE tree(org_id, id) AS (SELECT org_id, id FROM blocks WHERE type = "),
+        None => scope.sql("WITH RECURSIVE tree(id) AS (SELECT id FROM blocks WHERE type = "),
+    };
+    sql.bind(BOARD_TYPE);
+    match org {
+        Some(_) => {
+            sql.push(
+                " UNION SELECT b.org_id, b.id FROM blocks AS b \
+                 JOIN tree ON b.parent_id = tree.id AND b.org_id = tree.org_id) \
+                 DELETE FROM blocks WHERE (org_id, id) IN (SELECT org_id, id FROM tree) \
+                 RETURNING org_id, id",
+            );
+        }
+        None => {
+            sql.push(
+                " UNION SELECT b.id FROM blocks AS b JOIN tree ON b.parent_id = tree.id) \
+                 DELETE FROM blocks WHERE id IN (SELECT id FROM tree) RETURNING id",
+            );
+        }
+    }
     let live = keys_of(&scope.fetch_all(sql).await?, org)?;
     let mut deleted = u64::try_from(live.len()).unwrap_or(u64::MAX);
     deleted += delete_from_trash(scope, org, &live, |block_type| block_type == BOARD_TYPE).await?;
     // A database that had no such block is left as it was.
     if deleted > 0 {
         block_derived::forget_gone_blocks(scope).await?;
-        for container_id in &containers {
-            search_outbox::note_container_regardless(scope, container_id).await?;
+        for (org_id, container_id) in &containers {
+            note_touched_container(scope, org, org_id, container_id).await?;
         }
     }
     Ok(deleted)
@@ -150,16 +178,8 @@ fn org_column(scope: &Scope<'_>) -> Option<&'static str> {
     (scope.dialect() == Dialect::Postgres).then_some("org_id")
 }
 
-/// The columns that name a block, of the table or alias `prefix` (`""` or `"b."`).
-fn key(org: Option<&str>, prefix: &str) -> String {
-    match org {
-        Some(column) => format!("{prefix}{column}, {prefix}id"),
-        None => format!("{prefix}id"),
-    }
-}
-
-/// The blocks the rows name, as [`key`] selects them: by organization (empty where the
-/// database holds one) and identifier.
+/// The blocks the rows name: by organization (empty where the database holds one) and
+/// identifier.
 fn keys_of(rows: &[Row], org: Option<&str>) -> Result<Vec<(String, String)>, StoreError> {
     rows.iter()
         .map(|row| match org {
@@ -169,16 +189,49 @@ fn keys_of(rows: &[Row], org: Option<&str>) -> Result<Vec<(String, String)>, Sto
         .collect()
 }
 
-/// The boards that hold a live block of the type `board`.
-async fn touched_containers(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
-    let mut sql = scope.sql("SELECT DISTINCT container_id FROM blocks WHERE type = ");
+/// The `(org_id, container_id)` pairs that hold a live block of the type `board`.
+async fn touched_containers(
+    scope: &mut Scope<'_>,
+    org: Option<&'static str>,
+) -> Result<Vec<(String, String)>, StoreError> {
+    let mut sql = match org {
+        Some(_) => scope.sql("SELECT DISTINCT org_id, container_id FROM blocks WHERE type = "),
+        None => scope.sql("SELECT DISTINCT container_id FROM blocks WHERE type = "),
+    };
     sql.bind(BOARD_TYPE);
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect()
+    keys_of(&scope.fetch_all(sql).await?, org)
+}
+
+async fn note_touched_container(
+    scope: &mut Scope<'_>,
+    org: Option<&'static str>,
+    org_id: &str,
+    container_id: &str,
+) -> Result<(), StoreError> {
+    if org.is_none() {
+        return search_outbox::note_container_regardless(scope, container_id).await;
+    }
+    let now = scope.now_millis();
+    let mut sql = scope.sql(
+        "INSERT INTO search_outbox (scope, id, org_id, seq, due_at) \
+         SELECT 'container', bo.id, w.org_id, ",
+    );
+    sql.bind(now)
+        .push_bind(", ", now)
+        .push(
+            " FROM containers AS bo JOIN workspaces AS w \
+             ON w.id = bo.workspace_id AND w.org_id = bo.org_id \
+             WHERE bo.org_id = ",
+        )
+        .bind(Id(org_id))
+        .push_bind(" AND bo.id = ", Id(container_id))
+        .push(
+            " ON CONFLICT (org_id, scope, id) DO UPDATE SET seq = CASE \
+             WHEN search_outbox.seq >= excluded.seq THEN search_outbox.seq + 1 \
+             ELSE excluded.seq END, due_at = excluded.due_at, attempts = 0",
+        );
+    scope.execute(sql).await?;
+    Ok(())
 }
 
 /// Deletes from the trash the blocks whose type `is_gone` says and those whose parent
@@ -187,14 +240,14 @@ async fn touched_containers(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreE
 /// the column that names it, where the database holds several). Returns how many went.
 async fn delete_from_trash(
     scope: &mut Scope<'_>,
-    org: Option<&str>,
+    org: Option<&'static str>,
     deleted: &[(String, String)],
     is_gone: impl Fn(&str) -> bool,
 ) -> Result<u64, StoreError> {
-    let org_select = org.map_or_else(String::new, |column| format!(", {column}"));
-    let sql = scope.sql(&format!(
-        "SELECT id, parent_id, block{org_select} FROM deleted_blocks"
-    ));
+    let sql = match org {
+        Some(_) => scope.sql("SELECT id, parent_id, block, org_id FROM deleted_blocks"),
+        None => scope.sql("SELECT id, parent_id, block FROM deleted_blocks"),
+    };
     // A block of the trash by its organization (empty where there is one) and its id.
     let mut children: HashMap<(String, String), Vec<String>> = HashMap::new();
     let mut gone: Vec<(String, String)> = Vec::new();
@@ -242,41 +295,61 @@ async fn delete_from_trash(
     Ok(removed)
 }
 
-/// The identifiers of each board's date properties, live boards and those in the trash.
-type DateProperties = HashMap<String, HashSet<String>>;
+/// The identifiers of each board's date properties, keyed by `(org_id, container_id)`.
+type DateProperties = HashMap<(String, String), HashSet<String>>;
 
 /// Rewrites the date values of cards and the date filters of views, live and in the
-/// trash, one board at a time. Returns how many blocks changed.
+/// trash, one `(org_id, container_id)` at a time so cross-organization ID collisions on
+/// PostgreSQL never leak or overwrite another organization's blocks.
 async fn date_values(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
+    let org = org_column(scope);
     let mut dates = DateProperties::new();
-    let sql = scope.sql("SELECT id, card_properties FROM containers");
+    let sql = match org {
+        Some(_) => scope.sql("SELECT id, card_properties, org_id FROM containers"),
+        None => scope.sql("SELECT id, card_properties FROM containers"),
+    };
     for row in scope.fetch_all(sql).await? {
         let properties = row.json(1, "card_properties")?;
-        dates.insert(row.id(0)?, date_ids(&properties));
+        let org_id = org.map(|_| row.id(2)).transpose()?.unwrap_or_default();
+        dates.insert((org_id, row.id(0)?), date_ids(&properties));
     }
-    let sql = scope.sql("SELECT id, container FROM deleted_containers");
+    let sql = match org {
+        Some(_) => scope.sql("SELECT id, container, org_id FROM deleted_containers"),
+        None => scope.sql("SELECT id, container FROM deleted_containers"),
+    };
     for row in scope.fetch_all(sql).await? {
         let container = row.json(1, "container")?;
-        dates.insert(row.id(0)?, date_ids(&container["cardProperties"]));
+        let org_id = org.map(|_| row.id(2)).transpose()?.unwrap_or_default();
+        dates.insert((org_id, row.id(0)?), date_ids(&container["cardProperties"]));
     }
 
     let mut changed = 0;
-    for (container_id, dates) in dates.iter().filter(|(_, dates)| !dates.is_empty()) {
+    for ((org_id, container_id), dates) in dates.iter().filter(|(_, dates)| !dates.is_empty()) {
         let mut sql = scope.sql("SELECT id, fields FROM blocks WHERE type IN ('card', 'view')");
         sql.push_bind(" AND container_id = ", Id(container_id));
+        if let Some(column) = org {
+            sql.push([" AND ", column, " = "]).bind(Id(org_id));
+        }
         for row in scope.fetch_all(sql).await? {
             let id = row.id(0)?;
             let mut fields = row.json(1, "fields")?;
             if rewrite_previous_date_values(&mut fields, dates) {
                 let mut sql = scope.sql("UPDATE blocks SET fields = ");
                 sql.bind(Param::json(&fields)?)
-                    .push_bind(" WHERE id = ", Id(&id));
+                    .push_bind(" WHERE id = ", Id(&id))
+                    .push_bind(" AND container_id = ", Id(container_id));
+                if let Some(column) = org {
+                    sql.push([" AND ", column, " = "]).bind(Id(org_id));
+                }
                 scope.execute(sql).await?;
                 changed += 1;
             }
         }
         let mut sql = scope.sql("SELECT id, block FROM deleted_blocks WHERE container_id = ");
         sql.bind(Id(container_id));
+        if let Some(column) = org {
+            sql.push([" AND ", column, " = "]).bind(Id(org_id));
+        }
         for row in scope.fetch_all(sql).await? {
             let id = row.id(0)?;
             let mut block = row.json(1, "block")?;
@@ -285,7 +358,11 @@ async fn date_values(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
             {
                 let mut sql = scope.sql("UPDATE deleted_blocks SET block = ");
                 sql.bind(Param::json(&block)?)
-                    .push_bind(" WHERE id = ", Id(&id));
+                    .push_bind(" WHERE id = ", Id(&id))
+                    .push_bind(" AND container_id = ", Id(container_id));
+                if let Some(column) = org {
+                    sql.push([" AND ", column, " = "]).bind(Id(org_id));
+                }
                 scope.execute(sql).await?;
                 changed += 1;
             }

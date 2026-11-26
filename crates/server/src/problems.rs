@@ -424,6 +424,11 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
             "Status 413. The file is larger than the largest the server stores (`limit`, the \
              `maxFileBytes` of `getClientConfig`), sent in one request or in parts."
         }
+        Reason::StorageFull => {
+            "Status 413. Storing the upload or the archive would take the organization's \
+             stored files and open uploads past its storage quota (`limit`, in bytes; \
+             `max_org_storage_bytes`). Delete unused files or purge the trash first."
+        }
         Reason::ArchiveTooLarge => {
             "Status 413. The archive is larger than the largest the server imports (`limit`, \
              the `maxImportBytes` of `getClientConfig`)."

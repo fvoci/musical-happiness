@@ -101,6 +101,14 @@ impl MetricsAddress {
     fn is_every_interface(&self) -> bool {
         matches!(self.host, MetricsHost::Ip(address) if address.to_canonical().is_unspecified())
     }
+
+    /// Whether the host is restricted to loopback (`127.0.0.0/8`, `[::1]`, or `localhost`).
+    pub(super) fn is_loopback(&self) -> bool {
+        match &self.host {
+            MetricsHost::Ip(address) => address.to_canonical().is_loopback(),
+            MetricsHost::Name(name) => name.eq_ignore_ascii_case("localhost"),
+        }
+    }
 }
 
 impl std::fmt::Display for MetricsAddress {

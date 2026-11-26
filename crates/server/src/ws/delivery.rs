@@ -92,8 +92,8 @@ impl Hub {
                 return;
             }
         }
-        // Who was to be told at the last check: not who could never see it.
-        self.give_up(&authorized, kind);
+        // Who was to be told at the last check: ask them to resync without dropping the socket.
+        self.give_up(&authorized, kind, access);
     }
 
     /// Tells who follows the block's board by its read token of the block: who sees
@@ -164,7 +164,11 @@ impl Hub {
                 return;
             }
         }
-        self.give_up(&authorized, "blockChanged");
+        self.give_up(
+            &authorized,
+            "blockChanged",
+            Access::Public(&block.container_id),
+        );
     }
 
     /// Splits who follows the board by its read token into who sees it as its member
@@ -179,7 +183,7 @@ impl Hub {
         workspace_id: &str,
         container_id: &str,
     ) -> (Vec<ListenerId>, Vec<ListenerId>) {
-        let identities: Vec<(ListenerId, String, SessionMade)> = {
+        let identities: Vec<(ListenerId, String, Option<SessionMade>)> = {
             let listeners = self.listeners();
             ids.iter()
                 .filter_map(|id| {
@@ -189,10 +193,13 @@ impl Hub {
                 .collect()
         };
         let (mut members, mut readers) = (Vec::new(), Vec::new());
-        let (signed_in, anonymous): (Vec<_>, Vec<_>) = identities
-            .into_iter()
-            .partition(|(_, user, _)| !user.is_empty());
-        readers.extend(anonymous.into_iter().map(|(id, _, _)| id));
+        let mut signed_in: Vec<(ListenerId, String, SessionMade)> = Vec::new();
+        for (id, user, made) in identities {
+            match made {
+                Some(made) if !user.is_empty() => signed_in.push((id, user, made)),
+                _ => readers.push(id),
+            }
+        }
         if signed_in.is_empty() {
             return (members, readers);
         }
@@ -231,16 +238,29 @@ impl Hub {
         (members, readers)
     }
 
-    /// Closes the recipients of a change whose check was overtaken by permission
-    /// writes every time, as retryable: they read anew rather than miss it.
-    fn give_up(&self, ids: &[ListenerId], message_type: &str) {
+    /// Ends the affected subscription on recipients whose check was overtaken by
+    /// permission writes every time so their client re-subscribes and reloads without
+    /// dropping the entire WebSocket connection.
+    fn give_up(&self, ids: &[ListenerId], message_type: &str, access: Access<'_>) {
         tracing::warn!(
             message_type,
             recipients = ids.len(),
             "websocket: a change was given up, checked again too often"
         );
         for id in ids {
-            self.close_listener(*id, Disconnect::ChecksOvertaken);
+            match access {
+                Access::Workspace(workspace)
+                | Access::Members { workspace, .. }
+                | Access::Seers { workspace, .. } => {
+                    self.end_workspace(*id, workspace, Ended::Access, Of::Any);
+                }
+                Access::Public(container) => {
+                    self.end_container(*id, container);
+                }
+                Access::All => {
+                    self.close_listener(*id, Disconnect::ChecksOvertaken);
+                }
+            }
         }
     }
 
@@ -485,11 +505,12 @@ fn following_workspace<'a>(
     told: Told<'a>,
 ) -> Option<Following<'a>> {
     let role = listener.workspace_roles.get(workspace)?;
+    let making = listener.made()?;
     Some(Following::Workspace {
         workspace,
         user: listener.user_id.clone(),
         role: *role,
-        making: listener.made(),
+        making,
         told,
     })
 }

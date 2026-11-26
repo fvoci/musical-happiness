@@ -13,9 +13,10 @@ mod smtp;
 mod tests;
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::time::Instant;
 
 use crate::auth::limiter::RetryAfter;
 use crate::config::mail::{MailSettings, Way, is_loopback_url};
@@ -97,6 +98,10 @@ pub(super) struct Mailer {
     /// Invitation messages per organization and hour, up to the organization's limit.
     org_quota: Arc<quota::HourlyQuota>,
     org_shares: Arc<share::OrgShares>,
+    /// Invitation messages per recipient email address and hour across all organizations,
+    /// up to `invitation_mail_per_address_hour`.
+    invitation_address_quota: Arc<quota::HourlyQuota>,
+    invitation_address_per_hour: u32,
     /// Recovery messages per email address and hour, up to `mail_reset_per_account_hour`.
     reset_quota: Arc<quota::HourlyQuota>,
     /// Messages that confirm a registration's address, per address and hour, up to the
@@ -186,6 +191,8 @@ impl Mailer {
                 settings.mail_invitation_queue,
                 settings.invitation_mail_recipients,
             )),
+            invitation_address_quota: Arc::default(),
+            invitation_address_per_hour: settings.invitation_mail_per_address_hour,
             reset_quota: Arc::default(),
             verification_quota: Arc::default(),
             change_quota: Arc::default(),
@@ -377,6 +384,18 @@ impl Mailer {
             });
         }
         Ok(queued)
+    }
+
+    /// Checks each recipient email address (case-insensitively) against the server-wide
+    /// `invitation_mail_per_address_hour` window, returning `true` for addresses that fit
+    /// and `false` for addresses that have already received their hourly quota.
+    pub(super) fn admit_invitation_addresses(&self, recipients: &[String]) -> Vec<bool> {
+        let lower_keys: Vec<String> = recipients.iter().map(|addr| addr.to_lowercase()).collect();
+        self.invitation_address_quota.take_each(
+            &lower_keys,
+            self.invitation_address_per_hour,
+            Instant::now(),
+        )
     }
 }
 

@@ -307,9 +307,11 @@ impl Store {
                 if open.is_empty() {
                     return Ok(empty_list());
                 }
-                let mut list_sql = scope.sql(&format!(
-                    "SELECT {TIME_ENTRY_COLUMNS} FROM time_entries WHERE user_id = "
-                ));
+                let mut list_sql = scope.sql([
+                    "SELECT ",
+                    TIME_ENTRY_COLUMNS,
+                    " FROM time_entries WHERE user_id = ",
+                ]);
                 push_filter(reader.user_id, &open, filter, &mut list_sql);
                 list_sql
                     .push_bind(

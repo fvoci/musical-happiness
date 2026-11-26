@@ -106,7 +106,8 @@ pub struct MeetingAttendance {
     pub user_id: String,
     /// Recorded attendance status.
     pub status: AttendanceStatus,
-    /// Last modification time in milliseconds since the Unix epoch.
+    /// Last modification time in milliseconds since the Unix epoch (`0` when hidden from
+    /// non-administrators).
     pub updated_at: i64,
 }
 

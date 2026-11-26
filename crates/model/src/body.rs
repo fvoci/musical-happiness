@@ -134,6 +134,16 @@ impl Body {
         }
     }
 
+    /// Total number of `ProseMirror` nodes in the document, the root `doc` node included.
+    #[must_use]
+    pub fn node_count(&self) -> usize {
+        let mut count: usize = 0;
+        visit(&self.document, &mut |_| {
+            count = count.saturating_add(1);
+        });
+        count
+    }
+
     /// Counts the task items of the body.
     #[must_use]
     pub fn tasks(&self) -> TaskCount {

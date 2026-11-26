@@ -649,6 +649,7 @@ async fn populate_learner_activity(
             scheduled_date: "2026-11-25".to_owned(),
             interval_days: 1,
         },
+        None,
     )
     .await
     .expect("review");
@@ -685,7 +686,7 @@ async fn assert_course_learning_counts(
     );
     assert_eq!(
         usize::try_from(
-            test.list_course_exams(course_id, Some(exam_viewer))
+            test.list_course_exams(course_id, fvoci_store::ExamViewer::Manager(exam_viewer))
                 .await
                 .expect("exams")[0]
                 .score_count
@@ -710,4 +711,82 @@ async fn assert_course_learning_counts(
         expected,
         "unexpected unit_notes count"
     );
+}
+
+#[tokio::test]
+async fn team_removal_forgets_trashed_card_watchers() {
+    let test = common::setup().await;
+    let alice = common::user(&test, "alice-team-trash").await;
+    let bob = common::user(&test, "bob-team-trash").await;
+    let workspace_id = common::workspace_of(&test, &[&alice, &bob]).await;
+    test.execute_unchecked(&format!(
+        "UPDATE workspace_members SET role = 'admin' WHERE workspace_id = '{workspace_id}' AND user_id = '{alice}'"
+    ))
+    .await
+    .expect("alice admin role");
+
+    let mut private_board = fvoci_model::Container {
+        id: new_id(),
+        workspace_id: workspace_id.clone(),
+        visibility: fvoci_model::ContainerVisibility::Private,
+        title: "Team Trash Board".to_owned(),
+        ..fvoci_model::Container::default()
+    };
+    test.insert_container_with_admin(&mut private_board, &alice)
+        .await
+        .expect("private board");
+
+    let team = test
+        .create_team(&workspace_id, "Reviewers", &alice)
+        .await
+        .expect("team");
+    test.add_team_member(&workspace_id, &team, &bob, &alice)
+        .await
+        .expect("bob in team");
+    test.set_container_team(
+        &workspace_id,
+        &private_board.id,
+        &team,
+        Some(fvoci_model::MinimumRole::Editor),
+        &alice,
+    )
+    .await
+    .expect("team on board");
+
+    let card_id = new_id();
+    let mut cards = [Block {
+        id: card_id.clone(),
+        container_id: private_board.id.clone(),
+        block_type: BlockType::Card,
+        ..Block::default()
+    }];
+    common::insert_blocks(&test, &mut cards, &alice).await;
+    test.create_subscription(fvoci_model::Subscription {
+        block_type: BlockType::Card,
+        block_id: card_id.clone(),
+        user_id: bob.clone(),
+        notified_at: 0,
+        created_at: 0,
+        deleted_at: None,
+    })
+    .await
+    .expect("bob watches card");
+
+    test.delete_block(&card_id, &alice)
+        .await
+        .expect("card trashed");
+    test.set_container_team(&workspace_id, &private_board.id, &team, None, &alice)
+        .await
+        .expect("team removed from board");
+    test.undelete_block(&card_id, &alice)
+        .await
+        .expect("card restored");
+    assert!(
+        test.get_subscriptions(&bob)
+            .await
+            .expect("bob subscriptions")
+            .is_empty(),
+        "former team member must not regain subscription on card restore"
+    );
+    test.teardown().await;
 }

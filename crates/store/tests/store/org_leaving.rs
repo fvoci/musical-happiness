@@ -154,6 +154,7 @@ async fn course_with_progress(
                 scheduled_date: "2026-11-26".to_owned(),
                 interval_days: 7,
             },
+            None,
         )
         .await
         .expect("review stored");

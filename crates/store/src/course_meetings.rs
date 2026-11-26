@@ -14,7 +14,7 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::containers::inherited_members_source;
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, SqlFragment};
 use crate::error::StoreError;
 use crate::notification_outbox;
 
@@ -121,7 +121,7 @@ impl Store {
                 require_active_course_member(scope, course_id, member_id, org.clone()).await?;
             }
             let id = new_id();
-            let now = now_millis();
+            let now = scope.now_millis();
             let unit_ids_json =
                 serde_json::to_string(&new.unit_ids).map_err(|error| StoreError::Corrupt {
                     column: "unit_ids",
@@ -193,7 +193,7 @@ impl Store {
                     require_active_course_member(scope, course_id, uid, org.clone()).await?;
                 }
             }
-            let now = now_millis();
+            let now = scope.now_millis();
             let title = change.title.as_deref().unwrap_or(&existing.title);
             let starts_at = change.starts_at.unwrap_or(existing.starts_at);
             let location = change.location.as_deref().unwrap_or(&existing.location);
@@ -328,7 +328,7 @@ impl Store {
                 return Err(StoreError::not_found("meeting"));
             }
             require_active_course_member(scope, course_id, user_id, org.clone()).await?;
-            let now = now_millis();
+            let now = scope.now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO meeting_attendance (meeting_id, org_id, user_id, status, updated_at) \
                  VALUES (",
@@ -715,33 +715,25 @@ fn apply_id_change(existing: Option<&str>, change: &OptionalIdChange) -> Option<
 /// Removes `meeting_attendance` and `course_meetings` rows of courses that are gone for
 /// good: neither live in `containers` nor awaiting restore in `deleted_containers`.
 pub(crate) async fn forget_gone_containers(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let del_meetings = [
-        "DELETE FROM course_meetings WHERE NOT EXISTS \
-         (SELECT 1 FROM containers AS c WHERE c.id = course_meetings.container_id",
-        scope
-            .same_organization(&[("c", "course_meetings")])
-            .as_str(),
-        ") AND NOT EXISTS \
-         (SELECT 1 FROM deleted_containers AS d WHERE d.id = course_meetings.container_id",
-        scope
-            .same_organization(&[("d", "course_meetings")])
-            .as_str(),
-        ")",
-    ]
-    .concat();
+    let mut del_meetings = SqlFragment::of(&["DELETE FROM course_meetings WHERE NOT EXISTS \
+         (SELECT 1 FROM containers AS c WHERE c.id = course_meetings.container_id"]);
+    del_meetings
+        .push_fragment(&scope.same_organization(&[("c", "course_meetings")]))
+        .push(
+            ") AND NOT EXISTS \
+             (SELECT 1 FROM deleted_containers AS d WHERE d.id = course_meetings.container_id",
+        )
+        .push_fragment(&scope.same_organization(&[("d", "course_meetings")]))
+        .push(")");
     let mut sql = scope.sql(&del_meetings);
     sql.changing_no_access();
     scope.execute(sql).await?;
 
-    let del_attendance = [
-        "DELETE FROM meeting_attendance WHERE NOT EXISTS \
-         (SELECT 1 FROM course_meetings AS m WHERE m.id = meeting_attendance.meeting_id",
-        scope
-            .same_organization(&[("m", "meeting_attendance")])
-            .as_str(),
-        ")",
-    ]
-    .concat();
+    let mut del_attendance = SqlFragment::of(&["DELETE FROM meeting_attendance WHERE NOT EXISTS \
+         (SELECT 1 FROM course_meetings AS m WHERE m.id = meeting_attendance.meeting_id"]);
+    del_attendance
+        .push_fragment(&scope.same_organization(&[("m", "meeting_attendance")]))
+        .push(")");
     let mut sql = scope.sql(&del_attendance);
     sql.changing_no_access();
     scope.execute(sql).await?;

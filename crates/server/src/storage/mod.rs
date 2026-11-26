@@ -73,6 +73,11 @@ pub struct StoredObject {
 /// time, in no order.
 pub type ObjectListing = BoxStream<'static, Result<StoredObject, StorageError>>;
 
+/// Opaque metrics handle carried by [`FileBackend::Faulty`] under `test-util`.
+#[cfg(feature = "test-util")]
+#[derive(Debug, Clone, Default)]
+pub struct FaultyMetrics(Option<(Metrics, FilesBackend)>);
+
 /// The configured file backend.
 #[derive(Debug, Clone)]
 pub enum FileBackend {
@@ -81,9 +86,11 @@ pub enum FileBackend {
     /// An S3-compatible object store.
     S3(S3Files),
     /// A backend that fails when a test asks it to (the feature `test-util`, under
-    /// which every backend made from the configuration is one).
+    /// which every backend made from the configuration is one). Metrics are held at
+    /// this outer boundary so injected faults are counted identically to real I/O
+    /// failures.
     #[cfg(feature = "test-util")]
-    Faulty(Box<Self>, std::sync::Arc<Faults>),
+    Faulty(Box<Self>, std::sync::Arc<Faults>, FaultyMetrics),
 }
 
 impl FileBackend {
@@ -104,7 +111,11 @@ impl FileBackend {
             }
         };
         #[cfg(feature = "test-util")]
-        let backend = Self::Faulty(Box::new(backend), std::sync::Arc::default());
+        let backend = Self::Faulty(
+            Box::new(backend),
+            std::sync::Arc::default(),
+            FaultyMetrics::default(),
+        );
         Ok(backend)
     }
 
@@ -112,8 +123,18 @@ impl FileBackend {
     #[cfg(feature = "test-util")]
     pub fn faults(&self) -> Option<&Faults> {
         match self {
-            Self::Faulty(_, faults) => Some(faults),
+            Self::Faulty(_, faults, _) => Some(faults),
             _ => None,
+        }
+    }
+
+    /// Which storage backend kind this handle ultimately drives.
+    #[cfg(feature = "test-util")]
+    fn backend_kind(&self) -> FilesBackend {
+        match self {
+            Self::Local(_) => FilesBackend::Local,
+            Self::S3(_) => FilesBackend::S3,
+            Self::Faulty(inner, _, _) => inner.backend_kind(),
         }
     }
 
@@ -130,18 +151,38 @@ impl FileBackend {
                 Self::S3(files.measured(metrics))
             }
             #[cfg(feature = "test-util")]
-            Self::Faulty(inner, faults) => Self::Faulty(Box::new(inner.measured(metrics)), faults),
+            Self::Faulty(inner, faults, _) => {
+                let kind = inner.backend_kind();
+                metrics.files_known(kind);
+                let inner = Box::new(inner.with_multipart_metrics(metrics.clone()));
+                Self::Faulty(inner, faults, FaultyMetrics(Some((metrics, kind))))
+            }
+        }
+    }
+
+    #[cfg(feature = "test-util")]
+    fn with_multipart_metrics(self, metrics: Metrics) -> Self {
+        match self {
+            Self::Local(files) => Self::Local(files),
+            Self::S3(files) => Self::S3(files.measured_multipart(metrics)),
+            Self::Faulty(inner, faults, measured) => Self::Faulty(
+                Box::new(inner.with_multipart_metrics(metrics)),
+                faults,
+                measured,
+            ),
         }
     }
 
     /// The metrics the operations are measured into, and the backend they are of;
-    /// `None` for a backend that only passes them on, measured by the one it wraps.
+    /// `None` for an unmeasured backend.
     fn metrics(&self) -> Option<(&Metrics, FilesBackend)> {
         match self {
             Self::Local(files) => Some((&files.metrics, FilesBackend::Local)),
             Self::S3(files) => Some((&files.metrics, FilesBackend::S3)),
             #[cfg(feature = "test-util")]
-            Self::Faulty(..) => None,
+            Self::Faulty(_, _, measured) => {
+                measured.0.as_ref().map(|(metrics, kind)| (metrics, *kind))
+            }
         }
     }
 
@@ -190,7 +231,7 @@ impl FileBackend {
             Self::Local(files) => files.write(path, reader).await,
             Self::S3(files) => files.write(path, reader).await,
             #[cfg(feature = "test-util")]
-            Self::Faulty(inner, faults) => {
+            Self::Faulty(inner, faults, _) => {
                 faults.check(FaultyOp::Write, path)?;
                 let written = Box::pin(inner.write(path, reader)).await?;
                 faults.check(FaultyOp::WriteAnswerLost, path)?;
@@ -211,7 +252,7 @@ impl FileBackend {
                 Self::Local(files) => files.size(path).await,
                 Self::S3(files) => files.size(path).await,
                 #[cfg(feature = "test-util")]
-                Self::Faulty(inner, _) => Box::pin(inner.size(path)).await,
+                Self::Faulty(inner, _, _) => Box::pin(inner.size(path)).await,
             }
         })
         .await
@@ -253,7 +294,7 @@ impl FileBackend {
                     Self::Local(files) => files.read(path, range).await,
                     Self::S3(files) => files.read(path, range).await,
                     #[cfg(feature = "test-util")]
-                    Self::Faulty(inner, _) => Box::pin(inner.read(path, range)).await,
+                    Self::Faulty(inner, _, _) => Box::pin(inner.read(path, range)).await,
                 }
             })
             .await?;
@@ -275,7 +316,7 @@ impl FileBackend {
                 Self::Local(files) => files.copy(from, to).await,
                 Self::S3(files) => files.copy(from, to).await,
                 #[cfg(feature = "test-util")]
-                Self::Faulty(inner, faults) => {
+                Self::Faulty(inner, faults, _) => {
                     faults.check(FaultyOp::Copy, to)?;
                     Box::pin(inner.copy(from, to)).await
                 }
@@ -296,7 +337,7 @@ impl FileBackend {
                 Self::Local(files) => files.delete(path).await,
                 Self::S3(files) => files.delete(path).await,
                 #[cfg(feature = "test-util")]
-                Self::Faulty(inner, faults) => {
+                Self::Faulty(inner, faults, _) => {
                     faults.check(FaultyOp::Delete, path)?;
                     Box::pin(inner.delete(path)).await
                 }
@@ -317,7 +358,7 @@ impl FileBackend {
                 Self::Local(files) => files.rename(from, to).await,
                 Self::S3(files) => files.rename(from, to).await,
                 #[cfg(feature = "test-util")]
-                Self::Faulty(inner, _) => Box::pin(inner.rename(from, to)).await,
+                Self::Faulty(inner, _, _) => Box::pin(inner.rename(from, to)).await,
             }
         })
         .await
@@ -337,7 +378,7 @@ impl FileBackend {
             Self::Local(files) => Bytes::from(files.check(READY_PATH, READY_BYTES).await?),
             Self::S3(files) => files.check(READY_PATH, READY_BYTES).await?,
             #[cfg(feature = "test-util")]
-            Self::Faulty(inner, _) => return Box::pin(inner.check()).await,
+            Self::Faulty(inner, _, _) => return Box::pin(inner.check()).await,
         };
         if read == READY_BYTES {
             Ok(())
@@ -358,7 +399,7 @@ impl FileBackend {
             Self::Local(files) => files.list(),
             Self::S3(files) => files.list(),
             #[cfg(feature = "test-util")]
-            Self::Faulty(inner, _) => inner.list(),
+            Self::Faulty(inner, _, _) => inner.list(),
         }
     }
 
@@ -369,7 +410,7 @@ impl FileBackend {
             Self::Local(_) => None,
             Self::S3(files) => Some(files),
             #[cfg(feature = "test-util")]
-            Self::Faulty(inner, _) => inner.multipart(),
+            Self::Faulty(inner, _, _) => inner.multipart(),
         }
     }
 }

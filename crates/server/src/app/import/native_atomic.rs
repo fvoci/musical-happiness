@@ -18,13 +18,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fvoci_model::{Container, ContainerKind, ContainerMember, FileRecord, ValidatedCourseSchedule};
-use fvoci_store::StreamCreateError;
+use fvoci_store::{StreamBatch, StreamCreateError};
 use tokio::fs;
 
 use super::archive::{Archive, entry_name, unpack_entry};
-use super::native_stream::{BoardWritePlan, StreamPlan};
+use super::native_stream::{BoardWritePlan, StreamPlan, too_many_archive_items};
 use super::native_stream_write::{
-    ArchiveStreamShared, BlockIdCollection, StreamedBoardHandle, spawn_archive_streamer,
+    ArchiveStreamShared, BlockIdCollection, IMPORT_STREAM_TIMEOUT, StreamedBoardHandle,
+    StreamedBoardStats, spawn_archive_streamer,
 };
 use super::{
     ANNOUNCE_CHUNK_BLOCKS, ArchiveFiles, ImportCounts, ImportOptions, Imported, name_in,
@@ -39,6 +40,9 @@ use crate::auth::secret::new_secret;
 use crate::collab::AccessScope;
 use crate::error::AppError;
 use crate::metrics::{ContainerWork, CourseSource};
+
+/// Total expanded `container_members` ceiling across an entire `.fvoci` import.
+pub(super) const MAX_IMPORTED_MEMBERSHIPS: usize = 50_000;
 
 /// Prepared metadata across every planned board in a native archive.
 struct PreparedStreamedArchive {
@@ -113,7 +117,7 @@ impl App {
             stats: streamer_handle,
         } = spawn_archive_streamer(
             zip.clone(),
-            prepared.stream_plans,
+            std::mem::take(&mut prepared.stream_plans),
             ArchiveStreamShared {
                 file_map: Arc::clone(&staged.file_map),
                 all_copies,
@@ -122,30 +126,15 @@ impl App {
             },
         );
 
-        let write_result = {
-            let _structure = self.collab().changing_structure(self).await;
-            self.store()
-                .create_imported_containers_blocks_files_members_and_schedules_streamed(
-                    &mut prepared.containers,
-                    &staged.records,
-                    &prepared.extra_members,
-                    &prepared.schedules,
-                    &options.modified_by,
-                    rx,
-                )
-                .await
-        };
-        let streamer_outcome = streamer_handle.await;
-        let members = match write_result {
-            Ok(members) => members,
-            Err(error) => {
-                self.clean_written_paths(&staged.written_paths).await;
-                return Err(map_stream_write_error(error));
-            }
-        };
-        let mut stats = streamer_outcome.map_err(|error| {
-            AppError::internal(format_args!("archive stream task failed: {error}"))
-        })?;
+        let (members, mut stats) = self
+            .run_timed_archive_stream(
+                &mut prepared,
+                &staged,
+                &options.modified_by,
+                rx,
+                streamer_handle,
+            )
+            .await?;
 
         self.finish_streamed_native_commit(
             &prepared.containers,
@@ -168,6 +157,46 @@ impl App {
         ))
     }
 
+    async fn run_timed_archive_stream(
+        &self,
+        prepared: &mut PreparedStreamedArchive,
+        staged: &StagedNativeFiles,
+        modified_by: &str,
+        rx: tokio::sync::mpsc::Receiver<StreamBatch<AppError>>,
+        streamer_handle: tokio::task::JoinHandle<StreamedBoardStats>,
+    ) -> Result<(Vec<ContainerMember>, StreamedBoardStats), AppError> {
+        let write_future = self
+            .store()
+            .create_imported_containers_blocks_files_members_and_schedules_streamed(
+                &mut prepared.containers,
+                &staged.records,
+                &prepared.extra_members,
+                &prepared.schedules,
+                modified_by,
+                rx,
+            );
+        let Ok(write_result) = tokio::time::timeout(IMPORT_STREAM_TIMEOUT, write_future).await
+        else {
+            streamer_handle.abort();
+            self.clean_written_paths(&staged.written_paths).await;
+            return Err(AppError::bad_request(
+                "archive import exceeded maximum transaction time limit",
+            ));
+        };
+        let streamer_outcome = streamer_handle.await;
+        let members = match write_result {
+            Ok(members) => members,
+            Err(error) => {
+                self.clean_written_paths(&staged.written_paths).await;
+                return Err(map_stream_write_error(error));
+            }
+        };
+        let stats = streamer_outcome.map_err(|error| {
+            AppError::internal(format_args!("archive stream task failed: {error}"))
+        })?;
+        Ok((members, stats))
+    }
+
     async fn prepare_streamed_archive(
         &self,
         plans: Vec<BoardWritePlan>,
@@ -181,6 +210,7 @@ impl App {
         let mut created_order = Vec::with_capacity(plans.len());
         let mut stream_plans = Vec::with_capacity(plans.len());
         let mut left_out: HashSet<String> = HashSet::new();
+        let mut actor_cache: HashMap<String, Option<fvoci_model::WorkspaceRole>> = HashMap::new();
 
         for plan in plans {
             let Some(primary) = plan.containers.first() else {
@@ -196,10 +226,27 @@ impl App {
                 )));
             }
             files.insert(plan.dir, plan.files);
-            let mut kept_members = Vec::with_capacity(plan.members.len());
+            let mut kept_members = Vec::new();
+            let mut seen_in_plan: HashSet<String> = HashSet::new();
             for member in plan.members {
-                let actor = self.actor(&member.user_id, &options.workspace_id).await?;
-                match actor.workspace {
+                if !seen_in_plan.insert(member.user_id.clone()) {
+                    continue;
+                }
+                if !fvoci_model::is_id(&member.user_id) {
+                    left_out.insert(member.user_id);
+                    continue;
+                }
+                let workspace_role = if let Some(cached) = actor_cache.get(&member.user_id) {
+                    *cached
+                } else {
+                    let resolved = self
+                        .actor(&member.user_id, &options.workspace_id)
+                        .await?
+                        .workspace;
+                    actor_cache.insert(member.user_id.clone(), resolved);
+                    resolved
+                };
+                match workspace_role {
                     Some(workspace_role) => {
                         kept_members.push(no_more_than_holdable(member, workspace_role));
                     }
@@ -207,6 +254,13 @@ impl App {
                         left_out.insert(member.user_id);
                     }
                 }
+            }
+            let added_memberships = kept_members.len().saturating_mul(plan.containers.len());
+            if extra_members.len().saturating_add(added_memberships) > MAX_IMPORTED_MEMBERSHIPS {
+                return Err(too_many_archive_items(
+                    "memberships",
+                    MAX_IMPORTED_MEMBERSHIPS,
+                ));
             }
             for container in &plan.containers {
                 created_order.push((container.kind, container.id.clone()));
@@ -300,6 +354,7 @@ impl App {
         let mut records = Vec::with_capacity(entries.len());
         let mut written_paths = Vec::with_capacity(entries.len());
         let mut file_map: HashMap<String, HashMap<String, String>> = HashMap::new();
+        let mut total_staged_bytes: u64 = 0;
 
         for (index, dir, filename, container_id) in entries {
             let upload_name = name_in(files, &dir, &filename);
@@ -318,6 +373,12 @@ impl App {
                 }
             };
             written_paths.push(place.path.clone());
+            total_staged_bytes = total_staged_bytes.saturating_add(size);
+            if let Err(error) = self.check_org_storage_room(total_staged_bytes).await {
+                self.clean_written_paths(&written_paths).await;
+                doomed_dir.remove().await;
+                return Err(error);
+            }
             let record = file_record(&container_id, place, size, "");
             file_map
                 .entry(container_id)
@@ -407,7 +468,7 @@ impl App {
                 Ok(blocks) => {
                     for block in &blocks {
                         self.ws().broadcast_block_change(workspace_id, block).await;
-                        self.tell_webhooks(block).await;
+                        self.tell_webhooks(block);
                     }
                 }
                 Err(error) => {

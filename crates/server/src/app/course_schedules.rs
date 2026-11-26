@@ -98,7 +98,7 @@ impl App {
     ) -> Result<CourseScheduleView, AppError> {
         let course = self.store().get_container(course_id).await?;
         let updated_ids = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, course_id).await;
             let (_, ids) = self
                 .store()
                 .upsert_course_schedule(course_id, schedule, user_id)
@@ -143,7 +143,7 @@ impl App {
         let today = self.caller_today(user_id).await?;
         let course = self.store().get_container(course_id).await?;
         let updated_ids = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, course_id).await;
             self.store()
                 .redistribute_course_schedule(course_id, request, today, user_id)
                 .await?
@@ -240,7 +240,7 @@ impl App {
                     }
                 };
                 app.ws().broadcast_block_change(&workspace_id, &block).await;
-                app.tell_webhooks(&block).await;
+                app.tell_webhooks(&block);
             }
         });
     }

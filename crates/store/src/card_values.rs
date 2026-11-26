@@ -39,7 +39,7 @@ pub(crate) struct NamedCards {
 /// another, and as a relation value of a card a list of other cards, each once, at most
 /// [`fvoci_model::RELATION_LIMIT`]. Only the values the write changes are checked; one
 /// that was stored before the rules, or that a change of the definitions left behind,
-/// stays until it is written. A block that becomes a card has all its values checked.
+/// stays until it is written.
 ///
 /// Returns what the relation values name that they did not name before, to be asked for
 /// once the write is stored: an identifier a value had is not asked for again.
@@ -55,12 +55,7 @@ pub(crate) async fn check_written(
     let Some(Value::Object(values)) = block.fields.get("properties") else {
         return Ok(Vec::new());
     };
-    // A block that becomes a card brings values nothing checked as a card's: all of
-    // them are checked as written.
-    let became_card = block.block_type == BlockType::Card
-        && existing.is_some_and(|existing| existing.block_type != BlockType::Card);
     let before = existing
-        .filter(|_| !became_card)
         .and_then(|existing| existing.fields.get("properties"))
         .and_then(Value::as_object);
     let written: JsonMap = values
@@ -178,10 +173,11 @@ async fn types_on_board(
     board_id: &str,
     ids: &[&str],
 ) -> Result<HashMap<String, BlockType>, StoreError> {
-    // The type of a block in the trash is in the stored block.
     let trashed_type = match scope.dialect() {
-        Dialect::Sqlite => "json_extract(block, '$.type')",
-        Dialect::Postgres => "block->>'type'",
+        Dialect::Sqlite => {
+            "CASE WHEN block_type <> '' THEN block_type ELSE json_extract(block, '$.type') END"
+        }
+        Dialect::Postgres => "CASE WHEN block_type <> '' THEN block_type ELSE block->>'type' END",
     };
     let mut types = HashMap::with_capacity(ids.len());
     for chunk in ids.chunks(LOOKUP_CHUNK) {
@@ -189,9 +185,11 @@ async fn types_on_board(
         sql.bind(Id(board_id))
             .push(" AND id IN (")
             .bind_list(chunk.iter().map(|id| Id(id)))
-            .push(&format!(
-                ") UNION ALL SELECT id, {trashed_type} FROM deleted_blocks WHERE container_id = "
-            ))
+            .push([
+                ") UNION ALL SELECT id, ",
+                trashed_type,
+                " FROM deleted_blocks WHERE container_id = ",
+            ])
             .bind(Id(board_id))
             .push(" AND id IN (")
             .bind_list(chunk.iter().map(|id| Id(id)))

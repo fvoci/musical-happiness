@@ -14,7 +14,7 @@ use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session, User, WorkspaceRol
 use crate::Store;
 use crate::accounts::{self, Which};
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::oidc_former::{self, Keeping};
 use crate::sessions;
@@ -329,12 +329,12 @@ impl Store {
                 return Ok(None);
             };
             // Another state of the provider, with a later time, as every change is.
-            let now = now_millis().max(row.int(0)?.saturating_add(1));
+            let now = scope.now_millis().max(row.int(0)?.saturating_add(1));
             let mut sql = scope.sql("UPDATE oidc_providers SET sso_required = ");
             sql.bind(false)
                 .push_bind(", updated_at = ", now)
                 .push_bind(" WHERE org_id = ", scope.org()?)
-                .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
+                .push([" RETURNING ", PROVIDER_COLUMNS]);
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             let stored = provider_from_row(&row)?;
             let entry = AuditEntry::by(
@@ -564,9 +564,11 @@ pub(crate) async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Resu
 pub(crate) async fn read_provider(
     scope: &mut Scope<'_>,
 ) -> Result<Option<StoredProvider>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {PROVIDER_COLUMNS} FROM oidc_providers WHERE org_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        PROVIDER_COLUMNS,
+        " FROM oidc_providers WHERE org_id = ",
+    ]);
     sql.bind(scope.org()?);
     scope
         .fetch_optional(sql)
@@ -602,8 +604,9 @@ pub(crate) async fn write_provider(
 ) -> Result<Written, StoreError> {
     // Later than the change before, also within one millisecond or when the clock went
     // back: no two states of one provider have one time.
-    let now = before.map_or_else(now_millis, |before| {
-        now_millis().max(before.updated_at.saturating_add(1))
+    let base_now = scope.now_millis();
+    let now = before.map_or(base_now, |before| {
+        base_now.max(before.updated_at.saturating_add(1))
     });
     let signs_in_alike = before.is_some_and(|before| before.signs_in_like(provider));
     // Raised across a replacement too: no session of the one before names it.
@@ -623,9 +626,11 @@ pub(crate) async fn write_provider(
         .push_bind(" OR client_id <> ", &provider.client_id)
         .push(")");
     scope.execute(sql).await?;
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO oidc_providers ({PROVIDER_COLUMNS}) VALUES ("
-    ));
+    let mut sql = scope.sql([
+        "INSERT INTO oidc_providers (",
+        PROVIDER_COLUMNS,
+        ") VALUES (",
+    ]);
     sql.bind(Id(&new_id()))
         .push_bind(", ", scope.org()?)
         .push_bind(", ", &provider.issuer)
@@ -645,7 +650,7 @@ pub(crate) async fn write_provider(
              updated_at = excluded.updated_at, sso_required = excluded.sso_required, \
              revision = excluded.revision",
         )
-        .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
+        .push([" RETURNING ", PROVIDER_COLUMNS]);
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     let stored = provider_from_row(&row)?;
     if let Some(before) = before
@@ -934,28 +939,7 @@ async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreEr
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// Ties an identity to an account, as the provider gave its address.
-pub(crate) async fn insert_identity(
-    scope: &mut Scope<'_>,
-    identity: Identity<'_>,
-    user_id: &str,
-    email: &str,
-    now: i64,
-) -> Result<(), StoreError> {
-    let mut sql = scope
-        .sql("INSERT INTO user_identities (issuer, subject, user_id, email, created_at) VALUES (");
-    sql.bind(identity.issuer)
-        .push_bind(", ", identity.subject)
-        .push_bind(", ", Id(user_id))
-        .push_bind(", ", email)
-        .push_bind(", ", now)
-        .push(")");
-    match scope.execute(sql).await {
-        Ok(_) => Ok(()),
-        Err(StoreError::Database(error)) => Err(crate::users::unique_violation(error)),
-        Err(error) => Err(error),
-    }
-}
+pub(crate) use crate::oidc_identities::insert_identity;
 
 fn provider_from_row(row: &Row) -> Result<StoredProvider, StoreError> {
     Ok(StoredProvider {

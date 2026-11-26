@@ -207,6 +207,10 @@ impl App {
             scope_before = Some(ContainerScope::of(&container));
         }
 
+        if changes_access(patch) {
+            self.collab()
+                .narrowing_access(self, &AccessScope::container(container_id));
+        }
         let updated = self
             .store()
             .patch_container(container_id, patch, user_id)
@@ -431,7 +435,7 @@ impl App {
         modified_by: &str,
     ) -> Result<Container, AppError> {
         let restored = {
-            let _structure = self.collab().changing_structure(self).await;
+            let _structure = self.collab().changing_structure(self, container_id).await;
             self.store()
                 .undelete_container(container_id, modified_by)
                 .await
@@ -769,6 +773,8 @@ impl App {
             Err(error) if error.is_not_found() => return Ok(None),
             Err(error) => return Err(error.into()),
         };
+        let scope = AccessScope::container(&container.id).of_user(&member.user_id);
+        self.collab().narrowing_access(self, &scope);
         // A board keeps at least one admin. Whether this change would take the last one
         // away is decided where the change is written, so that two admins who step down
         // at once do not both pass.
@@ -836,6 +842,8 @@ impl App {
             Err(error) if error.is_not_found() => return Ok(()),
             Err(error) => return Err(error.into()),
         };
+        let scope = AccessScope::container(container_id).of_user(user_id);
+        self.collab().narrowing_access(self, &scope);
         // A board keeps at least one admin; decided where the membership is removed.
         match self.store().remove_member(container_id, user_id).await? {
             MemberChange::Done => {}

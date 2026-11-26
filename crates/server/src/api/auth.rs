@@ -138,9 +138,12 @@ pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response
 async fn handle_logout(State(app): State<App>, account: AccountSession) -> ApiResult {
     app.logout(&account.session.id).await?;
     let mut response = no_content();
-    response
-        .headers_mut()
-        .insert(SET_COOKIE, app.authenticator().session_cookie().clear());
+    let headers = response.headers_mut();
+    headers.insert(SET_COOKIE, app.authenticator().session_cookie().clear());
+    headers.insert(
+        axum::http::HeaderName::from_static("clear-site-data"),
+        axum::http::HeaderValue::from_static("\"cache\""),
+    );
     Ok(response)
 }
 

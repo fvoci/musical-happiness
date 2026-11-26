@@ -190,3 +190,73 @@ async fn a_member_held_by_a_check_is_answered_and_kept() {
     assert!(pong(&mut member).await < PATIENCE, "still open");
     th.teardown().await;
 }
+
+/// `subscribeBlocks` acknowledges accepted subscriptions with deduplicated `blockIds`,
+/// while silently ignoring unauthorized tokens or batches exceeding 200 distinct
+/// block identifiers.
+#[tokio::test]
+async fn subscribe_blocks_acknowledges_deduplicates_and_caps_batch_size() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let (_board, card, token) = crate::websocket::shared_board_with_a_card(&th, &user1.id).await;
+    let ws_id = crate::common::ROOT_WORKSPACE_ID;
+
+    let mut reader = Socket::connect(&th).await;
+    // 1. Unauthorized token is silently ignored (no `blocksSubscribed` oracle).
+    reader
+        .send(json!({
+            "type": "subscribeBlocks",
+            "workspaceId": ws_id,
+            "readToken": "invalid-token",
+            "blockIds": [&card.id]
+        }))
+        .await;
+    reader.send(json!({"type": "ping"})).await;
+    assert_eq!(
+        reader.next_json(PATIENCE).await,
+        Some(json!({"type": "pong"})),
+        "unauthorized subscribeBlocks emits no ACK"
+    );
+
+    // 2. > 200 distinct blockIds is silently refused before DB fan-out.
+    let excessive: Vec<String> = (0..201).map(|_| fvoci_model::new_id()).collect();
+    reader
+        .send(json!({
+            "type": "subscribeBlocks",
+            "workspaceId": ws_id,
+            "readToken": &token,
+            "blockIds": excessive
+        }))
+        .await;
+    reader.send(json!({"type": "ping"})).await;
+    assert_eq!(
+        reader.next_json(PATIENCE).await,
+        Some(json!({"type": "pong"})),
+        ">200 distinct blockIds emits no ACK"
+    );
+
+    // 3. 1,000 duplicates of one valid blockId deduplicate to 1 and emit `blocksSubscribed`.
+    let repeated: Vec<&str> = vec![card.id.as_str(); 1_000];
+    reader
+        .send(json!({
+            "type": "subscribeBlocks",
+            "workspaceId": ws_id,
+            "readToken": &token,
+            "blockIds": repeated
+        }))
+        .await;
+    let ack: Value = reader
+        .next_json(PATIENCE)
+        .await
+        .expect("blocksSubscribed ACK");
+    assert_eq!(
+        ack,
+        json!({
+            "type": "blocksSubscribed",
+            "workspaceId": ws_id,
+            "blockIds": [&card.id]
+        }),
+        "accepted subscribeBlocks acknowledges deduplicated blockIds"
+    );
+    th.teardown().await;
+}

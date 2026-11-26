@@ -65,7 +65,7 @@ libc.workspace = true
 
 [features]
 # Test support for this crate's tests: a file storage that fails when a test asks it to.
-test-util = []
+test-util = ["fvoci-store/test-util", "fvoci-collab/test-util"]
 
 [dev-dependencies]
 mail-parser.workspace = true

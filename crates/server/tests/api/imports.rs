@@ -792,3 +792,191 @@ async fn body_exceeding_max_bytes_after_file_rename_is_rejected_and_rolled_back(
 
     ts.teardown().await;
 }
+
+fn native_archive_entries(entries: &[(&str, &str)]) -> Vec<u8> {
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    writer.start_file("version.json", options).expect("start");
+    writer
+        .write_all(br#"{"version":1,"date":1}"#)
+        .expect("write");
+    for (name, content) in entries {
+        writer.start_file(*name, options).expect("start");
+        writer.write_all(content.as_bytes()).expect("write");
+    }
+    writer.finish().expect("finish").into_inner()
+}
+
+/// `container × containerMember` amplification (>64 containers per `container.jsonl`
+/// or >10,000 member lines) is rejected immediately with 413 `archive_too_large` and
+/// leaves zero DB rows, files, or upload temp residue.
+#[tokio::test]
+async fn native_archive_container_member_amplification_is_rejected_with_413_and_zero_residue() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let user2_id = ts.client2.me().await.id;
+    let before_boards = boards_of(&ts).await.len();
+    let before_files = ts.app.store().count_rows("files").await.expect("files");
+
+    // 1. 65 container lines in one `container.jsonl` (> MAX_CONTAINERS_PER_ENTRY = 64) -> 413.
+    let mut lines_65 = String::new();
+    for idx in 0..65 {
+        let line = json!({
+            "type": "container",
+            "data": {"id": format!("b{idx}"), "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Amplify", "createdAt": 1, "updatedAt": 1}
+        });
+        lines_65.push_str(&line.to_string());
+        lines_65.push('\n');
+    }
+    let too_many_containers = native_archive_entries(&[("b0/container.jsonl", &lines_65)]);
+    let r1 = import(&ts.client, TEST_WORKSPACE_ID, &too_many_containers).await;
+    assert_eq!(r1.status, StatusCode::PAYLOAD_TOO_LARGE, "{}", r1.text());
+    assert_eq!(
+        r1.error_reason(),
+        "archive_too_large",
+        "container amplification reason"
+    );
+
+    // 2. 10,001 `containerMember` lines in one `container.jsonl` (> MAX_MEMBER_LINES = 10_000) -> 413.
+    let mut many_members = json!({
+        "type": "container",
+        "data": {"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Members", "createdAt": 1, "updatedAt": 1}
+    })
+    .to_string();
+    many_members.push('\n');
+    let member_line = json!({
+        "type": "containerMember",
+        "data": {"containerId": "b1", "userId": user2_id, "role": "editor"}
+    })
+    .to_string();
+    for _ in 0..10_001 {
+        many_members.push_str(&member_line);
+        many_members.push('\n');
+    }
+    let too_many_members = native_archive_entries(&[("b1/container.jsonl", &many_members)]);
+    let r2 = import(&ts.client, TEST_WORKSPACE_ID, &too_many_members).await;
+    assert_eq!(r2.status, StatusCode::PAYLOAD_TOO_LARGE, "{}", r2.text());
+    assert_eq!(
+        r2.error_reason(),
+        "archive_too_large",
+        "member line amplification reason"
+    );
+
+    assert_eq!(
+        boards_of(&ts).await.len(),
+        before_boards,
+        "zero containers created"
+    );
+    assert_eq!(
+        ts.app.store().count_rows("files").await.expect("files"),
+        before_files,
+        "zero files created"
+    );
+    assert!(
+        entries(&uploads_dir(&ts)).is_empty(),
+        "zero upload temp files"
+    );
+    assert!(
+        ts.app
+            .store()
+            .loose_objects()
+            .await
+            .expect("loose")
+            .is_empty(),
+        "zero loose_objects residue"
+    );
+    ts.teardown().await;
+}
+
+/// 1,000 duplicate `containerMember` lines deduplicate to a single membership (`200 OK`),
+/// normal export/import round-trips cleanly, and retired pre-`0071` v1 view keys are
+/// rejected with `400 Bad Request`.
+#[tokio::test]
+async fn native_archive_deduplicates_members_round_trips_and_rejects_retired_v1_view_keys() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let user2_id = ts.client2.me().await.id;
+
+    // 1,000 duplicate `containerMember` lines for `user2_id` -> 200 OK with 1 membership for user2.
+    let mut dup_jsonl = json!({
+        "type": "container",
+        "data": {"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Deduped Board", "createdAt": 1, "updatedAt": 1}
+    })
+    .to_string();
+    dup_jsonl.push('\n');
+    let dup_member = json!({
+        "type": "containerMember",
+        "data": {"containerId": "b1", "userId": user2_id, "role": "editor"}
+    })
+    .to_string();
+    for _ in 0..1_000 {
+        dup_jsonl.push_str(&dup_member);
+        dup_jsonl.push('\n');
+    }
+    let dup_archive = native_archive_entries(&[("b1/container.jsonl", &dup_jsonl)]);
+    import(&ts.client, TEST_WORKSPACE_ID, &dup_archive)
+        .await
+        .check_ok();
+    let created = boards_of(&ts)
+        .await
+        .into_iter()
+        .find(|b| b.title == "Deduped Board")
+        .expect("deduped board imported");
+    let members: Vec<serde_json::Value> = ts
+        .client
+        .get(&format!("{TEST_WS}/containers/{}/members", created.id))
+        .await
+        .ok_json();
+    assert_eq!(
+        members
+            .iter()
+            .filter(|m| m["userId"].as_str() == Some(user2_id.as_str()))
+            .count(),
+        1,
+        "1,000 duplicate member lines produce a single membership: {members:?}"
+    );
+
+    // Normal export -> import round-trip.
+    let exported = ts
+        .client
+        .get(&format!(
+            "{TEST_WS}/containers/{}/archive/export",
+            created.id
+        ))
+        .await;
+    exported.check_ok();
+    let before_rt = boards_of(&ts).await.len();
+    import(&ts.client, TEST_WORKSPACE_ID, &exported.body)
+        .await
+        .check_ok();
+    assert_eq!(
+        boards_of(&ts).await.len(),
+        before_rt + 1,
+        "round-trip imported"
+    );
+
+    // Retired pre-`0071` view field keys in `.fvoci` v1 archive are rejected with 400.
+    for retired_key in [
+        "hiddenOptionIds",
+        "visibleOptionIds",
+        "collapsedOptionIds",
+        "kanbanCalculations",
+        "defaultPropertyIds",
+        "groupById",
+        "sortOptions",
+        "datePropertyId",
+    ] {
+        let mut fields = serde_json::Map::new();
+        fields.insert(retired_key.to_owned(), json!([]));
+        let bad_jsonl = format!(
+            "{}\n{}\n",
+            json!({"type": "container", "data": {"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Legacy View", "createdAt": 1, "updatedAt": 1}}),
+            json!({"type": "block", "data": {"id": "v1", "containerId": "b1", "type": "view", "title": "Board", "fields": fields, "createdAt": 1, "updatedAt": 1}})
+        );
+        let bad_archive = native_archive_entries(&[("b1/container.jsonl", &bad_jsonl)]);
+        import(&ts.client, TEST_WORKSPACE_ID, &bad_archive)
+            .await
+            .check_bad_request();
+    }
+
+    ts.teardown().await;
+}

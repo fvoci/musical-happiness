@@ -1,7 +1,5 @@
 //! Sending an existing invitation under the same permissions as making its link.
 
-use std::collections::BTreeSet;
-
 use fvoci_model::{Invitation, InvitationMail, WorkspaceRole};
 
 use super::super::language::Language;
@@ -40,7 +38,7 @@ impl App {
             .with_reason(Reason::TooManyRecipients)
             .with_limit(u64::from(limit)));
         }
-        let mut recipients = BTreeSet::new();
+        let mut recipients = std::collections::BTreeSet::new();
         for recipient in &request.recipients {
             let normalized = recipient.trim().to_owned();
             if recipient.contains(['\r', '\n'])
@@ -101,6 +99,10 @@ impl App {
                 }
             })?;
         request.recipients = recipients.into_iter().collect();
+        let admitted = self
+            .inner
+            .mail
+            .admit_invitation_addresses(&request.recipients);
         let app = self.clone();
         let workspace_id = workspace_id.to_owned();
         let sender = sender.to_owned();
@@ -108,7 +110,7 @@ impl App {
             // The cause is the store's or a refusal: what became of each message is told
             // where it is sent.
             if let Err(error) = app
-                .deliver_invitation(&workspace_id, &sender, request, queued)
+                .deliver_invitation(&workspace_id, &sender, request, queued, admitted)
                 .await
             {
                 tracing::warn!(%error, "invitation mail delivery failed");
@@ -181,12 +183,19 @@ impl App {
         sender: &str,
         request: InvitationMail,
         queued: Vec<Queued>,
+        admitted: Vec<bool>,
     ) -> Result<(), AppError> {
         let sender_language =
             Language::written_in(self.user_settings(sender).await?.language.as_str());
         let requested = Language::written_in(&request.language);
         let root = self.config().server_url.trim_end_matches('/');
-        for (recipient, place) in request.recipients.into_iter().zip(queued) {
+        for ((recipient, place), allowed) in
+            request.recipients.into_iter().zip(queued).zip(admitted)
+        {
+            if !allowed {
+                place.pass(&self.inner.mail).await;
+                continue;
+            }
             // The guest link made for this recipient, if one was: its identifier and
             // its token.
             let made: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::default();
@@ -249,26 +258,31 @@ impl App {
                 Delivered::Refused | Delivered::GivenUp | Delivered::Withdrawn
             ) && let Some((id, _)) = made
             {
-                match self
-                    .store()
-                    .revoke_invitation(workspace_id, &id, Some(sender), now_millis())
-                    .await
-                {
-                    Ok(true) => tracing::info!(
-                        invitation_id = %id,
-                        workspace_id,
-                        "a link nobody received was revoked"
-                    ),
-                    Ok(false) => {}
-                    Err(error) => tracing::warn!(
-                        %error,
-                        invitation_id = %id,
-                        "a link nobody received could not be revoked"
-                    ),
-                }
+                self.revoke_undelivered_guest_link(workspace_id, sender, &id)
+                    .await;
             }
         }
         Ok(())
+    }
+
+    async fn revoke_undelivered_guest_link(&self, workspace_id: &str, sender: &str, id: &str) {
+        match self
+            .store()
+            .revoke_invitation(workspace_id, id, Some(sender), now_millis())
+            .await
+        {
+            Ok(true) => tracing::info!(
+                invitation_id = %id,
+                workspace_id,
+                "a link nobody received was revoked"
+            ),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(
+                %error,
+                invitation_id = %id,
+                "a link nobody received could not be revoked"
+            ),
+        }
     }
 
     /// Whether an invitation message written a while ago still stands: the link it was

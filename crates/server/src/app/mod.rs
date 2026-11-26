@@ -123,6 +123,7 @@ pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads
 pub use signups::{ConfirmedSignup, Registrant, SignupMarker};
 pub use sso::{Asker, SessionKept, SessionMade};
 pub use time_entries::TimeEntryQuery;
+pub(crate) use uploads::PART_IDLE_TIMEOUT;
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,
@@ -168,6 +169,9 @@ pub struct App {
     /// another workspace is not there for this handle. `None` reaches every workspace
     /// of the organization.
     workspace: Option<Arc<str>>,
+    /// Verified `(user_id, workspace_id, actor)` from [`App::in_workspace_with_actor`],
+    /// avoiding a duplicate `resolve_workspace` query inside [`App::actor`] (`1.2.1`).
+    known_actor: Option<Arc<(String, String, crate::permissions::Actor)>>,
     /// The kinds of board this handle reaches ([`App::reaching`]): a board of another
     /// kind is not there for it, nor what is on one.
     kinds: ContainerKinds,
@@ -188,6 +192,7 @@ struct Inner {
     files: FileBackend,
     web: WebRoot,
     webhook: Webhook,
+    webhook_queue: webhooks::WebhookQueue,
     /// The client of the organizations' providers.
     oidc: Fetcher,
     /// The Prometheus metrics, kept if `metrics_address` is set.
@@ -205,6 +210,8 @@ struct Inner {
     telling: tokio::sync::Mutex<()>,
     /// The uploads' turns (`uploads::UploadTurns`).
     upload_turns: uploads::UploadTurns,
+    /// Active `(upload_id, part_number)` receivers and per-user concurrency caps.
+    receiving_parts: uploads::ReceivingParts,
     /// The memory the parts of uploads to the object store may take while they are
     /// received, in KiB (`uploads::PARTS_IN_MEMORY`).
     part_memory: Arc<tokio::sync::Semaphore>,
@@ -226,9 +233,6 @@ struct Inner {
     file_leases: file_leases::FileLeases,
     /// The search of bodies, on the search server if one is configured.
     search: Search,
-    /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
-    #[cfg(feature = "test-util")]
-    signups_meet: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
     /// Optional fixed Unix timestamp in milliseconds for deterministic schedule timezone tests.
     #[cfg(feature = "test-util")]
     schedule_now_millis: std::sync::Mutex<Option<i64>>,
@@ -288,17 +292,7 @@ impl App {
         let security_contact = config.security_contact()?;
         let web = WebRoot::new(&config.web_app_path, &config.server_url)
             .with_security_contact(security_contact);
-        let webhook = Webhook::new(config.block_change_webhooks.clone())
-            .context("unable to set up the webhook client")?;
-        let oidc = Fetcher::new(
-            if config.oidc_allow_private_addresses {
-                Addresses::Any
-            } else {
-                Addresses::PublicOnly
-            },
-            &config.oidc_trusted_roots()?,
-        )
-        .context("unable to set up the client of the providers")?;
+        let (webhook, oidc) = Self::outbound_clients(&config)?;
         let part_memory = uploads::part_memory_kib(config.upload_part_bytes);
         let slots =
             |capacity: u32| slots::Slots::new(usize::try_from(capacity).unwrap_or(usize::MAX));
@@ -315,6 +309,7 @@ impl App {
             store,
             ws,
             workspace: None,
+            known_actor: None,
             kinds: ContainerKinds::EVERY,
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
             inner: Arc::new(Inner {
@@ -332,6 +327,7 @@ impl App {
                 files,
                 web,
                 webhook,
+                webhook_queue: webhooks::WebhookQueue::default(),
                 oidc,
                 metrics,
                 background: TaskTracker::new(),
@@ -339,6 +335,7 @@ impl App {
                 opening_upload: tokio::sync::Mutex::new(()),
                 telling: tokio::sync::Mutex::new(()),
                 upload_turns: uploads::UploadTurns::default(),
+                receiving_parts: uploads::ReceivingParts::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
                 readiness: readiness::Kept::default(),
                 template_stock: template_stock::TemplateStock::default(),
@@ -350,11 +347,31 @@ impl App {
                 file_leases: file_leases::FileLeases::default(),
                 search,
                 #[cfg(feature = "test-util")]
-                signups_meet: std::sync::Mutex::default(),
-                #[cfg(feature = "test-util")]
                 schedule_now_millis: std::sync::Mutex::default(),
             }),
         })
+    }
+
+    fn outbound_clients(config: &Configuration) -> anyhow::Result<(Webhook, Fetcher)> {
+        let webhook = Webhook::with_addresses(
+            config.block_change_webhooks.clone(),
+            if config.webhook_allow_private_addresses {
+                Addresses::Any
+            } else {
+                Addresses::PublicOnly
+            },
+        )
+        .context("unable to set up the webhook client")?;
+        let oidc = Fetcher::new(
+            if config.oidc_allow_private_addresses {
+                Addresses::Any
+            } else {
+                Addresses::PublicOnly
+            },
+            &config.oidc_trusted_roots()?,
+        )
+        .context("unable to set up the client of the providers")?;
+        Ok((webhook, oidc))
     }
 
     /// The Prometheus metrics; they do nothing unless `metrics_address` is set.
@@ -372,7 +389,8 @@ impl App {
         &self.inner.config
     }
 
-    /// Current Unix timestamp in milliseconds used by course schedule "today" lookups.
+    /// Current Unix timestamp in milliseconds used by course schedule and review "today"
+    /// lookups, backed by the store's monotonic clock unless overridden in tests.
     pub(crate) fn schedule_now_millis(&self) -> i64 {
         #[cfg(feature = "test-util")]
         if let Some(fixed) = *self
@@ -383,7 +401,7 @@ impl App {
         {
             return fixed;
         }
-        crate::auth::now_millis()
+        self.store.clock().now_millis()
     }
 
     /// Overrides the clock used by course schedule "today" calculations in tests.
@@ -416,6 +434,7 @@ impl App {
             ws,
             store,
             workspace: None,
+            known_actor: None,
             kinds: self.kinds,
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
         }
@@ -453,6 +472,28 @@ impl App {
     pub fn in_workspace(&self, workspace_id: &str) -> Self {
         Self {
             workspace: Some(Arc::from(workspace_id)),
+            known_actor: None,
+            ..self.clone()
+        }
+    }
+
+    /// [`App::in_workspace`], remembering the caller's verified [`crate::permissions::Actor`]
+    /// in `workspace_id` so subsequent checks in the same request do not re-query
+    /// `resolve_workspace` (`1.2.1`).
+    #[must_use]
+    pub(crate) fn in_workspace_with_actor(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        actor: crate::permissions::Actor,
+    ) -> Self {
+        Self {
+            workspace: Some(Arc::from(workspace_id)),
+            known_actor: Some(Arc::new((
+                user_id.to_owned(),
+                workspace_id.to_owned(),
+                actor,
+            ))),
             ..self.clone()
         }
     }
@@ -545,6 +586,11 @@ impl App {
     /// The turns of the uploads.
     pub(crate) fn upload_turns(&self) -> &uploads::UploadTurns {
         &self.inner.upload_turns
+    }
+
+    /// Active part-upload guards and per-user concurrency semaphores.
+    pub(crate) fn receiving_parts(&self) -> &uploads::ReceivingParts {
+        &self.inner.receiving_parts
     }
 
     /// The memory parts of uploads to the object store may take, in KiB.

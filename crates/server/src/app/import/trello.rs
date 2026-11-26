@@ -26,13 +26,14 @@ use super::markdown::{
     BodyContext, ExternalOnlyResolver, blocks_to_body, linked_text_node, markdown_to_blocks,
     text_heading, text_paragraph,
 };
+use super::markdown_nodes::BodyBudget;
 use super::staged::{StagedArchive, StagedContainer};
 use super::summary::{
     BundleLimits, ImportFormat, ImportSummary, ImportWarningCode, truncate_chars,
 };
 use super::trello_wire::{
-    TrelloAction, TrelloAttachment, TrelloBoard, TrelloCard, TrelloCheckItem, TrelloChecklist,
-    TrelloLabel, TrelloList,
+    TRELLO_LIMIT_PREFIX, TrelloAction, TrelloAttachment, TrelloBoard, TrelloCard, TrelloCheckItem,
+    TrelloChecklist, TrelloLabel, TrelloList,
 };
 use crate::error::{AppError, Reason};
 
@@ -77,33 +78,21 @@ pub(crate) fn convert_trello_bytes(
     bytes: &[u8],
     limits: &BundleLimits,
 ) -> Result<StagedArchive, AppError> {
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
-    check_json_safety(bytes, limits.max_json_nesting_depth)?;
-    let board: TrelloBoard = serde_json::from_slice(bytes).map_err(|error| {
-        AppError::bad_request(format_args!("invalid Trello board JSON: {error}"))
-    })?;
-    if board.lists.is_none() && board.cards.is_none() {
-        return Err(AppError::bad_request(
-            "JSON does not look like a Trello board export: missing `lists` and `cards`",
-        ));
-    }
-    let lists = board.lists.unwrap_or_default();
-    let cards = board.cards.unwrap_or_default();
-    check_trello_counts(
-        &lists,
-        &board.labels,
-        &cards,
-        &board.checklists,
-        &board.actions,
-        limits,
-    )?;
+    let board = decode_trello_board(bytes, limits)?;
+    let lists = board.lists.map(|b| b.0).unwrap_or_default();
+    let cards = board.cards.map(|b| b.0).unwrap_or_default();
+    let labels = board.labels.0;
+    let checklists = board.checklists.0;
+    let actions = board.actions.0;
+    check_trello_counts(&lists, &labels, &cards, &checklists, &actions, limits)?;
 
     let mut summary = ImportSummary::new(ImportFormat::Trello);
+    let mut body_budget = BodyBudget::default();
     let board_id = new_id();
     let (status_prop, list_options, closed_lists, list_rank) =
         build_list_property(lists, &mut summary);
     let (labels_prop, label_options) =
-        build_label_property(&board.labels, &cards, limits.max_trello_labels)?;
+        build_label_property(&labels, &cards, limits.max_trello_labels)?;
     let due_prop_id = cards
         .iter()
         .any(|card| !card.closed && (card.due.is_some() || card.start.is_some()))
@@ -120,7 +109,7 @@ pub(crate) fn convert_trello_bytes(
         card_properties.push(date_property_definition(due_id, "Due"));
     }
 
-    let checklists_by_card = group_checklists(&board.checklists);
+    let checklists_by_card = group_checklists(&checklists);
     let built_cards = build_cards(
         &board_id,
         cards,
@@ -132,14 +121,16 @@ pub(crate) fn convert_trello_bytes(
         due_prop_id.as_deref(),
         &checklists_by_card,
         limits,
+        &mut body_budget,
         &mut summary,
     )?;
 
     let comment_blocks = build_comments(
         &board_id,
-        board.actions,
+        actions,
         &built_cards.id_map,
         limits,
+        &mut body_budget,
         &mut summary,
     )?;
 
@@ -172,6 +163,29 @@ pub(crate) fn convert_trello_bytes(
         }],
         summary,
     })
+}
+
+fn decode_trello_board(bytes: &[u8], limits: &BundleLimits) -> Result<TrelloBoard, AppError> {
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    check_json_safety(bytes, limits.max_json_nesting_depth)?;
+    let board: TrelloBoard = serde_json::from_slice(bytes).map_err(|error| {
+        let msg = error.to_string();
+        if let Some((_, rest)) = msg.split_once(TRELLO_LIMIT_PREFIX) {
+            let parsed_limit = rest
+                .split(|ch: char| !ch.is_ascii_digit())
+                .next()
+                .and_then(|digits| digits.parse::<usize>().ok())
+                .unwrap_or(usize::MAX);
+            return too_many("items", parsed_limit);
+        }
+        AppError::bad_request(format_args!("invalid Trello board JSON: {error}"))
+    })?;
+    if board.lists.is_none() && board.cards.is_none() {
+        return Err(AppError::bad_request(
+            "JSON does not look like a Trello board export: missing `lists` and `cards`",
+        ));
+    }
+    Ok(board)
 }
 
 fn build_trello_container(
@@ -216,7 +230,7 @@ fn check_trello_counts(
         return Err(too_many("Trello checklists", limits.max_trello_checklists));
     }
     let check_items: usize = checklists.iter().fold(0_usize, |acc, list| {
-        acc.saturating_add(list.check_items.len())
+        acc.saturating_add(list.check_items.0.len())
     });
     if check_items > limits.max_trello_check_items {
         return Err(too_many(
@@ -225,7 +239,7 @@ fn check_trello_counts(
         ));
     }
     let attachments: usize = cards.iter().fold(0_usize, |acc, card| {
-        acc.saturating_add(card.attachments.len())
+        acc.saturating_add(card.attachments.0.len())
     });
     if attachments > limits.max_trello_attachments {
         return Err(too_many(
@@ -335,7 +349,7 @@ fn build_label_property(
     let mut ordered = Vec::new();
     for label in board_labels
         .iter()
-        .chain(cards.iter().flat_map(|card| card.labels.iter()))
+        .chain(cards.iter().flat_map(|card| card.labels.0.iter()))
     {
         if label.id.is_empty() || !seen_ids.insert(label.id.clone()) {
             continue;
@@ -450,6 +464,7 @@ fn build_cards(
     due_prop_id: Option<&str>,
     checklists: &ChecklistIndex<'_>,
     limits: &BundleLimits,
+    body_budget: &mut BodyBudget,
     summary: &mut ImportSummary,
 ) -> Result<BuiltCards, AppError> {
     cards.sort_by(|a, b| {
@@ -484,6 +499,7 @@ fn build_cards(
         );
         let matched_checklists = checklists_for_card(&card, checklists, &mut claimed_checklists);
         let body = build_card_body(&card, &matched_checklists, limits, summary)?;
+        body_budget.charge(body.as_ref())?;
 
         let mut fields = JsonMap::new();
         fields.insert("properties".to_owned(), Value::Object(properties));
@@ -532,9 +548,10 @@ fn build_card_properties(
         let mut seen = HashSet::new();
         let raw_ids = card
             .id_labels
+            .0
             .iter()
             .map(String::as_str)
-            .chain(card.labels.iter().map(|label| label.id.as_str()));
+            .chain(card.labels.0.iter().map(|label| label.id.as_str()));
         for trello_label_id in raw_ids {
             if let Some(opt_id) = labels.by_trello_id.get(trello_label_id)
                 && seen.insert(opt_id.as_str())
@@ -570,8 +587,8 @@ fn checklists_for_card<'a>(
             }
         }
     }
-    if !card.id_checklists.is_empty() {
-        for checklist_id in &card.id_checklists {
+    if !card.id_checklists.0.is_empty() {
+        for checklist_id in &card.id_checklists.0 {
             if let Some(&checklist) = index.by_id.get(checklist_id.as_str())
                 && (checklist.id_card.is_empty() || checklist.id_card == card.id)
                 && claimed.insert(checklist.id.as_str())
@@ -614,7 +631,7 @@ fn build_card_body(
         &mut nodes,
         &mut estimated_nodes,
         &card.name,
-        &card.attachments,
+        &card.attachments.0,
         summary,
     )?;
     blocks_to_body(nodes)
@@ -625,12 +642,13 @@ fn append_checklist(
     estimated_nodes: &mut usize,
     checklist: &TrelloChecklist,
 ) -> Result<(), AppError> {
-    if checklist.check_items.is_empty() {
+    if checklist.check_items.0.is_empty() {
         return Ok(());
     }
     // Each taskItem contributes taskItem + paragraph + text (~3 nodes), plus heading/taskList.
     let needed = checklist
         .check_items
+        .0
         .len()
         .saturating_mul(3)
         .saturating_add(3);
@@ -644,7 +662,7 @@ fn append_checklist(
     if !name.is_empty() {
         nodes.push(text_heading(3, name));
     }
-    let mut items: Vec<&TrelloCheckItem> = checklist.check_items.iter().collect();
+    let mut items: Vec<&TrelloCheckItem> = checklist.check_items.0.iter().collect();
     items.sort_by(|a, b| a.pos.total_cmp(&b.pos));
     let task_items: Vec<Value> = items
         .into_iter()
@@ -728,6 +746,7 @@ fn build_comments(
     actions: Vec<TrelloAction>,
     card_id_map: &HashMap<String, String>,
     limits: &BundleLimits,
+    body_budget: &mut BodyBudget,
     summary: &mut ImportSummary,
 ) -> Result<Vec<Block>, AppError> {
     let mut comments: Vec<(i64, TrelloAction)> = actions
@@ -791,6 +810,7 @@ fn build_comments(
             nodes.extend(converted.nodes);
         }
         let body = blocks_to_body(nodes)?;
+        body_budget.charge(body.as_ref())?;
         blocks.push(Block {
             id: new_id(),
             container_id: board_id.to_owned(),

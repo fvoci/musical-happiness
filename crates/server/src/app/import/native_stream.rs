@@ -14,20 +14,19 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader};
 
 use fvoci_model::{
-    ArchiveLine, BODY_MAX_BYTES, Block, BlockError, BlockType, CardPropertyDefinition, Container,
+    BODY_MAX_BYTES, Block, BlockError, BlockType, Body, CardPropertyDefinition, Container,
     ContainerKind, ContainerMember, ContainersAndBlocksError, CourseScheduleUpdate, DiaryDate,
-    PropertyType, RelationProperties, UnmatchedRelation, ValidatedCourseSchedule,
-    collect_block_references, new_id, rewrite_block_ids,
+    JsonMap, PropertyType, RelationProperties, ValidatedCourseSchedule, collect_block_references,
+    new_id,
 };
 use serde::Deserialize;
 use serde_json::Value;
+use serde_json::value::RawValue;
 
 use super::archive::{Archive, entry_name};
 use super::places::{self, BlockPlace};
 use super::{ArchiveFiles, ImportOptions, MAX_JSONL_BYTES, file_names_of, missing_files_of, trim};
-use crate::app::files::stored_extension;
 use crate::auth::now_millis;
-use crate::auth::secret::SECRET_LENGTH;
 use crate::error::{AppError, Reason};
 use fvoci_store::StoreError;
 
@@ -44,6 +43,145 @@ pub(super) const LINE_BUF_SHRINK_THRESHOLD: usize = 256 * 1024;
 /// Placeholder used while running Pass-1 validation on a block whose board had an empty
 /// identifier (which `build_write_plan` renews to a fresh UUID).
 const PENDING_CONTAINER_ID: &str = "__pending__";
+
+/// Maximum `container` lines accepted in a single `container.jsonl` entry.
+pub(super) const MAX_CONTAINERS_PER_ENTRY: usize = 64;
+
+/// Maximum `containerMember` lines accepted in a single `container.jsonl` entry.
+pub(super) const MAX_MEMBER_LINES: usize = 10_000;
+
+/// Legacy view field keys retired in migration `0071`.
+const RETIRED_VIEW_KEYS: [&str; 8] = [
+    "hiddenOptionIds",
+    "visibleOptionIds",
+    "collapsedOptionIds",
+    "kanbanCalculations",
+    "defaultPropertyIds",
+    "groupById",
+    "sortOptions",
+    "datePropertyId",
+];
+
+pub(super) fn too_many_archive_items(kind: &str, limit: usize) -> AppError {
+    let limit_u64 = u64::try_from(limit).unwrap_or(u64::MAX);
+    AppError::too_large(
+        format_args!("archive exceeds maximum of {limit} {kind}"),
+        limit_u64,
+    )
+    .with_reason(Reason::ArchiveTooLarge)
+}
+
+/// Streaming envelope for a `container.jsonl` line whose `data` payload stays an unparsed
+/// [`RawValue`] until dispatched to its typed target struct (`H-4`).
+#[derive(Default, Deserialize)]
+#[serde(default)]
+pub(super) struct RawArchiveLine {
+    #[serde(rename = "type")]
+    pub(super) line_type: String,
+    pub(super) data: Option<Box<RawValue>>,
+}
+
+/// Optional archive-only metadata carried alongside a `container` JSONL line.
+#[derive(Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ArchiveContainerExtras {
+    file_names: Option<Value>,
+    missing_files: Option<Value>,
+}
+
+/// Typed `block` wire payload keeping `body` as `Option<Box<RawValue>>` so large card/page
+/// bodies never materialize as untyped `serde_json::Value` trees (`H-4`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ArchiveBlockWire {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    parent_id: String,
+    #[serde(default)]
+    created_by: String,
+    #[serde(default)]
+    modified_by: String,
+    #[serde(rename = "type")]
+    block_type: BlockType,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    fields: JsonMap,
+    #[serde(default)]
+    body: Option<Box<RawValue>>,
+    #[serde(default)]
+    created_at: i64,
+    #[serde(default)]
+    updated_at: i64,
+    #[serde(default, deserialize_with = "deserialize_non_null_i64")]
+    deleted_at: Option<i64>,
+    #[serde(default)]
+    container_id: String,
+    #[serde(default, deserialize_with = "deserialize_card_number")]
+    number: Option<u32>,
+    #[serde(default)]
+    edited_at: i64,
+}
+
+fn deserialize_non_null_i64<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    i64::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_card_number<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let sent = Value::deserialize(deserializer)?;
+    Ok(sent
+        .as_u64()
+        .and_then(|number| u32::try_from(number).ok())
+        .filter(|number| *number > 0))
+}
+
+pub(super) fn decode_archive_block(raw_data: &str, line_number: usize) -> Result<Block, AppError> {
+    let wire: ArchiveBlockWire = serde_json::from_str(raw_data).map_err(|error| {
+        AppError::bad_request(format_args!(
+            "invalid block in archive line {line_number}: {error}"
+        ))
+    })?;
+    if wire.block_type == BlockType::View
+        && let Some(&retired) = RETIRED_VIEW_KEYS
+            .iter()
+            .find(|&&key| wire.fields.contains_key(key))
+    {
+        return Err(AppError::bad_request(format_args!(
+            "view block in archive line {line_number} uses retired field {retired:?}"
+        )));
+    }
+    let body: Option<Body> = match wire.body {
+        Some(raw_body) => serde_json::from_str(raw_body.get()).map_err(|error| {
+            AppError::bad_request(format_args!(
+                "invalid block in archive line {line_number}: {error}"
+            ))
+        })?,
+        None => None,
+    };
+    Ok(Block {
+        id: wire.id,
+        parent_id: wire.parent_id,
+        created_by: wire.created_by,
+        modified_by: wire.modified_by,
+        block_type: wire.block_type,
+        title: wire.title,
+        fields: wire.fields,
+        body,
+        created_at: wire.created_at,
+        updated_at: wire.updated_at,
+        deleted_at: wire.deleted_at,
+        container_id: wire.container_id,
+        number: wire.number,
+        edited_at: wire.edited_at,
+    })
+}
 
 /// Lightweight per-block metadata retained across Pass 1 (no body, title, or fields).
 struct BlockMeta {
@@ -283,35 +421,36 @@ impl ScanAccum {
         workspace_id: &str,
         modified_by: &str,
     ) -> Result<(), AppError> {
-        let archive_line: ArchiveLine = serde_json::from_slice(line).map_err(|error| {
+        let archive_line: RawArchiveLine = serde_json::from_slice(line).map_err(|error| {
             AppError::bad_request(format_args!(
                 "error parsing archive line {line_number}: {error}"
             ))
         })?;
+        let raw_data = archive_line.data.as_deref().map_or("null", RawValue::get);
         match archive_line.line_type.as_str() {
-            "container" => {
-                self.take_container(archive_line.data, line_number, workspace_id, modified_by)
-            }
-            "block" => self.take_block(archive_line.data, line_number, modified_by),
+            "container" => self.take_container(raw_data, line_number, workspace_id, modified_by),
+            "block" => self.take_block(raw_data, line_number, modified_by),
             "containerMember" => {
-                let member: ContainerMember =
-                    serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::bad_request(format_args!(
-                            "invalid containerMember in archive line {line_number}: {error}"
-                        ))
-                    })?;
+                if self.members.len() >= MAX_MEMBER_LINES {
+                    return Err(too_many_archive_items("members", MAX_MEMBER_LINES));
+                }
+                let member: ContainerMember = serde_json::from_str(raw_data).map_err(|error| {
+                    AppError::bad_request(format_args!(
+                        "invalid containerMember in archive line {line_number}: {error}"
+                    ))
+                })?;
                 self.members.push(member);
                 Ok(())
             }
-            "courseSchedule" => self.take_course_schedule(archive_line.data, line_number),
+            "courseSchedule" => self.take_course_schedule(raw_data, line_number),
             other => Err(AppError::bad_request(format_args!(
                 "unsupported archive line type; got {other}, line {line_number}"
             ))),
         }
     }
 
-    fn take_course_schedule(&mut self, data: Value, line_number: usize) -> Result<(), AppError> {
-        let parsed: ArchiveCourseSchedule = serde_json::from_value(data).map_err(|error| {
+    fn take_course_schedule(&mut self, raw_data: &str, line_number: usize) -> Result<(), AppError> {
+        let parsed: ArchiveCourseSchedule = serde_json::from_str(raw_data).map_err(|error| {
             AppError::bad_request(format_args!(
                 "invalid courseSchedule in archive line {line_number}: {error}"
             ))
@@ -334,18 +473,28 @@ impl ScanAccum {
 
     fn take_container(
         &mut self,
-        data: Value,
+        raw_data: &str,
         line_number: usize,
         workspace_id: &str,
         modified_by: &str,
     ) -> Result<(), AppError> {
-        self.files.names.extend(file_names_of(&data));
-        self.files.missing.extend(missing_files_of(&data));
-        let mut container: Container = serde_json::from_value(data).map_err(|error| {
+        if self.containers.len() >= MAX_CONTAINERS_PER_ENTRY {
+            return Err(too_many_archive_items("boards", MAX_CONTAINERS_PER_ENTRY));
+        }
+        let mut container: Container = serde_json::from_str(raw_data).map_err(|error| {
             AppError::bad_request(format_args!(
                 "invalid container in archive line {line_number}: {error}"
             ))
         })?;
+        let extras: ArchiveContainerExtras = serde_json::from_str(raw_data).unwrap_or_default();
+        if let Some(file_names) = extras.file_names {
+            let wrapper = serde_json::json!({ "fileNames": file_names });
+            self.files.names.extend(file_names_of(&wrapper));
+        }
+        if let Some(missing_files) = extras.missing_files {
+            let wrapper = serde_json::json!({ "missingFiles": missing_files });
+            self.files.missing.extend(missing_files_of(&wrapper));
+        }
         modified_by.clone_into(&mut container.modified_by);
         container.updated_at = self.now;
         container.deleted_at = None;
@@ -374,15 +523,11 @@ impl ScanAccum {
 
     fn take_block(
         &mut self,
-        data: Value,
+        raw_data: &str,
         line_number: usize,
         modified_by: &str,
     ) -> Result<(), AppError> {
-        let mut block: Block = serde_json::from_value(data).map_err(|error| {
-            AppError::bad_request(format_args!(
-                "invalid block in archive line {line_number}: {error}"
-            ))
-        })?;
+        let mut block = decode_archive_block(raw_data, line_number)?;
         modified_by.clone_into(&mut block.modified_by);
         block.updated_at = self.now;
         block.deleted_at = None;
@@ -805,171 +950,5 @@ fn assign_block_ids(
     )
 }
 
-/// Pass 1.5: validates the exact post-rewrite `Block` for any kept block flagged during
-/// Pass 1 (`recheck_lines`), skipping all unflagged lines without JSON parsing. Runs
-/// before any board is committed so multi-board archives still reject invalid blocks 400
-/// before storing earlier boards.
-pub(super) async fn recheck_planned_fields(
-    zip: &Archive,
-    plan: &BoardWritePlan,
-    modified_by: &str,
-) -> Result<(), AppError> {
-    if plan.recheck_lines.is_empty() {
-        return Ok(());
-    }
-    let staged_names = simulated_staged_file_names(zip, &plan.dir, &plan.files)?;
-    let mut zip = zip.clone();
-    let zip_index = plan.zip_index;
-    let recheck_lines = plan.recheck_lines.clone();
-    let stream_plan = StreamPlanSnapshot::from(&plan.stream_plan);
-    let modified_by = modified_by.to_owned();
-    tokio::task::spawn_blocking(move || {
-        recheck_planned_fields_blocking(
-            &mut zip,
-            zip_index,
-            &recheck_lines,
-            &stream_plan,
-            &staged_names,
-            &modified_by,
-        )
-    })
-    .await
-    .map_err(|error| AppError::internal(format_args!("archive recheck task failed: {error}")))?
-}
-
-fn simulated_staged_file_names(
-    zip: &Archive,
-    board_dir: &str,
-    files: &ArchiveFiles,
-) -> Result<HashMap<String, String>, AppError> {
-    let secret_placeholder = "x".repeat(SECRET_LENGTH);
-    let mut names = HashMap::new();
-    for index in 0..zip.len() {
-        let (dir, filename) = entry_name(zip, index)?;
-        if dir != board_dir
-            || filename.is_empty()
-            || filename == "version.json"
-            || filename == "container.jsonl"
-            || files.missing.contains(&filename)
-        {
-            continue;
-        }
-        let upload_name = files
-            .names
-            .get(&filename)
-            .map_or(filename.as_str(), String::as_str);
-        let ext = stored_extension(upload_name);
-        names.insert(filename, format!("{secret_placeholder}{ext}"));
-    }
-    Ok(names)
-}
-
-struct StreamPlanSnapshot {
-    container_new_ids: Vec<String>,
-    block_container_idx: Vec<Option<u32>>,
-    card_properties: HashMap<String, Vec<CardPropertyDefinition>>,
-    new_block_ids: Vec<Option<String>>,
-    renamed: HashMap<String, String>,
-    card_boards: HashMap<String, String>,
-    relations: RelationProperties,
-}
-
-impl From<&StreamPlan> for StreamPlanSnapshot {
-    fn from(plan: &StreamPlan) -> Self {
-        Self {
-            container_new_ids: plan.container_new_ids.clone(),
-            block_container_idx: plan.block_container_idx.clone(),
-            card_properties: plan.card_properties.clone(),
-            new_block_ids: plan.new_block_ids.clone(),
-            renamed: plan.renamed.clone(),
-            card_boards: plan.card_boards.clone(),
-            relations: plan.relations.clone(),
-        }
-    }
-}
-
-fn recheck_planned_fields_blocking(
-    zip: &mut Archive,
-    zip_index: usize,
-    recheck_lines: &HashMap<usize, usize>,
-    plan: &StreamPlanSnapshot,
-    staged_names: &HashMap<String, String>,
-    modified_by: &str,
-) -> Result<(), AppError> {
-    let entry = zip
-        .by_index(zip_index)
-        .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
-    let entry_label = entry
-        .name()
-        .map(std::borrow::Cow::into_owned)
-        .unwrap_or_default();
-    let mut reader = BufReader::with_capacity(STREAM_READER_BUF_BYTES, entry);
-    let mut line_buf = Vec::with_capacity(4096);
-    let mut total_read: u64 = 0;
-    let mut line_number: usize = 0;
-    while read_bounded_line(
-        &mut reader,
-        &mut line_buf,
-        MAX_LINE_BYTES,
-        &mut total_read,
-        MAX_JSONL_BYTES,
-        &entry_label,
-    )? {
-        line_number += 1;
-        let Some(&idx) = recheck_lines.get(&line_number) else {
-            continue;
-        };
-        let line = trim(&line_buf);
-        let archive_line: ArchiveLine = serde_json::from_slice(line).map_err(|error| {
-            AppError::bad_request(format_args!(
-                "error parsing archive line {line_number}: {error}"
-            ))
-        })?;
-        let mut block: Block = serde_json::from_value(archive_line.data).map_err(|error| {
-            AppError::bad_request(format_args!(
-                "invalid block in archive line {line_number}: {error}"
-            ))
-        })?;
-        let Some(new_block_id) = plan.new_block_ids.get(idx).and_then(Clone::clone) else {
-            continue;
-        };
-        let Some(cidx) = plan
-            .block_container_idx
-            .get(idx)
-            .and_then(|c| c.and_then(|v| usize::try_from(v).ok()))
-        else {
-            continue;
-        };
-        let new_cid = &plan.container_new_ids[cidx];
-        modified_by.clone_into(&mut block.modified_by);
-        if let Some(defs) = plan.card_properties.get(new_cid) {
-            clear_block_values_of_another_kind(&mut block, defs);
-        }
-        block.container_id.clone_from(new_cid);
-        rewrite_block_ids(
-            &mut block,
-            new_block_id,
-            &plan.renamed,
-            &plan.card_boards,
-            &plan.relations,
-            UnmatchedRelation::Dropped,
-        );
-        if block.block_type == BlockType::Attachment {
-            for key in ["fileId", "attachmentId"] {
-                if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
-                    let simulated = staged_names.get(old).cloned().unwrap_or_default();
-                    block
-                        .fields
-                        .insert(key.to_owned(), Value::String(simulated));
-                }
-            }
-        }
-        block.validate().map_err(|source| {
-            AppError::from(StoreError::InvalidBlock {
-                id: block.id.clone(),
-                source,
-            })
-        })?;
-    }
-    Ok(())
-}
+mod recheck;
+pub(super) use recheck::recheck_planned_fields;

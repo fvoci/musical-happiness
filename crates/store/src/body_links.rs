@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use fvoci_model::Block;
 
 use crate::block_derived::Refreshing;
-use crate::db::{Id, Scope};
+use crate::db::{Id, Scope, SqlFragment};
 use crate::error::StoreError;
 
 /// How many rows one statement writes or deletes: a body may name as many blocks as it
@@ -81,26 +81,23 @@ pub(crate) async fn refresh(
 /// row. A row that names a block that never was goes with them, and comes back with
 /// the next write of its body.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let gone = |column: &str| {
-        [
+    let gone = |column: &'static str| {
+        let mut frag = SqlFragment::of(&[
             "(NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = body_links.",
             column,
-            &scope.same_organization(&[("b", "body_links")]),
-            ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = body_links.",
-            column,
-            &scope.same_organization(&[("d", "body_links")]),
-            "))",
-        ]
-        .concat()
+        ]);
+        frag.push_fragment(&scope.same_organization(&[("b", "body_links")]))
+            .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = body_links.")
+            .push(column)
+            .push_fragment(&scope.same_organization(&[("d", "body_links")]))
+            .push("))");
+        frag
     };
-    let statement = [
-        "DELETE FROM body_links WHERE ",
-        &gone("source_id"),
-        " OR ",
-        &gone("target_id"),
-    ]
-    .concat();
-    let sql = scope.sql(&statement);
-    scope.execute(sql).await?;
+    let mut statement = SqlFragment::of(&["DELETE FROM body_links WHERE "]);
+    statement
+        .push_fragment(&gone("source_id"))
+        .push(" OR ")
+        .push_fragment(&gone("target_id"));
+    scope.execute(scope.sql(&statement)).await?;
     Ok(())
 }

@@ -157,6 +157,7 @@ impl Store {
                 return Ok(InvitedConfirmation::Gone);
             }
             let mut user = signup.to_account();
+            user.email_verified_at = now.max(1);
             accounts::insert_account(scope, &mut user, InstanceRole::User).await?;
             let_in(scope, &link, &user.id, inviter.of_container).await?;
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
@@ -187,9 +188,11 @@ async fn link_by_id(
     scope: &mut Scope<'_>,
     invitation_id: &str,
 ) -> Result<Option<Invitation>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        COLUMNS_OF_I,
+        " FROM invitations AS i WHERE i.id = ",
+    ]);
     sql.bind(Id(invitation_id))
         .push_bind(" AND i.org_id = ", scope.org()?);
     scope

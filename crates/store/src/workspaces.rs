@@ -9,7 +9,7 @@ use fvoci_model::{
     Workspace, WorkspaceRole,
 };
 
-use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::{Store, blocks, container_kinds, container_search, containers, link_locks};
 
@@ -54,7 +54,7 @@ impl Store {
             if !change.enabled {
                 link_locks::hold_links_of_organization(scope).await?;
             }
-            let now = now_millis();
+            let now = scope.now_millis();
             // The workspace before its links, as whoever takes somebody out of it has
             // them, and so that a link made meanwhile waits and finds it turned off.
             let mut sql = scope.sql("UPDATE workspaces SET guest_invitations = ");
@@ -64,7 +64,7 @@ impl Store {
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NULL")
-                .push(&format!(" RETURNING {WORKSPACE_COLUMNS}"));
+                .push([" RETURNING ", WORKSPACE_COLUMNS]);
             let row = scope
                 .fetch_optional(sql)
                 .await?
@@ -128,7 +128,7 @@ pub(crate) async fn insert_workspace(
     workspace: &Workspace,
     org: impl Into<Bound>,
 ) -> Result<(), StoreError> {
-    let now = now_millis();
+    let now = scope.now_millis();
     let mut sql = scope.sql(
         "INSERT INTO workspaces (id, org_id, name, settings, modified_by, guest_invitations, \
          created_at, updated_at) VALUES (",
@@ -211,7 +211,7 @@ async fn insert_organization_of(
         Some(_) => OrgKind::Personal,
         None => OrgKind::Shared,
     };
-    let now = now_millis();
+    let now = scope.now_millis();
     let mut sql = scope.sql(
         "INSERT INTO organizations (id, name, kind, owner_id, settings, created_at, updated_at) \
          VALUES (",
@@ -238,9 +238,11 @@ fn workspace_not_found() -> StoreError {
 
 /// The workspaces of the handle's organization that are in use.
 fn select_workspaces(scope: &Scope<'_>) -> Result<Sql, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {WORKSPACE_COLUMNS} FROM workspaces WHERE org_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        WORKSPACE_COLUMNS,
+        " FROM workspaces WHERE org_id = ",
+    ]);
     sql.bind(scope.org()?).push(" AND deleted_at IS NULL");
     Ok(sql)
 }
@@ -327,10 +329,11 @@ async fn every_container(
     workspace_id: &str,
     listed: Listed,
 ) -> Result<Vec<Container>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {} FROM containers AS b WHERE b.is_template = ",
-        containers::container_select_list("b.")
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        containers::CONTAINER_SELECT_B,
+        " FROM containers AS b WHERE b.is_template = ",
+    ]);
     sql.bind(listed == Listed::Templates)
         .push_bind(" AND b.workspace_id = ", Id(workspace_id));
     if let Listed::Containers(kinds) = listed {
@@ -347,11 +350,12 @@ async fn search_containers_for_user_in_workspace(
     user_id: &str,
     kinds: ContainerKinds,
 ) -> Result<Vec<Container>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT DISTINCT {} FROM containers AS b LEFT JOIN container_members AS bm ON b.id = bm.container_id \
+    let mut sql = scope.sql([
+        "SELECT DISTINCT ",
+        containers::CONTAINER_SELECT_B,
+        " FROM containers AS b LEFT JOIN container_members AS bm ON b.id = bm.container_id \
          WHERE b.is_template = ",
-        containers::container_select_list("b.")
-    ));
+    ]);
     sql.bind(false)
         .push_bind(" AND b.workspace_id = ", Id(workspace_id));
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);
@@ -417,11 +421,12 @@ pub(crate) async fn get_template_boards(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<Vec<Container>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {} FROM containers AS b LEFT JOIN container_members AS bm \
+    let mut sql = scope.sql([
+        "SELECT ",
+        containers::CONTAINER_SELECT_B,
+        " FROM containers AS b LEFT JOIN container_members AS bm \
          ON b.id = bm.container_id AND bm.user_id = ",
-        containers::container_select_list("b.")
-    ));
+    ]);
     // Open templates are included even without a membership.
     sql.bind(Id(user_id))
         .push_bind(" WHERE b.is_template = ", true)

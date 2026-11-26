@@ -324,6 +324,10 @@ async fn only_the_person_of_the_accounts_own_address_is_linked() {
         email_verified: Some(false),
         ..Person::new("subject-of-user1", "user1@sample.com")
     };
+    let unmentioned = Person {
+        email_verified: None,
+        ..Person::new("subject-of-user1", "user1@sample.com")
+    };
     let without = Person {
         email: None,
         ..Person::new("subject-of-user1", "user1@sample.com")
@@ -339,6 +343,7 @@ async fn only_the_person_of_the_accounts_own_address_is_linked() {
             "oidc-email-mismatch",
         ),
         (unchecked, "oidc-email-unverified"),
+        (unmentioned, "oidc-email-unverified"),
         (without, "oidc-email-missing"),
     ] {
         fake.sign_in_as(person);

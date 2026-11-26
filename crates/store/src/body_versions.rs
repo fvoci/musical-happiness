@@ -20,13 +20,13 @@
 use std::collections::BTreeSet;
 use std::sync::atomic::Ordering;
 
-use fvoci_model::{Block, BlockPatch, BlockType, Body, BodyVersionCause};
+use fvoci_model::{Block, BlockPatch, Body, BodyVersionCause};
 use serde_json::Value;
 
 use crate::Store;
 use crate::block_derived::{self, Before};
 use crate::body_digest::body_digest;
-use crate::db::{Id, Param, Row, Scope, VersionsKept, now_millis, to_json_text};
+use crate::db::{Id, Param, Row, Scope, SqlFragment, VersionsKept, to_json_text};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
 use crate::notification_noting::Telling;
@@ -44,10 +44,9 @@ pub const DEFAULT_BODY_VERSIONS_MAX_BYTES: u64 = 64 * 1024 * 1024;
 pub(crate) const PENDING: i64 = 0;
 
 /// The SQL condition that `column`, the type of a block, is one whose body is kept
-/// ([`BlockType::WITH_ROOM`]).
-pub(crate) fn with_room_sql(column: &str) -> String {
-    let types = BlockType::WITH_ROOM.map(|with_room| format!("'{}'", with_room.as_str()));
-    format!("{column} IN ({})", types.join(", "))
+/// ([`fvoci_model::BlockType::WITH_ROOM`]).
+pub(crate) fn with_room_sql(column: &'static str) -> SqlFragment {
+    SqlFragment::of(&[column, " IN ('card', 'page', 'entry', 'unit')"])
 }
 
 /// A version kept of a card's body, without the body.
@@ -193,7 +192,7 @@ impl Store {
         card_id: &str,
         patch: &BlockPatch,
         user_id: &str,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Block, StoreError> {
         self.transaction(async |scope| {
             blocks::patch_block(
                 scope,
@@ -476,7 +475,7 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
     let kept_at = if editors.is_empty() && body.cause != BodyVersionCause::Manual {
         block.updated_at
     } else {
-        now_millis()
+        scope.now_millis()
     };
     let version = newest.as_ref().map_or(1, |(version, _)| version + 1);
     let body_json = block
@@ -503,13 +502,16 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         .push_bind(", ", body.cause.as_str())
         .push(")");
     scope.execute(sql).await?;
-    for user_id in &editors {
+    if !editors.is_empty() {
         let mut sql =
-            scope.sql("INSERT INTO body_version_editors (block_id, version, user_id) VALUES (");
-        sql.bind(Id(&block.id))
-            .push_bind(", ", version)
-            .push_bind(", ", Id(user_id))
-            .push(")");
+            scope.sql("INSERT INTO body_version_editors (block_id, version, user_id) VALUES ");
+        for (index, user_id) in editors.iter().enumerate() {
+            sql.push(if index == 0 { "(" } else { ", (" })
+                .bind(Id(&block.id))
+                .push_bind(", ", version)
+                .push_bind(", ", Id(user_id))
+                .push(")");
+        }
         scope.execute(sql).await?;
     }
     let through = version.saturating_sub(scope.body_versions_kept());
@@ -618,15 +620,20 @@ pub(crate) async fn note_editors(
     block_id: &str,
     user_ids: &[&str],
 ) -> Result<(), StoreError> {
-    for user_id in user_ids {
-        let mut sql =
-            scope.sql("INSERT INTO body_version_editors (block_id, version, user_id) VALUES (");
-        sql.bind(Id(block_id))
+    if user_ids.is_empty() {
+        return Ok(());
+    }
+    let mut sql =
+        scope.sql("INSERT INTO body_version_editors (block_id, version, user_id) VALUES ");
+    for (index, user_id) in user_ids.iter().enumerate() {
+        sql.push(if index == 0 { "(" } else { ", (" })
+            .bind(Id(block_id))
             .push_bind(", ", PENDING)
             .push_bind(", ", Id(user_id))
-            .push(") ON CONFLICT DO NOTHING");
-        scope.execute(sql).await?;
+            .push(")");
     }
+    sql.push(" ON CONFLICT DO NOTHING");
+    scope.execute(sql).await?;
     Ok(())
 }
 
@@ -670,28 +677,39 @@ pub(crate) async fn files_of(
 /// neither on a board nor in the trash of the organization of the row.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     for table in ["body_versions", "body_version_editors"] {
-        let statement = [
-            &format!(
-                "DELETE FROM {table} WHERE NOT EXISTS \
-                 (SELECT 1 FROM blocks b WHERE b.id = {table}.block_id"
-            ),
-            scope.same_organization(&[("b", table)]).as_str(),
-            &format!(
-                ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = {table}.block_id"
-            ),
-            scope.same_organization(&[("d", table)]).as_str(),
-            ")",
-        ]
-        .concat();
-        let sql = scope.sql(&statement);
-        scope.execute(sql).await?;
+        let mut statement = SqlFragment::of(&[
+            "DELETE FROM ",
+            table,
+            " WHERE NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = ",
+            table,
+            ".block_id",
+        ]);
+        statement
+            .push_fragment(&scope.same_organization(&[("b", table)]))
+            .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = ")
+            .push(table)
+            .push(".block_id")
+            .push_fragment(&scope.same_organization(&[("d", table)]))
+            .push(")");
+        scope.execute(scope.sql(&statement)).await?;
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::budget_cutoff;
+    use fvoci_model::BlockType;
+
+    use super::{budget_cutoff, with_room_sql};
+
+    #[test]
+    fn with_room_sql_matches_block_type_with_room() {
+        let types = BlockType::WITH_ROOM.map(|with_room| format!("'{}'", with_room.as_str()));
+        assert_eq!(
+            crate::db::IntoSql::into_sql_string(&with_room_sql("b.type")),
+            format!("b.type IN ({})", types.join(", "))
+        );
+    }
 
     #[test]
     fn budget_cutoff_keeps_within_budget_and_never_drops_newest() {

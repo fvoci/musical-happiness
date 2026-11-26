@@ -7,7 +7,7 @@
 use fvoci_model::FileRecord;
 
 use crate::Store;
-use crate::db::{Dialect, Id, OptId, Row, Scope};
+use crate::db::{Dialect, Id, OptId, Row, Scope, SqlFragment};
 use crate::error::StoreError;
 
 pub(crate) const FILE_COLUMNS: &str =
@@ -29,9 +29,7 @@ impl Store {
         stored_name: &str,
     ) -> Result<FileRecord, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {FILE_COLUMNS} FROM files WHERE container_id = "
-            ));
+            let mut sql = scope.sql(["SELECT ", FILE_COLUMNS, " FROM files WHERE container_id = "]);
             sql.bind(Id(container_id))
                 .push_bind(" AND name = ", stored_name);
             let row = scope
@@ -39,6 +37,28 @@ impl Store {
                 .await?
                 .ok_or_else(|| StoreError::not_found("file"))?;
             file_from_row(&row)
+        })
+        .await
+    }
+
+    /// Returns every file record of a container, oldest first, in a single query.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_files_of_container(
+        &self,
+        container_id: &str,
+    ) -> Result<Vec<FileRecord>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(["SELECT ", FILE_COLUMNS, " FROM files WHERE container_id = "]);
+            sql.bind(Id(container_id)).push(" ORDER BY created_at, id");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(file_from_row)
+                .collect()
         })
         .await
     }
@@ -79,6 +99,68 @@ impl Store {
         self.with_write_conn(async |scope| save_file_record(scope, file).await)
             .await
     }
+
+    /// Returns the total bytes stored or held open for the handle's organization across
+    /// live `files`, archived `file_versions`, and open `uploads`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names no organization, and
+    /// [`StoreError::Database`] if the query fails.
+    pub async fn organization_storage_bytes(&self) -> Result<i64, StoreError> {
+        self.with_conn(async |scope| {
+            let org = scope.org()?;
+            let sql = match scope.dialect() {
+                Dialect::Postgres => scope.sql(
+                    "SELECT CAST(\
+                     COALESCE((SELECT SUM(size) FROM files), 0) + \
+                     COALESCE((SELECT SUM(size) FROM file_versions), 0) + \
+                     COALESCE((SELECT SUM(size) FROM uploads WHERE closed_at = 0), 0) \
+                     AS BIGINT)",
+                ),
+                Dialect::Sqlite => {
+                    let mut sql = scope.sql(
+                        "SELECT \
+                         COALESCE((SELECT SUM(f.size) FROM files AS f \
+                           JOIN containers AS c ON c.id = f.container_id \
+                           JOIN workspaces AS w ON w.id = c.workspace_id \
+                           WHERE w.org_id = ",
+                    );
+                    sql.bind(org.clone())
+                        .push_bind(
+                            "), 0) + \
+                             COALESCE((SELECT SUM(fv.size) FROM file_versions AS fv \
+                               JOIN files AS f ON f.id = fv.file_id \
+                               JOIN containers AS c ON c.id = f.container_id \
+                               JOIN workspaces AS w ON w.id = c.workspace_id \
+                               WHERE w.org_id = ",
+                            org.clone(),
+                        )
+                        .push_bind(
+                            "), 0) + \
+                             COALESCE((SELECT SUM(u.size) FROM uploads AS u \
+                               WHERE u.closed_at = 0 AND (\
+                                 u.container_id IN (SELECT c.id FROM containers AS c \
+                                   JOIN workspaces AS w ON w.id = c.workspace_id \
+                                   WHERE w.org_id = ",
+                            org.clone(),
+                        )
+                        .push_bind(
+                            ") OR u.container_id IN (SELECT w.id FROM workspaces AS w \
+                               WHERE w.org_id = ",
+                            org,
+                        )
+                        .push("))), 0)");
+                    sql
+                }
+            };
+            match scope.fetch_optional(sql).await? {
+                Some(row) => row.int(0),
+                None => Ok(0),
+            }
+        })
+        .await
+    }
 }
 
 impl Store {
@@ -108,10 +190,15 @@ impl Store {
                 scope.sql("SELECT path FROM (SELECT * FROM (SELECT path FROM files WHERE path > ");
             sql.bind(after)
                 .push_bind(" ORDER BY path LIMIT ", limit)
-                .push(&format!(
-                    ") AS live UNION SELECT * FROM (SELECT {trashed_path} AS path FROM \
-                     deleted_containers AS d, {trashed_files} WHERE {trashed_path} > "
-                ))
+                .push([
+                    ") AS live UNION SELECT * FROM (SELECT ",
+                    trashed_path,
+                    " AS path FROM deleted_containers AS d, ",
+                    trashed_files,
+                    " WHERE ",
+                    trashed_path,
+                    " > ",
+                ])
                 .bind(after)
                 .push_bind(" ORDER BY 1 LIMIT ", limit)
                 // The bytes of the versions before a file's newest, which no record names.
@@ -145,37 +232,57 @@ pub(crate) fn check_new_path(path: &str) -> Result<(), StoreError> {
 /// The places that rows name otherwise than the one way: those that a rough condition
 /// finds, checked with [`fvoci_model::is_storage_path`].
 pub(crate) async fn other_spellings(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
-    let (trashed_path, trashed_files, backslash) = match scope.dialect() {
+    let (trashed_path, trashed_files, bs_fn, bs_arg) = match scope.dialect() {
         Dialect::Sqlite => (
             "json_extract(f.value, '$.path')",
             "json_each(d.files) AS f",
-            "instr({p}, char(92)) > 0",
+            "instr(",
+            ", char(92)) > 0",
         ),
         Dialect::Postgres => (
             "f.value ->> 'path'",
             "json_array_elements(d.files) AS f(value)",
-            "strpos({p}, chr(92)) > 0",
+            "strpos(",
+            ", chr(92)) > 0",
         ),
     };
-    let rough = |p: &str| {
-        format!(
-            "{p} <> '' AND ({p} LIKE '%//%' OR {p} LIKE '/%' OR {p} LIKE '%/' \
-             OR {p} LIKE '.%' OR {p} LIKE '%/.%' OR {})",
-            backslash.replace("{p}", p)
-        )
+    let rough = |p: &'static str| -> SqlFragment {
+        SqlFragment::of(&[
+            p,
+            " <> '' AND (",
+            p,
+            " LIKE '%//%' OR ",
+            p,
+            " LIKE '/%' OR ",
+            p,
+            " LIKE '%/' OR ",
+            p,
+            " LIKE '.%' OR ",
+            p,
+            " LIKE '%/.%' OR ",
+            bs_fn,
+            p,
+            bs_arg,
+            ")",
+        ])
     };
-    let statement = format!(
-        "SELECT path FROM files WHERE {} \
-         UNION SELECT path FROM uploads WHERE {} \
-         UNION SELECT path FROM loose_objects WHERE {} \
-         UNION SELECT path FROM file_versions WHERE {} \
-         UNION SELECT {trashed_path} FROM deleted_containers AS d, {trashed_files} WHERE {}",
-        rough("path"),
-        rough("path"),
-        rough("path"),
-        rough("path"),
-        rough(trashed_path)
-    );
+    let rough_path = rough("path");
+    let rough_trashed = rough(trashed_path);
+    let mut statement = SqlFragment::of(&["SELECT path FROM files WHERE "]);
+    statement
+        .push_fragment(&rough_path)
+        .push(" UNION SELECT path FROM uploads WHERE ")
+        .push_fragment(&rough_path)
+        .push(" UNION SELECT path FROM loose_objects WHERE ")
+        .push_fragment(&rough_path)
+        .push(" UNION SELECT path FROM file_versions WHERE ")
+        .push_fragment(&rough_path)
+        .push(" UNION SELECT ")
+        .push(trashed_path)
+        .push(" FROM deleted_containers AS d, ")
+        .push(trashed_files)
+        .push(" WHERE ")
+        .push_fragment(&rough_trashed);
     let sql = scope.sql(&statement);
     let mut found = Vec::new();
     for row in scope.fetch_all(sql).await? {
@@ -192,9 +299,11 @@ pub(crate) async fn save_file_record(
     file: &FileRecord,
 ) -> Result<(), StoreError> {
     // A new file is shown by no block until one is written that shows it.
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO files ({FILE_COLUMNS}, unreferenced_at) VALUES ("
-    ));
+    let mut sql = scope.sql([
+        "INSERT INTO files (",
+        FILE_COLUMNS,
+        ", unreferenced_at) VALUES (",
+    ]);
     sql.bind(Id(&file.id))
         .push_bind(", ", Id(&file.container_id))
         .push_bind(", ", &file.stored_name)
@@ -222,9 +331,7 @@ pub(crate) async fn files_of_container(
     scope: &mut Scope<'_>,
     container_id: &str,
 ) -> Result<Vec<FileRecord>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {FILE_COLUMNS} FROM files WHERE container_id = "
-    ));
+    let mut sql = scope.sql(["SELECT ", FILE_COLUMNS, " FROM files WHERE container_id = "]);
     sql.bind(Id(container_id)).push(" ORDER BY created_at, id");
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");

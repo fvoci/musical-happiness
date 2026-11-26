@@ -70,7 +70,7 @@ impl App {
             issuer: claims.issuer.clone(),
             subject: claims.subject.clone(),
             email: claims.email.clone().unwrap_or_default(),
-            email_unverified: claims.email_verified == Some(false),
+            email_unverified: claims.email_verified != Some(true),
             name: claims.name.clone().unwrap_or_default(),
             preferred_username: claims.preferred_username.clone().unwrap_or_default(),
             created_at: now,
@@ -282,7 +282,7 @@ impl App {
             issuer: held.issuer,
             subject: held.subject,
             email: text(held.email),
-            email_verified: held.email_unverified.then_some(false),
+            email_verified: Some(!held.email_unverified),
             name: text(held.name),
             // A held sign-in keeps the name the token gave whole, not its parts: the
             // account it makes has its parts to fill in.

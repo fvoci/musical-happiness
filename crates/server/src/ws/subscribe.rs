@@ -23,20 +23,20 @@ pub(super) struct Who {
     pub(super) session_id: String,
     pub(super) login: Option<LoginOrigin>,
     /// How the session was made, as the handshake found it, and what it confirmed
-    /// then or since.
-    pub(super) making: SessionKept,
+    /// then or since; `None` for an anonymous connection without a session.
+    pub(super) making: Option<SessionKept>,
     pub(super) token: Option<String>,
 }
 
 impl Default for Who {
-    /// Nobody's: a connection without a session, which opens nothing that asks for
-    /// one, however it is taken to have been made.
+    /// Nobody's: a connection without a session, which carries no session state and
+    /// opens nothing that asks for one.
     fn default() -> Self {
         Self {
             user_id: String::new(),
             session_id: String::new(),
             login: None,
-            making: SessionKept::with_password(),
+            making: None,
             token: None,
         }
     }
@@ -46,7 +46,7 @@ impl Who {
     /// Whose the connection of a handshake is; nobody's without a session.
     pub(super) fn of(identity: Option<Identity>) -> Self {
         identity.map_or_else(Self::default, |identity| Self {
-            making: SessionKept::of(&identity.session),
+            making: Some(SessionKept::of(&identity.session)),
             user_id: identity.session.user_id,
             session_id: identity.session.id,
             login: identity.session.login,

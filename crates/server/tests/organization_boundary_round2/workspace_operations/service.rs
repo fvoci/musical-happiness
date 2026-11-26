@@ -107,6 +107,82 @@ async fn time_entries(case: &mut Case) {
         .await;
 }
 
+async fn exam_publication(case: &mut Case, server: &TestServer) {
+    let course = case
+        .run(
+            "createCourse",
+            &[],
+            json!({"title": format!("{} pub course", case.label), "visibility": "private"}),
+        )
+        .await
+        .value();
+    let course_id = case.remember(&course, "id");
+    let at = &[("courseId", course_id.as_str())];
+    let exam = case
+        .run(
+            "createCourseExam",
+            at,
+            json!({"title": format!("{} pub exam", case.label), "maxScore": 100.0}),
+        )
+        .await
+        .value();
+    let exam_id = case.remember(&exam, "id");
+    let of_exam = &[
+        ("courseId", course_id.as_str()),
+        ("examId", exam_id.as_str()),
+    ];
+    case.run("putMyExamScore", of_exam, json!({"score": 80.0}))
+        .await;
+
+    let store = server
+        .app
+        .store()
+        .for_org(&case.org)
+        .expect("organization scope");
+    let score_input = fvoci_model::MyExamScoreUpdate {
+        score: 90.0,
+        note: String::new(),
+    }
+    .check_request()
+    .expect("valid score");
+    for idx in 0..4 {
+        let mut learner = fvoci_model::User {
+            id: fvoci_model::new_id(),
+            username: format!("{}-learner-{idx}", case.label),
+            email: format!("{}-learner-{idx}@example.test", case.label),
+            ..fvoci_model::User::default()
+        };
+        store.create_user(&mut learner).await.expect("learner user");
+        store
+            .add_member(&fvoci_model::ContainerMember {
+                container_id: course_id.clone(),
+                user_id: learner.id.clone(),
+                role: fvoci_model::ContainerRole::Viewer,
+                synthetic: false,
+                inherited_role: None,
+            })
+            .await
+            .expect("learner course member");
+        store
+            .upsert_my_exam_score(&course_id, &exam_id, &learner.id, &score_input)
+            .await
+            .expect("learner score");
+        case.identifiers.push(learner.id);
+    }
+
+    case.run("publishCourseExamResults", of_exam, json!({}))
+        .await;
+    case.run("unpublishCourseExamResults", of_exam, json!({}))
+        .await;
+    case.run("deleteCourseExam", of_exam, json!({})).await;
+    case.run(
+        "deleteContainer",
+        &[("boardId", course_id.as_str())],
+        json!({}),
+    )
+    .await;
+}
+
 pub(super) async fn exercise(
     case: &mut Case,
     server: &TestServer,
@@ -119,6 +195,7 @@ pub(super) async fn exercise(
     account(case).await;
     organization(case).await;
     notifications(case, server).await;
+    exam_publication(case, server).await;
     time_entries(case).await;
     shared::exercise(case).await;
     shared::exercise_wiki(case).await;

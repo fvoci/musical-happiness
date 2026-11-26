@@ -123,6 +123,8 @@ impl App {
         team_id: &str,
         by: &str,
     ) -> Result<(), AppError> {
+        self.collab()
+            .narrowing_access(self, &AccessScope::workspace(workspace_id));
         let changes = self.store().delete_team(workspace_id, team_id, by).await?;
         self.tell_team_changes(workspace_id, changes).await;
         Ok(())
@@ -164,6 +166,8 @@ impl App {
         if !is_id(user_id) {
             return Err(AppError::not_found("workspace member"));
         }
+        self.collab()
+            .narrowing_access(self, &AccessScope::workspace(workspace_id).of_user(user_id));
         let changes = self
             .store()
             .remove_team_member(workspace_id, team_id, user_id, by)
@@ -186,6 +190,8 @@ impl App {
         role: Option<fvoci_model::MinimumRole>,
         by: &str,
     ) -> Result<(), AppError> {
+        self.collab()
+            .narrowing_access(self, &AccessScope::container(container_id));
         let changes = self
             .store()
             .set_container_team(workspace_id, container_id, team_id, role, by)

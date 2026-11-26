@@ -149,11 +149,9 @@ pub(crate) async fn people(
     scope: &mut Scope<'_>,
     team_id: &str,
 ) -> Result<Vec<String>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT tm.user_id FROM {} tm WHERE tm.team_id = ",
-        teams::present_members(scope)
-    ));
-    sql.bind(Id(team_id))
+    let mut sql = scope.sql("SELECT tm.user_id FROM ");
+    sql.push(&teams::present_members(scope))
+        .push_bind(" tm WHERE tm.team_id = ", Id(team_id))
         .push_bind(" AND tm.org_id = ", scope.org()?)
         .push(" ORDER BY tm.user_id");
     scope
@@ -287,6 +285,8 @@ pub(crate) async fn end_lost_subscriptions(
                 &member.user_id,
             )
             .await?;
+            crate::trash::forget_watcher_of_container(scope, &member.container_id, &member.user_id)
+                .await?;
         }
     }
     Ok(())

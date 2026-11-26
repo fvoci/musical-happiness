@@ -16,19 +16,19 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{
     ContainerKind, ContainerKinds, ContainerMember, ContainerVisibility, OrgKind, OrgRole, User,
-    UserOrganization, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    UserOrganization, UserWorkspace, Workspace, WorkspaceRole,
 };
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
 use crate::container_kinds;
 use crate::container_team_access;
-use crate::db::{Dialect, Id, Row, Scope, Sql};
+use crate::db::{Dialect, Id, Scope, Sql};
 use crate::error::StoreError;
 use crate::files;
 use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id, workspaces};
+use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id};
 
 mod every_organization;
 mod session_taken;
@@ -151,15 +151,18 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
             .push_bind(" AND seer.user_id = ", Id(seer_id))
             .push_bind(") AND (id = ", Id(seer_id))
             // On a board of the workspace with the seer, and in the workspace still.
-            .push(&format!(
+            .push(
                 " OR id IN (SELECT other.user_id FROM container_members AS mine \
                  JOIN containers AS b ON b.id = mine.container_id \
-                 JOIN {directory_members} AS other ON other.container_id = mine.container_id \
+                 JOIN ",
+            )
+            .push(&container_team_access::directory_members(scope))
+            .push(
+                " AS other ON other.container_id = mine.container_id \
                  JOIN workspace_members AS them \
                  ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                  WHERE mine.user_id = ",
-                directory_members = container_team_access::directory_members(scope)
-            ))
+            )
             .bind(Id(seer_id))
             .push_bind(" AND b.workspace_id = ", Id(workspace_id))
             .push(&scope.same_organization(&[("mine", "b"), ("other", "b"), ("them", "b")]))
@@ -186,19 +189,22 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                 .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
                 .push(IN_USE)
                 .push(&scope.same_organization(&[("me", "t"), ("them", "t")]))
-                .push(&format!(
+                .push(
                     ") OR id IN (SELECT other.user_id FROM container_members AS mine \
                      JOIN containers AS b ON b.id = mine.container_id \
                      JOIN workspace_members AS me \
                      ON me.workspace_id = b.workspace_id AND me.user_id = mine.user_id \
                      JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
-                     JOIN {directory_members} AS other ON other.container_id = mine.container_id \
+                     JOIN ",
+                )
+                .push(&container_team_access::directory_members(scope))
+                .push(
+                    " AS other ON other.container_id = mine.container_id \
                      JOIN workspace_members AS them \
                      ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                      WHERE mine.user_id = ",
-                    directory_members = container_team_access::directory_members(scope)
-                ))
+                )
                 .bind(Id(seer_id))
                 .push(IN_USE)
                 .push(&scope.same_organization(&[
@@ -375,6 +381,33 @@ impl Store {
             .await
     }
 
+    /// Returns a pre-existing shared organization when the instance has not yet had its
+    /// first user (`bootstrapped = false`), or `None` once bootstrapped or on a fresh
+    /// multi-organization database.
+    pub(crate) async fn unclaimed_instance_organization(
+        &self,
+    ) -> Result<Option<String>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql(
+                    "SELECT o.id FROM organizations AS o \
+                     JOIN instance AS i ON i.id = 1 \
+                     WHERE i.bootstrapped = ",
+                );
+                sql.bind(false)
+                    .push_bind(" AND o.is_system = ", false)
+                    .push(" AND o.deleted_at IS NULL");
+                of_people(&mut sql, "o.kind");
+                sql.push(" ORDER BY o.created_at, o.id LIMIT 1");
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
+            })
+            .await
+    }
+
     /// The organization that is the space of the account `user_id`, in use or not;
     /// `None` for an account that has none. An account's space is the same one for as
     /// long as the account is there.
@@ -403,16 +436,17 @@ impl Store {
     ) -> Result<Option<WorkspaceAccess>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql(&format!(
-                    "SELECT t.org_id, wm.role, om.role, p.id, o.kind, {HAS_PASSWORD} \
-                     FROM workspace_members AS wm \
+                let mut sql = scope.sql([
+                    "SELECT t.org_id, wm.role, om.role, p.id, o.kind, ",
+                    HAS_PASSWORD,
+                    " FROM workspace_members AS wm \
                      JOIN users AS u ON u.id = wm.user_id \
                      JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      LEFT JOIN organization_members AS om \
                      ON om.org_id = t.org_id AND om.user_id = wm.user_id \
                      LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
-                ));
+                ]);
                 sql.bind(true)
                     .push_bind(" WHERE wm.user_id = ", Id(user_id))
                     .push_bind(" AND wm.workspace_id = ", Id(workspace_id))
@@ -644,10 +678,15 @@ impl Store {
                 };
                 let mut sql = scope.sql("SELECT path FROM files WHERE path IN (");
                 sql.bind_list(paths.iter().copied())
-                    .push(&format!(
-                        ") UNION SELECT {trashed_path} FROM deleted_containers AS d, {trashed_files} \
-                         WHERE {trashed_path} IN ("
-                    ))
+                    .push([
+                        ") UNION SELECT ",
+                        trashed_path,
+                        " FROM deleted_containers AS d, ",
+                        trashed_files,
+                        " WHERE ",
+                        trashed_path,
+                        " IN (",
+                    ])
                     .bind_list(paths.iter().copied())
                     .push(") UNION SELECT path FROM file_versions WHERE path IN (")
                     .bind_list(paths.iter().copied())
@@ -914,67 +953,5 @@ impl Store {
     }
 }
 
-async fn create_organization(
-    scope: &mut Scope<'_>,
-    name: &str,
-    workspace: &Workspace,
-) -> Result<String, StoreError> {
-    let id = new_id();
-    workspaces::insert_organization(scope, Id(&id), name, workspace).await?;
-    Ok(id)
-}
-
-/// Reads a role from a column.
-fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
-    row: &Row,
-    index: usize,
-) -> Result<R, StoreError> {
-    row.text(index)?
-        .parse()
-        .map_err(|error: fvoci_model::UnknownRole| StoreError::Corrupt {
-            column: "role",
-            reason: error.to_string(),
-        })
-}
-
-/// Reads the kind of an organization from a column.
-pub(crate) fn org_kind(row: &Row, index: usize) -> Result<OrgKind, StoreError> {
-    row.text(index)?
-        .parse()
-        .map_err(|error: fvoci_model::UnknownOrgKind| StoreError::Corrupt {
-            column: "kind",
-            reason: error.to_string(),
-        })
-}
-
-/// The instance's own organization as `scope` reaches the organizations: the oldest
-/// non-system one in use that people work in together
-/// ([`Store::instance_organization`]). No account's own space is it, however old.
-pub(crate) async fn oldest_organization(
-    scope: &mut Scope<'_>,
-) -> Result<Option<String>, StoreError> {
-    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-    sql.bind(false).push(" AND deleted_at IS NULL");
-    of_people(&mut sql, "kind");
-    sql.push(" ORDER BY created_at, id LIMIT 1");
-    scope
-        .fetch_optional(sql)
-        .await?
-        .map(|row| row.id(0))
-        .transpose()
-}
-
-/// The organization that is the space of the account `user_id`, in use or not, by
-/// who owns it: in a scope that reaches every organization.
-pub(crate) async fn space_of(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-) -> Result<Option<String>, StoreError> {
-    let mut sql = scope.sql("SELECT id FROM organizations WHERE owner_id = ");
-    sql.bind(Id(user_id));
-    scope
-        .fetch_optional(sql)
-        .await?
-        .map(|row| row.id(0))
-        .transpose()
-}
+use every_organization::{create_organization, role};
+pub(crate) use every_organization::{oldest_organization, org_kind, space_of};

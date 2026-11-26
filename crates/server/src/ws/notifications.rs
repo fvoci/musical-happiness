@@ -72,7 +72,7 @@ impl Hub {
                     listeners
                         .by_id
                         .get(id)
-                        .map(|listener| (*id, listener.made()))
+                        .and_then(|listener| listener.made().map(|made| (*id, made)))
                 })
                 .collect()
         };

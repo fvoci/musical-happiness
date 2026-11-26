@@ -176,6 +176,7 @@ pub(super) fn refused(refusal: Refusal, message: &str) -> Refused {
     Refused {
         refusal,
         message: message.to_owned(),
+        rolled_back: false,
     }
 }
 

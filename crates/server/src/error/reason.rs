@@ -93,6 +93,8 @@ reasons! {
     ServerImportsBusy => "server_imports_busy", "The server is busy importing";
     /// The file is larger than the largest the server stores.
     FileTooLarge => "file_too_large", "File too large";
+    /// Storing the file would take the organization past `max_org_storage_bytes`.
+    StorageFull => "storage_full", "Organization storage full";
     /// The archive is larger than the largest the server imports.
     ArchiveTooLarge => "archive_too_large", "Archive too large";
     /// An entry of the archive unpacks to more than an entry of its kind may.

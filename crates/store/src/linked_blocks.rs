@@ -11,14 +11,11 @@ use fvoci_model::{Block, BlockType};
 
 use crate::Store;
 use crate::blocks::Paging;
-use crate::db::{Id, Row, Scope};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 
 /// The columns of a block as a reference shows it ([`shown_block`]): without its body.
 const SHOWN_COLUMNS: &str = "id, container_id, parent_id, type, title, fields, updated_at, number";
-
-/// How many blocks a search reads at a time while it looks for titles.
-const SEARCHED_AT_ONCE: u16 = 500;
 
 /// How many identifiers one statement is asked about: well under the parameters a
 /// statement of either database takes.
@@ -41,25 +38,37 @@ fn shown_block(row: &Row) -> Result<Block, StoreError> {
 }
 
 /// Starts the query for the cards, pages and units on the containers of `container_ids`,
-/// of which there is at least one, without their bodies. More `AND` conditions may follow.
-fn select_named_on(scope: &Scope<'_>, container_ids: &[&str]) -> crate::db::Sql {
-    let mut sql = scope.sql(&format!(
-        "SELECT {SHOWN_COLUMNS} FROM blocks WHERE container_id IN ("
-    ));
+/// of which there is at least one, without their bodies. Uses literal `type IN (...)`
+/// so both databases can match the partial index `blocks_container_titled_updated_at_idx`.
+fn select_named_on(scope: &Scope<'_>, columns: &'static str, container_ids: &[&str]) -> Sql {
+    let mut sql = scope.sql(["SELECT ", columns, " FROM blocks WHERE container_id IN ("]);
     sql.bind_list(container_ids.iter().map(|id| Id(id)))
-        .push_bind(") AND type IN (", BlockType::Card.as_str())
-        .push_bind(", ", BlockType::Page.as_str())
-        .push_bind(", ", BlockType::Unit.as_str())
-        .push(")");
+        .push(") AND type IN ('card', 'page', 'unit')");
     sql
+}
+
+/// Appends the SQL condition excluding blocks with JSON `fields.isTemplate == true`
+/// (not `1` nor `"true"`).
+fn push_not_template(sql: &mut Sql, dialect: Dialect) {
+    sql.push(match dialect {
+        Dialect::Sqlite => " AND json_type(fields, '$.isTemplate') IS NOT 'true'",
+        Dialect::Postgres => " AND (fields->'isTemplate')::text IS DISTINCT FROM 'true'",
+    });
+}
+
+/// Appends an ASCII case-insensitive literal substring filter (`instr`/`strpos`, never
+/// `LIKE`, so `%` and `_` are ordinary characters) on `title`.
+fn push_ascii_title_holds(sql: &mut Sql, dialect: Dialect, word: &str) {
+    let prefix = match dialect {
+        Dialect::Sqlite => " AND instr(lower(title), ",
+        Dialect::Postgres => " AND strpos(lower(title COLLATE \"C\"), ",
+    };
+    sql.push_bind(prefix, word.to_ascii_lowercase())
+        .push(") > 0");
 }
 
 /// Whether the title has every word of `words` in it, which are in lower case, whatever
 /// the case of its letters.
-///
-/// Compared here rather than in SQL, as the titles of boards and the names of users
-/// are: both databases fold every letter the same way, and `%` and `_` are characters
-/// like any other.
 fn title_has(title: &str, words: &[String]) -> bool {
     let title = title.to_lowercase();
     words.iter().all(|word| title.contains(word.as_str()))
@@ -82,8 +91,7 @@ impl Store {
         self.with_conn(async |scope| {
             let mut found = Vec::new();
             for some in ids.chunks(ASKED_AT_ONCE) {
-                let mut sql =
-                    scope.sql(&format!("SELECT {SHOWN_COLUMNS} FROM blocks WHERE id IN ("));
+                let mut sql = scope.sql(["SELECT ", SHOWN_COLUMNS, " FROM blocks WHERE id IN ("]);
                 sql.bind_list(some.iter().map(|id| Id(id))).push(")");
                 for row in scope.fetch_all(sql).await? {
                     found.push(shown_block(&row)?);
@@ -150,7 +158,7 @@ impl Store {
             return Ok(Vec::new());
         }
         self.with_conn(async |scope| {
-            let mut sql = select_named_on(scope, container_ids);
+            let mut sql = select_named_on(scope, SHOWN_COLUMNS, container_ids);
             // What a comment names, the card or the page it is on names. The rows of
             // the boards asked about are the only ones looked at; what is found is held
             // to the boards its block is on now all the same.
@@ -182,16 +190,11 @@ impl Store {
         .await
     }
 
-    /// The cards and pages on the boards of `container_ids` whose title has every word of
+    /// The cards, pages and units on `container_ids` whose title has every word of
     /// `term` in it, as spaces divide it and whatever the case of the letters: at most
     /// `limit`, the one changed last first, without their bodies. An empty term finds
-    /// every one. A block whose `isTemplate` is `true` ([`Block::is_template`]: for a
-    /// card, a template of its board's cards) is never found, and nothing in the trash
-    /// is.
-    ///
-    /// The blocks are read some at a time, each time those after the last one read in
-    /// that order: a block that is changed meanwhile moves to before where the reading
-    /// is, so none is found twice.
+    /// every one. A block whose `isTemplate` is `true` ([`Block::is_template`]) is never
+    /// found, and nothing in the trash is.
     ///
     /// # Errors
     ///
@@ -205,35 +208,76 @@ impl Store {
         if container_ids.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
-        let words: Vec<String> = term.split_whitespace().map(str::to_lowercase).collect();
+        let raw_words: Vec<&str> = term.split_whitespace().collect();
+        if raw_words.iter().any(|word| word.contains('\0')) {
+            return Ok(Vec::new());
+        }
+        let mut sql_words = Vec::new();
+        let mut unicode_words = Vec::new();
+        for word in raw_words {
+            if word.chars().all(|ch| !ch.is_alphabetic() || ch.is_ascii()) {
+                sql_words.push(word);
+            } else {
+                unicode_words.push(word.to_lowercase());
+            }
+        }
+        let sql_limit = i64::try_from(limit).unwrap_or(i64::MAX);
         self.with_conn(async |scope| {
-            let mut found = Vec::new();
-            let mut last: Option<(i64, String)> = None;
-            loop {
-                let mut sql = select_named_on(scope, container_ids);
-                if let Some((updated_at, id)) = &last {
-                    sql.push_bind(" AND (updated_at < ", *updated_at)
-                        .push_bind(" OR (updated_at = ", *updated_at)
-                        .push_bind(" AND id > ", Id(id))
-                        .push("))");
+            let dialect = scope.dialect();
+            if unicode_words.is_empty() {
+                let mut sql = select_named_on(scope, SHOWN_COLUMNS, container_ids);
+                push_not_template(&mut sql, dialect);
+                for word in &sql_words {
+                    push_ascii_title_holds(&mut sql, dialect, word);
                 }
                 sql.push(" ORDER BY updated_at DESC, id")
-                    .push_bind(" LIMIT ", i64::from(SEARCHED_AT_ONCE));
-                let rows = scope.fetch_all(sql).await?;
-                for row in &rows {
-                    let block = shown_block(row)?;
-                    last = Some((block.updated_at, block.id.clone()));
-                    if !block.is_template() && title_has(&block.title, &words) {
-                        found.push(block);
-                        if found.len() == limit {
-                            return Ok(found);
-                        }
+                    .push_bind(" LIMIT ", sql_limit);
+                return scope
+                    .fetch_all(sql)
+                    .await?
+                    .iter()
+                    .map(shown_block)
+                    .collect();
+            }
+
+            // Fallback when the query includes non-ASCII cased letters (which SQLite's
+            // built-in `lower()` does not fold): still push `isTemplate` and ASCII/caseless
+            // words into SQL and scan only `(id, title)` without deserializing 64 KB
+            // `fields` on non-matching rows, then load `SHOWN_COLUMNS` for matched IDs.
+            let mut candidates = select_named_on(scope, "id, title", container_ids);
+            push_not_template(&mut candidates, dialect);
+            for word in &sql_words {
+                push_ascii_title_holds(&mut candidates, dialect, word);
+            }
+            candidates.push(" ORDER BY updated_at DESC, id");
+            let mut matched_ids = Vec::with_capacity(limit);
+            for row in &scope.fetch_all(candidates).await? {
+                let title = row.text(1)?;
+                if title_has(&title, &unicode_words) {
+                    matched_ids.push(row.id(0)?);
+                    if matched_ids.len() == limit {
+                        break;
                     }
                 }
-                if rows.len() < usize::from(SEARCHED_AT_ONCE) {
-                    return Ok(found);
+            }
+            if matched_ids.is_empty() {
+                return Ok(Vec::new());
+            }
+            let mut found = Vec::with_capacity(matched_ids.len());
+            for chunk in matched_ids.chunks(ASKED_AT_ONCE) {
+                let mut sql = scope.sql(["SELECT ", SHOWN_COLUMNS, " FROM blocks WHERE id IN ("]);
+                sql.bind_list(chunk.iter().map(|id| Id(id)))
+                    .push(") ORDER BY updated_at DESC, id");
+                for row in &scope.fetch_all(sql).await? {
+                    found.push(shown_block(row)?);
                 }
             }
+            found.sort_by(|a, b| {
+                b.updated_at
+                    .cmp(&a.updated_at)
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            Ok(found)
         })
         .await
     }

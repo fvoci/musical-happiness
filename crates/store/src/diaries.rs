@@ -21,7 +21,7 @@ use serde_json::Value;
 use crate::block_derived::{self, Refreshing};
 use crate::blocks::{self, Paging};
 use crate::body_versions::BodyWrite;
-use crate::db::{Dialect, Id, Param, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Param, Scope, Sql};
 use crate::notification_noting::Telling;
 use crate::trash::{
     self, block_from_json, block_not_in_trash, from_json, push_paging, take_blocks_out_of_trash,
@@ -248,20 +248,28 @@ impl Store {
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedDiaryEntry>, StoreError> {
         self.with_conn(async |scope| {
-            // The type is in the stored block.
-            let is_entry = match scope.dialect() {
-                Dialect::Sqlite => "json_extract(block, '$.type') = 'entry'",
-                Dialect::Postgres => "block->>'type' = 'entry'",
-            };
             let mut sql = scope.sql(
                 "SELECT block, deleted_by, deleted_at FROM deleted_blocks WHERE container_id = ",
             );
             sql.bind(Id(diary_id))
-                .push(&format!(" AND {is_entry} ORDER BY deleted_at DESC, id"));
+                .push_bind(" AND block_type = ", BlockType::Entry.as_str())
+                .push(" ORDER BY deleted_at DESC, id");
             push_paging(&mut sql, paging);
             let mut entries = Vec::new();
             for row in &scope.fetch_all(sql).await? {
-                let block = block_from_json(row, 0)?;
+                let block = match block_from_json(row, 0) {
+                    Ok(block) => block,
+                    Err(StoreError::Corrupt { column, reason }) => {
+                        tracing::error!(
+                            diary_id,
+                            column,
+                            %reason,
+                            "skipping corrupt deleted diary entry in trash listing"
+                        );
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 entries.push(DeletedDiaryEntry {
                     date: entry_date(&block)
                         .map(|date| date.to_string())
@@ -325,7 +333,7 @@ impl Store {
                 });
             }
             check_room(scope, &entry, limit).await?;
-            let now = now_millis();
+            let now = scope.now_millis();
             let restored = take_blocks_out_of_trash(scope, &row.id(0)?, user_id, now, |block| {
                 if block.block_type == BlockType::Entry {
                     block
@@ -391,8 +399,7 @@ impl Store {
                 BodyWrite::Whole,
                 telling,
             )
-            .await?;
-            blocks::get_block(scope, entry_id).await
+            .await
         })
         .await
     }
@@ -431,7 +438,7 @@ impl Store {
                 sql.bind(Id(entry_id))
                     .push_bind(" AND container_id = ", Id(diary_id));
                 scope.execute(sql).await?;
-                block_derived::forget_gone_blocks(scope).await?;
+                block_derived::forget_block(scope, entry_id, diary_id).await?;
                 return Ok(true);
             }
             let deleted = trash::delete_block(scope, entry_id, user_id).await?;
@@ -519,11 +526,12 @@ fn runs_of(scope: &Scope<'_>, diary_id: &str) -> Sql {
         Dialect::Sqlite => "CAST(julianday(day) AS INTEGER)",
         Dialect::Postgres => "day::date",
     };
-    let mut sql = scope.sql(&format!(
-        "SELECT MIN(day), MAX(day), CAST(COUNT(*) AS BIGINT) FROM (SELECT day, \
-         {day_number} - CAST(ROW_NUMBER() OVER (ORDER BY day) AS INTEGER) AS run \
-         FROM diary_days WHERE container_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT MIN(day), MAX(day), CAST(COUNT(*) AS BIGINT) FROM (SELECT day, ",
+        day_number,
+        " - CAST(ROW_NUMBER() OVER (ORDER BY day) AS INTEGER) AS run \
+         FROM diary_days WHERE container_id = ",
+    ]);
     sql.bind(Id(diary_id))
         .push(") AS written GROUP BY run ORDER BY MIN(day)");
     sql
@@ -606,10 +614,11 @@ async fn oldest_diary(
     scope: &mut Scope<'_>,
     workspace_id: &str,
 ) -> Result<Option<Container>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {} FROM containers AS b WHERE b.workspace_id = ",
-        containers::container_select_list("b.")
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        containers::CONTAINER_SELECT_B,
+        " FROM containers AS b WHERE b.workspace_id = ",
+    ]);
     sql.bind(Id(workspace_id))
         .push_bind(" AND b.kind = ", ContainerKind::Diary.as_str())
         .push(containers::OLDEST_CONTAINER_FIRST)

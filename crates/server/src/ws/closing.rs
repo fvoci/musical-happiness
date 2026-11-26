@@ -44,7 +44,9 @@ impl Hub {
     /// from here on as the session is now. For after the store recorded it.
     pub fn session_gave_password(&self, session_id: &str, token: &str) {
         self.each_of_session(session_id, |listener| {
-            listener.making.gave_password();
+            if let Some(making) = &listener.making {
+                making.gave_password();
+            }
             if let Some(held) = &listener.token {
                 held.replace(token);
             }

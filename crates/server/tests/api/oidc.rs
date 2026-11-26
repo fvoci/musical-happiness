@@ -37,13 +37,20 @@ fn with_key_only(config: &mut Configuration) {
 /// A server that reaches the fake provider, with `user1`, who administers the
 /// organization, and `user2`, a member.
 pub(crate) async fn server_for(fake: &FakeProvider) -> TestServer {
-    Setup::native()
+    let ts = Setup::native()
         .trusting_oidc_provider(&fake.certificate_der)
         .configure(with_key_and_private_addresses)
         .start()
         .await
         .init_basic()
+        .await;
+    ts.app
+        .store()
+        .system()
+        .execute_unchecked("UPDATE users SET email_verified_at = created_at WHERE email <> ''")
         .await
+        .expect("fixture accounts have verified addresses");
+    ts
 }
 
 /// The organization of the test server.
@@ -504,6 +511,14 @@ async fn an_email_address_of_another_account_is_not_joined() {
         browser.sign_in(&org_id).await,
         Outcome::Refused("oidc-email-unverified".to_owned())
     );
+    // Omitted `email_verified` (`None`) is also refused rather than implicitly trusted (`H-8`).
+    let mut omitted_verified = Person::new("subject-omitted-verified", "omitted@example.com");
+    omitted_verified.email_verified = None;
+    fake.sign_in_as(omitted_verified);
+    assert_eq!(
+        browser.sign_in(&org_id).await,
+        Outcome::Refused("oidc-email-unverified".to_owned())
+    );
     let mut none = Person::new("subject-none", "x@example.com");
     none.email = None;
     fake.sign_in_as(none);
@@ -513,6 +528,21 @@ async fn an_email_address_of_another_account_is_not_joined() {
     );
     assert_eq!(users(&ts).await, users_before, "no account was made");
     assert_eq!(identities(&ts).await, 0, "and no identity");
+
+    // An unverified local address entered while mail is disabled (`email_verified_at = 0`)
+    // cannot squat and block a verified OIDC user's first sign-in (`H-3`).
+    let squatter = ts
+        .register_and_login("unverified-squatter", "ceo@victim.example", PASSWORD)
+        .await
+        .me()
+        .await;
+    fake.sign_in_as(Person::new("subject-real-ceo", "ceo@victim.example"));
+    let real_ceo = browser.sign_in(&org_id).await;
+    let ceo_me = ts.client_with_token(real_ceo.token()).me().await;
+    assert_ne!(
+        ceo_me.id, squatter.id,
+        "verified OIDC sign-in succeeds as its own account despite unverified squatter"
+    );
 
     // The account is untouched: its password still signs in.
     ts.login(USER1_USERNAME, PASSWORD).await;
@@ -1041,6 +1071,15 @@ async fn an_address_a_provider_gave_is_still_free_to_register() {
         .await
         .me()
         .await;
+    ts.app
+        .store()
+        .system()
+        .execute_unchecked(&format!(
+            "UPDATE users SET email_verified_at = created_at WHERE id = '{}'",
+            owner.id
+        ))
+        .await
+        .expect("verified owner address");
     assert_ne!(owner.id, squatter.id);
     ts.anonymous()
         .post("/login", &json!({ "email": address, "password": PASSWORD }))

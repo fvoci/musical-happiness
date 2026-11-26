@@ -198,7 +198,7 @@ impl Store {
                     ", ",
                     Param::OptText(link.mailed.map(|mailed| mailed.recipient.to_owned())),
                 )
-                .push(&format!(") RETURNING {COLUMNS}"));
+                .push([") RETURNING ", COLUMNS]);
             // An insert that returns no row has failed already.
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             invitation_from_row(&row)
@@ -326,9 +326,11 @@ impl Store {
         now: i64,
     ) -> Result<Option<Invitation>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
-            ));
+            let mut sql = scope.sql([
+                "SELECT ",
+                COLUMNS_OF_I,
+                " FROM invitations AS i WHERE i.org_id = ",
+            ]);
             sql.bind(scope.org()?)
                 .push_bind(" AND i.token_hash = ", token_hash)
                 .push_bind(" AND i.revoked_at = ", 0_i64)
@@ -693,9 +695,11 @@ async fn forget_container_roles(
 /// [`push_live_but_for`] counts them, of makers whose account is in use
 /// ([`push_maker_in_use`]); conditions follow with `AND`.
 fn select_live(scope: &Scope<'_>, now: i64, replacing: Option<&str>) -> Result<Sql, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        COLUMNS_OF_I,
+        " FROM invitations AS i WHERE i.org_id = ",
+    ]);
     sql.bind(scope.org()?);
     push_live_but_for(&mut sql, now, replacing);
     push_maker_in_use(&mut sql);
@@ -716,9 +720,11 @@ pub(crate) fn push_maker_in_use(sql: &mut Sql) {
 /// live ones, and a used one while a child of it nobody used is live, so that it can
 /// be revoked with its children.
 fn select_listed(scope: &Scope<'_>, now: i64) -> Result<Sql, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        COLUMNS_OF_I,
+        " FROM invitations AS i WHERE i.org_id = ",
+    ]);
     sql.bind(scope.org()?)
         .push_bind(" AND i.revoked_at = ", 0_i64)
         .push_bind(" AND i.expires_at > ", now)

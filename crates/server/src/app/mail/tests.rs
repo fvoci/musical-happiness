@@ -728,3 +728,35 @@ fn the_notice_with_a_link_back_takes_a_place_and_counts_no_hour() {
         "the notices with a link counted nothing"
     );
 }
+
+#[test]
+fn invitation_address_quota_admits_up_to_hourly_limit_case_insensitively() {
+    let fake = Fake::new(&[Outcome::Sent]);
+    let mailer = mailer_with(
+        &fake,
+        Metrics::none(),
+        SmtpSettings {
+            invitation_mail_per_address_hour: 2,
+            ..SmtpSettings::default()
+        },
+    );
+    let first = mailer.admit_invitation_addresses(&[
+        "Target@Example.test".to_owned(),
+        "other@example.test".to_owned(),
+    ]);
+    assert_eq!(first, [true, true]);
+    let second = mailer.admit_invitation_addresses(&[
+        "target@example.test".to_owned(),
+        "other@example.test".to_owned(),
+    ]);
+    assert_eq!(second, [true, true], "second message in the hour fits");
+    let third = mailer.admit_invitation_addresses(&[
+        "TARGET@EXAMPLE.TEST".to_owned(),
+        "fresh@example.test".to_owned(),
+    ]);
+    assert_eq!(
+        third,
+        [false, true],
+        "third to target in the same hour is silently skipped while fresh address passes"
+    );
+}

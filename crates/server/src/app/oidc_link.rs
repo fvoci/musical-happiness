@@ -120,7 +120,7 @@ impl App {
             .map(str::trim)
             .filter(|email| is_email_valid(email))
             .ok_or(Reason::OidcEmailMissing)?;
-        if claims.email_verified == Some(false) {
+        if claims.email_verified != Some(true) {
             return Err(Reason::OidcEmailUnverified.into());
         }
         let linked = self

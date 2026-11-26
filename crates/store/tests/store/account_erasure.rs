@@ -107,6 +107,7 @@ async fn person(store: &Store) -> String {
         // A capital that is no ASCII letter: the databases fold such a letter each in
         // its own way, and the address is found as it is written all the same.
         email: "Ünder-leaver-mail@example.com".to_owned(),
+        email_verified_at: T0,
         name: PersonName {
             first_name: "Leaver-First".to_owned(),
             last_name: "Leaver-Last".to_owned(),
@@ -703,6 +704,7 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
                 scheduled_date: "2026-11-25".to_owned(),
                 interval_days: 3,
             },
+            None,
         )
         .await
         .expect("review is stored");

@@ -370,6 +370,13 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
         ))
         .await
         .expect("the command is sent");
+    let sub_ack = next_text(&mut socket, Duration::from_secs(5))
+        .await
+        .expect("workspaceSubscribed ACK");
+    assert!(
+        sub_ack.contains("workspaceSubscribed"),
+        "expected workspaceSubscribed ACK: {sub_ack}"
+    );
     let probe = fvoci_model::Category {
         id: fvoci_model::new_id(),
         name: "probe".to_owned(),
@@ -377,17 +384,14 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
         workspace_id: crate::common::ROOT_WORKSPACE_ID.to_owned(),
         ..fvoci_model::Category::default()
     };
-    let mut received = 0_u32;
-    for _ in 0..50 {
-        server.app.ws().broadcast_category_change(&probe).await;
-        if next_text(&mut socket, Duration::from_millis(100))
+    server.app.ws().broadcast_category_change(&probe).await;
+    assert!(
+        next_text(&mut socket, Duration::from_secs(5))
             .await
-            .is_some()
-        {
-            received += 1;
-            break;
-        }
-    }
+            .is_some(),
+        "the socket received categoryChanged"
+    );
+    let mut received = 1_u32;
     while next_text(&mut socket, Duration::from_millis(200))
         .await
         .is_some()

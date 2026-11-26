@@ -266,7 +266,7 @@ fn what_a_session_confirmed_is_set_by_one_statement() {
             if names_column(line) || line.contains("CONFIRMED_COLUMN") {
                 naming.push(name.clone());
             }
-            if line.contains("{CONFIRMED_COLUMN}") {
+            if line.contains("CONFIRMED_COLUMN") && !line.starts_with("const CONFIRMED_COLUMN") {
                 uses.push(line.to_owned());
             }
         }
@@ -280,8 +280,9 @@ fn what_a_session_confirmed_is_set_by_one_statement() {
     assert_eq!(
         uses,
         [
-            "format!(\"{STORED_COLUMNS}, {CONFIRMED_COLUMN}\")",
-            "let mut sql = scope.sql(&format!(\"UPDATE sessions SET {CONFIRMED_COLUMN} = \"));",
+            "let mut sql = scope.sql([\"UPDATE sessions SET \", CONFIRMED_COLUMN, \" = \"]);",
+            "CONFIRMED_COLUMN,",
+            "CONFIRMED_COLUMN,",
         ],
         "read with a session, and set by one statement"
     );

@@ -139,6 +139,8 @@ pub struct Configuration {
     pub database_kind: String,
     /// The database connection: the path of an SQLite file, or a PostgreSQL URL.
     pub database_connection: String,
+    /// Maximum connections in the server's database pool: 20 unless set. At least 1.
+    pub database_max_connections: u32,
     /// How many times to try to reach the database at startup.
     pub database_connect_attempts: u32,
     /// How long a server that starts waits for the lock of the server of its database,
@@ -157,6 +159,9 @@ pub struct Configuration {
     /// The largest accepted upload in bytes: 100 MiB unless set. At least 1, and at most
     /// what an upload in parts carries (`upload_part_bytes` × 10,000).
     pub max_file_bytes: i64,
+    /// Cumulative stored file and retained file-version byte ceiling for one organization:
+    /// 50 GiB unless set. At least `max_file_bytes`.
+    pub max_org_storage_bytes: u64,
     /// Where the Prometheus metrics are served, as `host:port`; empty for none. A
     /// listener of their own, apart from the API's ([`Configuration::metrics_listen_address`]).
     pub metrics_address: String,
@@ -333,6 +338,11 @@ pub struct Configuration {
     /// set `upkeep_by_hand` of the search.
     #[serde(skip)]
     pub notifications_by_hand: bool,
+    /// Whether `block_change_webhooks` may reach loopback/private addresses over plain
+    /// HTTP. Not a configuration file key: integration tests set it for local mock
+    /// webhook receivers.
+    #[serde(skip)]
+    pub webhook_allow_private_addresses: bool,
     /// The keys of the file that no setting reads. Last: it takes what the others,
     /// the flattened ones among them, leave.
     #[serde(flatten)]
@@ -347,6 +357,7 @@ impl Default for Configuration {
             port: 8000,
             database_kind: "sqlite".to_owned(),
             database_connection: "./fvoci.db".to_owned(),
+            database_max_connections: fvoci_store::DEFAULT_MAX_CONNECTIONS,
             database_connect_attempts: 5,
             server_lock_wait_seconds: 30,
             serve_https: false,
@@ -355,6 +366,7 @@ impl Default for Configuration {
             file_storage_s3: S3Config::default(),
             file_storage_path: "./files".to_owned(),
             max_file_bytes: DEFAULT_MAX_FILE_BYTES,
+            max_org_storage_bytes: DEFAULT_MAX_ORG_STORAGE_BYTES,
             metrics_address: String::new(),
             metrics_token: String::new(),
             block_change_webhooks: Vec::new(),
@@ -408,6 +420,7 @@ impl Default for Configuration {
             skip_template_init: false,
             skip_websocket_pings: false,
             notifications_by_hand: false,
+            webhook_allow_private_addresses: false,
             unread: UnreadKeys::default(),
         }
     }
@@ -424,12 +437,14 @@ impl std::fmt::Debug for Configuration {
             .field("server_url", &self.server_url)
             .field("port", &self.port)
             .field("database_kind", &self.database_kind)
+            .field("database_max_connections", &self.database_max_connections)
             .field("serve_https", &self.serve_https)
             .field("web_app_path", &self.web_app_path)
             .field("file_storage", &self.file_storage)
             .field("file_storage_s3", &self.file_storage_s3)
             .field("file_storage_path", &self.file_storage_path)
             .field("max_file_bytes", &self.max_file_bytes)
+            .field("max_org_storage_bytes", &self.max_org_storage_bytes)
             .field("block_change_webhooks", &self.block_change_webhooks)
             .field("allowed_origins", &self.allowed_origins)
             .field("session_idle_days", &self.session_idle_days)
@@ -511,6 +526,9 @@ const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 /// The largest file, unless the configuration says otherwise: 100 MiB (decision 16 of
 /// `docs/s6-design.md`).
 const DEFAULT_MAX_FILE_BYTES: i64 = 100 * 1024 * 1024;
+
+/// Cumulative stored file byte ceiling for one organization unless configured: 50 GiB.
+const DEFAULT_MAX_ORG_STORAGE_BYTES: u64 = 50 * 1024 * 1024 * 1024;
 
 /// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB
 /// (`docs/s6-design.md` 5.6, 8).
@@ -767,6 +785,9 @@ impl Configuration {
         if self.port == 0 {
             bail!("port must be 1 to 65535, not 0");
         }
+        if self.database_max_connections == 0 {
+            bail!("database_max_connections must be at least 1");
+        }
         // Zero does not mean "no limit": a server that takes bodies of any size is not
         // something to end up with by leaving a number out.
         if self.max_request_bytes == 0 {
@@ -836,6 +857,17 @@ impl Configuration {
         if !self.metrics_token.is_empty() && self.metrics_address.is_empty() {
             warnings.push(
                 "metrics_token is set but metrics_address is empty: no metrics are served"
+                    .to_owned(),
+            );
+        }
+        if self.metrics_token.is_empty()
+            && let Ok(Some(address)) = self.metrics_listen_address()
+            && !address.is_loopback()
+        {
+            warnings.push(
+                "metrics_address is not a loopback address and metrics_token is empty: \
+                 anyone who reaches the metrics listener can read server metrics without \
+                 authentication; set metrics_token or bind metrics_address to 127.0.0.1 / [::1]"
                     .to_owned(),
             );
         }

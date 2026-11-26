@@ -141,13 +141,19 @@ impl Store {
             return self
                 .with_conn(async |scope| {
                     // Of a session of another role, only the backend may be shown.
-                    let lock = the_lock(SCHEMA_KEY);
-                    let sql = scope.sql(&format!(
+                    let mut sql = scope.sql(
                         "SELECT concat_ws(', ', NULLIF(a.application_name, ''), \
                          'backend ' || l.pid, 'connected since ' || a.backend_start::text) \
                          FROM pg_locks l LEFT JOIN pg_stat_activity a ON a.pid = l.pid \
-                         WHERE {lock}"
-                    ));
+                         WHERE l.locktype = 'advisory' AND l.granted \
+                         AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database()) \
+                         AND l.classid = (",
+                    );
+                    sql.bind(i64::from(LOCK_CLASS)).push([
+                        ")::oid AND l.objid = (",
+                        SCHEMA_KEY,
+                        ")::int4::oid AND l.objsubid = 2",
+                    ]);
                     match scope.fetch_optional(sql).await? {
                         Some(row) => row.text(0).map(Some),
                         None => Ok(None),

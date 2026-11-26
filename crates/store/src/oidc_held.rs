@@ -124,9 +124,11 @@ impl Store {
     /// [`StoreError::Database`] if the statement fails.
     pub async fn hold_oidc_sign_in(&self, held: &HeldSignIn) -> Result<bool, StoreError> {
         self.with_write_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "INSERT INTO oidc_held_sign_ins ({HELD_COLUMNS}) SELECT "
-            ));
+            let mut sql = scope.sql([
+                "INSERT INTO oidc_held_sign_ins (",
+                HELD_COLUMNS,
+                ") SELECT ",
+            ]);
             sql.bind(&held.held_hash)
                 .push(", p.org_id, p.id, p.revision")
                 .push_bind(", ", &held.issuer)
@@ -168,9 +170,11 @@ impl Store {
         now: i64,
     ) -> Result<Option<HeldSignIn>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {HELD_COLUMNS} FROM oidc_held_sign_ins WHERE held_hash = "
-            ));
+            let mut sql = scope.sql([
+                "SELECT ",
+                HELD_COLUMNS,
+                " FROM oidc_held_sign_ins WHERE held_hash = ",
+            ]);
             sql.bind(held_hash)
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push_bind(" AND expires_at > ", now);
@@ -307,7 +311,7 @@ async fn take_held(
     let mut sql = scope.sql("DELETE FROM oidc_held_sign_ins WHERE held_hash = ");
     sql.bind(held_hash)
         .push_bind(" AND org_id = ", scope.org()?)
-        .push(&format!(" RETURNING {HELD_COLUMNS}"));
+        .push([" RETURNING ", HELD_COLUMNS]);
     scope
         .fetch_optional(sql)
         .await?

@@ -191,7 +191,7 @@ impl Listeners {
     }
 
     /// Queues `message` for the connection; one whose queue is full is closed.
-    fn tell(&mut self, id: ListenerId, message: &impl Outgoing) -> bool {
+    pub(super) fn tell(&mut self, id: ListenerId, message: &impl Outgoing) -> bool {
         let Some(text) = text_of(message) else {
             return false;
         };
@@ -396,7 +396,9 @@ impl Hub {
             |listener, workspace| {
                 listener.user_id == user_id
                     && workspace == workspace_id
-                    && !listener.made().has_shown_password()
+                    && listener
+                        .made()
+                        .is_none_or(|made| !made.has_shown_password())
             },
         );
     }
@@ -407,7 +409,9 @@ impl Hub {
     /// identifier, and stay.
     pub fn end_subscriptions_made_otherwise(&self, provider_id: &str) {
         self.end_workspaces_where(Ended::Sso, Revocations::everyone, |listener, _| {
-            listener.made().is_made_otherwise_than(provider_id)
+            listener
+                .made()
+                .is_none_or(|made| made.is_made_otherwise_than(provider_id))
         });
     }
 }
@@ -423,5 +427,7 @@ pub(super) fn shuts_out(
     provider_id: &str,
 ) -> bool {
     workspace_ids.iter().any(|id| id == workspace)
-        && listener.made().is_made_otherwise_than(provider_id)
+        && listener
+            .made()
+            .is_none_or(|made| made.is_made_otherwise_than(provider_id))
 }

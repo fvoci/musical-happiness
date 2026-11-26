@@ -628,7 +628,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
         )
         .await;
     check_refused_member(&response, "blocks/0/body");
-    // A card with a body may not become another block.
+    // A card's type is fixed at creation and may not become another block.
     let response = th
         .client
         .patch(
@@ -636,7 +636,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
             &json!({"type": "attachment"}),
         )
         .await;
-    check_refused_member(&response, "body");
+    check_refused_member(&response, "type");
     // Nothing of the refused requests was stored: no block, no board.
     let stored = th.client.get(&blocks).await.value();
     assert_eq!(
@@ -1211,10 +1211,10 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
     let read = block_of(&th.client, &board.id, &comment_id).await;
     assert_eq!(read["body"], with_image(&file_id), "{read}");
 
-    // A comment with a body may not become a block that has none.
+    // A comment's type is fixed at creation and may not become another block.
     check_refused_member(
         &th.client.patch(&path, &json!({"type": "attachment"})).await,
-        "body",
+        "type",
     );
     // Back from the trash with its body.
     th.client.delete(&path).await.check_no_content();

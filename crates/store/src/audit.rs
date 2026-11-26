@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 use fvoci_model::{AuditAction, AuditPerson, AuditRecord, AuditRecordActor, new_id};
 
-use crate::db::{Bound, Id, OptId, Param, Row, Scope, now_millis};
+use crate::db::{Bound, Id, OptId, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::{Paging, Store};
 
@@ -389,7 +389,7 @@ async fn insert_entry(
         .push_bind(", ", entry.action.as_str())
         .push_bind(", ", Id(&entry.target_id))
         .push_bind(", ", OptId(&entry.subject_id))
-        .push_bind(", ", now_millis())
+        .push_bind(", ", scope.now_millis())
         .push_bind(", ", entry.actor.kind().as_str())
         .push_bind(
             ", ",

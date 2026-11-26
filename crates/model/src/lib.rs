@@ -65,7 +65,7 @@ pub use account_deletion::{
     ACCOUNT_DELETION_GRACE_DAYS, AccountDeletion, AccountDeletionAsked, DeleteAccountRequest,
     DeletionProof, Leaving, LeavingOrganization, OrganizationName,
 };
-pub use allowlist::body_node_types;
+pub use allowlist::{body_node_types, is_allowed_href, is_file_id};
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, ConfirmPasswordRequest, DISPLAY_NAME_MAX_LENGTH,

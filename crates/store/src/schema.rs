@@ -116,6 +116,11 @@ pub(crate) const BEFORE_UNIFIED_TIMESTAMPS_VERSION: i64 = 74;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const BEFORE_USER_SETTINGS_AND_BLOCK_CLEANUP_VERSION: i64 = 75;
 
+/// The migration before composite indexes, derived columns, `users.email_verified_at`,
+/// exam result snapshots, and course integrity triggers (0077).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const BEFORE_SERVER_INDEXES_AND_DERIVED_COLUMNS_VERSION: i64 = 76;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
@@ -579,5 +584,17 @@ mod tests {
             step.description,
             "user settings client state and block cleanup"
         );
+    }
+
+    /// Migration 77 adds server indexes, derived columns, `users.email_verified_at`,
+    /// exam snapshot columns, and course child triggers.
+    #[test]
+    fn migration_77_is_server_indexes_and_derived_columns() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == BEFORE_SERVER_INDEXES_AND_DERIVED_COLUMNS_VERSION + 1)
+            .expect("migration 77 is in the list");
+        assert_eq!(step.version, 77);
+        assert_eq!(step.description, "server indexes and derived columns");
     }
 }

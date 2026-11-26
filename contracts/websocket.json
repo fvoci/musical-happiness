@@ -165,6 +165,21 @@
       },
       "sent": false
     },
+    "workspaceSubscribed": {
+      "members": {
+        "type": "string",
+        "workspaceId": "string"
+      }
+    },
+    "blocksSubscribed": {
+      "members": {
+        "type": "string",
+        "workspaceId": "string",
+        "blockIds": [
+          "string"
+        ]
+      }
+    },
     "workspaceUnsubscribed": {
       "members": {
         "type": "string",

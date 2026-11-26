@@ -54,20 +54,32 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
   const ada = person('meet-ada');
   const bora = person('meet-bora');
   const chloe = person('meet-chloe');
-  await Promise.all([register(base, ada), register(base, bora), register(base, chloe)]);
-  const [adaApi, boraApi, chloeApi] = await Promise.all([
+  const dana = person('meet-dana');
+  const evan = person('meet-evan');
+  await Promise.all([
+    register(base, ada),
+    register(base, bora),
+    register(base, chloe),
+    register(base, dana),
+    register(base, evan),
+  ]);
+  const [adaApi, boraApi, chloeApi, danaApi, evanApi] = await Promise.all([
     signedIn(base, ada),
     signedIn(base, bora),
     signedIn(base, chloe),
+    signedIn(base, dana),
+    signedIn(base, evan),
   ]);
   const pages: Page[] = [];
   const watched: string[][] = [];
 
   try {
-    const [adaUser, boraUser, chloeUser] = await Promise.all([
+    const [adaUser, boraUser, chloeUser, danaUser, evanUser] = await Promise.all([
       getJson<Schemas['User']>(adaApi, '/api/v1/users/me'),
       getJson<Schemas['User']>(boraApi, '/api/v1/users/me'),
       getJson<Schemas['User']>(chloeApi, '/api/v1/users/me'),
+      getJson<Schemas['User']>(danaApi, '/api/v1/users/me'),
+      getJson<Schemas['User']>(evanApi, '/api/v1/users/me'),
     ]);
     const workspaces = await getJson<Schemas['UserWorkspace'][]>(
       adaApi,
@@ -170,17 +182,18 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     await expect(adaExam.getByTestId('exam-average')).toContainText('Requires 2+ other scores');
     await expect(adaExam.getByTestId('exam-score-count')).toContainText('1 submitted');
 
-    // Bora switches to Exams tab: with only 1 scorer, average is hidden; saves own score (100) -> 2 scorers, still hidden!
+    // Bora switches to Exams tab: as a non-manager learner with < 5 scorers, bucketed count is 0
+    // so Bora cannot even tell whether Ada submitted (`No scores yet`), and saves own score (100).
     await boraPage.getByTestId('course-tab-exams').click();
     const boraExam = boraPage.getByTestId('exam-card').first();
-    await expect(boraExam.getByTestId('exam-average')).toContainText('Requires 2+ other scores');
+    await expect(boraExam.getByTestId('exam-average')).toContainText('No scores yet');
     await expect(boraExam).not.toContainText('ADA_PRIVATE_REFLECTION');
     await boraExam.getByTestId('exam-my-score-input').fill('100');
     await boraExam.getByTestId('exam-my-note-input').fill('BORA_PRIVATE_REFLECTION');
     await boraExam.getByTestId('exam-my-score-save').click();
     await expect(boraExam.getByTestId('exam-my-score-saved')).toContainText('100 / 100');
-    await expect(boraExam.getByTestId('exam-average')).toContainText('Requires 2+ other scores');
-    await expect(boraExam.getByTestId('exam-score-count')).toContainText('2 submitted');
+    await expect(boraExam.getByTestId('exam-average')).toContainText('No scores yet');
+    await expect(boraExam.getByTestId('exam-score-count')).toContainText('0 submitted');
 
     // Unjoined Chloe sees join hints, zero score inputs, and zero aggregate leak (`No scores yet` / `0 submitted`).
     const chloeSession = await signedInPage(
@@ -196,40 +209,95 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     await expect(chloePage.getByTestId('exam-average')).toContainText('No scores yet');
     await expect(chloePage.getByTestId('exam-score-count')).toContainText('0 submitted');
 
-    // Enroll Chloe -> unsubmitted Chloe has 2 other scorers (Ada=80, Bora=100), so she sees 90 / 100;
-    // then Chloe submits 90 (3rd scorer) -> Ada & Bora reload and see 90 / 100 with 3 submitted!
+    // Enroll Chloe -> before results publication (and below the k >= 5 floor), average stays
+    // null and non-manager learners see bucketed `0 submitted` so exact scorer counts never leak.
     await postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
       userId: chloeUser.id,
       role: 'viewer',
     });
     await chloePage.reload();
     const chloeExam = chloePage.getByTestId('exam-card').first();
-    await expect(chloeExam.getByTestId('exam-average')).toContainText('90 / 100');
-    await expect(chloeExam.getByTestId('exam-score-count')).toContainText('2 submitted');
+    await expect(chloeExam.getByTestId('exam-average')).toContainText('No scores yet');
+    await expect(chloeExam.getByTestId('exam-score-count')).toContainText('0 submitted');
     await chloeExam.getByTestId('exam-my-score-input').fill('90');
     await chloeExam.getByTestId('exam-my-note-input').fill('CHLOE_PRIVATE_REFLECTION');
     await chloeExam.getByTestId('exam-my-score-save').click();
     await expect(chloeExam.getByTestId('exam-my-score-saved')).toContainText('90 / 100');
-    await expect(chloeExam.getByTestId('exam-average')).toContainText('90 / 100');
-    await expect(chloeExam.getByTestId('exam-score-count')).toContainText('3 submitted');
+    await expect(chloeExam.getByTestId('exam-average')).toContainText('No scores yet');
+    await expect(chloeExam.getByTestId('exam-score-count')).toContainText('0 submitted');
+
+    const listedExams = await getJson<Schemas['CourseExam'][]>(
+      adaApi,
+      `${inWorkspace}/courses/${course.id}/exams`,
+    );
+    const examId = listedExams[0]?.id ?? '';
+    expect(examId).not.toBe('');
+
+    const prematurePublish = await adaApi.post(
+      `${inWorkspace}/courses/${course.id}/exams/${examId}/results-publication`,
+      { data: {} },
+    );
+    expect(prematurePublish.status()).toBe(409);
+
+    // Enroll Dana and Evan and submit 90 each -> k = 5 scorers (80, 100, 90, 90, 90 => 90.0),
+    // then Ada publishes the frozen result snapshot.
+    await Promise.all([
+      postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
+        userId: danaUser.id,
+        role: 'viewer',
+      }),
+      postJson(adaApi, `${inWorkspace}/containers/${course.id}/members`, {
+        userId: evanUser.id,
+        role: 'viewer',
+      }),
+    ]);
+    const [danaScoreRes, evanScoreRes] = await Promise.all([
+      danaApi.put(`${inWorkspace}/courses/${course.id}/exams/${examId}/my-score`, {
+        data: { score: 90, note: '' },
+      }),
+      evanApi.put(`${inWorkspace}/courses/${course.id}/exams/${examId}/my-score`, {
+        data: { score: 90, note: '' },
+      }),
+    ]);
+    expect(danaScoreRes.ok()).toBe(true);
+    expect(evanScoreRes.ok()).toBe(true);
+
+    await postJson<Schemas['CourseExam']>(
+      adaApi,
+      `${inWorkspace}/courses/${course.id}/exams/${examId}/results-publication`,
+      {},
+    );
 
     await adaPage.reload();
     const adaExamReloaded = adaPage.getByTestId('exam-card').first();
     await expect(adaExamReloaded.getByTestId('exam-average')).toContainText('90 / 100');
-    await expect(adaExamReloaded.getByTestId('exam-score-count')).toContainText('3 submitted');
+    await expect(adaExamReloaded.getByTestId('exam-score-count')).toContainText('5 submitted');
     await expect(adaExamReloaded.getByTestId('exam-my-score-saved')).toContainText('80 / 100');
     await expect(adaExamReloaded).not.toContainText('BORA_PRIVATE_REFLECTION');
     await expect(adaExamReloaded).not.toContainText('CHLOE_PRIVATE_REFLECTION');
 
-    // Bora deletes own score -> submitted Chloe now has only 1 other scorer so average hides again,
-    // while unsubmitted Bora (2 other scorers: Ada=80, Chloe=90) sees 85 / 100!
+    // Bora deletes own score -> learner Bora sees bucketed `0 submitted` (`4 / 5 * 5`) and
+    // manager Ada sees exact `4 submitted` while the published snapshot stays frozen at 90 / 100;
+    // unpublishing hides the average again.
     await boraExam.getByTestId('exam-my-score-delete').click();
-    await expect(boraExam.getByTestId('exam-average')).toContainText('85 / 100');
-    await expect(boraExam.getByTestId('exam-score-count')).toContainText('2 submitted');
+    await expect(boraExam.getByTestId('exam-score-count')).toContainText('0 submitted');
+    await adaPage.reload();
+    await expect(
+      adaPage.getByTestId('exam-card').first().getByTestId('exam-score-count'),
+    ).toContainText('4 submitted');
     await chloePage.reload();
     await expect(
       chloePage.getByTestId('exam-card').first().getByTestId('exam-average'),
-    ).toContainText('Requires 2+ other scores');
+    ).toContainText('90 / 100');
+
+    const unpublishRes = await adaApi.delete(
+      `${inWorkspace}/courses/${course.id}/exams/${examId}/results-publication`,
+    );
+    expect(unpublishRes.ok()).toBe(true);
+    await chloePage.reload();
+    await expect(
+      chloePage.getByTestId('exam-card').first().getByTestId('exam-average'),
+    ).toContainText('No scores yet');
 
     // Public sharing link makes zero /meetings or /exams requests and hides all course tabs.
     await adaPage.goto(coursePath(shared.id, course.id));
@@ -262,6 +330,9 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
       ...pages.map((p) => p.context().close()),
       adaApi.dispose(),
       boraApi.dispose(),
+      chloeApi.dispose(),
+      danaApi.dispose(),
+      evanApi.dispose(),
     ]);
   }
 });

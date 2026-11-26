@@ -5,7 +5,7 @@ use fvoci_model::{
 };
 
 use crate::Store;
-use crate::db::{Dialect, Id, Param, Row, Scope, now_millis};
+use crate::db::{Id, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::unit_progress::require_live_unit;
 
@@ -35,10 +35,8 @@ impl Store {
             );
             sql.bind(Id(course_id))
                 .push_bind(" AND unit_id = ", Id(unit_id))
-                .push_bind(" AND user_id = ", Id(user_id));
-            if scope.dialect() == Dialect::Postgres {
-                sql.push_bind(" AND org_id = ", org);
-            }
+                .push_bind(" AND user_id = ", Id(user_id))
+                .push_bind(" AND org_id = ", org);
             if let Some(kind) = kind {
                 sql.push_bind(" AND kind = ", kind.as_str());
             }
@@ -76,7 +74,7 @@ impl Store {
             let org = scope.org()?;
             require_live_unit(scope, course_id, unit_id, user_id, org.clone()).await?;
             let id = new_id();
-            let now = now_millis();
+            let now = scope.now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO unit_notes \
                  (id, org_id, unit_id, container_id, user_id, kind, content, created_at, \
@@ -129,7 +127,7 @@ impl Store {
             // Acquire `blocks -> workspace_members -> users` before locking `unit_notes`
             // so concurrent removal/erasure cannot deadlock on PostgreSQL.
             require_live_unit(scope, course_id, &unit_id, user_id, org.clone()).await?;
-            let now = now_millis();
+            let now = scope.now_millis();
             let mut sql = scope.sql("UPDATE unit_notes SET ");
             sql.changing_no_access();
             if let Some(kind) = change.kind {
@@ -141,11 +139,11 @@ impl Store {
             sql.push_bind("updated_at = ", now)
                 .push_bind(" WHERE id = ", Id(note_id))
                 .push_bind(" AND container_id = ", Id(course_id))
-                .push_bind(" AND user_id = ", Id(user_id));
-            if scope.dialect() == Dialect::Postgres {
-                sql.push_bind(" AND org_id = ", org);
-            }
-            sql.push(" RETURNING id, unit_id, container_id, kind, content, created_at, updated_at");
+                .push_bind(" AND user_id = ", Id(user_id))
+                .push_bind(" AND org_id = ", org)
+                .push(
+                    " RETURNING id, unit_id, container_id, kind, content, created_at, updated_at",
+                );
             let row = scope
                 .fetch_optional(sql)
                 .await?
@@ -177,10 +175,8 @@ impl Store {
             sql.changing_no_access()
                 .bind(Id(note_id))
                 .push_bind(" AND container_id = ", Id(course_id))
-                .push_bind(" AND user_id = ", Id(user_id));
-            if scope.dialect() == Dialect::Postgres {
-                sql.push_bind(" AND org_id = ", org);
-            }
+                .push_bind(" AND user_id = ", Id(user_id))
+                .push_bind(" AND org_id = ", org);
             if scope.execute(sql).await? == 0 {
                 return Err(StoreError::not_found("unit note"));
             }
@@ -236,6 +232,7 @@ async fn find_live_note_unit(
     sql.bind(Id(note_id))
         .push_bind(" AND un.container_id = ", Id(course_id))
         .push_bind(" AND un.user_id = ", Id(user_id))
+        .push_bind(" AND un.org_id = ", org.clone())
         .push(" AND b.container_id = un.container_id")
         .push_bind(" AND b.type = ", BlockType::Unit.as_str())
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())

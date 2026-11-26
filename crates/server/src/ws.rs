@@ -155,6 +155,25 @@ struct CategoryContainersReorderMessage<'a> {
     workspace_id: &'a str,
 }
 
+/// The server accepted a workspace subscription (`subscriptions.rs`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubscribedWorkspaceMessage<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    workspace_id: &'a str,
+}
+
+/// The server accepted a shared-board block subscription (`subscriptions.rs`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubscribedBlocksMessage<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    workspace_id: &'a str,
+    block_ids: &'a [String],
+}
+
 /// The server stopped what a connection followed of a workspace (`ending.rs`).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -219,6 +238,8 @@ outgoing!(
     CategoryReorderMessage,
     CategoryContainersReorderMessage,
     UpdateClientConfigMessage,
+    SubscribedWorkspaceMessage,
+    SubscribedBlocksMessage,
     UnsubscribedWorkspaceMessage,
     UnsubscribedBlocksMessage,
 );
@@ -242,10 +263,9 @@ struct Listener {
     /// password, and without a session.
     login: Option<LoginOrigin>,
     /// How that session was made, and what it confirmed at the handshake or since, as
-    /// the rule of which session opens what reads it: the connection's place among the
-    /// rooms shares it. A session that confirms the account's password has it marked
-    /// here, on the connections it has (`Hub::session_gave_password`).
-    making: SessionKept,
+    /// the rule of which session opens what reads it: `None` for a connection without a
+    /// session.
+    making: Option<SessionKept>,
     /// The token the session is looked up by while the connection lasts
     /// (`Hub::session_ends`); `None` for a connection without a session.
     token: Option<Arc<SessionToken>>,
@@ -329,9 +349,10 @@ struct Listeners {
 }
 
 impl Listener {
-    /// How the connection's session was made, and what it has confirmed by now.
-    fn made(&self) -> SessionMade {
-        self.making.made()
+    /// How the connection's session was made, and what it has confirmed by now; `None`
+    /// for an anonymous connection without a session.
+    fn made(&self) -> Option<SessionMade> {
+        self.making.as_ref().map(SessionKept::made)
     }
 
     /// Gives the connection up, for `reason`; the first reason given is the one counted.

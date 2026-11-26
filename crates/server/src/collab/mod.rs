@@ -114,12 +114,21 @@ pub struct Collab {
     inner: Arc<Inner>,
 }
 
+type ContainerLocks = HashMap<(Tenant, String), Arc<tokio::sync::RwLock<()>>>;
+type CardSlots = HashMap<String, (String, Arc<tokio::sync::Mutex<Slot>>)>;
+
 #[derive(Debug)]
 struct Inner {
     workers: Vec<Worker>,
-    /// Per organization: a deletion excludes its document work and changes to its
-    /// card tree until it is done ([`removal`]).
-    gates: Mutex<HashMap<Tenant, Arc<tokio::sync::RwLock<()>>>>,
+    /// Per `(organization, container_id)`: a deletion excludes document work and changes
+    /// to that container's card tree until it is done ([`removal`]).
+    gates: Mutex<ContainerLocks>,
+    /// Per `(organization, container_id)`: serializes `changing_structure` (read) with
+    /// the `Deletion::Block` fast-path check (write) without blocking document work.
+    structures: Mutex<ContainerLocks>,
+    /// Home worker index assigned to each organization (`H-3`).
+    tenant_slots: Mutex<HashMap<Tenant, usize>>,
+    next_tenant_slot: AtomicUsize,
     /// How many documents each worker was given, of those that are open, but those
     /// opened aside.
     loads: Vec<AtomicUsize>,
@@ -127,8 +136,9 @@ struct Inner {
     /// ([`Share::Aside`](crate::collab_worker::wire::Share::Aside)): of the whole server, so that a worker never holds more of
     /// them than it takes, whichever they are opened in. Who finds none free waits.
     aside: Arc<tokio::sync::Semaphore>,
-    /// The documents that are open, or were and are closed for a while, by card.
-    slots: Mutex<HashMap<String, Arc<tokio::sync::Mutex<Slot>>>>,
+    /// The documents that are open, or were and are closed for a while, by card: each
+    /// entry stores `(container_id, slot)`.
+    slots: Mutex<CardSlots>,
     /// The next number a document is opened under in a worker.
     numbers: AtomicU64,
     limits: Limits,
@@ -255,6 +265,9 @@ impl Collab {
         Ok(Self {
             inner: Arc::new(Inner {
                 gates: Mutex::new(HashMap::new()),
+                structures: Mutex::new(HashMap::new()),
+                tenant_slots: Mutex::new(HashMap::new()),
+                next_tenant_slot: AtomicUsize::new(0),
                 workers: (0..count)
                     .map(|_| Worker::new(worker_settings.clone()))
                     .collect(),
@@ -316,11 +329,17 @@ impl Collab {
     {
         let (collab, app_of_task, card_id) = (self.clone(), app.clone(), card_id.to_owned());
         let task = app.spawn_tracked(async move {
-            let _gate = collab.reading(app_of_task.store().tenant()).await;
+            let container_id = collab
+                .slot_container_id(&app_of_task, &card_id)
+                .await?
+                .ok_or_else(|| AppError::not_found("card"))?;
+            let _gate = collab
+                .reading(app_of_task.store().tenant(), &container_id)
+                .await;
             if gone.as_ref().is_some_and(CancellationToken::is_cancelled) {
                 return Err(AppError::not_found("card"));
             }
-            let slot = collab.slot(&app_of_task, &card_id).await;
+            let slot = collab.slot_in(&app_of_task, &card_id, &container_id).await;
             work(collab, app_of_task, card_id, slot).await
         });
         task.await.map_err(|error| {
@@ -623,8 +642,11 @@ impl Collab {
         for slot in &slots {
             let closed = tokio::time::timeout_at(deadline, async {
                 // In the order of the gate and then the slot, as everything else.
-                let tenant = slot.lock().await.tenant;
-                let _gate = self.reading(tenant).await;
+                let (tenant, container_id) = {
+                    let guard = slot.lock().await;
+                    (guard.tenant, guard.container_id.clone())
+                };
+                let _gate = self.reading(tenant, &container_id).await;
                 let mut slot = Arc::clone(slot).lock_owned().await;
                 self.forget(&mut slot).await;
                 self.retire(&mut slot);
@@ -750,8 +772,11 @@ impl Collab {
         tokio::time::timeout_at(deadline, async {
             // The slot is let go before the gate is waited for: a deletion holds the
             // gate while it waits for slots.
-            let tenant = slot.lock().await.tenant;
-            let _gate = self.reading(tenant).await;
+            let (tenant, container_id) = {
+                let guard = slot.lock().await;
+                (guard.tenant, guard.container_id.clone())
+            };
+            let _gate = self.reading(tenant, &container_id).await;
             let mut slot = Arc::clone(slot).lock_owned().await;
             let app = app.scoped(slot.tenant);
             if let Some(card_id) = slot.open.is_some().then(|| slot.card_id.clone()) {
@@ -770,6 +795,17 @@ impl Collab {
             pids.push(worker.pid().await);
         }
         pids
+    }
+
+    /// The process identifier of the worker currently holding `card_id`'s open document,
+    /// if any, for multi-worker isolation tests.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn document_worker_pid(&self, app: &App, card_id: &str) -> Option<u32> {
+        let slot = self.existing_slot(app, card_id).await?;
+        let worker = slot.open.as_ref()?.worker;
+        drop(slot);
+        self.inner.workers[worker].pid().await
     }
 
     /// How many of the first worker's processes ended, and its deaths in a row: for the
@@ -853,6 +889,7 @@ impl Collab {
         let refused = Refused {
             refusal: Refusal::UpdateTooLarge,
             message: format!("{} bytes, before the worker", sent.len()),
+            rolled_back: false,
         };
         Err(refusals::refused(&refused, &self.inner.limits))
     }
@@ -868,93 +905,10 @@ impl Collab {
             .due_writes_left
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
-
-    /// Has the next write of a document's body to its card wait, after it read the card
-    /// and before it writes it, until the second is notified; the first is notified when
-    /// it waits. For the tests of what is written to the card meanwhile.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn pause_next_projection(&self) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
-        let pause = (
-            Arc::new(tokio::sync::Notify::new()),
-            Arc::new(tokio::sync::Notify::new()),
-        );
-        *self
-            .inner
-            .projection_pause
-            .lock()
-            .expect("the pause is not poisoned") = Some(pause.clone());
-        pause
-    }
-
-    /// Waits where [`Collab::pause_next_projection`] asked.
-    #[cfg(feature = "test-util")]
-    async fn paused_before_projection(&self) {
-        let pause = self
-            .inner
-            .projection_pause
-            .lock()
-            .expect("the pause is not poisoned")
-            .take();
-        if let Some((waiting, go)) = pause {
-            waiting.notify_one();
-            go.notified().await;
-        }
-    }
-
-    /// Has the next update wait, after the worker took it and before it is logged,
-    /// until the second is notified; the first is notified when it waits. For the
-    /// tests of what is sent to anybody meanwhile.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn pause_next_log(&self) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
-        let pause = (
-            Arc::new(tokio::sync::Notify::new()),
-            Arc::new(tokio::sync::Notify::new()),
-        );
-        *self
-            .inner
-            .log_pause
-            .lock()
-            .expect("the pause is not poisoned") = Some(pause.clone());
-        pause
-    }
-
-    /// Waits where [`Collab::pause_next_log`] asked.
-    #[cfg(feature = "test-util")]
-    async fn paused_before_log(&self) {
-        let pause = self
-            .inner
-            .log_pause
-            .lock()
-            .expect("the pause is not poisoned")
-            .take();
-        if let Some((waiting, go)) = pause {
-            waiting.notify_one();
-            go.notified().await;
-        }
-    }
-
-    /// Forgets every open document without writing its body, and ends the workers: as
-    /// a server that is killed leaves them, for the tests of what a server that starts
-    /// again makes of that.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    pub async fn abandon(&self) {
-        for slot in self.all_slots() {
-            let tenant = slot.lock().await.tenant;
-            let _gate = self.reading(tenant).await;
-            let mut slot = slot.lock_owned().await;
-            self.lost(&mut slot);
-            self.retire(&mut slot);
-        }
-        for worker in &self.inner.workers {
-            worker.end().await;
-        }
-    }
 }
+
+#[cfg(feature = "test-util")]
+mod test_pauses;
 
 /// The bytes of an answer that carries them.
 fn bytes(answer: Answer) -> Result<Vec<u8>, AppError> {

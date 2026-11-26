@@ -13,20 +13,18 @@
 //! the file removed, and the record of the part names the object store's identifier of
 //! it (`docs/s6-design.md` 5.6, 6).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use bytes::Bytes;
-use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
+use futures_util::Stream;
 use fvoci_model::{Upload, UploadPart, UploadPurpose};
 use fvoci_store::PartRecord;
-use sha2::{Digest as _, Sha256};
 use tokio::fs;
-use tokio::io::AsyncWriteExt as _;
-use tokio::sync::{OwnedMutexGuard, Semaphore};
-use tokio_util::io::{ReaderStream, StreamReader};
+use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit, Semaphore};
 
 use super::doomed::Doomed;
 use super::files::FilePlace;
@@ -54,6 +52,12 @@ pub const MAX_UPLOAD_NAME_CHARS: usize = 255;
 /// at once, while each is read from its file and sent to the bucket. A part that would
 /// take more waits on the disk until the memory is there.
 pub const PARTS_IN_MEMORY: u64 = 8;
+
+/// Maximum concurrent part streams received on local disk for one user at a time.
+pub(super) const MAX_RECEIVING_PARTS_PER_USER: usize = 8;
+
+/// Maximum idle gap between incoming body chunks while receiving an upload.
+pub(crate) const PART_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What a refusal says a session is that is not there: none of that identifier, another
 /// user's, or one that has ended.
@@ -133,6 +137,102 @@ impl Drop for Turn<'_> {
     }
 }
 
+/// Guards in-flight `putUploadPart` streams so two requests never stream the same
+/// `(upload_id, part_number)` concurrently (`409 Conflict`) and one user holds at most
+/// [`MAX_RECEIVING_PARTS_PER_USER`] active part receivers at once.
+#[derive(Debug, Default)]
+pub(crate) struct ReceivingParts {
+    active: Mutex<HashSet<(String, i64)>>,
+    per_user: Mutex<HashMap<String, Arc<Semaphore>>>,
+}
+
+impl ReceivingParts {
+    async fn enter(
+        &self,
+        user_id: &str,
+        upload_id: &str,
+        number: i64,
+    ) -> Result<Receiving<'_>, AppError> {
+        let key = (upload_id.to_owned(), number);
+        {
+            let mut active = self.active.lock().expect("receiving parts lock poisoned");
+            if !active.insert(key.clone()) {
+                return Err(AppError::conflict(format_args!(
+                    "part {number} of the upload is already being received"
+                )));
+            }
+        }
+        let part_guard = ActivePart {
+            parts: self,
+            key: Some(key),
+        };
+        let semaphore = {
+            let mut per_user = self.per_user.lock().expect("receiving users lock poisoned");
+            Arc::clone(
+                per_user
+                    .entry(user_id.to_owned())
+                    .or_insert_with(|| Arc::new(Semaphore::new(MAX_RECEIVING_PARTS_PER_USER))),
+            )
+        };
+        let permit = Arc::clone(&semaphore)
+            .acquire_owned()
+            .await
+            .map_err(|_| AppError::internal("receiving part semaphore closed"))?;
+        Ok(Receiving {
+            _part: part_guard,
+            parts: self,
+            user_id: user_id.to_owned(),
+            semaphore,
+            permit: Some(permit),
+        })
+    }
+}
+
+struct ActivePart<'a> {
+    parts: &'a ReceivingParts,
+    key: Option<(String, i64)>,
+}
+
+impl Drop for ActivePart<'_> {
+    fn drop(&mut self) {
+        if let Some(key) = self.key.take() {
+            self.parts
+                .active
+                .lock()
+                .expect("receiving parts lock poisoned")
+                .remove(&key);
+        }
+    }
+}
+
+struct Receiving<'a> {
+    _part: ActivePart<'a>,
+    parts: &'a ReceivingParts,
+    user_id: String,
+    semaphore: Arc<Semaphore>,
+    permit: Option<OwnedSemaphorePermit>,
+}
+
+impl Drop for Receiving<'_> {
+    fn drop(&mut self) {
+        let Some(permit) = self.permit.take() else {
+            return;
+        };
+        drop(permit);
+        let mut per_user = self
+            .parts
+            .per_user
+            .lock()
+            .expect("receiving users lock poisoned");
+        // Map entry + `self.semaphore` = 2 strong refs when nobody else holds or waits.
+        if Arc::strong_count(&self.semaphore) == 2
+            && self.semaphore.available_permits() == MAX_RECEIVING_PARTS_PER_USER
+        {
+            per_user.remove(&self.user_id);
+        }
+    }
+}
+
 impl App {
     /// Opens a session for `user_id` to upload a file to `container_id`. The caller has
     /// checked that the user may upload files to the board.
@@ -194,6 +294,10 @@ impl App {
         // One server serves a database (`docs/configuration.md`): a lock in it is
         // enough to keep the check and the insertion together.
         let turn = self.opening_upload_turn().await;
+        if purpose == UploadPurpose::File {
+            self.check_org_storage_room(u64::try_from(new.size).unwrap_or(0))
+                .await?;
+        }
         let now = now_millis();
         let usage = self.store().upload_usage(user_id, now).await?;
         if usage.user_sessions >= MAX_OPEN_UPLOADS {
@@ -357,6 +461,10 @@ impl App {
         if upload.closed_at != 0 {
             return Err(closed());
         }
+        let _receiving = self
+            .receiving_parts()
+            .enter(&upload.user_id, &upload.id, number)
+            .await?;
 
         let directory = self.upload_dir(&upload.id);
         fs::create_dir_all(&directory)
@@ -561,6 +669,11 @@ impl App {
         upload: &Upload,
         parts: &[UploadPart],
     ) -> Result<String, AppError> {
+        let size = u64::try_from(upload.size).unwrap_or_default();
+        if let Err(error) = self.check_org_storage_room(size).await {
+            self.discard_in_turn(upload).await;
+            return Err(error);
+        }
         let Some(files) = self.files().multipart() else {
             self.discard_in_turn(upload).await;
             return Err(AppError::internal(
@@ -582,7 +695,6 @@ impl App {
         // Recorded before the session is forgotten: a server that stops in between leaves
         // a closed session, which the clean-up throws away with the object if it has no
         // record.
-        let size = u64::try_from(upload.size).unwrap_or_default();
         let place = FilePlace::at(&upload.path, &upload.name);
         let recorded = self.record_file(upload, place, size).await;
         // A record whose answer was lost may be there all the same.
@@ -844,144 +956,10 @@ impl App {
     }
 }
 
-/// The parts in `directory` read one after the other, after checking that each is the
-/// size it was received with.
-async fn parts_reader(
-    parts: &[UploadPart],
-    directory: &Path,
-) -> Result<impl tokio::io::AsyncRead + Send + Unpin + use<>, AppError> {
-    let mut paths = Vec::with_capacity(parts.len());
-    for part in parts {
-        let path = directory.join(&part.part_id);
-        let on_disk = fs::metadata(&path)
-            .await
-            .map_err(|error| part_error(&error))?
-            .len();
-        if Some(on_disk) != u64::try_from(part.size).ok() {
-            return Err(AppError::internal(format_args!(
-                "part {} of an upload has {on_disk} bytes on the disk, not {}",
-                part.number, part.size
-            )));
-        }
-        paths.push(path);
-    }
-    let bytes = futures_util::stream::iter(paths)
-        .then(|path| async move { fs::File::open(path).await })
-        .map_ok(ReaderStream::new)
-        .try_flatten();
-    Ok(StreamReader::new(Box::pin(bytes)))
-}
-
-/// Joins the parts in `directory` into the file `to`, in order, removing each once it is
-/// in: the disk holds the archive and one part at most, not the archive twice.
-async fn join_parts(parts: &[UploadPart], directory: &Path, to: &Path) -> Result<(), AppError> {
-    let mut file = fs::File::create(to)
-        .await
-        .map_err(|error| part_error(&error))?;
-    for part in parts {
-        let path = directory.join(&part.part_id);
-        let mut reader = fs::File::open(&path)
-            .await
-            .map_err(|error| part_error(&error))?;
-        let copied = tokio::io::copy(&mut reader, &mut file)
-            .await
-            .map_err(|error| part_error(&error))?;
-        if Some(copied) != u64::try_from(part.size).ok() {
-            return Err(AppError::internal(format_args!(
-                "part {} of an upload has {copied} bytes on the disk, not {}",
-                part.number, part.size
-            )));
-        }
-        drop(reader);
-        remove_quietly(&path).await;
-    }
-    file.flush().await.map_err(|error| part_error(&error))?;
-    Ok(())
-}
-
-/// Writes the body to `path`, checking its length and digest as it goes.
-async fn receive_part<E>(
-    path: &Path,
-    size: u64,
-    digest: &PartDigest,
-    mut body: impl Stream<Item = Result<Bytes, E>> + Unpin,
-) -> Result<(), AppError>
-where
-    E: std::fmt::Display,
-{
-    let mut file = fs::File::create(path).await.map_err(|error| {
-        // The directory went away under the request: the upload was closed meanwhile.
-        if error.kind() == io::ErrorKind::NotFound {
-            closed()
-        } else {
-            part_error(&error)
-        }
-    })?;
-    let mut hasher = Sha256::new();
-    let mut received: u64 = 0;
-    while let Some(chunk) = body.next().await {
-        let chunk = chunk.map_err(|error| {
-            AppError::bad_request(format_args!("the part could not be read: {error}"))
-        })?;
-        received = received.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
-        if received > size {
-            return Err(AppError::bad_request(format_args!(
-                "the part is longer than its {size} bytes"
-            )));
-        }
-        hasher.update(&chunk);
-        file.write_all(&chunk)
-            .await
-            .map_err(|error| part_error(&error))?;
-    }
-    if received != size {
-        return Err(AppError::bad_request(format_args!(
-            "the part has {received} of its {size} bytes"
-        )));
-    }
-    if hasher.finalize().as_slice() != digest {
-        return Err(AppError::bad_request(
-            "the part's SHA-256 digest is not the one of the Content-Digest header",
-        )
-        .with_header("Content-Digest"));
-    }
-    file.flush().await.map_err(|error| part_error(&error))?;
-    file.sync_all().await.map_err(|error| part_error(&error))?;
-    Ok(())
-}
-
-/// The refusal of a part or a completion for a session that is closed.
-fn closed() -> AppError {
-    AppError::conflict("the upload is being completed or thrown away")
-}
-
-/// A part that cannot be written: the server's failure.
-fn part_error(error: &io::Error) -> AppError {
-    AppError::internal(format_args!("the part could not be stored: {error}"))
-}
-
-/// Removes a directory of parts that is not to be kept, if it is there. Returns false
-/// if it is there still, which is logged.
-async fn remove_dir_quietly(directory: &Path) -> bool {
-    match fs::remove_dir_all(directory).await {
-        Ok(()) => true,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => true,
-        Err(error) => {
-            tracing::error!(%error, "the parts of an upload could not be removed");
-            false
-        }
-    }
-}
-
-/// Removes a file that is not to be kept, if it is there.
-async fn remove_quietly(path: &Path) {
-    match fs::remove_file(path).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => tracing::warn!(%error, "a part that is not kept could not be removed"),
-    }
-}
-
 mod file_to_upload;
+mod parts_io;
 
 pub use file_to_upload::FileToUpload;
+use parts_io::{
+    closed, join_parts, part_error, parts_reader, receive_part, remove_dir_quietly, remove_quietly,
+};

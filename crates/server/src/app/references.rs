@@ -36,11 +36,9 @@ impl App {
     /// Whatever else an identifier names is left out and nothing says why: no block,
     /// one in the trash, one of another workspace or organization, one of a board the
     /// user does not read, or a block that is neither a card nor a page. Access is
-    /// asked once for every identifier, whatever it names: of the board its block is
-    /// on, or, where it names no block, of the identifier itself, which is no board. A
-    /// board that is not there takes the reads of one that is ([`App::container_access`]),
-    /// so the work done is that of as many identifiers as were asked and says nothing
-    /// of what they name, nor of which of them are on one board.
+    /// asked once per distinct container (or once for an unknown identifier), caching
+    /// the answer within this call so resolving many blocks on the same board does not
+    /// repeat identical container access lookups.
     ///
     /// # Errors
     ///
@@ -74,13 +72,18 @@ impl App {
             .iter()
             .map(|block| (block.id.as_str(), block))
             .collect();
+        let mut readable_containers: HashMap<&str, Container> = HashMap::new();
         let mut told = Vec::new();
         for id in asked {
             let block = named.get(id);
             let container_id = block.map_or(id, |block| block.container_id.as_str());
-            let container = self.container_read(user_id, container_id).await?;
-            if let (Some(block), Some(container)) = (block, container)
-                && let Some(linked) = LinkedBlock::of(block, &container)
+            if !readable_containers.contains_key(container_id)
+                && let Some(resolved) = self.container_read(user_id, container_id).await?
+            {
+                readable_containers.insert(container_id, resolved);
+            }
+            if let (Some(block), Some(container)) = (block, readable_containers.get(container_id))
+                && let Some(linked) = LinkedBlock::of(block, container)
             {
                 told.push(linked);
             }

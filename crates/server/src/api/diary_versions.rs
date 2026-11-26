@@ -7,7 +7,9 @@ use fvoci_model::{BodyVersion, BodyVersionContent, DiaryEntry, KeptBodyVersion};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::version_number;
+use super::body_versions::{
+    get_body_version, keep_body_version, list_body_versions, restore_body_version,
+};
 use super::contract::params::{DiaryId, EntryId, EntryVersionNumber, OwnWorkspaceId};
 use super::contract::tag;
 use super::diaries::{READ_DENIED, entry_with_permission};
@@ -50,8 +52,7 @@ async fn handle_get_diary_entry_body_versions(
         READ_DENIED,
     )
     .await?;
-    let versions = ws.app.body_versions(&entry.id).await?;
-    Ok(json_response(&versions))
+    list_body_versions(&ws.app, &entry.id).await
 }
 
 /// Keep an entry's body as a version now
@@ -81,7 +82,7 @@ async fn handle_keep_diary_entry_body_version(
         "access denied to keep a version of the entry's body",
     )
     .await?;
-    let kept = ws.app.keep_body_version_now(&entry.id).await?;
+    let kept = keep_body_version(&ws.app, &entry.id).await?;
     tracing::debug!(diary_id, entry_id, user_id, outcome = ?kept.outcome, "KeepDiaryEntryBodyVersion");
     Ok(json_response(&kept))
 }
@@ -110,11 +111,7 @@ async fn handle_get_diary_entry_body_version(
         READ_DENIED,
     )
     .await?;
-    let version = ws
-        .app
-        .body_version(&entry.id, version_number(&version)?)
-        .await?;
-    Ok(json_response(&version))
+    get_body_version(&ws.app, &entry.id, &version).await
 }
 
 /// Go back to a version of an entry's body
@@ -143,10 +140,7 @@ async fn handle_restore_diary_entry_body_version(
         "access denied to restore a version of the entry's body",
     )
     .await?;
-    let block = ws
-        .app
-        .restore_body_version(&entry, version_number(&version)?, user_id)
-        .await?;
+    let block = restore_body_version(&ws.app, &entry, &version, user_id).await?;
     tracing::debug!(diary_id, entry_id, user_id, "RestoreDiaryEntryBodyVersion");
     Ok(json_response(&DiaryEntry::from(block)))
 }

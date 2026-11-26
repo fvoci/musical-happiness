@@ -8,6 +8,8 @@ use crate::refusal::RefusalReason;
 pub enum Named {
     /// The organization somebody starts by signing up, and so its first workspace.
     Organization,
+    /// A workspace inside an organization.
+    Workspace,
     /// A team of people of a workspace.
     Team,
 }
@@ -17,7 +19,7 @@ impl Named {
     fn field(self) -> &'static str {
         match self {
             Self::Organization => "organizationName",
-            Self::Team => "name",
+            Self::Workspace | Self::Team => "name",
         }
     }
 
@@ -25,6 +27,7 @@ impl Named {
     fn words(self) -> (&'static str, &'static str) {
         match self {
             Self::Organization => ("organization name", "an organization name"),
+            Self::Workspace => ("workspace name", "a workspace name"),
             Self::Team => ("team name", "a team name"),
         }
     }

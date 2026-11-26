@@ -3,7 +3,7 @@
 
 use fvoci_model::{Team, TeamMember, new_id, team_name_key};
 
-use crate::db::{Dialect, Id, Scope};
+use crate::db::{Dialect, Id, Scope, SqlFragment};
 use crate::{Store, StoreError, Taken, org_admin, workspace_membership};
 
 impl Store {
@@ -58,7 +58,8 @@ impl Store {
         self.transaction(async |scope| {
             managing(scope, workspace_id, by).await?;
             let mut sql = scope.sql("UPDATE teams SET name = ");
-            sql.bind(name)
+            sql.changing_no_access()
+                .bind(name)
                 .push_bind(", name_key = ", team_name_key(name))
                 .push_bind(" WHERE id = ", Id(team_id))
                 .push_bind(" AND workspace_id = ", Id(workspace_id))
@@ -133,8 +134,12 @@ pub(crate) async fn list(
             })
         })
         .collect::<Result<Vec<_>, StoreError>>()?;
-    let mut sql = scope.sql(&format!("SELECT tm.team_id, u.id, u.username, u.display_name FROM {} tm JOIN users u ON u.id = tm.user_id WHERE tm.workspace_id = ", present_members(scope)));
-    sql.bind(Id(workspace_id))
+    let mut sql = scope.sql("SELECT tm.team_id, u.id, u.username, u.display_name FROM ");
+    sql.push(&present_members(scope))
+        .push_bind(
+            " tm JOIN users u ON u.id = tm.user_id WHERE tm.workspace_id = ",
+            Id(workspace_id),
+        )
         .push_bind(" AND tm.org_id = ", scope.org()?)
         .push(" ORDER BY tm.team_id, tm.user_id");
     for row in scope.fetch_all(sql).await? {
@@ -165,11 +170,17 @@ fn name_error(error: StoreError) -> StoreError {
 
 /// The shared source of current team membership, for any workspace module.
 /// System directory queries bind the organization through their resource's workspace.
-pub(crate) fn present_members(scope: &Scope<'_>) -> String {
-    let wall = scope.same_organization(&[("wm", "tm")]);
-    format!(
-        "(SELECT tm.team_id, tm.workspace_id, tm.org_id, tm.user_id FROM team_members tm JOIN workspace_members wm ON wm.workspace_id = tm.workspace_id AND wm.user_id = tm.user_id JOIN workspaces w ON w.id = tm.workspace_id AND w.org_id = tm.org_id WHERE wm.role IN ('admin', 'member') AND w.deleted_at IS NULL{wall})"
-    )
+pub(crate) fn present_members(scope: &Scope<'_>) -> SqlFragment {
+    let mut frag = SqlFragment::of(&[
+        "(SELECT tm.team_id, tm.workspace_id, tm.org_id, tm.user_id \
+         FROM team_members tm \
+         JOIN workspace_members wm ON wm.workspace_id = tm.workspace_id AND wm.user_id = tm.user_id \
+         JOIN workspaces w ON w.id = tm.workspace_id AND w.org_id = tm.org_id \
+         WHERE wm.role IN ('admin', 'member') AND w.deleted_at IS NULL",
+    ]);
+    frag.push_fragment(&scope.same_organization(&[("wm", "tm")]))
+        .push(")");
+    frag
 }
 
 pub(crate) async fn delete(

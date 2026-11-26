@@ -48,8 +48,7 @@ impl From<BlockError> for AppError {
                 .with_limit(u64::from(limit)),
             BlockError::InvalidRelation(error) => Self::from(error),
             BlockError::TypeNotCurrent
-            | BlockError::TypeStrandsComments
-            | BlockError::TypeStrandsCards
+            | BlockError::TypeChanges
             | BlockError::PageByBlocks
             | BlockError::PageOffWiki
             | BlockError::NotPageOnWiki

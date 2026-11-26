@@ -1,10 +1,10 @@
 //! A search of a workspace's bodies, and the check of what the search server answers.
 
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 
 use fvoci_model::{SearchHit, SearchKind, SnippetPart};
 use fvoci_store::{PublicContainers, SearchDocument};
+use tokio::time::Instant;
 
 use super::client::ClientError;
 use super::database::MAX_BOUND_CONTAINERS;

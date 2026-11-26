@@ -24,7 +24,7 @@ pub(crate) use self::cleanup::{
 };
 use crate::Store;
 use crate::containers::inherited_members_source;
-use crate::db::{Dialect, Id, Param, Row, Scope, now_millis};
+use crate::db::{Id, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::notification_outbox::keep_newest;
 use crate::unit_progress::require_live_unit;
@@ -79,6 +79,7 @@ impl Store {
             );
             sql.bind(Id(course_id))
                 .push_bind(" AND ur.user_id = ", Id(user_id))
+                .push_bind(" AND ur.org_id = ", org.clone())
                 .push(" AND b.container_id = ur.container_id")
                 .push_bind(" AND b.type = ", BlockType::Unit.as_str())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
@@ -135,6 +136,7 @@ impl Store {
             );
             sql.bind(Id(course_id))
                 .push_bind(" AND ur.user_id = ", Id(user_id))
+                .push_bind(" AND ur.org_id = ", org.clone())
                 .push(" AND b.container_id = ur.container_id")
                 .push_bind(" AND b.type = ", BlockType::Unit.as_str())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
@@ -172,6 +174,7 @@ impl Store {
         unit_id: &str,
         user_id: &str,
         new: &NewUnitReview,
+        now: Option<i64>,
     ) -> Result<UnitReview, StoreError> {
         if !is_id(user_id) {
             return Err(StoreError::InvalidId(user_id.to_owned()));
@@ -179,7 +182,8 @@ impl Store {
         self.transaction(async |scope| {
             let org = scope.org()?;
             require_live_unit(scope, course_id, unit_id, user_id, org.clone()).await?;
-            insert_review(scope, course_id, unit_id, user_id, org, new, now_millis()).await
+            let now = now.unwrap_or_else(|| scope.now_millis());
+            insert_review(scope, course_id, unit_id, user_id, org, new, now).await
         })
         .await
     }
@@ -202,6 +206,7 @@ impl Store {
         user_id: &str,
         intervals: &[u32],
         next: Option<&NewUnitReview>,
+        now: Option<i64>,
     ) -> Result<CompletedUnitReview, StoreError> {
         if !is_id(user_id) {
             return Err(StoreError::InvalidId(user_id.to_owned()));
@@ -216,7 +221,7 @@ impl Store {
             // Acquire `blocks -> workspace_members -> users` before locking `unit_reviews`
             // so concurrent removal/erasure cannot deadlock on PostgreSQL.
             require_live_unit(scope, course_id, &unit_id, user_id, org.clone()).await?;
-            let now = now_millis();
+            let now = now.unwrap_or_else(|| scope.now_millis());
             let mut update = scope.sql("UPDATE unit_reviews SET completed_at = ");
             update
                 .changing_no_access()
@@ -225,14 +230,12 @@ impl Store {
                 .push_bind(" WHERE id = ", Id(review_id))
                 .push_bind(" AND container_id = ", Id(course_id))
                 .push_bind(" AND user_id = ", Id(user_id))
-                .push(" AND completed_at IS NULL");
-            if scope.dialect() == Dialect::Postgres {
-                update.push_bind(" AND org_id = ", org.clone());
-            }
-            update.push(
-                " RETURNING id, unit_id, container_id, scheduled_date, completed_at, \
-                 CAST(interval_days AS BIGINT), created_at, updated_at",
-            );
+                .push_bind(" AND org_id = ", org.clone())
+                .push(" AND completed_at IS NULL")
+                .push(
+                    " RETURNING id, unit_id, container_id, scheduled_date, completed_at, \
+                     CAST(interval_days AS BIGINT), created_at, updated_at",
+                );
             let (review, transitioned) = match scope.fetch_optional(update).await? {
                 Some(row) => (review_from_row(&row)?, true),
                 None => (
@@ -278,10 +281,8 @@ impl Store {
             sql.changing_no_access()
                 .bind(Id(review_id))
                 .push_bind(" AND container_id = ", Id(course_id))
-                .push_bind(" AND user_id = ", Id(user_id));
-            if scope.dialect() == Dialect::Postgres {
-                sql.push_bind(" AND org_id = ", org);
-            }
+                .push_bind(" AND user_id = ", Id(user_id))
+                .push_bind(" AND org_id = ", org);
             if scope.execute(sql).await? == 0 {
                 return Err(StoreError::not_found("unit review"));
             }
@@ -320,6 +321,7 @@ impl Store {
                  WHERE ur.user_id = ",
             );
             sql.bind(Id(user_id))
+                .push_bind(" AND ur.org_id = ", org.clone())
                 .push(" AND ur.completed_at IS NULL")
                 .push_bind(" AND ur.scheduled_date <= ", today)
                 .push(" AND b.container_id = ur.container_id")
@@ -387,7 +389,7 @@ impl Store {
                    AND ur.scheduled_date <= ",
             );
             sql.bind(max_scheduled_date)
-                .push(" AND b.container_id = ur.container_id")
+                .push(" AND ur.org_id = w.org_id AND b.container_id = ur.container_id")
                 .push_bind(" AND b.type = ", BlockType::Unit.as_str())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
                 .push_bind(" AND c.is_template = ", false)
@@ -464,10 +466,8 @@ impl Store {
                 .bind(now)
                 .push_bind(" WHERE id = ", Id(&candidate.id))
                 .push_bind(" AND user_id = ", Id(&candidate.user_id))
+                .push_bind(" AND org_id = ", Id(&candidate.org_id))
                 .push(" AND completed_at IS NULL AND notified_at IS NULL");
-            if scope.dialect() == Dialect::Postgres {
-                mark.push_bind(" AND org_id = ", Id(&candidate.org_id));
-            }
             if scope.execute(mark).await? == 0 {
                 return Ok(false);
             }
@@ -551,6 +551,7 @@ async fn find_live_review_unit(
     sql.bind(Id(review_id))
         .push_bind(" AND ur.container_id = ", Id(course_id))
         .push_bind(" AND ur.user_id = ", Id(user_id))
+        .push_bind(" AND ur.org_id = ", org.clone())
         .push(" AND b.container_id = ur.container_id")
         .push_bind(" AND b.type = ", BlockType::Unit.as_str())
         .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
@@ -580,10 +581,8 @@ async fn fetch_review_row(
     );
     sql.bind(Id(review_id))
         .push_bind(" AND container_id = ", Id(course_id))
-        .push_bind(" AND user_id = ", Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push_bind(" AND org_id = ", org);
-    }
+        .push_bind(" AND user_id = ", Id(user_id))
+        .push_bind(" AND org_id = ", org);
     let row = scope
         .fetch_optional(sql)
         .await?

@@ -14,8 +14,8 @@ use fvoci_model::{
 };
 
 use crate::blocks::Paging;
-use crate::db::{Id, Scope, now_millis};
-use crate::page_trash::{self, place_taken, push_block_types_in_json};
+use crate::db::{Id, Scope};
+use crate::page_trash::{self, place_taken, push_block_types_in_trash};
 use crate::pages::{self, write_place};
 use crate::trash::{block_from_json, block_not_in_trash, push_paging, take_blocks_out_of_trash};
 use crate::{Store, StoreError, blocks, containers, page_places};
@@ -288,17 +288,16 @@ impl Store {
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedUnit>, StoreError> {
         self.with_conn(async |scope| {
-            let dialect = scope.dialect();
             let mut sql = scope.sql(
                 "SELECT top.block, top.deleted_by, top.deleted_at, \
                  (SELECT COUNT(*) FROM deleted_blocks went \
                  WHERE went.deletion_id = top.deletion_id AND ",
             );
-            push_block_types_in_json(&mut sql, dialect, "went", &COURSE_TYPES);
+            push_block_types_in_trash(&mut sql, "went.block_type", &COURSE_TYPES);
             sql.push(") FROM deleted_blocks top WHERE top.container_id = ")
                 .bind(Id(course_id))
                 .push(" AND ");
-            push_block_types_in_json(&mut sql, dialect, "top", &COURSE_TYPES);
+            push_block_types_in_trash(&mut sql, "top.block_type", &COURSE_TYPES);
             sql.push(
                 " AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
                  WHERE above.deletion_id = top.deletion_id AND above.id = top.parent_id) \
@@ -307,7 +306,19 @@ impl Store {
             push_paging(&mut sql, paging);
             let mut deleted = Vec::new();
             for row in &scope.fetch_all(sql).await? {
-                let block = block_from_json(row, 0)?;
+                let block = match block_from_json(row, 0) {
+                    Ok(block) => block,
+                    Err(StoreError::Corrupt { column, reason }) => {
+                        tracing::error!(
+                            course_id,
+                            column,
+                            %reason,
+                            "skipping corrupt deleted unit in trash listing"
+                        );
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 let went = u32::try_from(row.int(3)?).unwrap_or(u32::MAX);
                 let node = UnitNode::from(block);
                 deleted.push(DeletedUnit {
@@ -448,7 +459,8 @@ async fn undelete(
             renumbered.extend(pages::write_place(scope, top, place).await?);
         }
     }
-    let mut units = take_blocks_out_of_trash(scope, &deletion.id, user_id, now_millis(), |block| {
+    let now = scope.now_millis();
+    let mut units = take_blocks_out_of_trash(scope, &deletion.id, user_id, now, |block| {
         if let Some(top) = tops.iter().find(|top| top.id == block.id) {
             block.parent_id.clone_from(&top.parent_id);
             block.fields.clone_from(&top.fields);

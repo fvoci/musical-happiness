@@ -1,5 +1,8 @@
 //! The `fvoci-server` executable.
 
+#[cfg(all(not(debug_assertions), feature = "test-util"))]
+compile_error!("`fvoci-server` must not be built in release mode with `test-util` enabled");
+
 use std::io::Write as _;
 use std::path::PathBuf;
 

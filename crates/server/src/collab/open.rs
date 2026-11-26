@@ -1,10 +1,11 @@
 //! Opening a card's document from what is stored: its state and the updates logged
 //! after it, or, the first time, its card's body.
 
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::Ordering;
 
 use fvoci_model::{Block, Body};
-use fvoci_store::{LoggedUpdate, StoreError, StoredDoc, body_digest};
+use fvoci_store::{LoggedUpdate, StoreError, StoredDoc, Tenant, body_digest};
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
 
@@ -34,7 +35,7 @@ impl Collab {
         aside: Option<OwnedSemaphorePermit>,
     ) -> Result<OpenDoc, Opening> {
         let block = card(app, card_id).await?;
-        let worker = self.least_loaded();
+        let worker = self.worker_for(app.store().tenant());
         let number = self.next_number();
         let mut open = match app.store().get_body_doc(card_id).await? {
             None => self.make(app, &block, worker, number).await?,
@@ -423,6 +424,41 @@ impl Collab {
             .await;
     }
 
+    /// Chooses the worker for a new document of `tenant`: assigns each organization a
+    /// sticky home worker (`H-3`) so one organization's worker death does not disconnect
+    /// other organizations' sessions, spilling over around the ring when full.
+    fn worker_for(&self, tenant: Tenant) -> usize {
+        const MAX_TRACKED_TENANTS: usize = 4096;
+        let count = self.inner.loads.len();
+        if count <= 1 {
+            return 0;
+        }
+        let preferred = {
+            let mut slots = self
+                .inner
+                .tenant_slots
+                .lock()
+                .expect("tenant_slots mutex is never poisoned");
+            if let Some(&slot) = slots.get(&tenant) {
+                slot
+            } else if slots.len() < MAX_TRACKED_TENANTS {
+                let slot = self.inner.next_tenant_slot.fetch_add(1, Ordering::Relaxed) % count;
+                slots.insert(tenant, slot);
+                slot
+            } else {
+                tenant_worker(tenant, count)
+            }
+        };
+        let cap = usize::try_from(self.inner.limits.documents).unwrap_or(usize::MAX);
+        for step in 0..count {
+            let index = (preferred + step) % count;
+            if self.inner.loads[index].load(Ordering::Relaxed) < cap {
+                return index;
+            }
+        }
+        self.least_loaded()
+    }
+
     /// The worker that was given the fewest documents.
     fn least_loaded(&self) -> usize {
         self.inner
@@ -437,6 +473,24 @@ impl Collab {
     pub(super) fn next_number(&self) -> DocNumber {
         self.inner.numbers.fetch_add(1, Ordering::Relaxed)
     }
+}
+
+/// Deterministic FNV-1a worker index in `0..count` for `tenant`.
+fn tenant_worker(tenant: Tenant, count: usize) -> usize {
+    struct Fnv1a(u64);
+    impl Hasher for Fnv1a {
+        fn finish(&self) -> u64 {
+            self.0
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            for &byte in bytes {
+                self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+    }
+    let mut hasher = Fnv1a(0xcbf2_9ce4_8422_2325);
+    tenant.hash(&mut hasher);
+    usize::try_from(hasher.finish() % u64::try_from(count).unwrap_or(1)).unwrap_or(0)
 }
 
 /// The card or the page of that identifier as `app` reaches it: the block whose body

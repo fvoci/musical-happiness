@@ -340,7 +340,7 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid Zip archive: Could not find EOCD",
+      "detail": "zip: invalid archive",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,
@@ -588,7 +588,7 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid Zip archive: Could not find EOCD",
+      "detail": "zip: invalid archive",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,

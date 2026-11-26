@@ -13,7 +13,7 @@ use fvoci_model::{Block, BlockType, Body, CommentVersion};
 use serde_json::Value;
 
 use crate::Store;
-use crate::db::{Id, OptId, Param, Scope, to_json_text};
+use crate::db::{Id, OptId, Param, Scope, SqlFragment, to_json_text};
 use crate::error::StoreError;
 
 /// How many earlier versions of a comment the store keeps unless told otherwise.
@@ -192,17 +192,14 @@ pub(crate) async fn files_of(
 /// Forgets the versions of the comments that are gone for good: neither on a board nor
 /// in the trash of the organization of the version.
 pub(crate) async fn forget_gone_comments(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let statement = [
-        "DELETE FROM comment_versions WHERE NOT EXISTS \
-         (SELECT 1 FROM blocks b WHERE b.id = comment_versions.block_id",
-        &scope.same_organization(&[("b", "comment_versions")]),
-        ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = comment_versions.block_id",
-        &scope.same_organization(&[("d", "comment_versions")]),
-        ")",
-    ]
-    .concat();
-    let sql = scope.sql(&statement);
-    scope.execute(sql).await?;
+    let mut statement = SqlFragment::of(&["DELETE FROM comment_versions WHERE NOT EXISTS \
+         (SELECT 1 FROM blocks b WHERE b.id = comment_versions.block_id"]);
+    statement
+        .push_fragment(&scope.same_organization(&[("b", "comment_versions")]))
+        .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = comment_versions.block_id")
+        .push_fragment(&scope.same_organization(&[("d", "comment_versions")]))
+        .push(")");
+    scope.execute(scope.sql(&statement)).await?;
     Ok(())
 }
 

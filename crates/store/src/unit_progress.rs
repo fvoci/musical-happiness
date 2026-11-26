@@ -13,7 +13,8 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::containers::inherited_members_source;
-use crate::db::{Dialect, Id, Param, Row, Scope, now_millis};
+use crate::course_cleanup::{self, PersonalCourseTable};
+use crate::db::{Dialect, Id, Param, Row, Scope};
 use crate::error::StoreError;
 
 impl Store {
@@ -46,6 +47,7 @@ impl Store {
             );
             sql.bind(Id(course_id))
                 .push_bind(" AND up.user_id = ", Id(user_id))
+                .push_bind(" AND up.org_id = ", org.clone())
                 .push(" AND b.container_id = up.container_id")
                 .push_bind(" AND b.type = ", BlockType::Unit.as_str())
                 .push_bind(" AND c.kind = ", ContainerKind::Course.as_str())
@@ -220,7 +222,7 @@ async fn upsert_row(
     org: Param,
     change: &UnitProgressChange,
 ) -> Result<UnitProgress, StoreError> {
-    let now = now_millis();
+    let now = scope.now_millis();
     let inserted_completed_at = match change.completion {
         CompletionChange::Complete => Some(now),
         CompletionChange::Keep | CompletionChange::Incomplete => None,
@@ -229,9 +231,17 @@ async fn upsert_row(
         LastPositionChange::Set(position) => Some(position.clone()),
         LastPositionChange::Keep | LastPositionChange::Clear => None,
     };
-    let conflict_target = match scope.dialect() {
-        Dialect::Postgres => "(unit_id, org_id, user_id)",
-        Dialect::Sqlite => "(unit_id, user_id)",
+    let (conflict_target, updated_expr, org_guard) = match scope.dialect() {
+        Dialect::Postgres => (
+            "(unit_id, org_id, user_id)",
+            "GREATEST(unit_progress.updated_at, excluded.updated_at)",
+            "",
+        ),
+        Dialect::Sqlite => (
+            "(unit_id, user_id)",
+            "MAX(unit_progress.updated_at, excluded.updated_at)",
+            " WHERE unit_progress.org_id = excluded.org_id",
+        ),
     };
     let completed_set = match change.completion {
         CompletionChange::Complete => {
@@ -265,10 +275,10 @@ async fn upsert_row(
         .push(completed_set)
         .push(", ")
         .push(position_set)
-        .push(
-            ", updated_at = excluded.updated_at \
-             RETURNING unit_id, completed_at, planned_date, last_position, updated_at",
-        );
+        .push(", updated_at = ")
+        .push(updated_expr)
+        .push(org_guard)
+        .push(" RETURNING unit_id, completed_at, planned_date, last_position, updated_at");
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     progress_from_row(&row)
 }
@@ -344,6 +354,7 @@ async fn fetch_summary_rows(
              WHERE up.container_id = ",
         )
         .bind(Id(course_id))
+        .push_bind(" AND up.org_id = ", org.clone())
         .push(" AND up.completed_at IS NOT NULL AND b.container_id = up.container_id")
         .push_bind(" AND b.type = ", unit_type)
         .push_bind(" AND c.kind = ", course_kind)
@@ -402,20 +413,7 @@ fn count_u32(value: i64) -> u32 {
 /// Forgets personal progress rows of units that are gone for good: neither live in
 /// `blocks` nor awaiting restore in `deleted_blocks` of the row's organization.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let statement = [
-        "DELETE FROM unit_progress WHERE NOT EXISTS \
-         (SELECT 1 FROM blocks AS b WHERE b.id = unit_progress.unit_id",
-        scope.same_organization(&[("b", "unit_progress")]).as_str(),
-        ") AND NOT EXISTS \
-         (SELECT 1 FROM deleted_blocks AS d WHERE d.id = unit_progress.unit_id",
-        scope.same_organization(&[("d", "unit_progress")]).as_str(),
-        ")",
-    ]
-    .concat();
-    let mut sql = scope.sql(&statement);
-    sql.changing_no_access();
-    scope.execute(sql).await?;
-    Ok(())
+    course_cleanup::forget_gone_unit_rows(scope, course_cleanup::UnitCourseTable::Progress).await
 }
 
 /// Deletes every `unit_progress` row of `user_id` for courses belonging to
@@ -425,24 +423,13 @@ pub(crate) async fn forget_user_in_workspace(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("DELETE FROM unit_progress WHERE user_id = ");
-    sql.changing_no_access()
-        .bind(Id(user_id))
-        .push_bind(
-            " AND container_id IN (\
-             SELECT id FROM containers WHERE workspace_id = ",
-            Id(workspace_id),
-        )
-        .push_bind(
-            " UNION SELECT id FROM deleted_containers WHERE workspace_id = ",
-            Id(workspace_id),
-        )
-        .push(")");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push_bind(" AND org_id = ", scope.org()?);
-    }
-    scope.execute(sql).await?;
-    Ok(())
+    course_cleanup::forget_user_in_workspace(
+        scope,
+        PersonalCourseTable::UnitProgress,
+        workspace_id,
+        user_id,
+    )
+    .await
 }
 
 /// Deletes `unit_progress` rows of `user_id` in `workspace_id` for courses where
@@ -453,42 +440,13 @@ pub(crate) async fn forget_user_in_workspace_unjoined(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let org = scope.org()?;
-    let inherited = inherited_members_source(scope);
-    let mut sql = scope.sql("DELETE FROM unit_progress WHERE user_id = ");
-    sql.changing_no_access()
-        .bind(Id(user_id))
-        .push_bind(
-            " AND container_id IN (\
-             SELECT id FROM containers WHERE workspace_id = ",
-            Id(workspace_id),
-        )
-        .push_bind(
-            " UNION SELECT id FROM deleted_containers WHERE workspace_id = ",
-            Id(workspace_id),
-        )
-        .push(
-            ") AND NOT EXISTS (\
-             SELECT 1 FROM container_members AS cm \
-             WHERE cm.container_id = unit_progress.container_id \
-               AND cm.user_id = unit_progress.user_id",
-        )
-        .push(&scope.same_organization(&[("cm", "unit_progress")]))
-        .push(") AND NOT EXISTS (SELECT 1 FROM ")
-        .push(&inherited)
-        .push(
-            " AS im \
-             WHERE im.container_id = unit_progress.container_id \
-               AND im.user_id = unit_progress.user_id",
-        )
-        .push_bind(" AND im.org_id = ", org.clone())
-        .push(&scope.same_organization(&[("im", "unit_progress")]))
-        .push(")");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push_bind(" AND org_id = ", org);
-    }
-    scope.execute(sql).await?;
-    Ok(())
+    course_cleanup::forget_user_in_workspace_unjoined(
+        scope,
+        PersonalCourseTable::UnitProgress,
+        workspace_id,
+        user_id,
+    )
+    .await
 }
 
 /// Deletes every `unit_progress` row of `user_id` belonging to the scope's organization,
@@ -497,29 +455,6 @@ pub(crate) async fn forget_user_in_organization(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let org = scope.org()?;
-    let mut sql = scope.sql("DELETE FROM unit_progress WHERE user_id = ");
-    sql.changing_no_access().bind(Id(user_id));
-    match scope.dialect() {
-        Dialect::Postgres => {
-            sql.push_bind(" AND org_id = ", org);
-        }
-        Dialect::Sqlite => {
-            sql.push_bind(" AND (org_id = ", org.clone())
-                .push_bind(
-                    " OR (org_id = '' AND container_id IN (\
-                     SELECT c.id FROM containers AS c \
-                     JOIN workspaces AS w ON w.id = c.workspace_id WHERE w.org_id = ",
-                    org.clone(),
-                )
-                .push_bind(
-                    " UNION SELECT d.id FROM deleted_containers AS d \
-                     JOIN workspaces AS w ON w.id = d.workspace_id WHERE w.org_id = ",
-                    org,
-                )
-                .push(")))");
-        }
-    }
-    scope.execute(sql).await?;
-    Ok(())
+    course_cleanup::forget_user_in_organization(scope, PersonalCourseTable::UnitProgress, user_id)
+        .await
 }

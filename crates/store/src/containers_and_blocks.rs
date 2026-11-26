@@ -14,7 +14,7 @@ use crate::body_versions::BodyWrite;
 use crate::card_values;
 use crate::container_membership;
 use crate::containers;
-use crate::db::{Dialect, Scope, now_millis};
+use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
 use crate::files;
@@ -484,7 +484,7 @@ async fn stream_block_batches_in_tx<E>(
     mut batches: tokio::sync::mpsc::Receiver<StreamBatch<E>>,
     abort: &mut Option<StreamAbort<E>>,
 ) -> Result<(), StoreError> {
-    let now = now_millis();
+    let now = scope.now_millis();
     let mut named = Vec::new();
     let mut finished = false;
     while let Some(next) = batches.recv().await {
@@ -632,12 +632,7 @@ pub(crate) async fn patch_containers_and_blocks(
     // The boards that are patched and the boards of the blocks that are patched are
     // locked in one order, before any of them is written. A block that does not exist
     // is reported where it is patched, below.
-    let mut block_containers = Vec::with_capacity(patches.block_ids.len());
-    for block_id in &patches.block_ids {
-        if let Some(block) = blocks::find_block(scope, block_id).await? {
-            block_containers.push(block.container_id);
-        }
-    }
+    let block_containers = blocks::find_container_ids(scope, &patches.block_ids).await?;
     let to_lock = patches.container_ids.iter().chain(&block_containers);
     containers::lock_containers(scope, to_lock.map(String::as_str)).await?;
 
@@ -656,10 +651,9 @@ pub(crate) async fn patch_containers_and_blocks(
             .get(index)
             .ok_or(ContainersAndBlocksError::BlockIdsAndPatchesMismatch)?;
         let telling = Telling::of(scope);
-        blocks::patch_block(scope, block_id, patch, user_id, BodyWrite::Whole, telling).await?;
-        result
-            .blocks
-            .push(blocks::get_block(scope, block_id).await?);
+        let block =
+            blocks::patch_block(scope, block_id, patch, user_id, BodyWrite::Whole, telling).await?;
+        result.blocks.push(block);
     }
     Ok(result)
 }

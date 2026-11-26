@@ -229,7 +229,7 @@ impl Store {
             if scope.execute(take).await? == 0 {
                 return Ok(None);
             }
-            set_email(scope, &user_id, &new_email, now).await?;
+            set_email(scope, &user_id, &new_email, now.max(1), now).await?;
             if !account.email.is_empty() {
                 email_revert::insert(scope, &user_id, &account.email, revert, now).await?;
             }
@@ -269,7 +269,7 @@ impl Store {
             if is_held(scope, new_email, Some(user_id), now).await? {
                 return Err(StoreError::Conflict(Taken::Email));
             }
-            set_email(scope, user_id, new_email, now).await?;
+            set_email(scope, user_id, new_email, 0, now).await?;
             Ok(Some(EmailChanged {
                 user_id: user_id.to_owned(),
                 username: account.username,
@@ -365,9 +365,15 @@ async fn set_email(
     scope: &mut Scope<'_>,
     user_id: &str,
     new_email: &str,
+    email_verified_at: i64,
     now: i64,
 ) -> Result<(), StoreError> {
-    set_address(scope, user_id, new_email, now).await?;
+    let verified = if new_email.is_empty() {
+        0
+    } else {
+        email_verified_at
+    };
+    set_address(scope, user_id, new_email, verified, now).await?;
     password_reset::end_links_of_user(scope, user_id).await
 }
 
@@ -378,10 +384,12 @@ pub(crate) async fn set_address(
     scope: &mut Scope<'_>,
     user_id: &str,
     new_email: &str,
+    email_verified_at: i64,
     now: i64,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE users SET email = ");
     sql.bind(new_email)
+        .push_bind(", email_verified_at = ", email_verified_at)
         .push_bind(", updated_at = ", now)
         .push_bind(" WHERE id = ", Id(user_id));
     scope.execute(sql).await.map_err(|error| match error {

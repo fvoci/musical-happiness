@@ -2,7 +2,7 @@
 //! (`notifications`), and the rows of the list of whom to tell of it
 //! (`notification_outbox`), go with it, found by the block or by the board they name.
 
-use crate::db::{Id, Scope};
+use crate::db::{Id, Scope, SqlFragment};
 use crate::error::StoreError;
 
 /// How many identifiers one statement binds.
@@ -29,20 +29,20 @@ pub(super) async fn forget_told_of(
         Gone::Containers(ids) => ("container_id", ids),
     };
     for table in ["notifications", "notification_outbox"] {
-        let somewhere = [
+        let mut somewhere = SqlFragment::of(&[
             " AND NOT EXISTS (SELECT 1 FROM blocks AS b WHERE b.id = ",
             table,
             ".block_id",
-            &scope.same_organization(&[("b", table)]),
-            ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks AS d WHERE d.id = ",
-            table,
-            ".block_id",
-            &scope.same_organization(&[("d", table)]),
-            ")",
-        ]
-        .concat();
+        ]);
+        somewhere
+            .push_fragment(&scope.same_organization(&[("b", table)]))
+            .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks AS d WHERE d.id = ")
+            .push(table)
+            .push(".block_id")
+            .push_fragment(&scope.same_organization(&[("d", table)]))
+            .push(")");
         for batch in ids.chunks(BATCH) {
-            let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE {column} IN ("));
+            let mut sql = scope.sql(["DELETE FROM ", table, " WHERE ", column, " IN ("]);
             sql.bind_list(batch.iter().map(|id| Id(id)))
                 .push(")")
                 .push(&somewhere);

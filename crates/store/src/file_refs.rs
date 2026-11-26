@@ -14,13 +14,13 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{Block, BlockError, FileRecord};
+use fvoci_model::{Block, BlockError, BlockType, FileRecord};
 
 use crate::Store;
 use crate::block_derived::Refreshing;
 use crate::body_versions;
 use crate::comment_versions;
-use crate::db::{Dialect, Id, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Scope, Sql, SqlFragment};
 use crate::error::StoreError;
 use crate::files::{FILE_COLUMN_COUNT, FILE_COLUMNS, file_from_row};
 use crate::loose_objects;
@@ -53,6 +53,7 @@ impl Store {
                 Dialect::Postgres => " FOR UPDATE SKIP LOCKED",
                 Dialect::Sqlite => "",
             };
+            let same_org = scope.same_organization(&[("r", "files")]);
             let mut sql = scope.sql(
                 "DELETE FROM files WHERE id IN (SELECT id FROM files \
                  WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
@@ -62,12 +63,11 @@ impl Store {
                     " AND NOT EXISTS (SELECT 1 FROM file_refs r \
                        WHERE r.container_id = files.container_id AND r.name = files.name",
                 )
-                .push(&scope.same_organization(&[("r", "files")]))
-                .push(")")
-                .push(&format!(
-                    "{skip_held}) RETURNING {FILE_COLUMNS}{}",
-                    org.map_or(String::new(), |column| format!(", {column}"))
-                ));
+                .push(&same_org)
+                .push([")", skip_held, ") RETURNING ", FILE_COLUMNS]);
+            if let Some(column) = org {
+                sql.push([", ", column]);
+            }
             let rows = scope.fetch_all(sql).await?;
             let mut files = Vec::with_capacity(rows.len());
             let mut doomed = Vec::with_capacity(rows.len());
@@ -124,19 +124,26 @@ pub(crate) async fn refresh(
     if new_files == NewBodyFiles::Recorded {
         hold_new_body_files(scope, block, &names).await?;
     }
-    // What the block shows, and what the kept versions of a comment show, also of one
-    // that is no comment for now, and those of a card's body.
+    // What the block shows, and what the kept versions of a comment or of a room-backed
+    // body show. Because `block_type` is immutable after creation, non-comment blocks
+    // never query `comment_versions` and blocks without rooms never query `body_versions`.
     let mut shown: BTreeSet<String> = block.shown_files().into_iter().collect();
-    shown.extend(comment_versions::files_of(scope, &block.id).await?);
-    shown.extend(body_versions::files_of(scope, &block.id).await?);
-    for name in shown {
-        let mut sql = scope.sql("INSERT INTO file_refs (block_id, container_id, name) VALUES (");
-        sql.bind(Id(&block.id))
-            .push_bind(", ", Id(&block.container_id))
-            .push_bind(", ", name.as_str())
-            .push(")");
+    if block.block_type == BlockType::Comment {
+        shown.extend(comment_versions::files_of(scope, &block.id).await?);
+    } else if block.block_type.has_room() {
+        shown.extend(body_versions::files_of(scope, &block.id).await?);
+    }
+    if !shown.is_empty() {
+        let mut sql = scope.sql("INSERT INTO file_refs (block_id, container_id, name) VALUES ");
+        for (index, name) in shown.iter().enumerate() {
+            sql.push(if index == 0 { "(" } else { ", (" })
+                .bind(Id(&block.id))
+                .push_bind(", ", Id(&block.container_id))
+                .push_bind(", ", name.as_str())
+                .push(")");
+        }
         scope.execute(sql).await?;
-        names.push(name);
+        names.extend(shown);
     }
     if names.is_empty() {
         return Ok(());
@@ -262,14 +269,14 @@ pub(crate) async fn show_body_files(
 /// Forgets what the blocks that are gone for good showed: neither on a board nor in the
 /// trash of the organization of the row.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let statement = [
+    let mut statement = SqlFragment::of(&[
         "DELETE FROM file_refs WHERE NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = file_refs.block_id",
-        &scope.same_organization(&[("b", "file_refs")]),
-        ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = file_refs.block_id",
-        &scope.same_organization(&[("d", "file_refs")]),
-        ")",
-    ]
-    .concat();
+    ]);
+    statement
+        .push_fragment(&scope.same_organization(&[("b", "file_refs")]))
+        .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = file_refs.block_id")
+        .push_fragment(&scope.same_organization(&[("d", "file_refs")]))
+        .push(")");
     let sql = scope.sql(&statement);
     scope.execute(sql).await?;
     Ok(())
@@ -285,14 +292,12 @@ pub(crate) async fn mark(
     scope: &mut Scope<'_>,
     only: Option<(&str, &[String])>,
 ) -> Result<(), StoreError> {
-    let changing = [
-        "(unreferenced_at IS NULL) = (NOT EXISTS (\
+    let mut changing = SqlFragment::of(&["(unreferenced_at IS NULL) = (NOT EXISTS (\
          SELECT 1 FROM file_refs r WHERE r.container_id = files.container_id \
-         AND r.name = files.name",
-        &scope.same_organization(&[("r", "files")]),
-        "))",
-    ]
-    .concat();
+         AND r.name = files.name"]);
+    changing
+        .push_fragment(&scope.same_organization(&[("r", "files")]))
+        .push("))");
     if scope.dialect() == Dialect::Postgres {
         let ids = hold_marks(scope, only, &changing).await?;
         for batch in ids.chunks(MARK_BATCH) {
@@ -311,10 +316,10 @@ pub(crate) async fn mark(
     Ok(())
 }
 
-fn mark_statement(scope: &Scope<'_>, changing: &str) -> Sql {
+fn mark_statement(scope: &Scope<'_>, changing: &SqlFragment) -> Sql {
     let mut sql =
         scope.sql("UPDATE files SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
-    sql.bind(now_millis())
+    sql.bind(scope.now_millis())
         .push(" ELSE NULL END WHERE ")
         .push(changing);
     sql
@@ -335,11 +340,15 @@ fn narrow_marks(sql: &mut Sql, only: Option<(&str, &[String])>) {
 async fn hold_marks(
     scope: &mut Scope<'_>,
     only: Option<(&str, &[String])>,
-    changing: &str,
+    changing: &SqlFragment,
 ) -> Result<Vec<String>, StoreError> {
     let mut sql = scope.sql("SELECT id FROM files WHERE ");
     // Writers hold every affected row, even if their current snapshot needs no flip.
-    sql.push(if only.is_some() { "TRUE" } else { changing });
+    if only.is_some() {
+        sql.push("TRUE");
+    } else {
+        sql.push(changing);
+    }
     narrow_marks(&mut sql, only);
     sql.push(" ORDER BY id FOR NO KEY UPDATE");
     if only.is_none() {

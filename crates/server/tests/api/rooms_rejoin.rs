@@ -241,6 +241,7 @@ async fn a_join_that_names_its_document_counts_as_any_join() {
         .await
         .init_basic()
         .await;
+    th.app.collab().pause_frame_rate_clock();
     let (t, _one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     // Its first join was five of the ten; this is the other five.
     two.join_holding(TEST_WORKSPACE_ID, &t.card_id).await;

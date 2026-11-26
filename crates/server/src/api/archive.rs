@@ -247,13 +247,18 @@ async fn handle_import(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
         .with_field("uploadId"));
     }
     // Refused, the upload stays: the import can be asked for again.
-    let _slot = ws.app.start_import(&user_id)?;
-    // What is refused of the archive's boards and blocks is in the archive, not in the
-    // request, which names the upload alone.
+    let slot = ws.app.start_import(&user_id)?;
+    let app = ws.app.clone();
+    // Run inside `spawn_tracked` so a client disconnect mid-import never drops an
+    // in-flight S3 multipart upload or leaves staged objects uncleaned.
     let summary = ws
         .app
-        .import_upload_with_format(&upload, format)
+        .spawn_tracked(async move {
+            let _slot = slot;
+            app.import_upload_with_format(&upload, format).await
+        })
         .await
+        .map_err(|error| AppError::internal(format_args!("import task failed: {error}")))?
         .map_err(AppError::outside_the_request)?;
     Ok(json_response(&summary))
 }

@@ -228,7 +228,10 @@ async fn told_of_the_card(socket: &mut Socket, owner: &Client, shared: &Shared) 
             .patch(&path, &json!({"readAt": read_at, "body": body}))
             .await
             .check_ok();
-        if let Some(message) = socket.next_json(Duration::from_millis(100)).await {
+        while let Some(message) = socket.next_json(Duration::from_millis(100)).await {
+            if message["type"] == json!("blocksSubscribed") {
+                continue;
+            }
             assert_eq!(message["type"], json!("blockChanged"), "{message}");
             return message;
         }

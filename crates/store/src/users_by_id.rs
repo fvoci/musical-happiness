@@ -13,7 +13,8 @@ const ERASED_AS_NOBODY: &str = concat!(
     "id, username, email, password_hash, password_locked_at, \
      CASE WHEN erased_at > 0 THEN 0 ELSE created_at END, \
      CASE WHEN erased_at > 0 THEN 0 ELSE updated_at END, \
-     CASE WHEN erased_at > 0 THEN NULL ELSE deleted_at END, is_admin, display_name, ",
+     CASE WHEN erased_at > 0 THEN NULL ELSE deleted_at END, is_admin, display_name, \
+     CASE WHEN erased_at > 0 THEN 0 ELSE email_verified_at END, ",
     crate::person_names::name_columns!()
 );
 
@@ -64,9 +65,7 @@ pub(crate) async fn found_users_by_ids(
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut sql = scope.sql(&format!(
-        "SELECT {ERASED_AS_NOBODY} FROM users WHERE id IN ("
-    ));
+    let mut sql = scope.sql(["SELECT ", ERASED_AS_NOBODY, " FROM users WHERE id IN ("]);
     sql.bind_list(user_ids.iter().map(|id| Id(id))).push(
         ") AND (erased_at > 0 OR ((deleted_at IS NULL OR delete_after > 0 OR erase_started_at > 0)",
     );

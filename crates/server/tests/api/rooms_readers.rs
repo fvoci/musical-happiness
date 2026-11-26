@@ -82,13 +82,22 @@ async fn a_reader_by_link_is_kept_out_of_the_room_and_told_its_body_naming_nobod
                 "cardId": t.card_id, "readToken": token,
             }))
             .await;
-        // Answered after the subscription: the reader follows the card from here on.
+        // Answered after the subscription ACK: the reader follows the card from here on.
+        assert_eq!(
+            reader.incoming(PATIENCE).await,
+            Incoming::Text(json!({
+                "type": "blocksSubscribed", "workspaceId": TEST_WORKSPACE_ID,
+                "blockIds": [t.card_id],
+            })),
+            "subscription acknowledged before joinDoc"
+        );
         assert_eq!(
             reader.incoming(PATIENCE).await,
             Incoming::Text(json!({
                 "type": "docRefused", "workspaceId": TEST_WORKSPACE_ID,
                 "cardId": t.card_id, "reason": "not_found",
-            }))
+            })),
+            "reader by link refused from editing room"
         );
     }
 

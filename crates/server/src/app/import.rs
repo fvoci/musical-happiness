@@ -119,7 +119,8 @@ impl App {
             ImportFormat::Notion => {
                 let temp_root = self.config().tmp_dir();
                 let bundle = bundle::SafeBundle::open(path, &temp_root, limits).await?;
-                let staged = notion::convert_notion_bundle(&bundle, &limits).await?;
+                let staged =
+                    notion::convert_notion_bundle(&bundle, &limits, options.page_limits).await?;
                 self.commit_staged_archive(staged, Some(&bundle), &options, &limits)
                     .await
             }

@@ -46,6 +46,16 @@ const REMEMBERED: Duration = Duration::from_hours(24);
 /// is held; one user is held alone however often.
 const ORGANIZATION_SPARED: u32 = 2;
 
+/// How many updates a sender may force the worker to rebuild a document's checkpoint to
+/// refuse within [`ROLLBACK_WINDOW`] before being held back for [`ROLLBACK_HOLD`].
+const ROLLBACKS_FORGIVEN: u32 = 8;
+
+/// The window in which a sender's post-mutation rollbacks are counted together.
+const ROLLBACK_WINDOW: Duration = Duration::from_secs(60);
+
+/// How long a sender is held back after exceeding [`ROLLBACKS_FORGIVEN`].
+const ROLLBACK_HOLD: Duration = Duration::from_secs(30);
+
 /// The deaths of a sender.
 #[derive(Debug, Clone, Copy)]
 struct Deaths {
@@ -55,12 +65,21 @@ struct Deaths {
     held_until: Option<Instant>,
 }
 
+/// Recent post-mutation rollbacks caused by a sender.
+#[derive(Debug, Clone, Copy)]
+struct Rollbacks {
+    count: u32,
+    since: Instant,
+}
+
 /// What an organization remembers of the updates of its users that ended a worker.
 #[derive(Debug, Default)]
 struct Organization {
     /// Its users, by their identifier: who sends an update has a session (a room lets
     /// in nobody without one).
     senders: HashMap<String, Deaths>,
+    /// Post-mutation rollbacks per sender within [`ROLLBACK_WINDOW`].
+    rollbacks: HashMap<String, Rollbacks>,
     /// Until when the updates of all its users are refused.
     held_until: Option<Instant>,
 }
@@ -71,7 +90,40 @@ impl Organization {
     fn forget(&mut self, now: Instant) -> bool {
         let remembered = |last: Instant| now.duration_since(last) <= REMEMBERED;
         self.senders.retain(|_, deaths| remembered(deaths.last));
-        !self.senders.is_empty() || self.held_until.is_some_and(|until| until > now)
+        self.rollbacks
+            .retain(|_, seen| now.duration_since(seen.since) <= ROLLBACK_WINDOW);
+        !self.senders.is_empty()
+            || !self.rollbacks.is_empty()
+            || self.held_until.is_some_and(|until| until > now)
+    }
+
+    /// Counts an update the worker took in place and had to rebuild from its checkpoint
+    /// to refuse: past [`ROLLBACKS_FORGIVEN`] in [`ROLLBACK_WINDOW`], holds the sender
+    /// alone for [`ROLLBACK_HOLD`] without escalating to an organization-wide hold.
+    fn rolled_back(&mut self, user_id: &str, now: Instant) {
+        let seen = self
+            .rollbacks
+            .entry(user_id.to_owned())
+            .or_insert(Rollbacks {
+                count: 0,
+                since: now,
+            });
+        if now.duration_since(seen.since) > ROLLBACK_WINDOW {
+            *seen = Rollbacks {
+                count: 0,
+                since: now,
+            };
+        }
+        seen.count = seen.count.saturating_add(1);
+        if seen.count > ROLLBACKS_FORGIVEN {
+            let deaths = self.senders.entry(user_id.to_owned()).or_insert(Deaths {
+                count: 0,
+                last: now,
+                held_until: None,
+            });
+            deaths.last = now;
+            deaths.held_until = deaths.held_until.max(Some(now + ROLLBACK_HOLD));
+        }
     }
 
     /// Counts a death of a user at `now`, and holds everyone back if the user is one
@@ -229,6 +281,20 @@ impl Senders {
             .entry(tenant)
             .or_default()
             .ended_worker(user_id, now);
+    }
+
+    /// Puts down that an update of a user of an organization forced a worker rollback at
+    /// `now`, holding that user back briefly past [`ROLLBACKS_FORGIVEN`].
+    pub(super) fn rolled_back(&self, tenant: Tenant, user_id: &str, now: Instant) {
+        let mut organizations = self
+            .organizations
+            .lock()
+            .expect("the organizations are not poisoned");
+        organizations.retain(|_, organization| organization.forget(now));
+        organizations
+            .entry(tenant)
+            .or_default()
+            .rolled_back(user_id, now);
     }
 }
 
@@ -537,5 +603,37 @@ mod tests {
         senders.ended_worker(ONE, "dan", later);
         assert_eq!(kept(), 1, "the other organization is forgotten");
         assert_eq!(senders.held_until(Tenant::Unset, "bob", later), None);
+    }
+
+    #[test]
+    fn repeated_rollbacks_hold_the_sender_alone_without_holding_the_organization() {
+        let senders = Senders::default();
+        let start = Instant::now();
+        for _ in 0..ROLLBACKS_FORGIVEN {
+            senders.rolled_back(ONE, "ann", start);
+            assert_eq!(senders.held_until(ONE, "ann", start), None);
+        }
+        senders.rolled_back(ONE, "ann", start);
+        assert_eq!(
+            senders.held_until(ONE, "ann", start),
+            Some(start + ROLLBACK_HOLD)
+        );
+        for user in ["bob", "cat", "dan"] {
+            for _ in 0..=ROLLBACKS_FORGIVEN {
+                senders.rolled_back(ONE, user, start);
+            }
+        }
+        assert_eq!(
+            senders.held_until(ONE, "eve", start),
+            None,
+            "rollbacks never escalate to an organization-wide hold"
+        );
+        let after_window = start + ROLLBACK_WINDOW + Duration::from_secs(1);
+        senders.rolled_back(ONE, "ann", after_window);
+        assert_eq!(
+            senders.held_until(ONE, "ann", after_window),
+            None,
+            "window resets after a minute"
+        );
     }
 }

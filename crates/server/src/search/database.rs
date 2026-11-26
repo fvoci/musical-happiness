@@ -196,7 +196,7 @@ impl App {
         let mut from = 0_i64;
         loop {
             let ids = match asking
-                .page(self.search(), self.store(), from, size, pages.by)
+                .page(self.search(), self.store(), from, size, pages.by.into_std())
                 .await?
             {
                 Page::Ids(ids) => ids,

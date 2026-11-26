@@ -652,7 +652,7 @@ mod tests {
             of_block.updated_fields.get(PAGE_ICON_FIELD),
             Some(&json!(""))
         );
-        assert!(of_block.parent_id.is_none() && of_block.block_type.is_none());
+        assert!(of_block.parent_id.is_none());
 
         let long = "t".repeat(BLOCK_TITLE_MAX_CHARS + 1);
         assert!(

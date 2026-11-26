@@ -46,7 +46,13 @@ impl Hub {
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
         let mut who = subscribe::Who::of(identity);
-        let (mut docs, docs_outbox) = app.collab().seat(app, &who.user_id, who.making.clone());
+        let (mut docs, docs_outbox) = app.collab().seat(
+            app,
+            &who.user_id,
+            who.making
+                .clone()
+                .unwrap_or_else(crate::app::SessionKept::with_password),
+        );
         let token = who.token.take().map(SessionToken::shared);
         let docs_overrun = docs.overrun();
         let docs_ended_worker = docs.ended_worker();
@@ -73,16 +79,7 @@ impl Hub {
         if let Some(token) = &token
             && let Err(error) = self.find_kept_session(token).await
         {
-            self.listeners().remove(id);
-            if error.kind() == ErrorKind::Unauthorized {
-                metrics.websocket_closed(Disconnect::SessionEnded);
-            } else {
-                // Not ended, unread: the page is told to connect again, and does with
-                // its spread wait.
-                tracing::warn!(%error, "a websocket connection ends: its session could not be read");
-                metrics.websocket_closed(Disconnect::StoreUnavailable);
-                writer::close(sink, Some(Disconnect::StoreUnavailable)).await;
-            }
+            self.close_missing_session_on_open(id, error, sink).await;
             return;
         }
 
@@ -130,6 +127,23 @@ impl Hub {
                 .is_err()
         {
             writer.abort();
+        }
+    }
+
+    async fn close_missing_session_on_open(
+        &self,
+        id: ListenerId,
+        error: crate::error::AppError,
+        sink: futures_util::stream::SplitSink<WebSocket, axum::extract::ws::Message>,
+    ) {
+        self.listeners().remove(id);
+        let metrics = &self.inner.metrics;
+        if error.kind() == ErrorKind::Unauthorized {
+            metrics.websocket_closed(Disconnect::SessionEnded);
+        } else {
+            tracing::warn!(%error, "a websocket connection ends: its session could not be read");
+            metrics.websocket_closed(Disconnect::StoreUnavailable);
+            writer::close(sink, Some(Disconnect::StoreUnavailable)).await;
         }
     }
 
@@ -187,7 +201,7 @@ impl Hub {
                 continue;
             }
             let Ok(command) = serde_json::from_str::<Command>(&text) else {
-                tracing::error!("websocket: a command could not be parsed");
+                tracing::debug!("websocket: a command could not be parsed");
                 continue;
             };
             // No command closes a connection now; were one to, the client asked for it.

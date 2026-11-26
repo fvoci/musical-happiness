@@ -602,6 +602,39 @@ async fn a_category_takes_a_board_of_its_organization_or_a_template() {
 }
 
 /// The keys of the organizations' tables, from the catalog: each that does not name the
+const NO_KEY_TRIGGERS: &[(&str, &str)] = &[
+    // No key: what keeps a record of the audit log from being changed, or
+    // removed but with its workspace (0023).
+    ("audit_log", "audit_log_kept"),
+    (
+        "category_containers",
+        "category_containers_container_of_its_organization",
+    ),
+    // No key says a diary is in its owner's own space alone (0055).
+    ("containers", "diaries_of_a_space"),
+    // Course child records outlive trashing in `deleted_containers` until purge (0077).
+    ("course_exams", "course_exams_course_of_its_organization"),
+    (
+        "course_meetings",
+        "course_meetings_course_of_its_organization",
+    ),
+    ("exam_scores", "exam_scores_course_of_its_organization"),
+    // No key says who may be in a space: its owner alone, and no link leads
+    // into one (0051).
+    ("invitations", "invitations_of_a_space"),
+    ("organization_members", "organization_members_of_a_space"),
+    // No key says a row stays what it was: an organization keeps its kind and
+    // the account whose space it is (0050).
+    ("organizations", "organizations_keep_their_kind"),
+    // Nor that no link leads into a diary (0055).
+    ("public_links", "public_links_of_no_diary"),
+    ("unit_notes", "unit_notes_course_of_its_organization"),
+    ("unit_progress", "unit_progress_course_of_its_organization"),
+    ("unit_reviews", "unit_reviews_course_of_its_organization"),
+    ("uploads", "uploads_target_of_its_organization"),
+    ("workspace_members", "workspace_members_of_a_space"),
+];
+
 /// organization is unique across them all for a reason, and a later table whose key
 /// borrows another table's identifier without the organization fails here. The rows
 /// whose board cannot have a key are checked by a trigger when they are stored.
@@ -687,48 +720,12 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
         ],
         "the keys of the organizations' tables that do not name the organization"
     );
+    let trigger_pairs: Vec<(&str, &str)> = triggers
+        .iter()
+        .map(|(table, name)| (table.as_str(), name.as_str()))
+        .collect();
     assert_eq!(
-        triggers,
-        [
-            // No key: what keeps a record of the audit log from being changed, or
-            // removed but with its workspace (0023).
-            ("audit_log".to_owned(), "audit_log_kept".to_owned()),
-            (
-                "category_containers".to_owned(),
-                "category_containers_container_of_its_organization".to_owned()
-            ),
-            // No key says a diary is in its owner's own space alone (0055).
-            ("containers".to_owned(), "diaries_of_a_space".to_owned()),
-            // No key says who may be in a space: its owner alone, and no link leads
-            // into one (0051).
-            (
-                "invitations".to_owned(),
-                "invitations_of_a_space".to_owned()
-            ),
-            (
-                "organization_members".to_owned(),
-                "organization_members_of_a_space".to_owned()
-            ),
-            // No key says a row stays what it was: an organization keeps its kind and
-            // the account whose space it is (0050).
-            (
-                "organizations".to_owned(),
-                "organizations_keep_their_kind".to_owned()
-            ),
-            // Nor that no link leads into a diary (0055).
-            (
-                "public_links".to_owned(),
-                "public_links_of_no_diary".to_owned()
-            ),
-            (
-                "uploads".to_owned(),
-                "uploads_target_of_its_organization".to_owned()
-            ),
-            (
-                "workspace_members".to_owned(),
-                "workspace_members_of_a_space".to_owned()
-            ),
-        ],
+        trigger_pairs, NO_KEY_TRIGGERS,
         "the checks of what has no key"
     );
 }

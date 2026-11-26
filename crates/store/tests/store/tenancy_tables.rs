@@ -685,6 +685,7 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
                 scheduled_date: "2026-11-25".to_owned(),
                 interval_days: 1,
             },
+            None,
         )
         .await
         .expect("unit review is stored");

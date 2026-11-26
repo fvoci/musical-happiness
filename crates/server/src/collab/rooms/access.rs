@@ -269,6 +269,16 @@ impl Turn {
 }
 
 impl Collab {
+    /// Raises the wall for `scope` before a change that narrows access is written, so
+    /// that an admission under way reads the facts again; `recheck_access` after the
+    /// write still holds and asks the members already in.
+    pub(crate) fn narrowing_access(&self, app: &App, scope: &AccessScope) {
+        self.inner
+            .rooms
+            .walls
+            .raise(app.store().tenant(), scope.clone());
+    }
+
     /// Rechecks affected rooms before a permission-changing operation answers.
     /// The task survives a caller going away. The store is asked once per board,
     /// user and session kind, regardless of the number of cards or connections.

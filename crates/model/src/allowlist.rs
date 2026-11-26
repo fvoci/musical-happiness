@@ -94,6 +94,9 @@ enum Rule {
     Language,
     /// A link that the rules of 5.7 allow.
     Href,
+    /// A stored file name of an image or file block: `[A-Za-z0-9_-]+(\.[A-Za-z0-9]+)?`,
+    /// at most 100 ASCII characters.
+    FileId,
     /// An identifier, of a user or of a block: one in form, whether or not it names
     /// anything.
     Id,
@@ -150,12 +153,12 @@ const ORDERED_LIST: &[Attribute] = &[optional("start", Rule::Integer(0, 1_000_00
 const TASK_ITEM: &[Attribute] = &[required("checked", Rule::Boolean)];
 const CODE_BLOCK: &[Attribute] = &[optional("language", Rule::Language)];
 const IMAGE: &[Attribute] = &[
-    required("fileId", Rule::NonEmptyText(100)),
+    required("fileId", Rule::FileId),
     optional("alt", Rule::Text(1000)),
 ];
 /// A file block names its file and nothing else: its name, size and kind are read from
 /// the file's record where it is shown.
-const FILE: &[Attribute] = &[required("fileId", Rule::NonEmptyText(100))];
+const FILE: &[Attribute] = &[required("fileId", Rule::FileId)];
 /// A cell spans one column and one row unless it says more, at most a whole table: the
 /// limits of `table_grid.rs`, as the rule of an integer takes them (no `From` is const).
 const CELL: &[Attribute] = &[
@@ -212,10 +215,11 @@ pub(crate) fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
 }
 
-/// Whether a link may be stored: one of [`LINK_SCHEMES`], or a path inside the app.
+/// Whether a link may be stored: `http`, `https`, `mailto`, or a path inside the app.
 /// Whitespace and control characters do not hide a scheme: browsers drop them before
 /// they read one, so they are left out before deciding (but kept in what is stored).
-fn is_allowed_href(href: &str) -> bool {
+#[must_use]
+pub fn is_allowed_href(href: &str) -> bool {
     let length = utf16_len(href);
     if length == 0 || length > HREF_MAX {
         return false;
@@ -261,6 +265,31 @@ fn is_whole_number_in(value: &Value, low: i32, high: i32) -> bool {
     })
 }
 
+/// Whether a stored file name (`fileId`) of an image or file block is well-formed:
+/// 1 to 100 ASCII characters of dot-separated `[A-Za-z0-9_-]+` segments whose final
+/// extension (when a dot is present) is `[A-Za-z0-9]+`. Rejects path separators, `..`,
+/// leading or trailing `.`, control characters, whitespace, and non-ASCII text.
+#[must_use]
+pub fn is_file_id(name: &str) -> bool {
+    if !(1..=100).contains(&name.len()) {
+        return false;
+    }
+    let is_part = |part: &str| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    };
+    match name.rsplit_once('.') {
+        None => is_part(name),
+        Some((stem, ext)) => {
+            stem.split('.').all(is_part)
+                && !ext.is_empty()
+                && ext.bytes().all(|b| b.is_ascii_alphanumeric())
+        }
+    }
+}
+
 impl Rule {
     fn allows(self, value: &Value) -> bool {
         match self {
@@ -272,6 +301,7 @@ impl Rule {
             Self::Boolean => value.is_boolean(),
             Self::Language => value.as_str().is_some_and(is_language),
             Self::Href => value.as_str().is_some_and(is_allowed_href),
+            Self::FileId => value.as_str().is_some_and(is_file_id),
             Self::Id => value.as_str().is_some_and(is_id),
         }
     }
@@ -588,6 +618,39 @@ mod tests {
         }
         for language in ["", "two words", "é", &"a".repeat(41)] {
             assert!(!is_language(language), "{language:?}");
+        }
+    }
+
+    #[test]
+    fn file_ids_allow_stored_names_and_refuse_paths_or_dots() {
+        for allowed in [
+            "7abc.png",
+            "x.png",
+            "Ab-_9.jpg",
+            "agenda.en.docx",
+            "viewer-sample.ko.docx",
+            "noext",
+            "f0",
+            &"f".repeat(100),
+        ] {
+            assert!(is_file_id(allowed), "{allowed}");
+        }
+        for refused in [
+            "",
+            ".",
+            "..",
+            "../x.png",
+            "a/b.png",
+            "a\\b.png",
+            "a..b",
+            ".hidden",
+            "trailing.",
+            "a b.png",
+            "x\0.png",
+            "한글.png",
+            &"f".repeat(101),
+        ] {
+            assert!(!is_file_id(refused), "{refused:?}");
         }
     }
 }

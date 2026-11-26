@@ -237,7 +237,7 @@ impl Store {
         identity: Identity<'_>,
         provider_email: &str,
     ) -> Result<(), StoreError> {
-        self.add_identity_at(user_id, identity, provider_email, crate::db::now_millis())
+        self.add_identity_at(user_id, identity, provider_email, self.now_millis())
             .await
     }
 
@@ -348,4 +348,27 @@ pub enum Unlinked {
     LastWayIn,
     /// The account was deleted, or its password changed, since it was read.
     AccountChanged,
+}
+
+/// Ties an identity to an account, as the provider gave its address.
+pub(crate) async fn insert_identity(
+    scope: &mut Scope<'_>,
+    identity: Identity<'_>,
+    user_id: &str,
+    email: &str,
+    now: i64,
+) -> Result<(), StoreError> {
+    let mut sql = scope
+        .sql("INSERT INTO user_identities (issuer, subject, user_id, email, created_at) VALUES (");
+    sql.bind(identity.issuer)
+        .push_bind(", ", identity.subject)
+        .push_bind(", ", Id(user_id))
+        .push_bind(", ", email)
+        .push_bind(", ", now)
+        .push(")");
+    match scope.execute(sql).await {
+        Ok(_) => Ok(()),
+        Err(StoreError::Database(error)) => Err(crate::users::unique_violation(error)),
+        Err(error) => Err(error),
+    }
 }

@@ -22,12 +22,6 @@ const STORED_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at,
 /// statement sets it ([`Store::confirm_session_password`]).
 const CONFIRMED_COLUMN: &str = "password_confirmed_at";
 
-/// What is read of a session: what it was stored with, and when it confirmed its
-/// account's password.
-fn read_columns() -> String {
-    format!("{STORED_COLUMNS}, {CONFIRMED_COLUMN}")
-}
-
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
     /// its user is still `seen_password_hash`: the hash the password was checked
@@ -99,7 +93,7 @@ impl Store {
             if held != Some(SignedInto::InUse) {
                 return Ok(false);
             }
-            let mut sql = scope.sql(&format!("UPDATE sessions SET {CONFIRMED_COLUMN} = "));
+            let mut sql = scope.sql(["UPDATE sessions SET ", CONFIRMED_COLUMN, " = "]);
             sql.bind(now)
                 .push_bind(", token_hash = ", token_digest)
                 .push_bind(" WHERE id = ", Id(confirmed.session_id))
@@ -123,10 +117,13 @@ impl Store {
         idle_since: i64,
     ) -> Result<Session, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {} FROM sessions WHERE token_hash = ",
-                read_columns()
-            ));
+            let mut sql = scope.sql([
+                "SELECT ",
+                STORED_COLUMNS,
+                ", ",
+                CONFIRMED_COLUMN,
+                " FROM sessions WHERE token_hash = ",
+            ]);
             sql.bind(token_digest)
                 .push_bind(" AND expires_at > ", now)
                 .push_bind(" AND last_used_at > ", idle_since)
@@ -415,11 +412,12 @@ async fn hold_account_proved_by(
     seen_password_hash: &str,
     proof: Proof,
 ) -> Result<Option<SignedInto>, StoreError> {
-    let mut sql = scope.sql(&format!(
+    let mut sql = scope.sql([
         "SELECT password_hash, deleted_at, password_locked_at FROM users \
-         WHERE (deleted_at IS NULL OR ({})) AND id = ",
-        crate::users::WAITS
-    ));
+         WHERE (deleted_at IS NULL OR (",
+        crate::users::WAITS,
+        ")) AND id = ",
+    ]);
     sql.bind(Id(user_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR SHARE");
@@ -442,10 +440,13 @@ pub(crate) async fn session_by_digest(
     scope: &mut Scope<'_>,
     token_digest: &str,
 ) -> Result<Option<Session>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {} FROM sessions WHERE token_hash = ",
-        read_columns()
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        STORED_COLUMNS,
+        ", ",
+        CONFIRMED_COLUMN,
+        " FROM sessions WHERE token_hash = ",
+    ]);
     sql.bind(token_digest);
     scope
         .fetch_optional(sql)
@@ -462,9 +463,11 @@ pub(crate) async fn insert_session(
     session: &Session,
     token_digest: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO sessions (token_hash, {STORED_COLUMNS}) VALUES ("
-    ));
+    let mut sql = scope.sql([
+        "INSERT INTO sessions (token_hash, ",
+        STORED_COLUMNS,
+        ") VALUES (",
+    ]);
     sql.bind(token_digest)
         .push_bind(", ", Id(&session.id))
         .push_bind(", ", Id(&session.user_id))

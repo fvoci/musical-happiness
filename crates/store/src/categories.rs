@@ -173,9 +173,7 @@ fn category_from_row(row: &Row) -> Result<Category, StoreError> {
 }
 
 pub(crate) async fn get_category(scope: &mut Scope<'_>, id: &str) -> Result<Category, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {CATEGORY_COLUMNS} FROM categories WHERE id = "
-    ));
+    let mut sql = scope.sql(["SELECT ", CATEGORY_COLUMNS, " FROM categories WHERE id = "]);
     sql.bind(Id(id));
     match scope.fetch_optional(sql).await? {
         Some(row) => category_from_row(&row),
@@ -188,9 +186,11 @@ pub(crate) async fn get_user_categories(
     user_id: &str,
     workspace_id: &str,
 ) -> Result<Vec<Category>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {CATEGORY_COLUMNS} FROM categories WHERE user_id = "
-    ));
+    let mut sql = scope.sql([
+        "SELECT ",
+        CATEGORY_COLUMNS,
+        " FROM categories WHERE user_id = ",
+    ]);
     sql.bind(Id(user_id))
         .push_bind(" AND workspace_id = ", Id(workspace_id))
         .push(" ORDER BY sort_order, created_at, id");

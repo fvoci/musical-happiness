@@ -13,7 +13,7 @@ use fvoci_model::{
 };
 
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, OptId, Row, Scope};
 use crate::error::{StoreError, Taken};
 use crate::trash::{self, Purged, Trashed};
 use crate::{Paging, Store, directory, joinings, person_names, users, workspaces};
@@ -79,8 +79,14 @@ impl Store {
     ) -> Result<Organization, StoreError> {
         self.transaction(async |scope| {
             let before = held_by_admin(scope, actor_id).await?;
+            let changes_public_links = patch
+                .public_links
+                .is_some_and(|on| on != before.public_links);
             let mut sql = scope.sql("UPDATE organizations SET updated_at = ");
-            sql.bind(now_millis());
+            if !changes_public_links {
+                sql.changing_no_access();
+            }
+            sql.bind(scope.now_millis());
             if let Some(name) = &patch.name {
                 sql.push_bind(", name = ", name);
             }
@@ -281,9 +287,10 @@ impl Store {
         self.transaction(async |scope| {
             held_by_admin(scope, actor_id).await?;
             let mut sql = scope.sql("UPDATE workspaces SET name = ");
-            sql.bind(name)
+            sql.changing_no_access()
+                .bind(name)
                 .push_bind(", modified_by = ", OptId(actor_id))
-                .push_bind(", updated_at = ", now_millis())
+                .push_bind(", updated_at = ", scope.now_millis())
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NULL");
@@ -315,7 +322,7 @@ impl Store {
                 return Ok(WorkspaceTrashing::Default);
             }
             let mut sql = scope.sql("UPDATE workspaces SET deleted_at = ");
-            sql.bind(now_millis())
+            sql.bind(scope.now_millis())
                 .push_bind(", modified_by = ", OptId(actor_id))
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
@@ -350,7 +357,7 @@ impl Store {
             // the workspace the first left: the removal holds the row.
             let mut sql = scope.sql("UPDATE workspaces SET deleted_at = NULL");
             sql.push_bind(", modified_by = ", OptId(actor_id))
-                .push_bind(", updated_at = ", now_millis())
+                .push_bind(", updated_at = ", scope.now_millis())
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NOT NULL");
@@ -452,7 +459,7 @@ impl Store {
                     .push_bind(", ", WorkspaceRole::Admin.as_str())
                     .push_bind(", ", true)
                     .push_bind(", ", held.as_str())
-                    .push_bind(", ", now_millis())
+                    .push_bind(", ", scope.now_millis())
                     .push(")");
                 scope.execute(sql).await?;
             }
@@ -570,7 +577,7 @@ pub(crate) async fn remove_workspace(
     let mut purged = trash::remove_containers(scope, Trashed::OfWorkspace(workspace_id)).await?;
     purged.records += trash::remove_what_they_left(scope).await?;
     for table in ["categories", "workspace_members"] {
-        let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE workspace_id = "));
+        let mut sql = scope.sql(["DELETE FROM ", table, " WHERE workspace_id = "]);
         sql.bind(Id(workspace_id));
         scope.execute(sql).await?;
     }

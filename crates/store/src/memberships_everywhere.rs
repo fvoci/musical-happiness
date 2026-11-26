@@ -53,16 +53,19 @@ async fn extend_across_organizations(
     kinds: ContainerKinds,
     members: &mut Vec<ContainerMember>,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!(
+    let mut sql = scope.sql(
         "SELECT bt.container_id, tm.user_id, bt.role FROM container_teams AS bt \
-         JOIN {} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id \
-         AND tm.workspace_id = bt.workspace_id \
-         JOIN containers AS b ON b.id = bt.container_id \
-         JOIN workspaces AS t ON t.id = b.workspace_id \
-         JOIN organizations AS o ON o.id = t.org_id WHERE tm.user_id = ",
-        crate::teams::present_members(scope)
-    ));
-    sql.bind(Id(user_id))
+         JOIN ",
+    );
+    sql.push(&crate::teams::present_members(scope))
+        .push(
+            " tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id \
+             AND tm.workspace_id = bt.workspace_id \
+             JOIN containers AS b ON b.id = bt.container_id \
+             JOIN workspaces AS t ON t.id = b.workspace_id \
+             JOIN organizations AS o ON o.id = t.org_id WHERE tm.user_id = ",
+        )
+        .bind(Id(user_id))
         .push(IN_USE)
         .push(&scope.same_organization(&[("bt", "b"), ("b", "t")]));
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);

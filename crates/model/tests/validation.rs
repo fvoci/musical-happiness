@@ -1,7 +1,7 @@
 //! Validation rules for blocks, boards, card properties, and authentication requests.
 
 use fvoci_model::{
-    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Body,
+    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockType, Body,
     CARD_FIELDS_MAX_CHARS, CardPropertyDefinition, ChangePasswordRequest, Container,
     ContainerError, ContainerSearchField, PropertyType, RegisterRequest, is_email_valid,
 };
@@ -146,33 +146,6 @@ fn non_board_block_types_name_their_operations() {
     assert_eq!(
         BlockError::type_not_current(&BlockType::Chapter),
         BlockError::UnitByBlocks
-    );
-}
-
-/// A patch may give a block a type that a new block may have, and no other.
-#[test]
-fn a_patch_does_not_give_a_block_a_type_that_is_not_current() {
-    let to = |block_type: BlockType| BlockPatch {
-        block_type: Some(block_type),
-        ..BlockPatch::default()
-    };
-    assert_eq!(BlockPatch::default().check_type(), Ok(()), "no type");
-    assert_eq!(to(BlockType::Card).check_type(), Ok(()), "to a card");
-    assert_eq!(
-        to(BlockType::Page).check_type(),
-        Err(BlockError::PageByBlocks)
-    );
-    assert_eq!(
-        to(BlockType::Entry).check_type(),
-        Err(BlockError::EntryByBlocks)
-    );
-    assert_eq!(
-        to(BlockType::Unit).check_type(),
-        Err(BlockError::UnitByBlocks)
-    );
-    assert_eq!(
-        to(BlockType::Chapter).check_type(),
-        Err(BlockError::UnitByBlocks)
     );
 }
 

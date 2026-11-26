@@ -8,15 +8,17 @@
 //! one other place that opens a transaction's wall: a registration's statement on the
 //! one link it was made by (`signups.rs`).
 
-use fvoci_model::{OrgKind, UserOrganization};
+use fvoci_model::{OrgKind, UserOrganization, Workspace, new_id};
 
-use super::{oldest_organization, role};
-use crate::db::{Dialect, Id, Scope, Sql};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
+use crate::workspaces;
 
 /// What the reach of a transaction was before its wall was opened.
 #[must_use = "the wall is closed again with `close_wall`"]
-pub(crate) struct OpenedWall(String);
+pub(crate) struct OpenedWall {
+    was_open: bool,
+}
 
 /// Opens the wall of the transaction of `scope`, on PostgreSQL: the rows of every
 /// organization are in its reach until [`close_wall`] puts the reach back as it was,
@@ -25,15 +27,14 @@ pub(crate) struct OpenedWall(String);
 ///
 /// # Errors
 ///
-/// Returns [`StoreError::Database`] if the reach cannot be read or changed.
+/// Returns [`StoreError::Database`] if the reach cannot be changed.
 pub(crate) async fn open_wall(scope: &mut Scope<'_>) -> Result<OpenedWall, StoreError> {
-    let sql = scope.sql("SELECT COALESCE(current_setting('fvoci.system', true), 'off')");
-    let before = match scope.fetch_optional(sql).await? {
-        Some(row) => row.text(0)?,
-        None => "off".to_owned(),
-    };
+    if scope.is_wall_open() {
+        return Ok(OpenedWall { was_open: true });
+    }
     set_reach(scope, "on").await?;
-    Ok(OpenedWall(before))
+    scope.open_wall();
+    Ok(OpenedWall { was_open: false })
 }
 
 /// Puts the reach of the transaction back as it was before [`open_wall`].
@@ -42,7 +43,12 @@ pub(crate) async fn open_wall(scope: &mut Scope<'_>) -> Result<OpenedWall, Store
 ///
 /// Returns [`StoreError::Database`] if the reach cannot be changed.
 pub(crate) async fn close_wall(scope: &mut Scope<'_>, wall: OpenedWall) -> Result<(), StoreError> {
-    set_reach(scope, &wall.0).await
+    if wall.was_open {
+        return Ok(());
+    }
+    set_reach(scope, "off").await?;
+    scope.close_wall();
+    Ok(())
 }
 
 async fn set_reach(scope: &mut Scope<'_>, reach: &str) -> Result<(), StoreError> {
@@ -161,10 +167,74 @@ pub(super) async fn organizations_of_user(
 /// of those organizations by age (0051) holds no account's own space, and a database
 /// reads it only for a statement that says the kind itself. For the reads that look
 /// for the oldest of them among however many spaces the accounts have.
-pub(crate) fn of_people(sql: &mut Sql, kind: &str) {
+pub(crate) fn of_people(sql: &mut Sql, kind: &'static str) {
     sql.push(" AND ")
         .push(kind)
         .push(" = '")
         .push(OrgKind::Shared.as_str())
         .push("'");
+}
+
+pub(super) async fn create_organization(
+    scope: &mut Scope<'_>,
+    name: &str,
+    workspace: &Workspace,
+) -> Result<String, StoreError> {
+    let id = new_id();
+    workspaces::insert_organization(scope, Id(&id), name, workspace).await?;
+    Ok(id)
+}
+
+/// Reads a role from a column.
+pub(super) fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
+    row: &Row,
+    index: usize,
+) -> Result<R, StoreError> {
+    row.text(index)?
+        .parse()
+        .map_err(|error: fvoci_model::UnknownRole| StoreError::Corrupt {
+            column: "role",
+            reason: error.to_string(),
+        })
+}
+
+/// Reads the kind of an organization from a column.
+pub(crate) fn org_kind(row: &Row, index: usize) -> Result<OrgKind, StoreError> {
+    row.text(index)?
+        .parse()
+        .map_err(|error: fvoci_model::UnknownOrgKind| StoreError::Corrupt {
+            column: "kind",
+            reason: error.to_string(),
+        })
+}
+
+/// The instance's own organization as `scope` reaches the organizations: the oldest
+/// non-system one in use that people work in together.
+pub(crate) async fn oldest_organization(
+    scope: &mut Scope<'_>,
+) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+    sql.bind(false).push(" AND deleted_at IS NULL");
+    of_people(&mut sql, "kind");
+    sql.push(" ORDER BY created_at, id LIMIT 1");
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
+}
+
+/// The organization that is the space of the account `user_id`, in use or not, by
+/// who owns it: in a scope that reaches every organization.
+pub(crate) async fn space_of(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE owner_id = ");
+    sql.bind(Id(user_id));
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
 }

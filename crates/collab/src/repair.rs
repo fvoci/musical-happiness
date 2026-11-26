@@ -420,7 +420,8 @@ fn refresh_cache_after_repair<T: ReadTxn>(
             problem: "holds something that is neither a node nor a text",
         });
     }
-    cache.check_whole_limits()
+    cache.check_whole_limits()?;
+    Ok(())
 }
 
 /// How many stretches of neighbouring children a repair deletes at most. The library
@@ -833,7 +834,12 @@ impl<T: ReadTxn> Survey<'_, T> {
                     });
                 }
                 (None, None) => own.push(index_of(index)),
-                (Some(ChildOutcome::Text(_)), Some(_)) => unreachable!("element cannot yield text"),
+                (Some(ChildOutcome::Text(_)), Some(_)) => {
+                    return Err(BodyError::InvalidNode {
+                        path: String::new(),
+                        problem: "a table cell yielded text instead of an element",
+                    });
+                }
             }
         }
         // Anything but cells that stays makes the row go, as in an editor.

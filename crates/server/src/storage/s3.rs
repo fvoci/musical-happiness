@@ -32,6 +32,10 @@ pub struct S3Files {
     prefix: String,
     /// What the operations are measured into ([`super::FileBackend::measured`]).
     pub(super) metrics: Metrics,
+    /// Metrics for multipart operations (`multipart_create`, `multipart_part`,
+    /// `multipart_complete`, `multipart_abort`), kept populated even when [`Self`] sits
+    /// inside `FileBackend::Faulty` whose outer wrapper measures non-multipart calls.
+    multipart_metrics: Metrics,
 }
 
 impl S3Files {
@@ -94,12 +98,27 @@ impl S3Files {
             multipart,
             prefix: config.key_prefix.trim_matches('/').to_owned(),
             metrics: Metrics::none(),
+            multipart_metrics: Metrics::none(),
         })
     }
 
     /// The same backend, measuring its operations into `metrics`.
     pub(super) fn measured(self, metrics: Metrics) -> Self {
-        Self { metrics, ..self }
+        Self {
+            multipart_metrics: metrics.clone(),
+            metrics,
+            ..self
+        }
+    }
+
+    /// Sets multipart metrics alone when an outer `FileBackend::Faulty` wrapper owns
+    /// non-multipart operation measurement.
+    #[cfg(feature = "test-util")]
+    pub(super) fn measured_multipart(self, multipart_metrics: Metrics) -> Self {
+        Self {
+            multipart_metrics,
+            ..self
+        }
     }
 
     /// Runs `work`, the step `operation` of an upload in parts, measured.
@@ -108,7 +127,7 @@ impl S3Files {
         operation: FilesOperation,
         work: impl Future<Output = Result<T, StorageError>>,
     ) -> Result<T, StorageError> {
-        measured(&self.metrics, FilesBackend::S3, operation, work).await
+        measured(&self.multipart_metrics, FilesBackend::S3, operation, work).await
     }
 
     /// The object key of a stored path: the configured prefix followed by the path.
@@ -131,19 +150,31 @@ impl S3Files {
         path: &str,
         reader: &mut (dyn AsyncRead + Send + Unpin),
     ) -> Result<u64, StorageError> {
-        let mut writer = BufWriter::new(Arc::clone(&self.store), self.key(path)?);
-        let written = match tokio::io::copy(reader, &mut writer).await {
+        let mut guard = UnfinishedMultipartWrite {
+            writer: Some(BufWriter::new(Arc::clone(&self.store), self.key(path)?)),
+            path: path.to_owned(),
+        };
+        let writer = guard.writer.as_mut().expect("writer just initialized");
+        let written = match tokio::io::copy(reader, writer).await {
             Ok(written) => written,
             Err(error) => {
                 // A large object is uploaded in parts; without this they would stay in
                 // the bucket.
-                if let Err(abort) = writer.abort().await {
+                if let Some(mut w) = guard.writer.take()
+                    && let Err(abort) = w.abort().await
+                {
                     tracing::warn!(error = %abort, path, "cannot abort the unfinished upload");
                 }
                 return Err(error.into());
             }
         };
-        writer.shutdown().await?;
+        let mut writer = guard.writer.take().expect("writer still held");
+        if let Err(error) = writer.shutdown().await {
+            if let Err(abort) = writer.abort().await {
+                tracing::warn!(error = %abort, path, "cannot abort the unfinished upload");
+            }
+            return Err(error.into());
+        }
         Ok(written)
     }
 
@@ -343,5 +374,28 @@ fn convert(error: object_store::Error, path: &str) -> StorageError {
     match error {
         object_store::Error::NotFound { .. } => StorageError::NotFound(path.to_owned()),
         other => StorageError::ObjectStore(other),
+    }
+}
+
+/// Aborts an incomplete `object_store::buffered::BufWriter` multipart upload in the
+/// background if the write future is cancelled or timed out mid-stream.
+struct UnfinishedMultipartWrite {
+    writer: Option<BufWriter>,
+    path: String,
+}
+
+impl Drop for UnfinishedMultipartWrite {
+    fn drop(&mut self) {
+        let Some(mut writer) = self.writer.take() else {
+            return;
+        };
+        let path = std::mem::take(&mut self.path);
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                if let Err(abort) = writer.abort().await {
+                    tracing::warn!(error = %abort, path, "cannot abort cancelled multipart upload");
+                }
+            });
+        }
     }
 }

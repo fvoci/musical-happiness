@@ -10,8 +10,10 @@ mod archive;
 mod auth;
 mod blocks;
 mod body;
+mod body_versions;
 mod cards;
 mod categories;
+mod comments;
 mod config;
 mod container_teams;
 mod containers;
@@ -77,10 +79,11 @@ use serde::Serialize;
 use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
-    BlockAction, refusal, require_admin, require_block_patch_permission, require_block_permission,
-    require_container_permission, require_container_visible, require_delete_permission,
-    require_deletion_permission, require_granted, require_permission_through,
-    require_workspace_access,
+    BlockAction, refusal, require_admin, require_block_patch_permission,
+    require_block_patch_permission_with_grant, require_block_permission,
+    require_block_permission_with_grant, require_container_permission, require_container_visible,
+    require_delete_permission, require_deletion_permission, require_granted,
+    require_permission_through, require_workspace_access,
 };
 pub(crate) use body::{
     decode_json, decode_object, decode_object_with, decode_with_document, element_pointer,

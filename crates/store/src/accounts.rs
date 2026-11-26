@@ -11,7 +11,7 @@
 
 use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole, new_id};
 
-use crate::db::{Id, Scope, Sql, now_millis};
+use crate::db::{Id, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::users::{self, InstanceRole};
 use crate::{Store, Tenant};
@@ -26,6 +26,19 @@ pub enum Founding {
     /// A new organization, under an identifier the store gives it, whatever
     /// organization the handle names.
     New,
+}
+
+/// Single-transaction policy deciding how [`Store::sign_up_with_policy`] and
+/// [`Store::confirm_signup_with_policy`] found an organization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FoundingPolicy {
+    /// Require the registrant to be the instance's very first user, returning
+    /// [`StoreError::NotFirstUser`] otherwise (single-organization servers).
+    FirstOnly,
+    /// Atomically claim the first-user slot if still open, or found a new organization
+    /// in the same transaction when another account already claimed it
+    /// (multi-organization servers).
+    FirstOrNew,
 }
 
 /// The space of an account: the organization that is the account's own, and its one
@@ -95,6 +108,60 @@ impl Store {
         store
             .transaction(async |scope| found(scope, user, organization_name, founding, place).await)
             .await
+    }
+
+    /// Stores the account of somebody who signs up and the organization `policy` chooses
+    /// in a single transaction on fresh and already-bootstrapped instances.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFirstUser`] when `policy` is
+    /// [`FoundingPolicy::FirstOnly`] and the instance already has its first user, and
+    /// otherwise the same errors as [`Store::sign_up`].
+    pub async fn sign_up_with_policy(
+        &self,
+        user: &mut User,
+        organization_name: &str,
+        policy: FoundingPolicy,
+    ) -> Result<String, StoreError> {
+        let existing = self.unclaimed_instance_organization().await?;
+        match policy {
+            FoundingPolicy::FirstOnly => {
+                let place = OrgPlace::of(existing.as_deref());
+                let org_id = existing.unwrap_or_else(new_id);
+                self.for_org(&org_id)?
+                    .transaction(async |scope| {
+                        found(scope, user, organization_name, Founding::First, place).await
+                    })
+                    .await
+            }
+            FoundingPolicy::FirstOrNew => {
+                if let Some(existing_org_id) = existing {
+                    let result = self
+                        .for_org(&existing_org_id)?
+                        .transaction(async |scope| {
+                            found(
+                                scope,
+                                user,
+                                organization_name,
+                                Founding::First,
+                                OrgPlace::Existing,
+                            )
+                            .await
+                        })
+                        .await;
+                    if !matches!(result, Err(StoreError::NotFirstUser)) {
+                        return result;
+                    }
+                }
+                let org_id = new_id();
+                self.for_org(&org_id)?
+                    .transaction(async |scope| {
+                        found_first_or_new(scope, user, organization_name).await
+                    })
+                    .await
+            }
+        }
     }
 
     /// Stores the account of somebody who signs up without the name of an
@@ -255,6 +322,29 @@ pub(crate) async fn found(
     Ok(workspace_id)
 }
 
+/// Atomically claims the first-user slot if still open or founds a new organization in
+/// the same transaction when `place` is [`OrgPlace::ToMake`].
+pub(crate) async fn found_first_or_new(
+    scope: &mut Scope<'_>,
+    user: &mut User,
+    organization_name: &str,
+) -> Result<String, StoreError> {
+    let role = become_first(scope).await?;
+    let workspace_id = new_id();
+    found_organization(scope, organization_name, &workspace_id).await?;
+    insert_account(scope, user, role).await?;
+    made_by(scope, &user.id).await?;
+    join_organization(scope, &user.id, OrgRole::Admin).await?;
+    join_workspace(
+        scope,
+        Which::Workspace(&workspace_id),
+        &user.id,
+        WorkspaceRole::Admin,
+    )
+    .await?;
+    Ok(workspace_id)
+}
+
 /// Writes down that the account `user_id` made the scope's organization: the one it
 /// started, or, on a database that had an organization before it had a user, the one
 /// the first account took, which nobody made before.
@@ -323,7 +413,7 @@ pub(crate) async fn insert_account(
     user: &mut User,
     role: InstanceRole,
 ) -> Result<OwnSpace, StoreError> {
-    let now = now_millis();
+    let now = scope.now_millis();
     signups::claim_account_names(scope).await?;
     if let Some(taken) = signups::signup_has_names(scope, &user.username, &user.email, now).await? {
         return Err(StoreError::Conflict(taken));
@@ -419,12 +509,13 @@ pub(crate) async fn join_organization(
     user_id: &str,
     role: OrgRole,
 ) -> Result<bool, StoreError> {
+    let now = scope.now_millis();
     let mut sql =
         scope.sql("INSERT INTO organization_members (org_id, user_id, role, created_at) VALUES (");
     sql.bind(scope.org()?)
         .push_bind(", ", Id(user_id))
         .push_bind(", ", role.as_str())
-        .push_bind(", ", now_millis())
+        .push_bind(", ", now)
         .push(") ON CONFLICT DO NOTHING");
     Ok(scope.execute(sql).await? > 0)
 }
@@ -443,12 +534,13 @@ pub(crate) async fn join_workspace(
     user_id: &str,
     role: WorkspaceRole,
 ) -> Result<bool, StoreError> {
+    let now = scope.now_millis();
     let mut sql = scope.sql(
         "INSERT INTO workspace_members (workspace_id, user_id, role, created_at) SELECT t.id, ",
     );
     sql.bind(Id(user_id))
         .push_bind(", ", role.as_str())
-        .push_bind(", ", now_millis())
+        .push_bind(", ", now)
         .push(" FROM ");
     push_workspace(&mut sql, scope, which)?;
     sql.push(" ON CONFLICT DO NOTHING");
@@ -496,7 +588,7 @@ async fn name_organization(
     scope: &mut Scope<'_>,
     organization_name: &str,
 ) -> Result<String, StoreError> {
-    let now = now_millis();
+    let now = scope.now_millis();
     let mut sql = scope.sql("UPDATE organizations SET name = ");
     sql.bind(organization_name)
         .push_bind(", updated_at = ", now)

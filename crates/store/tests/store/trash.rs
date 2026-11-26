@@ -134,14 +134,11 @@ async fn a_comment_does_not_come_back_onto_what_is_no_card() {
         .delete_block(&comment_id, &user_id)
         .await
         .expect("deleted");
-    let patch = BlockPatch {
-        block_type: Some(BlockType::View),
-        ..BlockPatch::default()
-    };
-    store
-        .patch_block(&card_id, &patch, &user_id)
-        .await
-        .expect("the card becomes a view");
+    test.execute_unchecked(&format!(
+        "UPDATE blocks SET type = 'view' WHERE id = '{card_id}'"
+    ))
+    .await
+    .expect("legacy view parent");
     let error = store
         .undelete_block(&comment_id, &user_id)
         .await
@@ -186,4 +183,80 @@ async fn a_comment_does_not_come_back_onto_what_is_no_card() {
         ),
         "{error:?}"
     );
+}
+
+/// A corrupt snapshot row in `deleted_blocks` is skipped during trash listing without
+/// failing the container's trash read, while single-row fetch and restore still fail
+/// closed.
+#[tokio::test]
+async fn corrupt_trash_row_is_skipped_when_listing_deleted_blocks() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice-trash").await;
+    let workspace_id = common::workspace(store).await;
+    common::works_in(store, &workspace_id, &alice).await;
+
+    let mut private_board = fvoci_model::Container {
+        id: new_id(),
+        workspace_id: workspace_id.clone(),
+        visibility: fvoci_model::ContainerVisibility::Private,
+        title: "Private Trash Board".to_owned(),
+        ..fvoci_model::Container::default()
+    };
+    store
+        .insert_container_with_admin(&mut private_board, &alice)
+        .await
+        .expect("private board");
+
+    let card_id = new_id();
+    let mut cards = [block(&card_id, &private_board.id, "", BlockType::Card)];
+    common::insert_blocks(store, &mut cards, &alice).await;
+    store
+        .delete_block(&card_id, &alice)
+        .await
+        .expect("card trashed");
+    let corrupt_id = new_id();
+    let cast = if common::db_type() == fvoci_store::DbType::Postgres {
+        "::jsonb"
+    } else {
+        ""
+    };
+    store
+        .execute_unchecked(&format!(
+            "INSERT INTO deleted_blocks (id, container_id, parent_id, deleted_at, deleted_by, deletion_id, block, block_type) \
+             VALUES ('{corrupt_id}', '{}', NULL, 999999, '{alice}', '{}', '123'{cast}, 'card')",
+            private_board.id,
+            new_id()
+        ))
+        .await
+        .expect("corrupt snapshot inserted");
+
+    let listed = store
+        .get_deleted_cards(&private_board.id, None)
+        .await
+        .expect("listing skips corrupt row");
+    assert_eq!(
+        listed
+            .iter()
+            .map(|d| d.block.id.as_str())
+            .collect::<Vec<_>>(),
+        [card_id.as_str()],
+        "valid trashed card returned while corrupt row is skipped"
+    );
+    assert!(
+        matches!(
+            store.get_deleted_block(&corrupt_id).await,
+            Err(StoreError::Corrupt { .. })
+        ),
+        "corrupt deleted_block must fail get_deleted_block"
+    );
+    assert!(
+        matches!(
+            store.undelete_block(&corrupt_id, &alice).await,
+            Err(StoreError::Corrupt { .. })
+        ),
+        "corrupt deleted_block must fail undelete_block"
+    );
+
+    test.teardown().await;
 }

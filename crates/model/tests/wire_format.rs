@@ -156,25 +156,18 @@ fn block_type_is_a_closed_enum_rejecting_unknown_strings() {
 #[test]
 fn block_patch_json_members() {
     let patch: BlockPatch = serde_json::from_value(json!({
-        "parentId": "p", "type": "card", "title": "t",
+        "parentId": "p", "title": "t",
         "updatedFields": { "a": 1 }, "deletedFields": ["b"]
     }))
     .expect("decodes");
     assert_eq!(patch.parent_id.as_deref(), Some("p"));
-    assert_eq!(patch.block_type, Some(BlockType::Card));
     assert_eq!(patch.title.as_deref(), Some("t"));
     assert_eq!(patch.updated_fields["a"], json!(1));
     assert_eq!(patch.deleted_fields, ["b"]);
 
-    // Unknown block types in a patch are rejected at deserialization.
-    for unknown in ["", "text", "h1", "Card"] {
-        serde_json::from_value::<BlockPatch>(json!({ "type": unknown }))
-            .expect_err("unknown patch type is refused");
-    }
-
     // A member that may be null is none when it is; the lists may only be left out.
     let nulls: BlockPatch = serde_json::from_value(json!({
-        "parentId": null, "type": null, "title": null,
+        "parentId": null, "title": null,
     }))
     .expect("decodes");
     assert_eq!(nulls, BlockPatch::default());
@@ -589,6 +582,7 @@ fn user_json_hides_credentials_and_carries_the_name() {
             ..PersonName::default()
         },
         email: "alice@example.com".to_owned(),
+        email_verified_at: 0,
         password_hash: "hash".to_owned(),
         password_locked_at: 7,
         created_at: 0,

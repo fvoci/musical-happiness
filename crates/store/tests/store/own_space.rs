@@ -383,3 +383,213 @@ async fn migration_0050_gives_spaces_to_active_and_waiting_accounts_only() {
     store.close().await;
     database.remove().await;
 }
+
+async fn seed_personal_diary(test: &common::TestStore, user_id: &str, date: &str) -> String {
+    let own_org = test
+        .system()
+        .texts_unchecked(&format!(
+            "SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id = '{user_id}'"
+        ))
+        .await
+        .expect("own org")[0]
+        .clone();
+    let own_ws = common::own_workspace(test, user_id).await;
+    let own = test.for_org(&own_org).expect("own org handle");
+    let diary = own
+        .create_diary(
+            fvoci_model::Container {
+                id: new_id(),
+                workspace_id: own_ws,
+                visibility: fvoci_model::ContainerVisibility::Private,
+                kind: fvoci_model::ContainerKind::Diary,
+                title: "private journal".to_owned(),
+                ..fvoci_model::Container::default()
+            },
+            user_id,
+            fvoci_model::DiaryMaking::IfNone,
+        )
+        .await
+        .expect("diary created")
+        .diary;
+    own.create_diary_entry(
+        &diary.id,
+        date.parse().expect("valid diary date"),
+        fvoci_model::NewDiaryEntry {
+            date: date.to_owned(),
+            mood: None,
+            weather: String::new(),
+            place: String::new(),
+        },
+        1_000,
+        user_id,
+    )
+    .await
+    .expect("diary entry created")
+    .entry
+    .id
+}
+
+async fn seed_shared_course_activity(
+    test: &fvoci_store::Store,
+    workspace_id: &str,
+    alice: &str,
+) -> (String, String) {
+    let mut course = fvoci_model::Container {
+        id: new_id(),
+        workspace_id: workspace_id.to_owned(),
+        visibility: fvoci_model::ContainerVisibility::Open,
+        kind: fvoci_model::ContainerKind::Course,
+        title: "Shared Course".to_owned(),
+        ..fvoci_model::Container::default()
+    };
+    test.insert_container_with_admin(&mut course, alice)
+        .await
+        .expect("course created");
+    let unit = test
+        .create_unit(
+            &course.id,
+            &fvoci_model::NewUnit {
+                title: "Unit 1".to_owned(),
+                ..fvoci_model::NewUnit::default()
+            },
+            fvoci_model::CourseLimits::DEFAULT,
+            alice,
+        )
+        .await
+        .expect("unit created")
+        .unit;
+    test.upsert_unit_progress(
+        &course.id,
+        &unit.id,
+        alice,
+        &fvoci_model::UnitProgressChange {
+            completion: fvoci_model::CompletionChange::Complete,
+            last_position: fvoci_model::LastPositionChange::Keep,
+        },
+    )
+    .await
+    .expect("alice progress");
+    test.schedule_unit_review(
+        &course.id,
+        &unit.id,
+        alice,
+        &fvoci_model::NewUnitReview {
+            scheduled_date: "2026-11-25".to_owned(),
+            interval_days: 1,
+        },
+        None,
+    )
+    .await
+    .expect("alice review");
+    test.create_unit_note(
+        &course.id,
+        &unit.id,
+        alice,
+        &fvoci_model::NewUnitNote {
+            kind: fvoci_model::UnitNoteKind::Question,
+            content: "alice private note".to_owned(),
+        },
+    )
+    .await
+    .expect("alice note");
+    test.create_time_entry(
+        alice,
+        &fvoci_store::NewStoredTimeEntry {
+            workspace_id: Some(workspace_id),
+            container_id: Some(&course.id),
+            block_id: Some(&unit.id),
+            target_kind: Some(fvoci_model::TimeTargetKind::Unit),
+            target_title: Some("Unit 1"),
+            kind: fvoci_model::TimeEntryKind::Study,
+            note: "alice study",
+        },
+        1_000,
+        2_000,
+        2_000,
+    )
+    .await
+    .expect("alice time entry");
+    (course.id, unit.id)
+}
+
+/// Even on SQLite (where all personal spaces and the shared organization share one physical
+/// table without RLS), personal-scoped and cross-org store reads (`notifications`,
+/// `time_entries`, `unit_progress`, `unit_reviews`, `unit_notes`, and `search_documents`)
+/// never cross-pollinate between users or leak another user's personal diary (`1.4.3 H-5`).
+#[tokio::test]
+async fn personal_spaces_and_shared_org_never_cross_pollinate_reads() {
+    let test = common::setup().await;
+    let alice = common::user(&test, "alice").await;
+    let bob = common::user(&test, "bob").await;
+    common::works_in(&test, &test.workspace_id, &alice).await;
+    common::works_in(&test, &test.workspace_id, &bob).await;
+
+    let alice_entry = seed_personal_diary(&test, &alice, "2026-11-20").await;
+    let bob_entry = seed_personal_diary(&test, &bob, "2026-11-21").await;
+    let (course_id, unit_id) = seed_shared_course_activity(&test, &test.workspace_id, &alice).await;
+
+    let bob_making = fvoci_store::Making::with_password();
+    assert!(
+        test.get_my_course_progress(&course_id, &bob)
+            .await
+            .expect("bob progress")
+            .is_empty(),
+        "bob sees none of alice's unit_progress"
+    );
+    assert!(
+        test.list_my_course_reviews(&course_id, &bob, fvoci_model::ReviewStatusFilter::All, None)
+            .await
+            .expect("bob reviews")
+            .is_empty(),
+        "bob sees none of alice's unit_reviews"
+    );
+    assert!(
+        test.list_my_unit_notes(&course_id, &unit_id, &bob, None)
+            .await
+            .expect("bob notes")
+            .is_empty(),
+        "bob sees none of alice's unit_notes"
+    );
+    assert!(
+        test.list_time_entries(
+            fvoci_store::TimeReader {
+                user_id: &bob,
+                making: bob_making,
+            },
+            &fvoci_store::TimeEntryFilter::default(),
+            fvoci_store::Paging {
+                page: 0,
+                per_page: 50,
+            },
+        )
+        .await
+        .expect("bob time entries")
+        .entries
+        .is_empty(),
+        "bob sees none of alice's time_entries"
+    );
+    assert!(
+        test.notifications_of_user(
+            fvoci_store::NotificationReader {
+                user_id: &bob,
+                making: bob_making,
+            },
+            fvoci_store::Paging {
+                page: 0,
+                per_page: 50,
+            },
+        )
+        .await
+        .expect("bob notifications")
+        .is_empty(),
+        "bob sees none of alice's notifications"
+    );
+    assert!(
+        test.search_documents(&[&alice_entry, &bob_entry])
+            .await
+            .expect("search docs")
+            .is_empty(),
+        "diary entries in personal spaces are never indexed into search_documents"
+    );
+    test.teardown().await;
+}

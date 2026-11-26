@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Category, Container, ContainerVisibility, ContainersAndBlocks, new_id};
+use fvoci_model::{Container, ContainerVisibility, ContainersAndBlocks};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -28,35 +28,22 @@ pub(crate) struct WorkspaceSocket {
 }
 
 impl WorkspaceSocket {
-    /// Connects as the client and subscribes to the workspace.
+    /// Connects as the client and subscribes to the workspace, awaiting `workspaceSubscribed`.
     pub(crate) async fn subscribe(
-        th: &TestServer,
+        _th: &TestServer,
         client: &Client,
         workspace_id: &str,
-        user_id: &str,
+        _user_id: &str,
     ) -> Self {
         let stream = client.connect_websocket().await;
         let mut socket = Self { stream };
         socket
             .send(json!({"type": "subscribeWorkspace", "workspaceId": workspace_id}))
             .await;
-
-        // Commands have no acknowledgement: wait until a broadcast comes through.
-        let probe = Category {
-            id: new_id(),
-            name: "subscription probe".to_owned(),
-            user_id: user_id.to_owned(),
-            workspace_id: workspace_id.to_owned(),
-            ..Category::default()
-        };
-        for _ in 0..50 {
-            th.app.ws().broadcast_category_change(&probe).await;
-            if socket.next(Duration::from_millis(100)).await.is_some() {
-                socket.drain().await;
-                return socket;
-            }
-        }
-        panic!("the socket was never subscribed to workspace {workspace_id}");
+        socket
+            .expect("workspaceSubscribed", "/workspaceId", workspace_id)
+            .await;
+        socket
     }
 
     async fn send(&mut self, command: Value) {

@@ -27,16 +27,20 @@ fn the_listed_columns_are_where_the_list_reads_them() {
     assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
     assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
     assert_eq!(LISTED_LAST_COMMENT_AT, columns.len(), "read after them");
-    // The text, then the body, right after the last comment's time.
-    assert_eq!(PREVIEW_COLUMNS, "SUBSTR(body_text, 1, 201), body");
+    // The text, then the first image identifier, right after the last comment's time.
+    assert_eq!(
+        PREVIEW_COLUMNS,
+        "SUBSTR(body_text, 1, 201), body_first_image"
+    );
     assert_eq!(LISTED_BODY_TEXT, LISTED_LAST_COMMENT_AT + 1);
-    assert_eq!(LISTED_BODY, LISTED_BODY_TEXT + 1);
+    assert_eq!(LISTED_FIRST_IMAGE, LISTED_BODY_TEXT + 1);
 }
 
 #[test]
 fn edited_at_is_the_column_after_the_block_columns() {
     assert_eq!(BLOCK_COLUMNS.split(", ").count(), EDITED_AT);
-    assert!(block_read_columns().ends_with(EDITED_AT_COLUMN));
+    let read_columns = [BLOCK_COLUMNS, ", ", EDITED_AT_COLUMN].concat();
+    assert!(read_columns.ends_with(EDITED_AT_COLUMN));
 }
 
 #[test]
