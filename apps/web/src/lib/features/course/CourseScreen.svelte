@@ -18,6 +18,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { focusRevealed } from '$lib/focus.ts';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { coverPane } from '$lib/layout/over-pane.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import type { CourseStore, UnitStore } from '$lib/state/index.ts';
@@ -115,6 +116,10 @@
 
   const uid = $props.id();
   const shown = $derived(unit ? course.unit(unit.unitId) : undefined);
+  nameWindow(() => [
+    shown && (shown.title || m.course_unit_untitled()),
+    course.course && (course.course.title || m.course_untitled()),
+  ]);
   const hasUnits = $derived(course.units.some((item) => item.kind !== 'chapter'));
   const reading = $derived(
     hasUnits && !unit?.missing && shown !== undefined && shown.kind !== 'chapter',
