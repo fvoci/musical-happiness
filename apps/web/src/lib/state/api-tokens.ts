@@ -25,6 +25,8 @@ export interface ApiToken {
   scope: ApiTokenScope;
   workspaces: ApiTokenWorkspace[];
   allowPersonalSpace: boolean;
+  /** Whether its owner is told of what it does, as of anybody's doing (not in their own space). */
+  notifySelf: boolean;
   createdAt: number;
   expiresAt: number;
   /** When it was last used, to within five minutes; `undefined` if never. */
@@ -32,6 +34,16 @@ export interface ApiToken {
   /** The address it was last used from; `undefined` if never, or unknown. */
   lastUsedAddress?: string | undefined;
 }
+
+/**
+ * A token as an administrator of an organization it reaches sees it: whose it is, what
+ * it may do there and when it was made, last used and ends. Where else it reaches,
+ * where it was used from and what its owner asked of it are its owner's alone.
+ */
+export type MemberApiToken = Omit<
+  ApiToken,
+  'allowPersonalSpace' | 'notifySelf' | 'lastUsedAddress'
+>;
 
 /** What a new token is asked to be. */
 export interface NewApiToken {
@@ -42,6 +54,8 @@ export interface NewApiToken {
   /** Whether it reaches the reader's own space too, which `password` gives. */
   allowPersonalSpace: boolean;
   password?: string | undefined;
+  /** Whether the reader is told of what it does. */
+  notifySelf: boolean;
 }
 
 /** A token as it is made: the only time `token` is told. */
@@ -62,8 +76,12 @@ export interface ApiTokens {
   revoke(tokenId: string): Promise<void>;
 }
 
-/** The token an administrator of an organization sees, of its members. */
+/** The tokens of an organization's members that reach it, as its administrator sees them. */
 export interface OrgApiTokens {
-  list(orgId: string): Promise<ApiToken[]>;
+  list(orgId: string): Promise<MemberApiToken[]>;
+  /**
+   * Takes one out of the organization: it reaches none of its workspaces any more, and
+   * a token left reaching nothing is ended. 404 for one that reaches none of them.
+   */
   revoke(orgId: string, tokenId: string): Promise<void>;
 }

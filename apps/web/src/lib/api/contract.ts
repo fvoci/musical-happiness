@@ -781,7 +781,8 @@ export interface paths {
         /**
          * The personal API tokens that reach an organization
          * @description The tokens of its members that reach a workspace of it and open anything now, the
-         *     newest first, each with those of its workspaces it reaches.
+         *     newest first, each with those of its workspaces it reaches. Nothing is told of what
+         *     a token opens elsewhere, or where it was used from.
          */
         get: operations["getOrgApiTokens"];
         put?: never;
@@ -803,9 +804,11 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Take back a personal API token that reaches an organization
-         * @description From now on the token opens nothing, in this organization or any other. 404 for one
-         *     that reaches no workspace of it, or was taken back.
+         * Take a personal API token out of an organization
+         * @description From now on the token reaches no workspace of this organization; the audit log says
+         *     who took it out. What it reaches elsewhere stays its owner's to end, and a token
+         *     left reaching nothing (no other workspace, not its owner's own space) is taken back.
+         *     404 for one that reaches no workspace of it, or opens nothing.
          */
         delete: operations["revokeOrgApiToken"];
         options?: never;
@@ -1725,7 +1728,9 @@ export interface paths {
          *     content of what it reaches. A workspace of an organization that takes only sessions
          *     made through its provider is given only if the organization lets it (403,
          *     `api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as
-         *     `expiresInDays` asks, 90 unless it asks, at most 365.
+         *     `expiresInDays` asks, 90 unless it asks, at most 365. An account holds at most 25
+         *     tokens that still open something (400, `too_many_api_tokens`), and a session that
+         *     has ended makes none (401).
          */
         post: operations["createApiToken"];
         delete?: never;
@@ -7048,8 +7053,8 @@ export interface components {
          */
         AmountUnit: "minutes" | "pages" | "problems";
         /**
-         * @description A personal API token as its owner, or an administrator of an organization it
-         *     reaches, sees it: never the token itself, which is shown once, when it is made.
+         * @description A personal API token as its owner sees it: never the token itself, which is shown
+         *     once, when it is made.
          */
         ApiToken: {
             /** @description Whether it reaches the owner's own space too (never its diaries). */
@@ -7077,8 +7082,11 @@ export interface components {
             /** @description The name its owner gave it. */
             name: string;
             /**
-             * @description Whether its owner asked to be told of what it does, as of anybody's doing. Kept
-             *     with the token; the server tells nobody of their own token's doing yet.
+             * @description Whether its owner is told of what it does, as of anybody's doing: of a comment
+             *     it writes on what they watch, of a mention of them it writes (in a comment, or in
+             *     a body), of a card it gives them. The notification names the owner as its doer
+             *     and the token by `agentTokenName`. Nobody is told anything in the owner's own
+             *     space, whatever this says.
              */
             notifySelf: boolean;
             /** @description What it may do. */
@@ -7090,10 +7098,7 @@ export interface components {
             tokenPrefix: string;
             /** @description Whose it is. */
             userId: string;
-            /**
-             * @description The workspaces of organizations it reaches. For an administrator's list, those
-             *     of the administrator's organization alone.
-             */
+            /** @description The workspaces of organizations it reaches. */
             workspaces: components["schemas"]["ApiTokenWorkspace"][];
         };
         /**
@@ -7119,7 +7124,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_container" | "added_to_container" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "org_member_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator" | "container_copied_out" | "copy_out_disabled" | "copy_out_enabled";
+        AuditAction: "self_added_to_container" | "added_to_container" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "org_member_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator" | "container_copied_out" | "copy_out_disabled" | "copy_out_enabled" | "api_tokens_enabled" | "api_tokens_disabled" | "api_token_revoked";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -7863,7 +7868,7 @@ export interface components {
          * @description Why the Markdown of a body does not hold one of its blocks as it is.
          * @enum {string}
          */
-        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula";
+        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula" | "heading_with_break";
         ConfirmEmailChange: {
             /** @description The secret from the confirmation link's fragment. */
             token: string;
@@ -9084,6 +9089,42 @@ export interface components {
             status: components["schemas"]["AttendanceStatus"];
         };
         /**
+         * @description A personal API token as an administrator of an organization it reaches sees it:
+         *     whose it is, what it may do there, and when it was made, last used and ends. What
+         *     it opens elsewhere (other organizations' workspaces, its owner's own space), where
+         *     it was used from and what its owner asked of it are its owner's alone.
+         */
+        MemberApiToken: {
+            /**
+             * Format: int64
+             * @description When it was made.
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description When it stops opening anything.
+             */
+            expiresAt: number;
+            /** @description The token's identifier. */
+            id: string;
+            /**
+             * Format: int64
+             * @description When it was last used, wherever, in milliseconds since the Unix epoch, to within
+             *     five minutes; absent if never.
+             */
+            lastUsedAt?: number | null;
+            /** @description The name its owner gave it. */
+            name: string;
+            /** @description What it may do. */
+            scope: components["schemas"]["ApiTokenScope"];
+            /** @description The first characters of the token (`fvoci_pat_` and six more). */
+            tokenPrefix: string;
+            /** @description Whose it is. */
+            userId: string;
+            /** @description The workspaces of the administrator's organization it reaches. */
+            workspaces: components["schemas"]["ApiTokenWorkspace"][];
+        };
+        /**
          * @description Aggregate completion count of one active course member.
          *
          *     Intentionally omits unit identifiers, completion timestamps, planned dates, and last
@@ -9632,6 +9673,12 @@ export interface components {
              *     people, where its reader is told the names they may see.
              */
             actorId: string;
+            /**
+             * @description The name of the personal API token through which an agent of `actorId` did the
+             *     latest of it; left out where `actorId` did it themselves. A token that tells its
+             *     owner (`notifySelf`) names them as `actorId` of their own notifications.
+             */
+            agentTokenName?: string | null;
             /** @description The card or the page it is about: what the reader opens. */
             blockId: string;
             /** @description What that is. */
@@ -12443,7 +12490,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiToken"][];
+                    "application/json": components["schemas"]["MemberApiToken"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -12471,7 +12518,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The token opens nothing. */
+            /** @description The token reaches the organization no more. */
             204: {
                 headers: {
                     [name: string]: unknown;

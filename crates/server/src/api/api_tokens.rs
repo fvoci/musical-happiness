@@ -5,7 +5,7 @@
 use axum::Extension;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use fvoci_model::{ApiToken, IssuedApiToken, NewApiToken};
+use fvoci_model::{ApiToken, IssuedApiToken, MemberApiToken, NewApiToken};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -35,7 +35,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// content of what it reaches. A workspace of an organization that takes only sessions
 /// made through its provider is given only if the organization lets it (403,
 /// `api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as
-/// `expiresInDays` asks, 90 unless it asks, at most 365.
+/// `expiresInDays` asks, 90 unless it asks, at most 365. An account holds at most 25
+/// tokens that still open something (400, `too_many_api_tokens`), and a session that
+/// has ended makes none (401).
 #[utoipa::path(
     post,
     path = "/users/me/api-tokens",
@@ -102,30 +104,33 @@ async fn handle_revoke_api_token(
 /// The personal API tokens that reach an organization
 ///
 /// The tokens of its members that reach a workspace of it and open anything now, the
-/// newest first, each with those of its workspaces it reaches.
+/// newest first, each with those of its workspaces it reaches. Nothing is told of what
+/// a token opens elsewhere, or where it was used from.
 #[utoipa::path(
     get,
     path = "/org/{orgId}/api-tokens",
     operation_id = "getOrgApiTokens",
     tag = tag::ORGANIZATION,
     params(OrgId),
-    responses((status = 200, description = "The tokens.", body = Vec<ApiToken>)),
+    responses((status = 200, description = "The tokens.", body = Vec<MemberApiToken>)),
 )]
 async fn handle_get_org_api_tokens(org: OrgAdmin) -> ApiResult {
     Ok(json_response(&org.app.api_tokens_of_organization().await?))
 }
 
-/// Take back a personal API token that reaches an organization
+/// Take a personal API token out of an organization
 ///
-/// From now on the token opens nothing, in this organization or any other. 404 for one
-/// that reaches no workspace of it, or was taken back.
+/// From now on the token reaches no workspace of this organization; the audit log says
+/// who took it out. What it reaches elsewhere stays its owner's to end, and a token
+/// left reaching nothing (no other workspace, not its owner's own space) is taken back.
+/// 404 for one that reaches no workspace of it, or opens nothing.
 #[utoipa::path(
     delete,
     path = "/org/{orgId}/api-tokens/{tokenId}",
     operation_id = "revokeOrgApiToken",
     tag = tag::ORGANIZATION,
     params(OrgId, ApiTokenId),
-    responses((status = 204, description = "The token opens nothing.")),
+    responses((status = 204, description = "The token reaches the organization no more.")),
 )]
 async fn handle_revoke_org_api_token(
     org: OrgAdmin,

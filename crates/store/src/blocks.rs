@@ -881,6 +881,7 @@ async fn insert_block_inner(
 
     page_places::check(block, kind, parent_type)?;
     comment_places::check(block, parent_type, existing.as_ref())?;
+    comment_places::sign(block, existing.as_ref(), scope.agent());
     // A block that moves must not end up below itself: checked before card hierarchy
     // rules so moving a card onto a block below it always reports `ParentBelowBlock`.
     if let Some(before) = &existing

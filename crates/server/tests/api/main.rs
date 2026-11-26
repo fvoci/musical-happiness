@@ -16,6 +16,7 @@ mod api_tokens_diaries;
 mod api_tokens_ended;
 mod api_tokens_lists;
 mod api_tokens_markdown;
+mod api_tokens_notified;
 mod api_tokens_versions;
 mod behind_a_tunnel;
 mod block_summaries;

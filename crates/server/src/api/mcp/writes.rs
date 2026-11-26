@@ -27,7 +27,7 @@ use crate::api::unit_comments::{NewUnitComment, UnitCommentParent};
 use crate::api::unit_progress::{ProgressToRecord, progress_to_record, record_progress};
 use crate::api::wikis::{create_page_from, page_with_permission, patch_page_from};
 use crate::api::workspace::InWorkspace;
-use crate::app::{App, Caller, ChangeNotification, comment_text_of_markdown};
+use crate::app::{App, Caller, ChangeNotification, body_of_markdown, comment_text_of_markdown};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
@@ -223,10 +223,7 @@ async fn body_writes(
     let whole = match whole {
         None => BodyChange::Keep,
         Some(markdown) => {
-            let change = ws
-                .app
-                .body_of_markdown(container_id, current, &markdown)
-                .await?;
+            let change = body_of_markdown(current, &markdown)?;
             ws.app
                 .check_body_files(container_id, change.new_body())
                 .await

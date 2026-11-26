@@ -248,7 +248,10 @@ async fn written(
     item: &impl Serialize,
     body: Option<&Body>,
 ) -> Result<Value, AppError> {
-    let markdown = ws.app.body_in_markdown(container_id, body).await?;
+    let markdown = ws
+        .app
+        .body_in_markdown(ws.markdown_reader(), container_id, body)
+        .await?;
     Ok(in_markdown(to_json(item)?, markdown))
 }
 
@@ -439,7 +442,9 @@ async fn card_item(ws: &InWorkspace, arguments: &GetItemArguments) -> Result<Val
         }
         (None, Some(board_id), Some(number)) => {
             let mut card = card_by_number_read(ws, board_id, &number.to_string()).await?;
-            ws.app.put_card_in_markdown(&mut card).await?;
+            ws.app
+                .put_card_in_markdown(ws.markdown_reader(), &mut card)
+                .await?;
             card
         }
         _ => {
@@ -547,7 +552,7 @@ pub(super) async fn listed_comment(
 ) -> Result<ListedComment, AppError> {
     let written = ws
         .app
-        .body_in_markdown(container_id, comment.body.as_ref())
+        .body_in_markdown(ws.markdown_reader(), container_id, comment.body.as_ref())
         .await?;
     Ok(ListedComment {
         agent_token_name: comment

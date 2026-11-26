@@ -405,6 +405,8 @@ pub(crate) struct Scope<'c> {
     /// Whether the writes of blocks of this scope note whom to tell
     /// ([`crate::Store::telling_nobody`], [`crate::Store::quietly`]).
     noting: Noting,
+    /// The agent whose writes these are ([`crate::Store::by_agent`]).
+    agent: Option<std::sync::Arc<crate::body_versions::AgentOfHandle>>,
     /// Acquired `(rank, key)` locks in this scope for debug lock-order assertions.
     #[cfg(debug_assertions)]
     locks: Vec<(LockRank, String)>,
@@ -480,6 +482,7 @@ impl<'c> Scope<'c> {
             versions_kept,
             search_outbox: None,
             noting: Noting::Named,
+            agent: None,
             #[cfg(debug_assertions)]
             locks: Vec::new(),
         }
@@ -523,6 +526,21 @@ impl<'c> Scope<'c> {
     /// The same scope, whose writes of blocks note whom to tell as `noting` says.
     pub(crate) fn noting(self, noting: Noting) -> Self {
         Self { noting, ..self }
+    }
+
+    /// The same scope, whose writes are those of `agent`, if any.
+    pub(crate) fn acting(
+        self,
+        agent: Option<std::sync::Arc<crate::body_versions::AgentOfHandle>>,
+    ) -> Self {
+        Self { agent, ..self }
+    }
+
+    /// The agent whose writes these are; `None` for a person's.
+    pub(crate) fn agent(&self) -> Option<crate::ByAgent<'_>> {
+        self.agent
+            .as_deref()
+            .map(crate::body_versions::AgentOfHandle::by)
     }
 
     /// Whom the writes of blocks of this scope note to be told.

@@ -1,20 +1,22 @@
 <!--
   The personal API tokens of the organization's members that reach its
   workspaces, on the organization screen: whose each is, what it may do,
-  where, and until when. An administrator ends one at once, for every
-  organization it reaches, after being asked.
+  where, until when and when it was last used. An administrator takes one
+  out of the organization at once, after being asked; what it reaches
+  elsewhere is its owner's to end.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
 
+  import { lastUsedOf, scopeLabel } from '$lib/components/api-token/words.ts';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { ApiToken } from '$lib/state/index.ts';
+  import type { MemberApiToken } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   interface Props {
-    read: () => Promise<ApiToken[]>;
+    read: () => Promise<MemberApiToken[]>;
     revoke: (tokenId: string) => Promise<void>;
     /** The name a member is shown by. */
     nameOf: (userId: string) => string;
@@ -22,23 +24,14 @@
 
   let { read, revoke, nameOf }: Props = $props();
 
-  let tokens = $state.raw<ApiToken[] | undefined>(undefined);
+  let tokens = $state.raw<MemberApiToken[] | undefined>(undefined);
   let unread = $state(false);
   let problem = $state('');
-  let ending = $state.raw<ApiToken | undefined>(undefined);
+  let ending = $state.raw<MemberApiToken | undefined>(undefined);
   let confirmOpen = $state(false);
   let heading: HTMLElement | null = null;
 
   const dates = $derived(new Intl.DateTimeFormat(getLocale(), { dateStyle: 'medium' }));
-  const lastUsed = (token: ApiToken): string => {
-    if (token.lastUsedAt === undefined) return m.account_api_tokens_unused();
-    const date = dates.format(token.lastUsedAt);
-    return token.lastUsedAddress
-      ? m.account_api_tokens_used_from({ date, address: token.lastUsedAddress })
-      : m.account_api_tokens_used({ date });
-  };
-  const scopeOf = (token: ApiToken): string =>
-    token.scope === 'read' ? m.account_api_tokens_read() : m.account_api_tokens_write();
 
   async function load(): Promise<void> {
     unread = false;
@@ -53,7 +46,7 @@
     void load();
   });
 
-  async function end(token: ApiToken): Promise<void> {
+  async function end(token: MemberApiToken): Promise<void> {
     problem = '';
     try {
       await revoke(token.id);
@@ -100,25 +93,25 @@
           <span class="grid min-w-0 flex-1">
             <span class="truncate">{token.name}</span>
             <span class="truncate text-xs text-muted-foreground">
-              {m.org_api_tokens_owner({ name: nameOf(token.userId) })} · {scopeOf(token)} ·
+              {m.org_api_tokens_owner({ name: nameOf(token.userId) })} · {scopeLabel(token.scope)} ·
               {token.workspaces.map((one) => one.name).join(', ')}
             </span>
             <span class="truncate text-xs text-muted-foreground">
               <span translate="no">{token.tokenPrefix}…</span> ·
               {m.account_api_tokens_expires({ date: dates.format(token.expiresAt) })} ·
-              {lastUsed(token)}
+              {lastUsedOf(token, dates)}
             </span>
           </span>
           <Button
             size="sm"
             variant="outline"
-            aria-label="{m.account_api_tokens_revoke()}: {token.name}"
+            aria-label="{m.org_api_tokens_revoke()}: {token.name}"
             onclick={() => {
               ending = token;
               confirmOpen = true;
             }}
           >
-            {m.account_api_tokens_revoke()}
+            {m.org_api_tokens_revoke()}
           </Button>
         </li>
       {/each}
@@ -130,7 +123,7 @@
   bind:open={confirmOpen}
   title={m.org_api_tokens_revoke_title({ name: ending?.name ?? '' })}
   description={m.org_api_tokens_revoke_info()}
-  confirmLabel={m.account_api_tokens_revoke()}
+  confirmLabel={m.org_api_tokens_revoke()}
   destructive
   focusAfter={() => heading}
   onConfirm={() => {

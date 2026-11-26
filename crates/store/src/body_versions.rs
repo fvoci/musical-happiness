@@ -68,14 +68,43 @@ pub struct KeptVersion {
     pub agent_token_name: Option<String>,
 }
 
-/// An agent that writes a body through a personal API token of its user, as the
-/// version it leaves names it.
+/// An agent that writes through a personal API token of its user, as the version it
+/// leaves names it and its notifications tell of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ByAgent<'a> {
     /// The token.
     pub token_id: &'a str,
     /// Its name.
     pub token_name: &'a str,
+    /// Whether the token's owner is told of what the agent does, as anybody else would
+    /// be: of a comment on what they watch, of being named or given a card.
+    pub notify_self: bool,
+}
+
+/// [`ByAgent`] as a handle of the store keeps it ([`Store::by_agent`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentOfHandle {
+    token_id: String,
+    token_name: String,
+    notify_self: bool,
+}
+
+impl AgentOfHandle {
+    pub(crate) fn of(agent: ByAgent<'_>) -> Self {
+        Self {
+            token_id: agent.token_id.to_owned(),
+            token_name: agent.token_name.to_owned(),
+            notify_self: agent.notify_self,
+        }
+    }
+
+    pub(crate) fn by(&self) -> ByAgent<'_> {
+        ByAgent {
+            token_id: &self.token_id,
+            token_name: &self.token_name,
+            notify_self: self.notify_self,
+        }
+    }
 }
 
 /// What became of a card's body an editor asked to keep as a version
@@ -131,7 +160,8 @@ impl Store {
     ///
     /// The new version names who wrote the body since the one before: the users whose
     /// editors sent updates ([`Store::append_body_updates`]), and nobody is left as
-    /// having written since. If nobody is known to have (a body from before versions
+    /// having written since. One an agent wrote in since is the agent's
+    /// ([`BodyVersionCause::Agent`]), as if kept as soon as it wrote. If nobody is known to have (a body from before versions
     /// were kept, or of an import), it names nobody and is as of the card's last
     /// change. Versions past those kept go, the oldest first, and the files only they
     /// showed are shown no more.
@@ -569,6 +599,7 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         .iter()
         .map(|row| row.id(0))
         .collect::<Result<_, _>>()?;
+    let pending_agent = take_pending_agent(scope, &block.id).await?;
     if kept_already {
         return Ok(Kept {
             version: None,
@@ -586,6 +617,20 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         block.updated_at
     } else {
         scope.now_millis()
+    };
+    // A body an agent wrote in since the newest version is the agent's, whoever wrote
+    // it to the card and whoever else typed in it: as the version kept as soon as the
+    // agent wrote would have been.
+    let (cause, agent) = match (&pending_agent, body.agent) {
+        (Some((token_id, token_name)), None) if body.cause == BodyVersionCause::Auto => (
+            BodyVersionCause::Agent,
+            Some(ByAgent {
+                token_id,
+                token_name,
+                notify_self: false,
+            }),
+        ),
+        _ => (body.cause, body.agent),
     };
     let version = newest.as_ref().map_or(1, |(version, _)| version + 1);
     let body_json = block
@@ -608,26 +653,15 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         .push_bind(", ", Param::Bytes(digest))
         .push_bind(", ", to_json_text(&files)?)
         .push_bind(", ", kept_at)
-        .push_bind(", ", body.cause.as_str())
-        .push_bind(", ", OptId(body.agent.map_or("", |agent| agent.token_id)))
+        .push_bind(", ", cause.as_str())
+        .push_bind(", ", OptId(agent.map_or("", |agent| agent.token_id)))
         .push_bind(
             ", ",
-            Param::OptText(body.agent.map(|agent| agent.token_name.to_owned())),
+            Param::OptText(agent.map(|agent| agent.token_name.to_owned())),
         )
         .push(")");
     scope.execute(sql).await?;
-    if !editors.is_empty() {
-        let mut sql =
-            scope.sql("INSERT INTO body_version_editors (block_id, version, user_id) VALUES ");
-        for (index, user_id) in editors.iter().enumerate() {
-            sql.push(if index == 0 { "(" } else { ", (" })
-                .bind(Id(&block.id))
-                .push_bind(", ", version)
-                .push_bind(", ", Id(user_id))
-                .push(")");
-        }
-        scope.execute(sql).await?;
-    }
+    name_editors(scope, &block.id, version, &editors).await?;
     let through = version.saturating_sub(scope.body_versions_kept());
     let forgot_by_count = forget_past(scope, &block.id, through).await?;
     let forgot_by_bytes = if newest.is_some() && scope.body_versions_kept() > 1 {
@@ -639,6 +673,52 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         version: Some(version),
         forgot_some: forgot_by_count || forgot_by_bytes,
     })
+}
+
+/// Puts down `editors` as those who wrote version `version` of a card's body.
+async fn name_editors(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+    version: i64,
+    editors: &BTreeSet<String>,
+) -> Result<(), StoreError> {
+    if editors.is_empty() {
+        return Ok(());
+    }
+    let mut sql =
+        scope.sql("INSERT INTO body_version_editors (block_id, version, user_id) VALUES ");
+    for (index, user_id) in editors.iter().enumerate() {
+        sql.push(if index == 0 { "(" } else { ", (" })
+            .bind(Id(block_id))
+            .push_bind(", ", version)
+            .push_bind(", ", Id(user_id))
+            .push(")");
+    }
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+/// The agent put down as having written a card's body since its newest version
+/// ([`Store::append_body_updates`]), by its token and the token's name, if one is; it
+/// is put down no more.
+async fn take_pending_agent(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+) -> Result<Option<(String, String)>, StoreError> {
+    let mut sql =
+        scope.sql("SELECT agent_token_id, agent_token_name FROM body_docs WHERE block_id = ");
+    sql.bind(Id(block_id))
+        .push(" AND agent_token_id IS NOT NULL");
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(None);
+    };
+    let pending = (row.id(0)?, row.opt_text(1)?.unwrap_or_default());
+    let mut sql = scope.sql(
+        "UPDATE body_docs SET agent_token_id = NULL, agent_token_name = NULL WHERE block_id = ",
+    );
+    sql.bind(Id(block_id));
+    scope.execute(sql).await?;
+    Ok(Some(pending))
 }
 
 /// The number and the body digest of a card's newest version, if it has one.

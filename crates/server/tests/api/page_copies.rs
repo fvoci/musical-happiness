@@ -40,12 +40,12 @@ fn image_of(body: &Value) -> Option<String> {
 
 #[tokio::test]
 async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of() {
-    copied_with_those_below_it_and_given_files("image").await;
+    Box::pin(copied_with_those_below_it_and_given_files("image")).await;
 }
 
 #[tokio::test]
 async fn a_page_is_copied_with_its_file_blocks_given_files() {
-    copied_with_those_below_it_and_given_files("file").await;
+    Box::pin(copied_with_those_below_it_and_given_files("file")).await;
 }
 
 async fn copied_with_those_below_it_and_given_files(kind: &str) {

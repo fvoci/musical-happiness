@@ -65,7 +65,7 @@ pub(super) const TAGS: [(&str, &str); 22] = [
          archive that is imported makes each diary anew, in the user's own space only). \
          Its entries are found by `searchWorkspaceContent`, by their writer. What is about \
          the people of a board answers 404 for a diary, as for an identifier of nothing: \
-         its members, joining and leaving it, its teams, its link (`/public-link`, \
+         its members, joining and leaving it, its groups, its link (`/public-link`, \
          `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the \
          operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no \
          blocks but its entries, no cards, no views, no pages, no comments and no \

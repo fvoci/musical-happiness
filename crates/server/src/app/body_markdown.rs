@@ -10,7 +10,9 @@ mod write;
 
 use std::collections::{BTreeSet, HashMap};
 
-use fvoci_model::{Body, BodyChange, Card, ComplexBlock, RefusalReason, Refusals, is_id};
+use fvoci_model::{
+    Body, BodyChange, Card, ComplexBlock, RefusalReason, Refusals, WorkspaceRole, is_id,
+};
 use serde_json::Value;
 
 use super::App;
@@ -138,11 +140,57 @@ fn named_in(document: &Value, files: &mut BTreeSet<String>, users: &mut BTreeSet
     }
 }
 
+/// The body `markdown` writes whole over `current`, the body of a card: Markdown
+/// that says nothing takes the body away.
+///
+/// # Errors
+///
+/// Returns 409 `complex_blocks_use_append` if `current` has blocks its Markdown
+/// does not hold as they are, which the new body would lose, and 400 or 413 at
+/// `/bodyMarkdown` for Markdown that is no body.
+pub fn body_of_markdown(current: Option<&Body>, markdown: &str) -> Result<BodyChange, AppError> {
+    if let Some(current) = current {
+        // What the Markdown does not hold is the same whatever it names things by.
+        if !body_to_markdown(current.document(), &Names::default())
+            .complex
+            .is_empty()
+        {
+            return Err(AppError::conflict(
+                "the body has blocks its Markdown does not hold: add Markdown after it",
+            )
+            .with_reason(Reason::ComplexBlocksUseAppend));
+        }
+    }
+    Ok(match markdown_body(markdown, "bodyMarkdown")? {
+        Some(body) => BodyChange::Set(body),
+        None => BodyChange::Clear,
+    })
+}
+
+/// Who reads a body in Markdown: the people it names are named as they see them in the
+/// workspace, and those they do not see, or who are no account, by no name.
+#[derive(Debug, Clone, Copy)]
+pub struct MarkdownReader<'a> {
+    /// The user, by a session or through a token of theirs.
+    pub user_id: &'a str,
+    /// The workspace the card is read in.
+    pub workspace_id: &'a str,
+    /// What the user is there.
+    pub role: WorkspaceRole,
+}
+
 impl App {
     /// What the Markdown of a body of the board `container_id` calls the files and
-    /// the people it names: their names, as the board has them and the people are
-    /// shown by.
-    async fn names_in(&self, container_id: &str, document: &Value) -> Result<Names, AppError> {
+    /// the people it names, for `reader`: the files by their names on the board, the
+    /// people by the names they are shown by to the reader in the workspace. Whom the
+    /// reader does not see there (another organization's account, an identifier of
+    /// nobody) has no name, and is told of by the identifier the body holds.
+    async fn names_in(
+        &self,
+        reader: MarkdownReader<'_>,
+        container_id: &str,
+        document: &Value,
+    ) -> Result<Names, AppError> {
         let (mut files, mut users) = (BTreeSet::new(), BTreeSet::new());
         named_in(document, &mut files, &mut users);
         let mut names = Names::default();
@@ -151,9 +199,11 @@ impl App {
                 names.files.insert(file_id, record.name);
             }
         }
-        let users: Vec<String> = users.into_iter().collect();
+        let users: Vec<String> = users.into_iter().filter(|id| is_id(id)).collect();
         if !users.is_empty() {
-            let found = self.store().get_users_list(&users).await?;
+            let found = self
+                .users_in_workspace(reader.user_id, reader.workspace_id, reader.role, &users)
+                .await?;
             names.users = found
                 .into_iter()
                 .map(|user| {
@@ -170,20 +220,21 @@ impl App {
     }
 
     /// `body`, a body of the board `container_id` (a card's, a page's, a unit's or a
-    /// comment's), in Markdown, with the blocks the Markdown does not hold as they are;
-    /// no body is empty Markdown.
+    /// comment's), in Markdown as `reader` reads it, with the blocks the Markdown does
+    /// not hold as they are; no body is empty Markdown.
     ///
     /// # Errors
     ///
     /// Returns the store's error if a file or a person cannot be read.
     pub async fn body_in_markdown(
         &self,
+        reader: MarkdownReader<'_>,
         container_id: &str,
         body: Option<&Body>,
     ) -> Result<BodyInMarkdown, AppError> {
         let written = match body {
             Some(body) => {
-                let names = self.names_in(container_id, body.document()).await?;
+                let names = self.names_in(reader, container_id, body.document()).await?;
                 body_to_markdown(body.document(), &names)
             }
             None => body_to_markdown(&Value::Null, &Names::default()),
@@ -194,51 +245,25 @@ impl App {
         })
     }
 
-    /// Gives `card` its body in Markdown, in place of the body, with the blocks the
-    /// Markdown does not hold as they are.
+    /// Gives `card` its body in Markdown as `reader` reads it, in place of the body,
+    /// with the blocks the Markdown does not hold as they are.
     ///
     /// # Errors
     ///
     /// Returns the store's error if a file or a person cannot be read.
-    pub async fn put_card_in_markdown(&self, card: &mut Card) -> Result<(), AppError> {
+    pub async fn put_card_in_markdown(
+        &self,
+        reader: MarkdownReader<'_>,
+        card: &mut Card,
+    ) -> Result<(), AppError> {
         let body = card.body.take();
-        let written = self.body_in_markdown(&card.board_id, body.as_ref()).await?;
+        let written = self
+            .body_in_markdown(reader, &card.board_id, body.as_ref())
+            .await?;
         card.has_complex_blocks = Some(!written.complex_blocks.is_empty());
         card.complex_blocks = Some(written.complex_blocks);
         card.body_markdown = Some(written.markdown);
         Ok(())
-    }
-
-    /// The body `markdown` writes whole over `current`, the body of a card of the
-    /// board `container_id`: Markdown that says nothing takes the body away.
-    ///
-    /// # Errors
-    ///
-    /// Returns 409 `complex_blocks_use_append` if `current` has blocks its Markdown
-    /// does not hold as they are, which the new body would lose, and 400 or 413 at
-    /// `/bodyMarkdown` for Markdown that is no body.
-    pub async fn body_of_markdown(
-        &self,
-        container_id: &str,
-        current: Option<&Body>,
-        markdown: &str,
-    ) -> Result<BodyChange, AppError> {
-        if let Some(current) = current {
-            let names = self.names_in(container_id, current.document()).await?;
-            if !body_to_markdown(current.document(), &names)
-                .complex
-                .is_empty()
-            {
-                return Err(AppError::conflict(
-                    "the body has blocks its Markdown does not hold: add Markdown after it",
-                )
-                .with_reason(Reason::ComplexBlocksUseAppend));
-            }
-        }
-        Ok(match markdown_body(markdown, "bodyMarkdown")? {
-            Some(body) => BodyChange::Set(body),
-            None => BodyChange::Clear,
-        })
     }
 
     /// Adds `markdown` after the last of the body of the block `block_id` of the board

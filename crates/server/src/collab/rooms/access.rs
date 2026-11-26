@@ -7,12 +7,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fvoci_store::Tenant;
-use tokio::sync::MutexGuard;
 use tokio::time::Instant;
 
 use super::super::messages::reason_of;
 use super::super::queue::Queued;
 use super::super::{Collab, admission, messages, refusals};
+use super::turn_lock::TurnGuard;
 use super::{
     ASKED_AT_ONCE, ASKED_ONCE_MORE_AFTER, Answer, Asked, Connection, Member, Room, Turn, Who,
 };
@@ -367,7 +367,7 @@ impl Collab {
         room: &'room Room,
         connection: &Connection,
         doc: u32,
-    ) -> Option<MutexGuard<'room, Turn>> {
+    ) -> Option<TurnGuard<'room>> {
         loop {
             // Before the turn is looked at: an answer given after that is heard.
             let checked = room.checked.notified();

@@ -304,6 +304,16 @@ impl AppError {
         .with_limit(u64::from(limit))
     }
 
+    /// A 400 error for an account that holds as many personal API tokens that open
+    /// anything as one may, which `limit` is.
+    pub(crate) fn too_many_api_tokens(limit: usize) -> Self {
+        Self::bad_request(format_args!(
+            "an account holds at most {limit} personal API tokens in use: take one back first"
+        ))
+        .with_reason(Reason::TooManyApiTokens)
+        .with_limit(u64::try_from(limit).unwrap_or(u64::MAX))
+    }
+
     /// A 429 error for a limit on what is held at once, rather than on attempts: no
     /// wait is told, since what frees room is the client's own doing or another's.
     pub fn limited(message: impl std::fmt::Display, reason: Reason) -> Self {

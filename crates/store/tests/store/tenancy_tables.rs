@@ -450,6 +450,21 @@ async fn a_token_reaching(store: &Store, workspace_id: &str, user_id: &str) {
         .org_id()
         .expect("a handle of an organization");
     let (id, digest) = (new_id(), new_id());
+    let session = fvoci_model::Session {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        created_at: 1,
+        last_used_at: 1,
+        expires_at: i64::MAX,
+        ..fvoci_model::Session::default()
+    };
+    assert!(
+        store
+            .create_session(&session, &new_id(), "")
+            .await
+            .expect("a session is stored"),
+        "a new session"
+    );
     let granted = [GrantedWorkspace {
         workspace_id,
         org_id: &org_id,
@@ -458,6 +473,7 @@ async fn a_token_reaching(store: &Store, workspace_id: &str, user_id: &str) {
         .issue_api_token(&TokenToIssue {
             id: &id,
             user_id,
+            session_id: &session.id,
             name: "agent",
             token_prefix: "fvoci_pat_abcdef",
             token_digest: &digest,

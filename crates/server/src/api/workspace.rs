@@ -34,7 +34,7 @@ use super::{Delegated, Read};
 struct WorkspaceUsersQuery {
     search: String,
 }
-use crate::app::{App, Caller};
+use crate::app::{App, Caller, MarkdownReader};
 use crate::error::AppError;
 use crate::permissions::{self, Actor};
 
@@ -93,6 +93,16 @@ impl Wall for InWorkspace {
 }
 
 impl InWorkspace {
+    /// The caller as the reader of a body in Markdown in this workspace: the people it
+    /// names are named as the caller sees them here.
+    pub(crate) fn markdown_reader(&self) -> MarkdownReader<'_> {
+        MarkdownReader {
+            user_id: &self.caller.user_id,
+            workspace_id: &self.workspace_id,
+            role: self.role,
+        }
+    }
+
     /// The workspace of the path for the caller ([`caller_of`]); `no_text` is the
     /// refusal of a parameter of the path that is no text.
     async fn extract(

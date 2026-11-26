@@ -4,14 +4,15 @@
 use std::net::IpAddr;
 
 use fvoci_model::{
-    API_TOKEN_DEFAULT_DAYS, API_TOKEN_MAX_DAYS, API_TOKEN_NAME_MAX_CHARS, ApiToken, IssuedApiToken,
-    NewApiToken, OrgKind, RefusalReason, Refusals, Session, new_id,
+    API_TOKEN_DEFAULT_DAYS, API_TOKEN_MAX_DAYS, API_TOKEN_MAX_LIVE, API_TOKEN_NAME_MAX_CHARS,
+    ApiToken, IssuedApiToken, MemberApiToken, NewApiToken, OrgKind, RefusalReason, Refusals,
+    Session, new_id,
 };
 use fvoci_store::{GrantedWorkspace, Issuance, TokenOrigin, TokenToIssue};
 
 use super::auth::WrongPassword;
 use super::{App, sso};
-use crate::auth::api_token::make_token;
+use crate::auth::api_token::{DAY_MILLIS, make_token};
 use crate::auth::now_millis;
 use crate::error::AppError;
 
@@ -22,9 +23,6 @@ pub(crate) const MAX_TOKEN_WORKSPACES: usize = 50;
 /// made through its provider, in days: what such an organization asks of who signs in
 /// through it is asked again that often.
 pub(crate) const SSO_TOKEN_MAX_DAYS: u32 = API_TOKEN_DEFAULT_DAYS;
-
-/// A day in milliseconds.
-const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
 
 /// A workspace a new token is to reach, as its maker was let into it.
 struct Granted {
@@ -47,10 +45,12 @@ impl App {
     /// # Errors
     ///
     /// Returns 400 naming the field for a name, a number of days or a list of
-    /// workspaces that is none, or that names the own space; 404 for a workspace the
-    /// user does not work in; 401 for one the session does not open
-    /// (`sso::require_session_opens`); 403 with the reason `api_tokens_disallowed`; the
-    /// errors of confirming the password; and the store's error.
+    /// workspaces that is none, or that names the own space, and with the reason
+    /// `too_many_api_tokens` for an account that holds as many tokens as it may; 404
+    /// for a workspace the user does not work in; 401 for one the session does not open
+    /// (`sso::require_session_opens`), and for a session that ended meanwhile; 403 with
+    /// the reason `api_tokens_disallowed`; the errors of confirming the password; and
+    /// the store's error.
     pub async fn create_api_token(
         &self,
         session: &Session,
@@ -89,6 +89,19 @@ impl App {
         } else {
             days
         };
+        self.issue(session, &new, &name, &granted, days).await
+    }
+
+    /// Stores the token `new` asks for, named `name`, reaching `granted` and lasting
+    /// `days`, as checked: the token itself is told in the answer alone.
+    async fn issue(
+        &self,
+        session: &Session,
+        new: &NewApiToken,
+        name: &str,
+        granted: &[Granted],
+        days: u32,
+    ) -> Result<IssuedApiToken, AppError> {
         let now = now_millis();
         let made = make_token();
         let id = new_id();
@@ -104,13 +117,16 @@ impl App {
         let origin = session.login.as_ref().map(|login| TokenOrigin {
             provider_id: &login.provider_id,
             revision: login.revision.unwrap_or(0),
+            issuer: &login.issuer,
+            subject: login.subject.as_deref(),
         });
         let issuance = self
             .store()
             .issue_api_token(&TokenToIssue {
                 id: &id,
                 user_id: &session.user_id,
-                name: &name,
+                session_id: &session.id,
+                name,
                 token_prefix: &made.prefix,
                 token_digest: &made.digest,
                 scope: new.scope,
@@ -122,23 +138,26 @@ impl App {
                 expires_at: now.saturating_add(i64::from(days) * DAY_MILLIS),
             })
             .await?;
-        match issuance {
-            Issuance::Issued(api_token) => {
-                tracing::info!(
-                    user_id = %session.user_id,
-                    token_id = %api_token.id,
-                    scope = %api_token.scope,
-                    "a personal API token was made"
-                );
-                Ok(IssuedApiToken {
-                    token: made.token,
-                    api_token,
-                })
-            }
+        let api_token = match issuance {
+            Issuance::Issued(api_token) => api_token,
             Issuance::NoLongerWorksIn(_) => {
-                Err(AppError::not_found("workspace").with_field("workspaceIds"))
+                return Err(AppError::not_found("workspace").with_field("workspaceIds"));
             }
-        }
+            Issuance::SessionEnded => {
+                return Err(AppError::unauthorized("the session has ended"));
+            }
+            Issuance::TooMany => return Err(AppError::too_many_api_tokens(API_TOKEN_MAX_LIVE)),
+        };
+        tracing::info!(
+            user_id = %session.user_id,
+            token_id = %api_token.id,
+            scope = %api_token.scope,
+            "a personal API token was made"
+        );
+        Ok(IssuedApiToken {
+            token: made.token,
+            api_token,
+        })
     }
 
     /// The personal API tokens of the user that are not taken back, the newest first.
@@ -171,20 +190,23 @@ impl App {
 
     /// The personal API tokens that reach a workspace of this handle's organization
     /// and open anything now, with those of their workspaces that are its: for its
-    /// administrators.
+    /// administrators, who see nothing of what a token opens elsewhere.
     ///
     /// # Errors
     ///
     /// Returns the store's error.
-    pub async fn api_tokens_of_organization(&self) -> Result<Vec<ApiToken>, AppError> {
+    pub async fn api_tokens_of_organization(&self) -> Result<Vec<MemberApiToken>, AppError> {
         Ok(self
             .store()
             .api_tokens_of_organization(now_millis())
             .await?)
     }
 
-    /// Takes back, for an administrator `actor_id` of this handle's organization, a
-    /// personal API token that reaches a workspace of it: in every organization.
+    /// Takes a personal API token that reaches a workspace of this handle's
+    /// organization out of it, for its administrator `actor_id`: it reaches none of
+    /// the organization's workspaces from then on, and is taken back if it reaches
+    /// nothing else (`Store::revoke_api_token_of_organization`). The audit log of the
+    /// organization records it.
     ///
     /// # Errors
     ///
@@ -198,7 +220,7 @@ impl App {
         if !fvoci_model::is_id(token_id)
             || !self
                 .store()
-                .revoke_api_token_of_organization(token_id, now_millis())
+                .revoke_api_token_of_organization(actor_id, token_id, now_millis())
                 .await?
         {
             return Err(AppError::not_found("token"));
@@ -207,7 +229,7 @@ impl App {
             actor_id,
             token_id,
             org_id = self.store().tenant().org_id().unwrap_or_default(),
-            "an administrator took back a personal API token"
+            "an administrator took a personal API token out of the organization"
         );
         Ok(())
     }

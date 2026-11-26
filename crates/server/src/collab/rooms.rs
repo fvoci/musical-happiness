@@ -30,6 +30,7 @@ mod joining;
 mod pauses;
 mod removal;
 mod sent;
+mod turn_lock;
 mod walls;
 
 pub(crate) use access::AccessScope;
@@ -238,7 +239,7 @@ pub(super) struct Room {
     workspace_id: String,
     /// The application as the card's organization reaches it.
     app: App,
-    turn: tokio::sync::Mutex<Turn>,
+    turn: turn_lock::TurnLock,
     /// Told when an immediate check answered of members it held.
     checked: tokio::sync::Notify,
     /// Cancelled when the room is closed: its task ends.
@@ -501,7 +502,7 @@ impl Collab {
             container_id: admitted.container_id.clone(),
             workspace_id: workspace_id.to_owned(),
             app: app.clone(),
-            turn: tokio::sync::Mutex::new(Turn::default()),
+            turn: turn_lock::TurnLock::default(),
             checked: tokio::sync::Notify::new(),
             gone: CancellationToken::new(),
         });
@@ -852,29 +853,20 @@ impl Collab {
         true
     }
 
+    /// Whether anybody who may write is in the room of the card `card_id` of `app`'s
+    /// organization. The room's turn is not waited for: one who asks this may hold the
+    /// card's slot, which whoever holds the turn may wait for.
+    pub(super) fn has_editors(&self, app: &App, card_id: &str) -> bool {
+        self.rooms_index()
+            .get(app.store().tenant(), card_id)
+            .is_some_and(|room| room.turn.writers() > 0)
+    }
+
     /// Closes a held room that nobody is in: its document is closed, which writes its
     /// body to the card, and whoever comes next makes the room anew. The room is held
     /// until the document is closed, so that the next opens it after. A room that one
     /// who typed has left, or writes in no more, asks for what was typed to be kept as
     /// a version: it is, unless another who typed it is still there to write.
-    /// Whether anybody who may write is in the room of the card `card_id` of `app`'s
-    /// organization.
-    pub(super) async fn has_editors(&self, app: &App, card_id: &str) -> bool {
-        let room = self
-            .rooms_index()
-            .get(app.store().tenant(), card_id)
-            .map(Arc::clone);
-        let Some(room) = room else {
-            return false;
-        };
-        let turn = room.turn.lock().await;
-        !turn.closed
-            && turn
-                .members
-                .iter()
-                .any(|member| member.mode == DocMode::Write)
-    }
-
     async fn shut_if_empty(&self, room: &Arc<Room>, turn: &mut Turn) {
         if turn.closed {
             return;

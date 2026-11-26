@@ -14,12 +14,15 @@
 //! leaves, is made a guest of, or that goes to the trash ([`forget_workspace_of_user`],
 //! [`forget_workspace`]). The digest of the token is stored, never the token.
 
-use fvoci_model::{ApiToken, ApiTokenScope, ApiTokenWorkspace};
+use fvoci_model::{
+    API_TOKEN_MAX_LIVE, ApiToken, ApiTokenScope, ApiTokenWorkspace, AuditAction, MemberApiToken,
+};
 
 use crate::Store;
-use crate::db::{Id, OptId, Row, Scope};
+use crate::audit::{self, AuditEntry};
+use crate::db::{Dialect, Id, LockRank, OptId, Row, Scope};
 use crate::error::StoreError;
-use crate::oidc::StoredProvider;
+use crate::oidc::{Identity, StoredProvider};
 
 /// The columns of a token as its list shows it, in the order [`listed_from_row`] reads.
 const LISTED_COLUMNS: &str = "t.id, t.user_id, t.name, t.token_prefix, t.scope, \
@@ -42,6 +45,11 @@ pub struct TokenOrigin<'a> {
     pub provider_id: &'a str,
     /// Its revision when the session was made.
     pub revision: i64,
+    /// The identity the session was made for: the provider's issuer then.
+    pub issuer: &'a str,
+    /// The subject of that identity; `None` for a session that kept none, which is of
+    /// every identity of its issuer.
+    pub subject: Option<&'a str>,
 }
 
 /// A token to be stored ([`Store::issue_api_token`]).
@@ -51,6 +59,8 @@ pub struct TokenToIssue<'a> {
     pub id: &'a str,
     /// Whose it is.
     pub user_id: &'a str,
+    /// The session of theirs that makes it: one that has ended makes none.
+    pub session_id: &'a str,
     /// Its name, as checked.
     pub name: &'a str,
     /// The characters it is shown by.
@@ -81,6 +91,12 @@ pub enum Issuance {
     /// Not stored: the maker no longer works in this workspace (left it, was made its
     /// guest, or it went to the trash) since they were let in.
     NoLongerWorksIn(String),
+    /// Not stored: the session that makes it ended since it was read, with what ended
+    /// the account's sessions (a password changed or reset, the account erased...),
+    /// which ends their tokens too.
+    SessionEnded,
+    /// Not stored: the account has [`API_TOKEN_MAX_LIVE`] tokens that open anything.
+    TooMany,
 }
 
 /// A token that opens what it names: in use, not past its end, of an account in use.
@@ -102,6 +118,8 @@ pub struct LiveApiToken {
     pub origin_provider_id: Option<String>,
     /// When its use was last recorded.
     pub last_used_at: Option<i64>,
+    /// When it was made.
+    pub created_at: i64,
     /// When it ends.
     pub expires_at: i64,
 }
@@ -123,6 +141,12 @@ impl Store {
     /// that a maker taken out of a workspace since they were let in does not give it to
     /// a token. A handle of any reach stores it.
     ///
+    /// The account is held for the transaction, and the session that makes the token
+    /// with it: what ends the account's sessions (and so its tokens) waits for the token
+    /// to be stored and ends it then, or the token is not stored, as a session that
+    /// ended makes none. An account that has [`API_TOKEN_MAX_LIVE`] tokens that open
+    /// anything makes no more until one ends.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidId`] for an identifier that is none, and
@@ -131,10 +155,14 @@ impl Store {
     pub async fn issue_api_token(&self, token: &TokenToIssue<'_>) -> Result<Issuance, StoreError> {
         self.system()
             .transaction(async |scope| {
+                if let Some(refused) = refused_issuance(scope, token).await? {
+                    return Ok(refused);
+                }
                 let mut sql = scope.sql(
                     "INSERT INTO api_tokens (id, user_id, name, token_prefix, token_hash, \
                      scope, allow_personal_space, notify_self, origin_provider_id, \
-                     origin_provider_revision, created_at, expires_at) VALUES (",
+                     origin_provider_revision, origin_issuer, origin_subject, created_at, \
+                     expires_at) VALUES (",
                 );
                 sql.bind(Id(token.id))
                     .push_bind(", ", Id(token.user_id))
@@ -148,6 +176,19 @@ impl Store {
                     .push_bind(
                         ", ",
                         crate::db::Param::OptInt(token.origin.map(|origin| origin.revision)),
+                    )
+                    .push_bind(
+                        ", ",
+                        crate::db::Param::OptText(token.origin.map(|origin| origin.issuer.to_owned())),
+                    )
+                    .push_bind(
+                        ", ",
+                        crate::db::Param::OptText(
+                            token
+                                .origin
+                                .and_then(|origin| origin.subject)
+                                .map(str::to_owned),
+                        ),
                     )
                     .push_bind(", ", token.created_at)
                     .push_bind(", ", token.expires_at)
@@ -172,10 +213,11 @@ impl Store {
                         return Err(StoreError::NoLongerWorksIn(granted.workspace_id.to_owned()));
                     }
                 }
-                listed_of(scope, token.id).await?.ok_or(StoreError::NoRows)
+                Ok(Issuance::Issued(
+                    listed_of(scope, token.id).await?.ok_or(StoreError::NoRows)?,
+                ))
             })
             .await
-            .map(Issuance::Issued)
             .or_else(|error| match error {
                 StoreError::NoLongerWorksIn(workspace_id) => {
                     Ok(Issuance::NoLongerWorksIn(workspace_id))
@@ -199,7 +241,8 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
                 "SELECT t.id, t.user_id, t.name, t.scope, t.allow_personal_space, \
-                 t.notify_self, t.origin_provider_id, t.last_used_at, t.expires_at \
+                 t.notify_self, t.origin_provider_id, t.last_used_at, t.created_at, \
+                 t.expires_at \
                  FROM api_tokens AS t JOIN users AS u ON u.id = t.user_id \
                  WHERE t.token_hash = ",
             );
@@ -220,7 +263,8 @@ impl Store {
                 notify_self: row.bool(5)?,
                 origin_provider_id: Some(origin_provider_id).filter(|id| !id.is_empty()),
                 last_used_at: row.opt_int(7)?,
-                expires_at: row.int(8)?,
+                created_at: row.int(8)?,
+                expires_at: row.int(9)?,
             }))
         })
         .await
@@ -347,13 +391,17 @@ impl Store {
 
     /// The tokens that reach a workspace of the handle's organization and open anything
     /// at `now`, the newest first, each with those of its workspaces that are of this
-    /// organization: what its administrators see of their members' tokens.
+    /// organization: what its administrators see of their members' tokens, which is
+    /// none of what the token opens elsewhere or where it was used from.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] for a handle of none, and
     /// [`StoreError::Database`] if a query fails.
-    pub async fn api_tokens_of_organization(&self, now: i64) -> Result<Vec<ApiToken>, StoreError> {
+    pub async fn api_tokens_of_organization(
+        &self,
+        now: i64,
+    ) -> Result<Vec<MemberApiToken>, StoreError> {
         self.with_conn(async |scope| {
             let org = scope.org()?;
             let mut sql = scope.sql(["SELECT ", LISTED_COLUMNS, " FROM api_tokens AS t WHERE "]);
@@ -373,38 +421,113 @@ impl Store {
                 .push_bind(" WHERE tw.org_id = ", org)
                 .push(" AND w.deleted_at IS NULL ORDER BY w.name, w.id");
             attach_workspaces(&mut tokens, &scope.fetch_all(sql).await?)?;
-            Ok(tokens)
+            Ok(tokens.into_iter().map(MemberApiToken::from).collect())
         })
         .await
     }
 
-    /// Takes back at `now` a token that reaches a workspace of the handle's
-    /// organization, for an administrator of it: whoever's it is, and in every
-    /// organization it reaches. Whether there was one to take back.
+    /// Takes a token that opens anything at `now` out of the handle's organization, for
+    /// its administrator `actor_id`: it reaches none of the organization's workspaces
+    /// any more, and the record of the audit log says so. What it reaches elsewhere it
+    /// keeps; a token left reaching nothing (no workspace, not its owner's own space)
+    /// is taken back. Whether there was one to take out.
+    ///
+    /// The organizations of the token are read with the system's reach: an
+    /// organization's handle sees only its own of them, and would take every token for
+    /// one that reaches nothing else.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] for a handle of none, and
-    /// [`StoreError::Database`] if the statement fails.
+    /// [`StoreError::Database`] if a statement fails.
     pub async fn revoke_api_token_of_organization(
         &self,
+        actor_id: &str,
         token_id: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        self.with_write_conn(async |scope| {
-            let mut sql = scope.sql("UPDATE api_tokens SET revoked_at = ");
-            sql.bind(now)
-                .push_bind(" WHERE id = ", Id(token_id))
-                .push(
-                    " AND revoked_at IS NULL AND EXISTS (SELECT 1 FROM api_token_workspaces AS tw \
-                       WHERE tw.token_id = api_tokens.id",
-                )
-                .push_bind(" AND tw.org_id = ", scope.org()?)
-                .push(")");
-            Ok(scope.execute(sql).await? > 0)
-        })
-        .await
+        let org_id = self.tenant().org_id().ok_or(StoreError::NoOrganization)?;
+        self.system()
+            .transaction(async |scope| {
+                let mut sql = scope
+                    .sql("SELECT t.user_id, t.token_prefix FROM api_tokens AS t WHERE t.id = ");
+                sql.bind(Id(token_id))
+                    .push(" AND t.revoked_at IS NULL")
+                    .push_bind(" AND t.expires_at > ", now);
+                if scope.dialect() == Dialect::Postgres {
+                    sql.push(" FOR UPDATE");
+                }
+                let Some(row) = scope.fetch_optional(sql).await? else {
+                    return Ok(false);
+                };
+                let (owner, prefix) = (row.id(0)?, row.text(1)?);
+                let mut sql = scope.sql("DELETE FROM api_token_workspaces WHERE token_id = ");
+                sql.bind(Id(token_id))
+                    .push_bind(" AND org_id = ", Id(&org_id));
+                if scope.execute(sql).await? == 0 {
+                    return Ok(false);
+                }
+                let mut sql = scope.sql("UPDATE api_tokens SET revoked_at = ");
+                sql.bind(now)
+                    .push_bind(" WHERE id = ", Id(token_id))
+                    .push_bind(" AND allow_personal_space = ", false)
+                    .push(
+                        " AND NOT EXISTS (SELECT 1 FROM api_token_workspaces AS tw \
+                         WHERE tw.token_id = api_tokens.id)",
+                    );
+                scope.execute(sql).await?;
+                let mut entry =
+                    AuditEntry::new("", actor_id, AuditAction::ApiTokenRevoked, &org_id);
+                entry.subject_id = owner;
+                entry.detail = prefix;
+                audit::record_entry_in(scope, &org_id, &entry).await?;
+                Ok(true)
+            })
+            .await
     }
+}
+
+/// Holds the account and the session that makes `token` ([`Store::issue_api_token`]),
+/// and says why the token is not stored, if it is not.
+async fn refused_issuance(
+    scope: &mut Scope<'_>,
+    token: &TokenToIssue<'_>,
+) -> Result<Option<Issuance>, StoreError> {
+    // Who changes the account (its password, its erasure) waits for this, and so does
+    // another token of it, which counts this one then.
+    scope.record_lock(LockRank::Users, token.user_id);
+    let mut sql = scope.sql("SELECT id FROM users WHERE id = ");
+    sql.bind(Id(token.user_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR UPDATE");
+    }
+    if scope.fetch_optional(sql).await?.is_none() {
+        return Ok(Some(Issuance::SessionEnded));
+    }
+    // What ends the session without changing the account (a provider changed or
+    // removed, an identity unlinked) waits for this as well, and the token with it.
+    let mut sql = scope.sql("SELECT id FROM sessions WHERE id = ");
+    sql.bind(Id(token.session_id))
+        .push_bind(" AND user_id = ", Id(token.user_id))
+        .push_bind(" AND expires_at > ", token.created_at);
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE");
+    }
+    if scope.fetch_optional(sql).await?.is_none() {
+        return Ok(Some(Issuance::SessionEnded));
+    }
+    let mut sql = scope.sql("SELECT COUNT(*) FROM api_tokens WHERE user_id = ");
+    sql.bind(Id(token.user_id))
+        .push(" AND revoked_at IS NULL")
+        .push_bind(" AND expires_at > ", token.created_at);
+    let live = match scope.fetch_optional(sql).await? {
+        Some(row) => row.int(0)?,
+        None => 0,
+    };
+    if usize::try_from(live).unwrap_or(usize::MAX) >= API_TOKEN_MAX_LIVE {
+        return Ok(Some(Issuance::TooMany));
+    }
+    Ok(None)
 }
 
 /// Takes back every token of an account: with its sessions, in their transaction.
@@ -417,16 +540,24 @@ pub(crate) async fn revoke_of_user(scope: &mut Scope<'_>, user_id: &str) -> Resu
     Ok(())
 }
 
-/// Takes back the tokens of an account that were made by a session made through a
-/// provider: with the sessions of an identity it unlinks.
-pub(crate) async fn revoke_of_user_through_providers(
+/// Takes back the tokens of an account that were made by a session made for
+/// `identity`, as its sessions are ended (`sessions::end_sessions_of_identity`): those
+/// of the identity's issuer whose session kept no subject too. A token made through
+/// another identity, or with the password, stays.
+pub(crate) async fn revoke_of_identity(
     scope: &mut Scope<'_>,
     user_id: &str,
+    identity: Identity<'_>,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE api_tokens SET revoked_at = ");
     sql.bind(scope.now_millis())
         .push_bind(" WHERE user_id = ", Id(user_id))
-        .push(" AND origin_provider_id IS NOT NULL AND revoked_at IS NULL");
+        .push_bind(" AND origin_issuer = ", identity.issuer)
+        .push_bind(
+            " AND (origin_subject IS NULL OR origin_subject = ",
+            identity.subject,
+        )
+        .push(") AND revoked_at IS NULL");
     scope.execute(sql).await?;
     Ok(())
 }

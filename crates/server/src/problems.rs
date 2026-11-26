@@ -210,7 +210,9 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::TokenForbiddenEndpoint
         | Reason::TokenScopeInsufficient
         | Reason::ApiTokensDisallowed
-        | Reason::TokenRateLimited => describe_access(reason).unwrap_or_default(),
+        | Reason::TokenRateLimited
+        | Reason::TokenExpiredForOrganization
+        | Reason::TooManyApiTokens => describe_access(reason).unwrap_or_default(),
         Reason::SecretKeyRequired
         | Reason::OidcIssuerUnverified
         | Reason::OidcUnavailable
@@ -974,6 +976,12 @@ fn describe_access(reason: Reason) -> Option<&'static str> {
         }
         Reason::TokenRateLimited => {
             "Status 429, for a request with a personal API token: the token, or the tokens that reach the workspace's organization together, sent as many requests as they may in a minute. Wait for as many seconds as `Retry-After` says."
+        }
+        Reason::TokenExpiredForOrganization => {
+            "Status 401, for a request with a personal API token to a workspace whose organization takes only sessions made through its provider: the token was made more than 90 days ago, which such an organization lets no token be, also one made to last longer before the organization took only such sessions. Its owner makes another."
+        }
+        Reason::TooManyApiTokens => {
+            "Status 400, for making a personal API token: the account holds as many tokens that open anything (not taken back, not past their end) as one may, which `limit` tells (25). Nothing was made. Taking one back makes room."
         }
         _ => return None,
     })

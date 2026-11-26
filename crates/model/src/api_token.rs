@@ -24,6 +24,10 @@ pub const API_TOKEN_DEFAULT_DAYS: u32 = 90;
 /// The longest a token may last, in days.
 pub const API_TOKEN_MAX_DAYS: u32 = 365;
 
+/// How many tokens one account holds at most that open anything (not taken back, not
+/// past their end): one agent's token each, for as many agents as a person runs.
+pub const API_TOKEN_MAX_LIVE: usize = 25;
+
 /// What a token may do with the content it reaches.
 #[derive(
     Debug,
@@ -100,8 +104,8 @@ pub struct ApiTokenWorkspace {
     pub name: String,
 }
 
-/// A personal API token as its owner, or an administrator of an organization it
-/// reaches, sees it: never the token itself, which is shown once, when it is made.
+/// A personal API token as its owner sees it: never the token itself, which is shown
+/// once, when it is made.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiToken {
@@ -116,13 +120,15 @@ pub struct ApiToken {
     pub token_prefix: String,
     /// What it may do.
     pub scope: ApiTokenScope,
-    /// The workspaces of organizations it reaches. For an administrator's list, those
-    /// of the administrator's organization alone.
+    /// The workspaces of organizations it reaches.
     pub workspaces: Vec<ApiTokenWorkspace>,
     /// Whether it reaches the owner's own space too (never its diaries).
     pub allow_personal_space: bool,
-    /// Whether its owner asked to be told of what it does, as of anybody's doing. Kept
-    /// with the token; the server tells nobody of their own token's doing yet.
+    /// Whether its owner is told of what it does, as of anybody's doing: of a comment
+    /// it writes on what they watch, of a mention of them it writes (in a comment, or in
+    /// a body), of a card it gives them. The notification names the owner as its doer
+    /// and the token by `agentTokenName`. Nobody is told anything in the owner's own
+    /// space, whatever this says.
     pub notify_self: bool,
     /// When it was last used, in milliseconds since the Unix epoch, to within five
     /// minutes; absent if never.
@@ -137,8 +143,54 @@ pub struct ApiToken {
     pub expires_at: i64,
 }
 
+/// A personal API token as an administrator of an organization it reaches sees it:
+/// whose it is, what it may do there, and when it was made, last used and ends. What
+/// it opens elsewhere (other organizations' workspaces, its owner's own space), where
+/// it was used from and what its owner asked of it are its owner's alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberApiToken {
+    /// The token's identifier.
+    pub id: String,
+    /// Whose it is.
+    pub user_id: String,
+    /// The name its owner gave it.
+    pub name: String,
+    /// The first characters of the token (`fvoci_pat_` and six more).
+    pub token_prefix: String,
+    /// What it may do.
+    pub scope: ApiTokenScope,
+    /// The workspaces of the administrator's organization it reaches.
+    pub workspaces: Vec<ApiTokenWorkspace>,
+    /// When it was last used, wherever, in milliseconds since the Unix epoch, to within
+    /// five minutes; absent if never.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_at: Option<i64>,
+    /// When it was made.
+    pub created_at: i64,
+    /// When it stops opening anything.
+    pub expires_at: i64,
+}
+
+impl From<ApiToken> for MemberApiToken {
+    /// Leaves out what is its owner's alone.
+    fn from(token: ApiToken) -> Self {
+        Self {
+            id: token.id,
+            user_id: token.user_id,
+            name: token.name,
+            token_prefix: token.token_prefix,
+            scope: token.scope,
+            workspaces: token.workspaces,
+            last_used_at: token.last_used_at,
+            created_at: token.created_at,
+            expires_at: token.expires_at,
+        }
+    }
+}
+
 /// What the owner of an account asks a new token to be (`createApiToken`).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, PartialEq, Eq, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewApiToken {
     /// Its name, 1 to 80 characters after trimming.
@@ -172,8 +224,23 @@ const fn notify_self_by_default() -> bool {
     true
 }
 
+impl fmt::Debug for NewApiToken {
+    /// Leaves out the password, saying only whether one was given.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NewApiToken")
+            .field("name", &self.name)
+            .field("scope", &self.scope)
+            .field("workspace_ids", &self.workspace_ids)
+            .field("allow_personal_space", &self.allow_personal_space)
+            .field("notify_self", &self.notify_self)
+            .field("expires_in_days", &self.expires_in_days)
+            .field("password_given", &self.password.is_some())
+            .finish()
+    }
+}
+
 /// A token as it is made: the only time the token itself is told.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuedApiToken {
     /// The token, to be sent as `Authorization: Bearer <token>`. It is not stored, and
@@ -181,6 +248,15 @@ pub struct IssuedApiToken {
     pub token: String,
     /// The token as its list shows it.
     pub api_token: ApiToken,
+}
+
+impl fmt::Debug for IssuedApiToken {
+    /// Leaves out the token: its list's form (`tokenPrefix`) tells which it is.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IssuedApiToken")
+            .field("api_token", &self.api_token)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(test)]
@@ -193,6 +269,37 @@ mod tests {
         assert!(ApiTokenScope::Write.covers(ApiTokenScope::Write));
         assert!(ApiTokenScope::Read.covers(ApiTokenScope::Read));
         assert!(!ApiTokenScope::Read.covers(ApiTokenScope::Write));
+    }
+
+    #[test]
+    fn what_holds_a_secret_does_not_print_it() {
+        let new: NewApiToken = serde_json::from_str(
+            r#"{"name": "agent", "scope": "read", "password": "hunter2-secret"}"#,
+        )
+        .expect("a new token");
+        let printed = format!("{new:?}");
+        assert!(!printed.contains("hunter2-secret"), "{printed}");
+        assert!(printed.contains("password_given: true"), "{printed}");
+        let issued = IssuedApiToken {
+            token: "fvoci_pat_the-secret-itself".to_owned(),
+            api_token: ApiToken {
+                id: "t".to_owned(),
+                user_id: "u".to_owned(),
+                name: "agent".to_owned(),
+                token_prefix: "fvoci_pat_the-se".to_owned(),
+                scope: ApiTokenScope::Read,
+                workspaces: Vec::new(),
+                allow_personal_space: false,
+                notify_self: true,
+                last_used_at: None,
+                last_used_address: None,
+                created_at: 0,
+                expires_at: 1,
+            },
+        };
+        let printed = format!("{issued:?}");
+        assert!(!printed.contains("the-secret-itself"), "{printed}");
+        assert!(printed.contains("fvoci_pat_the-se"), "{printed}");
     }
 
     #[test]

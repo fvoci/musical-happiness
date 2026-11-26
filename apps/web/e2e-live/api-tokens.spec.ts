@@ -4,8 +4,8 @@
  * Claude Code, which one press copies; the agent then reads and writes as its
  * owner, and what it writes says whose agent wrote it, in the card's versions
  * and on its comment. Its owner ends it in the settings, and an administrator
- * of its organization ends another one on the organization's screen: from then
- * on each opens nothing.
+ * of its organization takes another one out of it on the organization's
+ * screen, each after being asked: from then on each opens nothing.
  */
 import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -58,6 +58,8 @@ async function makeToken(
     ),
   );
   await expect(issued).toContainText('The command stays in your shell history.');
+  const raw = (await issued.getByTestId('api-token-raw').textContent()) ?? '';
+  expect(command).toContain(`Bearer ${raw}"`);
   await issued.getByTestId('api-token-copy').click();
   await expect(issued.getByTestId('api-token-copy')).toHaveText('Copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(command);
@@ -135,6 +137,7 @@ test('a token made in the settings works as its owner, says whose agent wrote, a
     'Last used',
   );
   await section.getByRole('button', { name: `End: ${name}` }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'End', exact: true }).click();
   await expect(section.getByRole('status')).toHaveText('The token is ended.');
   await expect(section.getByTestId('api-token').filter({ hasText: name })).toHaveCount(0);
   expect((await agent.get(`/api/v1/w/${board.workspaceId}/containers`)).status()).toBe(401);
@@ -144,7 +147,7 @@ test('a token made in the settings works as its owner, says whose agent wrote, a
   expect(errors).toEqual([]);
 });
 
-test("an administrator sees a member's token on the organization's screen and ends it", async ({
+test("an administrator sees a member's token on the organization's screen and takes it out", async ({
   page,
   browser,
   baseURL,
@@ -174,9 +177,13 @@ test("an administrator sees a member's token on the organization's screen and en
   const row = tokens.getByTestId('org-api-token').filter({ hasText: name });
   await expect(row).toContainText(`@${who.username}`);
   await expect(row).toContainText('Read only');
-  await row.getByRole('button', { name: `End: ${name}` }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'End', exact: true }).click();
+  await row.getByRole('button', { name: `Take out: ${name}` }).click();
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Take out', exact: true })
+    .click();
   await expect(row).toHaveCount(0);
+  // It reached this organization alone: taken out of it, it is ended.
   expect((await agent.get(`/api/v1/w/${workspace?.id ?? ''}/containers`)).status()).toBe(401);
 
   await agent.dispose();

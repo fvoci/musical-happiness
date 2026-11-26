@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::api_tokens::agent_writing;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
 use crate::files::{upload_in, uploaded_id};
-use crate::rooms::{paragraphs, two_in_a_room};
+use crate::rooms::{PATIENCE, Peer, QUIET, paragraphs, two_in_a_room};
 
 fn card_path(card_id: &str) -> String {
     format!("{TEST_WS}/cards/{card_id}")
@@ -246,6 +246,62 @@ async fn an_agent_writes_no_body_whole_while_people_edit_it() {
         "the editor keeps the document"
     );
     append(&agent, &table.card_id, "after it").await.check_ok();
+
+    th.teardown().await;
+}
+
+/// Waits for the server to have the update a peer sent.
+async fn acked(peer: &mut Peer) {
+    let ack = peer.text("docAck").await;
+    assert_eq!(ack["doc"], json!(peer.doc), "{ack}");
+}
+
+/// An agent's whole write that waits for the card while an editor's update holds it,
+/// as another editor's update waits for the room, is answered, and the editors go on:
+/// the write holds the card and does not wait for the room the update waits in.
+#[tokio::test]
+async fn an_agent_writing_whole_between_two_editors_is_answered_and_they_go_on() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (table, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["before"])).await;
+    let agent = agent_writing(&th, &th.client).await;
+    let card: Value = agent.get(&card_path(&table.card_id)).await.ok_json();
+
+    let (held, go) = th.app.collab().pause_next_log();
+    one.write("first").await;
+    tokio::time::timeout(PATIENCE, held.notified())
+        .await
+        .expect("the first update holds the room and the card");
+    two.write("second").await;
+    let (written, ()) = tokio::join!(
+        tokio::time::timeout(PATIENCE, write_markdown(&agent, &card, "over it")),
+        async {
+            // The second update waits for the room and the write for the card.
+            tokio::time::sleep(QUIET).await;
+            go.notify_one();
+        },
+    );
+    let written = written.expect("the whole write is answered");
+    check_refused(&written, StatusCode::CONFLICT, "room_has_active_editors");
+    acked(&mut one).await;
+    acked(&mut two).await;
+
+    for round in 0..8 {
+        one.write(&format!("one {round}")).await;
+        two.write(&format!("two {round}")).await;
+        let card: Value = agent.get(&card_path(&table.card_id)).await.ok_json();
+        let written = tokio::time::timeout(PATIENCE, write_markdown(&agent, &card, "over it"))
+            .await
+            .unwrap_or_else(|_| panic!("the whole write of round {round} is answered"));
+        check_refused(&written, StatusCode::CONFLICT, "room_has_active_editors");
+        acked(&mut one).await;
+        acked(&mut two).await;
+    }
+    two.settle().await;
+    assert!(
+        two.lines().contains(&"one 7".to_owned()),
+        "the editors' writing goes on: {:?}",
+        two.lines()
+    );
 
     th.teardown().await;
 }

@@ -1,16 +1,12 @@
 /**
  * What the screen of personal API tokens says and makes: the name a new token
  * is given, the command that connects an agent with it, the workspaces it may
- * be given, and the words of a refusal. The words come from the refusal's
+ * be given, and the words of a refusal (how a token listed is told is
+ * `$lib/components/api-token/words.ts`). The words come from the refusal's
  * status, reason and the member it points at, never from the server's detail.
  */
 import { m } from '$lib/i18n/paraglide/messages.js';
-import {
-  isBackendError,
-  type ApiToken,
-  type ApiTokenScope,
-  type WorkspaceInfo,
-} from '$lib/state/index.ts';
+import { isBackendError, type WorkspaceInfo } from '$lib/state/index.ts';
 
 /** How many days a new token lasts unless it is asked otherwise. */
 export const TOKEN_DAYS = 90;
@@ -44,19 +40,6 @@ export function tokenWorkspaces(workspaces: readonly WorkspaceInfo[]): TokenWork
     .map((one) => ({ id: one.id, name: one.title }));
 }
 
-/** When, and from where, `token` was last used, by `dates`; or that it was not. */
-export function lastUsedOf(token: ApiToken, dates: Intl.DateTimeFormat): string {
-  if (token.lastUsedAt === undefined) return m.account_api_tokens_unused();
-  const date = dates.format(token.lastUsedAt);
-  return token.lastUsedAddress
-    ? m.account_api_tokens_used_from({ date, address: token.lastUsedAddress })
-    : m.account_api_tokens_used({ date });
-}
-
-export function scopeLabel(scope: ApiTokenScope): string {
-  return scope === 'read' ? m.account_api_tokens_read() : m.account_api_tokens_write();
-}
-
 export interface TokenProblem {
   text: string;
   /** The field to point at, if the refusal is about one. */
@@ -73,6 +56,9 @@ export function tokenProblemOf(error: unknown): TokenProblem {
   }
   if (error.reason === 'api_tokens_disallowed') {
     return { text: m.account_api_tokens_disallowed(), field: undefined };
+  }
+  if (error.reason === 'too_many_api_tokens') {
+    return { text: m.account_api_tokens_too_many(), field: undefined };
   }
   if (error.status === 429) return { text: m.account_rate_limited(), field: undefined };
   if (error.status === 400 && error.refusalAt('/name')) {

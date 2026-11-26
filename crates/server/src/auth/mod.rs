@@ -66,7 +66,9 @@ impl Authenticator {
             public_shared_containers: config.allow_public_links,
             cookie: SessionCookie::new(origins.https(), idle_millis / 1000),
             origins,
-            token_limits: Arc::default(),
+            token_limits: Arc::new(TokenLimits::new(
+                limiter::Limits::from_config(config).address_attempts_per_minute,
+            )),
         })
     }
 

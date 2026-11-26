@@ -11,7 +11,7 @@
 use fvoci_model::{NotificationKind, new_id};
 
 use crate::Store;
-use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::notifications::kind_from_row;
 
@@ -36,6 +36,9 @@ pub struct NotificationEvent {
     pub container_id: String,
     /// Who did it; empty where nobody is known to have.
     pub actor_id: String,
+    /// The name of the token an agent of `actor_id` did it through, if one did: then
+    /// `actor_id` may be the recipient, whose token tells them of what it does.
+    pub actor_token_name: Option<String>,
     /// What the row's `seq` was when it was read.
     pub seq: i64,
     /// How many times in a row it could not be worked off.
@@ -79,8 +82,8 @@ pub enum Told {
     NotedAgain,
 }
 
-const EVENT_COLUMNS: &str =
-    "org_id, recipient_id, kind, source_id, block_id, container_id, actor_id, seq, attempts";
+const EVENT_COLUMNS: &str = "org_id, recipient_id, kind, source_id, block_id, container_id, actor_id, seq, attempts, \
+     actor_token_name";
 
 impl Store {
     /// Up to `limit` rows of the list that are due at `now`, those due the longest
@@ -180,6 +183,10 @@ impl Store {
                 sql.bind(now)
                     .push(", updated_at + 1), times = times + 1, read_at = 0, actor_id = ")
                     .bind(OptId(&event.actor_id))
+                    .push_bind(
+                        ", actor_token_name = ",
+                        Param::OptText(event.actor_token_name.clone()),
+                    )
                     .push_bind(", source_id = ", Id(&event.source_id))
                     .push_bind(", container_id = ", Id(&event.container_id))
                     .push_bind(", doers = ", doers)
@@ -196,7 +203,7 @@ impl Store {
             let mut sql = scope.sql(
                 "INSERT INTO notifications (recipient_id, id, org_id, kind, source_id, \
                  block_id, container_id, actor_id, made_by, created_at, updated_at, times, \
-                 doers, counted, read_at) VALUES (",
+                 doers, counted, read_at, actor_token_name) VALUES (",
             );
             sql.bind(Id(&event.recipient_id))
                 .push_bind(", ", Id(&id))
@@ -211,7 +218,8 @@ impl Store {
                 .push_bind(", ", now)
                 .push_bind(", 1, ", with_doer("[]", &event.actor_id))
                 .push_bind(", ", first_counted(&event.source_id, &event.actor_id))
-                .push(", 0)");
+                .push_bind(", 0, ", Param::OptText(event.actor_token_name.clone()))
+                .push(")");
             scope.execute(sql).await?;
             keep_newest(scope, &event.recipient_id, limits.most_of_a_person).await?;
             Ok(Told::Made(id))
@@ -395,6 +403,7 @@ fn event_from_row(row: &Row) -> Result<NotificationEvent, StoreError> {
         actor_id: row.id(6)?,
         seq: row.int(7)?,
         attempts: row.int(8)?,
+        actor_token_name: row.opt_text(9)?,
     })
 }
 

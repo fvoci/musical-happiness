@@ -103,8 +103,8 @@ mod workspaces;
 pub use access::{ContainerAccess, DeletedContainerAccess, as_managed};
 pub use audience::{Audience, Former, UnsaidByLink};
 pub use blocks::ChangeNotification;
-pub use body_markdown::BodyInMarkdown;
 pub(crate) use body_markdown::comment_text_of_markdown;
+pub use body_markdown::{BodyInMarkdown, MarkdownReader, body_of_markdown};
 pub use caller::{Caller, CallerAuth};
 pub use card_filters::{CardsFilter, CardsOrder, CardsUnder};
 pub use cards::CardPreviews;
@@ -198,6 +198,10 @@ pub struct App {
     /// most once per handle (`App::tell_webhooks`). Reset whenever [`App::scoped`]
     /// changes the tenant.
     org_kind: Arc<tokio::sync::OnceCell<OrgKind>>,
+    /// The token an agent writes blocks through with this handle ([`App::writing_for`]);
+    /// `None` for a person. Only the writes of blocks are told of as the agent's
+    /// (`App::store_telling`): what the rooms of bodies write later is their editors'.
+    agent: Option<Arc<crate::auth::api_token::Delegation>>,
 }
 
 #[derive(Debug)]
@@ -331,6 +335,7 @@ impl App {
             known_actor: None,
             kinds: ContainerKinds::EVERY,
             allowed_kinds: ContainerKinds::EVERY,
+            agent: None,
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
@@ -458,7 +463,17 @@ impl App {
             kinds: self.kinds,
             allowed_kinds: self.allowed_kinds,
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
+            agent: self.agent.clone(),
         }
+    }
+
+    /// The same handle, whose writes of blocks are those of the agent of `delegation`:
+    /// whom they name is told of them as the agent's, the token's owner as well where
+    /// the token asks for that.
+    #[must_use]
+    pub(crate) fn writing_for(mut self, delegation: &crate::auth::api_token::Delegation) -> Self {
+        self.agent = Some(Arc::new(delegation.clone()));
+        self
     }
 
     /// Records the immutable kind of this handle's organization so later checks

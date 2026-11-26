@@ -77,5 +77,6 @@ function subjectOf(subject: Schemas['NotificationSubject']): NotificationSubject
     blockKind: subject.blockKind,
     title: subject.title,
     commentId: subject.commentId,
+    agentTokenName: subject.agentTokenName ?? undefined,
   };
 }

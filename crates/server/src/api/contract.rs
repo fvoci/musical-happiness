@@ -57,15 +57,18 @@ names, of those its owner works in (no guest's), and the owner's own space if it
 that, but never a diary. It reads (`scope` `read`), or reads and writes the content of cards, \
 pages, units, their comments and files (`write`): an operation says in its description \
 whether a token is taken, and which. Every other operation answers a token with 403 and the \
-reason `token_forbidden_endpoint`, the websocket with 401: what is of the account, of who is \
+reason `token_forbidden_endpoint`, the websocket too: what is of the account, of who is \
 on what, of what is shared, and of an administrator is done by a person. A token that reads \
 only is answered 403 with the reason `token_scope_insufficient` where an operation writes. A \
 token sends at most 120 requests a minute, and the tokens that reach one organization 600 \
 together; past that it is answered 429 with `Retry-After` and the reason `token_rate_limited`. \
 It lasts as long as it was made for (90 days unless asked, at most 365, at most 90 where it \
 reaches an organization that takes only sessions made through its provider), and ends with \
-what ends its owner's sessions: a password changed, set or reset, an identity unlinked, the \
-provider it was made through changed or removed, the account put out of use.
+what ends its owner's sessions: a password changed, set or reset, the identity it was made \
+through unlinked, the provider it was made through changed or removed, the account put out \
+of use. An organization that takes only sessions made through its provider holds to its 90 \
+days a token made before it did: older, the token is answered 401 there with the reason \
+`token_expired_for_organization`.
 
 An agent may instead speak the Model Context Protocol to `POST /api/v1/mcp` (`postMcp`), \
 which takes a token and nothing else: its tools read and write as the operations above do, \
@@ -359,7 +362,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcPendingProvider", Members::All),
     ("Notification", Members::All),
     ("NotificationKind", Members::AsWritten),
-    ("NotificationSubject", Members::All),
+    ("NotificationSubject", Members::AllBut(&["agentTokenName"])),
     ("TimeEntry", Members::All),
     ("TimeEntryKind", Members::AsWritten),
     ("TimeTargetKind", Members::AsWritten),
@@ -401,6 +404,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         "ApiToken",
         Members::AllBut(&["lastUsedAt", "lastUsedAddress"]),
     ),
+    ("MemberApiToken", Members::AllBut(&["lastUsedAt"])),
     ("ApiTokenScope", Members::AsWritten),
     ("ApiTokenWorkspace", Members::All),
     ("IssuedApiToken", Members::All),

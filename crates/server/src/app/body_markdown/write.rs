@@ -116,7 +116,20 @@ impl Writer<'_> {
                     .unwrap_or(1)
                     .clamp(1, 3);
                 let hashes = "#".repeat(usize::try_from(level).unwrap_or(1));
-                let text = self.inlines(children(node), path, Within::Heading);
+                let inlines = children(node);
+                let text = if inlines.iter().any(|inline| kind(inline) == "hardBreak") {
+                    self.complex(path, ComplexBlockReason::HeadingWithBreak);
+                    let one_line: Vec<Value> = inlines
+                        .iter()
+                        .map(|inline| match kind(inline) {
+                            "hardBreak" => serde_json::json!({"type": "text", "text": " "}),
+                            _ => inline.clone(),
+                        })
+                        .collect();
+                    self.inlines(&one_line, path, Within::Heading)
+                } else {
+                    self.inlines(inlines, path, Within::Heading)
+                };
                 if text.is_empty() {
                     hashes
                 } else {
@@ -301,7 +314,8 @@ impl Writer<'_> {
         match kind(node) {
             "mention" => {
                 let id = attr_text(node, "userId");
-                let name = self.names.users.get(id).map_or(id, String::as_str);
+                // Who is not seen is named by the identifier alone.
+                let name = self.names.users.get(id).map_or("", String::as_str);
                 format!(
                     "@[{}]({USER_SCHEME}{id})",
                     escape(name, Line::Inside, Within::Paragraph)

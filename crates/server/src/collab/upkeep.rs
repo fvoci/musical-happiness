@@ -3,12 +3,13 @@
 //! grew too large again from its body.
 
 use fvoci_model::Body;
-use fvoci_store::{BodyBefore, StoreError, body_digest};
+use fvoci_store::{BodyBefore, ByAgent, StoreError, body_digest};
 use serde_json::Value;
 use tokio::time::{Instant, sleep_until};
 
 use super::open::{Made, unexpected};
 use super::place::{AskedFor, Held, OpenDoc, Opening, Unanswered, died_over};
+use super::senders::SenderOf;
 use super::versions::Versioned;
 use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken};
 use crate::app::App;
@@ -28,6 +29,13 @@ const PROJECTION_TRIES: u32 = 3;
 pub(super) enum OnForget {
     Quiet,
     TellClosed,
+}
+
+/// Who sent an update: the user, and the agent they sent it through, if one.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Sent<'a> {
+    pub(super) user_id: &'a str,
+    pub(super) agent: Option<ByAgent<'a>>,
 }
 
 impl Collab {
@@ -58,7 +66,13 @@ impl Collab {
         };
         self.at_epoch(app, card_id, slot, epoch).await?;
         let answer = match self
-            .ask_for(app, card_id, slot, request, AskedFor::Sender(user_id))
+            .ask_for(
+                app,
+                card_id,
+                slot,
+                request,
+                AskedFor::Sender(user_id.into()),
+            )
             .await
         {
             Err(refused @ (Unanswered::Refused(_) | Unanswered::TooManySteps(_))) => {
@@ -67,20 +81,25 @@ impl Collab {
             }
             answered => answered?,
         };
-        self.record_taken(app, card_id, slot, epoch, user_id, update, answer)
+        let by = Sent {
+            user_id,
+            agent: None,
+        };
+        self.record_taken(app, card_id, slot, epoch, by, update, answer)
             .await
     }
 
     /// Adds nodes (`nodes`, the JSON of a list of a body's top-level nodes) after the
-    /// last of the document of a held slot, as `user_id` through `sender` (the key its
+    /// last of the document of a held slot, as `by` through `sender` (the key its
     /// deaths are put down to, [`super::senders`]), and logs the update that added them
-    /// as an editor's is logged. Returns the update, for the editors.
+    /// as an editor's is logged, an agent's as sent through its token. Returns the
+    /// update, for the editors.
     pub(super) async fn append_in(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
-        user_id: &str,
+        by: Sent<'_>,
         sender: &str,
         nodes: &[u8],
     ) -> Result<(Vec<u8>, i64, Taken), Unanswered> {
@@ -91,7 +110,16 @@ impl Collab {
             nodes: nodes.to_vec(),
         };
         let answer = match self
-            .ask_for(app, card_id, slot, request, AskedFor::Sender(sender))
+            .ask_for(
+                app,
+                card_id,
+                slot,
+                request,
+                AskedFor::Sender(SenderOf {
+                    key: sender,
+                    owner: by.user_id,
+                }),
+            )
             .await
         {
             Err(refused @ (Unanswered::Refused(_) | Unanswered::TooManySteps(_))) => {
@@ -104,7 +132,7 @@ impl Collab {
             return Err(unexpected(&answer).into());
         };
         let taken = self
-            .record_taken(app, card_id, slot, epoch, user_id, &update, *taken)
+            .record_taken(app, card_id, slot, epoch, by, &update, *taken)
             .await?;
         Ok((update, epoch, taken))
     }
@@ -122,10 +150,11 @@ impl Collab {
         card_id: &str,
         slot: &mut Held,
         epoch: i64,
-        user_id: &str,
+        by: Sent<'_>,
         update: &[u8],
         answer: Answer,
     ) -> Result<Taken, Unanswered> {
+        let user_id = by.user_id;
         let Answer::Taken {
             repair,
             state_bytes,
@@ -148,15 +177,7 @@ impl Collab {
             return Err(super::refusals::out_of_step().into());
         }
         let seqs = self
-            .log_taken(
-                app,
-                card_id,
-                slot,
-                user_id,
-                update,
-                repair.as_deref(),
-                &files,
-            )
+            .log_taken(app, card_id, slot, by, update, repair.as_deref(), &files)
             .await?;
         let open = slot.open.as_mut().expect("the document is open");
         let now = Instant::now();
@@ -192,11 +213,12 @@ impl Collab {
         app: &App,
         card_id: &str,
         slot: &mut Held,
-        user_id: &str,
+        by: Sent<'_>,
         update: &[u8],
         repair: Option<&[u8]>,
         files: &[String],
     ) -> Result<Vec<i64>, AppError> {
+        let user_id = by.user_id;
         let mut entries: Vec<(&[u8], &str)> = vec![(update, user_id)];
         if let Some(repair) = repair {
             entries.push((repair, ""));
@@ -214,8 +236,13 @@ impl Collab {
         let as_read = slot.open.as_ref().expect("the document is open").as_read();
         #[cfg(feature = "test-util")]
         self.paused_before_log().await;
-        let logged = app
-            .store()
+        // An agent's update is logged as sent through its token: what it typed is the
+        // agent's when the body is written and kept, whoever writes it.
+        let store = match by.agent {
+            Some(agent) => app.store().by_agent(agent),
+            None => app.store().clone(),
+        };
+        let logged = store
             .append_body_updates(card_id, &entries, as_read, files, new_editors, body_before)
             .await;
         let seqs = match logged {
