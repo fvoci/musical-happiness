@@ -52,13 +52,13 @@ describe('course progress UI components', () => {
     await otherStore.load();
     render(CourseProgressBar, { course: otherStore });
     expect(screen.queryByTestId('course-my-progress')).toBeNull();
-    expect(screen.getByTestId('course-progress-join-hint')).toBeVisible();
+    expect(screen.queryByTestId('course-progress-join-hint')).toBeNull();
 
     otherStore.close();
     store.close();
   });
 
-  it('lets a viewer toggle completion and save/validate/clear lastPosition, and disables controls when unjoined', async () => {
+  it('lets a viewer toggle completion and save/validate/clear lastPosition, and shows no controls unjoined', async () => {
     const made = setup();
     await made.workspace.load();
     const course = await made.backend.course.createCourse(made.world.workspace.id, {
@@ -67,15 +67,15 @@ describe('course progress UI components', () => {
     });
     const u1 = await made.backend.course.createUnit(course.id, { kind: 'unit', title: 'Tokens' });
 
-    // Unjoined reader sees disabled toggle and join hint, no lastPosition input.
+    // An unjoined reader is asked by the course's banner alone: no controls here.
     const otherWs = new Workspace({ backend: made.other, locale: () => 'en' });
     await otherWs.load();
     const otherStore = new CourseStore(otherWs, course.id);
     await otherStore.load();
 
     const unjoinedView = render(UnitProgressControls, { course: otherStore, unitId: u1.id });
-    expect(screen.getByTestId('unit-complete-toggle')).toBeDisabled();
-    expect(screen.getByTestId('unit-progress-join-hint')).toBeVisible();
+    expect(screen.queryByTestId('unit-complete-toggle')).toBeNull();
+    expect(screen.queryByTestId('unit-progress-join-hint')).toBeNull();
     expect(screen.queryByTestId('unit-last-position-add')).toBeNull();
     unjoinedView.unmount();
 

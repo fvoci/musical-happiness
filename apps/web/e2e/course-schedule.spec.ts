@@ -16,7 +16,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { WORKSPACE } from './address.ts';
-import { openApp, showSidebar, sidebar, stageOf, strip } from './shell.support.ts';
+import { chooseFromMenu, openApp, showSidebar, sidebar, stageOf, strip } from './shell.support.ts';
 import { goInside } from './wiki.support.ts';
 
 test.describe.configure({ mode: 'parallel', timeout: 90_000 });
@@ -147,7 +147,11 @@ test('configures amounts & schedule, preserves overdue units without auto-shift,
   await goInside(page, `/w/${WORKSPACE}/courses/${courseId}`);
   await expect(page.getByTestId('unit-title')).toHaveValue('Logical Clocks');
 
+  // Nothing set: no schedule in the unit's head until its menu opens it.
+  await expect(page.getByTestId('unit-schedule-controls')).toHaveCount(0);
+  await chooseFromMenu(page, page.getByTestId('unit-menu'), 'schedule');
   // Editor sets study amount (45 min) on Logical Clocks.
+  await expect(page.getByTestId('unit-amount-add')).toBeFocused();
   await page.getByTestId('unit-amount-add').click();
   await page.getByTestId('unit-amount-input').fill('45');
   await page.getByTestId('unit-amount-unit-select').selectOption('minutes');
@@ -193,6 +197,14 @@ test('configures amounts & schedule, preserves overdue units without auto-shift,
   await page.getByTestId('unit-my-date-input').fill(futureDate);
   await expect(page.getByTestId('unit-status-overdue')).toHaveCount(0);
   await page.getByTestId('unit-my-date-clear').click();
+  await expect(page.getByTestId('unit-status-overdue')).toBeVisible();
+
+  // Done: one line of what is set, which opens the controls again.
+  await page.getByTestId('unit-schedule-done').click();
+  const summary = page.getByTestId('unit-schedule-summary');
+  await expect(summary).toContainText('45 min');
+  await expect(summary).toBeFocused();
+  await expect(page.getByTestId('unit-my-date-input')).toHaveCount(0);
   await expect(page.getByTestId('unit-status-overdue')).toBeVisible();
 
   // Open "Today's learning" from sidebar button (not a link) and verify overdue & today lists.
@@ -257,11 +269,11 @@ test('isolates unjoined open-course readers and strips all schedule UI/requests 
     { wsId: WORKSPACE, pastDate: isoDateOffset(-3), futureDate: isoDateOffset(5) },
   );
 
-  // Unjoined reader sees shared date, never sees creator's personal date, gets join hint.
+  // Unjoined reader sees shared date, never sees creator's personal date, and no prompt of its own.
   await goInside(page, `/w/${WORKSPACE}/courses/${openCourseId}`);
   await expect(page.getByTestId('course-join')).toBeVisible();
   await expect(page.getByTestId('unit-shared-date-text')).toContainText(isoDateOffset(-3));
-  await expect(page.getByTestId('unit-my-date-join-hint')).toBeVisible();
+  await expect(page.getByTestId('unit-my-date-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('unit-my-date-input')).toHaveCount(0);
   await expect(page.getByTestId('course-screen')).not.toContainText(isoDateOffset(5));
 

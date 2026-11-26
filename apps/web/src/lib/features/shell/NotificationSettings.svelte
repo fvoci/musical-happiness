@@ -43,7 +43,12 @@
 
 <section class="grid gap-3 border-t pt-4" aria-labelledby="{uid}-notify">
   <div class="grid gap-0.5">
-    <h3 id="{uid}-notify" class="font-medium">{m.shell_settings_notify()}</h3>
+    <h3
+      id="{uid}-notify"
+      class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+    >
+      {m.shell_settings_notify()}
+    </h3>
     <p class="text-xs text-muted-foreground">{m.shell_settings_notify_hint()}</p>
   </div>
   {#each NOTIFY_SWITCHES as { kind, setting } (setting)}

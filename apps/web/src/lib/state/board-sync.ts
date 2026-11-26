@@ -171,7 +171,14 @@ export async function performBoardAction<T>(
   ready?: () => Promise<void> | undefined,
 ): Promise<T | undefined> {
   try {
-    return await store.workspace.undo.perform(redo, undo, description, groupId, false, ready);
+    return await store.workspace.undo.perform(
+      () => store.writeJoined(redo),
+      undo,
+      description,
+      groupId,
+      false,
+      ready,
+    );
   } catch (error) {
     if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
       store.workspace.evictContainer(store.boardId);

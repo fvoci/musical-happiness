@@ -62,7 +62,7 @@ test('a registration waits for its mailed link, which signs in on the first boar
   // The server's first account: it names its organization, with no choice to make.
   await expect(page.getByTestId('register-first')).toBeVisible();
   await expect(page.getByTestId('register-use')).toHaveCount(0);
-  await page.getByLabel('Team name').fill('Verified Works');
+  await page.getByTestId('register-organization-name').fill('Verified Works');
   await page.getByLabel('User name', { exact: true }).fill(who.username);
   await page.getByLabel('Email address').fill(who.email);
   await page.getByLabel('Password', { exact: true }).fill(who.password);

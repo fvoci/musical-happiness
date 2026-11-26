@@ -106,16 +106,6 @@
     {/if}
   </header>
 
-  {#if !course.canTrackProgress}
-    <p
-      class="rounded-lg border bg-muted/60 px-3 py-2 text-sm text-muted-foreground"
-      role="status"
-      data-testid="meetings-join-hint"
-    >
-      {m.course_meetings_join_hint()}
-    </p>
-  {/if}
-
   {#if course.events.meetingsFailed && !course.events.meetingsLoaded}
     <div class="flex flex-col items-center gap-3 py-8 text-center">
       <p class="text-sm text-muted-foreground" role="alert">{m.app_problem_load()}</p>

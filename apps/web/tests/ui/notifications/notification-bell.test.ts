@@ -69,7 +69,13 @@ function mount(initial: Notification[]) {
     () => undefined,
   );
   render(NotificationBell, {
-    props: { inbox, locale: 'en-US', hrefOf: () => '/somewhere', onGo: vi.fn() },
+    props: {
+      inbox,
+      locale: 'en-US',
+      hrefOf: () => '/somewhere',
+      onGo: vi.fn(),
+      sourceOf: () => 'Roadmap · Example org',
+    },
   });
   const answerNext = (): void => {
     const next = pending.shift();

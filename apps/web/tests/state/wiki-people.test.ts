@@ -1,7 +1,7 @@
 /**
  * The people of a wiki (`state/wiki.svelte.ts`, `state/member-writes.ts`)
  * over the backend in memory: an open wiki is read by whoever works in the
- * workspace without joining it, and written only once joined; made private,
+ * workspace without joining it, and their first write joins it; made private,
  * it is gone for who read it so; its admins open and close it, set the role
  * of who joins, and add, change and take off its members, a refused change
  * put back.
@@ -26,7 +26,7 @@ async function wikiOf(visibility: 'open' | 'private') {
 }
 
 describe('an open wiki, read without joining', () => {
-  it('is read as its viewers read it, written only once joined', async () => {
+  it('is read as its viewers read it, and written as its members do: the first write joins it', async () => {
     const made = await wikiOf('open');
     const store = new WikiStore(made.theirs, made.wikiId);
     await store.load();
@@ -34,7 +34,7 @@ describe('an open wiki, read without joining', () => {
       'ready',
       true,
       '',
-      false,
+      true,
     ]);
     expect(store.pages.map((page) => page.title)).toEqual(['Welcome']);
     await expect(made.other.wiki.createPage(made.wikiId, { title: 'Mine' })).rejects.toThrow(
@@ -46,9 +46,21 @@ describe('an open wiki, read without joining', () => {
     await settle();
     expect(store.page(made.pageId)?.title).toBe('Welcome all');
 
-    expect(await store.join()).toBe(true);
+    const mine = await store.createPage({ title: 'Mine' });
+    expect(mine?.title).toBe('Mine');
     expect([store.joinable, store.role, store.canEdit]).toEqual([false, 'editor', true]);
-    await made.other.wiki.createPage(made.wikiId, { title: 'Mine' });
+    expect(made.theirs.problems).toHaveLength(0);
+    store.close();
+  });
+
+  it('whose least role only views is read only, and joined by its banner', async () => {
+    const made = await wikiOf('open');
+    await made.backend.patchContainer(made.wikiId, { minimumRole: 'viewer' });
+    const store = new WikiStore(made.theirs, made.wikiId);
+    await store.load();
+    expect([store.joinable, store.joinsOnWrite, store.canEdit]).toEqual([true, false, false]);
+    expect(await store.join()).toBe(true);
+    expect([store.joinable, store.role]).toEqual([false, 'viewer']);
     store.close();
   });
 
@@ -80,7 +92,7 @@ describe('an open wiki, read without joining', () => {
     own.close();
   });
 
-  it('taken off it, a member reads it on as whoever works there', async () => {
+  it('taken off it, a member reads it on as whoever works there, and writing joins it again', async () => {
     const made = await wikiOf('open');
     await made.backend.addMember(made.wikiId, made.other.userId, 'editor');
     const store = new WikiStore(made.theirs, made.wikiId);
@@ -88,7 +100,7 @@ describe('an open wiki, read without joining', () => {
     expect(store.role).toBe('editor');
     await made.backend.removeMember(made.wikiId, made.other.userId);
     await settle();
-    expect([store.missing, store.joinable, store.canEdit]).toEqual([false, true, false]);
+    expect([store.missing, store.joinable, store.joinsOnWrite]).toEqual([false, true, true]);
     store.close();
   });
   it('tells who watches it unjoined each change, that it is gone once when made private, and nothing after', async () => {
@@ -107,7 +119,7 @@ describe('an open wiki, read without joining', () => {
 });
 
 describe('the comments of an open wiki read without joining', () => {
-  it('are read with what they said before, and none is written or changed', async () => {
+  it('are read with what they said before, and the first one written joins the wiki', async () => {
     const made = await wikiOf('open');
     const store = new WikiStore(made.theirs, made.wikiId);
     await store.load();
@@ -118,7 +130,13 @@ describe('the comments of an open wiki read without joining', () => {
       comments.canComment,
       comments.canEditComment(made.other.userId),
       comments.canReadCommentHistory,
-    ]).toEqual([false, false, true]);
+    ]).toEqual([true, true, true]);
+    await comments.addComment({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
+    });
+    expect(store.role).toBe('editor');
+    expect(comments.comments.map((comment) => comment.createdBy)).toEqual([made.other.userId]);
     store.close();
   });
 });

@@ -30,6 +30,8 @@ import {
   type ViewDraft,
 } from './backend.ts';
 import { handleBoardLoadFailure, joinOpenBoard, readBoard } from './board-load.ts';
+import { joinedPermissions, JoinOnWrite, joinsOnWrite } from './join-on-write.ts';
+import { noteMembership } from './memberships.svelte.ts';
 import {
   changeBoardCard,
   changeBoardContainer,
@@ -92,7 +94,15 @@ export class BoardStore {
   board = $state.raw<Container | undefined>(undefined);
   views = $state.raw<BoardView[]>([]);
   cards = $state.raw<CardSummary[]>([]);
-  members = $state.raw<ContainerMember[]>([]);
+  #members = $state.raw<ContainerMember[]>([]);
+  /** Its members as read; whether the reader is one is told to the sidebar (`noteMembership`). */
+  get members(): ContainerMember[] {
+    return this.#members;
+  }
+  set members(members: ContainerMember[]) {
+    this.#members = members;
+    noteMembership(this.workspace, this.boardId, members);
+  }
   permissions = $state.raw<ContainerPermissions>({ ...READ_ONLY_PERMISSIONS });
   permissionsRole = $state<MemberRole | undefined>(undefined);
   openCard = $state.raw<CardStore | undefined>(undefined);
@@ -123,29 +133,35 @@ export class BoardStore {
       !this.board.isTemplate &&
       this.role === '',
   );
-  readonly #effectivePermissions = $derived.by<ContainerPermissions>(() =>
-    this.permissionsRole === this.role
-      ? this.permissions
-      : permissionsOfRole(this.role, {
-          isGuest: this.workspace.info?.role === 'guest',
-          isWorkspaceAdmin: this.workspace.info?.role === 'admin',
-          isTemplate: this.board?.isTemplate,
-        }),
+  /** Joined by the reader's first write (`join-on-write.ts`): what they may do is a member's. */
+  readonly joinsOnWrite = $derived.by(() =>
+    joinsOnWrite(this.joinable, this.workspace, this.board?.minimumRole),
   );
-  readonly canEdit = $derived(this.#effectivePermissions.canEdit);
-  readonly canManageProperties = $derived(this.#effectivePermissions.canManageProperties);
-  readonly canManageVisibility = $derived(this.#effectivePermissions.canManageVisibility);
-  readonly canManageRoles = $derived(this.#effectivePermissions.canManageRoles);
-  readonly canDelete = $derived(this.#effectivePermissions.canDelete);
-  readonly canShare = $derived(this.#effectivePermissions.canShare);
-  readonly canComment = $derived(this.#effectivePermissions.canComment);
-  readonly canManageOthersComments = $derived(this.#effectivePermissions.canManageOthersComments);
+  /** What the reader may do: as joined where a write joins, else as the role last read. */
+  readonly effectivePermissions = $derived.by<ContainerPermissions>(() => {
+    const workspaceAdmin = this.workspace.info?.role === 'admin';
+    if (this.joinsOnWrite) return joinedPermissions(this.board?.minimumRole, workspaceAdmin);
+    if (this.permissionsRole === this.role) return this.permissions;
+    return permissionsOfRole(this.role, {
+      isGuest: this.workspace.info?.role === 'guest',
+      isWorkspaceAdmin: workspaceAdmin,
+      isTemplate: this.board?.isTemplate,
+    });
+  });
+  readonly canEdit = $derived(this.effectivePermissions.canEdit);
+  readonly canManageProperties = $derived(this.effectivePermissions.canManageProperties);
+  readonly canManageVisibility = $derived(this.effectivePermissions.canManageVisibility);
+  readonly canManageRoles = $derived(this.effectivePermissions.canManageRoles);
+  readonly canDelete = $derived(this.effectivePermissions.canDelete);
+  readonly canShare = $derived(this.effectivePermissions.canShare);
+  readonly canComment = $derived(this.effectivePermissions.canComment);
+  readonly canManageOthersComments = $derived(this.effectivePermissions.canManageOthersComments);
   readonly canReadCommentHistory = $derived(this.role !== '' || this.joinable);
 
   canDeleteComment(createdBy: string): boolean {
     return (
-      this.#effectivePermissions.canManageOthersComments ||
-      (this.#effectivePermissions.canComment && createdBy === this.workspace.me?.id)
+      this.effectivePermissions.canManageOthersComments ||
+      (this.effectivePermissions.canComment && createdBy === this.workspace.me?.id)
     );
   }
   canEditComment(createdBy: string): boolean {
@@ -165,6 +181,7 @@ export class BoardStore {
   evicted = false;
   #evictionGen = 0;
   joining = $state(false);
+  readonly #joinOnWrite = new JoinOnWrite(this, (role) => this.#refreshPermissions(role));
   revalidating = $state(false);
   #closed = false;
   #parked = false;
@@ -198,12 +215,13 @@ export class BoardStore {
     };
   }
 
-  async #refreshPermissions(): Promise<void> {
+  /** Reads what the reader may do, as one of `role` (the role they have now, or the one a join gave). */
+  async #refreshPermissions(role: MemberRole = this.role): Promise<void> {
     const visit = this.visit;
     try {
       const permissions = await this.#backend.myPermissions(this.boardId);
       if (!this.#isInactive() && this.visit === visit) {
-        [this.permissions, this.permissionsRole] = [permissions, this.role];
+        [this.permissions, this.permissionsRole] = [permissions, role];
       }
     } catch {
       // Handled on next load/refresh if access ended.
@@ -275,6 +293,11 @@ export class BoardStore {
 
   join(): Promise<boolean> {
     return joinOpenBoard(this);
+  }
+
+  /** Sends `write`, once the reader has joined where it is their first write on an open board. */
+  writeJoined<T>(write: () => Promise<T>): Promise<T> {
+    return this.#joinOnWrite.run(this.boardId, write);
   }
 
   park(): void {

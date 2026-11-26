@@ -34,6 +34,7 @@
   import { shownTitle } from '$lib/features/shell/shown-title.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { overlayOpen } from '$lib/layout/back.svelte.ts';
+  import { Opener } from '$lib/focus.ts';
   import type { Workspace } from '$lib/state/index.ts';
   import type { SearchHit } from '$lib/state/content-search.ts';
 
@@ -45,8 +46,7 @@
   let open = $state(false);
   let session = $state.raw<SearchSession | undefined>(undefined);
   let dialog = $state<{ focusField: () => void }>();
-  /** What had the focus when the search opened: it gets it back. */
-  let opener: HTMLElement | undefined;
+  const opener = new Opener();
 
   /** Asked of each backend the workspace has (one, for the life of the page). */
   const enabled = $derived(new SearchSwitch(workspace.backend.search));
@@ -55,13 +55,11 @@
 
   /** Where the focus goes back to: where it was, or the page where that is gone. */
   function returnTo(): HTMLElement | undefined {
-    if (opener?.isConnected && opener !== document.body) return opener;
-    return document.querySelector('main') ?? undefined;
+    return opener.take() ?? document.querySelector('main') ?? undefined;
   }
 
   /**
-   * Opens the search, from `from` (the button: Safari does not focus a button
-   * clicked); whether it did. Never over another overlay: the wiki's drawer of
+   * Opens the search, from `from` (the button pressed); whether it did. Never over another overlay: the wiki's drawer of
    * pages leaves the top bar out of its reach, and going from the search to a
    * page of the same wiki would leave it open, without its entry of the history.
    */
@@ -71,7 +69,7 @@
     const focused = document.activeElement;
     // Not the field of the search that was just closed and is fading out: it goes.
     const kept = focused instanceof HTMLElement && !focused.closest('[data-search-dialog]');
-    opener = from ?? (kept ? focused : undefined);
+    opener.hold(from ?? (kept ? focused : undefined));
     session?.close();
     const { backend } = workspace;
     const search: NumberedSearch = {

@@ -1,5 +1,5 @@
 <!--
-  The top row of the pane: which board (or wiki) this is, who is on it, sharing it
+  The top row of the pane: which space this is in (`SpaceBadge`), which board (or wiki) this is, who is on it, sharing it
   (for its admins), and undo and redo, which pulse (or fade, with less
   motion) while one asked for waits for a write.
 
@@ -14,9 +14,9 @@
 
   A narrow pane (a phone) has room for the title only if undo, redo, the
   description and the deleted cards are lines of a menu ("…"); a phone seldom has a keyboard for
-  their keys, which work all the same. What the app lends it (`bar-menu.svelte.ts`: the
-  notifications) is a line there too, and marks the menu's button. From where two kanban columns fit they
-  are buttons of their own.
+  their keys, which work all the same; so is sharing, which a board's admins seldom need there. From
+  where two kanban columns fit they are buttons of their own. The bell (`search`) stays a button of
+  the bar at every width.
 
   The title is a field for a reader who may change the board, and plain text
   for one who may not; a board that can only be read says so next to it. The
@@ -37,7 +37,6 @@
   import type { Snippet } from 'svelte';
 
   import { shortcutKeys, shortcutLabel } from '$lib/keys.ts';
-  import { BarMenu, lendBarMenu } from './bar-menu.svelte.ts';
   import PresenceRoster from './PresenceRoster.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
@@ -51,6 +50,7 @@
   import ContainerIcon from './ContainerIcon.svelte';
   import BoardTitle from './BoardTitle.svelte';
   import ShareDialog from './ShareDialog.svelte';
+  import SpaceBadge from './SpaceBadge.svelte';
   import { namedAs, shownTitle } from './shown-title.ts';
   import TrashDialog from './TrashDialog.svelte';
 
@@ -146,12 +146,6 @@
     return undefined;
   });
 
-  /** What the app lends the narrow pane's menu, for what it shows in the bar. */
-  const lent = new BarMenu();
-  lendBarMenu(lent);
-  /** The first mark lent, on the menu's button. */
-  const marked = $derived(lent.offers.find((offer) => offer.mark !== undefined));
-
   /** The narrow pane's menu: the same undo, redo and trash as the buttons it stands for. */
   const narrowActions = $derived.by<MenuAction[]>(() => {
     const list: MenuAction[] = [
@@ -181,6 +175,18 @@
         },
       });
     }
+    if (canShare) {
+      list.push({
+        id: 'share',
+        label: m.shell_share(),
+        icon: Share2Icon,
+        separated: true,
+        afterClose: () => {
+          sharingMembers = false;
+          sharing = true;
+        },
+      });
+    }
     if (canRestoreCards) {
       list.push({
         id: 'card-trash',
@@ -189,9 +195,6 @@
         separated: true,
         run: openTrash,
       });
-    }
-    for (const [index, offer] of lent.offers.entries()) {
-      list.push({ ...offer.line, separated: index === 0 });
     }
     return list;
   });
@@ -214,6 +217,8 @@
       <MenuIcon />
     </IconButton>
   {/if}
+
+  <SpaceBadge {workspace} />
 
   {#if meTime}
     <div class="flex min-w-0 shrink items-center gap-2 pl-1">
@@ -336,7 +341,7 @@
       size="sm"
       data-testid="share-board"
       aria-haspopup="dialog"
-      class="shrink-0 roomy:min-h-touch roomy:min-w-touch"
+      class="shrink-0 @max-columns/pane:hidden roomy:min-h-touch roomy:min-w-touch"
       onclick={() => {
         sharingMembers = false;
         sharing = true;
@@ -390,19 +395,12 @@
     {#snippet trigger(props: Record<string, unknown>)}
       <IconButton
         {...props}
-        label={marked ? m.shell_bar_more_marked({ what: marked.markLabel }) : m.shell_bar_more()}
+        label={m.shell_bar_more()}
         data-testid="bar-menu"
         aria-busy={workspace.undoBusy}
-        class="relative aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60 @columns/pane:hidden"
+        class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60 @columns/pane:hidden"
       >
         <EllipsisIcon />
-        {#if marked}
-          <span
-            class="absolute top-0.5 right-0.5 min-w-4 rounded-full bg-primary px-1 text-[0.625rem] leading-4 font-semibold text-primary-foreground tabular-nums"
-            data-testid="bar-menu-mark"
-            aria-hidden="true">{marked.mark}</span
-          >
-        {/if}
       </IconButton>
     {/snippet}
   </ActionMenu>

@@ -3,7 +3,7 @@
  * - Toggling unit completion & retaking (incomplete) updates header bar, ARIA attributes,
  *   outline checkmarks (excluding chapters), and members dialog aggregate rates.
  * - Saving, editing, and clearing `lastPosition` preserves completion state.
- * - Unjoined open-course reader sees read-only/join-hint state until joining.
+ * - Unjoined open-course reader is asked by the course's banner alone until joining.
  * - Public shared course (`/shared/...`) renders zero progress UI and makes zero
  *   `/progress` or `/progress/summary` network requests.
  */
@@ -68,10 +68,9 @@ async function hideTree(page: Page): Promise<void> {
 async function newCourse(page: Page, title: string): Promise<string> {
   await showSidebar(page);
   await sidebar(page).getByTestId('add-board').click();
-  await page.getByTestId('template-picker').getByTestId('new-course').click();
-  const dialog = page.getByTestId('new-course-dialog');
-  await dialog.getByTestId('new-course-title').fill(title);
-  await dialog.getByTestId('new-course-create').click();
+  const picker = page.getByTestId('template-picker');
+  await picker.getByTestId('new-title').fill(title);
+  await picker.getByTestId('new-course').click();
   await expect(page).toHaveURL(ON_A_COURSE);
   await expect(page.getByTestId('course-screen')).toBeVisible();
   const match = new RegExp(`/courses/(${ID})`).exec(new URL(page.url()).pathname);
@@ -219,14 +218,14 @@ test('keeps unjoined open-course reader read-only until joining, and isolates pu
   await goInside(page, `/w/${WORKSPACE}/courses/${openCourseId}`);
   await expect(page.getByTestId('course-join')).toBeVisible();
 
-  // Unjoined reader: toggle is disabled, join hint visible, no tree checkmarks, no private note.
-  await expect(page.getByTestId('unit-complete-toggle')).toBeDisabled();
-  await expect(page.getByTestId('unit-progress-join-hint')).toBeVisible();
+  // Unjoined reader: asked by the banner alone, no toggle, no tree checkmarks, no private note.
+  await expect(page.getByTestId('unit-complete-toggle')).toHaveCount(0);
+  await expect(page.getByTestId('unit-progress-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('unit-last-position-add')).toHaveCount(0);
   await expect(page.getByTestId('course-screen')).not.toContainText('private-note-99');
 
   await showTree(page);
-  await expect(page.getByTestId('course-progress-join-hint')).toBeVisible();
+  await expect(page.getByTestId('course-progress-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('course-my-progress')).toHaveCount(0);
   await expect(unitTree(page).getByTestId('unit-tree-progress')).toHaveCount(0);
 

@@ -1,5 +1,5 @@
 /** Making a course in the workspace shown, in the sidebar at once. */
-import type { Container, ContainerPatch } from '../logic/wire.ts';
+import type { Container } from '../logic/wire.ts';
 
 import type { CourseDraft } from './course-types.ts';
 import type { Workspace } from './workspace.svelte.ts';
@@ -18,27 +18,5 @@ export async function createCourse(
   } catch (error) {
     workspace.report('save', error);
     return undefined;
-  }
-}
-
-/** Creates a course from a template and applies optional title/visibility overrides. */
-export async function createCourseFromTemplate(
-  workspace: Workspace,
-  templateId: string,
-  draft: CourseDraft,
-): Promise<Container | undefined> {
-  const made = await workspace.duplicateContainer(templateId);
-  if (!made) return undefined;
-  const patch: ContainerPatch = {};
-  if (draft.title && draft.title !== made.title) patch.title = draft.title;
-  if (draft.visibility !== made.visibility) patch.visibility = draft.visibility;
-  if (patch.title === undefined && patch.visibility === undefined) return made;
-  try {
-    const updated = await workspace.backend.patchContainer(made.id, patch);
-    workspace.receiveContainer(updated);
-    return updated;
-  } catch (error) {
-    workspace.report('save', error);
-    return made;
   }
 }

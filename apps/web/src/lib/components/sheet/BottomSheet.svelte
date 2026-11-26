@@ -11,9 +11,8 @@
     focused field would bring up the keyboard before the person has seen the
     choices.
   - Closes with "Done", a tap outside, Escape, and the back button. Closed, the
-    focus goes where `returnFocus` says, else back to what had it before: Safari
-    does not focus a button a finger or a mouse presses, so what opened the sheet
-    must be named for the focus to come back to it there.
+    focus goes where `returnFocus` says (what opened it: `Opener`), else back to
+    what had it before; then `onClosed` runs.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -32,6 +31,8 @@
     onOpenChange?: (open: boolean) => void;
     /** Where the focus goes once the sheet has closed: what opened it. */
     returnFocus?: () => HTMLElement | null | undefined;
+    /** Once the sheet has closed and given the focus back. */
+    onClosed?: () => void;
     children: Snippet;
   }
 
@@ -42,6 +43,7 @@
     tall = false,
     onOpenChange,
     returnFocus,
+    onClosed,
     children,
   }: Props = $props();
 
@@ -72,9 +74,11 @@
     }}
     onCloseAutoFocus={(event: Event) => {
       const back = returnFocus?.();
-      if (!back?.isConnected) return;
-      event.preventDefault();
-      back.focus({ preventScroll: true });
+      if (back?.isConnected) {
+        event.preventDefault();
+        back.focus({ preventScroll: true });
+      }
+      onClosed?.();
     }}
   >
     <Sheet.Header class="shrink-0 flex-row items-center gap-2 py-2 pr-2 pl-4">

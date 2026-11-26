@@ -1,6 +1,6 @@
 /**
  * Course L6 end to end on the in-memory backend:
- * - Creating a course from the built-in course template via `NewCourseDialog`
+ * - Creating a course from the built-in course template from the window of new things
  * - Recording personal unit completion
  * - Duplicating the course via sidebar menu (units kept, personal completion excluded)
  * - Exporting the course archive and importing it back (units kept, personal completion excluded)
@@ -47,16 +47,12 @@ test('creates a course from built-in template, duplicates, and exports/imports w
   await openApp(page);
   await showSidebar(page);
   await sidebar(page).getByTestId('add-board').click();
-  await page.getByTestId('template-picker').getByTestId('new-course').click();
-
-  const dialog = page.getByTestId('new-course-dialog');
-  await expect(dialog).toBeVisible();
-  const tplButton = dialog.getByTestId('new-course-template-course-study-plan');
+  const picker = page.getByTestId('template-picker');
+  await expect(picker).toBeVisible();
+  await picker.getByTestId('new-title').fill('L6 Study Plan');
+  const tplButton = picker.getByTestId('use-template-course-study-plan');
   await expect(tplButton).toBeVisible();
   await tplButton.click();
-  await expect(tplButton).toHaveAttribute('aria-pressed', 'true');
-  await dialog.getByTestId('new-course-title').fill('L6 Study Plan');
-  await dialog.getByTestId('new-course-create').click();
 
   await expect(page).toHaveURL(ON_A_COURSE);
   await expect(page.getByTestId('course-screen')).toBeVisible();

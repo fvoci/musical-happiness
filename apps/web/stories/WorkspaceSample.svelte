@@ -25,6 +25,8 @@
   const listed = $derived<WorkspaceInfo[]>([
     ...Array.from({ length: count }, (_, index) => ({
       id: `example-workspace-${index}`,
+      // The first two share an organization, grouped under its name; the others are alone in theirs.
+      orgId: index < 2 ? 'example-org-a' : `example-org-${index}`,
       kind: 'shared' as const,
       title:
         index === 0 && long
@@ -38,6 +40,12 @@
   let started = $state<WorkspaceInfo[]>([]);
   const workspaces = $derived([...started, ...listed]);
   let current = $derived(inOwn ? 'own-space' : listed[0]?.id);
+  const orgName = (orgId: string | undefined): string =>
+    orgId === 'example-org-a'
+      ? 'Example organization · 예시 조직'
+      : orgId
+        ? `Org ${orgId.slice(12)}`
+        : '';
 
   async function createOrganization(name: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -55,6 +63,7 @@
     <WorkspaceSwitcher
       {workspaces}
       {current}
+      {orgName}
       onSwitch={(id: string) => {
         current = id;
       }}

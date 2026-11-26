@@ -219,3 +219,21 @@ export async function firstDiary(workspace: Workspace): Promise<Container | unde
     return undefined;
   }
 }
+
+/** Makes another volume of diary in the reader's own space, titled `title` (empty: untitled). */
+export async function newDiary(
+  workspace: Workspace,
+  title: string,
+): Promise<Container | undefined> {
+  const diaries = workspace.backend.diary;
+  const shown = workspace.info;
+  if (!diaries || !shown) return undefined;
+  try {
+    const diary = await diaries.createDiary(shown.id, title ? { title } : {});
+    workspace.receiveContainer(diary);
+    return diary;
+  } catch (error) {
+    workspace.report('save', error);
+    return undefined;
+  }
+}

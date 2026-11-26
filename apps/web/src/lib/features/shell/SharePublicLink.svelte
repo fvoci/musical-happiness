@@ -104,7 +104,7 @@
   data-testid="share-public-section"
   {@attach syncPublicLink}
 >
-  <h3 id="{uid}-public" class="font-medium">{m['ShareBoard.PublishTitle']()}</h3>
+  <h3 id="{uid}-public" class="font-medium">{m.share_public_link()}</h3>
   <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
     <span class="min-w-0 flex-1 text-muted-foreground">
       {m['ShareBoard.PublishDescription']()}

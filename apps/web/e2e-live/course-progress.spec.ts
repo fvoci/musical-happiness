@@ -4,7 +4,7 @@
  * - User B (viewer) sees Unit 1 incomplete, never sees A's `lastPosition`, sees only A's
  *   aggregate completion rate in the Members dialog, and can record B's own completion &
  *   `lastPosition` (persisting across reload).
- * - Unjoined User C opens an open course read-only (disabled progress toggle + join hint),
+ * - Unjoined User C opens an open course read-only (no progress toggle, the course's banner asks),
  *   joins, and tracks progress.
  * - Public shared course link makes zero `/progress` or `/progress/summary` requests and
  *   displays no progress UI.
@@ -206,15 +206,15 @@ test('isolates personal progress & lastPosition between members, shows only aggr
     await expect(publicPage.getByTestId('unit-tree-progress')).toHaveCount(0);
     expect(progressRequests).toEqual([]);
 
-    // Unjoined Chloe opens the open course: disabled toggle + join hint; joins -> tracks progress.
+    // Unjoined Chloe opens the open course: no toggle, the banner asks; joins -> tracks progress.
     const chloeSession = await signedInPage(browser, unit1Url, chloe);
     pages.push(chloeSession.page);
     watched.push(chloeSession.errors);
     const chloePage = chloeSession.page;
 
     await expect(chloePage.getByTestId('course-join')).toBeVisible();
-    await expect(chloePage.getByTestId('unit-complete-toggle')).toBeDisabled();
-    await expect(chloePage.getByTestId('course-progress-join-hint')).toBeVisible();
+    await expect(chloePage.getByTestId('unit-complete-toggle')).toHaveCount(0);
+    await expect(chloePage.getByTestId('course-progress-join-hint')).toHaveCount(0);
     await chloePage.getByTestId('course-join').getByRole('button').click();
     await expect(chloePage.getByTestId('course-join')).toHaveCount(0);
     await expect(chloePage.getByTestId('unit-complete-toggle')).toBeEnabled();

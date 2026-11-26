@@ -55,7 +55,7 @@ it('puts a refused role back in its select, with the reason', async () => {
   expect(select.value).toBe('viewer');
   await fireEvent.change(select, { target: { value: 'editor' } });
   expect(assign).toHaveBeenCalledWith('w1', 'b1', 't1', 'editor');
-  expect(await screen.findByRole('alert')).toHaveTextContent('Could not change the team.');
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not change the group.');
   await waitFor(() => {
     expect(select.value).toBe('viewer');
   });

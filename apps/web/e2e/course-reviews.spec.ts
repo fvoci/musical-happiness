@@ -104,8 +104,10 @@ test('completes unit with interval suggestion, manages Today reviews, CRUDs pers
   const reviewsPanel = page.getByTestId('unit-reviews-panel');
   await expect(reviewsPanel.getByTestId('unit-review-item')).toHaveCount(1);
 
-  // 2. Personal notes CRUD + filtering + private badge.
+  // 2. Personal notes CRUD + filtering + private badge; without notes, only the button that starts one.
   const notesPanel = page.getByTestId('unit-notes-panel');
+  await expect(notesPanel).toHaveCount(0);
+  await page.getByTestId('unit-notes-add').click();
   await expect(notesPanel.getByTestId('unit-notes-private-badge')).toBeVisible();
 
   await notesPanel.getByTestId('unit-note-kind-question').click();
@@ -226,8 +228,8 @@ test('isolates unjoined open-course reader and public shared links from reviews 
   }, WORKSPACE);
 
   await openCourseUnit(page, openCourse.courseId, openCourse.unitId);
-  await expect(page.getByTestId('unit-reviews-join-hint')).toBeVisible();
-  await expect(page.getByTestId('unit-notes-join-hint')).toBeVisible();
+  await expect(page.getByTestId('unit-reviews-join-hint')).toHaveCount(0);
+  await expect(page.getByTestId('unit-notes-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('course-screen')).not.toContainText(
     'Secret mistake only for creator',
   );

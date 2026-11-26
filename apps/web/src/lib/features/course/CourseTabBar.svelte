@@ -1,8 +1,9 @@
 <!--
   Horizontal WAI-ARIA tab strip for switching a course between Units,
-  Study Meetings, and Exams. Supports keyboard ArrowLeft/ArrowRight/Home/End
-  navigation and compact wrapping on 390px screens. Never mounted on public
-  share links (`/shared/...`).
+  Study Meetings, and Exams. A tab with nothing in it is left out unless it is
+  the one shown: the course menu makes the first meeting or exam. Supports
+  keyboard ArrowLeft/ArrowRight/Home/End navigation and compact wrapping on
+  390px screens. Never mounted on public share links (`/shared/...`).
 -->
 <script lang="ts">
   import BookOpenIcon from '@lucide/svelte/icons/book-open';
@@ -23,10 +24,9 @@
 
   let { active, meetingsCount, examsCount, panelIdPrefix, onSelect }: Props = $props();
 
-  const ORDER: readonly CourseSectionTab[] = ['units', 'meetings', 'exams'];
   let listElement: HTMLElement | undefined;
 
-  const tabs = $derived([
+  const all = $derived([
     { id: 'units' as const, label: m.course_tab_units(), count: 0, icon: BookOpenIcon },
     {
       id: 'meetings' as const,
@@ -41,6 +41,10 @@
       icon: ClipboardCheckIcon,
     },
   ]);
+  const tabs = $derived(
+    all.filter((tab) => tab.id === 'units' || tab.count > 0 || tab.id === active),
+  );
+  const order = $derived(tabs.map((tab) => tab.id));
 
   function focusAndSelect(next: CourseSectionTab): void {
     onSelect(next);
@@ -49,23 +53,19 @@
   }
 
   function onkeydown(event: KeyboardEvent): void {
-    const index = ORDER.indexOf(active);
+    const index = order.indexOf(active);
     if (index === -1) return;
-    if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      const next = ORDER[(index + 1) % ORDER.length];
-      if (next) focusAndSelect(next);
-    } else if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      const next = ORDER[(index - 1 + ORDER.length) % ORDER.length];
-      if (next) focusAndSelect(next);
-    } else if (event.key === 'Home') {
-      event.preventDefault();
-      focusAndSelect('units');
-    } else if (event.key === 'End') {
-      event.preventDefault();
-      focusAndSelect('exams');
-    }
+    const moves: Partial<Record<string, number>> = {
+      ArrowRight: (index + 1) % order.length,
+      ArrowLeft: (index - 1 + order.length) % order.length,
+      Home: 0,
+      End: order.length - 1,
+    };
+    const at = moves[event.key];
+    const next = at === undefined ? undefined : order[at];
+    if (!next) return;
+    event.preventDefault();
+    focusAndSelect(next);
   }
 </script>
 

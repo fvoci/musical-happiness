@@ -164,9 +164,11 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     ).toHaveAttribute('aria-pressed', 'true');
 
     // Ada switches to Exams tab, creates an exam, and records her personal score (80).
-    await adaPage.getByTestId('course-tab-exams').click();
+    // No exam yet, so no tab of them: the course menu makes the first.
+    await expect(adaPage.getByTestId('course-tab-exams')).toHaveCount(0);
+    await adaPage.getByTestId('course-menu').click();
+    await adaPage.locator('[data-action="add-exam"]').click();
     await expect(adaPage.getByTestId('exams-privacy-notice')).toBeVisible();
-    await adaPage.getByTestId('new-exam').click();
     const examDialog = adaPage.getByTestId('course-exam-dialog');
     await examDialog.getByTestId('exam-title-input').fill('Live Midterm');
     await examDialog.getByTestId('exam-date-input').fill('2026-12-12');
@@ -182,8 +184,11 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     await expect(adaExam.getByTestId('exam-average')).toContainText('Requires 2+ other scores');
     await expect(adaExam.getByTestId('exam-score-count')).toContainText('1 submitted');
 
-    // Bora switches to Exams tab: as a non-manager learner with < 5 scorers, bucketed count is 0
-    // so Bora cannot even tell whether Ada submitted (`No scores yet`), and saves own score (100).
+    // Bora comes back to the window, which reads the exams again: the first one, Ada's, brings
+    // its tab with no reload. Bora switches to it: as a non-manager learner with < 5 scorers,
+    // bucketed count is 0 so Bora cannot even tell whether Ada submitted (`No scores yet`), and
+    // saves own score (100).
+    await boraPage.evaluate(() => window.dispatchEvent(new Event('focus')));
     await boraPage.getByTestId('course-tab-exams').click();
     const boraExam = boraPage.getByTestId('exam-card').first();
     await expect(boraExam.getByTestId('exam-average')).toContainText('No scores yet');
@@ -195,7 +200,7 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     await expect(boraExam.getByTestId('exam-average')).toContainText('No scores yet');
     await expect(boraExam.getByTestId('exam-score-count')).toContainText('0 submitted');
 
-    // Unjoined Chloe sees join hints, zero score inputs, and zero aggregate leak (`No scores yet` / `0 submitted`).
+    // Unjoined Chloe sees no prompts of their own, zero score inputs, and zero aggregate leak (`No scores yet` / `0 submitted`).
     const chloeSession = await signedInPage(
       browser,
       coursePath(shared.id, course.id, '?tab=exams'),
@@ -204,7 +209,7 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     pages.push(chloeSession.page);
     watched.push(chloeSession.errors);
     const chloePage = chloeSession.page;
-    await expect(chloePage.getByTestId('exams-join-hint')).toBeVisible();
+    await expect(chloePage.getByTestId('exams-join-hint')).toHaveCount(0);
     await expect(chloePage.getByTestId('exam-my-score-panel')).toHaveCount(0);
     await expect(chloePage.getByTestId('exam-average')).toContainText('No scores yet');
     await expect(chloePage.getByTestId('exam-score-count')).toContainText('0 submitted');

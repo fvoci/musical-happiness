@@ -117,6 +117,7 @@ interface DeletedContainer {
 interface Watcher {
   /** Undefined: listens to the reader's own things. */
   containerId: string | undefined;
+  /** Empty: the world's own (its rooms), told all of the container as the server's are. */
   userId: string;
   listener: ChangeListener;
   /** Of a wiki: whether the watcher reads it, as of the last change told. */
@@ -273,7 +274,9 @@ export class World {
     }
     const watching = [...this.#watchers].filter((watcher) => watcher.containerId === containerId);
     const before = new Map(watching.map((watcher) => [watcher, watcher.reads === true]));
-    for (const watcher of watching) watcher.reads = reads(this, watcher.userId, containerId);
+    for (const watcher of watching) {
+      watcher.reads = watcher.userId === '' || reads(this, watcher.userId, containerId);
+    }
     this.#tell((watcher) => watcher.containerId === containerId && watcher.reads === true, change);
     this.#tell((watcher) => before.get(watcher) === true && watcher.reads !== true, {
       kind: 'containerDeleted',

@@ -11,6 +11,10 @@
   dialog opens. The reader's own role is not changed here: that is another
   admin's to do, so that nobody locks themselves out by a slip.
 
+  To an administrator of the workspace, who reads its people, a guest of it
+  among the members is marked so, and is offered no admin role, which the
+  server refuses them (`guest_role_limit`).
+
   A reader who is no admin sees its members and teams alone, with their roles,
   and changes nothing (`readOnly`). In the reader's own space, where nobody else
   works and there are no guests and no teams, its admin has the public link
@@ -26,12 +30,12 @@
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import PersonProfile from '$lib/components/person/PersonProfile.svelte';
-  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
   import {
+    administers,
     isGuest,
     isOwnSpace,
     peopleOf,
@@ -50,6 +54,7 @@
   import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
   import { shareWords } from './share-words.ts';
   import SharePublicLink from './SharePublicLink.svelte';
+  import { shownSpaceName } from './space-names.ts';
 
   interface Props {
     open: boolean;
@@ -82,7 +87,7 @@
     memberProgress,
   }: Props = $props();
 
-  const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
+  const workspaceName = $derived(shownSpaceName(workspace, m.shell_workspace_unnamed));
   /** The own space: what is in it is shown to others by its public link and nothing else. */
   const linkOnly = $derived(isOwnSpace(workspace.info) && !membersOnly && !readOnly);
   const words = $derived(shareWords(shareable.container?.kind));
@@ -111,6 +116,20 @@
 
   /** Inviting a guest by a link, where the backend has that. */
   const access = $derived(peopleOf(workspace));
+  /** The guests of the workspace, read as the dialog opens: who of the members is one. */
+  let guestIds = $state.raw<readonly string[]>([]);
+
+  /** Of the workspace's people, which only its administrators read. */
+  async function readGuests(): Promise<void> {
+    const workspaceId = workspace.info?.id;
+    if (!access || !workspaceId || linkOnly || !administers(workspace)) return;
+    try {
+      const people = await access.people.members(workspaceId);
+      guestIds = people.filter((one) => one.role === 'guest').map((one) => one.userId);
+    } catch {
+      guestIds = [];
+    }
+  }
 
   const isOpen = $derived(shareable.container?.visibility === 'open');
   const minimumRole = $derived<ContainerRole>(
@@ -164,6 +183,7 @@
       query = '';
       found = [];
       if (!membersOnly) openVersion += 1;
+      void readGuests();
     });
   }
 
@@ -213,7 +233,7 @@
         <section class="grid gap-2" aria-labelledby="{uid}-workspace">
           <h3 id="{uid}-workspace" class="font-medium">
             {m.share_workspace_title({
-              workspace: nameOfWorkspace(workspace.info, m.shell_workspace_unnamed_title),
+              workspace: shownSpaceName(workspace, m.shell_workspace_unnamed_title),
             })}
           </h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
@@ -273,6 +293,7 @@
               {@const memberRole = roleOfMember(member)}
               {@const person = workspace.user(member.userId)}
               {@const progress = memberProgress?.(member.userId)}
+              {@const guest = guestIds.includes(member.userId)}
               <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
                 <Avatar {name} colorKey={member.userId} locale={workspace.locale} decorative />
                 <span class="flex min-w-0 flex-1 items-baseline gap-1">
@@ -288,6 +309,10 @@
                   {:else}<span class="truncate">{name}</span>{/if}
                   {#if mine}<span class="shrink-0 text-muted-foreground">
                       {m['ShareBoard.userPermissionsYouText']()}</span
+                    >{/if}
+                  {#if guest}<span
+                      class="shrink-0 self-center rounded-full border px-1.5 text-xs text-muted-foreground"
+                      data-testid="share-guest-badge">{m.share_guest_badge()}</span
                     >{/if}
                 </span>
                 {#if progress}
@@ -316,7 +341,7 @@
                         event.currentTarget.value as ContainerRole,
                       )}
                   >
-                    {#each ROLE_ORDER as role (role)}
+                    {#each guest ? MINIMUM_ROLES : ROLE_ORDER as role (role)}
                       <option value={role}>{ROLE_LABELS[role]()}</option>
                     {/each}
                   </select>

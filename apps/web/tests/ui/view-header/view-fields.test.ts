@@ -433,7 +433,7 @@ describe('the lines of "…" for the tools without a button', () => {
       ...open,
       dependencies: () => void opened.push('dependencies'),
     });
-    lines.find((line) => line.id === 'dependencies')?.run();
+    lines.find((line) => line.id === 'dependencies')?.run?.();
     expect(opened).toEqual(['dependencies']);
   });
 });

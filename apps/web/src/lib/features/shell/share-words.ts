@@ -10,7 +10,7 @@ export function shareWords(kind: ContainerKind | undefined) {
       guestHint: m.share_course_guest_hint,
       guestLinks: m.share_course_guest_links_title,
       guestAddresses: m.mail_course_guest_addresses_hint,
-      teamRemove: m.teams_course_remove,
+      teamRemove: m.groups_course_remove,
     };
   }
   const wiki = kind === 'wiki';
@@ -20,6 +20,6 @@ export function shareWords(kind: ContainerKind | undefined) {
     guestHint: wiki ? m.share_wiki_guest_hint : m.share_guest_hint,
     guestLinks: wiki ? m.share_wiki_guest_links_title : m.share_guest_links_title,
     guestAddresses: wiki ? m.mail_wiki_guest_addresses_hint : m.mail_guest_addresses_hint,
-    teamRemove: wiki ? m.teams_wiki_remove : m.teams_board_remove,
+    teamRemove: wiki ? m.groups_wiki_remove : m.groups_board_remove,
   };
 }

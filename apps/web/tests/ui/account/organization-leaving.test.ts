@@ -34,7 +34,7 @@ describe('leaving an organization', () => {
     const onLeave = shown();
     const dialog = await asked('Sales');
     expect(dialog).toHaveTextContent('Leave Sales?');
-    expect(dialog).toHaveTextContent('workspaces, boards and wikis');
+    expect(dialog).toHaveTextContent('spaces, boards, wikis and courses, and of its groups');
     expect(dialog).toHaveTextContent('you wrote stay');
     expect(dialog).toHaveTextContent(
       'You can rejoin by invitation, or through SSO sign-in if the organization allows it.',

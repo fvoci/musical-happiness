@@ -164,16 +164,21 @@ test('density: "Comfortable" makes what is pressed 44px, "Compact" 32px, and a r
   await expect.poll(height).toBe(32);
 });
 
-test('how a card opens: the dialog is the one answer; the other two are shown and cannot be chosen', async ({
+test('the settings come in groups, and how a card opens is not asked: it opens in a dialog', async ({
   page,
 }) => {
   await openApp(page);
   await openSettings(page);
-  await expect(choice(page, 'cardOpen', 'In a dialog')).toBeChecked();
-  for (const label of [/Beside the board/, /Full screen/]) {
-    await expect(choice(page, 'cardOpen', label)).toBeDisabled();
-    await expect(choice(page, 'cardOpen', label)).toContainText('Coming soon');
-  }
+  const dialog = page.getByTestId('settings-dialog');
+  await expect(dialog.getByRole('heading', { level: 3 })).toHaveText([
+    'Screen',
+    'Dates and language',
+    'Notifications',
+    'Data',
+    'Account and security',
+  ]);
+  await expect(dialog.getByRole('region', { name: 'Screen' })).toContainText('Brightness');
+  await expect(dialog.locator('[data-setting="cardOpen"]')).toHaveCount(0);
   expect((await stored(page)).cardOpen).toBe('center');
 });
 
@@ -249,10 +254,15 @@ test('time zone: picked from a list that can be searched; a refused change goes 
   page,
 }) => {
   await openApp(page);
+  // Left to follow the device, the server has the device's zone once the space is ready, and
+  // "Automatic" is what is chosen still.
+  const device = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  await expect.poll(async () => (await stored(page)).timeZone).toBe(device);
   await openSettings(page);
   const button = setting(page, 'timeZone').getByRole('button');
-  await expect(button).toContainText('Automatic (');
-  await expect(button).toHaveAccessibleName(/^Time zone Automatic/);
+  const automatic = `Automatic (${device})`;
+  await expect(button).toContainText(automatic);
+  await expect(button).toHaveAccessibleName(`Time zone ${automatic}`);
 
   await button.click();
   const search = page.getByRole('combobox', { name: 'Search time zones' });
@@ -280,11 +290,30 @@ test('time zone: picked from a list that can be searched; a refused change goes 
   await expect(button).toContainText('Asia/Tokyo');
   expect((await stored(page)).timeZone).toBe('Asia/Tokyo');
 
-  // "Automatic" is the first of the list.
+  // "Automatic" is the first of the list: the server is told the device's zone, and it stays
+  // chosen through a reload.
   await button.click();
   await page.getByRole('option', { name: /^Automatic \(/ }).click();
-  await expect(button).toContainText('Automatic (');
-  await expect.poll(async () => (await stored(page)).timeZone).toBe('auto');
+  await expect(button).toContainText(automatic);
+  await expect.poll(async () => (await stored(page)).timeZone).toBe(device);
+  // The choice is kept with the account, apart from the settings.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { backend } = (
+          window as unknown as {
+            fvociDev: { backend: { screenState: () => Promise<Record<string, string>> } };
+          }
+        ).fvociDev;
+        return (await backend.screenState()).timeZoneFollowsDevice;
+      }),
+    )
+    .toBe('1');
+  await page.reload();
+  await expect(page.getByTestId('board-page')).toBeVisible();
+  await openSettings(page);
+  await expect(setting(page, 'timeZone').getByRole('button')).toContainText(automatic);
+  expect((await stored(page)).timeZone).toBe(device);
 });
 
 test('language: the page loads again in the chosen one, and the device remembers', async ({
@@ -434,23 +463,20 @@ test('pictures of the name in the settings', async ({ page }, testInfo) => {
   }
 });
 
-test('the layout readout is switched on and off in the settings', async ({ page }) => {
+test('the layout readout is no setting of a built app: the address switches it on and off', async ({
+  page,
+}) => {
   await openApp(page);
   const readout = page.getByTestId('dev-readout');
   await expect(readout).toHaveCount(0);
-
   await openSettings(page);
-  const toggle = setting(page, 'dev').getByRole('switch');
-  await expect(toggle).not.toBeChecked();
-  await toggle.click();
-  await expect(toggle).toBeChecked();
-  await expect(readout).toBeVisible();
+  await expect(setting(page, 'dev')).toHaveCount(0);
 
-  await page.reload();
+  const here = new URL(page.url()).pathname;
+  await page.goto(`${here}?dev=1`);
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(readout).toBeVisible();
-
-  await openSettings(page);
-  await setting(page, 'dev').getByRole('switch').click();
+  await page.goto(`${here}?dev=0`);
+  await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(readout).toHaveCount(0);
 });

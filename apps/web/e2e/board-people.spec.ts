@@ -6,7 +6,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { othersArrive, type Dev } from './presence.support.ts';
-import { boardLink, openApp, READ_ONLY_BOARD, showSidebar, topBar } from './shell.support.ts';
+import {
+  boardLink,
+  openApp,
+  pressInBar,
+  READ_ONLY_BOARD,
+  showSidebar,
+  topBar,
+} from './shell.support.ts';
 
 const people = (page: Page) => topBar(page).getByTestId('board-people');
 const presence = (page: Page) => topBar(page).getByTestId('board-presence');
@@ -84,7 +91,7 @@ test('the number of members opens the sharing dialog at its members', async ({ p
   await expect(dialog).toBeHidden();
 
   // The share button opens the same dialog at its top, with the focus in it.
-  await topBar(page).getByTestId('share-board').click();
+  await pressInBar(page, 'share');
   await expect(dialog.getByTestId('share-open')).toBeVisible();
   await expect(dialog.locator(':focus')).toHaveCount(1);
   await expect(dialog.getByTestId('share-members-title')).not.toBeFocused();

@@ -20,12 +20,14 @@
   import CourseSchedulePanel from '$lib/features/course/CourseSchedulePanel.svelte';
   import CourseScreen from '$lib/features/course/CourseScreen.svelte';
   import UnitMenu from '$lib/features/course/UnitMenu.svelte';
+  import { UnitOpenings } from '$lib/features/course/unit-openings.svelte.ts';
   import OutlineButton from '$lib/features/wiki/OutlineButton.svelte';
   import OutlineColumns from '$lib/features/wiki/OutlineColumns.svelte';
   import { PageOutline } from '$lib/features/wiki/page-outline.svelte.ts';
   import PageViewers from '$lib/features/wiki/PageViewers.svelte';
   import { TreeOpen } from '$lib/features/wiki/tree-open.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { courseTreeRules, type PagePlace } from '$lib/logic/page-moves.ts';
   import { ancestorsOf, firstUnit } from '$lib/logic/page-tree.ts';
   import {
@@ -66,6 +68,15 @@
   );
 
   const course = $derived(courseId ? new CourseStore(workspace, courseId) : undefined);
+  // Named here alone, by the unit shown (the course's first where the address names none).
+  nameWindow(() => {
+    const open = course?.openUnit;
+    const unit = open && course.unit(open.unitId);
+    return [
+      unit && (unit.title || m.course_unit_untitled()),
+      course?.course && (course.course.title || m.course_untitled()),
+    ];
+  });
   const rules = courseTreeRules<CourseUnit>();
 
   $effect(() => {
@@ -131,6 +142,7 @@
       : undefined,
   );
   const outline = new PageOutline();
+  const openings = new UnitOpenings();
 
   // Keep ancestors of the open unit unfolded in the outline tree.
   const above = $derived(course && unitId ? ancestorsOf(course.units, unitId).join(' ') : '');
@@ -313,7 +325,6 @@
     {#if store.joinable}
       <CourseJoin
         joining={store.joining}
-        role={store.course?.minimumRole}
         onJoin={() => {
           void store.join().then((done) => {
             joined = done;
@@ -325,6 +336,7 @@
       <CourseScreen
         course={store}
         unit={store.openUnit}
+        {openings}
         {activeTab}
         onSelectTab={(tab: CourseTab) => {
           router.openCourseTab(tab);
@@ -438,7 +450,9 @@
               />
             {/if}
             <UnitMenu
+              course={store}
               unit={shown}
+              {openings}
               onVersions={() => {
                 versions = {
                   unitId: unit.unitId,
@@ -453,7 +467,7 @@
           <NotFound {router} />
         {/snippet}
         {#snippet body(unit: UnitStore)}
-          <CourseUnitContent {workspace} {store} {unit} outlined={outline.source} />
+          <CourseUnitContent {workspace} {store} {unit} {openings} outlined={outline.source} />
         {/snippet}
       </CourseScreen>
     </div>

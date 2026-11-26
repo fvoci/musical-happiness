@@ -123,14 +123,14 @@ export class UnitStore implements OpenHierarchyNode {
 
   async load(): Promise<void> {
     this.status = 'loading';
-    await Promise.all([this.#readBody(true), this.comments.read(true), this.#readWatch()]);
+    await Promise.all([this.#readBody(), this.comments.read(), this.#readWatch()]);
   }
 
   async refresh(): Promise<void> {
     if (this.status !== 'ready') return;
     await Promise.all([
-      this.#busy() ? undefined : this.#readBody(false),
-      this.comments.read(false),
+      this.#busy() ? undefined : this.#rereadBody(),
+      this.comments.reread(),
       this.#readWatch(),
     ]);
   }
@@ -184,7 +184,18 @@ export class UnitStore implements OpenHierarchyNode {
     this.course.receiveUnit(summary);
   }
 
-  async #readBody(first: boolean): Promise<void> {
+  /** The first reading of the body: a failure is told. */
+  #readBody(): Promise<void> {
+    return this.#fetchBody('first');
+  }
+
+  /** The body read again when it changed: a failure waits for the next change. */
+  #rereadBody(): Promise<void> {
+    return this.#fetchBody('again');
+  }
+
+  async #fetchBody(kind: 'first' | 'again'): Promise<void> {
+    const first = kind === 'first';
     this.#readings += 1;
     const reading = this.#readings;
     try {
@@ -236,7 +247,7 @@ export class UnitStore implements OpenHierarchyNode {
       this.#news = unit;
       return;
     }
-    void this.#readBody(false);
+    void this.#rereadBody();
   }
 
   #busy(): boolean {

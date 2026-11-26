@@ -3,20 +3,18 @@
   bar, beside the search), the inbox that keeps its count, and going to what
   a notification is about by the router (`places.ts`), in its own workspace,
   at its comment where it has one (`reveal-comment.ts`). Going there marks it
-  read. A narrow pane has the bell as a line of the bar's menu, which marks
-  its button with the count (`bar-menu.svelte.ts`) and opens the list as a
-  sheet.
+  read. Each says the board, wiki or course it is in, where this workspace has
+  it, and its organization.
 
   Only where the backend keeps notifications: none through a public link.
 -->
 <script lang="ts">
-  import BellIcon from '@lucide/svelte/icons/bell';
   import { tick } from 'svelte';
 
   import NotificationBell from '$lib/features/notifications/NotificationBell.svelte';
-  import { bellLabel, unreadBadge } from '$lib/features/notifications/notification-words.ts';
-  import { barMenu, hasBarMenu, type BarOffer } from '$lib/features/shell/bar-menu.svelte.ts';
-  import type { Workspace } from '$lib/state/index.ts';
+  import { shownTitle } from '$lib/features/shell/shown-title.ts';
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import { isOwnSpace, organizationNames, type Workspace } from '$lib/state/index.ts';
   import { NotificationInbox } from '$lib/state/notification-inbox.svelte.ts';
   import type { Notification } from '$lib/state/notification-types.ts';
 
@@ -38,37 +36,21 @@
   // Listens while the bell is there.
   $effect(() => inbox?.start());
 
-  /** The bell, which opens its list as a sheet from the bar's menu in a narrow pane. */
-  let bell = $state<{ openSheet: () => void }>();
-  const bar = hasBarMenu() ? barMenu() : undefined;
-
-  /** The line and mark lent to the bar's menu for `shown`, whose getters follow its count. */
-  function menuOffer(shown: NotificationInbox): BarOffer {
-    return {
-      get line() {
-        return {
-          id: 'notifications',
-          label: bellLabel(shown.unread),
-          icon: BellIcon,
-          run: () => {
-            bell?.openSheet();
-          },
-        };
-      },
-      get mark() {
-        return shown.unread > 0 ? unreadBadge(shown.unread) : undefined;
-      },
-      get markLabel() {
-        return bellLabel(shown.unread);
-      },
-    };
-  }
-
-  // Lent to the bar's menu while the bell is there: what it reads of it follows the count.
+  const orgNames = $derived(organizationNames(workspace));
   $effect(() => {
-    if (!inbox || !bar) return;
-    return bar.offer(menuOffer(inbox));
+    orgNames.follow(workspace.workspaces);
   });
+
+  /** "Board · organization", of what this session knows: the boards of the workspace shown. */
+  function sourceOf({ subject }: Notification): string {
+    if (!subject) return '';
+    const container = workspace.containers.find((one) => one.id === subject.containerId);
+    const space = workspace.workspaces.find((one) => one.id === subject.workspaceId);
+    const where = isOwnSpace(space)
+      ? m.own_space_name()
+      : orgNames.of(space?.orgId) || space?.title;
+    return [container && shownTitle(container), where].filter(Boolean).join(' · ');
+  }
 
   /** Waiting for the comment of the last notification gone to, if it is still on its way. */
   let revealing: (() => void) | undefined;
@@ -125,10 +107,10 @@
 
 {#if inbox}
   <NotificationBell
-    bind:this={bell}
     {inbox}
     locale={workspace.locale}
     {hrefOf}
     onGo={(notification: Notification) => void go(notification)}
+    {sourceOf}
   />
 {/if}

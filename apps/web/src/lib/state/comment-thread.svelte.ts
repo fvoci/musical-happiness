@@ -135,7 +135,18 @@ export class CommentThreadStore {
     return this.#comments.map((comment) => comment.id);
   }
 
-  async read(first: boolean): Promise<void> {
+  /** The first reading of the comments: a failure is told. */
+  read(): Promise<void> {
+    return this.#readComments('first');
+  }
+
+  /** The comments read again, merged with what is shown: a failure waits for the next change. */
+  reread(): Promise<void> {
+    return this.#readComments('again');
+  }
+
+  async #readComments(kind: 'first' | 'again'): Promise<void> {
+    const first = kind === 'first';
     this.#readings += 1;
     const reading = this.#readings;
     const { beforeIds, deletedBefore } = this.snapshotRead();
@@ -165,7 +176,7 @@ export class CommentThreadStore {
   receive(comment: Comment): void {
     if (comment.parentId !== this.#host.parentId || this.#closed) return;
     if (this.#deleted.has(comment.id)) {
-      void this.read(false);
+      void this.reread();
       return;
     }
     this.#take(comment);
@@ -216,7 +227,7 @@ export class CommentThreadStore {
         return 'failed';
       }
       if (this.#host.onConflict) await this.#host.onConflict();
-      else await this.read(false);
+      else await this.reread();
       return 'conflict';
     }
   }

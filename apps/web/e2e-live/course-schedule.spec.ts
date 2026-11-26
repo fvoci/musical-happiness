@@ -160,12 +160,12 @@ test('saves schedule with auto-assign, preserves overdue units, isolates viewer 
 
     await boraPage.reload();
     await expect(boraPage.getByTestId('course-schedule-overdue-count')).toHaveText('Overdue 0');
-    await expect(boraPage.getByTestId('unit-my-date-input')).not.toHaveValue('');
+    await expect(boraPage.getByTestId('unit-my-date-text')).toBeVisible();
 
     // Ada reloads: Bora's personal redistribution did NOT touch Ada's schedule or overdue count!
     await adaPage.reload();
     await expect(adaPage.getByTestId('course-schedule-overdue-count')).toHaveText('Overdue 1');
-    await expect(adaPage.getByTestId('unit-my-date-input')).toHaveValue('');
+    await expect(adaPage.getByTestId('unit-my-date-text')).toHaveCount(0);
 
     // Ada opens "Today's learning" from sidebar button and completes Unit Past.
     await adaPage.getByTestId('open-learning-today').click();
@@ -184,14 +184,14 @@ test('saves schedule with auto-assign, preserves overdue units, isolates viewer 
     await expect(adaPage.getByTestId('learning-overdue-item')).toHaveCount(0);
     await expect(adaPage.getByTestId('learning-today-item')).toHaveCount(1);
 
-    // Unjoined Chloe sees empty Today's learning and join hint on the open course.
+    // Unjoined Chloe sees empty Today's learning and the banner alone on the open course.
     const chloeSession = await signedInPage(browser, `/w/${shared.id}/learning/today`, chloe);
     pages.push(chloeSession.page);
     watched.push(chloeSession.errors);
     const chloePage = chloeSession.page;
     await expect(chloePage.getByTestId('learning-today-empty')).toBeVisible();
     await chloePage.goto(unit1Url);
-    await expect(chloePage.getByTestId('unit-my-date-join-hint')).toBeVisible();
+    await expect(chloePage.getByTestId('unit-my-date-join-hint')).toHaveCount(0);
     await expect(chloePage.getByTestId('unit-my-date-input')).toHaveCount(0);
 
     // Public sharing link makes zero /schedule or /learning/today requests and shows no schedule UI.

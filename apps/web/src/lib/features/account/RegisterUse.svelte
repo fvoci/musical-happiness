@@ -66,6 +66,7 @@
     <Input
       id="account-organizationName"
       name="organizationName"
+      data-testid="register-organization-name"
       bind:value={name}
       autocomplete="organization"
       required

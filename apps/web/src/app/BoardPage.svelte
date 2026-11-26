@@ -23,7 +23,8 @@
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { focusAdrift } from '$lib/layout/focus.ts';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
+  import { focusAdrift } from '$lib/focus.ts';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
   import {
     boardPresence,
@@ -70,6 +71,11 @@
 
   const board = $derived(workspace.board?.boardId === routeBoardId ? workspace.board : undefined);
   const view = $derived(board?.view(routeViewId));
+  const shownCard = $derived(routeCardId ? board?.cardsById.get(routeCardId) : undefined);
+  nameWindow(() => [
+    shownCard && (shownCard.title || m['KanbanCard.untitled']()),
+    board?.board && (board.board.title || m['Sidebar.untitled-board']()),
+  ]);
 
   // The card the reader is on, before the visit starts: the visit is told once, with it.
   $effect(() => {
@@ -196,7 +202,7 @@
     tabindex="-1"
     data-testid="board-page"
   >
-    {#if board.joinable}
+    {#if board.joinable && !board.joinsOnWrite}
       <WikiJoin
         kind="board"
         joining={board.joining}

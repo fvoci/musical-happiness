@@ -61,7 +61,7 @@ export async function startOrganization(page: Page, owner: Person): Promise<void
   // After the server's first account, one starts on its own unless it chooses otherwise.
   await expect(form.getByTestId('register-solo')).toBeChecked();
   await form.getByTestId('register-together').check();
-  await form.getByLabel(/^team name$/i).fill('Second organization');
+  await form.getByTestId('register-organization-name').fill('Second organization');
   await form.getByLabel(/^user name$/i).fill(owner.username);
   await form.getByLabel(/email/i).fill(owner.email);
   await form.getByLabel(/^password$/i).fill(owner.password);
@@ -207,10 +207,10 @@ export async function invitedColleague(
   await form.getByLabel(/password/i).fill(newcomer.password);
   await form.getByRole('button', { name: 'Create account and join' }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  await sidebar(page)
-    .locator(`a[href*="${placeOf(address).boardId}"]`)
-    .click();
-  await page.getByTestId('board-join').getByRole('button').click();
+  // Somebody else's, open to them: among the open ones to join, at the sidebar's foot.
+  const waiting = sidebar(page).getByTestId('open-to-join');
+  await waiting.locator('button[aria-expanded="false"]').click();
+  await waiting.locator(`a[href*="${placeOf(address).boardId}"]`).click();
   await expect(page.getByText('Second launch draft', { exact: true })).toBeVisible();
   return { page, context, observation, errors };
 }

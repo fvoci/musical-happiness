@@ -70,11 +70,6 @@
   let confirming = $state(false);
   let holder = $state<HTMLElement | null>(null);
 
-  /** Once the menu has closed and given the focus back. */
-  const later = (run: () => void): void => {
-    setTimeout(run, 0);
-  };
-
   const actions = $derived.by((): MenuAction[] => {
     const list: MenuAction[] = [
       { id: 'hide', label: m['BoardComponent.hide'](), icon: EyeOffIcon, run: onHide },
@@ -85,16 +80,14 @@
           id: 'rename',
           label: m.kanban_rename(),
           icon: PencilIcon,
-          run: () => {
-            later(onRename);
-          },
+          afterClose: onRename,
         },
         {
           id: 'color',
           label: m.kanban_change_color(),
           icon: PaletteIcon,
-          run: () => {
-            later(() => (colours = true));
+          afterClose: () => {
+            colours = true;
           },
         },
       );
@@ -129,19 +122,13 @@
         icon: TrashIcon,
         destructive: true,
         separated: true,
-        run: () => {
-          later(() => (confirming = true));
+        afterClose: () => {
+          confirming = true;
         },
       });
     }
     return list;
   });
-
-  function focusButton(): void {
-    later(() => {
-      if (document.activeElement === document.body) holder?.querySelector('button')?.focus();
-    });
-  }
 </script>
 
 <span bind:this={holder} class="relative block shrink-0">
@@ -163,9 +150,7 @@
       bind:open={colours}
       presentation={presentation.current}
       title={m.kanban_change_color()}
-      onOpenChange={(next: boolean) => {
-        if (!next) focusButton();
-      }}
+      returnFocus={() => holder?.querySelector('button')}
     >
       {#snippet trigger({ props }: { props: Record<string, unknown> })}
         <span {...props} aria-hidden="true" class="pointer-events-none absolute inset-0"></span>
@@ -186,7 +171,6 @@
             class="flex min-h-8 items-center gap-2 rounded-sm px-2 py-1 text-left text-sm group-data-[presentation=sheet]/surface:min-h-touch group-data-[presentation=sheet]/surface:text-base hover:bg-muted"
             onclick={() => {
               colours = false;
-              focusButton();
               if (option.color !== color)
                 void changeOption(board, groupBy.id, option.id, { color });
             }}

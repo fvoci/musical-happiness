@@ -124,7 +124,7 @@ test('unit comments, body versions (⌘S + restore), and [[ unit references on t
   await expect(composer(learnerPage)).toHaveCount(0);
 
   // Join the open course -> composer appears and comment arrives live on owner's screen.
-  await learnerPage.getByRole('button', { name: 'Join this course' }).click();
+  await learnerPage.getByRole('button', { name: 'Enroll' }).click();
   await expect(composer(learnerPage)).toBeVisible();
   await composer(learnerPage).getByTestId('comment-field').fill('Clear explanation!');
   await composer(learnerPage).getByTestId('comment-send').click();

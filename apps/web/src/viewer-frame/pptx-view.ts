@@ -27,6 +27,7 @@ import type { SlideOrder } from '$lib/file-viewer/slide-order.ts';
 
 import { cleanSlide } from './pptx-clean.ts';
 import { PageFollower, type Drawn, type Report } from './renderer.ts';
+import { yieldThread } from './yield-thread.ts';
 
 /** The room around the slides, in CSS pixels, at each side. */
 const GUTTER = 16;
@@ -65,11 +66,6 @@ const nextFrame = (): Promise<void> =>
 const wait = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
-  });
-
-const yieldThread = (): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, 0);
   });
 
 /** One slide: its box in the column, and the slide drawn in it while it is in view. */

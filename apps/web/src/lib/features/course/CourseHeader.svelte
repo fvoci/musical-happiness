@@ -1,15 +1,18 @@
 <!--
   The head of a course's left column: its icon, name and description, a
   reserved slot for L2 "My progress", sharing/members, the trash button for
-  editors, and the course menu (edit / delete) for managers.
+  editors, and the course menu: a new meeting or exam for editors (whose tabs
+  show once there is one), edit / delete for managers.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
+  import ClipboardCheckIcon from '@lucide/svelte/icons/clipboard-check';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Share2Icon from '@lucide/svelte/icons/share-2';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import UsersIcon from '@lucide/svelte/icons/users';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
@@ -23,24 +26,66 @@
     onDelete: () => void;
     onTrash: () => void;
     onShare?: (() => void) | undefined;
+    /** Opens the making of a meeting, where the course has its tabs. */
+    onNewMeeting?: (() => void) | undefined;
+    /** Opens the making of an exam, where the course has its tabs. */
+    onNewExam?: (() => void) | undefined;
     /** Reserved header slot for L2 "My progress". */
     progress?: Snippet | undefined;
   }
 
-  let { course, onEdit, onDelete, onTrash, onShare, progress }: Props = $props();
+  let { course, onEdit, onDelete, onTrash, onShare, onNewMeeting, onNewExam, progress }: Props =
+    $props();
 
   const title = $derived(course.course?.title || m.course_untitled());
-  const actions = $derived<MenuAction[]>([
-    { id: 'edit-course', label: m.course_settings_title(), icon: PencilIcon, run: onEdit },
-    {
-      id: 'delete-course',
-      label: m.shell_delete_course(),
-      icon: Trash2Icon,
-      destructive: true,
-      separated: true,
-      run: onDelete,
-    },
-  ]);
+  const making = $derived<MenuAction[]>(
+    course.canEdit
+      ? [
+          ...(onNewMeeting
+            ? [
+                {
+                  id: 'add-meeting',
+                  label: m.course_menu_new_meeting(),
+                  icon: UsersIcon,
+                  afterClose: onNewMeeting,
+                },
+              ]
+            : []),
+          ...(onNewExam
+            ? [
+                {
+                  id: 'add-exam',
+                  label: m.course_exams_new(),
+                  icon: ClipboardCheckIcon,
+                  afterClose: onNewExam,
+                },
+              ]
+            : []),
+        ]
+      : [],
+  );
+  const managing = $derived<MenuAction[]>(
+    course.canManage
+      ? [
+          {
+            id: 'edit-course',
+            label: m.course_settings_title(),
+            icon: PencilIcon,
+            run: onEdit,
+            separated: making.length > 0,
+          },
+          {
+            id: 'delete-course',
+            label: m.shell_delete_course(),
+            icon: Trash2Icon,
+            destructive: true,
+            separated: true,
+            run: onDelete,
+          },
+        ]
+      : [],
+  );
+  const actions = $derived([...making, ...managing]);
 </script>
 
 <div class="flex shrink-0 flex-col gap-2 border-b px-3 py-3" data-testid="course-header">
@@ -83,7 +128,7 @@
         <Trash2Icon />
       </IconButton>
     {/if}
-    {#if course.canManage}
+    {#if actions.length > 0}
       <ActionMenu {title} align="end" {actions}>
         {#snippet trigger(props: Record<string, unknown>)}
           <IconButton

@@ -27,6 +27,11 @@ export function parseMonthDay(text: string): MonthDay | undefined {
     : undefined;
 }
 
+/** The day in a leap year, where a month and a day alone are to be named. */
+export function inLeapYear(monthDay: MonthDay): CalendarDate {
+  return `${LEAP_YEAR}-${monthDay}` as CalendarDate;
+}
+
 export function monthDayOf(date: CalendarDate): MonthDay {
   return date.slice(5) as MonthDay;
 }

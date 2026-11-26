@@ -90,7 +90,7 @@ export { CardPreviews } from './card-previews.svelte.ts';
 export { type CommentEdit } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';
 export { PageStore } from './page.svelte.ts';
-export { DiaryStore, firstDiary } from './diary.svelte.ts';
+export { DiaryStore, firstDiary, newDiary } from './diary.svelte.ts';
 export { EntryStore } from './entry.svelte.ts';
 export { DiaryCalendar } from './diary-calendar.svelte.ts';
 export { MOODS, NOTE_MAX_CHARS } from './diary-types.ts';
@@ -113,11 +113,16 @@ export { CourseMeetingsState, type CourseEventWriteResult } from './course-meeti
 export { CourseScheduleState, type ScheduleWriteResult } from './course-schedule.svelte.ts';
 export { DeviceToday } from './device-today.svelte.ts';
 export { LearningTodayStore } from './learning-today.svelte.ts';
-export { TodayHubStore } from './today-hub.svelte.ts';
-export { syncDeviceTimeZone } from './time-zone-sync.ts';
+export { TodayHubStore, type TodayBoard, type TodayDiary } from './today-hub.svelte.ts';
+export {
+  chooseTimeZone,
+  followsDeviceTimeZone,
+  syncDeviceTimeZone,
+} from './time-zone-sync.svelte.ts';
 export { UnitStore } from './unit.svelte.ts';
 export type { CommentThreadStore as UnitComments } from './comment-thread.svelte.ts';
-export { createCourse, createCourseFromTemplate } from './course-parts.ts';
+export { createCourse } from './course-parts.ts';
+export { createFromTemplate, type ContainerDraft, type NewKind } from './new-container.ts';
 export {
   AMOUNT_UNITS,
   ATTENDANCE_STATUSES,
@@ -225,6 +230,7 @@ export {
 export type { EmailChange } from './email-change.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
+export { OrganizationNames, organizationNames } from './organization-names.svelte.ts';
 export type {
   GuestContainerRole,
   Invitation,
@@ -240,7 +246,14 @@ export {
   type ReferencePlaces,
 } from './reference-titles.svelte.ts';
 export type { LinkedBlock } from './references.ts';
-export { byCreation, byTitle, type SidebarCategory } from './order.ts';
+export { noteMembership, readerOf } from './memberships.svelte.ts';
+export {
+  byCreation,
+  byTitle,
+  openToJoinOf,
+  type SidebarCategory,
+  type SidebarReader,
+} from './order.ts';
 export {
   TRANSFER_STAYS,
   UploadKept,

@@ -89,16 +89,6 @@
     <p>{m.course_exams_privacy_notice()}</p>
   </div>
 
-  {#if !course.canTrackProgress}
-    <p
-      class="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
-      role="status"
-      data-testid="exams-join-hint"
-    >
-      {m.course_exams_join_hint()}
-    </p>
-  {/if}
-
   {#if course.events.examsFailed && !course.events.examsLoaded}
     <div class="flex flex-col items-center gap-3 py-8 text-center">
       <p class="text-sm text-muted-foreground" role="alert">{m.app_problem_load()}</p>

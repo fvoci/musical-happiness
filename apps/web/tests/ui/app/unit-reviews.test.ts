@@ -12,6 +12,7 @@ import TodayReviewsView from '$lib/features/course/TodayReviewsView.svelte';
 import UnitNotesPanel from '$lib/features/course/UnitNotesPanel.svelte';
 import UnitProgressControls from '$lib/features/course/UnitProgressControls.svelte';
 import UnitReviewsPanel from '$lib/features/course/UnitReviewsPanel.svelte';
+import { UnitOpenings } from '$lib/features/course/unit-openings.svelte.ts';
 import { addDays, dateOfInstant } from '$lib/logic/dates.ts';
 import {
   courseReviews,
@@ -82,7 +83,11 @@ describe('course unit reviews & notes UI', () => {
     const store = new CourseStore(made.workspace, course.id);
     await store.load();
 
-    const first = render(UnitReviewsPanel, { course: store, unitId: u1.id });
+    const first = render(UnitReviewsPanel, {
+      course: store,
+      unitId: u1.id,
+      openings: new UnitOpenings(),
+    });
     await waitFor(() => {
       expect(screen.getByTestId('unit-reviews-pending')).toBeVisible();
     });
@@ -109,9 +114,8 @@ describe('course unit reviews & notes UI', () => {
     const otherStore = new CourseStore(otherWs, course.id);
     await otherStore.load();
 
-    render(UnitReviewsPanel, { course: otherStore, unitId: u1.id });
-    expect(screen.getByTestId('unit-reviews-join-hint')).toBeVisible();
-    expect(screen.queryByTestId('unit-review-add-toggle')).toBeNull();
+    render(UnitReviewsPanel, { course: otherStore, unitId: u1.id, openings: new UnitOpenings() });
+    expect(screen.queryByTestId('unit-reviews-panel')).toBeNull();
 
     otherStore.close();
     store.close();
@@ -129,7 +133,12 @@ describe('course unit reviews & notes UI', () => {
     await store.load();
 
     render(UnitNotesPanel, { course: store, unitId: u1.id });
+    // Without notes, only the button that starts one.
+    expect(screen.queryByTestId('unit-notes-panel')).toBeNull();
+    await fireEvent.click(screen.getByTestId('unit-notes-add'));
     expect(screen.getByTestId('unit-notes-private-badge')).toBeVisible();
+    expect(screen.getByTestId('unit-note-input')).toHaveFocus();
+    expect(screen.queryByTestId('unit-notes-filter-all')).toBeNull();
 
     // Empty submit triggers inline validation error.
     await fireEvent.click(screen.getByTestId('unit-note-submit'));
@@ -274,9 +283,12 @@ describe('course unit reviews & notes UI', () => {
     const store = new CourseStore(made.workspace, course.id);
     await store.load();
 
-    const first = render(UnitReviewsPanel, { course: store, unitId: u1.id });
-    await fireEvent.click(screen.getByTestId('unit-review-add-toggle'));
-    await fireEvent.click(screen.getByTestId('unit-review-manual-picker-custom'));
+    // A unit without reviews has no panel until its menu plans one.
+    const openings = new UnitOpenings();
+    const first = render(UnitReviewsPanel, { course: store, unitId: u1.id, openings });
+    expect(screen.queryByTestId('unit-reviews-panel')).toBeNull();
+    openings.review = u1.id;
+    await fireEvent.click(await screen.findByTestId('unit-review-manual-picker-custom'));
 
     // Invalid custom days -> localized inline error without crashing.
     const daysInput = screen.getByTestId('unit-review-manual-picker-custom-days');
@@ -337,7 +349,7 @@ describe('course unit reviews & notes UI', () => {
     store.close();
   });
 
-  it('syncs device timeZone on TodayReviewsPage and reloads when settings.timeZone changes', async () => {
+  it('reads TodayReviewsPage anew when settings.timeZone changes', async () => {
     // 2026-11-24T16:30:00Z is 2026-11-24 in UTC and 2026-11-25 in Asia/Seoul.
     const made = setup();
     made.world.useClock(() => Date.UTC(2026, 10, 24, 16, 30, 0));
@@ -357,16 +369,9 @@ describe('course unit reviews & notes UI', () => {
       intervalDays: 1,
     });
 
-    // Start with explicit 'auto' so TodayReviewsPage triggers syncDeviceTimeZone on mount.
-    const patchSpy = vi.spyOn(made.backend, 'patchSettings');
     const router = new Router('');
     router.go({ workspaceId: wsId, reviewsToday: true });
-
     render(TodayReviewsPage, { workspace: made.workspace, router });
-    await waitFor(() => {
-      expect(patchSpy).toHaveBeenCalledTimes(1);
-      expect(typeof patchSpy.mock.calls[0]?.[0]?.timeZone).toBe('string');
-    });
 
     // Explicitly switch to UTC -> 2026-11-25 review is in the future (empty).
     await made.workspace.changeSettings({ timeZone: 'UTC' });
@@ -402,7 +407,7 @@ describe('course unit reviews & notes UI', () => {
     const store = new CourseStore(made.workspace, course.id);
     await store.load();
 
-    render(UnitReviewsPanel, { course: store, unitId: u1.id });
+    render(UnitReviewsPanel, { course: store, unitId: u1.id, openings: new UnitOpenings() });
     await vi.waitFor(() => {
       expect(screen.getByTestId('unit-review-due-today')).toBeVisible();
     });

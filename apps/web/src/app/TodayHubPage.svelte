@@ -1,21 +1,26 @@
 <!--
-  Unified account-wide `'Today'` hub (`/today`): shows cards (overdue, due today,
-  due soon), scheduled learning units, due reviews, upcoming study meetings
-  across session-opened workspaces, plus personal-diary streak via `getDiaryRuns`.
+  The account's hub of today (`/today`), across the spaces open: a line for
+  each diary of the reader's own space, the cards due (by board, each made done
+  at a press), the units due (each put off at a press), the reviews and the
+  meetings. Only what has something in it is shown.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
 
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 
+  import { spaceName } from '$lib/features/shell/space-names.ts';
+  import TodayCards from '$lib/features/today/TodayCards.svelte';
+  import TodayDiaries from '$lib/features/today/TodayDiaries.svelte';
+  import TodayUnits from '$lib/features/today/TodayUnits.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { displayDateTime } from '$lib/logic/format.ts';
   import {
-    syncDeviceTimeZone,
+    organizationNames,
     TodayHubStore,
     type TodayCardItem,
-    type TodayMeetingItem,
-    type TodayReviewEntry,
+    type TodayDiary,
     type TodayUnitEntry,
     type TodayWorkspaceMeta,
     type Workspace,
@@ -24,6 +29,7 @@
 
   import { goToPlace } from './places.ts';
   import type { Router } from './router.svelte.ts';
+  import { askToWriteToday } from './write-today.ts';
 
   interface Props {
     workspace: Workspace;
@@ -33,6 +39,7 @@
   let { workspace, router }: Props = $props();
 
   const store = $derived(new TodayHubStore(workspace));
+  nameWindow(() => [m.today_hub_title()]);
 
   $effect(() => {
     const current = store;
@@ -43,38 +50,35 @@
 
   $effect(() => {
     const current = store;
-    const zone = workspace.settings.timeZone;
+    // Read anew in another time zone, whose today may be another day.
+    const _zone = workspace.settings.timeZone;
     untrack(() => {
-      if (zone === 'auto') {
-        void syncDeviceTimeZone(workspace).then((changed) => {
-          if (!changed) void current.load();
-        });
-      } else {
-        void current.load();
-      }
+      void current.load();
     });
   });
 
   const data = $derived(store.data);
-  const overdueCards = $derived((data?.cards ?? []).filter((c) => c.overdueDays > 0));
-  const todayCards = $derived(
-    (data?.cards ?? []).filter((c) => c.overdueDays === 0 && c.dueDate === data?.today),
-  );
-  const soonCards = $derived(
-    (data?.cards ?? []).filter((c) => c.overdueDays === 0 && c.dueDate !== data?.today),
-  );
   const isEmpty = $derived(
     data?.cards.length === 0 &&
       data.units.length === 0 &&
       data.reviews.length === 0 &&
-      data.meetings.length === 0,
+      data.meetings.length === 0 &&
+      store.diaries.every((diary) => diary.writtenToday),
   );
 
-  function wsBadge(meta: TodayWorkspaceMeta): string {
-    return meta.isPersonal ? m.own_space_name() : meta.workspaceName || m.shell_workspace_unnamed();
+  const orgNames = $derived(organizationNames(workspace));
+  /** The space of an item, named as the switcher names it; one not listed by the name it came with. */
+  function spaceOf(item: { workspace: TodayWorkspaceMeta }): string {
+    const meta = item.workspace;
+    if (meta.isPersonal) return m.own_space_name();
+    const info = workspace.workspaces.find((one) => one.id === meta.workspaceId);
+    if (!info) return meta.workspaceName || m.shell_workspace_unnamed();
+    const orgName = (orgId: string | undefined) =>
+      orgNames.of(orgId) || (orgId === meta.orgId ? meta.orgName : '');
+    return spaceName(info, workspace.workspaces, orgName, m.shell_workspace_unnamed);
   }
 
-  function openCardItem(item: TodayCardItem): void {
+  function openCard(item: TodayCardItem): void {
     goToPlace(router, {
       kind: 'card',
       id: item.cardId,
@@ -83,31 +87,13 @@
     });
   }
 
-  function openUnitItem(item: TodayUnitEntry): void {
-    goToPlace(router, {
-      kind: 'unit',
-      id: item.unitId,
-      containerId: item.courseId,
-      workspaceId: item.workspace.workspaceId,
-    });
+  function openDiary(diary: TodayDiary, write: boolean): void {
+    if (write) askToWriteToday(diary.diaryId);
+    router.go({ workspaceId: diary.workspaceId, diaryId: diary.diaryId });
   }
 
-  function openReviewItem(item: TodayReviewEntry): void {
-    goToPlace(router, {
-      kind: 'unit',
-      id: item.unitId,
-      containerId: item.containerId,
-      workspaceId: item.workspace.workspaceId,
-    });
-  }
-
-  function openMeetingItem(item: TodayMeetingItem): void {
-    goToPlace(router, {
-      kind: 'meeting',
-      id: item.meetingId,
-      containerId: item.containerId,
-      workspaceId: item.workspace.workspaceId,
-    });
+  function openUnit(workspaceId: string, containerId: string, unitId: string): void {
+    goToPlace(router, { kind: 'unit', id: unitId, containerId, workspaceId });
   }
 </script>
 
@@ -143,26 +129,16 @@
       </p>
     {/if}
 
-    {#if store.personalDiary && store.diaryStreak !== undefined}
-      {@const diaryPlace = store.personalDiary}
-      <div
-        class="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
-        data-testid="today-hub-diary"
-      >
-        <span class="text-sm font-medium">
-          {m.today_hub_diary_streak({ days: store.diaryStreak })}
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          class="roomy:min-h-touch"
-          onclick={() => {
-            router.go({ workspaceId: diaryPlace.workspaceId, diaryId: diaryPlace.diaryId });
-          }}
-        >
-          {m.today_hub_diary_open()}
-        </Button>
-      </div>
+    {#if store.diaries.length > 0}
+      <TodayDiaries
+        diaries={store.diaries}
+        onWrite={(diary: TodayDiary) => {
+          openDiary(diary, true);
+        }}
+        onOpen={(diary: TodayDiary) => {
+          openDiary(diary, false);
+        }}
+      />
     {/if}
 
     {#if store.status === 'loading' && !data}
@@ -174,60 +150,14 @@
         {m.today_hub_empty()}
       </p>
     {:else if data}
-      {#each [{ id: 'overdue', heading: m.today_hub_cards_overdue(), list: overdueCards }, { id: 'today', heading: m.today_hub_cards_today(), list: todayCards }, { id: 'soon', heading: m.today_hub_cards_soon(), list: soonCards }] as group (group.id)}
-        {#if group.list.length > 0}
-          <section class="grid gap-2" data-testid="today-hub-cards-{group.id}">
-            <h3 class="text-sm font-semibold text-muted-foreground">{group.heading}</h3>
-            <ul class="grid gap-1.5">
-              {#each group.list as card (card.cardId)}
-                <li>
-                  <button
-                    type="button"
-                    class="flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left hover:bg-accent/50 roomy:min-h-touch"
-                    onclick={() => {
-                      openCardItem(card);
-                    }}
-                  >
-                    <span class="min-w-0 flex-1 truncate font-medium">
-                      {card.icon ? `${card.icon} ` : ''}{card.title || m['KanbanCard.untitled']()}
-                    </span>
-                    <span class="shrink-0 text-xs text-muted-foreground">
-                      {wsBadge(card.workspace)} · {card.boardTitle || m['Sidebar.untitled-board']()} ·
-                      {card.dueDate}
-                    </span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
-          </section>
-        {/if}
-      {/each}
-
-      {#if data.units.length > 0}
-        <section class="grid gap-2" data-testid="today-hub-units">
-          <h3 class="text-sm font-semibold text-muted-foreground">{m.today_hub_learning()}</h3>
-          <ul class="grid gap-1.5">
-            {#each data.units as unit (unit.unitId)}
-              <li>
-                <button
-                  type="button"
-                  class="flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left hover:bg-accent/50 roomy:min-h-touch"
-                  onclick={() => {
-                    openUnitItem(unit);
-                  }}
-                >
-                  <span class="min-w-0 flex-1 truncate font-medium">
-                    {unit.title || m.course_unit_untitled()}
-                  </span>
-                  <span class="shrink-0 text-xs text-muted-foreground">
-                    {wsBadge(unit.workspace)} · {unit.courseTitle || m.course_untitled()} · {unit.effectiveDate}
-                  </span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        </section>
-      {/if}
+      <TodayCards {store} {spaceOf} onOpen={openCard} />
+      <TodayUnits
+        {store}
+        {spaceOf}
+        onOpen={(unit: TodayUnitEntry) => {
+          openUnit(unit.workspace.workspaceId, unit.courseId, unit.unitId);
+        }}
+      />
 
       {#if data.reviews.length > 0}
         <section class="grid gap-2" data-testid="today-hub-reviews">
@@ -239,14 +169,14 @@
                   type="button"
                   class="flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left hover:bg-accent/50 roomy:min-h-touch"
                   onclick={() => {
-                    openReviewItem(review);
+                    openUnit(review.workspace.workspaceId, review.containerId, review.unitId);
                   }}
                 >
                   <span class="min-w-0 flex-1 truncate font-medium">
                     {review.unitTitle || m.course_unit_untitled()}
                   </span>
                   <span class="shrink-0 text-xs text-muted-foreground">
-                    {wsBadge(review.workspace)} · {review.courseTitle || m.course_untitled()} · {review.scheduledDate}
+                    {spaceOf(review)} · {review.courseTitle || m.course_untitled()} · {review.scheduledDate}
                   </span>
                 </button>
               </li>
@@ -265,12 +195,17 @@
                   type="button"
                   class="flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left hover:bg-accent/50 roomy:min-h-touch"
                   onclick={() => {
-                    openMeetingItem(meeting);
+                    goToPlace(router, {
+                      kind: 'meeting',
+                      id: meeting.meetingId,
+                      containerId: meeting.containerId,
+                      workspaceId: meeting.workspace.workspaceId,
+                    });
                   }}
                 >
                   <span class="min-w-0 flex-1 truncate font-medium">{meeting.title}</span>
                   <span class="shrink-0 text-xs text-muted-foreground">
-                    {wsBadge(meeting.workspace)} · {displayDateTime(meeting.startsAt, {
+                    {spaceOf(meeting)} · {displayDateTime(meeting.startsAt, {
                       locale: workspace.locale,
                       timeZone: workspace.regional.timeZone,
                       hourCycle: workspace.regional.hourCycle,

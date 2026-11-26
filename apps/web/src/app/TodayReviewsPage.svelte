@@ -6,12 +6,7 @@
   import { untrack } from 'svelte';
 
   import TodayReviewsView from '$lib/features/course/TodayReviewsView.svelte';
-  import {
-    syncDeviceTimeZone,
-    todayReviews,
-    type TodayReviewItem,
-    type Workspace,
-  } from '$lib/state/index.ts';
+  import { todayReviews, type TodayReviewItem, type Workspace } from '$lib/state/index.ts';
 
   import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
@@ -33,23 +28,13 @@
   $effect(() => {
     const id = workspaceId;
     const current = store;
-    const zone = workspace.settings.timeZone;
+    // Read anew in another time zone, whose today may be another day.
+    const _zone = workspace.settings.timeZone;
     const _version = current?.version;
     if (!id || !current) return;
-    let cancelled = false;
     untrack(() => {
-      if (zone === 'auto') {
-        void syncDeviceTimeZone(workspace).then((changed) => {
-          // If timeZone changed, this effect re-runs and loads with the synced zone; otherwise load now.
-          if (!cancelled && !changed) void current.load(id);
-        });
-      } else {
-        void current.load(id);
-      }
+      void current.load(id);
     });
-    return () => {
-      cancelled = true;
-    };
   });
 
   function unitRoute(item: TodayReviewItem) {

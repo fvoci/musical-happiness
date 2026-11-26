@@ -29,6 +29,8 @@ import { MemberWrites } from './member-writes.ts';
 import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
 import { memberId } from './user-names.ts';
+import { joinedPermissions, JoinOnWrite, joinsOnWrite, listOpened } from './join-on-write.ts';
+import { noteMembership } from './memberships.svelte.ts';
 import { joinOpenWiki, performPageLooks, performWikiLooks } from './wiki-parts.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
@@ -58,7 +60,15 @@ export class WikiStore {
   joining = $state(false);
   wiki = $state.raw<Container | undefined>(undefined);
   pages = $state.raw<WikiPage[]>([]);
-  members = $state.raw<ContainerMember[]>([]);
+  #members = $state.raw<ContainerMember[]>([]);
+  /** Its members as read; whether the reader is one is told to the sidebar (`noteMembership`). */
+  get members(): ContainerMember[] {
+    return this.#members;
+  }
+  set members(members: ContainerMember[]) {
+    this.#members = members;
+    noteMembership(this.workspace, this.wikiId, members);
+  }
   permissions = $state.raw<ContainerPermissions>({ ...READ_ONLY_PERMISSIONS });
   openPage = $state.raw<PageStore | undefined>(undefined);
 
@@ -73,15 +83,25 @@ export class WikiStore {
   readonly role = $derived<MemberRole>(
     roleOf(this.members.find((member) => member.userId === this.workspace.me?.id)),
   );
-  readonly canEdit = $derived(this.permissions.canEdit);
-  readonly canManage = $derived(
-    this.permissions.canManageVisibility || this.permissions.canManageRoles,
-  );
-  readonly canDelete = $derived(this.permissions.canDelete);
-  readonly canShare = $derived(this.permissions.canShare);
   readonly joinable = $derived(
     this.status === 'ready' && this.wiki?.visibility === 'open' && this.role === '',
   );
+  /** Joined by the reader's first write (`join-on-write.ts`): what they may do is a member's. */
+  readonly joinsOnWrite = $derived.by(() =>
+    joinsOnWrite(this.joinable, this.workspace, this.wiki?.minimumRole),
+  );
+  /** What the reader may do: as joined where a write joins, else as read. */
+  readonly shownPermissions = $derived.by(() =>
+    this.joinsOnWrite
+      ? joinedPermissions(this.wiki?.minimumRole, this.workspace.info?.role === 'admin')
+      : this.permissions,
+  );
+  readonly canEdit = $derived(this.shownPermissions.canEdit);
+  readonly canManage = $derived(
+    this.shownPermissions.canManageVisibility || this.shownPermissions.canManageRoles,
+  );
+  readonly canDelete = $derived(this.shownPermissions.canDelete);
+  readonly canShare = $derived(this.shownPermissions.canShare);
 
   #stopWatching: (() => void) | undefined;
   #closed = false;
@@ -90,6 +110,7 @@ export class WikiStore {
   readonly presence: ContainerPresence;
   readonly #writes: HierarchyWriteQueue<WikiPage, WikiPageDetail, PageDraft>;
   readonly #people = new MemberWrites(this);
+  readonly #joinOnWrite = new JoinOnWrite(this, () => this.#refreshPermissions());
 
   constructor(workspace: Workspace, wikiId: string) {
     this.workspace = workspace;
@@ -108,15 +129,15 @@ export class WikiStore {
       reread: () => {
         void this.#refresh();
       },
-      create: (draft) => this.#wikis.createPage(wikiId, draft),
+      create: this.#joined((draft) => this.#wikis.createPage(wikiId, draft)),
       hasBody: async (pageId) => {
         const { body } = await this.#wikis.page(wikiId, pageId);
         return body !== null && !isEmptyDoc(body);
       },
-      remove: (pageId) => this.#wikis.deletePage(wikiId, pageId),
-      restore: (pageId) => this.#wikis.restorePage(wikiId, pageId),
-      move: (pageId, to) => this.#wikis.movePage(wikiId, pageId, to),
-      duplicate: (pageId, title) => this.#wikis.duplicatePage(wikiId, pageId, title),
+      remove: this.#joined((pageId) => this.#wikis.deletePage(wikiId, pageId)),
+      restore: this.#joined((pageId) => this.#wikis.restorePage(wikiId, pageId)),
+      move: this.#joined((pageId, to) => this.#wikis.movePage(wikiId, pageId, to)),
+      duplicate: this.#joined((pageId, title) => this.#wikis.duplicatePage(wikiId, pageId, title)),
     });
   }
 
@@ -165,6 +186,7 @@ export class WikiStore {
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
       this.takeWiki(wiki);
+      listOpened(this.workspace, wiki);
       this.permissions = permissions;
       if (membersTold === this.#people.told) this.members = members;
       if (initialPageId && (wiki.visibility === 'open' || this.role !== '')) this.status = 'ready';
@@ -210,6 +232,16 @@ export class WikiStore {
 
   join(): Promise<boolean> {
     return joinOpenWiki(this);
+  }
+
+  /** Sends `write`, once the reader has joined where it is their first write on an open wiki. */
+  writeJoined<T>(write: () => Promise<T>): Promise<T> {
+    return this.#joinOnWrite.run(this.wikiId, write);
+  }
+
+  /** `write`, sent once the reader has joined where it is their first write. */
+  #joined<A extends unknown[], R>(write: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+    return (...args) => this.writeJoined(() => write(...args));
   }
 
   isClosed(): boolean {

@@ -28,6 +28,7 @@
     firstDiary,
     isGuest,
     isOwnSpace,
+    organizationNames,
     peopleOf,
     whileHere,
     type Category,
@@ -85,6 +86,10 @@
 
   const shown = $derived(workspace.info ?? workspace.closed);
   const ownSpace = $derived(isOwnSpace(shown));
+  const orgNames = $derived(organizationNames(workspace));
+  $effect(() => {
+    orgNames.follow(workspace.workspaces);
+  });
 
   let query = $state('');
   const boardSearch = new BoardSearch(async (text) =>
@@ -200,6 +205,7 @@
     <WorkspaceSwitcher
       workspaces={workspace.workspaces}
       current={shown?.id}
+      orgName={(orgId: string | undefined) => orgNames.of(orgId)}
       onSwitch={onSwitchWorkspace}
       {onCreateOrganization}
     />
@@ -255,6 +261,18 @@
     </IconButton>
   {/if}
 </div>
+
+{#if todayHub && workspace.me?.id}
+  <div class="shrink-0 px-2 pb-1">
+    <SidebarNavButton
+      testId="open-today-hub"
+      active={todayHub.active}
+      label={m.today_hub_title()}
+      onclick={todayHub.onOpen}
+      icon={SunIcon}
+    />
+  </div>
+{/if}
 
 <nav class="flex min-h-0 flex-1 flex-col" aria-label={m.shell_boards()}>
   <SidebarList
@@ -338,15 +356,6 @@
       <UsersIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
     </button>
-  {/if}
-  {#if todayHub && workspace.me?.id}
-    <SidebarNavButton
-      testId="open-today-hub"
-      active={todayHub.active}
-      label={m.today_hub_title()}
-      onclick={todayHub.onOpen}
-      icon={SunIcon}
-    />
   {/if}
   {#if reviewsToday && workspace.backend.course && workspace.info && workspace.me?.id}
     <SidebarNavButton

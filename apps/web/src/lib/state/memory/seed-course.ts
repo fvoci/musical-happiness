@@ -185,7 +185,7 @@ function practiceBody(conceptsUnitId: string): DocNode {
   };
 }
 
-/** Seeds the built-in course study-plan template for NewCourseDialog & TemplatePicker parity. */
+/** Seeds the built-in course study-plan template the window of new things offers. */
 function seedBuiltinCourseTemplate(world: World, reader: User): void {
   const templateId = world.newId();
   const at = world.now();

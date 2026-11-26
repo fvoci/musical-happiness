@@ -8,6 +8,7 @@ import {
   FORMER,
   checkFile,
   matches,
+  namesFormer,
   parseExceptions,
   staleExceptions,
 } from '../../tools/names/workspace.ts';
@@ -51,7 +52,7 @@ describe('the exceptions of the workspace name', () => {
     ]);
     expect(checkFile('b.ts', named('@S\n'), exceptions, used)).toEqual([]);
     expect(staleExceptions(exceptions, used)).toEqual([
-      'tools/names/exceptions.txt:5: nothing needs it: remove it',
+      'xtask/exceptions/names.txt:5: nothing needs it: remove it',
     ]);
   });
 
@@ -65,5 +66,21 @@ describe('the exceptions of the workspace name', () => {
       'src/en.json:3',
       'src/en.json:4',
     ]);
+  });
+});
+
+describe('the former name by itself', () => {
+  it('is a word, or a camel-case part of one, not letters inside another word', () => {
+    expect(namesFormer(named('@'))).toBe(true);
+    expect(namesFormer(named('my@Id'))).toBe(false);
+    expect(namesFormer(named('my' + FORMER.charAt(0).toUpperCase() + FORMER.slice(1)))).toBe(true);
+    expect(namesFormer(named('s@ing kettle'))).toBe(false);
+    expect(namesFormer(named('S@'))).toBe(false);
+    expect(namesFormer(named('A_@_B'))).toBe(true);
+  });
+
+  it('is not what an address says', () => {
+    expect(namesFormer(named('crate (https://example.com/blake3-@/b3)'))).toBe(false);
+    expect(namesFormer(named('blake3-@'))).toBe(true);
   });
 });

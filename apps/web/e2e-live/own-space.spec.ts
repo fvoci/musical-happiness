@@ -134,8 +134,14 @@ test('an invited member works alone in their own space, shares by link, and is t
   await expect(told).toContainText('If that is a company address, change it to a personal one');
   await told.getByTestId('email-notice-dismiss').click();
   await expect(told).toHaveCount(0);
+  // Sharing is a button of the bar from two columns, and a line of its "…" on a phone.
   const openShare = async (seen: Page): Promise<void> => {
-    await seen.getByTestId('share-board').click();
+    const button = seen.getByTestId('share-board');
+    if (await button.isVisible()) await button.click();
+    else {
+      await seen.getByTestId('bar-menu').click();
+      await seen.getByRole('menuitem', { name: 'Share' }).click();
+    }
     await expect(seen.getByTestId('share-public-section')).toBeVisible();
   };
   await openShare(page);

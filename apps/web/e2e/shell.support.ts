@@ -118,15 +118,22 @@ export const undoInBar = (page: Page): Locator =>
     .getByTestId(/^(undo|bar-menu)$/)
     .filter({ visible: true });
 
+/** The buttons of the bar whose test identifiers are not the names of their lines in "…". */
+const BAR_BUTTONS: Partial<Record<string, string>> = {
+  'card-trash': 'open-card-trash',
+  share: 'share-board',
+};
+
 /**
- * Undo, redo or the deleted cards, from the top bar: their own buttons where the pane has
- * room for them, else the lines of the bar's menu ("…"), as on a phone.
+ * Undo, redo, the deleted cards or sharing, from the top bar: their own buttons where the pane
+ * has room for them, else the lines of the bar's menu ("…"), as on a phone.
  */
+
 export async function pressInBar(
   page: Page,
-  command: 'undo' | 'redo' | 'card-trash',
+  command: 'undo' | 'redo' | 'card-trash' | 'share',
 ): Promise<void> {
-  const button = topBar(page).getByTestId(command === 'card-trash' ? 'open-card-trash' : command);
+  const button = topBar(page).getByTestId(BAR_BUTTONS[command] ?? command);
   if (await button.isVisible()) {
     await button.click();
     return;

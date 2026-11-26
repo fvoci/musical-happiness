@@ -6,6 +6,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { m } from '$lib/i18n/paraglide/messages.js';
 import { setLocale } from '$lib/i18n/paraglide/runtime.js';
 
 import InvitePage from '$lib/features/account/InvitePage.svelte';
@@ -51,7 +52,7 @@ function mount(options: {
   return { accept, onSignIn, onJoined, onSessionEnded, onSso };
 }
 
-async function fill(label: RegExp, value: string): Promise<void> {
+async function fill(label: RegExp | string, value: string): Promise<void> {
   await fireEvent.input(screen.getByLabelText(label), { target: { value } });
 }
 
@@ -262,7 +263,7 @@ describe('the sign-in page and who may make an account', () => {
       await screen.findByRole('button', { name: 'New here? Create an account' }),
     );
     expect(await screen.findByTestId('register-solo')).toBeChecked();
-    expect(screen.queryByLabelText(/^team name$/i)).toBeNull();
+    expect(screen.queryByLabelText(m.account_organization_name())).toBeNull();
     await fill(/^user name$/i, 'ada');
     await fill(/email/i, 'ada@example.test');
     await fill(/^password$/i, 'a long password');
@@ -284,7 +285,7 @@ describe('the sign-in page and who may make an account', () => {
       await screen.findByRole('button', { name: 'New here? Create an account' }),
     );
     await fireEvent.click(await screen.findByTestId('register-together'));
-    await fill(/^team name$/i, ' Acme ');
+    await fill(m.account_organization_name(), ' Acme ');
     await fill(/^user name$/i, 'ada');
     await fill(/email/i, 'ada@example.test');
     await fill(/^password$/i, 'a long password');
@@ -306,7 +307,7 @@ describe('the sign-in page and who may make an account', () => {
       await screen.findByRole('button', { name: 'New here? Create an account' }),
     );
     await fireEvent.click(await screen.findByTestId('register-together'));
-    await fill(/^team name$/i, '   ');
+    await fill(m.account_organization_name(), '   ');
     await fill(/^user name$/i, 'ada');
     await fill(/email/i, 'ada@example.test');
     await fill(/^password$/i, 'a long password');
@@ -315,7 +316,7 @@ describe('the sign-in page and who may make an account', () => {
       'Fill this in.',
     );
     await waitFor(() => {
-      expect(screen.getByLabelText(/^team name$/i)).toHaveFocus();
+      expect(screen.getByLabelText(m.account_organization_name())).toHaveFocus();
     });
     expect(onRegister).not.toHaveBeenCalled();
   });
@@ -336,7 +337,7 @@ describe('the sign-in page and who may make an account', () => {
       'The first account of this server creates its',
     );
     expect(screen.queryByTestId('register-use')).toBeNull();
-    await fill(/^team name$/i, 'Acme');
+    await fill(m.account_organization_name(), 'Acme');
     await fill(/^user name$/i, 'ada');
     await fill(/email/i, 'ada@example.test');
     await fill(/^password$/i, 'a long password');

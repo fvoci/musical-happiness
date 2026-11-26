@@ -72,11 +72,12 @@ test('a board is made from a template, and a template from a board is changed on
   const copy = (await (
     await api.get(`/api/v1/w/${mine.workspaceId}/containers/${made}`)
   ).json()) as Schemas['Container'];
-  // In the reader's workspace (sent as `toWorkspace`: a built-in template is kept apart from every workspace).
+  // In the reader's workspace (sent as `toWorkspace`: a built-in template is kept apart from every workspace),
+  // open to it as the window of new things makes it in a shared one: the copy is made private, then opened.
   expect(copy).toMatchObject({
     title: 'Issue tracker',
     isTemplate: false,
-    visibility: 'private',
+    visibility: 'open',
     workspaceId: mine.workspaceId,
   });
   expect((await views(api, mine.workspaceId, made)).length).toBe(

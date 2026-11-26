@@ -65,6 +65,7 @@ export async function performPageLooks(
     readonly openPage: { readonly pageId: string; meta: WikiPage | undefined } | undefined;
     page(pageId: string | undefined): WikiPage | undefined;
     receivePage(page: WikiPage): void;
+    writeJoined<T>(write: () => Promise<T>): Promise<T>;
   },
   wikis: Wikis,
   pageId: string,
@@ -84,7 +85,7 @@ export async function performPageLooks(
     };
     show(to);
     try {
-      host.receivePage(await wikis.patchPage(host.wikiId, pageId, to));
+      host.receivePage(await host.writeJoined(() => wikis.patchPage(host.wikiId, pageId, to)));
     } catch (error) {
       show(from);
       throw error;

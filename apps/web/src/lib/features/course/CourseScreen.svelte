@@ -17,20 +17,25 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
-  import { focusRevealed } from '$lib/layout/focus.ts';
+  import { focusRevealed } from '$lib/focus.ts';
   import { coverPane } from '$lib/layout/over-pane.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import type { CourseStore, UnitStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import CourseHeader from './CourseHeader.svelte';
+  import CourseExamDialog from './CourseExamDialog.svelte';
+  import CourseMeetingDialog from './CourseMeetingDialog.svelte';
   import CourseTabBar from './CourseTabBar.svelte';
   import type { CourseSectionTab } from './course-meeting-labels.ts';
+  import type { UnitOpenings } from './unit-openings.svelte.ts';
   import UnitView from './UnitView.svelte';
 
   interface Props {
     course: CourseStore;
     unit: UnitStore | undefined;
+    /** What the unit's menu opens below its head. */
+    openings: UnitOpenings;
     /** Active section tab of the course (`units` by default). */
     activeTab?: CourseSectionTab;
     onSelectTab?: ((tab: CourseSectionTab) => void) | undefined;
@@ -79,6 +84,7 @@
   let {
     course,
     unit,
+    openings,
     activeTab = 'units',
     onSelectTab,
     meetingsTab,
@@ -114,6 +120,23 @@
     hasUnits && !unit?.missing && shown !== undefined && shown.kind !== 'chapter',
   );
   const narrow = $derived(pane.measured && !pane.columns);
+  let makingMeeting = $state(false);
+  let makingExam = $state(false);
+
+  /** Shows the tab of `tab` with the dialog that makes one more of it. */
+  function startEvent(tab: 'meetings' | 'exams'): void {
+    onSelectTab?.(tab);
+    if (tab === 'meetings') makingMeeting = true;
+    else makingExam = true;
+  }
+
+  /** Tabs to choose between: a meeting or an exam, or a tab of them shown (`CourseTabBar`). */
+  const tabbed = $derived(
+    onSelectTab !== undefined &&
+      (course.events.meetings.length > 0 ||
+        course.events.exams.length > 0 ||
+        activeTab !== 'units'),
+  );
   const place = $derived(`${course.courseId} ${unit?.unitId ?? ''} ${activeTab}`);
   const away = (_over: string): boolean => false;
   let drawer = $derived(away(place));
@@ -172,7 +195,19 @@
   }
 
   const noopAttach: Attachment<HTMLElement> = () => undefined;
+
+  /**
+   * The meetings and the exams read again as the reader comes back to the window: the
+   * server tells nobody of them, so the first one somebody else made (and the tab it brings)
+   * shows here then.
+   */
+  function readEventsAgain(): void {
+    if (document.visibilityState === 'visible') void course.events.refreshAll();
+  }
 </script>
+
+<svelte:window onfocus={readEventsAgain} />
+<svelte:document onvisibilitychange={readEventsAgain} />
 
 <div
   class="relative flex h-full min-h-0 outline-none"
@@ -227,6 +262,16 @@
       onDelete={onDeleteCourse}
       onTrash={onOpenTrash}
       {onShare}
+      onNewMeeting={onSelectTab
+        ? () => {
+            startEvent('meetings');
+          }
+        : undefined}
+      onNewExam={onSelectTab
+        ? () => {
+            startEvent('exams');
+          }
+        : undefined}
       {progress}
     />
     {@render tree({
@@ -241,11 +286,11 @@
     inert={drawerOut}
     {@attach scrollAttach ?? noopAttach}
   >
-    {#if narrow || showBar || onSelectTab}
+    {#if narrow || showBar || tabbed}
       <div
         class={[
           'top-0 z-10 flex min-h-10 items-center gap-2 border-b bg-background/95 px-2 py-1 roomy:min-h-[calc(var(--spacing-touch)+0.5rem)]',
-          (narrow || stickyBar || Boolean(onSelectTab)) && 'sticky',
+          (narrow || stickyBar || tabbed) && 'sticky',
         ]}
         {@attach barAttach ?? noopAttach}
       >
@@ -265,7 +310,7 @@
             {m.course_units()}
           </Button>
         {/if}
-        {#if onSelectTab}
+        {#if tabbed && onSelectTab}
           <CourseTabBar
             active={activeTab}
             meetingsCount={course.events.meetings.length}
@@ -291,9 +336,9 @@
       </div>
     {:else}
       <div
-        role={onSelectTab ? 'tabpanel' : undefined}
+        role={tabbed ? 'tabpanel' : undefined}
         id="{uid}-panel-units"
-        aria-labelledby={onSelectTab ? `${uid}-tab-units` : undefined}
+        aria-labelledby={tabbed ? `${uid}-tab-units` : undefined}
         class="h-full"
       >
         {#if notice && !reading}{@render told(notice)}{/if}
@@ -329,6 +374,7 @@
                 {course}
                 store={openUnit}
                 unit={shownUnit}
+                {openings}
                 autofocus={autofocusUnit}
                 viewers={viewers ? unitViewers : undefined}
                 actions={unitActions}
@@ -346,6 +392,11 @@
     {/if}
   </div>
 </div>
+
+{#if onSelectTab && course.canEdit}
+  <CourseMeetingDialog bind:open={makingMeeting} {course} />
+  <CourseExamDialog bind:open={makingExam} {course} />
+{/if}
 
 {#snippet told(text: string)}
   <div

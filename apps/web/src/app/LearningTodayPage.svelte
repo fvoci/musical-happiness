@@ -7,12 +7,7 @@
   import { untrack } from 'svelte';
 
   import LearningTodayView from '$lib/features/course/LearningTodayView.svelte';
-  import {
-    LearningTodayStore,
-    syncDeviceTimeZone,
-    type LearningTodayItem,
-    type Workspace,
-  } from '$lib/state/index.ts';
+  import { LearningTodayStore, type LearningTodayItem, type Workspace } from '$lib/state/index.ts';
 
   import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
@@ -41,17 +36,11 @@
   $effect(() => {
     const id = workspaceId;
     const current = store;
-    const zone = workspace.settings.timeZone;
+    // Read anew in another time zone, whose today may be another day.
+    const _zone = workspace.settings.timeZone;
     if (!id || !current) return;
     untrack(() => {
-      if (zone === 'auto') {
-        void syncDeviceTimeZone(workspace).then((changed) => {
-          // If timeZone changed, this effect re-runs and loads with the synced zone; otherwise load now.
-          if (!changed) void current.load(id);
-        });
-      } else {
-        void current.load(id);
-      }
+      void current.load(id);
     });
   });
 

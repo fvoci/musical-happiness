@@ -46,6 +46,14 @@
     router.route.kind === 'shared' ? router.route.readToken : undefined,
   );
   const container = $derived(kind === 'wiki' || kind === 'course' ? meta : workspace?.board?.board);
+  const containerTitle = $derived(
+    container?.title ||
+      (kind === 'wiki'
+        ? m.wiki_untitled()
+        : kind === 'course'
+          ? m.course_untitled()
+          : m['Sidebar.untitled-board']()),
+  );
 
   $effect(() => {
     const containerId = sharedContainerId;
@@ -117,12 +125,7 @@
     <p class="shrink-0 font-semibold tracking-tight" translate="no">{m.app_name()}</p>
     {#if container}
       <h1 class="min-w-0 truncate text-muted-foreground" data-testid="shared-title">
-        {container.icon ? `${container.icon} ` : ''}{container.title ||
-          (kind === 'wiki'
-            ? m.wiki_untitled()
-            : kind === 'course'
-              ? m.course_untitled()
-              : m['Sidebar.untitled-board']())}
+        {container.icon ? `${container.icon} ` : ''}{containerTitle}
       </h1>
     {/if}
   </header>
@@ -166,6 +169,7 @@
             kind={treeKind}
             backend={treeBackend}
             containerId={sharedContainerId}
+            containerTitle={container ? containerTitle : undefined}
             {router}
           />
         {/snippet}

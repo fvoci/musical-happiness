@@ -41,6 +41,7 @@
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { holdSaveKey } from '$lib/editor/save-key.ts';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
@@ -75,6 +76,13 @@
 
   /** The wiki of the address, made anew for another one. */
   const wiki = $derived(wikiId ? new WikiStore(workspace, wikiId) : undefined);
+  nameWindow(() => {
+    const shownPage = wiki?.openPage && wiki.page(wiki.openPage.pageId);
+    return [
+      shownPage && (shownPage.title || m.wiki_page_untitled()),
+      wiki?.wiki && (wiki.wiki.title || m.wiki_untitled()),
+    ];
+  });
   // Read while it is shown, and closed when it goes. The board shown before lets go.
   $effect(() => {
     const store = wiki;
@@ -232,7 +240,7 @@
 {:else}
   {@const store = wiki}
   <div class="flex h-full min-h-0 flex-col">
-    {#if wiki.joinable}
+    {#if wiki.joinable && !wiki.joinsOnWrite}
       <WikiJoin
         joining={wiki.joining}
         role={wiki.wiki?.minimumRole}
@@ -311,7 +319,7 @@
           {:else if comments.status === 'failed'}
             <div class="flex flex-wrap items-center gap-2 border-t pt-5" role="alert">
               <p class="text-muted-foreground">{m.app_problem_load()}</p>
-              <Button variant="outline" onclick={() => void comments.read(false)}>
+              <Button variant="outline" onclick={() => void comments.reread()}>
                 {m.app_retry()}
               </Button>
             </div>

@@ -1,6 +1,6 @@
 /**
  * Course L6 live end-to-end against the real Rust server:
- * - Creates a course from the built-in course template via `NewCourseDialog`
+ * - Creates a course from the built-in course template from the window of new things
  * - Verifies chapters, units, study amounts, and shared `course_schedules` on the server
  * - Records personal progress (`completed`, `lastPosition`, personal `plannedDate`)
  * - Duplicates the course via sidebar menu -> verifies amounts & shared schedule preserved,
@@ -56,17 +56,15 @@ test('built-in course template -> duplicate -> export/import preserves amounts &
   await page.goto(`/w/${home}`);
   await signInOnPage(page, owner);
 
-  // 1) Create a course from the built-in course template via NewCourseDialog.
+  // 1) Create a course from the built-in course template in the window of new things.
   await showSidebar(page);
   await sidebar(page).getByTestId('add-board').click();
-  await page.getByTestId('template-picker').getByTestId('new-course').click();
-  const dialog = page.getByTestId('new-course-dialog');
-  await expect(dialog).toBeVisible();
-  const tplButton = dialog.getByTestId('new-course-template-course-study-plan');
+  const picker = page.getByTestId('template-picker');
+  await expect(picker).toBeVisible();
+  await picker.getByTestId('new-title').fill('Live L6 Study');
+  const tplButton = picker.getByTestId('use-template-course-study-plan');
   await expect(tplButton).toBeVisible();
   await tplButton.click();
-  await dialog.getByTestId('new-course-title').fill('Live L6 Study');
-  await dialog.getByTestId('new-course-create').click();
 
   await expect(page).toHaveURL(ON_A_COURSE);
   await expect(page.getByTestId('course-screen')).toBeVisible();

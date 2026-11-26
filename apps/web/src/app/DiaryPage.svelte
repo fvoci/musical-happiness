@@ -29,9 +29,12 @@
   import YearCell from '$lib/features/diary/YearCell.svelte';
   import { holdSaveKey } from '$lib/editor/save-key.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { page } from '$lib/layout/room.svelte.ts';
+  import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
   import {
     dateIn,
+    inLeapYear,
     monthDayOf,
     pageDays,
     parseMonthDay,
@@ -45,6 +48,7 @@
 
   import NotFound from './NotFound.svelte';
   import type { Route, Router } from './router.svelte.ts';
+  import { takeWriteToday } from './write-today.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
 
@@ -151,6 +155,12 @@
   });
   /** The day the reader opened by pressing it: the caret goes into it. */
   let pressed = $state.raw<CalendarDate | undefined>(undefined);
+
+  // Asked by the hub of today to write today: the caret goes into today, where a keyboard is likely.
+  $effect(() => {
+    const id = diaryId;
+    if (id && untrack(() => takeWriteToday(id)) && page.stage !== 'compact') pressed = today.date;
+  });
   const open = $derived(chosen.date ?? target ?? opening);
 
   function openDate(date: CalendarDate): void {
@@ -190,6 +200,9 @@
     open: false,
   });
   const title = $derived(diary?.diary?.title || m.diary_untitled());
+  nameWindow(() => {
+    return [diary?.diary && title, monthDay && displayDay(inLeapYear(monthDay), locale)];
+  });
 
   async function rename(store: DiaryStore, name: string): Promise<void> {
     try {

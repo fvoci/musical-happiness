@@ -1,23 +1,48 @@
 /**
  * The former name of the workspace. It is a workspace everywhere now,
- * and that name will be a group of people's, so it is refused in any case, in
- * plurals and compounds, but where `exceptions.txt` lets it stay, each entry
- * under its reason. The server's `cargo xtask check` holds the rest of the
- * repository to a list of its own in the same form.
+ * and that name is a group of people's, so it is refused in any case, in
+ * plurals and compounds, but where the repository's list lets it stay
+ * (`xtask/exceptions/names.txt`, the entries under `apps/web/`, each under its
+ * reason: the groups of people, which the server's contract names so). The web
+ * app keeps no list of its own; what the check passes by itself is said here:
+ *
+ * - the letters inside another word (`steam`): the name begins a word, or a
+ *   part of one written in camel case;
+ * - an address (`https://…`): it is somebody else's name;
+ * - of a file of messages, what a message says: only the ids are checked, what
+ *   a message says is the translators'.
  *
  *   <path>             the whole file, its name too
  *   <path> | <text>    the lines of the file, where the name is within the text
  *
  * `*` in a path stands for any part of a name, `**` for any number of folders.
- * The texts are compared in any case. Of a file of messages only the ids are
- * checked: what a message says is the translators'.
+ * The texts are compared in any case.
  */
 
 /** The former name, put together from halves so that this file passes its own check. */
 export const FORMER = ['te', 'am'].join('');
 
-/** The file of exceptions, from the web app's folder. */
-export const EXCEPTIONS = 'tools/names/exceptions.txt';
+/** The list of exceptions, from the root of the repository. */
+export const EXCEPTIONS = 'xtask/exceptions/names.txt';
+
+/** An address, whose words are not ours to choose. */
+const ADDRESS = /\bhttps?:\/\/\S+/giu;
+
+/** Whether `before` and then `first` are letters of one word: not where a camel-case part begins. */
+function inOneWord(before: string | undefined, first: string): boolean {
+  if (before === undefined || !/\p{L}/u.test(before)) return false;
+  return !(/\p{Ll}/u.test(before) && /\p{Lu}/u.test(first));
+}
+
+/** Whether `text` names the former name: as a word or a part of one, outside an address. */
+export function namesFormer(text: string): boolean {
+  const plain = text.replace(ADDRESS, ' ');
+  for (const found of plain.matchAll(new RegExp(FORMER, 'giu'))) {
+    const first = found[0].charAt(0);
+    if (!inOneWord(plain[found.index - 1], first)) return true;
+  }
+  return false;
+}
 
 /** An entry of the exceptions. */
 export interface Exception {
@@ -103,6 +128,12 @@ function checkedPart(file: string, line: string): string {
   return value < 0 ? line : line.slice(0, value + 1);
 }
 
+/** `text` without each place `allowed` (lowercase) is within it, in any case. */
+function without(text: string, allowed: string): string {
+  const escaped = allowed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(escaped, 'giu'), ' ');
+}
+
 /**
  * The hits of one file, `path:line` (`path: in its name` for its name), marking
  * in `used` the exceptions that let a line or the name stay.
@@ -118,25 +149,25 @@ export function checkFile(
   );
   const whole = mine.find((index) => exceptions[index]?.text === null);
   const hits: string[] = [];
-  if (file.toLowerCase().includes(FORMER)) {
+  if (namesFormer(file)) {
     if (whole === undefined) hits.push(`${file}: in its name`);
     else used[whole] = true;
   }
   text.split('\n').forEach((line, index) => {
-    let rest = checkedPart(file, line).toLowerCase();
-    if (!rest.includes(FORMER)) return;
+    let rest = checkedPart(file, line);
+    if (!namesFormer(rest)) return;
     if (whole !== undefined) {
       used[whole] = true;
       return;
     }
     for (const exception of mine) {
       const allowed = exceptions[exception]?.text;
-      if (allowed && rest.includes(allowed)) {
+      if (allowed && rest.toLowerCase().includes(allowed)) {
         used[exception] = true;
-        rest = rest.split(allowed).join('');
+        rest = without(rest, allowed);
       }
     }
-    if (rest.includes(FORMER)) hits.push(`${file}:${index + 1}`);
+    if (namesFormer(rest)) hits.push(`${file}:${index + 1}`);
   });
   return hits;
 }

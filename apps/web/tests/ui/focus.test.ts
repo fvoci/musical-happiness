@@ -1,7 +1,7 @@
 /** A focus that is on nothing: the page, or a box that only holds it around where it would go. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { focusAdrift, focusRevealed } from '$lib/layout/focus.ts';
+import { focusAdrift, focusRevealed } from '$lib/focus.ts';
 
 function page(): { box: HTMLElement; home: HTMLElement; other: HTMLElement; aside: HTMLElement } {
   document.body.innerHTML =

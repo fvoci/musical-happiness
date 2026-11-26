@@ -20,6 +20,7 @@ import {
   FIRST_BOARD,
   hideSidebar,
   openApp,
+  pressInBar,
   showSidebar,
   sidebar,
 } from './shell.support.ts';
@@ -85,11 +86,14 @@ test('the own space starts empty, keeps what is made in it, and shows nothing of
   // Nobody else is there to find a wiki: it is not asked.
   await showSidebar(page);
   await sidebar(page).getByTestId('add-board').click();
-  await page.getByTestId('template-picker').getByTestId('new-wiki').click();
-  const naming = page.getByTestId('new-wiki-dialog');
-  await expect(naming.getByRole('radio')).toHaveCount(0);
-  await naming.getByTestId('new-wiki-title').fill('Notes of mine');
-  await naming.getByTestId('new-wiki-create').click();
+  const picker = page.getByTestId('template-picker');
+  await expect(picker.getByRole('radio')).toHaveCount(0);
+  await picker.getByTestId('new-title').fill('Notes of mine');
+  // Enter is done with the title: on to the kinds, the first of them.
+  await picker.getByTestId('new-title').press('Enter');
+  await expect(picker.getByTestId('empty-board')).toBeFocused();
+  await expect(picker).toBeVisible();
+  await picker.getByTestId('new-wiki').click();
   await expect(page).toHaveURL(ON_A_WIKI);
   await showSidebar(page);
   await expect(sidebar(page).getByRole('link')).toHaveCount(2);
@@ -115,7 +119,7 @@ test('a board of the own space is shared by its public link alone, with nobody t
   await openApp(page);
   // In the shared workspace the board has its members and the whole dialog.
   await expect(page.getByTestId('board-people')).toBeVisible();
-  await page.getByTestId('share-board').click();
+  await pressInBar(page, 'share');
   const dialog = page.getByTestId('share-dialog');
   await expect(dialog.getByTestId('share-open')).toBeVisible();
   await expect(dialog.getByTestId('share-members')).toBeVisible();
@@ -128,7 +132,7 @@ test('a board of the own space is shared by its public link alone, with nobody t
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(page.getByTestId('board-people')).toHaveCount(0);
-  await page.getByTestId('share-board').click();
+  await pressInBar(page, 'share');
   await expect(dialog.getByTestId('share-public-section')).toBeVisible();
   await expect(dialog.getByTestId('share-open')).toHaveCount(0);
   await expect(dialog.getByTestId('share-members')).toHaveCount(0);

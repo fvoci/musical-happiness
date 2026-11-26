@@ -27,10 +27,14 @@ export function rememberWorkspace(userId: string, workspaceId: string): void {
 
 const PLACE_KEY = 'fvoci:last-place:';
 
+/** The place remembered for the account's hub of today, opened last from that workspace. */
+export const TODAY_PLACE = 'today';
+
 /**
  * The board or the wiki each user was last on in a workspace on this
- * browser: the workspace's address alone takes them back to it, if the
- * sidebar still has it (`WorkspacePane.svelte`).
+ * browser, or the hub of today (`TODAY_PLACE`): the workspace's address
+ * alone takes them back to it, if the sidebar still has it
+ * (`WorkspacePane.svelte`).
  */
 export function lastPlace(userId: string, workspaceId: string): string | undefined {
   try {

@@ -234,8 +234,17 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   ): Promise<CopiedContainerOutput> {
     return this.#containers.copyContainerToWorkspace(containerId, request);
   }
-  accountToday(): Promise<AccountToday> {
-    return this.#http.request<Schemas['AccountToday']>('/api/v1/users/me/today');
+  async accountToday(): Promise<AccountToday> {
+    const today = await this.#http.request<Schemas['AccountToday']>('/api/v1/users/me/today');
+    // What the hub changes of these (a card done) is asked for under the space each is in.
+    this.learnPlaces([
+      ...today.cards.map((card) => ({ id: card.boardId, workspaceId: card.workspace.workspaceId })),
+      ...today.units.map((unit) => ({
+        id: unit.courseId,
+        workspaceId: unit.workspace.workspaceId,
+      })),
+    ]);
+    return today;
   }
   workspaceToday(workspaceId: string): Promise<WorkspaceToday> {
     return this.#http.request<Schemas['WorkspaceToday']>(underWorkspace('/today'), {

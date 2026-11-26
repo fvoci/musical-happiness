@@ -103,16 +103,47 @@ export interface SidebarCategory {
   containers: Container[];
 }
 
+/** Who reads the sidebar, for what of it waits to be joined (`memberships.svelte.ts`). */
+export interface SidebarReader {
+  id: string | undefined;
+  /** A guest of the workspace, who joins nothing by themselves: what they were let into is theirs. */
+  guest: boolean;
+  /** The containers the reader is known to be a member of, directly or by a group. */
+  memberOf: ReadonlySet<string>;
+}
+
+/** One about whom nothing is known: what others made open waits to be joined. */
+const NOBODY: SidebarReader = { id: undefined, guest: false, memberOf: new Set() };
+
+/**
+ * Whether a container no category of the reader's files is one they neither
+ * made nor joined: an open one of the workspace, which the server files once
+ * it is joined. It waits at the foot of the sidebar (`openToJoinOf`). Not to a
+ * guest, who cannot join it, nor where the reader is known to be a member.
+ */
+function waitsToBeJoined(container: Container, reader: SidebarReader): boolean {
+  return (
+    !reader.guest &&
+    container.visibility === 'open' &&
+    !container.isTemplate &&
+    container.createdBy !== reader.id &&
+    !reader.memberOf.has(container.id)
+  );
+}
+
 /**
  * The sidebar: the categories in the reader's order, each with its boards in
- * the reader's order. A board that no category names (it was just made, or
- * shared with the reader) goes to the end of the default category, by title.
- * A category naming a board the reader cannot see simply does not show it.
+ * the reader's order. A board that no category names and that the reader made
+ * (it was just made, and is not filed yet) or was given goes to the end of the
+ * default category, by title; an open one they have not joined is not here
+ * (`openToJoinOf`). A category naming a board the reader cannot see simply
+ * does not show it.
  */
 export function sidebarOf(
   categories: readonly Category[],
   containers: readonly Container[],
   locale: string,
+  reader: SidebarReader = NOBODY,
 ): SidebarCategory[] {
   const compare = textOrder(locale);
   const ordered = [...categories].sort(
@@ -133,12 +164,30 @@ export function sidebarOf(
   });
   const hidden = new Set(categories.flatMap((category) => category.hiddenContainerIds));
   const loose = byTitle(
-    containers.filter((board) => !filed.has(board.id) && !hidden.has(board.id)),
+    containers.filter(
+      (board) => !filed.has(board.id) && !hidden.has(board.id) && !waitsToBeJoined(board, reader),
+    ),
     locale,
   );
   const fallback = result.find((entry) => entry.category.type === 'system') ?? result.at(-1);
   fallback?.containers.push(...loose);
   return result;
+}
+
+/** The open containers of the workspace the reader neither made nor joined, by title. */
+export function openToJoinOf(
+  categories: readonly Category[],
+  containers: readonly Container[],
+  locale: string,
+  reader: SidebarReader,
+): Container[] {
+  const filed = new Set(
+    categories.flatMap((category) => [...category.containerIds, ...category.hiddenContainerIds]),
+  );
+  return byTitle(
+    containers.filter((board) => !filed.has(board.id) && waitsToBeJoined(board, reader)),
+    locale,
+  );
 }
 
 /** The boards a category hides that the sidebar does not show elsewhere, by title. */

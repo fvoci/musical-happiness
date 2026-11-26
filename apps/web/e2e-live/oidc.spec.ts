@@ -55,11 +55,11 @@ test('a newcomer signs in through the provider and opens a board', async ({ page
   expect(new URL(page.url()).pathname).not.toBe('/login');
 
   await page.goto(boardPath(board, board.viewId));
-  // Read as it is, under the bar that joins it.
   await expect(page.getByTestId('board-page')).toBeVisible();
-  const join = page.getByTestId('board-join');
-  await join.getByRole('button', { name: 'Join this board' }).click();
-  await expect(join).toHaveCount(0);
+  // Open to them, and theirs to write in: the first write joins it.
+  await expect(page.getByTestId('top-bar').getByTestId('board-title')).toHaveValue(
+    'Through the provider',
+  );
   expect(errors).toEqual([]);
   // The other files' sign-in pages are as they were: no provider.
   expect((await admin.delete(`/api/v1/org/${orgId}/oidc`)).status()).toBe(204);

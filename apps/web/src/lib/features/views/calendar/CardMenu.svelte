@@ -77,11 +77,8 @@
         id: 'change-date',
         label: dated ? m.calendar_change_date() : m.calendar_set_date(),
         icon: CalendarClockIcon,
-        // The menu closes, and gives the focus back, before the picker opens.
-        run: () => {
-          setTimeout(() => {
-            change(card.id);
-          }, 0);
+        afterClose: () => {
+          change(card.id);
         },
       });
     }

@@ -52,9 +52,10 @@ export function hasContentHash(fileName: string): boolean {
     .some((part) => part.length >= 8 && /^[0-9a-fA-F]+$/.test(part) && /[0-9]/.test(part));
 }
 
-/** Files that are meant to be revalidated on every request, by name. */
+/** Files that are meant to be revalidated on every request, by name: `favicon.svg` is linked by its name. */
 const UNHASHED_ON_PURPOSE = new Set([
   'THIRD_PARTY_NOTICES.txt',
+  'favicon.svg',
   'viewer-frame.html',
   'editor-frame.html',
 ]);

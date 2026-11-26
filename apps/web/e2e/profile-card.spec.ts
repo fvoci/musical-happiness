@@ -11,7 +11,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { othersArrive, type Dev } from './presence.support.ts';
 import { screensDir } from './screens.ts';
-import { openApp, topBar } from './shell.support.ts';
+import { openApp, pressInBar, topBar } from './shell.support.ts';
 
 /**
  * Has the first other user of the world, on the board, name themselves (shown by
@@ -51,7 +51,7 @@ test("a member's name with title and credentials opens their profile, which foll
 }) => {
   await openApp(page);
   await othersArrive(page, 1);
-  await topBar(page).getByTestId('share-board').click();
+  await pressInBar(page, 'share');
   const dialog = page.getByTestId('share-dialog');
   await expect(dialog).toBeVisible();
   const members = dialog.getByTestId('share-members');
@@ -105,7 +105,7 @@ test.describe('at 390px, dark', () => {
       '김영환김영환김영환김영환김영환',
       'younghwan.kim.cardiology.department',
     );
-    await topBar(page).getByTestId('share-board').click();
+    await pressInBar(page, 'share');
     const opener = page.getByTestId('share-members').locator(`[data-person="${login}"]`);
     await expect(opener).toBeVisible();
     // Nothing of the name spills out of the button, nor the button out of its row.
@@ -167,7 +167,7 @@ test('pictures of the profile card', async ({ page }, testInfo) => {
       await openApp(page);
       await othersArrive(page, 1);
       const login = await otherNamesThemselves(page);
-      await topBar(page).getByTestId('share-board').click();
+      await pressInBar(page, 'share');
       const members = page.getByTestId('share-members');
       await members.getByTestId('person-profile').filter({ hasText: login }).click();
       await expect(page.getByTestId('profile-card')).toBeVisible();

@@ -21,6 +21,7 @@
 import { tick } from 'svelte';
 
 import { m } from '$lib/i18n/paraglide/messages.js';
+import { focusRevealed } from '$lib/focus.ts';
 import { buildUrl, normalizeBasePath } from '$lib/logic/urls.ts';
 
 import { ENGINE_FETCH_LIMIT, engineBytes } from './engine.ts';
@@ -287,14 +288,8 @@ export class ViewerSession {
         this.status = { name: 'shown', format: status.format };
         // The keys that scroll a page (arrows, Page Down, Space) then scroll the document.
         // After the update: until then the frame is hidden, and takes no focus.
-        // `getBoundingClientRect()` flushes WebKit's style even while a stylesheet (such as a lazy
-        // font sheet) is pending, so `focus()` does not see the stale `visibility: hidden` and
-        // drop focus to `body`.
         void tick().then(() => {
-          const frame = this.#frame;
-          if (!frame?.isConnected) return;
-          frame.getBoundingClientRect();
-          frame.focus();
+          focusRevealed(this.#frame);
         });
         break;
       case 'page':

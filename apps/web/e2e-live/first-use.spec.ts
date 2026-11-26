@@ -55,7 +55,7 @@ test('a registration that is refused says what is wrong beside each field, and m
   await page.goto('/');
   await page.getByRole('button', { name: 'New here? Create an account' }).click();
   const form = page.getByTestId('register-form');
-  const organization = form.getByLabel(/^team name$/i);
+  const organization = form.getByTestId('register-organization-name');
   const name = form.getByLabel(/^user name$/i);
   const email = form.getByLabel(/email/i);
   const password = form.getByLabel(/^password$/i);
@@ -84,9 +84,7 @@ test('a registration that is refused says what is wrong beside each field, and m
   await email.fill(ADMIN.email);
   await password.fill(ADMIN.password);
   await submit.click();
-  await expect(form.getByTestId('problem-organizationName')).toHaveText(
-    'A team name can be up to 64 characters.',
-  );
+  await expect(form.getByTestId('problem-organizationName')).toHaveText(/up to 64 characters\./);
   await expect(form.getByRole('alert')).toHaveCount(1);
   // Nothing was made: the server still takes its first account.
   await page.reload();
@@ -117,7 +115,7 @@ test('somebody starts an organization, and a second person comes in by its link 
   await page.goto('/');
   await page.getByRole('button', { name: 'New here? Create an account' }).click();
   const form = page.getByTestId('register-form');
-  await form.getByLabel(/^team name$/i).fill(ORG_NAME);
+  await form.getByTestId('register-organization-name').fill(ORG_NAME);
   await form.getByLabel(/^user name$/i).fill(ADMIN.username);
   await form.getByLabel(/email/i).fill(ADMIN.email);
   await form.getByLabel(/^password$/i).fill(ADMIN.password);
@@ -136,7 +134,7 @@ test('somebody starts an organization, and a second person comes in by its link 
   await expect(koreanPage.getByTestId('invitation-needed')).toBeVisible();
   await look(koreanPage, 'the sign-in page of a server with its organization, in Korean');
 
-  // The first board, open to the workspace.
+  // The first board, made in the organization's space: open to it from the start.
   const made = page.waitForResponse(madeABoard);
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
@@ -147,7 +145,7 @@ test('somebody starts an organization, and a second person comes in by its link 
   await expect(boardLink(page, 'Launch plan')).toBeVisible();
   await page.getByTestId('share-board').click();
   const share = page.getByTestId('share-dialog');
-  await share.getByTestId('share-open').click();
+  await expect(share.getByTestId('share-open')).toBeChecked();
   await look(page, 'the first board, shared with the workspace');
   await page.keyboard.press('Escape');
   // Its first view is grouped by its "Status", without the column of cards that have none.
@@ -184,10 +182,10 @@ test('somebody starts an organization, and a second person comes in by its link 
   await expect(koreanPage.getByTestId('app-shell')).toBeVisible();
   await look(koreanPage, 'the organization as a newcomer finds it, in Korean');
 
-  // The same board: found, joined and edited.
+  // The same board: found, and joined by the first edit on it.
   await koreanPage.goto(page.url());
-  await koreanPage.getByTestId('board-join').getByRole('button').click();
   await expect(koreanPage.getByTestId('board-page')).toBeVisible();
+  await expect(koreanPage.getByTestId('board-join')).toHaveCount(0);
   await look(koreanPage, 'the board, in Korean');
   await koreanPage.getByText('Book the venue').click();
   await koreanPage.getByTestId('card-title').fill('Book the venue by Friday');

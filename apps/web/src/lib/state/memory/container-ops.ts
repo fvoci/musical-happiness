@@ -347,6 +347,8 @@ export function joinMemoryContainer(ctx: MemoryContainerContext, id: string): Co
   const role = board.minimumRole === 'admin' ? 'editor' : board.minimumRole || 'editor';
   const member = memberOf(id, ctx.userId, role);
   setMembers(ctx.world, id, [...members, member]);
+  // Filed under the reader's default category, as the server files what is joined.
+  fileAsNew(ctx.world, ctx.userId, board);
   return copy(member);
 }
 

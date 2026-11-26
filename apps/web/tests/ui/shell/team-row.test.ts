@@ -23,7 +23,7 @@ it('disables a temporary administrator adding themselves but allows another pers
   await fireEvent.click(screen.getByText('Design'));
   expect(screen.getByRole('option', { name: /Ada/ })).toBeDisabled();
   expect(screen.getByRole('option', { name: /Grace/ })).toBeEnabled();
-  expect(screen.getByText(/You cannot add yourself to a team/)).toBeInTheDocument();
+  expect(screen.getByText(/You cannot add yourself to a group/)).toBeInTheDocument();
   await fireEvent.change(screen.getByRole('combobox'), { target: { value: 'other' } });
   await fireEvent.click(screen.getByRole('button', { name: 'Add a person' }));
   expect(onAdd).toHaveBeenCalledWith('other');

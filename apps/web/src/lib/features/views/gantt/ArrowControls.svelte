@@ -121,8 +121,8 @@
         preserveAspectRatio="none"
       >
         {#each arrows as arrow (arrow.key)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions (a wider target for the pointer; each arrow's button below is the one for assistive technology) -->
+          <!-- svelte-ignore a11y_click_events_have_key_events (the keys are each arrow's button's, below) -->
           <path
             data-arrow-hit
             data-from={arrow.from}

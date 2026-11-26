@@ -3,13 +3,22 @@
  * exam scores, erased-user tombstones, `meeting_upcoming` notification routing,
  * public-link isolation, and 390px mobile layout on the in-memory backend.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { WORKSPACE } from './address.ts';
-import { openApp } from './shell.support.ts';
+import { chooseFromMenu, openApp } from './shell.support.ts';
 import { goInside } from './wiki.support.ts';
 
 test.describe.configure({ mode: 'parallel', timeout: 90_000 });
+
+/** Presses a line of the course's menu, at the head of its units: in their drawer on a phone. */
+async function fromCourseMenu(page: Page, action: string): Promise<void> {
+  const opener = page.getByTestId('open-unit-tree');
+  if ((await opener.isVisible()) && (await opener.getAttribute('aria-expanded')) !== 'true') {
+    await opener.click();
+  }
+  await chooseFromMenu(page, page.getByTestId('course-menu'), action);
+}
 
 interface DevCourse {
   createCourse(
@@ -93,14 +102,12 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
   }, WORKSPACE);
 
   await goInside(page, `/w/${WORKSPACE}/courses/${ids.courseId}`);
-  await expect(page.getByTestId('course-tabs')).toBeVisible();
-  await expect(page.getByTestId('course-tab-units')).toHaveAttribute('aria-selected', 'true');
-
-  // Keyboard tab switch: ArrowRight -> Meetings tab.
-  await page.getByTestId('course-tab-units').focus();
-  await page.keyboard.press('ArrowRight');
+  // No meeting and no exam yet: no tabs of them, and the course menu makes the first.
+  await expect(page.getByTestId('course-screen')).toBeVisible();
+  await expect(page.getByTestId('course-tabs')).toHaveCount(0);
+  await fromCourseMenu(page, 'add-meeting');
   await expect(page.getByTestId('course-tab-meetings')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('course-meetings-tab')).toBeVisible();
+  await expect(page.getByTestId('course-tab-exams')).toHaveCount(0);
   await expect(page.getByTestId('meetings-empty')).toBeVisible();
 
   // Verify no horizontal overflow on narrow mobile viewports (390px).
@@ -110,7 +117,6 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
   expect(meetingsOverflow).toBe(true);
 
   // Create a study meeting with linked unit, presenter, location URL, and notes.
-  await page.getByTestId('new-meeting').click();
   const meetingDialog = page.getByTestId('course-meeting-dialog');
   await expect(meetingDialog).toBeVisible();
   await meetingDialog.getByTestId('meeting-title-input').fill('Week 1 Study Session');
@@ -149,12 +155,18 @@ test('manages study meetings, shared attendance, exams, personal scores, tombsto
   await expect(page.getByTestId('course-tab-units')).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('unit-title')).toHaveValue('Virtual Memory');
 
-  // Switch to Exams tab -> privacy notice is visible; create exam & record personal score.
-  await page.getByTestId('course-tab-exams').click();
+  // Keyboard tab switch among the tabs there are: ArrowRight -> Meetings tab.
+  await page.getByTestId('course-tab-units').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByTestId('course-tab-meetings')).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByTestId('course-tab-units')).toHaveAttribute('aria-selected', 'true');
+
+  // The course menu makes the first exam, on the Exams tab -> privacy notice is visible; record personal score.
+  await fromCourseMenu(page, 'add-exam');
   await expect(page.getByTestId('course-exams-tab')).toBeVisible();
   await expect(page.getByTestId('exams-privacy-notice')).toBeVisible();
 
-  await page.getByTestId('new-exam').click();
   const examDialog = page.getByTestId('course-exam-dialog');
   await examDialog.getByTestId('exam-title-input').fill('Midterm Exam');
   await examDialog.getByTestId('exam-date-input').fill('2026-12-10');
@@ -283,14 +295,14 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
     return course.id;
   }, WORKSPACE);
 
-  // Unjoined reader sees meetings read-only + join hint, and exams average without score input or creator's note.
+  // Unjoined reader sees meetings read-only with no prompt of its own, and exams average without score input or creator's note.
   await goInside(page, `/w/${WORKSPACE}/courses/${courseId}?tab=meetings`);
-  await expect(page.getByTestId('meetings-join-hint')).toBeVisible();
+  await expect(page.getByTestId('meetings-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('new-meeting')).toHaveCount(0);
   await expect(page.getByTestId('attendance-btn-present')).toHaveCount(0);
 
   await page.getByTestId('course-tab-exams').click();
-  await expect(page.getByTestId('exams-join-hint')).toBeVisible();
+  await expect(page.getByTestId('exams-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('exam-my-score-panel')).toHaveCount(0);
   await expect(page.getByTestId('exam-average')).toContainText('No scores yet');
   await expect(page.getByTestId('exam-score-count')).toContainText('0 submitted');
@@ -372,4 +384,34 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
   await expect(page.getByTestId('course-meetings-tab')).toHaveCount(0);
   await expect(page.getByTestId('course-exams-tab')).toHaveCount(0);
   expect(forbiddenCalls).toEqual([]);
+});
+
+test('the first exam somebody else makes brings its tab as the reader comes back to the window', async ({
+  page,
+}) => {
+  await openApp(page);
+  const courseId = await page.evaluate(async (wsId) => {
+    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+    const course = await dev.backend.course.createCourse(wsId, {
+      title: 'Compilers',
+      visibility: 'open',
+    });
+    await dev.backend.course.createUnit(course.id, { kind: 'unit', title: 'Parsing' });
+    return course.id;
+  }, WORKSPACE);
+  await goInside(page, `/w/${WORKSPACE}/courses/${courseId}`);
+  await expect(page.getByTestId('course-screen')).toBeVisible();
+  await expect(page.getByTestId('course-tabs')).toHaveCount(0);
+
+  // Made elsewhere (the server tells nobody of exams): no tab while the reader is away.
+  await page.evaluate(async (id) => {
+    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+    await dev.backend.course.exams.create(id, { title: 'Final', maxScore: 50 });
+  }, courseId);
+  await expect(page.getByTestId('course-tabs')).toHaveCount(0);
+
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByTestId('course-tab-exams')).toBeVisible();
+  await expect(page.getByTestId('course-tab-units')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('course-tab-meetings')).toHaveCount(0);
 });
