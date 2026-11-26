@@ -5,7 +5,7 @@
  */
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, request, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 import { ADMIN, signInOnPage, type Schemas } from './support.ts';
 
@@ -58,6 +58,14 @@ export async function forgetIdentities(api: APIRequestContext): Promise<void> {
   }
 }
 
+/** Opens the form of the organization's single sign-on, which is one line until it is set up. */
+export async function openSsoForm(section: Locator): Promise<void> {
+  const setUp = section.getByTestId('sso-set-up');
+  await expect(section.getByTestId('sso-issuer').or(setUp)).toBeVisible();
+  if (await setUp.isVisible()) await setUp.click();
+  await expect(section.getByTestId('sso-issuer')).toBeFocused();
+}
+
 /**
  * The administrator puts the provider in on the organization's screen,
  * connects their account to it as `subject`, signs in through it from the
@@ -68,6 +76,7 @@ export async function requireOnScreen(page: Page, orgId: string, subject: string
   await signInOnPage(page, ADMIN);
   await page.goto(`/org/${orgId}`);
   const section = page.getByTestId('org-sso');
+  await openSsoForm(section);
   await section.getByTestId('sso-issuer').fill(ISSUER);
   await section.getByTestId('sso-client').fill(CLIENT_ID);
   await section.getByTestId('sso-secret').fill(SECRET);

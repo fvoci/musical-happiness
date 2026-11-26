@@ -247,6 +247,11 @@ export class OrgAdmin {
     });
   }
 
+  /** Gives the organization another name; empty leaves it unnamed. */
+  rename(name: string): Promise<boolean> {
+    return this.#change(() => this.#api.changeOrganization(this.orgId, { name: name.trim() }));
+  }
+
   setPublicLinks(on: boolean): Promise<boolean> {
     return this.#change(() => this.#api.changeOrganization(this.orgId, { publicLinks: on }));
   }

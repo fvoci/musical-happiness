@@ -20,6 +20,7 @@
   works and there are no guests and no teams, its admin has the public link
   alone (`linkOnly`). Opened at the members (`at`, from the number
   of members at the head of the board), the dialog begins at that section.
+  Guests and groups are folded while the board or the wiki has none.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -271,6 +272,7 @@
           {access}
           containerId={shareable.containerId}
           kind={shareable.container?.kind}
+          foldable
         />
       {/if}
 
@@ -408,6 +410,7 @@
           teams={access.people.teams}
           {readOnly}
           {memberProgress}
+          foldable
         />
       {/if}
 

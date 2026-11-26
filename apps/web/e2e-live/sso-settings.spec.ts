@@ -2,6 +2,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { openSsoForm } from './sso-support.ts';
 import { ADMIN, invitation, signedIn, signInOnPage, uniqueName, type Schemas } from './support.ts';
 
 test.use({ locale: 'en-US', ignoreHTTPSErrors: true });
@@ -27,6 +28,8 @@ test('an administrator configures SSO without exposing its secret or locking out
     await page.goto(`/org/${orgId}`);
     const section = page.getByTestId('org-sso');
     await expect(section).toBeVisible();
+    await expect(section.getByTestId('sso-off')).toHaveText('Single sign-on (SSO): off · Set up');
+    await openSsoForm(section);
     await section.getByTestId('sso-issuer').fill(`${issuer}/not-an-issuer`);
     await section.getByTestId('sso-client').fill(clientId);
     await section.getByTestId('sso-secret').fill(secret);

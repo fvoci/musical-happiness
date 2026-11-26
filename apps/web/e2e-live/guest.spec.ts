@@ -5,7 +5,7 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { boardLink, sidebar } from '../e2e/shell.support.ts';
+import { boardLink, sidebar, unfold } from '../e2e/shell.support.ts';
 
 import {
   ORG_NAME,
@@ -42,6 +42,7 @@ test('a guest comes in by a link from the share dialog, and opens and edits that
   await signInOnPage(page, owner);
   await page.getByTestId('share-board').click();
   const share = page.getByTestId('share-dialog');
+  await unfold(share.getByTestId('share-guest-toggle'));
   await share.getByTestId('share-guest-make').click();
   const field = share.getByTestId('share-guest-link');
   await expect(field).toHaveValue(/\/invite\/[\w-]{43}$/);
