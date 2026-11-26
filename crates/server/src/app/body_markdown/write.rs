@@ -301,7 +301,8 @@ impl Writer<'_> {
         match kind(node) {
             "mention" => {
                 let id = attr_text(node, "userId");
-                let name = self.names.users.get(id).map_or(id, String::as_str);
+                // Who is not seen is named by the identifier alone.
+                let name = self.names.users.get(id).map_or("", String::as_str);
                 format!(
                     "@[{}]({USER_SCHEME}{id})",
                     escape(name, Line::Inside, Within::Paragraph)

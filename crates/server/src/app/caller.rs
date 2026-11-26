@@ -9,8 +9,7 @@ use fvoci_model::{ApiTokenScope, Session};
 use fvoci_store::{ByAgent, LiveApiToken, Making};
 
 use super::{App, Asker};
-use crate::auth::api_token::{Delegation, USE_RECORDING_INTERVAL_MILLIS};
-use crate::auth::limiter::RetryAfter;
+use crate::auth::api_token::{self, Delegation, USE_RECORDING_INTERVAL_MILLIS};
 use crate::auth::{now_millis, secret};
 use crate::error::AppError;
 
@@ -96,8 +95,11 @@ impl App {
     /// of an account in use. Its use is counted (`TokenLimits`) and,
     /// every few minutes, written down with the address it came from.
     ///
-    /// A token that stands for nobody is counted against `address` as a failed login
-    /// is, so that tokens are not guessed at faster than passwords.
+    /// A token that stands for nobody is counted against `address`, apart from the
+    /// attempts to sign in: an address that sent as many as it may this minute is
+    /// refused before its next token is looked up, so that tokens are not guessed at
+    /// faster than passwords. A request is answered 401 once, here or by the limit of
+    /// its body (`App::token_writes`), and counted once.
     ///
     /// # Errors
     ///
@@ -150,24 +152,28 @@ impl App {
     }
 
     /// The token stored under the digest of `token` that opens anything at `now`. One
-    /// that stands for nobody is counted against `address`.
+    /// that stands for nobody is counted against `address`, and one that is of no
+    /// token's form is not looked up.
     async fn live_token(
         &self,
         token: &str,
         address: Option<IpAddr>,
         now: i64,
     ) -> Result<LiveApiToken, AppError> {
-        let found = self
-            .store()
-            .live_api_token(&secret::token_digest(token), now)
-            .await
-            .map_err(|error| AppError::from(error).context("looking up the token"))?;
+        let limits = self.authenticator().token_limits();
+        limits.admit_address(address, Instant::now())?;
+        let found = if api_token::is_well_formed(token) {
+            self.store()
+                .live_api_token(&secret::token_digest(token), now)
+                .await
+                .map_err(|error| AppError::from(error).context("looking up the token"))?
+        } else {
+            None
+        };
         if let Some(live) = found {
             return Ok(live);
         }
-        self.login_limiter()
-            .admit_from_address(address, Instant::now())
-            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
+        limits.count_guess(address, Instant::now());
         Err(AppError::unauthorized("invalid personal API token"))
     }
 }
@@ -194,6 +200,8 @@ mod tests {
                 allow_personal_space: own_space == OwnSpace::Given,
                 notify_self: true,
                 origin_provider_id: origin.map(str::to_owned),
+                created_at: 0,
+                expires_at: 1,
             }),
         }
     }

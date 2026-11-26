@@ -15,11 +15,43 @@ const T0: i64 = 1_800_000_000_000;
 /// When the tokens of the tests end.
 const ENDS: i64 = T0 + 90 * 24 * 60 * 60 * 1000;
 
+/// A session of `user_id` from [`T0`] to [`ENDS`], stored: its identifier.
+async fn session_of(store: &Store, user_id: &str) -> String {
+    let session = Session {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        created_at: T0,
+        last_used_at: T0,
+        expires_at: ENDS,
+        ..Session::default()
+    };
+    assert!(
+        store
+            .create_session(&session, &new_id(), "")
+            .await
+            .expect("the session is stored")
+    );
+    session.id
+}
+
 /// Stores a write token of `user_id` under `digest` that reaches `workspaces` of the
-/// handle's organization.
+/// handle's organization, made by a new session of theirs.
 async fn issue(
     store: &Store,
     user_id: &str,
+    digest: &str,
+    workspaces: &[&str],
+    origin: Option<TokenOrigin<'_>>,
+) -> Issuance {
+    let session_id = session_of(store, user_id).await;
+    issue_by(store, user_id, &session_id, digest, workspaces, origin).await
+}
+
+/// As [`issue`], made by the session `session_id`.
+async fn issue_by(
+    store: &Store,
+    user_id: &str,
+    session_id: &str,
     digest: &str,
     workspaces: &[&str],
     origin: Option<TokenOrigin<'_>>,
@@ -40,6 +72,7 @@ async fn issue(
         .issue_api_token(&TokenToIssue {
             id: &id,
             user_id,
+            session_id,
             name: "agent",
             token_prefix: "fvoci_pat_abcdef",
             token_digest: digest,
@@ -59,7 +92,7 @@ async fn issue(
 async fn issued(store: &Store, user_id: &str, digest: &str, workspaces: &[&str]) -> String {
     match issue(store, user_id, digest, workspaces, None).await {
         Issuance::Issued(token) => token.id,
-        refused @ Issuance::NoLongerWorksIn(_) => panic!("{refused:?}"),
+        refused => panic!("{refused:?}"),
     }
 }
 
@@ -369,6 +402,7 @@ async fn a_token_made_through_a_provider_ends_with_an_identity_unlinked() {
 async fn an_administrator_sees_and_takes_back_the_tokens_of_their_organization() {
     let test = common::setup().await;
     let store = &test.store;
+    let admin = org_admin(&test, "admin").await;
     let alice = common::user(store, "alice").await;
     let workspace = common::workspace_of(store, &[&alice]).await;
     let token_id = issued(store, &alice, "digest", &[&workspace]).await;
@@ -398,7 +432,7 @@ async fn an_administrator_sees_and_takes_back_the_tokens_of_their_organization()
         );
         assert!(
             !elsewhere
-                .revoke_api_token_of_organization(&token_id, T0 + 2)
+                .revoke_api_token_of_organization(&admin, &token_id, T0 + 2)
                 .await
                 .expect("asked"),
             "nor takes one back"
@@ -407,11 +441,138 @@ async fn an_administrator_sees_and_takes_back_the_tokens_of_their_organization()
     }
     assert!(
         store
-            .revoke_api_token_of_organization(&token_id, T0 + 2)
+            .revoke_api_token_of_organization(&admin, &token_id, T0 + 2)
             .await
             .expect("taken back")
     );
-    assert!(!is_live(store, "digest").await);
+    assert!(
+        !is_live(store, "digest").await,
+        "reaching nothing else, it is taken back"
+    );
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn an_administrator_takes_a_token_out_of_their_organization_alone() {
+    // An SQLite database holds one organization.
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let store = &test.store;
+    let admin = org_admin(&test, "admin").await;
+    let alice = common::user(store, "alice").await;
+    let here = common::workspace_of(store, &[&alice]).await;
+    let system = test.system();
+    let (elsewhere, _) = common::organization(&system, "elsewhere").await;
+    let elsewhere = system.for_org(&elsewhere).expect("an identifier");
+    let there = common::workspace_of(&elsewhere, &[&alice]).await;
+    let token_id = issued(store, &alice, "digest", &[&here]).await;
+    // The same token is given a workspace of the other organization as well.
+    let org_there = elsewhere.tenant().org_id().expect("an organization");
+    elsewhere
+        .execute_unchecked(&format!(
+            "INSERT INTO api_token_workspaces (org_id, token_id, workspace_id) \
+             VALUES ('{org_there}', '{token_id}', '{there}')"
+        ))
+        .await
+        .expect("the token reaches the other workspace");
+
+    assert!(
+        store
+            .revoke_api_token_of_organization(&admin, &token_id, T0 + 2)
+            .await
+            .expect("taken out")
+    );
+    assert!(!reaches(store, &token_id, &here).await, "out of this one");
+    assert!(
+        reaches(&elsewhere, &token_id, &there).await,
+        "the other organization's stays"
+    );
+    assert!(is_live(store, "digest").await, "and the token with it");
+    assert!(
+        store
+            .api_tokens_of_organization(T0 + 3)
+            .await
+            .expect("listed")
+            .is_empty(),
+        "the administrator lists it no more"
+    );
+    assert!(
+        !store
+            .revoke_api_token_of_organization(&admin, &token_id, T0 + 3)
+            .await
+            .expect("asked"),
+        "nor takes it out again"
+    );
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn a_token_is_made_by_a_session_in_use_and_an_account_holds_so_many() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+    let workspace = common::workspace_of(store, &[&alice]).await;
+    let session_id = session_of(store, &alice).await;
+    let ended = session_of(store, &alice).await;
+    store
+        .execute_unchecked(&format!("DELETE FROM sessions WHERE id = '{ended}'"))
+        .await
+        .expect("the session ends");
+    assert_eq!(
+        issue_by(store, &alice, &ended, "digest-ended", &[&workspace], None).await,
+        Issuance::SessionEnded,
+        "a session that ended makes no token"
+    );
+    assert!(!is_live(store, "digest-ended").await);
+
+    let mut first = None;
+    for made in 0..fvoci_model::API_TOKEN_MAX_LIVE {
+        let digest = format!("digest-{made}");
+        let Issuance::Issued(token) =
+            issue_by(store, &alice, &session_id, &digest, &[&workspace], None).await
+        else {
+            panic!("token {made} is made");
+        };
+        first.get_or_insert(token.id);
+    }
+    assert_eq!(
+        issue_by(
+            store,
+            &alice,
+            &session_id,
+            "digest-more",
+            &[&workspace],
+            None
+        )
+        .await,
+        Issuance::TooMany
+    );
+    let first = first.expect("a token was made");
+    assert!(
+        store
+            .revoke_api_token(&alice, &first, T0 + 1)
+            .await
+            .expect("taken back")
+    );
+    assert!(
+        matches!(
+            issue_by(
+                store,
+                &alice,
+                &session_id,
+                "digest-more",
+                &[&workspace],
+                None
+            )
+            .await,
+            Issuance::Issued(_)
+        ),
+        "one taken back makes room"
+    );
 
     test.teardown().await;
 }

@@ -102,6 +102,7 @@ mod workspaces;
 pub use access::{ContainerAccess, DeletedContainerAccess, as_managed};
 pub use audience::{Audience, Former, UnsaidByLink};
 pub use blocks::ChangeNotification;
+pub use body_markdown::{MarkdownReader, body_of_markdown};
 pub use caller::{Caller, CallerAuth};
 pub use card_filters::{CardsFilter, CardsOrder, CardsUnder};
 pub use cards::CardPreviews;

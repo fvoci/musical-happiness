@@ -105,7 +105,8 @@ struct Added<'a> {
 
 impl Collab {
     /// [`Collab::append`] on a held slot: the nodes added and written to the card, and
-    /// for an agent the versions around them kept.
+    /// for an agent the versions around them kept. Once the nodes are added, what fails
+    /// after is logged, not answered: they are added.
     async fn append_held(
         &self,
         app: &App,
@@ -121,15 +122,25 @@ impl Collab {
             .append_in(app, card_id, slot, by.user_id, by.sender, nodes)
             .await;
         if appended.is_ok() {
-            match by.agent {
+            let written = match by.agent {
                 Some(agent) => {
                     self.keep_agent_version(app, card_id, slot, by.user_id, agent)
-                        .await?;
+                        .await
                 }
                 None => {
                     self.write_pending(app, card_id, slot, whole::DueVersion::Keep)
-                        .await?;
+                        .await
                 }
+            };
+            // The nodes are in the document and its log by now: the room is sent them
+            // and the caller told they were added. The card is written from the log as
+            // a document is, and the agent's version kept with the next one.
+            if let Err(error) = written {
+                tracing::warn!(
+                    %error,
+                    card_id,
+                    "nodes added to a body were not written to its card yet"
+                );
             }
         }
         Ok(appended)

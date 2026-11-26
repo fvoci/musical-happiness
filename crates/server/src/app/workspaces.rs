@@ -12,8 +12,10 @@ use std::time::Instant;
 
 use fvoci_store::{Making, PublicContainers, SessionTaken, Tenant, WorkspaceAccess};
 
+use super::api_tokens::SSO_TOKEN_MAX_DAYS;
 use super::{App, Asker, as_managed, sso};
 use crate::auth::api_token::{self, Delegation};
+use crate::auth::now_millis;
 use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 
@@ -203,7 +205,9 @@ impl App {
     ///
     /// Returns 403 with the reason `api_tokens_disallowed` for a workspace it names of
     /// an organization that takes only sessions made through its provider and gives
-    /// its workspaces to no token, and the store's error.
+    /// its workspaces to no token; 401 with the reason `token_expired_for_organization`
+    /// in such an organization for a token made more than `SSO_TOKEN_MAX_DAYS` before;
+    /// and the store's error.
     async fn delegation_reaches(
         &self,
         delegation: &Delegation,
@@ -221,15 +225,20 @@ impl App {
             .store()
             .api_token_reach(&delegation.token_id, workspace_id)
             .await?;
-        match reach {
-            None => Ok(false),
-            Some(reach)
-                if matches!(access.takes, SessionTaken::Through(_)) && !reach.allow_api_tokens =>
-            {
-                Err(api_token::disallowed_by_organization())
+        let Some(reach) = reach else {
+            return Ok(false);
+        };
+        if matches!(access.takes, SessionTaken::Through(_)) {
+            if !reach.allow_api_tokens {
+                return Err(api_token::disallowed_by_organization());
             }
-            Some(_) => Ok(true),
+            // The token was made to last longer before the organization took only such
+            // sessions, or reached none of its workspaces then.
+            if delegation.ends_within(SSO_TOKEN_MAX_DAYS) <= now_millis() {
+                return Err(api_token::past_its_days_there());
+            }
         }
+        Ok(true)
     }
 
     /// Refuses to give a token a workspace of `access`'s organization where it takes

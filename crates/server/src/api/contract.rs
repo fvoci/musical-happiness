@@ -389,6 +389,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         "ApiToken",
         Members::AllBut(&["lastUsedAt", "lastUsedAddress"]),
     ),
+    ("MemberApiToken", Members::AllBut(&["lastUsedAt"])),
     ("ApiTokenScope", Members::AsWritten),
     ("ApiTokenWorkspace", Members::All),
     ("IssuedApiToken", Members::All),

@@ -57,36 +57,55 @@ CREATE POLICY org_wall ON api_token_workspaces USING (
 -- them whatever this says.
 ALTER TABLE organizations ADD COLUMN allow_api_tokens BOOLEAN NOT NULL DEFAULT FALSE;
 
--- The token a record of the audit log was done through, if any.
-ALTER TABLE audit_log ADD COLUMN actor_token_id UUID;
+-- The audit log records the switch above, and an administrator taking a member's token
+-- out of the organization.
+ALTER TABLE audit_log DROP CONSTRAINT audit_log_action_check;
+ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check CHECK (action IN (
+    'self_added_to_container', 'added_to_container',
+    'org_admin_joined', 'org_admin_left', 'org_admin_revoked',
+    'org_admin_granted', 'org_admin_removed', 'org_member_removed',
+    'workspace_created', 'workspace_renamed', 'workspace_deleted', 'workspace_restored',
+    'public_links_disabled', 'public_links_enabled',
+    'container_copied_out', 'copy_out_disabled', 'copy_out_enabled',
+    'api_tokens_enabled', 'api_tokens_disabled', 'api_token_revoked',
+    'oidc_provider_configured', 'oidc_provider_removed', 'sso_required', 'sso_released',
+    'oidc_provider_pending_saved', 'oidc_provider_pending_applied',
+    'oidc_provider_pending_discarded', 'password_reset_link_made',
+    'password_set_by_operator',
+    'oidc_former_provider_kept', 'oidc_former_provider_ended',
+    'oidc_former_provider_lapsed', 'oidc_identity_bound', 'oidc_identity_carried_over',
+    'email_verified_by_operator'));
 
-CREATE OR REPLACE FUNCTION audit_log_is_kept() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-    IF TG_OP = 'DELETE' AND (
-           NOT EXISTS (SELECT 1 FROM organizations WHERE id = OLD.org_id)
-           OR (OLD.workspace_id IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM workspaces WHERE id = OLD.workspace_id))) THEN
-        RETURN OLD;
-    END IF;
-    IF TG_OP = 'UPDATE'
-       AND NEW.identity IS NULL
-       AND (NEW.id, NEW.org_id, NEW.workspace_id, NEW.actor_id, NEW.actor_kind, NEW.action,
-            NEW.target_id, NEW.subject_id, NEW.created_at, NEW.detail, NEW.actor_token_id)
-           IS NOT DISTINCT FROM
-           (OLD.id, OLD.org_id, OLD.workspace_id, OLD.actor_id, OLD.actor_kind, OLD.action,
-            OLD.target_id, OLD.subject_id, OLD.created_at, OLD.detail, OLD.actor_token_id)
-       AND EXISTS (SELECT 1 FROM users
-                   WHERE id IN (OLD.actor_id, OLD.subject_id) AND erase_started_at > 0) THEN
-        RETURN NEW;
-    END IF;
-    RAISE EXCEPTION 'a record of the audit log is not changed or removed'
-        USING ERRCODE = 'restrict_violation';
-END $$;
+ALTER TABLE audit_log DROP CONSTRAINT audit_log_place_check;
+ALTER TABLE audit_log ADD CONSTRAINT audit_log_place_check CHECK (
+    workspace_id IS NOT NULL OR action IN (
+        'org_admin_granted', 'org_admin_removed', 'org_member_removed',
+        'workspace_created', 'workspace_renamed', 'workspace_deleted', 'workspace_restored',
+        'public_links_disabled', 'public_links_enabled',
+        'container_copied_out', 'copy_out_disabled', 'copy_out_enabled',
+        'api_tokens_enabled', 'api_tokens_disabled', 'api_token_revoked',
+        'oidc_provider_configured', 'oidc_provider_removed', 'sso_required', 'sso_released',
+        'oidc_provider_pending_saved', 'oidc_provider_pending_applied',
+        'oidc_provider_pending_discarded', 'password_reset_link_made',
+        'password_set_by_operator',
+        'oidc_former_provider_kept', 'oidc_former_provider_ended',
+        'oidc_former_provider_lapsed', 'oidc_identity_bound',
+        'oidc_identity_carried_over', 'email_verified_by_operator'));
 
 -- The token an update of a document was sent through, if any: what it typed is the
 -- agent's, told and versioned as such when the body is written later.
 ALTER TABLE body_updates ADD COLUMN actor_token_id UUID;
+
+-- The agent that wrote in a body last since its newest version was kept, by its token
+-- and the token's name then: the next version kept of what its editors typed is that
+-- agent's, as the one kept as soon as it wrote would have been.
+ALTER TABLE body_docs ADD COLUMN agent_token_id UUID;
+ALTER TABLE body_docs ADD COLUMN agent_token_name TEXT;
+
+-- The name of the token through which an agent did what a row tells, where one did:
+-- it is told as the agent's doing, and to the token's owner as well where they asked.
+ALTER TABLE notification_outbox ADD COLUMN actor_token_name TEXT;
+ALTER TABLE notifications ADD COLUMN actor_token_name TEXT;
 
 -- A version kept just before an agent first wrote a body ('agent'), and the token, by
 -- its name then, of a version an agent's writing made.

@@ -30,7 +30,9 @@ use super::body_versions::{
 };
 use super::{ApiResult, TRUE, created, json_response};
 use super::{decode_with_document, require_container_permission, require_permission_through};
-use crate::app::{App, CardPreviews, CardsFilter, CardsOrder, CardsUnder};
+use crate::app::{
+    App, CardPreviews, CardsFilter, CardsOrder, CardsUnder, MarkdownReader, body_of_markdown,
+};
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
@@ -257,10 +259,7 @@ async fn handle_create_card(
     card.body = match card.body_markdown.take() {
         Some(markdown) => {
             refuse_both_bodies(&document)?;
-            ws.app
-                .body_of_markdown(&board_id, None, &markdown)
-                .await?
-                .into_body()
+            body_of_markdown(None, &markdown)?.into_body()
         }
         None => document.into_body(),
     };
@@ -411,10 +410,7 @@ async fn handle_patch_card(
     let body_at = body_member(patch.body_markdown.as_ref());
     if let Some(markdown) = patch.body_markdown.take() {
         refuse_both_bodies(&patch.body)?;
-        patch.body = ws
-            .app
-            .body_of_markdown(&card.container_id, card.body.as_ref(), &markdown)
-            .await?;
+        patch.body = body_of_markdown(card.body.as_ref(), &markdown)?;
     }
     // Everything of the request's shape that is refused, before the store is asked.
     patch.check_request()?;
@@ -460,7 +456,12 @@ async fn handle_get_card(
     .await?;
     let mut card = ws.app.card_of_block(&block).await?;
     if query.format == BodyFormatValue::Markdown {
-        ws.app.put_card_in_markdown(&mut card).await?;
+        let reader = MarkdownReader {
+            user_id,
+            workspace_id: &ws.workspace_id,
+            role: ws.role,
+        };
+        ws.app.put_card_in_markdown(reader, &mut card).await?;
     }
     tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
     Ok(json_response(&card))

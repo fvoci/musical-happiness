@@ -275,3 +275,24 @@ fn a_mention_is_written_by_the_name_it_is_shown_by() {
         .expect("a body");
     assert_eq!(read.document(), body.document(), "{}", written.markdown);
 }
+
+#[test]
+fn a_mention_of_whom_the_reader_does_not_see_is_written_by_no_name() {
+    let body = doc(&json!([paragraph(&[
+        text("ask "),
+        json!({"type": "mention", "attrs": {"userId": PERSON}}),
+        text(" and "),
+        json!({"type": "mention", "attrs": {"userId": CARD}}),
+    ])]));
+    // The names hold only whom the reader sees: here, no one (and `CARD` is nobody).
+    let written = body_to_markdown(body.document(), &Names::default());
+    assert_eq!(
+        written.markdown,
+        format!("ask @[](fvoci-user://{PERSON}) and @[](fvoci-user://{CARD})")
+    );
+    assert!(written.complex.is_empty(), "{:?}", written.complex);
+    let read = markdown_body(&written.markdown, "markdown")
+        .expect("read")
+        .expect("a body");
+    assert_eq!(read.document(), body.document(), "{}", written.markdown);
+}

@@ -216,11 +216,20 @@ pub enum AuditAction {
     CopyOutDisabled,
     /// Copying containers out of the organization was enabled.
     CopyOutEnabled,
+    /// The organization, which takes only sessions made through its provider, began
+    /// giving its workspaces to personal API tokens (`allowApiTokens`).
+    ApiTokensEnabled,
+    /// The organization stopped giving its workspaces to personal API tokens.
+    ApiTokensDisabled,
+    /// An administrator took a personal API token of a member (the subject) out of the
+    /// organization (the target): it reaches none of its workspaces any more. `detail`
+    /// is the characters the token is shown by.
+    ApiTokenRevoked,
 }
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 32] = [
+    pub const ALL: [Self; 35] = [
         Self::SelfAddedToContainer,
         Self::AddedToContainer,
         Self::OrgAdminJoined,
@@ -253,6 +262,9 @@ impl AuditAction {
         Self::ContainerCopiedOut,
         Self::CopyOutDisabled,
         Self::CopyOutEnabled,
+        Self::ApiTokensEnabled,
+        Self::ApiTokensDisabled,
+        Self::ApiTokenRevoked,
     ];
 
     /// The wire and database form.
@@ -291,6 +303,9 @@ impl AuditAction {
             Self::ContainerCopiedOut => "container_copied_out",
             Self::CopyOutDisabled => "copy_out_disabled",
             Self::CopyOutEnabled => "copy_out_enabled",
+            Self::ApiTokensEnabled => "api_tokens_enabled",
+            Self::ApiTokensDisabled => "api_tokens_disabled",
+            Self::ApiTokenRevoked => "api_token_revoked",
         }
     }
 }

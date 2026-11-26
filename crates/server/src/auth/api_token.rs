@@ -11,12 +11,14 @@
 //! token, and of the tokens that reach one organization together.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use fvoci_model::{API_TOKEN_PREFIX, API_TOKEN_SHOWN_CHARS, ApiTokenScope};
 use fvoci_store::LiveApiToken;
 
+use super::limiter::AddressKey;
 use super::secret;
 use crate::error::{AppError, Reason};
 
@@ -31,8 +33,12 @@ pub const ORGANIZATION_TOKEN_REQUESTS_PER_MINUTE: u32 = 5 * TOKEN_REQUESTS_PER_M
 const WINDOW: Duration = Duration::from_secs(60);
 
 /// How many windows are kept at most; past that, those that ended are forgotten, and
-/// while none has, a new one is not kept (its requests go uncounted for that minute).
+/// while none has, a request that would need a new one is refused (429) until one has.
 const MAX_WINDOWS: usize = 100_000;
+
+/// How seldom the windows that ended are looked for while there are as many as are
+/// kept: the look goes over all of them.
+const SWEEP_INTERVAL: Duration = Duration::from_secs(1);
 
 /// How seldom a token's use is written down: its list tells when it was last used to
 /// within this much.
@@ -81,6 +87,18 @@ pub fn is_api_token(credential: &str) -> bool {
     credential.starts_with(API_TOKEN_PREFIX)
 }
 
+/// Whether a personal API token is of the form every token made is
+/// ([`make_token`]): one that is not stands for nobody, and is not looked up.
+#[must_use]
+pub fn is_well_formed(token: &str) -> bool {
+    token.strip_prefix(API_TOKEN_PREFIX).is_some_and(|secret| {
+        secret.len() == secret::SECRET_LENGTH
+            && secret
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    })
+}
+
 /// The refusal of a personal API token where a session is looked up: a route that is
 /// not open to tokens. A 403, so that a route that serves whoever has no session does
 /// not take the token for nobody's.
@@ -95,6 +113,20 @@ pub fn refused_as_session() -> AppError {
 pub fn reads_only() -> AppError {
     AppError::forbidden("the personal API token reads only")
         .with_reason(Reason::TokenScopeInsufficient)
+}
+
+/// A day in milliseconds.
+pub(crate) const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
+
+/// The refusal of a token older than an organization that takes only sessions made
+/// through its provider lets one be ([`Delegation::ends_within`]): its owner makes
+/// another.
+#[must_use]
+pub fn past_its_days_there() -> AppError {
+    AppError::unauthorized(
+        "the personal API token is older than the organization lets one be: make another",
+    )
+    .with_reason(Reason::TokenExpiredForOrganization)
 }
 
 /// The refusal of a token, or of its making, in a workspace of an organization that
@@ -121,6 +153,21 @@ pub struct Delegation {
     pub notify_self: bool,
     /// The provider of the session that made it, if it was made through one.
     pub origin_provider_id: Option<String>,
+    /// When it was made, in milliseconds since the Unix epoch.
+    pub created_at: i64,
+    /// When it ends, in milliseconds since the Unix epoch.
+    pub expires_at: i64,
+}
+
+impl Delegation {
+    /// When the token ends in an organization that takes only sessions made through its
+    /// provider: `days` after it was made at the latest, as such a session would, also
+    /// for a token made to last longer before the organization began to take only those.
+    #[must_use]
+    pub fn ends_within(&self, days: u32) -> i64 {
+        let most = i64::from(days).saturating_mul(DAY_MILLIS);
+        self.expires_at.min(self.created_at.saturating_add(most))
+    }
 }
 
 impl From<LiveApiToken> for Delegation {
@@ -132,6 +179,8 @@ impl From<LiveApiToken> for Delegation {
             allow_personal_space: token.allow_personal_space,
             notify_self: token.notify_self,
             origin_provider_id: token.origin_provider_id,
+            created_at: token.created_at,
+            expires_at: token.expires_at,
         }
     }
 }
@@ -141,6 +190,8 @@ impl From<LiveApiToken> for Delegation {
 enum Counted {
     Token(String),
     Organization(String),
+    /// The tokens that stood for nobody, by the address they came from.
+    Guesses(AddressKey),
 }
 
 /// The requests of one key in the current window.
@@ -150,13 +201,69 @@ struct Window {
     requests: u32,
 }
 
-/// The counts of the requests of tokens, by token and by organization.
+/// The windows of the counts, and when those that ended were last looked for.
+#[derive(Debug, Default)]
+struct Windows {
+    windows: HashMap<Counted, Window>,
+    swept: Option<Instant>,
+}
+
+/// The counts of the requests of tokens, by token and by organization, and of the
+/// tokens that stood for nobody, by address.
+///
+/// The tokens that stand for nobody are counted apart from the attempts to sign in
+/// (`LoginLimiter`): a client that sends a token that ended does not keep the people
+/// of its address from signing in, nor do they keep it from being told so.
 #[derive(Debug, Default)]
 pub struct TokenLimits {
-    windows: Mutex<HashMap<Counted, Window>>,
+    windows: Mutex<Windows>,
+    /// How many tokens that stand for nobody an address sends in a minute at most;
+    /// `None` for no count by address (`login_address_attempts_per_minute` 0).
+    guesses_per_minute: Option<u32>,
 }
 
 impl TokenLimits {
+    /// Counts that let an address send `guesses_per_minute` tokens that stand for
+    /// nobody in a minute; `None` for no count by address.
+    #[must_use]
+    pub fn new(guesses_per_minute: Option<u32>) -> Self {
+        Self {
+            windows: Mutex::default(),
+            guesses_per_minute,
+        }
+    }
+
+    /// Refuses a token from `address` at `now` before it is looked up, if the address
+    /// sent as many tokens that stand for nobody as it may this minute.
+    ///
+    /// # Errors
+    ///
+    /// Returns 429 with how long to wait.
+    pub fn admit_address(&self, address: Option<IpAddr>, now: Instant) -> Result<(), AppError> {
+        let (Some(address), Some(limit)) = (address, self.guesses_per_minute) else {
+            return Ok(());
+        };
+        let windows = self.windows();
+        match windows
+            .windows
+            .get(&Counted::Guesses(AddressKey::from(address)))
+        {
+            Some(window) if window.holds(now) && window.requests >= limit => {
+                Err(window.refusal(now))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Counts a token from `address` at `now` that stands for nobody: once a request.
+    pub fn count_guess(&self, address: Option<IpAddr>, now: Instant) {
+        let (Some(address), Some(limit)) = (address, self.guesses_per_minute) else {
+            return;
+        };
+        // The request is answered 401 whatever this says; the next one is refused.
+        let _counted = self.admit(Counted::Guesses(AddressKey::from(address)), limit, now);
+    }
+
     /// Counts a request of the token at `now`.
     ///
     /// # Errors
@@ -185,37 +292,64 @@ impl TokenLimits {
         )
     }
 
-    fn admit(&self, key: Counted, limit: u32, now: Instant) -> Result<(), AppError> {
-        let mut windows = self
-            .windows
+    fn windows(&self) -> std::sync::MutexGuard<'_, Windows> {
+        self.windows
             .lock()
-            .expect("the windows are never held across a panic");
-        if windows.len() >= MAX_WINDOWS && !windows.contains_key(&key) {
-            windows.retain(|_, window| now.saturating_duration_since(window.started) < WINDOW);
-            if windows.len() >= MAX_WINDOWS {
-                return Ok(());
+            .expect("the windows are never held across a panic")
+    }
+
+    fn admit(&self, key: Counted, limit: u32, now: Instant) -> Result<(), AppError> {
+        let mut windows = self.windows();
+        if windows.windows.len() >= MAX_WINDOWS && !windows.windows.contains_key(&key) {
+            let due = windows
+                .swept
+                .is_none_or(|swept| now.saturating_duration_since(swept) >= SWEEP_INTERVAL);
+            if due {
+                windows.windows.retain(|_, window| window.holds(now));
+                windows.swept = Some(now);
+            }
+            if windows.windows.len() >= MAX_WINDOWS {
+                // What is not counted is not let through: the soonest a window ends.
+                return Err(AppError::quota_reached(
+                    "too many requests of personal API tokens; try again later",
+                    Reason::TokenRateLimited,
+                    SWEEP_INTERVAL,
+                ));
             }
         }
-        let window = windows.entry(key).or_insert(Window {
+        let window = windows.windows.entry(key).or_insert(Window {
             started: now,
             requests: 0,
         });
-        if now.saturating_duration_since(window.started) >= WINDOW {
+        if !window.holds(now) {
             *window = Window {
                 started: now,
                 requests: 0,
             };
         }
         if window.requests >= limit {
-            let wait = WINDOW.saturating_sub(now.saturating_duration_since(window.started));
-            return Err(AppError::quota_reached(
-                "too many requests of personal API tokens; try again later",
-                Reason::TokenRateLimited,
-                wait,
-            ));
+            return Err(window.refusal(now));
         }
         window.requests += 1;
         Ok(())
+    }
+}
+
+impl Window {
+    /// Whether the window still counts at `now`.
+    fn holds(self, now: Instant) -> bool {
+        now.saturating_duration_since(self.started) < WINDOW
+    }
+
+    /// The refusal of a request past the window's limit at `now`, with the wait until
+    /// the window ends.
+    fn refusal(self, now: Instant) -> AppError {
+        let wait = WINDOW.saturating_sub(now.saturating_duration_since(self.started));
+        AppError::quota_reached(
+            "too many requests of personal API tokens; try again later",
+            Reason::TokenRateLimited,
+            wait,
+        )
     }
 }
 
@@ -244,6 +378,66 @@ mod tests {
             "nor is it printed"
         );
         assert!(!is_api_token("a-session-token"));
+        assert!(is_well_formed(&made.token));
+        assert!(!is_well_formed(&made.token[..made.token.len() - 1]));
+        assert!(!is_well_formed(&format!(
+            "{}!",
+            &made.token[..made.token.len() - 1]
+        )));
+        assert!(!is_well_formed(&made.token[API_TOKEN_PREFIX.len()..]));
+    }
+
+    #[test]
+    fn an_address_is_held_to_its_tokens_that_stand_for_nobody() {
+        let limits = TokenLimits::new(Some(2));
+        let (now, address) = (Instant::now(), Some(IpAddr::from([192, 0, 2, 1])));
+        let other = Some(IpAddr::from([192, 0, 2, 2]));
+        for _ in 0..2 {
+            limits.admit_address(address, now).expect("admitted");
+            limits.count_guess(address, now);
+        }
+        let refused = limits.admit_address(address, now).expect_err("held");
+        assert_eq!(refused.reason(), Some(Reason::TokenRateLimited));
+        limits.admit_address(other, now).expect("another address");
+        limits
+            .admit_token("t", now)
+            .expect("a token's own count is apart");
+        limits
+            .admit_address(address, now + WINDOW)
+            .expect("the next minute");
+        let uncounted = TokenLimits::new(None);
+        for _ in 0..3 {
+            uncounted.count_guess(address, now);
+        }
+        uncounted
+            .admit_address(address, now)
+            .expect("not counted by address");
+    }
+
+    #[test]
+    fn a_count_that_has_no_room_is_refused() {
+        let limits = TokenLimits::default();
+        let now = Instant::now();
+        {
+            let mut windows = limits.windows();
+            for index in 0..MAX_WINDOWS {
+                windows.windows.insert(
+                    Counted::Token(index.to_string()),
+                    Window {
+                        started: now,
+                        requests: 1,
+                    },
+                );
+            }
+        }
+        let refused = limits.admit_token("new", now).expect_err("no room");
+        assert_eq!(refused.reason(), Some(Reason::TokenRateLimited));
+        limits
+            .admit_token("0", now)
+            .expect("a token counted already goes on");
+        limits
+            .admit_token("new", now + WINDOW)
+            .expect("once the windows end, there is room");
     }
 
     #[test]
