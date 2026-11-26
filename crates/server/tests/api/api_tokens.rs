@@ -221,10 +221,11 @@ async fn a_token_is_refused_by_what_is_the_accounts_the_peoples_and_the_administ
     for refused in &forbidden {
         check_refused(refused, StatusCode::FORBIDDEN, "token_forbidden_endpoint");
     }
-    // Nor does it follow anything: the websocket is a person's.
+    // Nor does it follow anything: the websocket is a person's, refused as any route
+    // of a person is.
     assert_eq!(
         writer.try_connect_websocket(&[]).await.err(),
-        Some(StatusCode::UNAUTHORIZED)
+        Some(StatusCode::FORBIDDEN)
     );
     // In the cookie it is no token: a page cannot send one by itself.
     let in_a_cookie = writer.as_browser();
@@ -424,6 +425,36 @@ async fn a_token_is_held_to_its_requests_a_minute_and_its_owner_is_not() {
     assert!((1..=60).contains(&wait), "{wait}");
     other.get(&boards).await.check_ok();
     ts.client.get(&boards).await.check_ok();
+
+    ts.teardown().await;
+}
+
+/// An upload of an archive is its opener's, as a person: their token, which opens
+/// their uploads of files, is refused on it, and the upload is left as it was.
+#[tokio::test]
+async fn a_token_is_refused_an_upload_of_an_archive() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let opened = ts
+        .client
+        .post(
+            &format!("/w/{TEST_WORKSPACE_ID}/archive/uploads"),
+            &json!({"name": "archive.fvoci", "size": 10}),
+        )
+        .await;
+    opened.check_created();
+    let upload = format!(
+        "/w/{TEST_WORKSPACE_ID}/uploads/{}",
+        opened.value()["uploadId"].as_str().expect("an upload")
+    );
+    let agent = agent_writing(&ts, &ts.client).await;
+    for refused in [
+        agent.get(&upload).await,
+        agent.post(&format!("{upload}/complete"), &json!({})).await,
+        agent.delete(&upload).await,
+    ] {
+        check_refused(&refused, StatusCode::FORBIDDEN, "token_forbidden_endpoint");
+    }
+    ts.client.get(&upload).await.check_ok();
 
     ts.teardown().await;
 }
