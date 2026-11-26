@@ -240,6 +240,7 @@ export type {
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export { OrganizationNames, organizationNames } from './organization-names.svelte.ts';
+export { copyOutPlace, keepsCopiesIn, noteCopyOut } from './copy-out.svelte.ts';
 export type {
   GuestContainerRole,
   Invitation,

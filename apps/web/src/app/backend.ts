@@ -174,6 +174,8 @@ async function startMemory(): Promise<StartedBackend> {
   world.shareRooms = 'fvoci:memory-rooms';
   // `?search=0` is a client configuration that says bodies are not searched: no search box.
   world.searchEnabled = new URLSearchParams(location.search).get('search') !== '0';
+  // `?copyOut=0` is an organization that lets nothing be copied out of it (`allowCopyOut` off).
+  world.allowCopyOut = new URLSearchParams(location.search).get('copyOut') !== '0';
   // `?held=<ms>` holds what the rooms send that long after a stroke of a syllable (World.heldIdle).
   const held = Number(new URLSearchParams(location.search).get('held') ?? '');
   if (Number.isFinite(held) && held > 0) world.heldIdle = held;

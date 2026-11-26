@@ -6,6 +6,7 @@
  */
 import type { ApiToken } from './api-tokens.ts';
 import { isBackendError, isSignedOut, ssoOrgOf } from './backend.ts';
+import { noteCopyOut } from './copy-out.svelte.ts';
 import type { OidcProvider, OidcSettings } from './oidc.ts';
 import type {
   AuditRecord,
@@ -107,6 +108,7 @@ export class OrgAdmin {
         this.#api.records(this.orgId),
       ]);
       this.organization = organization;
+      noteCopyOut(organization.id, organization.allowCopyOut);
       this.workspaces = workspaces;
       this.members = members;
       this.records = records;
