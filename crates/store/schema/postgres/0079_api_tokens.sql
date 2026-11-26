@@ -24,12 +24,18 @@ CREATE TABLE api_tokens (
     -- then: a change of the provider ends the token as it ends that session.
     origin_provider_id UUID,
     origin_provider_revision BIGINT,
+    -- The identity that session was made for, as it names it (its subject is NULL for
+    -- a session made before subjects were kept): unlinking the identity ends the token
+    -- as it ends the identity's sessions.
+    origin_issuer TEXT,
+    origin_subject TEXT,
     last_used_at BIGINT,
     last_used_address TEXT,
     created_at BIGINT NOT NULL,
     expires_at BIGINT NOT NULL CHECK (expires_at > created_at),
     revoked_at BIGINT,
-    CHECK ((origin_provider_id IS NULL) = (origin_provider_revision IS NULL))
+    CHECK ((origin_provider_id IS NULL) = (origin_provider_revision IS NULL)),
+    CHECK ((origin_provider_id IS NULL) = (origin_issuer IS NULL))
 );
 CREATE UNIQUE INDEX api_tokens_token_hash_key ON api_tokens (token_hash);
 CREATE INDEX api_tokens_user_id_idx ON api_tokens (user_id);

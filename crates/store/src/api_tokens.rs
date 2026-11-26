@@ -22,7 +22,7 @@ use crate::Store;
 use crate::audit::{self, AuditEntry};
 use crate::db::{Dialect, Id, LockRank, OptId, Row, Scope};
 use crate::error::StoreError;
-use crate::oidc::StoredProvider;
+use crate::oidc::{Identity, StoredProvider};
 
 /// The columns of a token as its list shows it, in the order [`listed_from_row`] reads.
 const LISTED_COLUMNS: &str = "t.id, t.user_id, t.name, t.token_prefix, t.scope, \
@@ -45,6 +45,11 @@ pub struct TokenOrigin<'a> {
     pub provider_id: &'a str,
     /// Its revision when the session was made.
     pub revision: i64,
+    /// The identity the session was made for: the provider's issuer then.
+    pub issuer: &'a str,
+    /// The subject of that identity; `None` for a session that kept none, which is of
+    /// every identity of its issuer.
+    pub subject: Option<&'a str>,
 }
 
 /// A token to be stored ([`Store::issue_api_token`]).
@@ -156,7 +161,8 @@ impl Store {
                 let mut sql = scope.sql(
                     "INSERT INTO api_tokens (id, user_id, name, token_prefix, token_hash, \
                      scope, allow_personal_space, notify_self, origin_provider_id, \
-                     origin_provider_revision, created_at, expires_at) VALUES (",
+                     origin_provider_revision, origin_issuer, origin_subject, created_at, \
+                     expires_at) VALUES (",
                 );
                 sql.bind(Id(token.id))
                     .push_bind(", ", Id(token.user_id))
@@ -170,6 +176,19 @@ impl Store {
                     .push_bind(
                         ", ",
                         crate::db::Param::OptInt(token.origin.map(|origin| origin.revision)),
+                    )
+                    .push_bind(
+                        ", ",
+                        crate::db::Param::OptText(token.origin.map(|origin| origin.issuer.to_owned())),
+                    )
+                    .push_bind(
+                        ", ",
+                        crate::db::Param::OptText(
+                            token
+                                .origin
+                                .and_then(|origin| origin.subject)
+                                .map(str::to_owned),
+                        ),
                     )
                     .push_bind(", ", token.created_at)
                     .push_bind(", ", token.expires_at)
@@ -521,16 +540,24 @@ pub(crate) async fn revoke_of_user(scope: &mut Scope<'_>, user_id: &str) -> Resu
     Ok(())
 }
 
-/// Takes back the tokens of an account that were made by a session made through a
-/// provider: with the sessions of an identity it unlinks.
-pub(crate) async fn revoke_of_user_through_providers(
+/// Takes back the tokens of an account that were made by a session made for
+/// `identity`, as its sessions are ended (`sessions::end_sessions_of_identity`): those
+/// of the identity's issuer whose session kept no subject too. A token made through
+/// another identity, or with the password, stays.
+pub(crate) async fn revoke_of_identity(
     scope: &mut Scope<'_>,
     user_id: &str,
+    identity: Identity<'_>,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE api_tokens SET revoked_at = ");
     sql.bind(scope.now_millis())
         .push_bind(" WHERE user_id = ", Id(user_id))
-        .push(" AND origin_provider_id IS NOT NULL AND revoked_at IS NULL");
+        .push_bind(" AND origin_issuer = ", identity.issuer)
+        .push_bind(
+            " AND (origin_subject IS NULL OR origin_subject = ",
+            identity.subject,
+        )
+        .push(") AND revoked_at IS NULL");
     scope.execute(sql).await?;
     Ok(())
 }

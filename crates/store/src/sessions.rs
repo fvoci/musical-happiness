@@ -447,7 +447,7 @@ pub(crate) async fn end_sessions_of_identity(
         )
         .push(")");
     scope.execute(sql).await?;
-    api_tokens::revoke_of_user_through_providers(scope, user_id).await?;
+    api_tokens::revoke_of_identity(scope, user_id, identity).await?;
     Ok(SessionsEnded::new(EndedSessionScope::Identity {
         user_id: user_id.to_owned(),
         issuer: identity.issuer.to_owned(),

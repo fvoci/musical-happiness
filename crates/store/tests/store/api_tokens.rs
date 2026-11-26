@@ -348,15 +348,22 @@ async fn a_token_made_through_a_provider_ends_with_an_identity_unlinked() {
     let alice = common::user(store, "alice").await;
     let workspace = common::workspace_of(store, &[&alice]).await;
     let provider_id = new_id();
-    let through = TokenOrigin {
+    let through = |issuer| TokenOrigin {
         provider_id: &provider_id,
         revision: 3,
+        issuer,
+        subject: Some("alice"),
     };
-    let Issuance::Issued(_) =
-        issue(store, &alice, "digest-sso", &[&workspace], Some(through)).await
-    else {
-        panic!("the token is stored");
-    };
+    for (digest, issuer) in [
+        ("digest-sso", "https://two.example.com"),
+        ("digest-other", "https://one.example.com"),
+    ] {
+        let Issuance::Issued(_) =
+            issue(store, &alice, digest, &[&workspace], Some(through(issuer))).await
+        else {
+            panic!("the token is stored");
+        };
+    }
     issued(store, &alice, "digest-plain", &[&workspace]).await;
     let live = store
         .live_api_token("digest-sso", T0 + 1)
@@ -391,9 +398,16 @@ async fn a_token_made_through_a_provider_ends_with_an_identity_unlinked() {
     assert!(matches!(outcome, Unlinked::Removed(_)), "{outcome:?}");
     assert!(
         !is_live(store, "digest-sso").await,
-        "made through the provider"
+        "made through the identity unlinked"
     );
-    assert!(is_live(store, "digest-plain").await, "made otherwise");
+    assert!(
+        is_live(store, "digest-other").await,
+        "made through another identity"
+    );
+    assert!(
+        is_live(store, "digest-plain").await,
+        "made with the password"
+    );
 
     test.teardown().await;
 }

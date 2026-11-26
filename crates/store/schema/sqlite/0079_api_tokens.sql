@@ -11,12 +11,15 @@ CREATE TABLE api_tokens (
     notify_self BOOLEAN NOT NULL DEFAULT TRUE,
     origin_provider_id TEXT,
     origin_provider_revision BIGINT,
+    origin_issuer TEXT,
+    origin_subject TEXT,
     last_used_at BIGINT,
     last_used_address TEXT,
     created_at BIGINT NOT NULL,
     expires_at BIGINT NOT NULL CHECK (expires_at > created_at),
     revoked_at BIGINT,
-    CHECK ((origin_provider_id IS NULL) = (origin_provider_revision IS NULL))
+    CHECK ((origin_provider_id IS NULL) = (origin_provider_revision IS NULL)),
+    CHECK ((origin_provider_id IS NULL) = (origin_issuer IS NULL))
 );
 CREATE UNIQUE INDEX api_tokens_token_hash_key ON api_tokens (token_hash);
 CREATE INDEX api_tokens_user_id_idx ON api_tokens (user_id);

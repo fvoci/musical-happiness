@@ -117,6 +117,8 @@ impl App {
         let origin = session.login.as_ref().map(|login| TokenOrigin {
             provider_id: &login.provider_id,
             revision: login.revision.unwrap_or(0),
+            issuer: &login.issuer,
+            subject: login.subject.as_deref(),
         });
         let issuance = self
             .store()
