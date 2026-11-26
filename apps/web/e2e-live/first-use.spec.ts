@@ -54,7 +54,7 @@ test('a registration that is refused says what is wrong beside each field, and m
   await page.goto('/');
   await page.getByRole('button', { name: 'New here? Create an account' }).click();
   const form = page.getByTestId('register-form');
-  const organization = form.getByLabel(/^team name$/i);
+  const organization = form.getByTestId('register-organization-name');
   const name = form.getByLabel(/^user name$/i);
   const email = form.getByLabel(/email/i);
   const password = form.getByLabel(/^password$/i);
@@ -83,9 +83,7 @@ test('a registration that is refused says what is wrong beside each field, and m
   await email.fill(ADMIN.email);
   await password.fill(ADMIN.password);
   await submit.click();
-  await expect(form.getByTestId('problem-organizationName')).toHaveText(
-    'A team name can be up to 64 characters.',
-  );
+  await expect(form.getByTestId('problem-organizationName')).toHaveText(/up to 64 characters\./);
   await expect(form.getByRole('alert')).toHaveCount(1);
   // Nothing was made: the server still takes its first account.
   await page.reload();
@@ -116,7 +114,7 @@ test('somebody starts an organization, and a second person comes in by its link 
   await page.goto('/');
   await page.getByRole('button', { name: 'New here? Create an account' }).click();
   const form = page.getByTestId('register-form');
-  await form.getByLabel(/^team name$/i).fill(ORG_NAME);
+  await form.getByTestId('register-organization-name').fill(ORG_NAME);
   await form.getByLabel(/^user name$/i).fill(ADMIN.username);
   await form.getByLabel(/email/i).fill(ADMIN.email);
   await form.getByLabel(/^password$/i).fill(ADMIN.password);

@@ -11,7 +11,7 @@
     "names": "node tools/names/check.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "check": "pnpm run i18n && openapi-typescript ../../contracts/openapi.json -o src/lib/api/contract.ts --check && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && eslint . && prettier --check . && node tools/licenses/check.ts && node tools/names/check.ts && node tools/i18n/check-keys.ts && node tools/lint/check-lengths.ts && node tools/lint/check-autofixer.ts && node tools/lint/check-viewport.ts && node tools/lint/check-dialogs.ts",
+    "check": "pnpm run i18n && openapi-typescript ../../contracts/openapi.json -o src/lib/api/contract.ts --check && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && eslint . && prettier --check . && node tools/licenses/check.ts && node tools/names/check.ts && node tools/i18n/check-keys.ts && node tools/lint/check-lengths.ts && node tools/lint/check-autofixer.ts && node tools/lint/check-viewport.ts && node tools/lint/check-colors.ts && node tools/lint/check-dialogs.ts",
     "test": "pnpm run i18n && node tools/test-zones.ts",
     "build": "pnpm run i18n && node tools/fonts/build.ts && vite build",
     "preview": "node tools/preview.ts",

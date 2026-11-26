@@ -122,7 +122,7 @@ test('an account made on its own starts in its own space and starts organization
   await page.getByRole('button', { name: 'New here? Create an account' }).click();
   const form = page.getByTestId('register-form');
   await expect(form.getByTestId('register-solo')).toBeChecked();
-  await expect(form.getByLabel(/^team name$/i)).toHaveCount(0);
+  await expect(form.getByTestId('register-organization-name')).toHaveCount(0);
   await form.getByLabel(/^user name$/i).fill(owner.username);
   await form.getByLabel(/email/i).fill(owner.email);
   await form.getByLabel(/^password$/i).fill(owner.password);

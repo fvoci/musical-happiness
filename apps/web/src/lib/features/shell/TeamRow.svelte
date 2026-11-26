@@ -62,7 +62,7 @@
           >
             <input
               class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
-              aria-label={m.teams_new_name({ name: team.name })}
+              aria-label={m.groups_new_name({ name: team.name })}
               aria-invalid={nameProblem !== undefined || undefined}
               aria-describedby={nameProblem}
               bind:value={name}
@@ -70,7 +70,7 @@
               disabled={working}
             />
             <Button size="sm" type="submit" disabled={working || !name.trim()}
-              >{m.teams_save()}</Button
+              >{m.groups_save()}</Button
             >
             <Button
               size="sm"
@@ -90,16 +90,16 @@
               onclick={() => {
                 name = team.name;
                 renaming = true;
-              }}>{m.teams_rename()}</Button
+              }}>{m.groups_rename()}</Button
             >
             <Button size="sm" variant="ghost" disabled={working} onclick={onDelete}
-              >{m.teams_delete()}</Button
+              >{m.groups_delete()}</Button
             >
           </div>
         {/if}
       {/if}
       {#if team.members.length === 0}<p class="text-sm text-muted-foreground">
-          {m.teams_no_members()}
+          {m.groups_no_members()}
         </p>{/if}
       <ul class="grid gap-1">
         {#each team.members as member (member.userId)}
@@ -110,7 +110,7 @@
                 size="sm"
                 variant="ghost"
                 disabled={working}
-                aria-label={m.teams_remove_member({ name: userDisplayName(member) })}
+                aria-label={m.groups_remove_member({ name: userDisplayName(member) })}
                 onclick={() => void onRemove(member.userId)}>{m.people_remove()}</Button
               >
             {/if}
@@ -118,7 +118,7 @@
         {/each}
       </ul>
       {#if managing && restrictedSelf}
-        <p class="text-sm text-muted-foreground">{m.teams_self_joining()}</p>
+        <p class="text-sm text-muted-foreground">{m.groups_self_joining()}</p>
       {/if}
       {#if managing && candidates.length > 0}
         <form
@@ -133,11 +133,11 @@
         >
           <select
             class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
-            aria-label={m.teams_choose_member()}
+            aria-label={m.groups_choose_member()}
             bind:value={selected}
             disabled={working}
           >
-            <option value="">{m.teams_choose_member()}</option>
+            <option value="">{m.groups_choose_member()}</option>
             {#each candidates as person (person.userId)}
               <option value={person.userId} disabled={person.userId === restrictedSelf}
                 >{userDisplayName(person)}</option
@@ -148,7 +148,7 @@
             size="sm"
             type="submit"
             disabled={working || !selected || selected === restrictedSelf}
-            >{m.teams_add_member()}</Button
+            >{m.groups_add_member()}</Button
           >
         </form>
       {/if}

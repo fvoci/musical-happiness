@@ -49,7 +49,7 @@
         <Dialog.Description
           >{administers(workspace)
             ? m.people_description({ workspace: workspaceName })
-            : m.teams_description({ workspace: workspaceName })}</Dialog.Description
+            : m.groups_description({ workspace: workspaceName })}</Dialog.Description
         >
       </div>
       <Dialog.Close>

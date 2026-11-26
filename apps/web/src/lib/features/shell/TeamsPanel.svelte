@@ -75,18 +75,18 @@
 
   /** The one line that says why a step was refused, by the reason the server gives. */
   function told(error: unknown): string {
-    if (!isBackendError(error)) return m.teams_failed();
-    if (error.reason === 'team_self_joining') return m.teams_self_joining();
-    if (error.reason === 'team_name_taken') return m.teams_name_taken();
+    if (!isBackendError(error)) return m.groups_failed();
+    if (error.reason === 'team_self_joining') return m.groups_self_joining();
+    if (error.reason === 'team_name_taken') return m.groups_name_taken();
     switch (error.refusalAt('/name')?.reason) {
       case 'required':
-        return m.teams_name_required();
+        return m.groups_name_required();
       case 'too_long':
-        return m.teams_name_too_long();
+        return m.groups_name_too_long();
       case 'invalid_characters':
-        return m.teams_name_invalid_characters();
+        return m.groups_name_invalid_characters();
       default:
-        return m.teams_failed();
+        return m.groups_failed();
     }
   }
 
@@ -129,11 +129,13 @@
 
 <section class="grid gap-3" aria-labelledby="{id}-title" data-testid="teams-panel">
   <div>
-    <h3 id="{id}-title" class="font-medium">{m.teams_title()}</h3>
-    <p class="text-sm text-muted-foreground">{m.teams_description({ workspace: workspaceName })}</p>
+    <h3 id="{id}-title" class="font-medium">{m.groups_title()}</h3>
+    <p class="text-sm text-muted-foreground">
+      {m.groups_description({ workspace: workspaceName })}
+    </p>
   </div>
   {#if problem || unread}<p id={problemId} role="alert" class="text-sm text-destructive">
-      {problem || m.teams_load_failed()}
+      {problem || m.groups_load_failed()}
     </p>{/if}
   {#if managing}
     <form
@@ -149,8 +151,8 @@
     >
       <input
         class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
-        aria-label={m.teams_name()}
-        placeholder={m.teams_name()}
+        aria-label={m.groups_name()}
+        placeholder={m.groups_name()}
         aria-invalid={refusedName === CREATING || undefined}
         aria-describedby={refusedName === CREATING ? problemId : undefined}
         bind:value={name}
@@ -159,11 +161,12 @@
         }}
         disabled={working}
       />
-      <Button type="submit" size="sm" disabled={working || !name.trim()}>{m.teams_create()}</Button>
+      <Button type="submit" size="sm" disabled={working || !name.trim()}>{m.groups_create()}</Button
+      >
     </form>
   {/if}
   {#if loaded && groups.length === 0}<p class="text-sm text-muted-foreground">
-      {m.teams_empty()}
+      {m.groups_empty()}
     </p>{/if}
   <ul class="grid gap-2">
     {#each groups as team (team.id)}
@@ -191,9 +194,9 @@
 
 <ConfirmDialog
   bind:open={askOpen}
-  title={m.teams_delete_title({ name: deleting?.name ?? '' })}
-  description={m.teams_delete_description()}
-  confirmLabel={m.teams_delete()}
+  title={m.groups_delete_title({ name: deleting?.name ?? '' })}
+  description={m.groups_delete_description()}
+  confirmLabel={m.groups_delete()}
   destructive
   onConfirm={() => {
     if (deleting) {

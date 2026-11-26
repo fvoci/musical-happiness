@@ -34,8 +34,8 @@ test('an administrator creates a team, changes its name and people, and deletes 
   await page.getByTestId('open-people').click();
   const panel = page.getByTestId('teams-panel');
   const name = uniqueName('Design');
-  await panel.getByRole('textbox', { name: 'Team name' }).fill(name);
-  await panel.getByRole('button', { name: 'Create team' }).click();
+  await panel.getByRole('textbox', { name: 'Group name' }).fill(name);
+  await panel.getByRole('button', { name: 'Create group' }).click();
   let row = panel.locator(`[data-team="${name}"]`);
   await row.locator('summary').click();
   await row.getByLabel('Choose a person').selectOption(member.id);
@@ -60,14 +60,14 @@ test('an administrator creates a team, changes its name and people, and deletes 
   await expect(readOnly.getByRole('button')).toHaveCount(0);
   await other.close();
   // A refused name stays typed, with the reason in one line.
-  const box = panel.getByRole('textbox', { name: 'Team name' });
+  const box = panel.getByRole('textbox', { name: 'Group name' });
   for (const [typed, told] of [
     [name.toUpperCase(), /Letter case does not make names different/],
     ['x'.repeat(65), /up to 64 characters/],
     ['a\u202eb', /change the direction of text/],
   ] as const) {
     await box.fill(typed);
-    await panel.getByRole('button', { name: 'Create team' }).click();
+    await panel.getByRole('button', { name: 'Create group' }).click();
     await expect(panel.getByRole('alert')).toHaveText(told);
     await expect(box).toHaveValue(typed);
   }
@@ -78,10 +78,10 @@ test('an administrator creates a team, changes its name and people, and deletes 
   await row.getByRole('button', { name: 'Save name' }).click();
   row = panel.locator(`[data-team="${renamed}"]`);
   await expect(row).toBeVisible();
-  await row.getByRole('button', { name: `Remove ${colleague.username} from team` }).click();
+  await row.getByRole('button', { name: `Remove ${colleague.username} from group` }).click();
   await expect(row.locator(`[data-team-member="${member.id}"]`)).toHaveCount(0);
-  await row.getByRole('button', { name: 'Delete team' }).click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete team' }).click();
+  await row.getByRole('button', { name: 'Delete group' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete group' }).click();
   await expect(row).toHaveCount(0);
   expect(errors).toEqual([]);
   await theirs.dispose();
@@ -108,8 +108,8 @@ test('a team editor opens and edits a board, then loses it when removed from the
   await page.getByTestId('open-people').click();
   const panel = page.getByTestId('teams-panel');
   const name = uniqueName('Editors');
-  await panel.getByRole('textbox', { name: 'Team name' }).fill(name);
-  await panel.getByRole('button', { name: 'Create team' }).click();
+  await panel.getByRole('textbox', { name: 'Group name' }).fill(name);
+  await panel.getByRole('button', { name: 'Create group' }).click();
   const row = panel.locator(`[data-team="${name}"]`);
   await row.locator('summary').click();
   await row.getByLabel('Choose a person').selectOption(member.id);
@@ -124,8 +124,8 @@ test('a team editor opens and edits a board, then loses it when removed from the
   await page.goto(boardPath(board, board.viewId));
   await page.getByTestId('share-board').click();
   const groups = page.getByTestId('board-teams');
-  await groups.getByLabel('Choose a team').selectOption({ label: name });
-  await groups.getByRole('button', { name: 'Add a team' }).click();
+  await groups.getByLabel('Choose a group').selectOption({ label: name });
+  await groups.getByRole('button', { name: 'Add a group' }).click();
   const assigned = groups.locator(`[data-board-team="${name}"]`);
   await expect(assigned).toBeVisible();
   await assigned.locator('summary').click();
@@ -162,7 +162,7 @@ test('a team editor opens and edits a board, then loses it when removed from the
   await page.keyboard.press('Escape');
   await page.getByTestId('open-people').click();
   await row.locator('summary').click();
-  await row.getByRole('button', { name: `Remove ${colleague.username} from team` }).click();
+  await row.getByRole('button', { name: `Remove ${colleague.username} from group` }).click();
   await expect(row.locator(`[data-team-member="${member.id}"]`)).toHaveCount(0);
   await expect(boardLink(editor, title)).toHaveCount(0);
   await expect

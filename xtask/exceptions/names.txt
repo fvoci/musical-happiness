@@ -103,8 +103,6 @@ apps/web/src/lib/features/shell/PeopleDialog.svelte | team
 apps/web/src/lib/features/shell/PeoplePanel.svelte | team
 apps/web/src/lib/features/shell/Sidebar.svelte | teams
 apps/web/src/lib/api/contract.ts | team
-apps/web/messages/en.json | teams_
-apps/web/messages/ko.json | teams_
 apps/web/e2e-live/teams.spec.ts
 crates/store/tests/store/users.rs | Taken::TeamName
 crates/store/tests/store/tenancy_tables.rs | a_team_on_board

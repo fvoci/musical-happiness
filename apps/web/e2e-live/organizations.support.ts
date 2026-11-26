@@ -61,7 +61,7 @@ export async function startOrganization(page: Page, owner: Person): Promise<void
   // After the server's first account, one starts on its own unless it chooses otherwise.
   await expect(form.getByTestId('register-solo')).toBeChecked();
   await form.getByTestId('register-together').check();
-  await form.getByLabel(/^team name$/i).fill('Second organization');
+  await form.getByTestId('register-organization-name').fill('Second organization');
   await form.getByLabel(/^user name$/i).fill(owner.username);
   await form.getByLabel(/email/i).fill(owner.email);
   await form.getByLabel(/^password$/i).fill(owner.password);

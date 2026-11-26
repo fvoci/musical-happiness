@@ -77,9 +77,9 @@ it.each(REFUSALS)(
     const people = makePeople();
     const workspace = makeWorkspace();
     render(TeamsPanel, { workspace, people, teams });
-    const input = await screen.findByRole('textbox', { name: 'Team name' });
+    const input = await screen.findByRole('textbox', { name: 'Group name' });
     await fireEvent.input(input, { target: { value: 'DESIGN' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Create team' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(told);
     expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(input).toHaveValue('DESIGN');
@@ -108,7 +108,7 @@ it('says why a new name of a team is refused, and keeps the rename box with what
   expect(box).toHaveValue('RESEARCH');
   expect(box).toHaveAttribute('aria-invalid', 'true');
   expect(box).toHaveAccessibleDescription(/already exists here/);
-  expect(screen.getByRole('textbox', { name: 'Team name' })).not.toHaveAttribute('aria-invalid');
+  expect(screen.getByRole('textbox', { name: 'Group name' })).not.toHaveAttribute('aria-invalid');
   await fireEvent.input(box, { target: { value: 'Research' } });
   expect(box).not.toHaveAttribute('aria-invalid');
   expect(box).not.toHaveAccessibleDescription(/already exists here/);

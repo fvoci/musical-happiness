@@ -3,7 +3,7 @@
 //! A workspace once had the name [`FORMER`]; it is a workspace everywhere now, and
 //! that name will be a group of people's. It is refused in any case, in
 //! plurals and compounds, in every file git tracks or would track but the web app's,
-//! which its own check holds to a list of its own. What stays is listed in
+//! which its own check holds to the entries of this list under `apps/web/`. What stays is listed in
 //! [`EXCEPTIONS`], each under the reason it stays; an entry that nothing needs any more
 //! fails the step until it is removed.
 

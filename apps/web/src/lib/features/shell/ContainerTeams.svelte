@@ -94,7 +94,7 @@
         if (error.status === 401) workspace.report('save', error);
         else if (error.status === 403 || error.status === 404) workspace.evictWorkspace(place);
       }
-      problem = m.teams_failed();
+      problem = m.groups_failed();
       return false;
     } finally {
       await read(place, shareable.containerId);
@@ -106,10 +106,10 @@
 <!-- A reader who changes nothing is not shown an empty list of teams. -->
 {#if !readOnly || assigned.length > 0 || unread}
   <section class="grid grid-cols-1 gap-2" aria-labelledby="{id}-title" data-testid="board-teams">
-    <h3 id="{id}-title" class="font-medium">{m.teams_title()}</h3>
-    <p class="text-sm text-muted-foreground">{m.teams_board_description()}</p>
+    <h3 id="{id}-title" class="font-medium">{m.groups_title()}</h3>
+    <p class="text-sm text-muted-foreground">{m.groups_board_description()}</p>
     {#if problem || unread}<p role="alert" class="text-sm text-destructive">
-        {problem || m.teams_load_failed()}
+        {problem || m.groups_load_failed()}
       </p>{/if}
     <ul class="grid grid-cols-1 gap-1">
       {#each assigned as item (item.team.id)}
@@ -192,11 +192,11 @@
       >
         <select
           class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
-          aria-label={m.teams_board_choose()}
+          aria-label={m.groups_board_choose()}
           bind:value={selected}
           disabled={busy}
         >
-          <option value="">{m.teams_board_choose()}</option>
+          <option value="">{m.groups_board_choose()}</option>
           {#each candidates as team (team.id)}<option value={team.id}>{team.name}</option>{/each}
         </select>
         <select
@@ -215,7 +215,7 @@
           disabled={busy || !selected}
         >
           <UserPlusIcon aria-hidden="true" />
-          {m.teams_board_add()}
+          {m.groups_board_add()}
         </Button>
       </form>
     {/if}

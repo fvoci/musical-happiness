@@ -1,7 +1,7 @@
 /**
  * Fails when a file of the web app has the former name of the workspace where
- * `exceptions.txt` does not let it stay (`workspace.ts`), or that list has an
- * entry nothing needs.
+ * the repository's list does not let it stay (`workspace.ts`), or an entry of
+ * that list under `apps/web/` is one nothing needs.
  *
  *   node tools/names/check.ts
  *
@@ -94,16 +94,12 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const shared = path.resolve(WEB_ROOT, '../../xtask/exceptions/names.txt');
-const sharedExceptions = existsSync(shared)
-  ? parseExceptions(readFileSync(shared, 'utf8'))
+const listed = path.resolve(WEB_ROOT, '../..', EXCEPTIONS);
+const exceptions = existsSync(listed)
+  ? parseExceptions(readFileSync(listed, 'utf8'))
       .filter((entry) => entry.pattern.startsWith('apps/web/'))
       .map((entry) => ({ ...entry, pattern: entry.pattern.slice('apps/web/'.length) }))
   : [];
-const exceptions = [
-  ...parseExceptions(readFileSync(path.join(WEB_ROOT, EXCEPTIONS), 'utf8')),
-  ...sharedExceptions,
-];
 const used = exceptions.map(() => false);
 const workspaceHits: string[] = [];
 for (const file of files) {
@@ -113,7 +109,7 @@ for (const file of files) {
   } catch {
     // Not there to read: its name is still checked.
   }
-  if (file !== EXCEPTIONS) workspaceHits.push(...checkFile(file, text, exceptions, used));
+  workspaceHits.push(...checkFile(file, text, exceptions, used));
 }
 const stale = staleExceptions(exceptions, used);
 
