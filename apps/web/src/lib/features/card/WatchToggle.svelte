@@ -2,11 +2,15 @@
   "지켜보기" at the head of a card or a page: pressed, the reader is told when
   someone comments on it or changes it (`BlockWatch`). Whoever wrote it or
   commented on it watches it already, and may stop. Not shown where nothing
-  is watched (the own space, a public link) or until it is known.
+  is watched (the own space, a public link) or until it is known. What is
+  watched is read once for the workspace, not for each card or page; the
+  reading follows the block alone, not the reader's account as it is read
+  again (a connection that comes back reads the reader anew).
 -->
 <script lang="ts">
   import BellIcon from '@lucide/svelte/icons/bell';
   import BellOffIcon from '@lucide/svelte/icons/bell-off';
+  import { untrack } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -24,10 +28,7 @@
 
   $effect(() => {
     const shown = watch;
-    void shown.read();
-    return () => {
-      shown.close();
-    };
+    untrack(() => void shown.read());
   });
 </script>
 
