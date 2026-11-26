@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { screensDir } from '../e2e/screens.ts';
+import { unfold } from '../e2e/shell.support.ts';
 import {
   ADMIN,
   boardPath,
@@ -134,6 +135,7 @@ test('emails a guest invitation from the share dialog', async ({ page, baseURL }
   await signInOnPage(page, owner);
   await page.getByTestId('share-board').click();
   const share = page.getByTestId('share-dialog');
+  await unfold(share.getByTestId('share-guest-toggle'));
   await share.getByTestId('share-guest-make').click();
   const link = await share.getByTestId('share-guest-link').inputValue();
   const recipient = person('mail-guest').email;
