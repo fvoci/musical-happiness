@@ -9,7 +9,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createBoardView, type Container } from '$lib/logic/wire.ts';
 import type { Category } from '$lib/state/category-types.ts';
-import { openToJoinOf, readerOf, WikiStore, type SidebarReader } from '$lib/state/index.ts';
+import {
+  noteMembership,
+  openToJoinOf,
+  readerOf,
+  WikiStore,
+  type SidebarReader,
+} from '$lib/state/index.ts';
 import { sidebarOf } from '$lib/state/order.ts';
 
 import { setup, text } from './support.ts';
@@ -87,6 +93,34 @@ describe('the open ones the reader may join', () => {
       entry.containers.map((one) => one.id),
     );
     expect(listed).toEqual(['grouped']);
+  });
+
+  it('is told a membership noted after it was worked out, with nothing else changed', async () => {
+    const made = setup();
+    const reader = made.workspace;
+    await reader.load();
+    const readerId = (await made.backend.me()).id;
+    const { board } = await made.other.createBoard(
+      made.world.workspace.id,
+      { title: 'Of the group', visibility: 'open' },
+      { title: 'Board', fields: createBoardView().fields },
+    );
+    reader.receiveContainer(board);
+    const listed = () => reader.sidebar.flatMap((entry) => entry.containers.map((one) => one.id));
+    // Worked out before anything was known of the reader's memberships.
+    expect(listed()).not.toContain(board.id);
+    noteMembership(reader, board.id, [
+      {
+        containerId: board.id,
+        userId: readerId,
+        role: 'editor',
+        synthetic: true,
+        inheritedRole: 'editor',
+      },
+    ]);
+    expect(listed()).toContain(board.id);
+    noteMembership(reader, board.id, []);
+    expect(listed()).not.toContain(board.id);
   });
 
   it('leave out an open board the reader has a role on by a group, once it is opened', async () => {
