@@ -1,7 +1,7 @@
 //! Lifecycle cleanup of `unit_reviews` and `unit_notes` on permanent purge,
 //! workspace removal, org-admin unjoining, and organization departure.
 
-use crate::course_cleanup::{self, PersonalCourseTable};
+use crate::course_cleanup::{self, PersonalCourseTable, UnitCourseTable};
 use crate::db::Scope;
 use crate::error::StoreError;
 
@@ -11,10 +11,12 @@ const TABLES: [PersonalCourseTable; 2] = [
     PersonalCourseTable::UnitNotes,
 ];
 
+const UNIT_TABLES: [UnitCourseTable; 2] = [UnitCourseTable::Reviews, UnitCourseTable::Notes];
+
 /// Forgets personal review and note rows of units that are gone for good: neither live in
 /// `blocks` nor awaiting restore in `deleted_blocks` of the row's organization.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    for table in TABLES {
+    for table in UNIT_TABLES {
         course_cleanup::forget_gone_unit_rows(scope, table).await?;
     }
     Ok(())

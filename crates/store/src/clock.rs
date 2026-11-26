@@ -1,9 +1,11 @@
-//! Process-wide monotonic wall clock shared by [`crate::Store`] and the server.
+//! Monotonic wall clock shared across a [`crate::Store`] and its [`crate::db::Scope`]s.
 //!
 //! [`Clock::now_millis`] clamps wall-clock reads against the highest timestamp previously
 //! observed on this [`Clock`] instance so backward NTP adjustments never produce decreasing
-//! millisecond timestamps. Tests may install a deterministic source via
-//! [`Clock::set_source`].
+//! millisecond timestamps. A forward wall-clock jump raises the floor and holds that value
+//! until the clock catches up or the process restarts; optimistic-concurrency writes bump
+//! ties via `now.max(existing.updated_at + 1)`. Tests may install a deterministic source
+//! via [`Clock::set_source`].
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};

@@ -686,6 +686,21 @@ async fn date_properties_hold_date_values() {
         .await
         .created_json();
 
+    assert_refused_date_cases(&th.client, &cards, &card.id).await;
+    let stored: Card = th
+        .client
+        .get(&format!("{TEST_WS}/cards/{}", card.id))
+        .await
+        .ok_json();
+    assert_eq!(
+        stored.properties, card.properties,
+        "the refused patches changed nothing"
+    );
+
+    th.teardown().await;
+}
+
+async fn assert_refused_date_cases(client: &Client, cards_path: &str, card_id: &str) {
     for (what, properties) in [
         ("a date as text", json!({"due": "{\"from\":1772679600000}"})),
         ("no calendar day", json!({"due": {"from": "2026-02-30"}})),
@@ -707,22 +722,25 @@ async fn date_properties_hold_date_values() {
         ),
     ] {
         check_refused(
-            &th.client
-                .post(&cards, &json!({"title": "Card", "properties": properties}))
+            &client
+                .post(
+                    cards_path,
+                    &json!({"title": "Card", "properties": properties}),
+                )
                 .await,
             what,
         );
         check_refused(
-            &th.client
+            &client
                 .patch(
-                    &format!("{TEST_WS}/cards/{}", card.id),
+                    &format!("{TEST_WS}/cards/{card_id}"),
                     &json!({"updatedProperties": properties}),
                 )
                 .await,
             what,
         );
         check_refused(
-            &th.client
+            &client
                 .post(
                     &format!("{TEST_WS}/containers-and-blocks"),
                     &json!({
@@ -742,17 +760,6 @@ async fn date_properties_hold_date_values() {
             what,
         );
     }
-    let stored: Card = th
-        .client
-        .get(&format!("{TEST_WS}/cards/{}", card.id))
-        .await
-        .ok_json();
-    assert_eq!(
-        stored.properties, card.properties,
-        "the refused patches changed nothing"
-    );
-
-    th.teardown().await;
 }
 
 /// A change of the board's definitions leaves the cards' values as they are: a card

@@ -120,7 +120,7 @@ async fn seed_pre0078_board_and_cards(
     let scoped = pre.for_org(org_id).expect("org handle");
     let card_props = json!([
         {"id": "p_owner", "name": "Owner", "type": "person", "options": []},
-        {"id": "p_team", "name": "Watchers", "type": "multiPerson", "options": []},
+        {"id": "p_watchers", "name": "Watchers", "type": "multiPerson", "options": []},
         {"id": "p_due", "name": "Due", "type": "date", "options": []}
     ])
     .to_string()
@@ -136,7 +136,7 @@ async fn seed_pre0078_board_and_cards(
     let ts_millis: i64 = 1_795_737_600_000;
     let ts_fields = json!({
         "properties": {
-            "p_team": [alice, bob],
+            "p_watchers": [alice, bob],
             "p_due": {"from": ts_millis}
         }
     })
@@ -358,11 +358,33 @@ async fn board_ops_views_card_moves_done_when_and_gantt_cycle_rejection() {
         .await
         .expect("c2");
 
-    // c2 depends on c1 -> valid.
-    let mut props_2 = fvoci_model::JsonMap::new();
-    props_2.insert(dep_id.clone(), json!([{"card": c1.id}]));
-    test.patch_block(
+    assert_cycle(&test, &c1.id, &c2.id, &dep_id, &alice).await;
+    verify_card_moves_and_batch_ops(
+        &test,
+        board_id,
+        &view_write.view.id,
+        &c1.id,
         &c2.id,
+        status_id,
+        done_id,
+        &alice,
+    )
+    .await;
+
+    test.teardown().await;
+}
+
+async fn assert_cycle(
+    test: &common::TestStore,
+    c1_id: &str,
+    c2_id: &str,
+    dep_id: &str,
+    alice: &str,
+) {
+    let mut props_2 = fvoci_model::JsonMap::new();
+    props_2.insert(dep_id.to_owned(), json!([{"card": c1_id}]));
+    test.patch_block(
+        c2_id,
         &BlockPatch {
             property_changes: PropertyChanges {
                 updated: props_2,
@@ -370,17 +392,16 @@ async fn board_ops_views_card_moves_done_when_and_gantt_cycle_rejection() {
             },
             ..BlockPatch::default()
         },
-        &alice,
+        alice,
     )
     .await
     .expect("c2 -> c1 allowed");
 
-    // c1 depends on c2 -> cycle in active Gantt dependency property -> rejected!
     let mut props_1 = fvoci_model::JsonMap::new();
-    props_1.insert(dep_id.clone(), json!([{"card": c2.id}]));
+    props_1.insert(dep_id.to_owned(), json!([{"card": c2_id}]));
     let cycle_err = test
         .patch_block(
-            &c1.id,
+            c1_id,
             &BlockPatch {
                 property_changes: PropertyChanges {
                     updated: props_1,
@@ -388,7 +409,7 @@ async fn board_ops_views_card_moves_done_when_and_gantt_cycle_rejection() {
                 },
                 ..BlockPatch::default()
             },
-            &alice,
+            alice,
         )
         .await
         .expect_err("cycle rejected");
@@ -405,39 +426,52 @@ async fn board_ops_views_card_moves_done_when_and_gantt_cycle_rejection() {
         ),
         "expected RelationProblem::Cycle, got {cycle_err:?}"
     );
+}
 
-    // Move c2 before c1 while setting status = Done.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "test helper groups board, view, card, and status identifiers"
+)]
+async fn verify_card_moves_and_batch_ops(
+    test: &common::TestStore,
+    board_id: &str,
+    view_id: &str,
+    c1_id: &str,
+    c2_id: &str,
+    status_id: String,
+    done_id: String,
+    alice: &str,
+) {
     let (moved_view, moved_cards) = test
         .move_cards_in_view(
             board_id,
-            &view_write.view.id,
+            view_id,
             &CardMovesRequest {
-                card_ids: vec![c2.id.clone()],
+                card_ids: vec![c2_id.to_owned()],
                 group_property_id: Some(status_id),
                 group_value: Some(json!(done_id)),
                 after_card_id: Some(String::new()),
             },
-            &alice,
+            alice,
         )
         .await
         .expect("card-moves");
-    assert_eq!(moved_cards.len(), 1);
+    assert_eq!(moved_cards.len(), 1, "one card updated");
     assert_eq!(
         moved_view.fields.get("cardOrder"),
-        Some(&json!([c2.id, c1.id]))
+        Some(&json!([c2_id, c1_id])),
+        "view cardOrder updated"
     );
 
-    // Batch delete and batch restore.
+    let ids = [c1_id.to_owned(), c2_id.to_owned()];
     let deleted = test
-        .batch_delete_cards(board_id, &[c1.id.clone(), c2.id.clone()], &alice)
+        .batch_delete_cards(board_id, &ids, alice)
         .await
         .expect("batch delete");
-    assert_eq!(deleted.len(), 2);
+    assert_eq!(deleted.len(), 2, "two cards deleted");
     let restored = test
-        .batch_restore_cards(board_id, &[c1.id.clone(), c2.id.clone()], &alice)
+        .batch_restore_cards(board_id, &ids, alice)
         .await
         .expect("batch restore");
-    assert_eq!(restored.len(), 2);
-
-    test.teardown().await;
+    assert_eq!(restored.len(), 2, "two cards restored");
 }

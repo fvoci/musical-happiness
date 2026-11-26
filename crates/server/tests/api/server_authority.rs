@@ -108,7 +108,11 @@ async fn atomic_card_duplicate_rolls_back_when_file_copy_fails() {
             &json!({}),
         )
         .await;
-    assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        failed.status,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "storage copy failure aborts duplicateCard with 500"
+    );
 
     let cards_after: Vec<Value> = ts
         .client
@@ -121,9 +125,19 @@ async fn atomic_card_duplicate_rolls_back_when_file_copy_fails() {
         "no partial duplicate card committed"
     );
 
+    assert_zero_cloned_refs_to_original(&ts, &board.id, card_id, &orig_file_id).await;
+    ts.teardown().await;
+}
+
+async fn assert_zero_cloned_refs_to_original(
+    ts: &TestServer,
+    board_id: &str,
+    card_id: &str,
+    orig_file_id: &str,
+) {
     let all_blocks: Vec<Value> = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/blocks?all=true", board.id))
+        .get(&format!("{TEST_WS}/boards/{board_id}/blocks?all=true"))
         .await
         .ok_json();
     let refs_to_orig: Vec<&Value> = all_blocks
@@ -131,14 +145,13 @@ async fn atomic_card_duplicate_rolls_back_when_file_copy_fails() {
         .filter(|b| {
             let id = b["id"].as_str().unwrap_or_default();
             let parent = b["parentId"].as_str().unwrap_or_default();
-            id != card_id && parent != card_id && b.to_string().contains(orig_file_id.as_str())
+            id != card_id && parent != card_id && b.to_string().contains(orig_file_id)
         })
         .collect();
     assert!(
         refs_to_orig.is_empty(),
         "0 cloned blocks may reference original fileId: {refs_to_orig:?}"
     );
-    ts.teardown().await;
 }
 
 /// 2) Mandatory regression test: `Container` JSON never embeds `myPermissions`, and two
@@ -187,15 +200,7 @@ async fn caller_scoped_my_permissions_never_bleed_across_websocket_broadcasts() 
     );
 
     let perms_path = format!("{TEST_WS}/containers/{}/my-permissions", board.id);
-    let admin_p: Value = ts.client.get(&perms_path).await.ok_json();
-    let viewer_p: Value = ts.client2.get(&perms_path).await.ok_json();
-    let unjoined_p: Value = unjoined_client.get(&perms_path).await.ok_json();
-    assert_eq!(admin_p["canEdit"], json!(true));
-    assert_eq!(admin_p["canManageRoles"], json!(true));
-    assert_eq!(viewer_p["canEdit"], json!(false));
-    assert_eq!(viewer_p["canComment"], json!(false));
-    assert_eq!(unjoined_p["canEdit"], json!(false));
-    assert_eq!(unjoined_p["canComment"], json!(false));
+    assert_initial_permissions(&ts, &unjoined_client, &perms_path).await;
 
     // Admin patches board title -> broadcasts containerChanged to all three sockets.
     ts.client
@@ -216,8 +221,16 @@ async fn caller_scoped_my_permissions_never_bleed_across_websocket_broadcasts() 
     }
     let viewer_after: Value = ts.client2.get(&perms_path).await.ok_json();
     let unjoined_after: Value = unjoined_client.get(&perms_path).await.ok_json();
-    assert_eq!(viewer_after["canEdit"], json!(false));
-    assert_eq!(unjoined_after["canEdit"], json!(false));
+    assert_eq!(
+        viewer_after["canEdit"],
+        json!(false),
+        "viewer stays read-only"
+    );
+    assert_eq!(
+        unjoined_after["canEdit"],
+        json!(false),
+        "unjoined stays read-only"
+    );
 
     // Promote viewer to editor -> containerMemberChanged + updated my-permissions.
     ts.client
@@ -231,9 +244,56 @@ async fn caller_scoped_my_permissions_never_bleed_across_websocket_broadcasts() 
         .expect("containerMemberChanged", "/member/userId", &viewer_id)
         .await;
     let promoted: Value = ts.client2.get(&perms_path).await.ok_json();
-    assert_eq!(promoted["canEdit"], json!(true));
+    assert_eq!(promoted["canEdit"], json!(true), "promoted editor can edit");
 
-    // Workspace admin promotes unjoined member to workspace admin -> workspaceRoleChanged!
+    verify_workspace_role_promotion_updates_permissions(
+        &ts,
+        &admin_id,
+        &unjoined_id,
+        &unjoined_client,
+        &mut unjoined_ws,
+        &perms_path,
+    )
+    .await;
+    ts.teardown().await;
+}
+
+async fn assert_initial_permissions(
+    ts: &TestServer,
+    unjoined_client: &crate::common::Client,
+    perms_path: &str,
+) {
+    let admin_p: Value = ts.client.get(perms_path).await.ok_json();
+    let viewer_p: Value = ts.client2.get(perms_path).await.ok_json();
+    let unjoined_p: Value = unjoined_client.get(perms_path).await.ok_json();
+    assert_eq!(admin_p["canEdit"], json!(true), "admin can edit");
+    assert_eq!(
+        admin_p["canManageRoles"],
+        json!(true),
+        "admin manages roles"
+    );
+    assert_eq!(viewer_p["canEdit"], json!(false), "viewer cannot edit");
+    assert_eq!(
+        viewer_p["canComment"],
+        json!(false),
+        "viewer cannot comment"
+    );
+    assert_eq!(unjoined_p["canEdit"], json!(false), "unjoined cannot edit");
+    assert_eq!(
+        unjoined_p["canComment"],
+        json!(false),
+        "unjoined cannot comment"
+    );
+}
+
+async fn verify_workspace_role_promotion_updates_permissions(
+    ts: &TestServer,
+    admin_id: &str,
+    unjoined_id: &str,
+    unjoined_client: &crate::common::Client,
+    unjoined_ws: &mut WorkspaceSocket,
+    perms_path: &str,
+) {
     ts.app
         .store()
         .execute_unchecked(&format!(
@@ -251,12 +311,19 @@ async fn caller_scoped_my_permissions_never_bleed_across_websocket_broadcasts() 
         .await
         .check_ok();
     let role_msg = unjoined_ws
-        .expect("workspaceRoleChanged", "/userId", &unjoined_id)
+        .expect("workspaceRoleChanged", "/userId", unjoined_id)
         .await;
-    assert_eq!(role_msg["role"], json!("admin"));
-    let ws_admin_p: Value = unjoined_client.get(&perms_path).await.ok_json();
-    assert_eq!(ws_admin_p["canManageRoles"], json!(true));
-    ts.teardown().await;
+    assert_eq!(
+        role_msg["role"],
+        json!("admin"),
+        "workspaceRoleChanged carries admin"
+    );
+    let ws_admin_p: Value = unjoined_client.get(perms_path).await.ok_json();
+    assert_eq!(
+        ws_admin_p["canManageRoles"],
+        json!(true),
+        "workspace admin manages roles"
+    );
 }
 
 /// 3) Mandatory regression test: an unjoined workspace member reading an open board and
@@ -289,7 +356,7 @@ async fn open_board_switched_to_private_immediately_evicts_unjoined_readers() {
     let mut reader_room = Peer::connect(&ts.client2, 2).await;
     let joined = reader_room.join(TEST_WORKSPACE_ID, &card_id).await;
     assert_eq!(joined["type"], json!("docJoined"), "{joined}");
-    assert_eq!(joined["mode"], json!("read"));
+    assert_eq!(joined["mode"], json!("read"), "open board joins read-only");
 
     // Switch open board to private -> immediate Collab room eviction + WS tombstone!
     ts.client
@@ -319,7 +386,11 @@ async fn open_board_switched_to_private_immediately_evicts_unjoined_readers() {
         )
         .await
         .check_ok();
-    assert_eq!(reader_room.incoming(QUIET).await, Incoming::Nothing);
+    assert_eq!(
+        reader_room.incoming(QUIET).await,
+        Incoming::Nothing,
+        "evicted room receives nothing"
+    );
     let leaked = reader_ws.drain().await;
     assert!(
         !leaked.iter().any(|m| m["type"] == json!("blockChanged")),
@@ -360,32 +431,7 @@ async fn board_views_card_moves_batch_ops_comments_and_attachments() {
         .id
         .clone();
 
-    // Fractional-indexed views: create, duplicate, move.
-    let v_created: Value = ts
-        .client
-        .post(
-            &format!("{TEST_WS}/boards/{}/views", board.id),
-            &json!({"title": "Table", "viewType": "table", "fields": {"viewType": "table"}}),
-        )
-        .await
-        .created_json();
-    let v_id = v_created["view"]["id"].as_str().expect("view id");
-    let v_dup: Value = ts
-        .client
-        .post(
-            &format!("{TEST_WS}/boards/{}/views/{v_id}/duplicate", board.id),
-            &json!({"title": "Table Copy", "after": v_id}),
-        )
-        .await
-        .created_json();
-    let dup_id = v_dup["view"]["id"].as_str().expect("dup view id");
-    ts.client
-        .post(
-            &format!("{TEST_WS}/boards/{}/views/{dup_id}/move", board.id),
-            &json!({"after": ""}),
-        )
-        .await
-        .check_ok();
+    let v_id = verify_board_view_endpoints(&ts, &board.id).await;
 
     let c1: Value = ts
         .client
@@ -420,7 +466,11 @@ async fn board_views_card_moves_batch_ops_comments_and_attachments() {
             &json!({"cardIds": [c1_id, c1_id]}),
         )
         .await;
-    assert_eq!(dup_bad.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        dup_bad.status,
+        StatusCode::BAD_REQUEST,
+        "duplicate cardIds rejected with 400"
+    );
 
     // Valid card-moves with person assignment -> WS sends view BEFORE cards, plus notification!
     let moved: Value = ts
@@ -436,7 +486,11 @@ async fn board_views_card_moves_batch_ops_comments_and_attachments() {
         )
         .await
         .ok_json();
-    assert_eq!(moved["cards"].as_array().map(Vec::len), Some(2));
+    assert_eq!(
+        moved["cards"].as_array().map(Vec::len),
+        Some(2),
+        "both moved cards returned"
+    );
     let events = member_ws.drain().await;
     let block_events: Vec<&str> = events
         .iter()
@@ -455,10 +509,20 @@ async fn board_views_card_moves_batch_ops_comments_and_attachments() {
         "assignee notified"
     );
 
-    // Batch delete & batch restore.
+    verify_batch_delete_and_restore(&ts, &board.id, &c1_id, &c2_id).await;
+    verify_card_comments_and_attachments(&ts, &board.id, &c1_id, &admin_id).await;
+    ts.teardown().await;
+}
+
+async fn verify_batch_delete_and_restore(
+    ts: &TestServer,
+    board_id: &str,
+    c1_id: &str,
+    c2_id: &str,
+) {
     ts.client
         .post(
-            &format!("{TEST_WS}/boards/{}/cards/batch-delete", board.id),
+            &format!("{TEST_WS}/boards/{board_id}/cards/batch-delete"),
             &json!({"cardIds": [c1_id, c2_id]}),
         )
         .await
@@ -466,15 +530,48 @@ async fn board_views_card_moves_batch_ops_comments_and_attachments() {
     let restored: Value = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/cards/batch-restore", board.id),
+            &format!("{TEST_WS}/boards/{board_id}/cards/batch-restore"),
             &json!({"cardIds": [c1_id, c2_id]}),
         )
         .await
         .ok_json();
-    assert_eq!(restored["cards"].as_array().map(Vec::len), Some(2));
+    assert_eq!(
+        restored["cards"].as_array().map(Vec::len),
+        Some(2),
+        "both deleted cards restored"
+    );
+}
 
-    verify_card_comments_and_attachments(&ts, &board.id, &c1_id, &admin_id).await;
-    ts.teardown().await;
+async fn verify_board_view_endpoints(ts: &TestServer, board_id: &str) -> String {
+    let v_created: Value = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{board_id}/views"),
+            &json!({"title": "Table", "viewType": "table", "fields": {"viewType": "table"}}),
+        )
+        .await
+        .created_json();
+    let v_id = v_created["view"]["id"]
+        .as_str()
+        .expect("view id")
+        .to_owned();
+    let v_dup: Value = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{board_id}/views/{v_id}/duplicate"),
+            &json!({"title": "Table Copy", "after": v_id}),
+        )
+        .await
+        .created_json();
+    let dup_id = v_dup["view"]["id"].as_str().expect("dup view id");
+    ts.client
+        .post(
+            &format!("{TEST_WS}/boards/{board_id}/views/{dup_id}/move"),
+            &json!({"after": ""}),
+        )
+        .await
+        .check_ok();
+    v_id
 }
 
 async fn verify_card_comments_and_attachments(
@@ -498,13 +595,16 @@ async fn verify_card_comments_and_attachments(
         )
         .await
         .ok_json();
-    assert!(patched["editedAt"].as_i64().unwrap_or(0) > 0);
+    assert!(
+        patched["editedAt"].as_i64().unwrap_or(0) > 0,
+        "editedAt stamped on comment edit"
+    );
     let versions: Vec<Value> = ts
         .client2
         .get(&format!("{comments_url}/{comment_id}/versions"))
         .await
         .ok_json();
-    assert_eq!(versions.len(), 1);
+    assert_eq!(versions.len(), 1, "previous comment version stored");
     ts.client2
         .delete(&format!("{comments_url}/{comment_id}"))
         .await
@@ -527,7 +627,11 @@ async fn verify_card_comments_and_attachments(
             &json!({"fileId": foreign_file}),
         )
         .await;
-    assert_eq!(rejected.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        rejected.status,
+        StatusCode::BAD_REQUEST,
+        "foreign board fileId rejected"
+    );
 }
 
 /// 4) Cross-workspace container copy (`allowCopyOut`, non-member 403, external `[[` and
@@ -561,7 +665,7 @@ async fn cross_workspace_copy_and_today_hub_enforce_boundaries() {
         .client
         .post(
             &format!("{TEST_WS}/boards"),
-            &json!({"visibility": "open", "title": "Team Specs", "scaffold": true}),
+            &json!({"visibility": "open", "title": "Product Specs", "scaffold": true}),
         )
         .await
         .created_json();
@@ -616,13 +720,22 @@ async fn cross_workspace_copy_and_today_hub_enforce_boundaries() {
             &json!({"targetWorkspaceId": user2_personal}),
         )
         .await;
-    assert_eq!(non_member_copy.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        non_member_copy.status,
+        StatusCode::FORBIDDEN,
+        "non-member on open board cannot copy-to-workspace"
+    );
 
-    // Member copies to personal space -> external cardLink & absent user2 mention become plain text!
+    assert_copied_card_sanitized(&ts, &source_board.id, &personal_ws).await;
+    verify_copy_out_audit_disable_and_today(&ts, &source_board.id, &personal_ws).await;
+    ts.teardown().await;
+}
+
+async fn assert_copied_card_sanitized(ts: &TestServer, source_board_id: &str, personal_ws: &str) {
     let copied: Value = ts
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/copy-to-workspace", source_board.id),
+            &format!("{TEST_WS}/containers/{source_board_id}/copy-to-workspace"),
             &json!({"targetWorkspaceId": personal_ws, "title": "My Personal Copy"}),
         )
         .await
@@ -644,9 +757,14 @@ async fn cross_workspace_copy_and_today_hub_enforce_boundaries() {
         !body_str.contains("\"reference\"") && !body_str.contains("\"mention\""),
         "external reference and non-target mention must be sanitized to text: {body_str}"
     );
+}
 
-    // Audit log records container_copied_out, and disabling allowCopyOut returns 403 copy_out_disabled.
-    let org_id = org_of(&ts).await;
+async fn verify_copy_out_audit_disable_and_today(
+    ts: &TestServer,
+    source_board_id: &str,
+    personal_ws: &str,
+) {
+    let org_id = org_of(ts).await;
     let audit: Value = ts
         .client
         .get(&format!("/org/{org_id}/audit"))
@@ -663,23 +781,33 @@ async fn cross_workspace_copy_and_today_hub_enforce_boundaries() {
     let disabled = ts
         .client
         .post(
-            &format!("{TEST_WS}/containers/{}/copy-to-workspace", source_board.id),
+            &format!("{TEST_WS}/containers/{source_board_id}/copy-to-workspace"),
             &json!({"targetWorkspaceId": personal_ws}),
         )
         .await;
-    assert_eq!(disabled.status, StatusCode::FORBIDDEN);
-    assert_eq!(disabled.problem().1["reason"], json!("copy_out_disabled"));
+    assert_eq!(
+        disabled.status,
+        StatusCode::FORBIDDEN,
+        "allowCopyOut=false forbids cross-org copy"
+    );
+    assert_eq!(
+        disabled.problem().1["reason"],
+        json!("copy_out_disabled"),
+        "reason is copy_out_disabled"
+    );
 
-    // Account-wide and workspace-scoped Today hub return the overdue assigned card!
     let me_today: Value = ts.client.get("/users/me/today").await.ok_json();
-    assert_eq!(me_today["lockedWorkspaceCount"], json!(0));
+    assert_eq!(
+        me_today["lockedWorkspaceCount"],
+        json!(0),
+        "no locked workspaces"
+    );
     assert!(
         me_today["cards"]
             .as_array()
             .is_some_and(|cards| cards.len() >= 2),
         "today hub includes overdue cards from shared and personal workspaces: {me_today}"
     );
-    ts.teardown().await;
 }
 
 /// 5) Benchmark: 50 open boards × 200 concurrent WebSocket connections in one workspace.

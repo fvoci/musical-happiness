@@ -61,6 +61,7 @@ mod server_lock;
 mod slots;
 mod snapshots;
 
+pub use board_ops::BoardScaffolding;
 pub(crate) use download::download;
 pub use mail::UnsentMail;
 pub(crate) use notifications::start_upkeep as start_notification_upkeep;

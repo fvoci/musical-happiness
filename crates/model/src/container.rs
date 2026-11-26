@@ -748,7 +748,6 @@ pub struct ContainerPatch {
         deserialize_with = "crate::serde_util::nullable_patch"
     )]
     #[schema(value_type = Option<String>)]
-    #[allow(clippy::option_option)]
     pub due_date_property_id: Option<Option<String>>,
     /// Optional change to `doneWhen`: omitted keeps it, `null` clears it.
     #[serde(
@@ -757,7 +756,6 @@ pub struct ContainerPatch {
         deserialize_with = "crate::serde_util::nullable_patch"
     )]
     #[schema(value_type = Option<DoneWhen>)]
-    #[allow(clippy::option_option)]
     pub done_when: Option<Option<DoneWhen>>,
 }
 

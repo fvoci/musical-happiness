@@ -133,9 +133,10 @@ impl App {
             .ok_or_else(|| AppError::not_found("version"))?;
         let container = self.store().get_container(&card.container_id).await?;
         let (id, by) = (card.id.clone(), user_id.to_owned());
+        let cards = vec![(id.clone(), card.container_id.clone())];
         let changed = self
             .collab()
-            .write_whole(self, vec![id.clone()], async move |app| {
+            .write_whole(self, cards, async move |app| {
                 app.write_version(&id, body, &by).await
             })
             .await?;

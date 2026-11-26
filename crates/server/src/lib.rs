@@ -532,8 +532,8 @@ async fn clean_up_sessions(app: &App) {
     match app.store().clean_up_sessions(now, idle_since).await {
         Ok(ended) => {
             let count = match ended.scope() {
-                fvoci_store::EndedSessionScope::None => 0,
-                fvoci_store::EndedSessionScope::Sessions(ids) => ids.len(),
+                fvoci_model::EndedSessionScope::None => 0,
+                fvoci_model::EndedSessionScope::Sessions(ids) => ids.len(),
                 _ => 1,
             };
             app.ws().close(ended);

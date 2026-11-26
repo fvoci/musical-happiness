@@ -543,7 +543,6 @@ fn check_typed_property_value(
         })
     };
     match definition.property_type {
-        PropertyType::Date | PropertyType::Relation => Ok(()),
         PropertyType::Number => match value.as_str() {
             Some(text) if is_number_entry(text) => Ok(()),
             _ => bad("a number text or empty string"),
@@ -590,7 +589,9 @@ fn check_typed_property_value(
             Value::Array(items) if items.iter().all(Value::is_string) => Ok(()),
             _ => bad("a list of user IDs"),
         },
-        PropertyType::Text
+        PropertyType::Date
+        | PropertyType::Relation
+        | PropertyType::Text
         | PropertyType::Phone
         | PropertyType::File
         | PropertyType::CreatedTime

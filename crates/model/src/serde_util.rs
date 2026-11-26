@@ -38,7 +38,10 @@ where
 
 /// Deserializes a patch member where omission is `None`, explicit `null` is `Some(None)`
 /// (clearing the field), and a value is `Some(Some(value))`.
-#[allow(clippy::option_option)]
+#[expect(
+    clippy::option_option,
+    reason = "tri-state patch helper returns None when omitted, Some(None) on null, and Some(Some(v)) on value"
+)]
 pub(crate) fn nullable_patch<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     T: Deserialize<'de>,

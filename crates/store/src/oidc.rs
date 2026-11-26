@@ -921,27 +921,18 @@ async fn is_identity_of(
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// Makes a user a member of the scope's organization and of its default workspace, as a
-/// member of both, unless the user is a member of the organization already; says
-/// whether the user joined. Two at once for the same user both succeed, and one of them
-/// joins.
+/// Makes `user_id` a member of the scope's organization and default workspace unless
+/// already in the organization; returns whether the user newly joined.
 async fn join_as_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     if !accounts::join_organization(scope, user_id, OrgRole::Member).await? {
         return Ok(false);
     }
-    accounts::join_workspace(
-        scope,
-        Which::DefaultWorkspace,
-        user_id,
-        WorkspaceRole::Member,
-    )
-    .await?;
+    let which = Which::DefaultWorkspace;
+    accounts::join_workspace(scope, which, user_id, WorkspaceRole::Member).await?;
     Ok(true)
 }
 
-/// Whether the user has a place in the transaction's organization: a member of it, or
-/// of one of its workspaces in use (a guest of a workspace is no member of the
-/// organization), as the wall counts them.
+/// Whether `user_id` is a member of the transaction's organization or of a live workspace in it.
 pub(crate) async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     if is_member(scope, user_id).await? {
         return Ok(true);
@@ -955,7 +946,6 @@ pub(crate) async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bo
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// Whether the user is a member of the transaction's organization.
 async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
     sql.bind(scope.org()?)

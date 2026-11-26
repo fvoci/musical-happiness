@@ -69,19 +69,13 @@ async fn started_on_dead_storage(configure: fn(&mut Configuration)) -> TestServe
         .create_user(&mut user)
         .await
         .expect("user1 is stored");
-    if !ts
+    if ts
         .app
         .store()
         .is_organization_member(&user.id)
         .await
         .expect("checked membership")
     {
-        ts.app
-            .store()
-            .add_organization_member(&user.id, OrgRole::Admin)
-            .await
-            .expect("user1 administers the organization");
-    } else {
         ts.app
             .store()
             .execute_unchecked(&format!(
@@ -91,6 +85,12 @@ async fn started_on_dead_storage(configure: fn(&mut Configuration)) -> TestServe
             ))
             .await
             .expect("user1 promoted to organization admin");
+    } else {
+        ts.app
+            .store()
+            .add_organization_member(&user.id, OrgRole::Admin)
+            .await
+            .expect("user1 administers the organization");
     }
     if ts
         .app

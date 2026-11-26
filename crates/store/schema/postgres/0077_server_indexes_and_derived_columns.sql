@@ -132,15 +132,14 @@ ALTER TABLE course_exams ADD COLUMN published_average_score DOUBLE PRECISION;
 ALTER TABLE course_exams ADD COLUMN published_score_bucket BIGINT;
 ALTER TABLE course_exams ADD COLUMN published_submission_count BIGINT;
 
+-- `containers.kind` is immutable after creation (`ContainerError::KindChanges` in Rust),
+-- so course child integrity is enforced on child inserts and container/org updates.
 CREATE FUNCTION course_child_of_its_course() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
     trashed_raw TEXT;
     is_trashed_course BOOLEAN := false;
 BEGIN
-    IF NEW.org_id IS NULL THEN
-        RETURN NEW;
-    END IF;
     IF EXISTS (
         SELECT 1 FROM containers
         WHERE id = NEW.container_id AND org_id = NEW.org_id AND kind = 'course'

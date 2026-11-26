@@ -22,75 +22,7 @@ const STORED_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at,
 /// statement sets it ([`Store::confirm_session_password`]).
 const CONFIRMED_COLUMN: &str = "password_confirmed_at";
 
-/// Which sessions were ended by a store operation, requiring the WebSocket hub to close
-/// any open connections for them.
-#[derive(Debug, PartialEq, Eq)]
-pub enum EndedSessionScope {
-    /// No sessions ended.
-    None,
-    /// One session, by identifier.
-    Session(String),
-    /// Specific sessions, by identifier.
-    Sessions(Vec<String>),
-    /// Every session of this user.
-    User(String),
-    /// Every session of `user_id` except `kept_session_id`.
-    UserExcept {
-        /// The user whose other sessions ended.
-        user_id: String,
-        /// The session kept open.
-        kept_session_id: String,
-    },
-    /// Every session created through a provider of `org_id` with `issuer`.
-    Origin {
-        /// Organization of the provider.
-        org_id: String,
-        /// Issuer of the provider.
-        issuer: String,
-    },
-    /// Every session of `user_id` created for `(issuer, subject)` (or without subject).
-    Identity {
-        /// The user who unlinked the identity.
-        user_id: String,
-        /// Issuer of the unlinked identity.
-        issuer: String,
-        /// Subject of the unlinked identity.
-        subject: String,
-    },
-}
-
-/// Witness returned by every store operation that ends sessions so callers cannot
-/// forget to close open WebSocket connections (`Hub::close`).
-#[must_use = "close open WebSocket connections with Hub::close"]
-#[derive(Debug, PartialEq, Eq)]
-pub struct SessionsEnded(pub(crate) EndedSessionScope);
-
-impl SessionsEnded {
-    pub(crate) const fn none() -> Self {
-        Self(EndedSessionScope::None)
-    }
-
-    /// Borrows the scope of ended sessions.
-    #[must_use]
-    pub const fn scope(&self) -> &EndedSessionScope {
-        &self.0
-    }
-
-    /// Consumes this witness and returns the scope of ended sessions.
-    #[must_use]
-    pub fn into_scope(self) -> EndedSessionScope {
-        self.0
-    }
-
-    /// Session identifiers when this witness came from [`Store::clean_up_sessions`].
-    #[must_use]
-    pub fn session_ids(&self) -> &[String] {
-        match &self.0 {
-            EndedSessionScope::Sessions(ids) => ids,
-            _ => &[],
-        }
-    }
-}
+pub use fvoci_model::{EndedSessionScope, SessionsEnded};
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
@@ -283,7 +215,7 @@ impl Store {
             let mut sql = scope.sql("DELETE FROM sessions WHERE id = ");
             sql.bind(Id(session_id));
             scope.execute(sql).await?;
-            Ok(SessionsEnded(EndedSessionScope::Session(
+            Ok(SessionsEnded::new(EndedSessionScope::Session(
                 session_id.to_owned(),
             )))
         })
@@ -317,7 +249,7 @@ impl Store {
             Ok(if ended.is_empty() {
                 SessionsEnded::none()
             } else {
-                SessionsEnded(EndedSessionScope::Sessions(ended))
+                SessionsEnded::new(EndedSessionScope::Sessions(ended))
             })
         })
         .await
@@ -379,7 +311,9 @@ pub(crate) async fn delete_sessions_of_user(
 ) -> Result<SessionsEnded, StoreError> {
     let sql = delete_sessions_where_user(scope, user_id);
     scope.execute(sql).await?;
-    Ok(SessionsEnded(EndedSessionScope::User(user_id.to_owned())))
+    Ok(SessionsEnded::new(EndedSessionScope::User(
+        user_id.to_owned(),
+    )))
 }
 
 /// Puts a session under another token digest: its old token no longer finds it.
@@ -404,7 +338,7 @@ pub(crate) async fn delete_other_sessions_of_user(
     let mut sql = delete_sessions_where_user(scope, user_id);
     sql.push_bind(" AND id <> ", Id(kept_session_id));
     scope.execute(sql).await?;
-    Ok(SessionsEnded(EndedSessionScope::UserExcept {
+    Ok(SessionsEnded::new(EndedSessionScope::UserExcept {
         user_id: user_id.to_owned(),
         kept_session_id: kept_session_id.to_owned(),
     }))
@@ -421,7 +355,7 @@ pub(crate) async fn end_sessions_of_origin(
     sql.bind(Id(org_id))
         .push_bind(" AND login_issuer = ", issuer);
     scope.execute(sql).await?;
-    Ok(SessionsEnded(EndedSessionScope::Origin {
+    Ok(SessionsEnded::new(EndedSessionScope::Origin {
         org_id: org_id.to_owned(),
         issuer: issuer.to_owned(),
     }))
@@ -443,7 +377,7 @@ pub(crate) async fn end_sessions_of_identity(
         )
         .push(")");
     scope.execute(sql).await?;
-    Ok(SessionsEnded(EndedSessionScope::Identity {
+    Ok(SessionsEnded::new(EndedSessionScope::Identity {
         user_id: user_id.to_owned(),
         issuer: identity.issuer.to_owned(),
         subject: identity.subject.to_owned(),

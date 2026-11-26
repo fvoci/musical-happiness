@@ -34,8 +34,6 @@ use crate::metrics::{ContainerWork, CourseSource};
 const COPY_STREAM_BATCH: usize = 64;
 
 struct SourceSnapshot {
-    org_id: String,
-    org_kind: OrgKind,
     container: Container,
     blocks: Vec<Block>,
     schedule: Option<CourseScheduleUpdate>,
@@ -43,15 +41,26 @@ struct SourceSnapshot {
     member_names: HashMap<String, String>,
 }
 
+struct AuthorizedCopy {
+    source_org_app: App,
+    source_app: App,
+    source_org_id: String,
+    source_kind: OrgKind,
+    target_app: App,
+    target_org_id: String,
+    target_ws_id: String,
+}
+
 impl App {
-    /// Copies `container_id` from `source_ws_id` into `request.target_workspace_id` in
-    /// three strict steps across tenant handles:
-    /// 1. Flush active Yjs rooms and read container, live non-comment blocks, schedule,
-    ///    readable external reference titles, and member names on the source handle.
-    /// 2. Check target storage room and pre-copy referenced storage objects under
-    ///    `loose_objects` marks on the target handle.
-    /// 3. Sanitize references/mentions/people and commit the container, blocks, file
-    ///    records, schedule, and copier `Admin` membership in one target DB transaction.
+    /// Copies a shared container (`Board`, `Wiki`, or `Course`) into `targetWorkspaceId`
+    /// across workspaces or organizations (`Personal <-> Shared`), preserving hierarchy,
+    /// files, views, and course schedules while stripping comments and non-present member
+    /// references.
+    ///
+    /// # Errors
+    ///
+    /// Returns bad-request, forbidden, or not-found errors when validation or access
+    /// checks fail, and propagates storage or database errors.
     pub async fn copy_container_to_workspace(
         &self,
         session: &Session,
@@ -60,6 +69,55 @@ impl App {
         request: &CopyContainerToWorkspaceRequest,
         accept_language: Option<&str>,
     ) -> Result<CopiedContainerResult, AppError> {
+        let auth = self
+            .authorize_workspace_copy(session, source_ws_id, container_id, request)
+            .await?;
+        let snapshot = self
+            .read_source_snapshot(
+                &auth.source_org_app,
+                &auth.source_app,
+                source_ws_id,
+                container_id,
+                &session.user_id,
+            )
+            .await?;
+        let result = self
+            .stage_and_commit_workspace_copy(
+                &auth.source_app,
+                &auth.target_app,
+                &auth.target_org_id,
+                &auth.target_ws_id,
+                &session.user_id,
+                request.title.as_deref(),
+                accept_language,
+                snapshot,
+            )
+            .await?;
+        if auth.source_org_id != auth.target_org_id
+            && auth.source_kind == OrgKind::Shared
+            && let Err(error) = auth
+                .source_org_app
+                .store()
+                .record_container_copied_out(&session.user_id, container_id, &auth.target_org_id)
+                .await
+        {
+            tracing::error!(
+                container_id,
+                target_org_id = %auth.target_org_id,
+                %error,
+                "failed to record container_copied_out audit entry"
+            );
+        }
+        Ok(result)
+    }
+
+    async fn authorize_workspace_copy(
+        &self,
+        session: &Session,
+        source_ws_id: &str,
+        container_id: &str,
+        request: &CopyContainerToWorkspaceRequest,
+    ) -> Result<AuthorizedCopy, AppError> {
         let target_ws_id = request.target_workspace_id.trim();
         if target_ws_id.is_empty() {
             return Err(AppError::bad_request("targetWorkspaceId is required")
@@ -68,7 +126,6 @@ impl App {
         if !is_id(target_ws_id) {
             return Err(AppError::not_found("workspace"));
         }
-
         let source_entered = self
             .enter_workspace(session, source_ws_id)
             .await?
@@ -79,7 +136,6 @@ impl App {
             .clone()
             .in_workspace(source_ws_id)
             .reaching(copyable_kinds);
-
         let access = source_app
             .container_access(&session.user_id, container_id)
             .await?
@@ -92,7 +148,6 @@ impl App {
         {
             return Err(AppError::forbidden("access denied to copy board"));
         }
-
         let target_entered = self
             .enter_workspace(session, target_ws_id)
             .await?
@@ -100,7 +155,6 @@ impl App {
         if target_entered.role == WorkspaceRole::Guest {
             return Err(AppError::not_found("workspace"));
         }
-
         let source_org_id = source_app
             .store()
             .tenant()
@@ -112,7 +166,6 @@ impl App {
             .tenant()
             .org_id()
             .ok_or_else(|| AppError::not_found("workspace"))?;
-
         if source_org_id != target_org_id && source_entered.kind == OrgKind::Shared {
             let org = source_entered.app.organization().await?;
             if !org.allow_copy_out {
@@ -122,66 +175,25 @@ impl App {
                 .with_reason(Reason::CopyOutDisabled));
             }
         }
-
-        let snapshot = self
-            .read_source_snapshot(
-                &source_entered.app,
-                &source_app,
-                source_ws_id,
-                &source_org_id,
-                source_entered.kind,
-                container_id,
-                &session.user_id,
-            )
-            .await?;
-
-        let target_app = target_entered
-            .app
-            .in_workspace(target_ws_id)
-            .reaching(copyable_kinds);
-        let result = self
-            .stage_and_commit_workspace_copy(
-                &source_app,
-                &target_app,
-                &target_org_id,
-                target_ws_id,
-                &session.user_id,
-                request.title.as_deref(),
-                accept_language,
-                snapshot,
-            )
-            .await?;
-
-        if source_org_id != target_org_id
-            && source_entered.kind == OrgKind::Shared
-            && let Err(error) = source_entered
+        Ok(AuthorizedCopy {
+            source_org_app: source_entered.app,
+            source_app,
+            source_org_id,
+            source_kind: source_entered.kind,
+            target_app: target_entered
                 .app
-                .store()
-                .record_container_copied_out(&session.user_id, container_id, &target_org_id)
-                .await
-        {
-            tracing::error!(
-                container_id,
-                target_org_id,
-                %error,
-                "failed to record container_copied_out audit entry"
-            );
-        }
-
-        Ok(result)
+                .in_workspace(target_ws_id)
+                .reaching(copyable_kinds),
+            target_org_id,
+            target_ws_id: target_ws_id.to_owned(),
+        })
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "source snapshot collects tenant-scoped handles and caller context in one pass"
-    )]
     async fn read_source_snapshot(
         &self,
         source_org_app: &Self,
         source_app: &Self,
         source_ws_id: &str,
-        source_org_id: &str,
-        org_kind: OrgKind,
         container_id: &str,
         user_id: &str,
     ) -> Result<SourceSnapshot, AppError> {
@@ -225,8 +237,6 @@ impl App {
         let member_names = build_member_name_map(&members);
 
         Ok(SourceSnapshot {
-            org_id: source_org_id.to_owned(),
-            org_kind,
             container,
             blocks,
             schedule,
@@ -258,35 +268,9 @@ impl App {
         let kind = snapshot.container.kind;
 
         if kind == ContainerKind::Wiki {
-            let limits = target_app.limits().pages;
-            let tree: PageTree = snapshot
-                .blocks
-                .iter()
-                .filter(|b| b.block_type == BlockType::Page)
-                .cloned()
-                .map(PageNode::from)
-                .collect();
-            if tree.len() > usize::try_from(limits.pages).unwrap_or(usize::MAX) {
-                return Err(AppError::from(BlockError::TooManyPages {
-                    limit: limits.pages,
-                }));
-            }
-            for block in snapshot
-                .blocks
-                .iter()
-                .filter(|b| b.block_type == BlockType::Page)
-            {
-                if tree.depth(&block.id) > usize::try_from(limits.depth).unwrap_or(usize::MAX) {
-                    return Err(refused_without_member(fvoci_store::StoreError::from(
-                        BlockError::PageTooDeep {
-                            limit: limits.depth,
-                        },
-                    )));
-                }
-            }
+            check_wiki_copy_limits(target_app, &snapshot.blocks)?;
         }
-
-        let prepared_container = build_copied_container(
+        let prepared = build_copied_container(
             snapshot.container,
             target_ws_id,
             user_id,
@@ -296,27 +280,8 @@ impl App {
             now,
         )?;
         let schedules = build_copied_schedules(snapshot.schedule, changes.days_later)?;
-
-        let Renewed {
-            containers_and_blocks:
-                ContainersAndBlocks {
-                    mut containers,
-                    mut blocks,
-                },
-            renamed: all_copies,
-        } = renew_containers_and_blocks_ids_told(
-            ContainersAndBlocks {
-                containers: vec![prepared_container],
-                blocks: snapshot.blocks,
-            },
-            |_| true,
-        );
-
-        let new_container_id = containers
-            .first()
-            .map(|c| c.id.clone())
-            .ok_or_else(|| AppError::internal("missing renewed container"))?;
-
+        let (mut containers, mut blocks, all_copies, new_container_id) =
+            renew_copied_stream(prepared, snapshot.blocks)?;
         let referenced_files = collect_referenced_files(&blocks);
         let (file_map, staged_files, written_places) = target_app
             .pre_copy_files_to_container(
@@ -332,15 +297,7 @@ impl App {
             .iter()
             .filter(|fid| !file_map.contains_key(fid.as_str()))
             .count();
-
-        let target_members = target_app.workspace_members(target_ws_id).await?;
-        let mut present_users: HashSet<String> = target_members
-            .into_iter()
-            .filter(|m| m.role != WorkspaceRole::Guest)
-            .map(|m| m.user_id)
-            .collect();
-        present_users.insert(user_id.to_owned());
-
+        let present_users = target_present_users(target_app, target_ws_id, user_id).await?;
         if let Err(error) = sanitize_copied_blocks(
             &mut blocks,
             &containers[0],
@@ -357,7 +314,6 @@ impl App {
             release_written_places(written_places).await;
             return Err(error);
         }
-
         let ordered_blocks = order_parents_before_children(blocks, &new_container_id);
         let block_ids: Vec<String> = ordered_blocks.iter().map(|b| b.id.clone()).collect();
         let members = commit_copied_stream(
@@ -370,44 +326,132 @@ impl App {
             written_places,
         )
         .await?;
-
-        let created_container = containers
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::internal("missing committed container"))?;
-
-        target_app
-            .add_containers_to_default_category(
-                user_id,
-                target_ws_id,
-                std::slice::from_ref(&created_container.id),
-            )
-            .await?;
-
-        target_app
-            .metrics()
-            .container_copied(ContainerWork::Duplicate, counted_as(kind));
-        if kind == ContainerKind::Course {
-            target_app.metrics().course_created(if source_is_template {
-                CourseSource::Template
-            } else {
-                CourseSource::Duplicate
-            });
-        }
-
-        announce_workspace_copy(
+        let course_source = if source_is_template {
+            CourseSource::Template
+        } else {
+            CourseSource::Duplicate
+        };
+        finish_workspace_copy(
             target_app,
             target_ws_id,
-            created_container.clone(),
+            user_id,
+            kind,
+            course_source,
+            containers,
             block_ids,
             members,
-        );
-        let _ = (snapshot.org_id, snapshot.org_kind);
-        Ok(CopiedContainerResult {
-            container: created_container,
             missing_files_count,
-        })
+        )
+        .await
     }
+}
+
+type RenewedStream = (Vec<Container>, Vec<Block>, HashMap<String, String>, String);
+
+fn renew_copied_stream(
+    container: Container,
+    blocks: Vec<Block>,
+) -> Result<RenewedStream, AppError> {
+    let Renewed {
+        containers_and_blocks: ContainersAndBlocks { containers, blocks },
+        renamed,
+    } = renew_containers_and_blocks_ids_told(
+        ContainersAndBlocks {
+            containers: vec![container],
+            blocks,
+        },
+        |_| true,
+    );
+    let id = containers
+        .first()
+        .map(|c| c.id.clone())
+        .ok_or_else(|| AppError::internal("missing renewed container"))?;
+    Ok((containers, blocks, renamed, id))
+}
+
+fn check_wiki_copy_limits(target_app: &App, blocks: &[Block]) -> Result<(), AppError> {
+    let limits = target_app.limits().pages;
+    let tree: PageTree = blocks
+        .iter()
+        .filter(|b| b.block_type == BlockType::Page)
+        .cloned()
+        .map(PageNode::from)
+        .collect();
+    if tree.len() > usize::try_from(limits.pages).unwrap_or(usize::MAX) {
+        return Err(AppError::from(BlockError::TooManyPages {
+            limit: limits.pages,
+        }));
+    }
+    for block in blocks.iter().filter(|b| b.block_type == BlockType::Page) {
+        if tree.depth(&block.id) > usize::try_from(limits.depth).unwrap_or(usize::MAX) {
+            return Err(refused_without_member(fvoci_store::StoreError::from(
+                BlockError::PageTooDeep {
+                    limit: limits.depth,
+                },
+            )));
+        }
+    }
+    Ok(())
+}
+
+async fn target_present_users(
+    target_app: &App,
+    target_ws_id: &str,
+    user_id: &str,
+) -> Result<HashSet<String>, AppError> {
+    let target_members = target_app.workspace_members(target_ws_id).await?;
+    let mut present_users: HashSet<String> = target_members
+        .into_iter()
+        .filter(|m| m.role != WorkspaceRole::Guest)
+        .map(|m| m.user_id)
+        .collect();
+    present_users.insert(user_id.to_owned());
+    Ok(present_users)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "post-commit sidebar placement, metrics, and broadcasts share the committed output"
+)]
+async fn finish_workspace_copy(
+    target_app: &App,
+    target_ws_id: &str,
+    user_id: &str,
+    kind: ContainerKind,
+    course_source: CourseSource,
+    containers: Vec<Container>,
+    block_ids: Vec<String>,
+    members: Vec<fvoci_model::ContainerMember>,
+    missing_files_count: usize,
+) -> Result<CopiedContainerResult, AppError> {
+    let created_container = containers
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::internal("missing committed container"))?;
+    target_app
+        .add_containers_to_default_category(
+            user_id,
+            target_ws_id,
+            std::slice::from_ref(&created_container.id),
+        )
+        .await?;
+    target_app
+        .metrics()
+        .container_copied(ContainerWork::Duplicate, counted_as(kind));
+    if kind == ContainerKind::Course {
+        target_app.metrics().course_created(course_source);
+    }
+    announce_workspace_copy(
+        target_app,
+        target_ws_id,
+        created_container.clone(),
+        block_ids,
+        members,
+    );
+    Ok(CopiedContainerResult {
+        container: created_container,
+        missing_files_count,
+    })
 }
 
 async fn read_source_course_schedule(
@@ -417,28 +461,25 @@ async fn read_source_course_schedule(
     if container.kind != ContainerKind::Course {
         return Ok(None);
     }
-    match source_app
+    if let Some(schedule) = source_app
         .store()
         .get_course_schedule(&container.id)
         .await?
     {
-        Some(schedule) => Ok(Some(CourseScheduleUpdate {
+        Ok(Some(CourseScheduleUpdate {
             start_date: schedule.start_date,
             target_date: schedule.target_date,
             study_days: i32::from(schedule.study_days),
             auto_assign: false,
-        })),
-        None => {
-            let Some(raw) = container.properties.get(TEMPLATE_SCHEDULE_PROPERTY) else {
-                return Ok(None);
-            };
-            let mut parsed: CourseScheduleUpdate =
-                serde_json::from_value(raw.clone()).map_err(|err| {
-                    AppError::bad_request(format_args!("invalid course schedule: {err}"))
-                })?;
-            parsed.auto_assign = false;
-            Ok(Some(parsed))
-        }
+        }))
+    } else {
+        let Some(raw) = container.properties.get(TEMPLATE_SCHEDULE_PROPERTY) else {
+            return Ok(None);
+        };
+        let mut parsed: CourseScheduleUpdate = serde_json::from_value(raw.clone())
+            .map_err(|err| AppError::bad_request(format_args!("invalid course schedule: {err}")))?;
+        parsed.auto_assign = false;
+        Ok(Some(parsed))
     }
 }
 
@@ -482,14 +523,14 @@ fn build_copied_container(
         None if source_was_template => container.title,
         None => (titles_in(reader.language, container.kind).copy_of)(&container.title),
     };
-    container.workspace_id = target_ws_id.to_owned();
+    target_ws_id.clone_into(&mut container.workspace_id);
     container.visibility = ContainerVisibility::Private;
     container.title = title;
     container.is_template = false;
     container.is_builtin = false;
     container.template_version = 0;
-    container.created_by = user_id.to_owned();
-    container.modified_by = user_id.to_owned();
+    user_id.clone_into(&mut container.created_by);
+    user_id.clone_into(&mut container.modified_by);
     container.created_at = now;
     container.updated_at = now;
     container.deleted_at = None;
@@ -606,8 +647,8 @@ fn sanitize_copied_blocks(
                 untitled,
             )?;
         }
-        block.created_by = user_id.to_owned();
-        block.modified_by = user_id.to_owned();
+        user_id.clone_into(&mut block.created_by);
+        user_id.clone_into(&mut block.modified_by);
         block.created_at = now;
         block.updated_at = now;
         block.deleted_at = None;
@@ -759,8 +800,7 @@ fn rewrite_body_nodes(
         } else {
             let raw_title = external_titles
                 .get(target_id)
-                .map(String::as_str)
-                .unwrap_or("")
+                .map_or("", String::as_str)
                 .replace('\0', "");
             let label = if raw_title.trim().is_empty() {
                 untitled
@@ -780,8 +820,7 @@ fn rewrite_body_nodes(
         if !present_users.contains(uid) {
             let name = member_names
                 .get(uid)
-                .map(String::as_str)
-                .unwrap_or("user")
+                .map_or("user", String::as_str)
                 .replace('\0', "");
             let clean = if name.trim().is_empty() {
                 "user"

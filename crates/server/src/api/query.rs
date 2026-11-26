@@ -5,7 +5,7 @@ use std::ops::RangeInclusive;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use fvoci_store::DuplicateAs;
+use fvoci_model::DuplicateAs;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -27,19 +27,24 @@ where
 {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, _app: &App) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _app: &App,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let map = parse_query_map(parts.uri.query());
-        serde_json::from_value::<T>(Value::Object(map))
-            .map(Self)
-            .map_err(|error| {
-                let text = error.to_string();
-                if let Some(unknown) = extract_unknown_field(&text) {
-                    AppError::bad_request(format_args!("unknown query parameter `{unknown}`"))
-                        .with_parameter(unknown)
-                } else {
-                    AppError::bad_request(error)
-                }
-            })
+        std::future::ready(
+            serde_json::from_value::<T>(Value::Object(map))
+                .map(Self)
+                .map_err(|error| {
+                    let text = error.to_string();
+                    if let Some(unknown) = extract_unknown_field(&text) {
+                        AppError::bad_request(format_args!("unknown query parameter `{unknown}`"))
+                            .with_parameter(unknown)
+                    } else {
+                        AppError::bad_request(error)
+                    }
+                }),
+        )
     }
 }
 
@@ -105,7 +110,7 @@ pub(crate) struct PagingQuery {
 }
 
 impl PagingQuery {
-    pub(crate) fn into_list_page(&self) -> Result<ListPage, AppError> {
+    pub(crate) fn into_list_page(self) -> Result<ListPage, AppError> {
         paging_from_strings(&self.page, &self.per_page)
     }
 }
@@ -159,7 +164,7 @@ pub(crate) fn paging_from_strings(page: &str, per_page: &str) -> Result<ListPage
             per_page: pp,
         }),
         (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => Err(refusal),
-        (Err(p_err), Err(pp_err)) => Err(p_err.and(pp_err)),
+        (Err(page_err), Err(limit_err)) => Err(page_err.and(limit_err)),
     }
 }
 

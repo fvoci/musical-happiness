@@ -7,7 +7,7 @@
 use fvoci_model::{PersonName, PersonNameChange, User};
 
 use crate::Store;
-use crate::db::{Id, Row, Sql, now_millis};
+use crate::db::{Id, Row, Sql};
 use crate::error::StoreError;
 use crate::users;
 
@@ -99,7 +99,7 @@ impl Store {
                 .push_bind(", name_shown = ", name.name_shown.as_str())
                 .push_bind(", title = ", name.title.map_or("", |title| title.as_str()))
                 .push_bind(", credentials = ", name.stored_credentials())
-                .push_bind(", updated_at = ", now_millis())
+                .push_bind(", updated_at = ", scope.now_millis())
                 .push_bind(" WHERE deleted_at IS NULL AND id = ", Id(user_id));
             scope.execute(sql).await?;
             Ok(ChangedName {

@@ -70,6 +70,11 @@ impl App {
     /// Patches the name and/or collapsed state of a user's category in a single
     /// transaction and broadcasts the updated category. System categories ignore name
     /// changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns not-found if `category_id` does not belong to `user_id` in `workspace_id`,
+    /// bad-request if the patched name is invalid, and the store's error on database failure.
     pub async fn patch_category(
         &self,
         workspace_id: &str,

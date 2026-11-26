@@ -208,7 +208,9 @@ impl WrittenPlace {
 
     /// Consumes the witness after a multi-file database transaction atomically recorded
     /// the file and cleared its `writing` mark (`loose_objects::record_written`).
-    pub(crate) fn settled_in_transaction(self) {}
+    pub(crate) fn settled_in_transaction(self) {
+        let _ = self.path;
+    }
 }
 
 /// What became of one doomed object.

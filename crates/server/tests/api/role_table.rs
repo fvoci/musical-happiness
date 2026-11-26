@@ -1119,42 +1119,7 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
             cells[unjoined]
         );
     }
-    for row in [
-        "members: list",
-        "teams: list",
-        "files: get",
-        "references: to",
-        "cards: list",
-        "cards: get",
-        "blocks: list",
-        "cards: body versions",
-    ] {
-        let cells = row_of(&board, row);
-        assert_eq!(
-            cells[unjoined], cells[viewer],
-            "an open board unjoined reads as viewer: {row}"
-        );
-        assert!(
-            cells[unjoined].starts_with('2'),
-            "an open board unjoined: {row}: {}",
-            cells[unjoined]
-        );
-    }
-    for row in [
-        "cards: create",
-        "cards: patch",
-        "comments: create",
-        "cards: keep version",
-        "cards: trash",
-        "board: duplicate",
-        "board: export",
-    ] {
-        assert_eq!(
-            row_of(&board, row)[unjoined],
-            "403",
-            "an open board unjoined refuses write/copy/export: {row}"
-        );
-    }
+    assert_open_unjoined_board_rows(&board, unjoined, viewer);
     // Nor does who has not joined it write on its pages: a comment, a change or the
     // removal of the admin's, bringing that back, or a version of the body.
     for row in [
@@ -1207,6 +1172,45 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         }
     }
     ts.teardown().await;
+}
+
+fn assert_open_unjoined_board_rows(board: &[(&str, Vec<String>)], unjoined: usize, viewer: usize) {
+    for row in [
+        "members: list",
+        "teams: list",
+        "files: get",
+        "references: to",
+        "cards: list",
+        "cards: get",
+        "blocks: list",
+        "cards: body versions",
+    ] {
+        let cells = row_of(board, row);
+        assert_eq!(
+            cells[unjoined], cells[viewer],
+            "an open board unjoined reads as viewer: {row}"
+        );
+        assert!(
+            cells[unjoined].starts_with('2'),
+            "an open board unjoined: {row}: {}",
+            cells[unjoined]
+        );
+    }
+    for row in [
+        "cards: create",
+        "cards: patch",
+        "comments: create",
+        "cards: keep version",
+        "cards: trash",
+        "board: duplicate",
+        "board: export",
+    ] {
+        assert_eq!(
+            row_of(board, row)[unjoined],
+            "403",
+            "an open board unjoined refuses write/copy/export: {row}"
+        );
+    }
 }
 
 /// Expected permission set for `(actor_key, role, scope)` in the pure permission matrix.

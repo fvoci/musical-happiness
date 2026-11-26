@@ -68,7 +68,7 @@ reasons! {
     /// A guest of the workspace is given no role on a board above editor.
     GuestRoleLimit => "guest_role_limit", "A guest is no more than an editor";
     /// A guest of the workspace cannot be added to a team.
-    GuestCannotJoinTeam => "guest_cannot_join_team", "A guest of the workspace cannot be on a team";
+    GuestCannotJoinTeam => "guest_cannot_join_team", "A guest of the workspace cannot be added to a team";
     /// A temporary organization administrator cannot add themselves to a team.
     TeamSelfJoining => "team_self_joining", "Cannot add yourself to a team during administrative joining";
     /// Public sharing is turned off in the server's configuration.

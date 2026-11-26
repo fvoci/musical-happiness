@@ -238,7 +238,7 @@ impl Noted<'_> {
     /// block's board or wiki as `bo`, its workspace as `w` and its organization as
     /// `o`; the recipients follow as `u`.
     fn noting(&self, scope: &Scope<'_>, kind: NotificationKind, doer: &str) -> Sql {
-        let now = crate::db::now_millis();
+        let now = scope.now_millis();
         let mut sql = scope.sql(
             "INSERT INTO notification_outbox (org_id, recipient_id, kind, source_id, \
              block_id, container_id, actor_id, seq, due_at) SELECT w.org_id, u.id, ",
@@ -351,7 +351,7 @@ async fn watch(scope: &mut Scope<'_>, block_id: &str, users: &[&str]) -> Result<
         .copied()
         .filter(|user| fvoci_model::is_id(user))
         .collect();
-    let now = crate::db::now_millis();
+    let now = scope.now_millis();
     let postgres = scope.dialect() == Dialect::Postgres;
     for batch in users.chunks(BATCH) {
         let mut sql = scope.sql(if postgres {

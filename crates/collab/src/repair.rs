@@ -421,10 +421,6 @@ fn refresh_cache_after_repair<T: ReadTxn>(
         });
     }
     cache.check_whole_limits()?;
-    #[cfg(any(test, feature = "test-util"))]
-    if kind == RepairKind::CutsOnly {
-        let _ = project(txn, root)?;
-    }
     Ok(())
 }
 

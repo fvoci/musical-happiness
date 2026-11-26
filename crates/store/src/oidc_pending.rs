@@ -344,12 +344,8 @@ impl Store {
             let written =
                 oidc::write_provider(scope, held, Some(&before), &applied, keeping).await?;
             let provider = written.provider;
-            let entry = AuditEntry::new(
-                "",
-                &session.user_id,
-                AuditAction::OidcProviderPendingApplied,
-                &provider.org_id,
-            );
+            let action = AuditAction::OidcProviderPendingApplied;
+            let entry = AuditEntry::new("", &session.user_id, action, &provider.org_id);
             audit::record_entry(scope, &entry).await?;
             session.login = Some(LoginOrigin {
                 provider_id: provider.id.clone(),

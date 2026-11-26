@@ -5,9 +5,9 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    Block, BlockType, BoardViewDuplicate, BoardViewMove, BoardViewWrite, Card, CardMovesRequest,
-    CardMovesResult, Container, ContainerKind, JsonMap, NewBoardView, NewCardAttachment,
-    RestoredCards, ViewType, default_blank_board_scaffolding,
+    Block, BlockType, BoardLocale, BoardViewDuplicate, BoardViewMove, BoardViewWrite, Card,
+    CardMovesRequest, CardMovesResult, Container, ContainerKind, JsonMap, NewBoardView,
+    NewCardAttachment, RestoredCards, ViewType, default_blank_board_scaffolding,
 };
 use fvoci_store::DuplicateAs;
 use serde_json::{Value, json};
@@ -364,10 +364,21 @@ impl App {
         });
         Ok(attachment)
     }
+}
 
-    /// Creates a new board with zero-config `status + assignee + dueDate + doneWhen`
-    /// properties and an initial Kanban view when `scaffold` is requested on a blank
-    /// non-template board.
+/// Whether a newly created blank board receives default properties and views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoardScaffolding {
+    /// Leave properties and views empty.
+    None,
+    /// Seed localized `status`/`assignee`/`due` properties plus Kanban and Table views.
+    Default,
+}
+
+impl App {
+    /// Creates a new board container, optionally seeding default `status`/`assignee`/`due`
+    /// properties, `done_when`, `due_date_property_id`, and an initial Kanban view via
+    /// [`App::create_board_view`].
     ///
     /// # Errors
     ///
@@ -376,16 +387,23 @@ impl App {
     pub async fn create_board_maybe_scaffolded(
         &self,
         mut container: Container,
-        scaffold: bool,
+        scaffolding: BoardScaffolding,
         user_id: &str,
         accept_language: Option<&str>,
     ) -> Result<Container, AppError> {
-        if !scaffold || container.is_template || !container.card_properties.is_empty() {
+        if scaffolding == BoardScaffolding::None
+            || container.is_template
+            || !container.card_properties.is_empty()
+        {
             return self.create_container_with_admin(container, user_id).await;
         }
         let language = self.language_for(user_id, accept_language).await?;
-        let korean = language == Language::Korean;
-        let (props, done_when, due_id) = default_blank_board_scaffolding(korean);
+        let locale = if language == Language::Korean {
+            BoardLocale::Korean
+        } else {
+            BoardLocale::English
+        };
+        let (props, done_when, due_id) = default_blank_board_scaffolding(locale);
         let visible_groups: Vec<String> =
             props[0].options.iter().map(|opt| opt.id.clone()).collect();
         let assignee_id = props[1].id.clone();
@@ -405,7 +423,12 @@ impl App {
         fields.insert("hiddenGroups".to_owned(), json!([""]));
         fields.insert("shownProperties".to_owned(), json!([assignee_id, due_id]));
         let initial_view = NewBoardView {
-            title: if korean { "보드" } else { "Board" }.to_owned(),
+            title: if locale == BoardLocale::Korean {
+                "보드"
+            } else {
+                "Board"
+            }
+            .to_owned(),
             view_type: ViewType::Board,
             after: None,
             fields: Some(fields),

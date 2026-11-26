@@ -5,8 +5,8 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use fvoci_model::{
     Container, ContainerKind, ContainerPatch, ContainerPermissions, ContainerVisibility,
-    ContainersAndBlocks, CopiedContainerResult, CopyContainerToWorkspaceRequest, JsonMap,
-    MinimumRole,
+    ContainersAndBlocks, CopiedContainerResult, CopyContainerToWorkspaceRequest, DuplicateAs,
+    JsonMap, MinimumRole,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -30,10 +30,9 @@ use super::{
 use super::{
     TRUE, json_object, require_container_permission, require_granted, require_workspace_access,
 };
-use crate::app::{App, as_managed};
+use crate::app::{App, BoardScaffolding, as_managed};
 use crate::error::AppError;
 use crate::permissions::{ContainerPermission, Grant};
-use fvoci_store::DuplicateAs;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -170,9 +169,9 @@ async fn handle_create_board(ws: InWorkspace, headers: HeaderMap, body: Bytes) -
     ws.require_container_maker("access denied to create board")?;
     let mut requested = json_object(decode_json(&body)?)?;
     check_closed_members(&requested, "", BoardObject::Board)?;
-    let scaffold = match requested.remove("scaffold") {
-        None => false,
-        Some(Value::Bool(flag)) => flag,
+    let scaffolding = match requested.remove("scaffold") {
+        None | Some(Value::Bool(false)) => BoardScaffolding::None,
+        Some(Value::Bool(true)) => BoardScaffolding::Default,
         Some(_) => {
             return Err(AppError::bad_request("scaffold must be a boolean").with_field("scaffold"));
         }
@@ -184,7 +183,7 @@ async fn handle_create_board(ws: InWorkspace, headers: HeaderMap, body: Bytes) -
 
     let board = ws
         .app
-        .create_board_maybe_scaffolded(board, scaffold, user_id, accept_language(&headers))
+        .create_board_maybe_scaffolded(board, scaffolding, user_id, accept_language(&headers))
         .await?;
     Ok(created(&board))
 }

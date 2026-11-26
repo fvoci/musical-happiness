@@ -128,33 +128,7 @@ async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
     assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
     assert_eq!(unread(&th.client2).await, 1);
 
-    // 4) Manual subscription works for a unit, returns 404 when a chapter ID is given
-    // with `unit` blockType, and 400 when `chapter` blockType is requested.
-    th.client2
-        .delete(&format!("{TEST_WS}/subscriptions/{unit}/{}", b.id))
-        .await
-        .check_no_content();
-    th.client2
-        .post(
-            &format!("{TEST_WS}/subscriptions"),
-            &json!({"blockId": unit, "blockType": "unit", "userId": b.id}),
-        )
-        .await
-        .check_created();
-    th.client2
-        .post(
-            &format!("{TEST_WS}/subscriptions"),
-            &json!({"blockId": chapter, "blockType": "unit", "userId": b.id}),
-        )
-        .await
-        .check_not_found();
-    th.client2
-        .post(
-            &format!("{TEST_WS}/subscriptions"),
-            &json!({"blockId": chapter, "blockType": "chapter", "userId": b.id}),
-        )
-        .await
-        .check_bad_request();
+    verify_manual_unit_subscriptions(&th.client2, &unit, &chapter, &b.id).await;
 
     // 5) Removing `b` clears the subject; open-course mention notifies an unjoined member.
     th.client
@@ -175,6 +149,39 @@ async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
         .check_ok();
     assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 1));
     th.teardown().await;
+}
+
+async fn verify_manual_unit_subscriptions(
+    client: &crate::common::Client,
+    unit: &str,
+    chapter: &str,
+    user_id: &str,
+) {
+    client
+        .delete(&format!("{TEST_WS}/subscriptions/{unit}/{user_id}"))
+        .await
+        .check_no_content();
+    client
+        .post(
+            &format!("{TEST_WS}/subscriptions"),
+            &json!({"blockId": unit, "blockType": "unit", "userId": user_id}),
+        )
+        .await
+        .check_created();
+    client
+        .post(
+            &format!("{TEST_WS}/subscriptions"),
+            &json!({"blockId": chapter, "blockType": "unit", "userId": user_id}),
+        )
+        .await
+        .check_not_found();
+    client
+        .post(
+            &format!("{TEST_WS}/subscriptions"),
+            &json!({"blockId": chapter, "blockType": "chapter", "userId": user_id}),
+        )
+        .await
+        .check_bad_request();
 }
 
 /// Own-space courses never create notifications, outbox entries, or auto-subscriptions,

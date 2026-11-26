@@ -90,13 +90,23 @@ fn unicode_in_every_string_attribute_and_mermaid_is_preserved() {
             text(words, &marks(31, "https://example.com/😀e\u{301}")),
         ]},
         {"type": "blockMath", "attrs": {"latex": words}},
-        {"type": "image", "attrs": {"fileId": "😀e\u{301}.png", "alt": words}},
-        {"type": "file", "attrs": {"fileId": "😀e\u{301}.pdf"}},
+        {"type": "image", "attrs": {"fileId": "unicode-image.png", "alt": words}},
+        {"type": "file", "attrs": {"fileId": "unicode-doc.pdf"}},
         {"type": "codeBlock", "attrs": {"language": "mermaid"}, "content": [
             text("graph TD\n A[\"😀e\u{301}\"]-->B[\"한글\"]", &[]),
         ]},
     ]});
     assert_round_trip(&input, &input, "Unicode in text and attributes");
+
+    for (kind, file_id) in [("image", "😀e\u{301}.png"), ("file", "😀e\u{301}.pdf")] {
+        let rejected = json!({"type": "doc", "content": [
+            {"type": kind, "attrs": {"fileId": file_id}},
+        ]});
+        assert!(
+            Body::parse(rejected).is_err(),
+            "non-ASCII {kind} fileId must be rejected by strict ASCII allowlist"
+        );
+    }
 }
 
 fn collect_kinds(node: &Value, nodes: &mut Vec<String>, marks: &mut Vec<String>) {

@@ -104,15 +104,7 @@ impl App {
         };
 
         let workspaces = self.workspaces_of_user(session).await?;
-        let mut locked_workspace_count = 0_u32;
-        let mut cards = Vec::new();
-        let mut has_more_cards = false;
-        let mut units = Vec::new();
-        let mut has_more_units = false;
-        let mut reviews = Vec::new();
-        let mut has_more_reviews = false;
-        let mut meetings = Vec::new();
-        let mut has_more_meetings = false;
+        let mut acc = AccountToday::default();
         let mut org_names: HashMap<String, String> = HashMap::new();
 
         for ws in workspaces {
@@ -120,28 +112,16 @@ impl App {
                 continue;
             }
             if ws.sso_required || ws.password_required {
-                locked_workspace_count = locked_workspace_count.saturating_add(1);
+                acc.locked_workspace_count = acc.locked_workspace_count.saturating_add(1);
                 continue;
             }
             let Some(entered) = self.enter_workspace_quietly(session.into(), &ws.id).await? else {
-                locked_workspace_count = locked_workspace_count.saturating_add(1);
+                acc.locked_workspace_count = acc.locked_workspace_count.saturating_add(1);
                 continue;
             };
             let is_personal = ws.kind == OrgKind::Personal;
-            let org_name = if is_personal {
-                String::new()
-            } else if let Some(cached) = org_names.get(&ws.org_id) {
-                cached.clone()
-            } else {
-                let fetched = entered
-                    .app
-                    .organization()
-                    .await
-                    .map(|org| org.name)
-                    .unwrap_or_default();
-                org_names.insert(ws.org_id.clone(), fetched.clone());
-                fetched
-            };
+            let org_name =
+                resolve_org_name(&entered.app, &ws.org_id, ws.kind, &mut org_names).await;
             let meta = TodayWorkspaceMeta {
                 workspace_id: ws.id.clone(),
                 workspace_name: if is_personal { String::new() } else { ws.name },
@@ -154,69 +134,80 @@ impl App {
                 .store()
                 .workspace_today(&ws.id, meta, user_id, &window)
                 .await?;
-            has_more_cards |= part.has_more_cards;
-            cards.extend(part.cards);
-            has_more_units |= part.has_more_units;
-            units.extend(part.units);
-            has_more_reviews |= part.has_more_reviews;
-            reviews.extend(part.reviews);
-            has_more_meetings |= part.has_more_meetings;
-            meetings.extend(part.meetings);
+            extend_account_today(&mut acc, part);
         }
 
-        cards.sort_by(|a, b| {
-            a.due_date
-                .cmp(&b.due_date)
-                .then_with(|| a.card_id.cmp(&b.card_id))
-        });
-        if cards.len() > TODAY_SECTION_LIMIT {
-            has_more_cards = true;
-            cards.truncate(TODAY_SECTION_LIMIT);
-        }
+        Ok(finish_account_today(acc, today_str))
+    }
+}
 
-        units.sort_by(|a, b| {
-            a.unit
-                .scheduled_date
-                .cmp(&b.unit.scheduled_date)
-                .then_with(|| a.unit.unit_id.cmp(&b.unit.unit_id))
-        });
-        if units.len() > TODAY_SECTION_LIMIT {
-            has_more_units = true;
-            units.truncate(TODAY_SECTION_LIMIT);
-        }
+fn extend_account_today(acc: &mut AccountToday, part: WorkspaceToday) {
+    acc.has_more_cards |= part.has_more_cards;
+    acc.cards.extend(part.cards);
+    acc.has_more_units |= part.has_more_units;
+    acc.units.extend(part.units);
+    acc.has_more_reviews |= part.has_more_reviews;
+    acc.reviews.extend(part.reviews);
+    acc.has_more_meetings |= part.has_more_meetings;
+    acc.meetings.extend(part.meetings);
+}
 
-        reviews.sort_by(|a, b| {
-            a.review
-                .scheduled_date
-                .cmp(&b.review.scheduled_date)
-                .then_with(|| a.review.id.cmp(&b.review.id))
-        });
-        if reviews.len() > TODAY_SECTION_LIMIT {
-            has_more_reviews = true;
-            reviews.truncate(TODAY_SECTION_LIMIT);
-        }
+fn finish_account_today(mut acc: AccountToday, today: String) -> AccountToday {
+    acc.today = today;
+    sort_and_cap(&mut acc.cards, &mut acc.has_more_cards, |a, b| {
+        a.due_date
+            .cmp(&b.due_date)
+            .then_with(|| a.card_id.cmp(&b.card_id))
+    });
+    sort_and_cap(&mut acc.units, &mut acc.has_more_units, |a, b| {
+        a.unit
+            .scheduled_date
+            .cmp(&b.unit.scheduled_date)
+            .then_with(|| a.unit.unit_id.cmp(&b.unit.unit_id))
+    });
+    sort_and_cap(&mut acc.reviews, &mut acc.has_more_reviews, |a, b| {
+        a.review
+            .scheduled_date
+            .cmp(&b.review.scheduled_date)
+            .then_with(|| a.review.id.cmp(&b.review.id))
+    });
+    sort_and_cap(&mut acc.meetings, &mut acc.has_more_meetings, |a, b| {
+        a.starts_at
+            .cmp(&b.starts_at)
+            .then_with(|| a.meeting_id.cmp(&b.meeting_id))
+    });
+    acc
+}
 
-        meetings.sort_by(|a, b| {
-            a.starts_at
-                .cmp(&b.starts_at)
-                .then_with(|| a.meeting_id.cmp(&b.meeting_id))
-        });
-        if meetings.len() > TODAY_SECTION_LIMIT {
-            has_more_meetings = true;
-            meetings.truncate(TODAY_SECTION_LIMIT);
-        }
+async fn resolve_org_name(
+    org_app: &App,
+    org_id: &str,
+    kind: OrgKind,
+    cache: &mut HashMap<String, String>,
+) -> String {
+    if kind == OrgKind::Personal {
+        return String::new();
+    }
+    if let Some(cached) = cache.get(org_id) {
+        return cached.clone();
+    }
+    let fetched = org_app
+        .organization()
+        .await
+        .map(|org| org.name)
+        .unwrap_or_default();
+    cache.insert(org_id.to_owned(), fetched.clone());
+    fetched
+}
 
-        Ok(AccountToday {
-            today: today_str,
-            locked_workspace_count,
-            cards,
-            has_more_cards,
-            units,
-            has_more_units,
-            reviews,
-            has_more_reviews,
-            meetings,
-            has_more_meetings,
-        })
+fn sort_and_cap<T>(
+    items: &mut Vec<T>,
+    has_more: &mut bool,
+    cmp: impl FnMut(&T, &T) -> std::cmp::Ordering,
+) {
+    items.sort_by(cmp);
+    if items.len() > TODAY_SECTION_LIMIT {
+        *has_more = true;
+        items.truncate(TODAY_SECTION_LIMIT);
     }
 }

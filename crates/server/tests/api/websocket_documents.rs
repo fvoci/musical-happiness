@@ -422,7 +422,8 @@ async fn ending_one_workspace_leaves_a_room_of_another() {
     peer.joined(TEST_WORKSPACE_ID, &room.card_id).await;
     peer.send_json(json!({"type": "subscribeWorkspace", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
-    peer.barrier(&ts).await;
+    let ack = peer.text("workspaceSubscribed").await;
+    assert_eq!(ack["workspaceId"], ROOT_WORKSPACE_ID, "{ack}");
     ts.client
         .delete(&format!("/w/{ROOT_WORKSPACE_ID}/members/{user}"))
         .await

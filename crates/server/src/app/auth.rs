@@ -375,6 +375,10 @@ impl App {
 
     /// [`App::sign_up`], passing `accept_language` (`Accept-Language`) for choosing the
     /// welcome board language when `request.language` is empty or unsupported.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::sign_up`].
     pub async fn sign_up_with_language(
         &self,
         request: &RegisterRequest,
@@ -424,7 +428,7 @@ impl App {
                                 &ws.org_id,
                                 &user.id,
                                 &ws.id,
-                                ws.kind == fvoci_model::OrgKind::Personal,
+                                ws.kind,
                                 preferred_language,
                             )
                             .await;
@@ -464,7 +468,7 @@ impl App {
             &own_space.org_id,
             &user.id,
             &own_space.workspace_id,
-            true,
+            fvoci_model::OrgKind::Personal,
             preferred_language,
         )
         .await;

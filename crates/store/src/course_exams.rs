@@ -36,6 +36,29 @@ pub const MIN_SCORERS_TO_PUBLISH: u32 = 5;
 /// required before republishing exam results.
 pub const MIN_SCORER_DELTA_TO_REPUBLISH: u32 = 3;
 
+/// Caller perspective determining which exam aggregates and personal scores are returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExamViewer<'a> {
+    /// Unjoined open-course reader (`score_count = 0`, no personal score, no snapshot).
+    Unjoined,
+    /// Enrolled non-manager course member (`score_count` floored to a multiple of `5` so
+    /// exact scorer increments remain hidden, caller's own `my_score`, and frozen snapshot
+    /// when published).
+    Learner(&'a str),
+    /// Enrolled course role manager (`ManageRoles`: exact `score_count` so publication
+    /// readiness is visible, caller's own `my_score`, and frozen snapshot when published).
+    Manager(&'a str),
+}
+
+impl<'a> ExamViewer<'a> {
+    const fn user_id(self) -> Option<&'a str> {
+        match self {
+            Self::Unjoined => None,
+            Self::Learner(uid) | Self::Manager(uid) => Some(uid),
+        }
+    }
+}
+
 /// Outcome of recording the caller's personal exam score.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExamScoreOutcome {
@@ -107,12 +130,21 @@ impl StoredExam {
         self.exam
     }
 
-    fn into_enrolled_view(
+    fn into_view(
         mut self,
+        viewer: ExamViewer<'_>,
         live_score_count: u32,
         my_score: Option<MyExamScore>,
     ) -> CourseExam {
-        self.exam.score_count = live_score_count;
+        match viewer {
+            ExamViewer::Unjoined => return self.exam,
+            ExamViewer::Learner(_) => {
+                self.exam.score_count = (live_score_count / 5) * 5;
+            }
+            ExamViewer::Manager(_) => {
+                self.exam.score_count = live_score_count;
+            }
+        }
         self.exam.my_score = my_score;
         if self.results_published_at.is_some() {
             self.exam.results_published_at = self.results_published_at;
@@ -127,13 +159,11 @@ impl Store {
     /// Lists all exams of live course `course_id`, ordered by `exam_date ASC NULLS LAST,
     /// created_at ASC, id ASC`.
     ///
-    /// When `caller_user_id` is `Some(uid)` (an active enrolled course member or course
-    /// administrator), includes `my_score` strictly for `uid`, `score_count` across active
-    /// enrolled course members, and the frozen snapshot (`average_score`,
-    /// `results_published_at`, `published_score_bucket`) if and only if results have been
-    /// published. Before publication, `average_score` is `None` for every caller
-    /// (including administrators). When `caller_user_id` is `None` (unjoined reader),
-    /// omits `my_score` and suppresses all aggregates.
+    /// Returns `my_score` strictly for the caller when enrolled, `score_count` floored to a
+    /// multiple of `5` for [`ExamViewer::Learner`] or exact for [`ExamViewer::Manager`],
+    /// and the frozen snapshot (`average_score`, `results_published_at`,
+    /// `published_score_bucket`) if and only if results are currently published.
+    /// [`ExamViewer::Unjoined`] omits `my_score` and suppresses all aggregates.
     ///
     /// # Errors
     ///
@@ -142,7 +172,7 @@ impl Store {
     pub async fn list_course_exams(
         &self,
         course_id: &str,
-        caller_user_id: Option<&str>,
+        viewer: ExamViewer<'_>,
     ) -> Result<Vec<CourseExam>, StoreError> {
         self.with_conn(async |scope| {
             let org = scope.org()?;
@@ -176,7 +206,7 @@ impl Store {
             if stored.is_empty() {
                 return Ok(Vec::new());
             }
-            let Some(uid) = caller_user_id else {
+            let Some(uid) = viewer.user_id() else {
                 return Ok(stored
                     .into_iter()
                     .map(StoredExam::into_unjoined_view)
@@ -189,7 +219,7 @@ impl Store {
                 .map(|item| {
                     let count = counts.remove(&item.exam.id).unwrap_or(0);
                     let mine = my_scores.remove(&item.exam.id);
-                    item.into_enrolled_view(count, mine)
+                    item.into_view(viewer, count, mine)
                 })
                 .collect())
         })
@@ -250,8 +280,7 @@ impl Store {
     }
 
     /// Updates an exam of live course `course_id` and returns the updated view for
-    /// `caller_user_id` under the same snapshot visibility rules as
-    /// [`Store::list_course_exams`].
+    /// `viewer` under the same snapshot visibility rules as [`Store::list_course_exams`].
     ///
     /// Changing `max_score` intentionally does not inspect other members' stored scores
     /// so it cannot be used as an oracle to probe private scores.
@@ -265,7 +294,7 @@ impl Store {
         &self,
         course_id: &str,
         exam_id: &str,
-        caller_user_id: Option<&str>,
+        viewer: ExamViewer<'_>,
         change: &CourseExamChange,
     ) -> Result<CourseExam, StoreError> {
         self.transaction(async |scope| {
@@ -307,19 +336,7 @@ impl Store {
             existing.exam.description = description;
             existing.exam.updated_at = now;
 
-            match caller_user_id {
-                Some(uid) => {
-                    let count = fetch_exam_counts(scope, course_id, &org, Some(exam_id))
-                        .await?
-                        .remove(exam_id)
-                        .unwrap_or(0);
-                    let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
-                        .await?
-                        .remove(exam_id);
-                    Ok(existing.into_enrolled_view(count, mine))
-                }
-                None => Ok(existing.into_unjoined_view()),
-            }
+            view_for_single_exam(scope, course_id, &org, exam_id, viewer, existing, None).await
         })
         .await
     }
@@ -329,9 +346,11 @@ impl Store {
     /// `course_id`.
     ///
     /// Requires at least [`MIN_SCORERS_TO_PUBLISH`] active enrolled course members with a
-    /// recorded score, and when republishing an already-published exam requires at least
-    /// [`MIN_SCORER_DELTA_TO_REPUBLISH`] net scorer count change since the previous
-    /// snapshot.
+    /// recorded score. When a previous snapshot exists, recomputing requires at least
+    /// [`MIN_SCORER_DELTA_TO_REPUBLISH`] net scorer count change: while currently published,
+    /// a smaller delta is refused with [`ExamPublishError::TooFewChangesSincePublish`]; when
+    /// currently unpublished, re-publishing with a smaller delta restores the frozen
+    /// snapshot without recomputing so unpublish/republish cannot probe a single score.
     ///
     /// # Errors
     ///
@@ -342,7 +361,7 @@ impl Store {
         &self,
         course_id: &str,
         exam_id: &str,
-        caller_user_id: Option<&str>,
+        viewer: ExamViewer<'_>,
     ) -> Result<Result<CourseExam, ExamPublishError>, StoreError> {
         if !is_id(exam_id) {
             return Err(StoreError::not_found("exam"));
@@ -359,15 +378,29 @@ impl Store {
                     minimum: MIN_SCORERS_TO_PUBLISH,
                 }));
             }
-            if existing.results_published_at.is_some()
-                && let Some(previous_scorers) = existing.published_submission_count
+            if let Some(previous_scorers) = existing.published_submission_count
                 && count.abs_diff(previous_scorers) < MIN_SCORER_DELTA_TO_REPUBLISH
             {
-                return Ok(Err(ExamPublishError::TooFewChangesSincePublish {
-                    current_scorers: count,
-                    previous_scorers,
-                    minimum_delta: MIN_SCORER_DELTA_TO_REPUBLISH,
-                }));
+                if existing.results_published_at.is_some() {
+                    return Ok(Err(ExamPublishError::TooFewChangesSincePublish {
+                        current_scorers: count,
+                        previous_scorers,
+                        minimum_delta: MIN_SCORER_DELTA_TO_REPUBLISH,
+                    }));
+                }
+                let now = scope.now_millis();
+                republish_frozen(scope, course_id, exam_id, &org, &mut existing, now).await?;
+                let view = view_for_single_exam(
+                    scope,
+                    course_id,
+                    &org,
+                    exam_id,
+                    viewer,
+                    existing,
+                    Some(count),
+                )
+                .await?;
+                return Ok(Ok(view));
             }
             let rounded = (raw_avg.unwrap_or(0.0) * 10.0).round() / 10.0;
             let rounded_avg = if rounded == 0.0 { 0.0 } else { rounded };
@@ -392,22 +425,24 @@ impl Store {
             existing.published_score_bucket = Some(bucket);
             existing.published_submission_count = Some(count);
 
-            match caller_user_id {
-                Some(uid) => {
-                    let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
-                        .await?
-                        .remove(exam_id);
-                    Ok(Ok(existing.into_enrolled_view(count, mine)))
-                }
-                None => Ok(Ok(existing.into_unjoined_view())),
-            }
+            let view = view_for_single_exam(
+                scope,
+                course_id,
+                &org,
+                exam_id,
+                viewer,
+                existing,
+                Some(count),
+            )
+            .await?;
+            Ok(Ok(view))
         })
         .await
     }
 
-    /// Unpublishes the exam result snapshot on live course `course_id`, clearing
-    /// `results_published_at`, `published_average_score`, `published_score_bucket`, and
-    /// `published_submission_count`.
+    /// Unpublishes the exam result snapshot on live course `course_id`, hiding the snapshot
+    /// (`results_published_at = NULL`) while preserving the last snapshot's baseline so
+    /// subsequent republication still enforces [`MIN_SCORER_DELTA_TO_REPUBLISH`].
     ///
     /// # Errors
     ///
@@ -418,7 +453,7 @@ impl Store {
         &self,
         course_id: &str,
         exam_id: &str,
-        caller_user_id: Option<&str>,
+        viewer: ExamViewer<'_>,
     ) -> Result<CourseExam, StoreError> {
         if !is_id(exam_id) {
             return Err(StoreError::not_found("exam"));
@@ -429,11 +464,8 @@ impl Store {
             let mut existing = fetch_exam_for_update(scope, course_id, exam_id, &org).await?;
             let now = scope.now_millis();
 
-            let mut sql = scope.sql(
-                "UPDATE course_exams SET results_published_at = NULL, \
-                 published_average_score = NULL, published_score_bucket = NULL, \
-                 published_submission_count = NULL, updated_at = ",
-            );
+            let mut sql =
+                scope.sql("UPDATE course_exams SET results_published_at = NULL, updated_at = ");
             sql.changing_no_access()
                 .bind(now)
                 .push_bind(" WHERE id = ", Id(exam_id))
@@ -443,23 +475,8 @@ impl Store {
 
             existing.exam.updated_at = now;
             existing.results_published_at = None;
-            existing.published_average_score = None;
-            existing.published_score_bucket = None;
-            existing.published_submission_count = None;
 
-            match caller_user_id {
-                Some(uid) => {
-                    let count = fetch_exam_counts(scope, course_id, &org, Some(exam_id))
-                        .await?
-                        .remove(exam_id)
-                        .unwrap_or(0);
-                    let mine = fetch_my_scores(scope, course_id, &org, uid, Some(exam_id))
-                        .await?
-                        .remove(exam_id);
-                    Ok(existing.into_enrolled_view(count, mine))
-                }
-                None => Ok(existing.into_unjoined_view()),
-            }
+            view_for_single_exam(scope, course_id, &org, exam_id, viewer, existing, None).await
         })
         .await
     }
@@ -590,6 +607,52 @@ impl Store {
         })
         .await
     }
+}
+
+async fn republish_frozen(
+    scope: &mut Scope<'_>,
+    course_id: &str,
+    exam_id: &str,
+    org: &Param,
+    existing: &mut StoredExam,
+    now: i64,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE course_exams SET results_published_at = ");
+    sql.changing_no_access()
+        .bind(now)
+        .push_bind(", updated_at = ", now)
+        .push_bind(" WHERE id = ", Id(exam_id))
+        .push_bind(" AND org_id = ", org.clone())
+        .push_bind(" AND container_id = ", Id(course_id));
+    scope.execute(sql).await?;
+    existing.exam.updated_at = now;
+    existing.results_published_at = Some(now);
+    Ok(())
+}
+
+async fn view_for_single_exam(
+    scope: &mut Scope<'_>,
+    course_id: &str,
+    org: &Param,
+    exam_id: &str,
+    viewer: ExamViewer<'_>,
+    existing: StoredExam,
+    known_count: Option<u32>,
+) -> Result<CourseExam, StoreError> {
+    let Some(uid) = viewer.user_id() else {
+        return Ok(existing.into_unjoined_view());
+    };
+    let count = match known_count {
+        Some(c) => c,
+        None => fetch_exam_counts(scope, course_id, org, Some(exam_id))
+            .await?
+            .remove(exam_id)
+            .unwrap_or(0),
+    };
+    let mine = fetch_my_scores(scope, course_id, org, uid, Some(exam_id))
+        .await?
+        .remove(exam_id);
+    Ok(existing.into_view(viewer, count, mine))
 }
 
 async fn require_live_exam(

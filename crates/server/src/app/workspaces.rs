@@ -299,13 +299,13 @@ impl App {
         org_id: &str,
         user_id: &str,
         workspace_id: &str,
-        is_personal: bool,
+        org_kind: OrgKind,
         accept_language: Option<&str>,
     ) {
         match self.in_organization(org_id) {
             Ok(within) => {
                 within
-                    .welcome_workspace(org_id, user_id, workspace_id, is_personal, accept_language)
+                    .welcome_workspace(org_id, user_id, workspace_id, org_kind, accept_language)
                     .await;
             }
             Err(error) => {

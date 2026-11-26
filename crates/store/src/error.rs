@@ -15,7 +15,7 @@ pub enum StoreError {
     TeamSelfJoining,
 
     /// A workspace guest cannot be added to a team.
-    #[error("workspace guests cannot be added to teams")]
+    #[error("a workspace guest cannot be added to a team")]
     GuestCannotJoinTeam,
 
     /// A reorder request listed the same identifier more than once.

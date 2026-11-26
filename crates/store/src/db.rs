@@ -20,6 +20,9 @@ use crate::Tenant;
 use crate::clock::Clock;
 use crate::error::StoreError;
 
+mod locks;
+pub(crate) use locks::{DeletedContainersHeld, InstanceHeld, LockRank, OrganizationHeld};
+
 /// The SQL dialect of the connected database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dialect {
@@ -27,11 +30,6 @@ pub enum Dialect {
     Sqlite,
     /// PostgreSQL.
     Postgres,
-}
-
-/// Returns the current time in milliseconds since the Unix epoch.
-pub(crate) fn now_millis() -> i64 {
-    crate::clock::system_millis()
 }
 
 /// Compile-time-checked SQL text fragment built exclusively from `'static` SQL pieces
@@ -372,52 +370,6 @@ impl Sql {
     }
 }
 
-/// Global lock acquisition rank within a transaction (`debug_assert!` checked).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum LockRank {
-    Instance,
-    LinkTurn,
-    Organization,
-    Workspace,
-    Container,
-    DeletedContainers,
-    Block,
-    WorkspaceMembers,
-    Users,
-}
-
-/// Compile-time witness that [`crate::users::lock_instance`] holds the instance row in
-/// this transaction scope.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct InstanceHeld<'c>(std::marker::PhantomData<fn(&'c ()) -> &'c ()>);
-
-impl InstanceHeld<'_> {
-    pub(crate) const fn new() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-
-/// Compile-time witness that an organization row is held in this transaction scope.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct OrganizationHeld<'c>(std::marker::PhantomData<fn(&'c ()) -> &'c ()>);
-
-impl OrganizationHeld<'_> {
-    pub(crate) const fn new() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-
-/// Compile-time witness that [`crate::trash::hold_deleted_containers`] holds a
-/// workspace's trashed containers in this transaction scope.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct DeletedContainersHeld<'c>(std::marker::PhantomData<fn(&'c ()) -> &'c ()>);
-
-impl DeletedContainersHeld<'_> {
-    pub(crate) const fn new() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-
 /// A borrowed connection to either database.
 #[derive(Debug)]
 pub(crate) enum ConnRef<'c> {
@@ -537,55 +489,9 @@ impl<'c> Scope<'c> {
     /// debug and test builds.
     pub(crate) fn record_lock(&mut self, rank: LockRank, key: &str) {
         #[cfg(debug_assertions)]
-        {
-            if self.locks.iter().any(|(r, k)| *r == rank && k == key) {
-                return;
-            }
-            let holds_users = self.locks.iter().any(|(r, _)| *r >= LockRank::Users);
-            if !holds_users
-                && rank == LockRank::Organization
-                && self.locks.iter().any(|(r, _)| *r == LockRank::LinkTurn)
-            {
-                self.locks.retain(|(r, _)| *r < LockRank::Organization);
-                self.locks.push((rank, key.to_owned()));
-                return;
-            }
-            if !holds_users
-                && rank == LockRank::Workspace
-                && self.locks.iter().any(|(r, _)| *r == LockRank::Organization)
-            {
-                if let Some((_, prev_ws)) = self
-                    .locks
-                    .iter()
-                    .rev()
-                    .find(|(r, _)| *r == LockRank::Workspace)
-                {
-                    debug_assert!(
-                        prev_ws.as_str() < key,
-                        "out-of-order workspace lock: holding ({:?}, {prev_ws:?}), acquiring ({rank:?}, {key:?}); all={:?}",
-                        LockRank::Workspace,
-                        self.locks
-                    );
-                }
-                self.locks.retain(|(r, _)| *r <= LockRank::Workspace);
-                self.locks.push((rank, key.to_owned()));
-                return;
-            }
-            if let Some((last_rank, last_key)) = self.locks.last() {
-                debug_assert!(
-                    rank > *last_rank
-                        || (rank == *last_rank
-                            && (rank == LockRank::WorkspaceMembers || last_key.as_str() < key)),
-                    "lock rank violation: holding ({last_rank:?}, {last_key:?}), acquiring ({rank:?}, {key:?}); all={:?}",
-                    self.locks
-                );
-            }
-            self.locks.push((rank, key.to_owned()));
-        }
+        locks::push_checked_lock(&mut self.locks, rank, key);
         #[cfg(not(debug_assertions))]
-        {
-            let _ = (rank, key);
-        }
+        let _ = (rank, key);
     }
 
     /// Attaches the owning store's monotonic [`Clock`] to this scope.
@@ -598,7 +504,8 @@ impl<'c> Scope<'c> {
 
     /// Current monotonic time in milliseconds since the Unix epoch.
     pub(crate) fn now_millis(&self) -> i64 {
-        self.clock.map_or_else(now_millis, Clock::now_millis)
+        self.clock
+            .map_or_else(crate::clock::system_millis, Clock::now_millis)
     }
 
     pub(crate) fn is_wall_open(&self) -> bool {

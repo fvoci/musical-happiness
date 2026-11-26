@@ -143,7 +143,7 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
     assert_eq!(rule_hit.container_id, board.id);
     assert_eq!(
         ids(&every_word),
-        [rule.clone()],
+        std::slice::from_ref(&rule),
         "every word, in the title or the body"
     );
     assert_eq!(
@@ -172,9 +172,9 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
     );
     assert_eq!(ids(&backslash), [signs], r"a \ is a \");
     assert!(!ids(&percent).contains(&hundred));
-    assert_eq!(ids(&pages), [page.id.clone()]);
+    assert_eq!(ids(&pages), std::slice::from_ref(&page.id));
     assert_eq!(cards.len(), 3);
-    assert_eq!(ids(&one), [titled.clone()]);
+    assert_eq!(ids(&one), std::slice::from_ref(&titled));
     assert_eq!(nul.ok_json::<Vec<SearchHit>>(), [], "no text holds a NUL");
     assert_eq!(blank, []);
     assert_eq!(

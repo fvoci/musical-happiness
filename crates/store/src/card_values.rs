@@ -252,12 +252,11 @@ async fn check_gantt_dependency_cycles(
             if !active_deps.contains(item.property.as_str()) {
                 continue;
             }
-            let preds_by_card = match checked_props.get(item.property.as_str()) {
-                Some(map) => map,
-                None => {
-                    let map = load_predecessors_map(scope, board_id, &item.property).await?;
-                    checked_props.entry(item.property.as_str()).or_insert(map)
-                }
+            let preds_by_card = if let Some(map) = checked_props.get(item.property.as_str()) {
+                map
+            } else {
+                let map = load_predecessors_map(scope, board_id, &item.property).await?;
+                checked_props.entry(item.property.as_str()).or_insert(map)
             };
             if let Some(preds) = preds_by_card.get(&item.block_id)
                 && closes_relation_cycle(preds_by_card, &item.block_id, preds)

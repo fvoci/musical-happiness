@@ -414,7 +414,7 @@ fn count_u32(value: i64) -> u32 {
 /// Forgets personal progress rows of units that are gone for good: neither live in
 /// `blocks` nor awaiting restore in `deleted_blocks` of the row's organization.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    course_cleanup::forget_gone_unit_rows(scope, PersonalCourseTable::UnitProgress).await
+    course_cleanup::forget_gone_unit_rows(scope, course_cleanup::UnitCourseTable::Progress).await
 }
 
 /// Deletes every `unit_progress` row of `user_id` for courses belonging to

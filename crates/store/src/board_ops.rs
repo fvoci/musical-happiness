@@ -326,7 +326,8 @@ impl Store {
         self.transaction(async |scope| {
             lock_live_board(scope, board_id).await?;
             let mut views = load_sorted_board_views(scope, board_id).await?;
-            let target_idx = resolve_view_insert_index(&views, new.after.as_deref(), true)?;
+            let target_idx =
+                resolve_view_insert_index(&views, new.after.as_deref(), MissingAfter::End)?;
             let (order, companions) = place_view_at(&views, target_idx);
             let companion_views = write_companion_view_orders(scope, companions).await?;
             let mut fields = new.fields.clone().unwrap_or_default();
@@ -382,7 +383,8 @@ impl Store {
             }
             let mut others = load_sorted_board_views(scope, board_id).await?;
             others.retain(|v| v.id != view_id);
-            let target_idx = resolve_view_insert_index(&others, mv.after.as_deref(), false)?;
+            let target_idx =
+                resolve_view_insert_index(&others, mv.after.as_deref(), MissingAfter::Start)?;
             let (order, companions) = place_view_at(&others, target_idx);
             let companion_views = write_companion_view_orders(scope, companions).await?;
             let mut patch = BlockPatch::default();
@@ -427,7 +429,7 @@ impl Store {
             let source = find_board_view(scope, board_id, view_id).await?;
             let views = load_sorted_board_views(scope, board_id).await?;
             let effective_after = dup.after.as_deref().or(Some(view_id));
-            let target_idx = resolve_view_insert_index(&views, effective_after, true)?;
+            let target_idx = resolve_view_insert_index(&views, effective_after, MissingAfter::End)?;
             let (order, companions) = place_view_at(&views, target_idx);
             let companion_views = write_companion_view_orders(scope, companions).await?;
             let mut fields = source.fields.clone();
@@ -893,13 +895,23 @@ async fn load_sorted_board_views(
     Ok(views)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MissingAfter {
+    Start,
+    End,
+}
+
 fn resolve_view_insert_index(
     views: &[Block],
     after: Option<&str>,
-    none_is_end: bool,
+    missing: MissingAfter,
 ) -> Result<usize, Refusals> {
     match after {
-        None => Ok(if none_is_end { views.len() } else { 0 }),
+        None => Ok(if missing == MissingAfter::End {
+            views.len()
+        } else {
+            0
+        }),
         Some("") => Ok(0),
         Some(after_id) => {
             if let Some(pos) = views.iter().position(|v| v.id == after_id) {
@@ -923,48 +935,31 @@ async fn write_companion_view_orders(
 ) -> Result<Vec<Block>, StoreError> {
     let mut updated = Vec::with_capacity(companions.len());
     for (sibling_id, order) in companions {
-        updated.push(write_view_order_sql(scope, &sibling_id, order).await?);
+        let now = scope.now_millis();
+        let (prefix, suffix) = match scope.dialect() {
+            Dialect::Sqlite => (
+                "UPDATE blocks SET fields = json_set(COALESCE(fields, '{}'), '$.order', ",
+                "), updated_at = MAX(",
+            ),
+            Dialect::Postgres => (
+                "UPDATE blocks SET fields = jsonb_set(COALESCE(fields::jsonb, '{}'::jsonb), '{order}', to_jsonb(",
+                "::text), true)::json, updated_at = GREATEST(",
+            ),
+        };
+        let mut sql = scope.sql(prefix);
+        sql.bind(order)
+            .push(suffix)
+            .bind(now)
+            .push(", updated_at + 1)")
+            .push_bind(" WHERE id = ", Id(&sibling_id))
+            .push([" RETURNING ", BLOCK_COLUMNS, ", ", EDITED_AT_COLUMN]);
+        let view = fetch_blocks(scope, sql)
+            .await?
+            .pop()
+            .ok_or_else(|| StoreError::not_found(format_args!("view ID={sibling_id}")))?;
+        updated.push(view);
     }
     Ok(updated)
-}
-
-async fn write_view_order_sql(
-    scope: &mut Scope<'_>,
-    view_id: &str,
-    order: String,
-) -> Result<Block, StoreError> {
-    let now = scope.now_millis();
-    let mut sql = match scope.dialect() {
-        Dialect::Sqlite => scope.sql(
-            "UPDATE blocks SET fields = json_set(COALESCE(fields, '{}'), '$.order', ",
-        ),
-        Dialect::Postgres => scope.sql(
-            "UPDATE blocks SET fields = jsonb_set(COALESCE(fields::jsonb, '{}'::jsonb), '{order}', to_jsonb(",
-        ),
-    };
-    sql.bind(order);
-    match scope.dialect() {
-        Dialect::Sqlite => {
-            sql.push("), updated_at = MAX(")
-                .bind(now)
-                .push(", updated_at + 1)");
-        }
-        Dialect::Postgres => {
-            sql.push("::text), true)::json, updated_at = GREATEST(")
-                .bind(now)
-                .push(", updated_at + 1)");
-        }
-    }
-    sql.push_bind(" WHERE id = ", Id(view_id)).push([
-        " RETURNING ",
-        BLOCK_COLUMNS,
-        ", ",
-        EDITED_AT_COLUMN,
-    ]);
-    let mut fetched = fetch_blocks(scope, sql).await?;
-    fetched
-        .pop()
-        .ok_or_else(|| StoreError::not_found(format_args!("view ID={view_id}")))
 }
 
 async fn lock_board_file(

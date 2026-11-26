@@ -107,11 +107,108 @@ pub fn extract_card_due_point(
     })
 }
 
+/// Language used when generating localized default property labels on a blank board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoardLocale {
+    /// English labels.
+    English,
+    /// Korean labels.
+    Korean,
+}
+
+/// Whether a duplicate is an ordinary copy or a template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DuplicateAs {
+    /// An ordinary copy.
+    Copy,
+    /// A template.
+    Template,
+}
+
+/// Which sessions were ended by a store operation, requiring the WebSocket hub to close
+/// any open connections for them.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EndedSessionScope {
+    /// No sessions ended.
+    None,
+    /// One session, by identifier.
+    Session(String),
+    /// Specific sessions, by identifier.
+    Sessions(Vec<String>),
+    /// Every session of this user.
+    User(String),
+    /// Every session of `user_id` except `kept_session_id`.
+    UserExcept {
+        /// The user whose other sessions ended.
+        user_id: String,
+        /// The session kept open.
+        kept_session_id: String,
+    },
+    /// Every session created through a provider of `org_id` with `issuer`.
+    Origin {
+        /// Organization of the provider.
+        org_id: String,
+        /// Issuer of the provider.
+        issuer: String,
+    },
+    /// Every session of `user_id` created for `(issuer, subject)` (or without subject).
+    Identity {
+        /// The user who unlinked the identity.
+        user_id: String,
+        /// Issuer of the unlinked identity.
+        issuer: String,
+        /// Subject of the unlinked identity.
+        subject: String,
+    },
+}
+
+/// Witness returned by every store operation that ends sessions so callers cannot
+/// forget to close open WebSocket connections (`Hub::close`).
+#[must_use = "close open WebSocket connections with Hub::close"]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SessionsEnded(Option<Box<EndedSessionScope>>);
+
+impl SessionsEnded {
+    /// Wraps `scope` in a `#[must_use]` witness.
+    pub fn new(scope: EndedSessionScope) -> Self {
+        match scope {
+            EndedSessionScope::None => Self(None),
+            other => Self(Some(Box::new(other))),
+        }
+    }
+
+    /// Witness indicating that no sessions ended.
+    pub const fn none() -> Self {
+        Self(None)
+    }
+
+    /// Borrows the scope of ended sessions.
+    #[must_use]
+    pub fn scope(&self) -> &EndedSessionScope {
+        self.0.as_deref().unwrap_or(&EndedSessionScope::None)
+    }
+
+    /// Consumes this witness and returns the scope of ended sessions.
+    #[must_use]
+    pub fn into_scope(self) -> EndedSessionScope {
+        self.0.map_or(EndedSessionScope::None, |boxed| *boxed)
+    }
+
+    /// Session identifiers when this witness came from session cleanup.
+    #[must_use]
+    pub fn session_ids(&self) -> &[String] {
+        match self.scope() {
+            EndedSessionScope::Sessions(ids) => ids,
+            _ => &[],
+        }
+    }
+}
+
 /// Default property definitions (`status`, `assignee`, `due`) plus `(done_when, due_id)`
 /// created on a new blank board so `'Today'` works with zero manual setup.
 #[must_use]
 pub fn default_blank_board_scaffolding(
-    korean: bool,
+    locale: BoardLocale,
 ) -> (Vec<CardPropertyDefinition>, DoneWhen, String) {
     let status_id = new_id();
     let todo_id = new_id();
@@ -120,18 +217,19 @@ pub fn default_blank_board_scaffolding(
     let assignee_id = new_id();
     let due_id = new_id();
 
-    let (status_name, todo_label, doing_label, done_label, assignee_name, due_name) = if korean {
-        ("상태", "할 일", "진행 중", "완료", "담당", "마감일")
-    } else {
-        (
-            "Status",
-            "To do",
-            "In progress",
-            "Done",
-            "Assignee",
-            "Due date",
-        )
-    };
+    let (status_name, todo_label, doing_label, done_label, assignee_name, due_name) =
+        if locale == BoardLocale::Korean {
+            ("상태", "할 일", "진행 중", "완료", "담당", "마감일")
+        } else {
+            (
+                "Status",
+                "To do",
+                "In progress",
+                "Done",
+                "Assignee",
+                "Due date",
+            )
+        };
 
     let status = CardPropertyDefinition {
         id: status_id.clone(),
@@ -171,7 +269,7 @@ pub struct ContainerPermissions {
     pub can_manage_properties: bool,
     /// Whether the caller may change container visibility (`open` / `private`) and `minimumRole`.
     pub can_manage_visibility: bool,
-    /// Whether the caller may add, update, or remove container members and team roles.
+    /// Whether the caller may add, update, or remove container members and group roles.
     pub can_manage_roles: bool,
     /// Whether the caller may delete or restore the container itself.
     pub can_delete: bool,

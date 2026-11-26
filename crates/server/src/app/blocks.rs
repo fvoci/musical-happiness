@@ -139,13 +139,13 @@ impl App {
         }
     }
 
-    /// Coordinates a block write with active collaborative rooms: when `whole_body_ids`
-    /// is empty, runs under structure barriers on `containers`; otherwise runs via
-    /// [`crate::collab::Collab::write_whole`].
+    /// Coordinates a block write with active collaborative rooms: when
+    /// `whole_body_cards` is empty, runs under structure barriers on `containers`;
+    /// otherwise runs via [`crate::collab::Collab::write_whole`].
     pub(crate) async fn write_blocks<T, F, Fut>(
         &self,
         containers: Vec<String>,
-        whole_body_ids: Vec<String>,
+        whole_body_cards: Vec<(String, String)>,
         write: F,
     ) -> Result<T, AppError>
     where
@@ -153,14 +153,16 @@ impl App {
         F: FnOnce(Self) -> Fut + Send + 'static,
         Fut: Future<Output = Result<T, AppError>> + Send + 'static,
     {
-        if whole_body_ids.is_empty() {
+        if whole_body_cards.is_empty() {
             let _structure = self
                 .collab()
                 .changing_structures(self, containers.iter().map(String::as_str))
                 .await;
             write(self.clone()).await
         } else {
-            self.collab().write_whole(self, whole_body_ids, write).await
+            self.collab()
+                .write_whole(self, whole_body_cards, write)
+                .await
         }
     }
 
@@ -210,8 +212,8 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
         let container = self.store().get_container(&block.container_id).await?;
-        let whole_body_ids = if block.block_type.has_room() {
-            vec![block.id.clone()]
+        let whole_body_cards = if block.block_type.has_room() {
+            vec![(block.id.clone(), block.container_id.clone())]
         } else {
             Vec::new()
         };
@@ -219,7 +221,7 @@ impl App {
         *block = self
             .write_blocks(
                 vec![block.container_id.clone()],
-                whole_body_ids,
+                whole_body_cards,
                 async move |app| {
                     app.store_telling(notification)
                         .insert_block(&mut stored, &modified_by)
@@ -273,14 +275,14 @@ impl App {
         }
         let container = self.store().get_container(&container_id).await?;
 
-        let card_ids: Vec<String> = blocks
+        let cards: Vec<(String, String)> = blocks
             .iter()
             .filter(|block| block.block_type.has_room())
-            .map(|block| block.id.clone())
+            .map(|block| (block.id.clone(), container_id.clone()))
             .collect();
         let (mut stored, modified_by) = (blocks.to_vec(), modified_by.to_owned());
         let stored = self
-            .write_blocks(vec![container_id], card_ids, async move |app| {
+            .write_blocks(vec![container_id], cards, async move |app| {
                 app.store_telling(notification)
                     .insert_blocks(&mut stored, &modified_by)
                     .await?;
@@ -317,17 +319,17 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let container = self.store().get_container(&old_block.container_id).await?;
-        let whole_body_ids = if patch.body.is_keep() || !old_block.block_type.has_room() {
+        let whole_body_cards = if patch.body.is_keep() || !old_block.block_type.has_room() {
             Vec::new()
         } else {
-            vec![block_id.to_owned()]
+            vec![(block_id.to_owned(), old_block.container_id.clone())]
         };
         let (block_id, patch, modified_by) =
             (block_id.to_owned(), patch.clone(), modified_by.to_owned());
         let mut block = self
             .write_blocks(
                 vec![old_block.container_id],
-                whole_body_ids,
+                whole_body_cards,
                 async move |app| {
                     Ok(app
                         .store_telling(notification)

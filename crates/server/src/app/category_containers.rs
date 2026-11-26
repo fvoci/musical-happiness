@@ -343,6 +343,11 @@ impl App {
     /// Moves a board into `category_id` (optionally positioned via `index` and setting
     /// `hidden`) in a single database transaction and broadcasts the updated category
     /// entries and order.
+    ///
+    /// # Errors
+    ///
+    /// Returns not-found if `category_id` or `container_id` is absent in `workspace_id`,
+    /// and the store's error on database failure.
     pub async fn put_category_container(
         &self,
         workspace_id: &str,

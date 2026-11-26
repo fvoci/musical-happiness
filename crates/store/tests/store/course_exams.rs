@@ -5,7 +5,7 @@ use fvoci_model::{
     Container, ContainerKind, ContainerMember, ContainerVisibility, CourseExamChange,
     ExamDateChange, NewCourseExam, ValidatedMyExamScore, new_id,
 };
-use fvoci_store::{ExamPublishError, ExamScoreOutcome, Store};
+use fvoci_store::{ExamPublishError, ExamScoreOutcome, ExamViewer, Store};
 
 use crate::account_erasure::{T0, erase, founder};
 use crate::common;
@@ -102,7 +102,7 @@ async fn exams_crud_score_isolation_and_active_member_aggregates() {
         .await;
 
     let for_alice = test
-        .list_course_exams(&course_id, Some(&alice))
+        .list_course_exams(&course_id, ExamViewer::Manager(&alice))
         .await
         .expect("alice list");
     assert_eq!(
@@ -178,6 +178,7 @@ async fn verify_snapshot_publication_progression(
         course_id,
         exam_id,
         alice,
+        bob,
         [&frank, &grace, &heidi],
     )
     .await;
@@ -189,12 +190,16 @@ async fn verify_unpublished_and_initial_publish(
     exam_id: &str,
     [alice, bob, dave, erin]: [&String; 4],
 ) {
-    for viewer in [alice, bob, dave] {
+    for (viewer, expected_count) in [
+        (ExamViewer::Manager(alice), 3_u32),
+        (ExamViewer::Learner(bob), 0_u32),
+        (ExamViewer::Learner(dave), 0_u32),
+    ] {
         let listed = test
-            .list_course_exams(course_id, Some(viewer))
+            .list_course_exams(course_id, viewer)
             .await
             .expect("unpublished list");
-        assert_eq!(listed[0].score_count, 3, "3 initial scorers");
+        assert_eq!(listed[0].score_count, expected_count, "unpublished count");
         assert_eq!(listed[0].average_score, None, "unpublished average is None");
         assert_eq!(
             listed[0].results_published_at, None,
@@ -207,7 +212,7 @@ async fn verify_unpublished_and_initial_publish(
     }
 
     assert_eq!(
-        test.publish_course_exam_results(course_id, exam_id, Some(alice))
+        test.publish_course_exam_results(course_id, exam_id, ExamViewer::Manager(alice))
             .await
             .expect("publish check"),
         Err(ExamPublishError::TooFewScorers {
@@ -228,7 +233,7 @@ async fn verify_unpublished_and_initial_publish(
     .await
     .expect("4th scorer");
     assert_eq!(
-        test.publish_course_exam_results(course_id, exam_id, Some(alice))
+        test.publish_course_exam_results(course_id, exam_id, ExamViewer::Manager(alice))
             .await
             .expect("4-scorer publish check"),
         Err(ExamPublishError::TooFewScorers {
@@ -251,7 +256,7 @@ async fn verify_unpublished_and_initial_publish(
     .await
     .expect("5th scorer");
     let published = test
-        .publish_course_exam_results(course_id, exam_id, Some(alice))
+        .publish_course_exam_results(course_id, exam_id, ExamViewer::Manager(alice))
         .await
         .expect("publish call")
         .expect("5 scorers publish succeeds");
@@ -271,10 +276,11 @@ async fn verify_frozen_snapshot_republish_and_unpublish(
     course_id: &str,
     exam_id: &str,
     alice: &str,
+    bob: &str,
     [frank, grace, heidi]: [&String; 3],
 ) {
     let for_reader = test
-        .list_course_exams(course_id, None)
+        .list_course_exams(course_id, ExamViewer::Unjoined)
         .await
         .expect("reader list");
     assert_eq!(for_reader[0].my_score, None, "reader has no personal score");
@@ -292,42 +298,8 @@ async fn verify_frozen_snapshot_republish_and_unpublish(
         "reader sees no published bucket"
     );
 
-    test.upsert_my_exam_score(
-        course_id,
-        exam_id,
-        frank,
-        &ValidatedMyExamScore {
-            score: 100.0,
-            note: String::new(),
-        },
-    )
-    .await
-    .expect("6th scorer");
-    let frozen = test
-        .list_course_exams(course_id, Some(alice))
-        .await
-        .expect("frozen list");
-    assert_eq!(frozen[0].score_count, 6, "live score_count reaches 6");
-    assert!(
-        (frozen[0].average_score.expect("frozen avg") - 80.3).abs() < 1e-9,
-        "snapshot average remains frozen at 80.3"
-    );
-    assert_eq!(
-        frozen[0].published_score_bucket,
-        Some(5),
-        "snapshot bucket remains frozen at 5"
-    );
-    assert_eq!(
-        test.publish_course_exam_results(course_id, exam_id, Some(alice))
-            .await
-            .expect("republish check"),
-        Err(ExamPublishError::TooFewChangesSincePublish {
-            current_scorers: 6,
-            previous_scorers: 5,
-            minimum_delta: 3,
-        }),
-        "re-publish rejected when scorer delta < 3"
-    );
+    verify_sixth_scorer_freeze_and_unpublish_guard(test, course_id, exam_id, alice, bob, frank)
+        .await;
 
     for extra in [grace, heidi] {
         test.upsert_my_exam_score(
@@ -343,7 +315,7 @@ async fn verify_frozen_snapshot_republish_and_unpublish(
         .expect("7th/8th scorer");
     }
     let republished = test
-        .publish_course_exam_results(course_id, exam_id, Some(alice))
+        .publish_course_exam_results(course_id, exam_id, ExamViewer::Manager(alice))
         .await
         .expect("republish call")
         .expect("delta 3 republish succeeds");
@@ -358,7 +330,7 @@ async fn verify_frozen_snapshot_republish_and_unpublish(
     );
 
     let unpublished = test
-        .unpublish_course_exam_results(course_id, exam_id, Some(alice))
+        .unpublish_course_exam_results(course_id, exam_id, ExamViewer::Manager(alice))
         .await
         .expect("unpublish succeeds");
     assert_eq!(unpublished.average_score, None, "unpublished average None");
@@ -369,6 +341,82 @@ async fn verify_frozen_snapshot_republish_and_unpublish(
     assert_eq!(
         unpublished.published_score_bucket, None,
         "unpublished bucket None"
+    );
+}
+
+async fn verify_sixth_scorer_freeze_and_unpublish_guard(
+    test: &Store,
+    course_id: &str,
+    exam_id: &str,
+    alice: &str,
+    bob: &str,
+    frank: &str,
+) {
+    test.upsert_my_exam_score(
+        course_id,
+        exam_id,
+        frank,
+        &ValidatedMyExamScore {
+            score: 100.0,
+            note: String::new(),
+        },
+    )
+    .await
+    .expect("6th scorer");
+    let frozen = test
+        .list_course_exams(course_id, ExamViewer::Manager(alice))
+        .await
+        .expect("frozen list");
+    assert_eq!(frozen[0].score_count, 6, "manager sees exact count 6");
+    let learner_frozen = test
+        .list_course_exams(course_id, ExamViewer::Learner(bob))
+        .await
+        .expect("learner frozen list");
+    assert_eq!(
+        learner_frozen[0].score_count, 5,
+        "learner sees bucketed count 5, never exact 6"
+    );
+    assert!(
+        (frozen[0].average_score.expect("frozen avg") - 80.3).abs() < 1e-9,
+        "snapshot average remains frozen at 80.3"
+    );
+    assert_eq!(
+        frozen[0].published_score_bucket,
+        Some(5),
+        "snapshot bucket remains frozen at 5"
+    );
+    assert_eq!(
+        test.publish_course_exam_results(course_id, exam_id, ExamViewer::Manager(alice))
+            .await
+            .expect("republish check"),
+        Err(ExamPublishError::TooFewChangesSincePublish {
+            current_scorers: 6,
+            previous_scorers: 5,
+            minimum_delta: 3,
+        }),
+        "re-publish rejected when scorer delta < 3"
+    );
+
+    // Unpublish + immediate re-publish with 6 scorers (delta 1 < 3) MUST restore the
+    // frozen 5-scorer snapshot (80.3), never recomputing the 6-scorer mean (83.6).
+    let temp_unpub = test
+        .unpublish_course_exam_results(course_id, exam_id, ExamViewer::Manager(alice))
+        .await
+        .expect("temp unpublish");
+    assert_eq!(temp_unpub.average_score, None, "hidden while unpublished");
+    let restored_frozen = test
+        .publish_course_exam_results(course_id, exam_id, ExamViewer::Manager(alice))
+        .await
+        .expect("republish after unpublish")
+        .expect("restores frozen snapshot");
+    assert!(
+        (restored_frozen.average_score.expect("restored avg") - 80.3).abs() < 1e-9,
+        "unpublish + publish with delta < 3 restores frozen 80.3 without recomputing"
+    );
+    assert_eq!(
+        restored_frozen.published_score_bucket,
+        Some(5),
+        "restored frozen bucket remains 5"
     );
 }
 
@@ -383,7 +431,7 @@ async fn verify_exam_patch_and_deletions(
         .patch_course_exam(
             course_id,
             exam_id,
-            Some(bob),
+            ExamViewer::Learner(bob),
             &CourseExamChange {
                 title: Some("Midterm Revised".to_owned()),
                 exam_date: ExamDateChange::Clear,
@@ -399,6 +447,7 @@ async fn verify_exam_patch_and_deletions(
         (patched.max_score - 80.0).abs() < 1e-9,
         "max_score updated to 80.0"
     );
+    assert_eq!(patched.score_count, 5, "learner patch view buckets 8 -> 5");
     assert_eq!(
         patched.my_score.as_ref().map(|s| s.note.as_str()),
         Some("bob private note"),
@@ -409,7 +458,7 @@ async fn verify_exam_patch_and_deletions(
         .await
         .expect("alice score deleted");
     let after_del = test
-        .list_course_exams(course_id, Some(alice))
+        .list_course_exams(course_id, ExamViewer::Manager(alice))
         .await
         .expect("listed");
     let first_view = after_del
@@ -470,7 +519,7 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
 
     // With 3 scorers (owner=80, bob=60, carol=100) and unpublished results, average is None.
     let before = test
-        .list_course_exams(&course_id, Some(&owner))
+        .list_course_exams(&course_id, ExamViewer::Manager(&owner))
         .await
         .expect("before removal");
     assert_eq!(before[0].score_count, 3, "3 scorers before removal");
@@ -484,7 +533,7 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
         .await
         .expect("bob removed");
     let exams_owner = test
-        .list_course_exams(&course_id, Some(&owner))
+        .list_course_exams(&course_id, ExamViewer::Manager(&owner))
         .await
         .expect("listed for owner");
     assert_eq!(exams_owner[0].score_count, 2, "2 scorers after bob removed");
@@ -493,10 +542,13 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
         "unpublished average None for owner"
     );
     let exams_dave = test
-        .list_course_exams(&course_id, Some(&dave))
+        .list_course_exams(&course_id, ExamViewer::Learner(&dave))
         .await
         .expect("listed for dave");
-    assert_eq!(exams_dave[0].score_count, 2, "2 scorers visible to dave");
+    assert_eq!(
+        exams_dave[0].score_count, 0,
+        "learner sees bucketed 0 for 2 scorers"
+    );
     assert_eq!(
         exams_dave[0].average_score, None,
         "unpublished average None for dave"
@@ -504,11 +556,22 @@ async fn exam_scores_removed_on_workspace_removal_erasure_and_course_purge() {
 
     // Erase Carol -> Carol's score row deleted (`score_count == 1`).
     erase(&test, &carol, fvoci_store::Erasing::AtOnce, T0 + 1000).await;
+    let exams_owner = test
+        .list_course_exams(&course_id, ExamViewer::Manager(&owner))
+        .await
+        .expect("listed owner after erase");
+    assert_eq!(
+        exams_owner[0].score_count, 1,
+        "1 scorer after carol erased (manager)"
+    );
     let exams = test
-        .list_course_exams(&course_id, Some(&dave))
+        .list_course_exams(&course_id, ExamViewer::Learner(&dave))
         .await
         .expect("listed");
-    assert_eq!(exams[0].score_count, 1, "1 scorer after carol erased");
+    assert_eq!(
+        exams[0].score_count, 0,
+        "learner sees bucketed 0 after carol erased"
+    );
     assert_eq!(
         exams[0].average_score, None,
         "unpublished average None after carol erased"
@@ -633,7 +696,7 @@ async fn verify_org_admin_joining_score_cleanup(
         "ended temporary joining"
     );
     let exams = test
-        .list_course_exams(course_id, Some(teacher))
+        .list_course_exams(course_id, ExamViewer::Manager(teacher))
         .await
         .expect("listed");
     assert_eq!(exams[0].score_count, 0, "temp joining score cleaned up");
@@ -673,11 +736,19 @@ async fn verify_org_admin_joining_score_cleanup(
             .expect("ended second joining"),
         "ended second joining"
     );
+    let manager_kept = test
+        .list_course_exams(&enrolled_course, ExamViewer::Manager(teacher))
+        .await
+        .expect("listed manager kept");
+    assert_eq!(
+        manager_kept[0].score_count, 1,
+        "enrolled prior-member score kept"
+    );
     let kept = test
-        .list_course_exams(&enrolled_course, Some(org_admin))
+        .list_course_exams(&enrolled_course, ExamViewer::Learner(org_admin))
         .await
         .expect("listed kept");
-    assert_eq!(kept[0].score_count, 1, "enrolled prior-member score kept");
+    assert_eq!(kept[0].score_count, 0, "learner sees bucketed 0 for 1");
     assert_eq!(
         kept[0].my_score.as_ref().map(|s| s.note.as_str()),
         Some("kept"),

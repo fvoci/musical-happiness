@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    BlockType, ContainerVisibility, ContainersAndBlocks, date_property_ids, move_dates,
+    BlockType, ContainerVisibility, ContainersAndBlocks, OrgKind, date_property_ids, move_dates,
     renew_containers_and_blocks_ids,
 };
 use fvoci_store::DuplicateAs;
@@ -56,10 +56,14 @@ impl App {
         accept_language: Option<&str>,
         now: i64,
     ) -> Result<String, AppError> {
-        let is_personal = self.store().is_own_space().await?;
+        let org_kind = if self.store().is_own_space().await? {
+            OrgKind::Personal
+        } else {
+            OrgKind::Shared
+        };
         let reader = self.reader_at(user_id, accept_language, now).await?;
         let template_id = self
-            .welcome_template_id_for(reader.language, is_personal)
+            .welcome_template_id_for(reader.language, org_kind)
             .await?;
         let board_id = self
             .copy_welcome_board(&template_id, user_id, workspace_id, &reader)
@@ -71,7 +75,9 @@ impl App {
         {
             tracing::warn!(workspace_id, %error, "a workspace's welcome board was not recorded");
         }
-        if !is_personal && let Err(error) = self.store().record_welcome(user_id, now).await {
+        if org_kind == OrgKind::Shared
+            && let Err(error) = self.store().record_welcome(user_id, now).await
+        {
             tracing::warn!(user_id, %error, "an account's welcome board was not recorded");
         }
         Ok(board_id)
@@ -85,7 +91,7 @@ impl App {
         org_id: &str,
         user_id: &str,
         workspace_id: &str,
-        is_personal: bool,
+        org_kind: OrgKind,
         accept_language: Option<&str>,
     ) {
         let made = self.spawn_tracked({
@@ -101,7 +107,7 @@ impl App {
                         &org_id,
                         &user_id,
                         &workspace_id,
-                        is_personal,
+                        org_kind,
                         accept_language.as_deref(),
                         now,
                     )
@@ -112,7 +118,7 @@ impl App {
                             user_id,
                             workspace_id,
                             board_id,
-                            is_personal,
+                            is_personal = (org_kind == OrgKind::Personal),
                             "a workspace was given its welcome board"
                         );
                     }
@@ -153,7 +159,7 @@ impl App {
         org_id: &str,
         user_id: &str,
         workspace_id: &str,
-        is_personal: bool,
+        org_kind: OrgKind,
         accept_language: Option<&str>,
         now: i64,
     ) -> Result<Option<String>, AppError> {
@@ -161,44 +167,13 @@ impl App {
             return Ok(None);
         }
         let reader = self.reader_at(user_id, accept_language, now).await?;
-        let Some(template_id) = self
-            .marked_template_for(reader.language, is_personal)
-            .await?
-        else {
+        let Some(template_id) = self.marked_template_for(reader.language, org_kind).await? else {
             self.restock_templates_soon();
             return Ok(None);
         };
-        let mut template = self.container(&template_id).await?;
-        let changes = changes_of_copy(&template, reader.today.as_deref());
-        self.write_container_bodies(&template_id).await?;
-        for name in changes.without_properties {
-            template.properties.remove(*name);
-        }
-        template.visibility = ContainerVisibility::Private;
-        template.is_template = false;
-        template.is_builtin = false;
-        user_id.clone_into(&mut template.created_by);
-        workspace_id.clone_into(&mut template.workspace_id);
-
-        let mut blocks: Vec<_> = self
-            .blocks_for_container(&template_id)
-            .await?
-            .into_iter()
-            .filter(|block| block.block_type != BlockType::Comment)
-            .collect();
-        let dates = date_property_ids(&template.card_properties);
-        for block in &mut blocks {
-            move_dates(&mut block.fields, &dates, changes.days_later);
-        }
-        let mut copies = renew_containers_and_blocks_ids(ContainersAndBlocks {
-            containers: vec![template],
-            blocks,
-        });
-        let [board] = copies.containers.as_slice() else {
-            return Err(AppError::internal("new welcome board wasn't prepared"));
-        };
-        let board_id = board.id.clone();
-
+        let (mut copies, board_id) = self
+            .prepare_welcome_board_copy(&template_id, user_id, workspace_id, &reader)
+            .await?;
         let file_ids: Vec<String> = copies
             .blocks
             .iter()
@@ -213,7 +188,6 @@ impl App {
             }
             return Err(error);
         }
-
         let committed = self
             .store()
             .commit_workspace_welcome_board(workspace_id, &mut copies, &staged_files, user_id, now)
@@ -239,14 +213,86 @@ impl App {
                 return Err(error.into());
             }
         };
-
-        self.add_containers_to_default_category(
+        self.finish_workspace_welcome(
             user_id,
             workspace_id,
-            std::slice::from_ref(&board_id),
+            org_kind,
+            now,
+            &board_id,
+            copies,
+            members,
         )
-        .await?;
-        if !is_personal && let Err(error) = self.store().record_welcome(user_id, now).await {
+        .await;
+        Ok(Some(board_id))
+    }
+
+    async fn prepare_welcome_board_copy(
+        &self,
+        template_id: &str,
+        user_id: &str,
+        workspace_id: &str,
+        reader: &Reader,
+    ) -> Result<(ContainersAndBlocks, String), AppError> {
+        let mut template = self.container(template_id).await?;
+        let changes = changes_of_copy(&template, reader.today.as_deref());
+        self.write_container_bodies(template_id).await?;
+        for name in changes.without_properties {
+            template.properties.remove(*name);
+        }
+        template.visibility = ContainerVisibility::Private;
+        template.is_template = false;
+        template.is_builtin = false;
+        user_id.clone_into(&mut template.created_by);
+        workspace_id.clone_into(&mut template.workspace_id);
+
+        let mut blocks: Vec<_> = self
+            .blocks_for_container(template_id)
+            .await?
+            .into_iter()
+            .filter(|block| block.block_type != BlockType::Comment)
+            .collect();
+        let dates = date_property_ids(&template.card_properties);
+        for block in &mut blocks {
+            move_dates(&mut block.fields, &dates, changes.days_later);
+        }
+        let copies = renew_containers_and_blocks_ids(ContainersAndBlocks {
+            containers: vec![template],
+            blocks,
+        });
+        let [board] = copies.containers.as_slice() else {
+            return Err(AppError::internal("new welcome board wasn't prepared"));
+        };
+        let board_id = board.id.clone();
+        Ok((copies, board_id))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "post-commit welcome board sidebar placement, metrics, and broadcasts share state"
+    )]
+    async fn finish_workspace_welcome(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        org_kind: OrgKind,
+        now: i64,
+        board_id: &str,
+        copies: ContainersAndBlocks,
+        members: Vec<fvoci_model::ContainerMember>,
+    ) {
+        if let Err(error) = self
+            .add_containers_to_default_category(
+                user_id,
+                workspace_id,
+                std::slice::from_ref(&board_id.to_owned()),
+            )
+            .await
+        {
+            tracing::warn!(user_id, workspace_id, %error, "welcome board was not placed in default category");
+        }
+        if org_kind == OrgKind::Shared
+            && let Err(error) = self.store().record_welcome(user_id, now).await
+        {
             tracing::warn!(user_id, %error, "an account's welcome board was not recorded");
         }
         self.metrics()
@@ -267,7 +313,6 @@ impl App {
                     .await;
             }
         });
-        Ok(Some(board_id))
     }
 
     /// Gives somebody who came into the workspace as a member their welcome board, a
@@ -359,12 +404,13 @@ impl App {
         accept_language: Option<&str>,
         now: i64,
     ) -> Result<Option<String>, AppError> {
-        let is_personal = self.store().is_own_space().await?;
+        let org_kind = if self.store().is_own_space().await? {
+            OrgKind::Personal
+        } else {
+            OrgKind::Shared
+        };
         let reader = self.reader_at(user_id, accept_language, now).await?;
-        let Some(template_id) = self
-            .marked_template_for(reader.language, is_personal)
-            .await?
-        else {
+        let Some(template_id) = self.marked_template_for(reader.language, org_kind).await? else {
             self.restock_templates_soon();
             return Ok(None);
         };
@@ -427,18 +473,18 @@ impl App {
     async fn welcome_template_id_for(
         &self,
         language: Language,
-        is_personal: bool,
+        org_kind: OrgKind,
     ) -> Result<String, AppError> {
-        if let Some(board) = self.marked_template_for(language, is_personal).await? {
+        if let Some(board) = self.marked_template_for(language, org_kind).await? {
             return Ok(board);
         }
         tracing::warn!(
             language = language.tag(),
-            is_personal,
+            is_personal = (org_kind == OrgKind::Personal),
             "no built-in template is the welcome board of the language: storing them again"
         );
         self.init_templates().await?;
-        self.marked_template_for(language, is_personal)
+        self.marked_template_for(language, org_kind)
             .await?
             .ok_or_else(|| AppError::internal("the built-in templates hold no welcome board"))
     }
@@ -446,13 +492,13 @@ impl App {
     async fn marked_template_for(
         &self,
         language: Language,
-        is_personal: bool,
+        org_kind: OrgKind,
     ) -> Result<Option<String>, AppError> {
         let boards = self.store().get_builtin_templates().await?;
         Ok(boards
             .into_iter()
             .find(|board| {
-                let matches_kind = if is_personal {
+                let matches_kind = if org_kind == OrgKind::Personal {
                     is_personal_onboarding_template(board)
                 } else {
                     is_onboarding_template(board)

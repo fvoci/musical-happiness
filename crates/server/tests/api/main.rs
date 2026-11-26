@@ -1,6 +1,7 @@
 //! API integration tests: an in-process server on an ephemeral port driven over HTTP
 //! and WebSocket, organized by feature area.
 
+mod block_insert;
 mod block_types;
 mod common;
 

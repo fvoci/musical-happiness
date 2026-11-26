@@ -92,35 +92,50 @@ impl PersonalCourseTable {
     }
 }
 
+/// Unit-scoped personal learning table targeted by gone-block cleanup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UnitCourseTable {
+    Progress,
+    Reviews,
+    Notes,
+}
+
+impl UnitCourseTable {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Progress => "unit_progress",
+            Self::Reviews => "unit_reviews",
+            Self::Notes => "unit_notes",
+        }
+    }
+}
+
 /// Forgets personal unit rows of units that are gone for good: neither live in `blocks`
 /// nor awaiting restore in `deleted_blocks` of the row's organization.
 pub(crate) async fn forget_gone_unit_rows(
     scope: &mut Scope<'_>,
-    table: PersonalCourseTable,
+    table: UnitCourseTable,
 ) -> Result<(), StoreError> {
     let name = table.name();
     let (head, mid) = match table {
-        PersonalCourseTable::UnitProgress => (
+        UnitCourseTable::Progress => (
             "DELETE FROM unit_progress WHERE NOT EXISTS \
              (SELECT 1 FROM blocks AS b WHERE b.id = unit_progress.unit_id",
             ") AND NOT EXISTS \
              (SELECT 1 FROM deleted_blocks AS d WHERE d.id = unit_progress.unit_id",
         ),
-        PersonalCourseTable::UnitReviews => (
+        UnitCourseTable::Reviews => (
             "DELETE FROM unit_reviews WHERE NOT EXISTS \
              (SELECT 1 FROM blocks AS b WHERE b.id = unit_reviews.unit_id",
             ") AND NOT EXISTS \
              (SELECT 1 FROM deleted_blocks AS d WHERE d.id = unit_reviews.unit_id",
         ),
-        PersonalCourseTable::UnitNotes => (
+        UnitCourseTable::Notes => (
             "DELETE FROM unit_notes WHERE NOT EXISTS \
              (SELECT 1 FROM blocks AS b WHERE b.id = unit_notes.unit_id",
             ") AND NOT EXISTS \
              (SELECT 1 FROM deleted_blocks AS d WHERE d.id = unit_notes.unit_id",
         ),
-        PersonalCourseTable::ExamScores => {
-            unreachable!("exam_scores hang from course_exams, not unit blocks")
-        }
     };
     let mut sql = scope.sql(head);
     sql.changing_no_access()

@@ -397,7 +397,7 @@ impl App {
                         &confirmed.org_id,
                         &confirmed.user.id,
                         &confirmed.workspace_id,
-                        false,
+                        fvoci_model::OrgKind::Shared,
                         language,
                     )
                     .await;
@@ -415,7 +415,7 @@ impl App {
                                     &ws.org_id,
                                     &confirmed.user.id,
                                     &ws.id,
-                                    true,
+                                    fvoci_model::OrgKind::Personal,
                                     language,
                                 )
                                 .await;
@@ -428,7 +428,7 @@ impl App {
                         &confirmed.org_id,
                         &confirmed.user.id,
                         &confirmed.workspace_id,
-                        true,
+                        fvoci_model::OrgKind::Personal,
                         language,
                     )
                     .await;

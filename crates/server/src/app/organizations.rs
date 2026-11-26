@@ -35,6 +35,10 @@ impl App {
 
     /// [`App::start_organization`], passing `accept_language` (`Accept-Language`) for
     /// creating the new organization's default-workspace welcome board.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::start_organization`].
     pub async fn start_organization_with_language(
         &self,
         session: &Session,
@@ -67,7 +71,7 @@ impl App {
             &started.org_id,
             &session.user_id,
             &started.workspace_id,
-            false,
+            OrgKind::Shared,
             accept_language,
         )
         .await;

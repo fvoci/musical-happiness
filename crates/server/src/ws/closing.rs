@@ -2,7 +2,7 @@
 //! keep up, and when what they may be told cannot be read. What ends of a workspace or
 //! of a shared board ends only what follows it (`ending.rs`).
 
-use fvoci_store::{EndedSessionScope, SessionsEnded};
+use fvoci_model::{EndedSessionScope, SessionsEnded};
 
 use crate::metrics::Disconnect;
 
@@ -11,27 +11,27 @@ use super::{Hub, Listener, ListenerId};
 impl Hub {
     /// Closes the live connections belonging to the sessions ended in the store.
     pub fn close(&self, ended: SessionsEnded) {
-        match ended.scope() {
+        match ended.into_scope() {
             EndedSessionScope::None => {}
-            EndedSessionScope::Session(session_id) => self.close_session(session_id),
+            EndedSessionScope::Session(session_id) => self.close_session(&session_id),
             EndedSessionScope::Sessions(session_ids) => {
-                for session_id in session_ids {
+                for session_id in &session_ids {
                     self.close_session(session_id);
                 }
             }
-            EndedSessionScope::User(user_id) => self.close_user(user_id),
+            EndedSessionScope::User(user_id) => self.close_user(&user_id),
             EndedSessionScope::UserExcept {
                 user_id,
                 kept_session_id,
-            } => self.close_other_sessions_of_user(user_id, kept_session_id),
+            } => self.close_other_sessions_of_user(&user_id, &kept_session_id),
             EndedSessionScope::Origin { org_id, issuer } => {
-                self.close_sessions_of_origin(org_id, issuer);
+                self.close_sessions_of_origin(&org_id, &issuer);
             }
             EndedSessionScope::Identity {
                 user_id,
                 issuer,
                 subject,
-            } => self.close_sessions_of_identity(user_id, issuer, subject),
+            } => self.close_sessions_of_identity(&user_id, &issuer, &subject),
         }
     }
 

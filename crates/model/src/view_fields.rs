@@ -562,18 +562,22 @@ pub fn spread_view_orders(count: usize) -> Vec<String> {
     if count == 0 {
         return Vec::new();
     }
-    let base = DIGITS.len() as u128;
-    let slots = (count + 1) as u128;
+    let base = u128::try_from(DIGITS.len()).unwrap_or(62);
+    let slots = u128::try_from(count)
+        .unwrap_or(u128::MAX - 1)
+        .saturating_add(1);
     let mut width: u32 = 1;
     while base.saturating_pow(width) < slots.saturating_mul(2) {
         width += 1;
     }
     let span = base.saturating_pow(width);
+    let width_usize = usize::try_from(width).unwrap_or(1);
     (0..count)
         .map(|idx| {
-            let mut value = ((idx as u128 + 1) * span) / slots;
-            let mut chars = vec![b'0'; width as usize];
-            for pos in (0..width as usize).rev() {
+            let idx_u128 = u128::try_from(idx).unwrap_or(0);
+            let mut value = (idx_u128.saturating_add(1) * span) / slots;
+            let mut chars = vec![b'0'; width_usize];
+            for pos in (0..width_usize).rev() {
                 let digit = usize::try_from(value % base).unwrap_or(0);
                 chars[pos] = DIGITS[digit];
                 value /= base;

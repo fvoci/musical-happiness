@@ -251,9 +251,10 @@ impl Resolve for CheckedResolver {
     }
 }
 
-/// Whether an address is public: one that a host on the internet has. An IPv6 address
-/// that stands for an IPv4 one (mapped, compatible, NAT64, 6to4, Teredo) is not
-/// counted as public: what it reaches is not plain from it.
+/// Whether an address is public: one that a host on the internet has. IPv4-mapped IPv6
+/// addresses (`::ffff:a.b.c.d`) are unwrapped and judged by the IPv4 rules; other IPv6
+/// addresses that embed or translate IPv4 (compatible, NAT64, 6to4, Teredo) are refused
+/// in `is_public_v6` because what they reach is not plain from the IPv6 address alone.
 pub fn is_public(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(address) => is_public_v4(address),

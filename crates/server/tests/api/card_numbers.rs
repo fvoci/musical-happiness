@@ -72,21 +72,14 @@ async fn every_way_a_card_is_made_gives_it_the_next_number_and_every_read_says_i
         block_type: BlockType::Card,
         title: "by blocks".to_owned(),
         number: Some(1),
-        created_at: 1,
-        updated_at: 1,
         ..Block::default()
     };
     ts.client
         .insert_blocks_in(TEST_WORKSPACE_ID, &board.id, &[sent])
         .await
         .check_bad_request();
-    let second = create_card(
-        &ts.client,
-        TEST_WS,
-        &board.id,
-        json!({"title": "by blocks", "number": 1}),
-    )
-    .await;
+    let second_req = json!({"title": "by blocks", "number": 1});
+    let second = create_card(&ts.client, TEST_WS, &board.id, second_req).await;
     assert_eq!(second.number, Some(2));
 
     let duplicate = |id: String, query: &'static str| {

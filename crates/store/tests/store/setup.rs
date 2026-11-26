@@ -985,42 +985,29 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         ..Block::default()
     };
     let none = serde_json::json!({});
+    let child = |parent_id: String, fields: serde_json::Value| Block {
+        parent_id,
+        ..block(BlockType::Attachment, fields)
+    };
     let card_host = block(BlockType::Card, none.clone());
     let card_host_id = card_host.id.clone();
-    let legacy_parent_1 = block(BlockType::Card, none.clone());
-    let legacy_parent_2 = block(BlockType::Card, none.clone());
     let mut blocks = [
         card_host,
-        Block {
-            parent_id: card_host_id.clone(),
-            ..block(
-                BlockType::Attachment,
-                serde_json::json!({"fileId": "7kept.png"}),
-            )
-        },
+        child(
+            card_host_id.clone(),
+            serde_json::json!({"fileId": "7kept.png"}),
+        ),
         block(BlockType::View, none.clone()),
         block(BlockType::View, none.clone()),
-        Block {
-            parent_id: card_host_id,
-            ..block(
-                BlockType::Attachment,
-                serde_json::json!({"fileId": "7image.png"}),
-            )
-        },
-        legacy_parent_1,
-        legacy_parent_2,
+        child(card_host_id, serde_json::json!({"fileId": "7image.png"})),
+        block(BlockType::Card, none.clone()),
+        block(BlockType::Card, none.clone()),
         block(BlockType::View, none.clone()),
     ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
     let mut below = [
-        Block {
-            parent_id: blocks[5].id.clone(),
-            ..block(BlockType::Attachment, none.clone())
-        },
-        Block {
-            parent_id: blocks[6].id.clone(),
-            ..block(BlockType::Attachment, none)
-        },
+        child(blocks[5].id.clone(), none.clone()),
+        child(blocks[6].id.clone(), none),
     ];
     common::insert_blocks(&test, &mut below, &user_id).await;
     for trashed in [&below[0].id, &blocks[6].id] {
