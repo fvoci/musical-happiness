@@ -35,8 +35,9 @@ pub const BLOCK_FIELDS_MAX_CHARS: usize = 800_000;
 pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The member of a comment's `fields` that names the personal API token an agent wrote
-/// the comment through: the server sets it when the comment is made with one, and the
-/// comment shows its author's agent by that name.
+/// the comment's text through: the server sets it as the text is written, by an agent or
+/// by a person (who leaves none), whatever the writer sent, and the comment shows its
+/// author's agent by that name.
 pub const COMMENT_AGENT_TOKEN_NAME: &str = "agentTokenName";
 
 /// The type of a block.

@@ -15437,7 +15437,7 @@
         "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "For the board's members from the commenter's role up (whoever reads an open board\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the board (400\notherwise), and the text has no file block (400). Written with a personal API token,\nthe comment names the token in `fields.agentTokenName`.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "description": "For the board's members from the commenter's role up (whoever reads an open board\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the board (400\notherwise), and the text has no file block (400). Written with a personal API token,\nthe comment names the token in `fields.agentTokenName`; the server alone sets that\nmember, on every route, as the comment's text is written.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createCardComment",
         "parameters": [
           {

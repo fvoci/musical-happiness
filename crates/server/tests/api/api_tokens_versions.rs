@@ -236,6 +236,19 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
         [&json!("agent"), &json!("agent"), &Value::Null],
         "{listed:?}"
     );
+    // The person writes the agent's text over: the comment is theirs.
+    let rewritten: Value = th
+        .client
+        .patch(
+            &format!("{comments}/{}", id_of(&by_agent)),
+            &json!({"body": paragraphs(&["my word"]), "readAt": listed[0]["updatedAt"]}),
+        )
+        .await
+        .ok_json();
+    assert!(
+        rewritten["fields"].get("agentTokenName").is_none(),
+        "{rewritten}"
+    );
 
     th.teardown().await;
 }
