@@ -106,7 +106,9 @@ async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
 async fn a_missing_actor_rolls_back_the_provider_change() {
     let test = common::setup().await;
     let actor = common::user(&test, "administrator").await;
-    let (before, _) = test
+    let fvoci_store::ProviderPut {
+        provider: before, ..
+    } = test
         .put_oidc_provider_as_read(&settings(), None, &actor, Duration::ZERO)
         .await
         .expect("stored")
@@ -175,7 +177,9 @@ async fn a_release_or_removal_without_its_record_rolls_back() {
         let actor = common::user(&test, "administrator").await;
         let mut provider = settings();
         provider.sso_required = required;
-        let (before, _) = test
+        let fvoci_store::ProviderPut {
+            provider: before, ..
+        } = test
             .put_oidc_provider_as_read(&provider, None, &actor, Duration::ZERO)
             .await
             .expect("stored")
@@ -246,18 +250,25 @@ async fn a_save_records_only_what_it_changed() {
     let actor = common::user(&test, "administrator").await;
     let mut provider = settings();
     provider.sso_required = false;
-    let (first, _) = test
+    let fvoci_store::ProviderPut {
+        provider: first, ..
+    } = test
         .put_oidc_provider_as_read(&provider, None, &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
-    let (unchanged, _) = test
+    let fvoci_store::ProviderPut {
+        provider: unchanged,
+        ..
+    } = test
         .put_oidc_provider_as_read(&provider, Some(&first), &actor, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
     provider.sso_required = true;
-    let (enforced, _) = test
+    let fvoci_store::ProviderPut {
+        provider: enforced, ..
+    } = test
         .put_oidc_provider_as_read(&provider, Some(&unchanged), &actor, Duration::ZERO)
         .await
         .expect("stored")

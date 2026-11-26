@@ -217,6 +217,8 @@ impl App {
         if target_user_id.is_empty() {
             return Err(AppError::bad_request("empty userId").with_field("userId"));
         }
+        // The target user must exist before a membership is created. A lookup that
+        // failed is no answer to whether the user exists.
         match self.user(target_user_id).await {
             Ok(_) => {}
             Err(error) if error.is_not_found() => {
@@ -224,6 +226,9 @@ impl App {
             }
             Err(error) => return Err(error),
         }
+        // A board takes the people of its workspace, its guests too. Anybody else is, to
+        // who adds members, a user who does not exist: the answer is the same, so that it
+        // tells nothing of who has an account elsewhere on the server.
         let Some(target_workspace_role) = self
             .actor(target_user_id, &access.container.workspace_id)
             .await?
@@ -234,6 +239,9 @@ impl App {
         let role = giver.role_granted(requested_role, access.container.minimum_role, denial)?;
         require_holdable_role(target_workspace_role, role)?;
         let member = ContainerMember::new(container_id, target_user_id, role);
+        // A workspace's administrator who could not read the board and gives somebody a
+        // role on it is recorded doing so: themselves, by which they come to read it, or
+        // somebody else, who might be another account of theirs.
         let added = if access.grant.manages_only() {
             self.add_member_as_manager(&member, actor_id).await?
         } else {
@@ -274,6 +282,8 @@ impl App {
             .await?
             .ok_or_else(|| AppError::not_found("board"))?;
         let role = role.ok_or_else(|| AppError::bad_request("missing role").with_field("role"))?;
+        // Who is no member of the board is not found, and so is who has left its
+        // workspace: the role left there opens nothing, and is not to be changed.
         let (Some(_), Some(workspace_role)) = (target.member, target.actor.workspace) else {
             return Err(AppError::not_found("member"));
         };
@@ -533,6 +543,7 @@ impl MemberGiver {
         if access.grant.allows(ContainerPermission::ManageRoles) {
             return Ok(Self::RoleManager);
         }
+        // A guest's editing adds nobody: who is in the workspace is not a guest's to learn.
         let open_editor = access.grant.allows(ContainerPermission::ManageProperties)
             && access.container.visibility == ContainerVisibility::Open
             && access.actor.works_there();
@@ -557,6 +568,10 @@ impl MemberGiver {
                 requested.ok_or_else(|| AppError::bad_request("missing role").with_field("role"))
             }
             Self::OpenEditor => {
+                // Granting the admin role requires role-management permission; otherwise
+                // an editor of an open board could promote a second account to admin and
+                // take the board over. The web app offers a user who does not manage roles
+                // the board's minimum role only: what joining gives.
                 if requested == Some(ContainerRole::Admin) {
                     return Err(AppError::forbidden(denial));
                 }

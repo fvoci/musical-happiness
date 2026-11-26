@@ -531,12 +531,8 @@ async fn clean_up_sessions(app: &App) {
     let idle_since = now.saturating_sub(app.config().session_idle_millis());
     match app.store().clean_up_sessions(now, idle_since).await {
         Ok(ended) => {
-            let count = match ended.scope() {
-                fvoci_model::EndedSessionScope::None => 0,
-                fvoci_model::EndedSessionScope::Sessions(ids) => ids.len(),
-                _ => 1,
-            };
-            app.ws().close(ended);
+            let count = ended.session_ids().len();
+            app.ws().close(ended.into_scope());
             if count > 0 {
                 tracing::debug!(ended = count, "removed sessions that had ended");
             }

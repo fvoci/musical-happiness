@@ -119,7 +119,7 @@ WITH board_due_prop AS (
             LIMIT 1
         ) AS prop_id
     FROM containers AS c
-    WHERE c.kind = 'board'
+    WHERE c.kind = 'board' AND c.is_template = FALSE
 ),
 card_due_raw AS (
     SELECT
@@ -144,7 +144,7 @@ SET due_at = (
         SELECT CASE
             WHEN r.target_type = 'text' AND r.target_val GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
                 THEN r.target_val
-            WHEN r.target_type = 'integer'
+            WHEN r.target_type = 'integer' AND r.target_val BETWEEN -62135596800000 AND 253402300799999
                 THEN strftime(
                     '%Y-%m-%d',
                     CASE
@@ -158,14 +158,17 @@ SET due_at = (
         WHERE r.block_id = blocks.id
     ),
     due_millis = (
-        SELECT CASE WHEN r.target_type = 'integer' THEN r.target_val END
+        SELECT CASE
+            WHEN r.target_type = 'integer' AND r.target_val BETWEEN -62135596800000 AND 253402300799999
+                THEN r.target_val
+        END
         FROM card_due_raw AS r
         WHERE r.block_id = blocks.id
     )
 WHERE id IN (
     SELECT block_id FROM card_due_raw
     WHERE (target_type = 'text' AND target_val GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
-       OR target_type = 'integer'
+       OR (target_type = 'integer' AND target_val BETWEEN -62135596800000 AND 253402300799999)
 );
 
 -- Widen `audit_log` actions (`container_copied_out`, `copy_out_disabled`, `copy_out_enabled`).

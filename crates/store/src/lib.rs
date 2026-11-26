@@ -114,7 +114,9 @@ use sqlx::postgres::PgPool;
 use sqlx::sqlite::SqlitePool;
 
 pub use account_deletion::{DeletionAsking, DeletionStanding};
-pub use account_erasure::{Erasing, ErasureEnd, ErasureStart, HandedOver, LeftFrom};
+pub use account_erasure::{
+    Erasing, ErasureEnd, ErasureStart, HandedOver, LeftFrom, RemovedOrganization,
+};
 pub use accounts::{Founding, FoundingPolicy, OwnSpace, StartedOrganization};
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
@@ -148,7 +150,7 @@ pub use directory::{
 pub use email_change::{
     EMAIL_CHANGE_LIFETIME_MILLIS, EMAIL_CHANGE_LINK_LIFETIME_MILLIS, EmailChanged,
 };
-pub use email_revert::{EMAIL_REVERT_LIFETIME_MILLIS, EmailReverted};
+pub use email_revert::{EMAIL_REVERT_LIFETIME_MILLIS, EmailRevert, EmailReverted};
 pub use error::{StoreError, Taken};
 pub use file_refs::NewBodyFiles;
 pub use file_versions::{
@@ -185,7 +187,7 @@ pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
 pub use search_text::{NumberSearch, TextFound, TextSearch};
 pub use server_lock::ServerLock;
-pub use sessions::{ConfirmedPassword, EndedSessionScope, SessionsEnded};
+pub use sessions::{ConfirmedPassword, EndedSessionScope, PasswordSet, ProviderPut, SessionsEnded};
 pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
     SignupStart, Started,

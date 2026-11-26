@@ -17,7 +17,7 @@ use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, LockRank, OptId, OrganizationHeld, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::oidc_former::{self, Keeping};
-use crate::sessions::{self, SessionsEnded};
+use crate::sessions::{self, ProviderPut, SessionsEnded};
 use crate::users::InstanceRole;
 
 /// The columns of a sign-in under way, in the order [`flow_from_row`] reads them.
@@ -196,11 +196,11 @@ impl Store {
         &self,
         provider: &StoredProvider,
     ) -> Result<StoredProvider, StoreError> {
-        let (stored, _) = self
+        let put = self
             .put_provider(provider, AsRead::Whatever, Keeping::NOTHING)
             .await?
             .ok_or(StoreError::NoRows)?;
-        Ok(stored)
+        Ok(put.provider)
     }
 
     /// Stores the provider of the handle's organization, in place of the one it has, if
@@ -229,7 +229,7 @@ impl Store {
         read: Option<&StoredProvider>,
         actor_id: &str,
         keep_former: Duration,
-    ) -> Result<Option<(StoredProvider, SessionsEnded)>, StoreError> {
+    ) -> Result<Option<ProviderPut>, StoreError> {
         let read = read.map(|read| (read.id.clone(), read.updated_at));
         let keeping = Keeping {
             time: keep_former,
@@ -244,7 +244,7 @@ impl Store {
         provider: &StoredProvider,
         as_read: AsRead,
         keeping: Keeping<'_>,
-    ) -> Result<Option<(StoredProvider, SessionsEnded)>, StoreError> {
+    ) -> Result<Option<ProviderPut>, StoreError> {
         self.transaction(async |scope| {
             let held = hold_provider_of_organization(scope).await?;
             let before = read_provider(scope).await?;
@@ -269,7 +269,10 @@ impl Store {
                     audit::record_entry(scope, &entry).await?;
                 }
             }
-            Ok(Some((written.provider, written.ended)))
+            Ok(Some(ProviderPut {
+                provider: written.provider,
+                ended: written.ended,
+            }))
         })
         .await
     }

@@ -61,13 +61,7 @@ async fn atomic_card_duplicate_rolls_back_when_file_copy_fails() {
         .await
         .created_json();
     let card_id = card["id"].as_str().expect("card id");
-    ts.client
-        .post(
-            &format!("{TEST_WS}/boards/{}/cards/{card_id}/attachments", board.id),
-            &json!({"fileId": second_file_id}),
-        )
-        .await
-        .check_created();
+    attach_named(&ts, &board.id, card_id, &second_file_id).await;
 
     // First verify happy-path atomic duplication remaps both body fileId and attachment fileId.
     let copy_ok: Value = ts
@@ -127,6 +121,35 @@ async fn atomic_card_duplicate_rolls_back_when_file_copy_fails() {
 
     assert_zero_cloned_refs_to_original(&ts, &board.id, card_id, &orig_file_id).await;
     ts.teardown().await;
+}
+
+/// Attaches the file to the card, under the file's name, and checks that an attachment
+/// given a title of its own (an edit kept apart) is shown under it; that one goes again.
+async fn attach_named(ts: &TestServer, board_id: &str, card_id: &str, file_id: &str) {
+    let attachments = format!("{TEST_WS}/boards/{board_id}/cards/{card_id}/attachments");
+    let attached: Value = ts
+        .client
+        .post(&attachments, &json!({"fileId": file_id}))
+        .await
+        .created_json();
+    assert_eq!(attached["title"], "attach.txt", "named as its file");
+    let apart: Value = ts
+        .client
+        .post(
+            &attachments,
+            &json!({"fileId": file_id, "title": "attach (edited).txt"}),
+        )
+        .await
+        .created_json();
+    assert_eq!(
+        apart["title"], "attach (edited).txt",
+        "an edit kept apart is shown under the name its uploader gave it"
+    );
+    let apart_id = apart["id"].as_str().expect("its id");
+    ts.client
+        .delete(&format!("{TEST_WS}/boards/{board_id}/blocks/{apart_id}"))
+        .await
+        .check_no_content();
 }
 
 async fn assert_zero_cloned_refs_to_original(

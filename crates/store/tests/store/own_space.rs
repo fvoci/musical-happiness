@@ -280,7 +280,9 @@ async fn a_first_password_moves_the_revision_of_the_space_alone() {
             space.visibility_version().await,
         );
         if name == "operated" {
-            let (set_user, _) = test.reset_user_password(name, "a hash").await.expect("set");
+            let fvoci_store::PasswordSet {
+                user_id: set_user, ..
+            } = test.reset_user_password(name, "a hash").await.expect("set");
             assert_eq!(set_user, user, "the operator's word");
         } else {
             let set = test

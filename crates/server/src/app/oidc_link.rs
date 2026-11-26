@@ -220,7 +220,7 @@ impl App {
             .await?
         {
             Unlinked::Removed(ended) => {
-                self.ws().close(ended);
+                self.ws().close(ended.into_scope());
                 tracing::info!(user_id = %user.id, issuer = %request.issuer, "an account removed an identity from itself");
                 Ok(())
             }

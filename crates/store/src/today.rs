@@ -305,15 +305,16 @@ impl Store {
     /// Lists up to `limit` un-notified incomplete card assignments whose `due_at <=
     /// max_due_at` across all live shared AND personal organizations reachable by this
     /// handle, filtering out users who disabled `notify_due` (`user_settings.notify_due =
-    /// FALSE`).
+    /// FALSE`), in the order of `(due_at, card_id, user_id)`: those after `after` when it
+    /// is given, so that a caller who passes over some goes on to the next.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn due_soon_card_candidates(
         &self,
-        min_due_at: &str,
         max_due_at: &str,
+        after: Option<(&str, &str, &str)>,
         limit: i64,
     ) -> Result<Vec<DueSoonCardCandidate>, StoreError> {
         self.with_conn(async |scope| {
@@ -336,7 +337,6 @@ impl Store {
             sql.bind(BlockType::Card.as_str())
                 .push_bind(" AND b.is_done = ", false)
                 .push(" AND b.due_at IS NOT NULL")
-                .push_bind(" AND b.due_at >= ", min_due_at)
                 .push_bind(" AND b.due_at <= ", max_due_at)
                 .push_bind(" AND c.kind = ", ContainerKind::Board.as_str())
                 .push_bind(" AND c.is_template = ", false)
@@ -374,10 +374,19 @@ impl Store {
                          ELSE 'd:' || b.due_at END",
                 )
                 .push(&scope.same_organization(&[("dn", "b")]))
-                .push_bind(
-                    ") ORDER BY b.due_at ASC, b.id ASC, ca.user_id ASC LIMIT ",
-                    limit,
-                );
+                .push(")");
+            if let Some((due_at, card_id, user_id)) = after {
+                sql.push_bind(" AND (b.due_at > ", due_at)
+                    .push_bind(" OR (b.due_at = ", due_at)
+                    .push_bind(" AND (b.id > ", Id(card_id))
+                    .push_bind(" OR (b.id = ", Id(card_id))
+                    .push_bind(" AND ca.user_id > ", Id(user_id))
+                    .push("))))");
+            }
+            sql.push_bind(
+                " ORDER BY b.due_at ASC, b.id ASC, ca.user_id ASC LIMIT ",
+                limit,
+            );
 
             scope
                 .fetch_all(sql)

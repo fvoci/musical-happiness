@@ -212,6 +212,7 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
         let container = self.store().get_container(&block.container_id).await?;
+        // A card stored again writes its body whole, around its document.
         let whole_body_cards = if block.block_type.has_room() {
             vec![(block.id.clone(), block.container_id.clone())]
         } else {
@@ -275,6 +276,8 @@ impl App {
         }
         let container = self.store().get_container(&container_id).await?;
 
+        // Store all blocks atomically so a failure leaves none persisted. Cards stored
+        // again write their bodies whole, around their documents.
         let cards: Vec<(String, String)> = blocks
             .iter()
             .filter(|block| block.block_type.has_room())
@@ -319,6 +322,7 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let container = self.store().get_container(&old_block.container_id).await?;
+        // A whole body is written around the document of a body edited together.
         let whole_body_cards = if patch.body.is_keep() || !old_block.block_type.has_room() {
             Vec::new()
         } else {
@@ -381,7 +385,9 @@ impl App {
         modified_by: &str,
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
+        // Verify that every referenced block exists before writing patches.
         let blocks = self.store().get_blocks_by_ids(&batch.block_ids).await?;
+        // Whole bodies are written around the documents of bodies edited together.
         let card_ids =
             crate::collab::cards_written_whole(&blocks, &batch.block_ids, &batch.block_patches);
         let containers: Vec<String> = blocks

@@ -182,6 +182,9 @@ impl Store {
                 if scope.execute(sql).await? == 0 {
                     return Ok(DeletionAsking::Changed);
                 }
+                // The links of the account's own space open nothing while it waits:
+                // what was checked of a link before is checked again, of that space
+                // and of no other organization.
                 if let Some(space) = &standing.own_space {
                     scope.invalidate_visibility_of(&space.id)?;
                 }
@@ -319,6 +322,10 @@ pub(crate) async fn standing<'c>(
             })
         })
         .collect::<Result<_, StoreError>>()?;
+    // The rows of several organizations are held under the turn, as every
+    // transaction that spans organizations holds them (`link_locks`): the caller holds
+    // the instance's row already (`users::lock_instance`), which nothing takes after the
+    // turn.
     if lock_orgs && administered.len() > 1 {
         link_locks::take_turn(scope).await?;
     }

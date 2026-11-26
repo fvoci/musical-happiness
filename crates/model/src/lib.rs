@@ -86,11 +86,11 @@ pub use block_ids::{
     rewrite_block_ids,
 };
 pub use board_ops::{
-    BoardLocale, CardBatchIds, CardDuePoint, CardMovesRequest, CardMovesResult,
-    CategoryContainerUpdate, CategoryPatch, ContainerPermissions, CopiedContainerResult,
-    CopyContainerToWorkspaceRequest, DoneWhen, DuplicateAs, EndedSessionScope, MAX_CARD_BATCH,
-    NewCardAttachment, RestoredCards, SessionsEnded, default_blank_board_scaffolding,
-    extract_card_due_point, is_card_done,
+    BlankBoardScaffolding, BoardLocale, CardBatchIds, CardDuePoint, CardMovesRequest,
+    CardMovesResult, CategoryContainerUpdate, CategoryPatch, ContainerPermissions,
+    CopiedContainerResult, CopyContainerToWorkspaceRequest, DoneWhen, DuplicateAs, MAX_CARD_BATCH,
+    NewCardAttachment, RestoredCards, default_blank_board_scaffolding, extract_card_due_point,
+    is_card_done,
 };
 pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
@@ -249,7 +249,7 @@ pub use unit_review::{
     suggested_next_interval_days,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
-pub use user::{ClientStatePatch, LoginOrigin, Me, Session, User};
+pub use user::{ClientStatePatch, EndedSessionScope, LoginOrigin, Me, Session, User};
 pub use view_fields::{
     BoardViewDuplicate, BoardViewMove, BoardViewWrite, FILTER_DATE_TODAY, FILTER_PERSON_ME,
     GanttZoom, NewBoardView, ParseViewTypeError, SHARED_VIEW_MEMBERS, VIEW_ORDER_MAX_CHARS,

@@ -2,16 +2,17 @@
 //! keep up, and when what they may be told cannot be read. What ends of a workspace or
 //! of a shared board ends only what follows it (`ending.rs`).
 
-use fvoci_model::{EndedSessionScope, SessionsEnded};
+use fvoci_model::EndedSessionScope;
 
 use crate::metrics::Disconnect;
 
 use super::{Hub, Listener, ListenerId};
 
 impl Hub {
-    /// Closes the live connections belonging to the sessions ended in the store.
-    pub fn close(&self, ended: SessionsEnded) {
-        match ended.into_scope() {
+    /// Closes the live connections of the sessions the store ended: the scope its
+    /// witness tells (`SessionsEnded::into_scope`).
+    pub fn close(&self, ended: EndedSessionScope) {
+        match ended {
             EndedSessionScope::None => {}
             EndedSessionScope::Session(session_id) => self.close_session(&session_id),
             EndedSessionScope::Sessions(session_ids) => {

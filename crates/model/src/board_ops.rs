@@ -125,98 +125,31 @@ pub enum DuplicateAs {
     Template,
 }
 
-/// Which sessions were ended by a store operation, requiring the WebSocket hub to close
-/// any open connections for them.
-#[derive(Debug, PartialEq, Eq)]
-pub enum EndedSessionScope {
-    /// No sessions ended.
-    None,
-    /// One session, by identifier.
-    Session(String),
-    /// Specific sessions, by identifier.
-    Sessions(Vec<String>),
-    /// Every session of this user.
-    User(String),
-    /// Every session of `user_id` except `kept_session_id`.
-    UserExcept {
-        /// The user whose other sessions ended.
-        user_id: String,
-        /// The session kept open.
-        kept_session_id: String,
-    },
-    /// Every session created through a provider of `org_id` with `issuer`.
-    Origin {
-        /// Organization of the provider.
-        org_id: String,
-        /// Issuer of the provider.
-        issuer: String,
-    },
-    /// Every session of `user_id` created for `(issuer, subject)` (or without subject).
-    Identity {
-        /// The user who unlinked the identity.
-        user_id: String,
-        /// Issuer of the unlinked identity.
-        issuer: String,
-        /// Subject of the unlinked identity.
-        subject: String,
-    },
+/// The properties a new blank board starts with, so that Today works with no setting up:
+/// a `status` whose last option is done, an `assignee` and a `due` date.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlankBoardScaffolding {
+    /// A select of to do, in progress and done, which the first view groups by.
+    pub status: CardPropertyDefinition,
+    /// The person a card is given to.
+    pub assignee: CardPropertyDefinition,
+    /// The day a card is due.
+    pub due: CardPropertyDefinition,
+    /// When a card is done: its `status` is done.
+    pub done_when: DoneWhen,
 }
 
-/// Witness returned by every store operation that ends sessions so callers cannot
-/// forget to close open WebSocket connections (`Hub::close`).
-#[must_use = "close open WebSocket connections with Hub::close"]
-#[derive(Debug, PartialEq, Eq)]
-pub struct SessionsEnded(Option<Box<EndedSessionScope>>);
-
-impl SessionsEnded {
-    /// Wraps `scope` in a `#[must_use]` witness.
-    pub fn new(scope: EndedSessionScope) -> Self {
-        match scope {
-            EndedSessionScope::None => Self(None),
-            other => Self(Some(Box::new(other))),
-        }
-    }
-
-    /// Witness indicating that no sessions ended.
-    pub const fn none() -> Self {
-        Self(None)
-    }
-
-    /// Borrows the scope of ended sessions.
+impl BlankBoardScaffolding {
+    /// The board's property definitions, in the order the board lists them.
     #[must_use]
-    pub fn scope(&self) -> &EndedSessionScope {
-        self.0.as_deref().unwrap_or(&EndedSessionScope::None)
-    }
-
-    /// Consumes this witness and returns the scope of ended sessions.
-    #[must_use]
-    pub fn into_scope(self) -> EndedSessionScope {
-        self.0.map_or(EndedSessionScope::None, |boxed| *boxed)
-    }
-
-    /// Session identifiers when this witness came from session cleanup.
-    #[must_use]
-    pub fn session_ids(&self) -> &[String] {
-        match self.scope() {
-            EndedSessionScope::Sessions(ids) => ids,
-            _ => &[],
-        }
+    pub fn properties(&self) -> Vec<CardPropertyDefinition> {
+        vec![self.status.clone(), self.assignee.clone(), self.due.clone()]
     }
 }
 
-/// Default property definitions (`status`, `assignee`, `due`) plus `(done_when, due_id)`
-/// created on a new blank board so `'Today'` works with zero manual setup.
+/// The properties of a new blank board ([`BlankBoardScaffolding`]), named in `locale`.
 #[must_use]
-pub fn default_blank_board_scaffolding(
-    locale: BoardLocale,
-) -> (Vec<CardPropertyDefinition>, DoneWhen, String) {
-    let status_id = new_id();
-    let todo_id = new_id();
-    let doing_id = new_id();
-    let done_id = new_id();
-    let assignee_id = new_id();
-    let due_id = new_id();
-
+pub fn default_blank_board_scaffolding(locale: BoardLocale) -> BlankBoardScaffolding {
     let (status_name, todo_label, doing_label, done_label, assignee_name, due_name) =
         if locale == BoardLocale::Korean {
             ("상태", "할 일", "진행 중", "완료", "담당", "마감일")
@@ -230,24 +163,27 @@ pub fn default_blank_board_scaffolding(
                 "Due date",
             )
         };
-
+    let done_id = new_id();
     let status = CardPropertyDefinition {
-        id: status_id.clone(),
+        id: new_id(),
         name: status_name.to_owned(),
         property_type: PropertyType::Select,
         options: vec![
-            PropertyOption::new(todo_id, todo_label, PropertyColor::Gray),
-            PropertyOption::new(doing_id, doing_label, PropertyColor::Blue),
+            PropertyOption::new(new_id(), todo_label, PropertyColor::Gray),
+            PropertyOption::new(new_id(), doing_label, PropertyColor::Blue),
             PropertyOption::new(done_id.clone(), done_label, PropertyColor::Green),
         ],
     };
-    let assignee = CardPropertyDefinition::new(assignee_id, assignee_name, PropertyType::Person);
-    let due = CardPropertyDefinition::new(due_id.clone(), due_name, PropertyType::Date);
     let done_when = DoneWhen {
-        property_id: status_id,
+        property_id: status.id.clone(),
         option_ids: vec![done_id],
     };
-    (vec![status, assignee, due], done_when, due_id)
+    BlankBoardScaffolding {
+        status,
+        assignee: CardPropertyDefinition::new(new_id(), assignee_name, PropertyType::Person),
+        due: CardPropertyDefinition::new(new_id(), due_name, PropertyType::Date),
+        done_when,
+    }
 }
 
 /// Caller-specific effective permissions on a container.
@@ -330,6 +266,10 @@ pub struct RestoredCards {
 pub struct NewCardAttachment {
     /// Uploaded file identifier belonging to the same board (`files.id`).
     pub file_id: String,
+    /// The name the attachment is shown under, such as that of an edit kept as a file of
+    /// its own beside the one it was made from; the file's name when left out or blank.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Partial update of a sidebar category (`PATCH /w/{ws}/categories/{categoryId}`).

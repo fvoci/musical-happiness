@@ -603,7 +603,7 @@ async fn user_lookups_ignore_ascii_case() {
     }
 
     // A password is set by name in any letter case too, for that user alone.
-    let (reset, _) = store
+    let fvoci_store::PasswordSet { user_id: reset, .. } = store
         .reset_user_password("hAN.sOLO", "new-hash")
         .await
         .unwrap();

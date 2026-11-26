@@ -77,7 +77,7 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
     // A member of the organization without a password: no link, and no record.
     let passwordless = common::user(&test, "no-password").await;
 
-    let (_, _) = test
+    let _ = test
         .reset_user_password("PAT", "replacement hash")
         .await
         .expect("set");
@@ -86,7 +86,7 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
         .await
         .expect("asked");
     let not_found = test.reset_user_password("nobody-at-all", "hash").await;
-    let (_, _) = test
+    let _ = test
         .reset_user_password("nobody-of-an-organization", "hash")
         .await
         .expect("set");

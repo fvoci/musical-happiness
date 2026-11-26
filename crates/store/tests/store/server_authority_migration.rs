@@ -143,6 +143,12 @@ async fn seed_pre0078_board_and_cards(
     .to_string()
     .replace('\'', "''");
 
+    // A card whose values are not of their properties' kinds: a time past what a bigint
+    // holds, and one person where several are. The migration passes over them.
+    let odd_card_id = new_id();
+    let odd_fields = format!(
+        r#"{{"properties":{{"p_owner":"{alice}","p_watchers":"{bob}","p_due":{{"from":123456789012345678901234}}}}}}"#
+    );
     let cast = if db_type() == DbType::Postgres {
         ("::jsonb", "::json")
     } else {
@@ -174,6 +180,11 @@ async fn seed_pre0078_board_and_cards(
         format!(
             "INSERT INTO blocks (id, parent_id, container_id, created_by, modified_by, type, title, fields, created_at, updated_at) \
              VALUES ('{timestamp_card_id}', NULL, '{board_id}', '{alice}', '{alice}', 'card', 'Timestamped', '{ts_fields}'{}, 1270, 1270)",
+            cast.1
+        ),
+        format!(
+            "INSERT INTO blocks (id, parent_id, container_id, created_by, modified_by, type, title, fields, created_at, updated_at) \
+             VALUES ('{odd_card_id}', NULL, '{board_id}', '{alice}', '{alice}', 'card', 'Odd values', '{odd_fields}'{}, 1280, 1280)",
             cast.1
         ),
     ] {
@@ -257,7 +268,8 @@ async fn migration_0078_backfills_welcomed_allow_copy_out_assignees_and_due_colu
     assert_eq!(
         alice_today.cards.len(),
         2,
-        "Alice sees both person and multiPerson backfilled cards"
+        "Alice sees both person and multiPerson backfilled cards, and no card of a time \
+         past the years of a calendar"
     );
     let bob_today = open_org
         .workspace_today(&fx.welcomed_ws_id, meta, &fx.bob, &window)

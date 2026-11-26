@@ -55,7 +55,7 @@ impl App {
             ErasureStart::Waits => return Ok(Erasure::Waits),
             ErasureStart::Refused(standing) => return Ok(Erasure::Refused(standing)),
         };
-        self.ws().close(ended);
+        self.ws().close(ended.into_scope());
         let organizations = app
             .store()
             .organizations_of_account(user_id)
@@ -127,7 +127,7 @@ impl App {
     /// organization that went, what stays without an administrator (an organization, a
     /// workspace, a board) and the boards that passed are logged, and who is to be told
     /// is ([`App::announce_leaving`]).
-    async fn after_erasure_from(&self, org_id: &str, user_id: &str, erased: LeftFrom) {
+    async fn after_erasure_from(&self, org_id: &str, user_id: &str, mut erased: LeftFrom) {
         if erased.kept_for_newcomer {
             tracing::warn!(
                 org_id,
@@ -156,14 +156,16 @@ impl App {
                  workspace has no other administrator to pass it to"
             );
         }
-        if let Some(removed) = &erased.removed {
+        if let Some(removed) = erased.removed.take() {
             tracing::info!(
                 org_id,
                 user_id,
-                records = removed.records,
-                files = removed.files.len(),
+                records = removed.purged.records,
+                files = removed.purged.files.len(),
                 "an organization went with the account of its only person"
             );
+            // Those made through its provider: the account's own are closed already.
+            self.ws().close(removed.ended.into_scope());
         }
         for passed in &erased.handed_over {
             tracing::info!(

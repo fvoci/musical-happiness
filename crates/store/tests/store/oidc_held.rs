@@ -43,13 +43,13 @@ fn provider(issuer: &str, secret: &str) -> StoredProvider {
 /// old provider vouches for: the provider as it is, and the member.
 async fn moved(store: &Store) -> (StoredProvider, String) {
     let actor = new_id();
-    let (old, _) = store
+    let fvoci_store::ProviderPut { provider: old, .. } = store
         .put_oidc_provider_as_read(&provider(OLD, "one"), None, &actor, Duration::ZERO)
         .await
         .expect("asked")
         .expect("stored");
     let kept = Duration::from_hours(24);
-    let (new, _) = store
+    let fvoci_store::ProviderPut { provider: new, .. } = store
         .put_oidc_provider_as_read(&provider(NEW, "one"), Some(&old), &actor, kept)
         .await
         .expect("asked")
@@ -454,7 +454,7 @@ async fn bring_about(
         }
         Meanwhile::AnotherSecret => {
             let again = provider(NEW, "another");
-            let (_, _) = store
+            let _ = store
                 .put_oidc_provider_as_read(&again, Some(new), member, Duration::ZERO)
                 .await
                 .expect("asked")
@@ -468,7 +468,7 @@ async fn bring_about(
                 enabled: false,
                 ..provider(NEW, "one")
             };
-            let (_, _) = store
+            let _ = store
                 .put_oidc_provider_as_read(&off, Some(new), member, Duration::ZERO)
                 .await
                 .expect("asked")

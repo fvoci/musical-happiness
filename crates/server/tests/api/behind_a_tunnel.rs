@@ -195,3 +195,42 @@ async fn from_a_peer_that_is_no_trusted_proxy_the_headers_are_not_believed() {
     th.teardown().await;
     smtp.stop().await;
 }
+
+/// Somebody who signs up on their own, with no organization, is counted once against
+/// their address, as one who starts an organization is: of an address's two attempts a
+/// minute, two such sign-ups go ahead and the third waits.
+#[tokio::test]
+async fn a_sign_up_on_ones_own_is_counted_once_against_the_address() {
+    // A server of several organizations, where one signs up on one's own, is PostgreSQL's.
+    if fvoci_store::testing::db_type_of_the_tests() != fvoci_store::DbType::Postgres {
+        return;
+    }
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = server(&smtp, |config| {
+        config.login_address_attempts_per_minute = 2;
+        config.trusted_proxies = vec!["127.0.0.1".to_owned(), "::1".to_owned()];
+        config.org_creation = fvoci_server::config::ORG_CREATION_OPEN.to_owned();
+    })
+    .await;
+    // The server's first account starts its organization, from another address.
+    post(&th, REGISTER, &registration("first"), of("198.51.100.30"))
+        .await
+        .check_created();
+    let alone = |username: &str| {
+        let mut registration = registration(username);
+        registration["organizationName"] = json!("");
+        registration
+    };
+    let address = "203.0.113.30";
+    for username in ["dora", "erin"] {
+        post(&th, REGISTER, &alone(username), of(address))
+            .await
+            .check_created();
+    }
+    post(&th, REGISTER, &alone("fay"), of(address))
+        .await
+        .check_status(StatusCode::TOO_MANY_REQUESTS);
+
+    th.teardown().await;
+    smtp.stop().await;
+}

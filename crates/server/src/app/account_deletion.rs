@@ -141,7 +141,7 @@ impl App {
             .map_err(|error| AppError::from(error).context("asking to delete an account"))?;
         match asking {
             DeletionAsking::Asked(leaving, ended) => {
-                self.ws().close(ended);
+                self.ws().close(ended.into_scope());
                 let own_space_id = standing.own_space.as_ref().map(|space| space.id.as_str());
                 self.end_readers_of_own_space(&user.id, own_space_id).await;
                 tracing::info!(

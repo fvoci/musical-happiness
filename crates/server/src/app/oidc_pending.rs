@@ -191,7 +191,7 @@ impl App {
             joined: _,
         } = applied;
         tracing::info!(org_id = %provider.org_id, issuer = %provider.issuer, "the pending settings of a provider were tried and taken");
-        self.ws().close(ended);
+        self.ws().close(ended.into_scope());
         if provider.sso_required {
             if provider.id != before.id {
                 self.collab().put_out_shut_out(self, &provider.id).await;

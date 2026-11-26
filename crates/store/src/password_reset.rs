@@ -57,7 +57,7 @@ impl Store {
         digest: &str,
         password_hash: &str,
         now: i64,
-    ) -> Result<Option<(String, sessions::SessionsEnded)>, StoreError> {
+    ) -> Result<Option<sessions::PasswordSet>, StoreError> {
         let began = std::time::Instant::now();
         self.transaction(async |scope| {
             let mut find = scope.sql("SELECT user_id FROM password_resets WHERE token_hash = ");
@@ -90,7 +90,7 @@ impl Store {
                 .push_bind(" WHERE id = ", Id(&user_id));
             scope.execute(change).await?;
             let ended = sessions::delete_sessions_of_user(scope, &user_id).await?;
-            Ok(Some((user_id, ended)))
+            Ok(Some(sessions::PasswordSet { user_id, ended }))
         })
         .await
     }

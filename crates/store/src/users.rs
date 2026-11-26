@@ -17,7 +17,7 @@ use crate::db::{Dialect, Id, InstanceHeld, LockRank, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::password_reset;
 use crate::person_names;
-use crate::sessions::{self, SessionsEnded};
+use crate::sessions::{self, PasswordSet, SessionsEnded};
 use crate::{directory, members, users_by_id};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
@@ -866,7 +866,7 @@ pub(crate) async fn follow_org_role<'c>(
 }
 
 /// Sets the password hash of the user with the given name, in any letter case, and
-/// deletes their sessions; returns the identifier of that user and the ended sessions.
+/// deletes their sessions; returns that user and the sessions that ended.
 ///
 /// # Errors
 ///
@@ -875,7 +875,7 @@ pub(crate) async fn reset_password(
     scope: &mut Scope<'_>,
     username: &str,
     password_hash: &str,
-) -> Result<(String, SessionsEnded), StoreError> {
+) -> Result<PasswordSet, StoreError> {
     let lookup = Lookup::Username(username);
     update_password(scope, lookup, password_hash).await?;
     let mut sql = scope.sql("SELECT id FROM users WHERE ");
@@ -887,5 +887,5 @@ pub(crate) async fn reset_password(
     let user_id = row.id(0)?;
     let ended = sessions::delete_sessions_of_user(scope, &user_id).await?;
     password_reset::end_links_of_user(scope, &user_id).await?;
-    Ok((user_id, ended))
+    Ok(PasswordSet { user_id, ended })
 }

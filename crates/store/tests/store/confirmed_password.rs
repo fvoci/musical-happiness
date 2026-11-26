@@ -209,7 +209,7 @@ async fn a_change_of_the_password_leaves_nothing_confirmed_of_the_one_before() {
 
     confirm("before-the-operator", "third").await;
     let reset = store.reset_user_password(&alice.username, "fourth").await;
-    let (_, _) = reset.expect("the operator sets the password");
+    let _ = reset.expect("the operator sets the password");
     assert_eq!(confirmed_of(&test, &alice.id).await, 0, "nor the operator");
     test.teardown().await;
 }

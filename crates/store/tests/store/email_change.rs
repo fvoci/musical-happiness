@@ -434,7 +434,7 @@ async fn a_change_that_waits_goes_with_the_password_and_with_the_account() {
             .await
             .expect("asked")
     );
-    let (_, _) = store
+    let _ = store
         .reset_user_password("ada", "fourth")
         .await
         .expect("the operator sets a password");
