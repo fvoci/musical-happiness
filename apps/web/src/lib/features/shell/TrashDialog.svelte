@@ -5,7 +5,8 @@
   says how many pages below it come back with it). Each row says what it was, who deleted it and when,
   and has its "Restore" button; one that is back leaves the list and shows
   where it was. Nothing is deleted for good here: the server empties its
-  trash after a while.
+  trash after the days it keeps one (`trashRetentionDays`), and each row says
+  how many of them are left to it.
 
   The list is read each time the dialog opens, a page at a time ("Show
   more"). A list that could not be read says so, with a button to try again.
@@ -20,6 +21,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
+  import { trashDaysLeft } from '$lib/logic/trash-days.ts';
   import type { Trash, Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
@@ -86,6 +88,13 @@
     (buttons[Math.min(at, buttons.length - 1)] ?? closer)?.focus();
   }
 
+  /** How long one deleted at `deletedAt` has left in the trash, as of when the list was drawn. */
+  function leftOf(deletedAt: number): string {
+    const days = trashDaysLeft(deletedAt, workspace.trashRetentionDays, Date.now());
+    if (days === 0) return m.shell_trash_left_today();
+    return days === 1 ? m.shell_trash_left_one() : m.shell_trash_left_days({ days });
+  }
+
   const nameOf = (userId: string): string =>
     (userId === '' ? undefined : workspace.userName(userId)) ?? m['centerPanel.unknown-user']();
 </script>
@@ -136,6 +145,7 @@
                     >
                       {relativeTime(item.deletedAt, workspace.locale)}
                     </time>
+                    · <span data-testid="trash-days-left">{leftOf(item.deletedAt)}</span>
                   </span>
                 </span>
                 <Button
