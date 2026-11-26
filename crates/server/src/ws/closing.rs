@@ -2,23 +2,54 @@
 //! keep up, and when what they may be told cannot be read. What ends of a workspace or
 //! of a shared board ends only what follows it (`ending.rs`).
 
+use fvoci_store::{EndedSessionScope, SessionsEnded};
+
 use crate::metrics::Disconnect;
 
 use super::{Hub, Listener, ListenerId};
 
 impl Hub {
-    /// Closes every connection of the user. For when the user's sessions are ended: a
-    /// connection asks for its session once, when it is made, and whoever ends a session
-    /// closes its connections.
-    pub fn close_user(&self, user_id: &str) {
+    /// Closes the live connections belonging to the sessions ended in the store.
+    pub fn close(&self, ended: SessionsEnded) {
+        match ended.scope() {
+            EndedSessionScope::None => {}
+            EndedSessionScope::Session(session_id) => self.close_session(session_id),
+            EndedSessionScope::Sessions(session_ids) => {
+                for session_id in session_ids {
+                    self.close_session(session_id);
+                }
+            }
+            EndedSessionScope::User(user_id) => self.close_user(user_id),
+            EndedSessionScope::UserExcept {
+                user_id,
+                kept_session_id,
+            } => self.close_other_sessions_of_user(user_id, kept_session_id),
+            EndedSessionScope::Origin { org_id, issuer } => {
+                self.close_sessions_of_origin(org_id, issuer);
+            }
+            EndedSessionScope::Identity {
+                user_id,
+                issuer,
+                subject,
+            } => self.close_sessions_of_identity(user_id, issuer, subject),
+        }
+    }
+
+    /// Closes the connections of `session_id` as retryable (`StoreUnavailable`) when the
+    /// workspaces to shut to it could not be read.
+    pub fn close_session_unread(&self, session_id: &str) {
+        self.close_where(Disconnect::StoreUnavailable, |listener| {
+            listener.session_id == session_id
+        });
+    }
+
+    fn close_user(&self, user_id: &str) {
         self.close_where(Disconnect::SessionEnded, |listener| {
             listener.user_id == user_id
         });
     }
 
-    /// Closes the connections of a session. For when the session ends: at logout, and
-    /// when it has gone unused for too long or reached its end.
-    pub fn close_session(&self, session_id: &str) {
+    fn close_session(&self, session_id: &str) {
         self.close_where(Disconnect::SessionEnded, |listener| {
             listener.session_id == session_id
         });
@@ -62,10 +93,7 @@ impl Hub {
         }
     }
 
-    /// Closes the connections of the sessions made through a provider of the
-    /// organization under `issuer`, and with them their seats in the rooms. For when
-    /// the store ended those sessions: the provider was removed or took another issuer.
-    pub fn close_sessions_of_origin(&self, org_id: &str, issuer: &str) {
+    fn close_sessions_of_origin(&self, org_id: &str, issuer: &str) {
         self.close_where(Disconnect::SessionEnded, |listener| {
             listener
                 .login
@@ -74,13 +102,7 @@ impl Hub {
         });
     }
 
-    /// Closes the connections of the user's sessions made for the identity `subject` of
-    /// `issuer`, in any organization, and their seats in the rooms: also those of the
-    /// issuer that know no subject ([`LoginOrigin::is_of_identity`]). For when the user
-    /// unlinked that identity and the store ended those sessions.
-    ///
-    /// [`LoginOrigin::is_of_identity`]: fvoci_model::LoginOrigin::is_of_identity
-    pub fn close_sessions_of_identity(&self, user_id: &str, issuer: &str, subject: &str) {
+    fn close_sessions_of_identity(&self, user_id: &str, issuer: &str, subject: &str) {
         self.close_where(Disconnect::SessionEnded, |listener| {
             listener.user_id == user_id
                 && listener
@@ -90,11 +112,7 @@ impl Hub {
         });
     }
 
-    /// Closes the connections of the user that authenticated with another session than
-    /// the given one. For when a user changes their password or sets the first: the
-    /// session it was done through stays, and so do its connections
-    /// ([`Self::session_goes_on_under`]).
-    pub fn close_other_sessions_of_user(&self, user_id: &str, kept_session_id: &str) {
+    fn close_other_sessions_of_user(&self, user_id: &str, kept_session_id: &str) {
         self.close_where(Disconnect::SessionEnded, |listener| {
             listener.user_id == user_id && listener.session_id != kept_session_id
         });

@@ -10,7 +10,7 @@ use crate::common::ROOT_WS;
 use crate::common::{ROOT_WORKSPACE_ID, Setup};
 
 /// How many built-in templates there are, and in how many languages each is written.
-const TEMPLATES: usize = 8;
+const TEMPLATES: usize = 9;
 const LANGUAGES: usize = 2;
 
 /// The built-in templates are listed, each with blocks, and each can be duplicated into
@@ -45,8 +45,8 @@ async fn get_templates_returns_the_built_in_templates() {
         "all are open"
     );
     assert!(
-        boards.iter().all(|board| board.template_version == 12),
-        "all are at the current version (12)"
+        boards.iter().all(|board| board.template_version == 13),
+        "all are at the current version (13)"
     );
     assert!(
         boards

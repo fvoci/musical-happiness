@@ -373,6 +373,12 @@ pub struct TodayReviewItem {
     pub created_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
     pub updated_at: i64,
+    /// Suggested next interval in days (`suggested_next_interval_days(Some(interval_days), &review_intervals)`).
+    #[serde(default)]
+    pub suggested_next_interval_days: u32,
+    /// Effective review interval sequence configured on the course.
+    #[serde(default)]
+    pub review_intervals: Vec<u32>,
 }
 
 /// Category of a learner's personal note on a unit.

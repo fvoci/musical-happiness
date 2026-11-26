@@ -85,6 +85,7 @@ async fn get_client_config() {
             "maxFileBytes": 1234,
             "maxImportBytes": 268_435_456,
             "searchEnabled": true,
+            "trashRetentionDays": 30,
         }),
         "the client configuration"
     );

@@ -702,7 +702,7 @@ describe('a list read again', () => {
 });
 
 describe('an open board the reader is no member of', () => {
-  it('is shown to join, not opened, and opens once joined', async () => {
+  it('opens read-only with a join banner, and becomes editable once joined', async () => {
     const made = setup();
     await made.workspace.load();
     const first = made.workspace.sidebar.flatMap((entry) => entry.containers)[0];
@@ -715,22 +715,24 @@ describe('an open board the reader is no member of', () => {
       first.id,
       (made.world.members.get(first.id) ?? []).filter((member) => member.userId !== readerId),
     );
-    // As the server answers a workspace member who is no member of an open board.
-    made.backend.failNext('views', new BackendError(403));
 
     const board = await made.workspace.openBoard(first.id);
+    expect(board.status).toBe('ready');
     expect(board.joinable).toBe(true);
+    expect(board.canEdit).toBe(false);
     expect(board.missing).toBe(false);
     expect(board.board?.title).toBe(stored.title);
+    expect(board.realCards.length).toBeGreaterThan(0);
     expect(made.workspace.problems).toHaveLength(0);
 
     expect(await board.join()).toBe(true);
     expect(board.joinable).toBe(false);
+    expect(board.canEdit).toBe(true);
     expect(board.status).toBe('ready');
     expect(board.members.some((member) => member.userId === readerId)).toBe(true);
   });
 
-  it('is shown to join again when the reader is taken off it while it is open', async () => {
+  it('becomes joinable again when the reader is taken off it while it is open', async () => {
     const made = setup();
     const listeners: ChangeListener[] = [];
     const watch = made.backend.watchContainer.bind(made.backend);
@@ -746,15 +748,23 @@ describe('an open board the reader is no member of', () => {
     made.world.containers.set(first.id, { ...stored, visibility: 'open' });
     const board = await made.workspace.openBoard(first.id);
     expect(board.status).toBe('ready');
+    expect(board.joinable).toBe(false);
 
-    // Taken off it: the members read on the message are refused (the live
-    // connection tells that as the board gone), and so are its views.
-    made.backend.failNext('views', new BackendError(403));
-    // Over a copy, as the live connection tells: reading again listens again.
-    for (const listener of [...listeners])
-      listener({ kind: 'containerDeleted', containerId: first.id });
+    const readerId = (await made.backend.me()).id;
+    made.world.members.set(
+      first.id,
+      (made.world.members.get(first.id) ?? []).filter((member) => member.userId !== readerId),
+    );
+    for (const listener of [...listeners]) {
+      listener({
+        kind: 'members',
+        containerId: first.id,
+        members: made.world.members.get(first.id) ?? [],
+      });
+    }
     await vi.waitFor(() => {
       expect(board.joinable).toBe(true);
+      expect(board.canEdit).toBe(false);
     });
     expect(board.missing).toBe(false);
   });
@@ -764,11 +774,19 @@ describe('an open board the reader is no member of', () => {
     await made.workspace.load();
     const first = made.workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (!first) throw new Error('the seed has no board');
+    const stored = made.world.containers.get(first.id);
+    if (!stored) throw new Error('no stored board');
+    made.world.containers.set(first.id, { ...stored, visibility: 'open' });
+    const readerId = (await made.backend.me()).id;
+    made.world.members.set(
+      first.id,
+      (made.world.members.get(first.id) ?? []).filter((member) => member.userId !== readerId),
+    );
     const board = await made.workspace.openBoard(first.id);
-    board.joinable = true;
+    expect(board.joinable).toBe(true);
     made.backend.failNext('joinContainer', new BackendError(404));
     expect(await board.join()).toBe(false);
-    expect(board).toMatchObject({ joinable: false, missing: true, joining: false });
+    expect(board).toMatchObject({ missing: true, joining: false });
 
     const again = await made.workspace.openBoard(first.id);
     const load = vi.spyOn(again, 'load');

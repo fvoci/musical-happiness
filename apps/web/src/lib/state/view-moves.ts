@@ -1,282 +1,163 @@
 /**
- * Moving a view of a board up or down its list, adding one at its end, and a
- * copy of one right after it.
- *
- * Each view keeps its place in its own `fields.order` (`logic/list-places.ts`),
- * not the board one list of them: a move writes the view moved, so that two
- * people moving two views at once both keep their moves. Every place write
- * carries the `updatedAt` of the view as it was read when the place was
- * computed (`readAt`), so a stale write is refused (409) instead of
- * overwriting another editor's move. On 409, a move re-reads the board's views
- * and tries the gesture once from the stored order; on a second 409 it stops
- * and shows the stored order. The first view a board has moved, added or
- * copied gives every view without a place the place it shows at, and a move
- * into a tie raises the tie's views after it: writes that change nothing shown
- * and are no step of undo (`keepViewPlaces`). The move is the step: it shows
- * at once, and its undo puts the view back where it showed, others' places
- * staying.
+ * Creating, moving, and duplicating board views using single-transaction
+ * server fractional-indexing endpoints (`writeView`, `moveView`, `duplicateView`).
  */
-import { isPlace, movedTo, placeAtEnd, type PlaceWrite } from '../logic/list-places.ts';
+import { movedTo } from '../logic/list-places.ts';
 import type { BoardView } from '../logic/wire.ts';
 
-import { isConflict, type ViewDraft } from './backend.ts';
+import { isBackendError, type BoardViewWriteResult, type ViewDraft } from './backend.ts';
+import { deleteBlockForUndo, performBoardAction } from './board-sync.ts';
 import type { BoardStore } from './board.svelte.ts';
-import { orderViews, placesOf, viewCopy } from './order.ts';
-import { isEmptyBlockPatch, viewPatches } from './patches.ts';
+import { placesOf } from './order.ts';
+import { put, take } from './write.ts';
 
-interface KeptOutcome {
-  stale: PlaceWrite[];
-  refused: unknown;
+interface MoveTurnQueue {
+  tail: Promise<unknown>;
+  inFlight: number;
 }
 
-/** Serializes 409 retries on one board so rapid double moves retry in order. */
-const retryTurns = new WeakMap<BoardStore, Promise<void>>();
+const moveQueues = new WeakMap<BoardStore, MoveTurnQueue>();
 
-function inRetryTurn<T>(board: BoardStore, run: () => Promise<T>): Promise<T> {
-  const previous = retryTurns.get(board) ?? Promise.resolve();
-  const current = previous.then(run);
-  const settled = current.then(
-    () => undefined,
-    () => undefined,
-  );
-  retryTurns.set(board, settled);
-  void settled.then(() => {
-    if (retryTurns.get(board) === settled) retryTurns.delete(board);
+function queueOf(board: BoardStore): MoveTurnQueue {
+  let queue = moveQueues.get(board);
+  if (!queue) {
+    queue = { tail: Promise.resolve(), inFlight: 0 };
+    moveQueues.set(board, queue);
+  }
+  return queue;
+}
+
+function takeViewWrite(board: BoardStore, written: BoardViewWriteResult): BoardView {
+  let next = board.views;
+  for (const companion of written.companionViews) next = take(next, companion);
+  next = take(next, written.view);
+  board.views = next;
+  return written.view;
+}
+
+function applyOptimisticMove(board: BoardStore, viewId: string, step: -1 | 1): void {
+  const shown = board.orderedViews;
+  const from = shown.findIndex((view) => view.id === viewId);
+  const to = from + step;
+  if (from < 0 || to < 0 || to >= shown.length) return;
+  const { place, keep } = movedTo(placesOf(shown), viewId, to);
+  let next = board.views;
+  for (const item of keep) {
+    const cur = next.find((v) => v.id === item.id);
+    if (cur && cur.fields.order !== item.place) {
+      next = put(next, { ...cur, fields: { ...cur.fields, order: item.place } });
+    }
+  }
+  const target = next.find((v) => v.id === viewId);
+  if (target) next = put(next, { ...target, fields: { ...target.fields, order: place } });
+  board.views = next;
+}
+
+async function runQueuedMove(board: BoardStore, viewId: string, after: string): Promise<void> {
+  const queue = queueOf(board);
+  queue.inFlight += 1;
+  const turn = queue.tail.then(async () => {
+    try {
+      const written = await board.workspace.backend.moveView(board.boardId, viewId, after);
+      if (queue.inFlight === 1) takeViewWrite(board, written);
+    } catch (error) {
+      if (queue.inFlight === 1) {
+        await board.rereadViews().catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      queue.inFlight -= 1;
+    }
   });
-  return current;
-}
-
-/** Says once the refusal of the places kept for a gesture (`keepViewPlaces`). */
-function sayKept(board: BoardStore, refused: unknown): void {
-  if (refused !== undefined) board.workspace.report('save', refused);
+  queue.tail = turn.catch(() => undefined);
+  await turn;
 }
 
 /**
- * Writes places that keep views where they show (`Placing.keep`): no step of
- * undo. Each write carries the `updatedAt` of the view when the places were
- * computed (`before`), separating 409 conflicts from other refusals.
+ * Moves a view one slot up (`-1`) or down (`1`) in `board.orderedViews` via
+ * `POST /boards/{boardId}/views/{viewId}/move`, showing the new order
+ * synchronously, serializing overlapping moves per board, and re-reading on refusal.
  */
-async function keepViewPlaces(
-  board: BoardStore,
-  keep: readonly PlaceWrite[],
-  before: ReadonlyMap<string, BoardView>,
-): Promise<KeptOutcome> {
-  const sent: { write: PlaceWrite; running: Promise<void> }[] = [];
-  for (const write of keep) {
-    const current = board.view(write.id);
-    const readAt = before.get(write.id)?.updatedAt;
-    if (!current || readAt === undefined) continue;
-    const placed = { ...current, fields: { ...current.fields, order: write.place } };
-    const [forward, backward] = viewPatches(placed, current);
-    if (isEmptyBlockPatch(forward)) continue;
-    sent.push({
-      write,
-      running: board.writeView(write.id, { ...forward, readAt }, backward),
-    });
-  }
-  const settled = await Promise.allSettled(sent.map((entry) => entry.running));
-  const stale: PlaceWrite[] = [];
-  let refused: unknown;
-  settled.forEach((result, index) => {
-    if (result.status !== 'rejected') return;
-    const entry = sent[index];
-    if (entry && isConflict(result.reason)) stale.push(entry.write);
-    else if (refused === undefined) refused = result.reason;
-  });
-  return { stale, refused };
-}
-
-/**
- * Reconciles `keep` writes that hit 409 after the main gesture succeeded:
- * re-reads the board's views and retries once only those whose `order` did not
- * change meanwhile (for instance, somebody only renamed the view); a view
- * whose `order` already changed keeps the other writer's place.
- */
-async function retryStaleKeep(
-  board: BoardStore,
-  stale: readonly PlaceWrite[],
-  before: ReadonlyMap<string, BoardView>,
-  skipId?: string,
-): Promise<unknown> {
-  try {
-    await board.rereadViews();
-  } catch (error) {
-    return error;
-  }
-  const fresh = new Map(board.orderedViews.map((view) => [view.id, view]));
-  const retry = stale.filter(({ id }) => {
-    if (id === skipId) return false;
-    const now = fresh.get(id);
-    return now !== undefined && now.fields.order === before.get(id)?.fields.order;
-  });
-  if (retry.length === 0) return undefined;
-  const again = await keepViewPlaces(board, retry, fresh);
-  if (again.stale.length > 0) await board.rereadViews().catch(() => undefined);
-  return again.refused;
-}
-
-/**
- * Writes a view's moved place as one step of undo, carrying `readAt` from when
- * the place was computed. Undo and redo carry the view's `updatedAt` as it is
- * when they run; on 409 they re-read the board's views and refuse so another
- * editor's concurrent move is not overwritten.
- */
-async function placeView(
-  board: BoardStore,
-  viewId: string,
-  place: string,
-  readAt: number,
-): Promise<{ ok: true } | { ok: false; error: unknown }> {
-  const current = board.view(viewId);
-  if (!current) return { ok: false, error: undefined };
-  const placed = { ...current, fields: { ...current.fields, order: place } };
-  const [forward, backward] = viewPatches(placed, current);
-  if (isEmptyBlockPatch(forward)) return { ok: true };
-  let first = true;
-  try {
-    await board.workspace.undo.perform(
-      async () => {
-        const at = first ? readAt : board.view(viewId)?.updatedAt;
-        const initial = first;
-        first = false;
-        const patch = at === undefined ? forward : { ...forward, readAt: at };
-        try {
-          await board.writeView(viewId, patch, backward);
-        } catch (error) {
-          if (!initial && isConflict(error)) await board.rereadViews().catch(() => undefined);
-          throw error;
-        }
-      },
-      async () => {
-        const at = board.view(viewId)?.updatedAt;
-        const patch = at === undefined ? backward : { ...backward, readAt: at };
-        try {
-          await board.writeView(viewId, patch, forward);
-        } catch (error) {
-          if (isConflict(error)) await board.rereadViews().catch(() => undefined);
-          throw error;
-        }
-      },
-      'moveView',
-      undefined,
-      false,
-      board.keepViewInverse(viewId, backward),
-    );
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error };
-  }
-}
-
-async function moveOnce(
-  board: BoardStore,
-  viewId: string,
-  step: -1 | 1,
-  mayRetry: boolean,
-  fallbackPlace?: string,
-): Promise<boolean> {
-  const real = board.view(viewId);
-  if (!real) return false;
-  const unplaced = !isPlace(real.fields.order);
-  // If an unplaced view hit 409 because of a non-order edit while our `keep` placed the
-  // other views, it would drop to the end as unplaced; keep its pre-move slot on retry.
-  const shown =
-    fallbackPlace !== undefined && unplaced
-      ? orderViews(
-          board.views.map((each) =>
-            each.id === viewId
-              ? { ...each, fields: { ...each.fields, order: fallbackPlace } }
-              : each,
-          ),
-          board.workspace.locale,
-        )
-      : board.orderedViews;
+export async function moveView(board: BoardStore, viewId: string, step: -1 | 1): Promise<boolean> {
+  const shown = board.orderedViews;
   const from = shown.findIndex((view) => view.id === viewId);
   const to = from + step;
   if (from < 0 || to < 0 || to >= shown.length) return false;
-  const before = new Map(board.views.map((view) => [view.id, view]));
-  const placed = placesOf(shown);
-  const { place, keep, was } = movedTo(placed, viewId, to);
-  // Where the view shows now is stored first where it is not (it had no place, or the
-  // others' places pass it): what an undo, and a refusal, put back. A view's writes go
-  // one after another (`BlockTurns.patchView`), forwarding `readAt`, and all of them show at once.
-  const own = !unplaced && placed[from]?.place === was ? [] : [{ id: viewId, place: was }];
-  const [kept, moved] = await Promise.all([
-    keepViewPlaces(board, [...keep, ...own], before),
-    placeView(board, viewId, place, real.updatedAt),
-  ]);
-  if (!moved.ok) {
-    if (isConflict(moved.error)) {
-      if (mayRetry) {
-        return inRetryTurn(board, async () => {
-          const refreshed = await board
-            .rereadViews(viewId)
-            .then(() => true)
-            .catch(() => false);
-          if (refreshed) return moveOnce(board, viewId, step, false, unplaced ? was : undefined);
-          board.workspace.report('save', moved.error);
-          return false;
-        });
-      }
-      await board.rereadViews(viewId).catch(() => undefined);
-    }
-    if (moved.error !== undefined) board.workspace.report('save', moved.error);
-    return false;
-  }
-  const retried =
-    kept.stale.length > 0 ? await retryStaleKeep(board, kept.stale, before, viewId) : undefined;
-  // One gesture, said once: the move refused is said above; the places kept for it, where it held.
-  sayKept(board, kept.refused ?? retried);
-  return true;
+
+  const without = shown.filter((view) => view.id !== viewId);
+  const forwardAfter = to === 0 ? '' : (without[to - 1]?.id ?? '');
+  const backwardAfter = from === 0 ? '' : (without[from - 1]?.id ?? '');
+
+  applyOptimisticMove(board, viewId, step);
+  let firstCall = true;
+  let ok = false;
+  await performBoardAction(
+    board,
+    async () => {
+      if (!firstCall) applyOptimisticMove(board, viewId, step);
+      firstCall = false;
+      await runQueuedMove(board, viewId, forwardAfter);
+      ok = true;
+    },
+    async () => {
+      applyOptimisticMove(board, viewId, -step as -1 | 1);
+      await runQueuedMove(board, viewId, backwardAfter);
+    },
+    'moveView',
+  );
+  return ok;
 }
 
-/**
- * Moves a view a place up (`-1`) or down (`1`) its board's list; at an end,
- * nothing. Whether the move held: refused, the view shows where it is stored.
- */
-export function moveView(board: BoardStore, viewId: string, step: -1 | 1): Promise<boolean> {
-  return moveOnce(board, viewId, step, true);
+/** Adds a view at the end of `board.orderedViews` via `POST /boards/{boardId}/views`. */
+export function addViewAtEnd(board: BoardStore, draft: ViewDraft): Promise<BoardView | undefined> {
+  return performBoardAction(
+    board,
+    async () => {
+      const written = await board.workspace.backend.writeView(board.boardId, {
+        ...draft,
+        after: null,
+      });
+      return takeViewWrite(board, written);
+    },
+    async (created) => {
+      await deleteBlockForUndo(board, created.id);
+      board.views = board.views.filter((existing) => existing.id !== created.id);
+    },
+    'createView',
+  );
 }
 
-/** Adds a view at the end of its board's list. */
-export async function addViewAtEnd(
-  board: BoardStore,
-  draft: ViewDraft,
-): Promise<BoardView | undefined> {
-  const shown = board.orderedViews;
-  const before = new Map(shown.map((view) => [view.id, view]));
-  const { place, keep } = placeAtEnd(placesOf(shown));
-  const [made, kept] = await Promise.all([
-    board.createView({ ...draft, fields: { ...draft.fields, order: place } }),
-    keepViewPlaces(board, keep, before),
-  ]);
-  if (made) {
-    const retried =
-      kept.stale.length > 0 ? await retryStaleKeep(board, kept.stale, before) : undefined;
-    sayKept(board, kept.refused ?? retried);
-  }
-  return made;
-}
-
-/** A copy of a view under another title, right after it in its board's list. */
-export async function duplicateView(
+/** Duplicates `viewId` under `title` right after `viewId` via `POST .../views/{viewId}/duplicate`. */
+export function duplicateView(
   board: BoardStore,
   viewId: string,
   title: string,
 ): Promise<BoardView | undefined> {
-  const source = board.view(viewId);
-  if (!source) return undefined;
-  const shown = board.orderedViews;
-  const before = new Map(shown.map((view) => [view.id, view]));
-  const { fields, keep } = viewCopy(source, shown);
-  const [copy, kept] = await Promise.all([
-    board.createView({ title, fields }),
-    keepViewPlaces(board, keep, before),
-  ]);
-  if (copy) {
-    const retried =
-      kept.stale.length > 0 ? await retryStaleKeep(board, kept.stale, before) : undefined;
-    sayKept(board, kept.refused ?? retried);
-  }
-  return copy;
+  if (!board.view(viewId)) return Promise.resolve(undefined);
+  return performBoardAction(
+    board,
+    async () => {
+      const written = await board.workspace.backend.duplicateView(
+        board.boardId,
+        viewId,
+        title,
+        viewId,
+      );
+      return takeViewWrite(board, written);
+    },
+    async (copied) => {
+      try {
+        await deleteBlockForUndo(board, copied.id);
+      } catch (error) {
+        if (!isBackendError(error) || error.status !== 404) throw error;
+      }
+      board.views = board.views.filter((existing) => existing.id !== copied.id);
+    },
+    'createView',
+  );
+}
+
+/** Optimistically applies a single view replacement for callers holding a `BoardView`. */
+export function showBoardView(board: BoardStore, view: BoardView): void {
+  board.views = put(board.views, view);
 }

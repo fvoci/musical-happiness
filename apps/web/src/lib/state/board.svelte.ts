@@ -19,7 +19,16 @@ import type {
   PropertyValue,
 } from '../logic/wire.ts';
 
-import type { CardDraft, CardSummary, Change, ContainerRole, ViewDraft } from './backend.ts';
+import {
+  permissionsOfRole,
+  READ_ONLY_PERMISSIONS,
+  type CardDraft,
+  type CardSummary,
+  type Change,
+  type ContainerPermissions,
+  type ContainerRole,
+  type ViewDraft,
+} from './backend.ts';
 import { handleBoardLoadFailure, joinOpenBoard, readBoard } from './board-load.ts';
 import {
   changeBoardCard,
@@ -28,10 +37,10 @@ import {
   createBoardCard,
   createBoardView,
   deleteBoardView,
+  duplicateBoardCard,
   rereadBoardViews,
 } from './board-mutations.ts';
 import {
-  canChangeComment,
   cardsOfBoardView,
   filteredCardsOfBoardView,
   groupingPropertyOf,
@@ -51,7 +60,6 @@ import {
   type BoardSyncInternals,
 } from './board-sync.ts';
 import { BoardWrites, cardWritesOf, viewWritesOf } from './board-writes.ts';
-import { copyOfCard } from './card-copy.ts';
 import { dropCardsOn } from './card-drop.ts';
 import { CardPreviews } from './card-previews.svelte.ts';
 import { CardStore } from './card.svelte.ts';
@@ -81,11 +89,12 @@ export class BoardStore {
 
   status = $state<LoadStatus>('idle');
   missing = $state(false);
-  joinable = $state(false);
   board = $state.raw<Container | undefined>(undefined);
   views = $state.raw<BoardView[]>([]);
   cards = $state.raw<CardSummary[]>([]);
   members = $state.raw<ContainerMember[]>([]);
+  permissions = $state.raw<ContainerPermissions>({ ...READ_ONLY_PERMISSIONS });
+  permissionsRole = $state<MemberRole | undefined>(undefined);
   openCard = $state.raw<CardStore | undefined>(undefined);
 
   readonly orderedViews = $derived.by(() => orderViews(this.views, this.workspace.locale));
@@ -108,16 +117,39 @@ export class BoardStore {
   readonly role = $derived<MemberRole>(
     roleOf(this.members.find((member) => member.userId === this.workspace.me?.id)),
   );
-  readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
-  readonly canShare = $derived(this.role === 'admin');
-  readonly canComment = $derived(this.canEdit || this.role === 'commenter');
-  readonly canReadCommentHistory = $derived(this.role !== '');
+  readonly joinable = $derived(
+    this.status === 'ready' &&
+      this.board?.visibility === 'open' &&
+      !this.board.isTemplate &&
+      this.role === '',
+  );
+  readonly #effectivePermissions = $derived.by<ContainerPermissions>(() =>
+    this.permissionsRole === this.role
+      ? this.permissions
+      : permissionsOfRole(this.role, {
+          isGuest: this.workspace.info?.role === 'guest',
+          isWorkspaceAdmin: this.workspace.info?.role === 'admin',
+          isTemplate: this.board?.isTemplate,
+        }),
+  );
+  readonly canEdit = $derived(this.#effectivePermissions.canEdit);
+  readonly canManageProperties = $derived(this.#effectivePermissions.canManageProperties);
+  readonly canManageVisibility = $derived(this.#effectivePermissions.canManageVisibility);
+  readonly canManageRoles = $derived(this.#effectivePermissions.canManageRoles);
+  readonly canDelete = $derived(this.#effectivePermissions.canDelete);
+  readonly canShare = $derived(this.#effectivePermissions.canShare);
+  readonly canComment = $derived(this.#effectivePermissions.canComment);
+  readonly canManageOthersComments = $derived(this.#effectivePermissions.canManageOthersComments);
+  readonly canReadCommentHistory = $derived(this.role !== '' || this.joinable);
 
   canDeleteComment(createdBy: string): boolean {
-    return canChangeComment(this.role, createdBy, this.workspace.me?.id);
+    return (
+      this.#effectivePermissions.canManageOthersComments ||
+      (this.#effectivePermissions.canComment && createdBy === this.workspace.me?.id)
+    );
   }
   canEditComment(createdBy: string): boolean {
-    return canChangeComment(this.role, createdBy, this.workspace.me?.id);
+    return this.canDeleteComment(createdBy);
   }
 
   readonly #lastComments = lastCommentsOf(this);
@@ -161,8 +193,21 @@ export class BoardStore {
       receiveView: (view) => {
         if (this.#viewWrites.receive(view)) this.views = take(this.views, view);
       },
+      refreshPermissions: () => this.#refreshPermissions(),
       refresh: () => this.#refresh(),
     };
+  }
+
+  async #refreshPermissions(): Promise<void> {
+    const visit = this.visit;
+    try {
+      const permissions = await this.#backend.myPermissions(this.boardId);
+      if (!this.#isInactive() && this.visit === visit) {
+        [this.permissions, this.permissionsRole] = [permissions, this.role];
+      }
+    } catch {
+      // Handled on next load/refresh if access ended.
+    }
   }
 
   get #backend(): Workspace['backend'] {
@@ -176,12 +221,22 @@ export class BoardStore {
   async load(): Promise<void> {
     this.visit += 1;
     [this.#parked, this.revalidating, this.evicted] = [false, false, false];
-    [this.status, this.missing, this.joinable] = ['loading', false, false];
+    [this.status, this.missing] = ['loading', false];
     try {
       this.#listen();
-      const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
+      const [board, views, cards, members, permissions] = await readBoard(
+        this.workspace,
+        this.boardId,
+      );
       if (this.#isInactive()) return;
-      [this.board, this.views, this.cards, this.members] = [board, views, cards, members];
+      [this.board, this.views, this.cards, this.members, this.permissions] = [
+        board,
+        views,
+        cards,
+        members,
+        permissions,
+      ];
+      this.permissionsRole = this.role;
       this.status = 'ready';
     } catch (error) {
       if (this.isClosed()) return;
@@ -319,7 +374,7 @@ export class BoardStore {
     return createBoardCard(this, draft, groupId);
   }
   duplicateCard(cardId: string, asTemplate?: boolean): Promise<CardSummary | undefined> {
-    return copyOfCard(this, cardId, asTemplate);
+    return duplicateBoardCard(this, cardId, asTemplate);
   }
   deleteCards(cardIds: readonly string[]): Promise<void> {
     return deleteBoardCards(this, cardIds);

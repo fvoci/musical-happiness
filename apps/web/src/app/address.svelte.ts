@@ -16,7 +16,7 @@ export function followAddress(routerOf: () => Router, shown: () => Workspace | u
     const [router, workspace] = [routerOf(), shown()];
     const route = router.route;
     if (workspace?.status !== 'ready') return;
-    if (route.kind === 'meTime') {
+    if (route.kind === 'meTime' || route.kind === 'todayHub') {
       if (!workspace.asked) {
         const chosen = workspace.firstChoice();
         if (chosen) void workspace.enter(chosen);

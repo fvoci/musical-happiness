@@ -6,7 +6,7 @@
 use fvoci_model::{ContainerKinds, ContainerRole, ContainerVisibility, OrgRole, WorkspaceRole};
 
 use crate::audit::AuditActor;
-use crate::db::{Dialect, Id, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, LockRank, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
 use crate::{Store, container_kinds, org_admin};
@@ -162,7 +162,7 @@ pub(crate) async fn follow_instance_role(
     actor: &AuditActor,
 ) -> Result<(), StoreError> {
     let org_role = org_role_of_instance(instance_role);
-    let org = org_admin::lock_organization(scope).await?;
+    let (org, _) = org_admin::lock_organization(scope).await?;
     match org_admin::org_role_of(scope, user_id).await? {
         Some(before) if before != org_role => {
             org_admin::change_org_role(scope, &org.id, user_id, org_role, actor).await?;
@@ -222,6 +222,10 @@ pub(crate) async fn hold_creator(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
+    scope.record_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+    );
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
@@ -255,8 +259,7 @@ async fn has_acting_admin(
         sql.push_bind(" AND bm.user_id <> ", Id(user_id));
     }
     sql.push(" LIMIT 1");
-    // An admin who is being taken out of the workspace, or made a guest of it, at this
-    // moment is waited for: counted, they would be gone when this is stored.
+    scope.record_lock(LockRank::WorkspaceMembers, container_id);
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR SHARE OF wm");
     }

@@ -26,7 +26,7 @@ use crate::app::container_copies::counted_as;
 use crate::app::doomed::Doomed;
 use crate::app::file_name::check_file_name;
 use crate::app::files::{FilePlace, file_record, stored_extension};
-use crate::app::loose_objects::{WRITE_TIMEOUT, Written};
+use crate::app::loose_objects::WrittenPlace;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::collab::AccessScope;
@@ -137,7 +137,7 @@ impl App {
         });
         self.check_org_storage_room(total_new_bytes).await?;
 
-        let written_paths = self
+        let written_places = self
             .write_staged_files(bundle, &prepared_files, limits.max_file_bytes)
             .await?;
 
@@ -155,10 +155,15 @@ impl App {
             .await;
 
         let members = match commit_result {
-            Ok(members) => members,
+            Ok(members) => {
+                for place in written_places {
+                    place.settled_in_transaction();
+                }
+                members
+            }
             Err(error) => {
-                for path in &written_paths {
-                    self.give_up_writing(path, Written::Settled).await;
+                for place in written_places {
+                    place.give_up().await;
                 }
                 return Err(AppError::from(error).context("error committing staged import"));
             }
@@ -208,7 +213,7 @@ impl App {
         bundle: Option<&SafeBundle>,
         files: &[PreparedFile],
         max_file_bytes: u64,
-    ) -> Result<Vec<String>, AppError> {
+    ) -> Result<Vec<WrittenPlace>, AppError> {
         if files.is_empty() {
             return Ok(Vec::new());
         }
@@ -227,22 +232,24 @@ impl App {
         let doomed_dir = Doomed::directory(work_dir);
         let temp_file = doomed_dir.path().join("entry");
 
-        let mut written_paths: Vec<String> = Vec::with_capacity(files.len());
+        let mut written_places: Vec<WrittenPlace> = Vec::with_capacity(files.len());
         for prepared in files {
-            if let Err(error) = self
+            match self
                 .write_one_staged_file(bundle, prepared, max_file_bytes, &temp_file)
                 .await
             {
-                for path in &written_paths {
-                    self.give_up_writing(path, Written::Settled).await;
+                Ok(written) => written_places.push(written),
+                Err(error) => {
+                    for place in written_places {
+                        place.give_up().await;
+                    }
+                    doomed_dir.remove().await;
+                    return Err(error);
                 }
-                doomed_dir.remove().await;
-                return Err(error);
             }
-            written_paths.push(prepared.record.path.clone());
         }
         doomed_dir.remove().await;
-        Ok(written_paths)
+        Ok(written_places)
     }
 
     async fn write_one_staged_file(
@@ -251,7 +258,7 @@ impl App {
         prepared: &PreparedFile,
         max_file_bytes: u64,
         temp_file: &Path,
-    ) -> Result<(), AppError> {
+    ) -> Result<WrittenPlace, AppError> {
         let written_bytes = bundle
             .unpack_to_file(&prepared.entry, max_file_bytes, temp_file)
             .await?;
@@ -262,35 +269,21 @@ impl App {
             )
             .with_reason(Reason::ArchiveEntryTooLarge));
         }
-        let path = &prepared.record.path;
-        self.mark_writing(path).await?;
+        let marked = self.mark_place(&prepared.record.path).await?;
         let mut reader = match fs::File::open(temp_file).await {
             Ok(file) => file,
             Err(error) => {
-                self.give_up_writing(path, Written::Settled).await;
+                marked.give_up_unused().await;
                 return Err(AppError::internal(format_args!(
                     "cannot open staged file: {error}"
                 )));
             }
         };
-        let write = self.files().write(path, &mut reader);
-        match tokio::time::timeout(WRITE_TIMEOUT, write).await {
-            Ok(Ok(_)) => {
-                let _ = fs::remove_file(temp_file).await;
-                Ok(())
-            }
-            failed => {
-                let _ = fs::remove_file(temp_file).await;
-                self.give_up_writing(path, Written::Unsettled).await;
-                let message = match failed {
-                    Ok(Err(error)) => error.to_string(),
-                    _ => "file write timed out".to_owned(),
-                };
-                Err(AppError::internal(format_args!(
-                    "unable to store imported file: {message}"
-                )))
-            }
-        }
+        let written = marked.write(&mut reader).await;
+        let _ = fs::remove_file(temp_file).await;
+        written.map_err(|error| {
+            AppError::internal(format_args!("unable to store imported file: {error}"))
+        })
     }
 }
 

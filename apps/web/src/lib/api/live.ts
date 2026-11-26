@@ -9,37 +9,14 @@
  * Binary Yjs room frames (`live-rooms.ts`) and presence (`live-presence.ts`)
  * share the same connection.
  */
-import type { Container } from '../logic/wire.ts';
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
-import type { BodySummary } from '../state/body-summary.ts';
 
-import {
-  attachmentOf,
-  containerOf,
-  cardOfBlock,
-  commentOf,
-  viewOf,
-  type Schemas,
-} from './convert.ts';
 import { Heartbeat, Patience, PING, PONG } from './live-heartbeat.ts';
+import { dispatchLiveMessage, type LiveMessageSink, type LiveReads } from './live-messages.ts';
 import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
-import { pageOfBlock } from './wikis.ts';
-import { entryOfBlock } from './diaries.ts';
-import { unitOfBlock } from './courses.ts';
 
-type Members = Extract<Change, { kind: 'members' }>['members'];
-type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
-
-/** What the messages do not carry, read over HTTP instead. */
-export interface LiveReads {
-  /** A board's or a wiki's members: a message carries one member, the screens want them all. */
-  members(containerId: string): Promise<Members>;
-  /** Records the workspace of a newly created/restored container heard on WS (`W1.2`). */
-  learnContainer?(container: Container): void;
-  /** Records a live view/comment block heard on WS so 1-round-trip patches stay current. */
-  learnBlock?(block: ChangedBlock): void;
-}
+export type { LiveReads } from './live-messages.ts';
 
 interface Listening {
   /** `undefined` for the reader's own things. */
@@ -59,25 +36,6 @@ const TRY_AGAIN = 1013;
 const STEADY = 10_000;
 /** How long member and category messages are gathered before the sidebar is read again. */
 const GATHER = 200;
-
-const CATEGORY_MESSAGE_TYPES = new Set([
-  'categoryChanged',
-  'containerCategoriesChanged',
-  'categoriesReordered',
-  'categoryContainersReordered',
-]);
-
-type Message = { workspaceId?: string } & (
-  | { type: 'containerChanged'; container: Schemas['Container'] }
-  | { type: 'blockChanged'; block: Schemas['Block']; summary?: BodySummary }
-  | { type: 'containerMemberChanged'; member: Schemas['ContainerMember'] }
-  | {
-      type: 'containerMemberRemoved';
-      member: { containerId: string; userId: string };
-    }
-  | { type: 'userChanged'; userId: string }
-  | { type: string }
-);
 
 export class LiveChanges {
   readonly #url: string;
@@ -102,6 +60,7 @@ export class LiveChanges {
   /** The latest reading of each board's members: an older answer is not told. */
   readonly #readings = new Map<string, number>();
   #readCount = 0;
+  readonly #sink: LiveMessageSink;
   /** The rooms of the bodies open on this connection. */
   readonly rooms: LiveRooms;
   readonly presence: LivePresence;
@@ -110,6 +69,26 @@ export class LiveChanges {
   constructor(url: string, reads: LiveReads) {
     this.#url = url;
     this.#reads = reads;
+    this.#sink = {
+      workspaceId: () => this.#workspaceId,
+      reads,
+      resubscribeWorkspace: (workspaceId) => {
+        this.#send(JSON.stringify({ type: 'subscribeWorkspace', workspaceId }));
+      },
+      tellAll: (change) => {
+        this.#tellAll(change);
+      },
+      tellSelf: (change) => {
+        this.#tellSelf(change);
+      },
+      tellContainer: (containerId, change, self) => {
+        this.#tellContainer(containerId, change, self);
+      },
+      sidebarSoon: () => {
+        this.#sidebarSoon();
+      },
+      readMembers: (containerId) => this.#readMembers(containerId),
+    };
     this.rooms = new LiveRooms(
       {
         text: (command) => this.#send(JSON.stringify(command)),
@@ -145,7 +124,6 @@ export class LiveChanges {
    */
   restart(): void {
     this.#failures = 0;
-    // The old connection's close is not heard (it is no longer the one): its timer goes here.
     clearTimeout(this.#steady);
     this.#stopHeartbeat();
     const socket = this.#socket;
@@ -169,14 +147,6 @@ export class LiveChanges {
    * Follows `workspaceId` from now on. An open connection leaves the one it
    * followed and subscribes to this one; what was heard of the old one is
    * the business of whoever listened to it (the workspace reads anew).
-   *
-   * Entered again (`Workspace.enter`, which reads it anew), the one it follows
-   * is asked for again: the server says nothing of an asking it ignores (the
-   * own space, until the session has shown the account's password, on this
-   * connection or on the one before it), so the page cannot know that it is
-   * followed, and the server takes an asking for what is followed already.
-   * Whoever listens reads again too (`resync`): what was not heard meanwhile is
-   * not only what `Workspace.enter` reads (the titles of what bodies refer to).
    */
   enter(workspaceId: string): void {
     const before = this.#workspaceId;
@@ -238,7 +208,6 @@ export class LiveChanges {
   }
 
   #open(): void {
-    // Nothing to follow yet: entering a workspace opens it.
     if (this.#workspaceId === undefined) return;
     if (!this.#wanted() || this.#socket) return;
     const socket = new WebSocket(this.#url);
@@ -258,12 +227,9 @@ export class LiveChanges {
         },
         this.#patience,
       );
-      // A connection that is closed as soon as it opens does not count as held.
       this.#steady = setTimeout(() => {
         this.#failures = 0;
       }, STEADY);
-      // The subscription has no answer: a write between this and the
-      // server taking it in is missed. The window is short.
       if (this.#wasOpen) this.#tellAll({ kind: 'resync' });
       this.#wasOpen = true;
       this.rooms.up();
@@ -281,11 +247,6 @@ export class LiveChanges {
     });
   }
 
-  /**
-   * The connection `socket` is gone, if it was the one: the rooms and the
-   * visits hear, and it is opened again after a wait (`spread`: the server
-   * asked to try again).
-   */
   #dropped(socket: WebSocket, spread = false): void {
     if (this.#socket !== socket) return;
     clearTimeout(this.#steady);
@@ -298,10 +259,6 @@ export class LiveChanges {
     this.#again(spread);
   }
 
-  /**
-   * Gives up the connection `socket` that is taken for gone (the browser is
-   * offline, a `PING` was not answered): its close may not be heard for long.
-   */
   #letGo(socket: WebSocket): void {
     this.#dropped(socket);
     socket.close();
@@ -312,7 +269,6 @@ export class LiveChanges {
     this.#heartbeat = undefined;
   }
 
-  /** Opens again after the wait of the failures so far; `spread` adds a random part of it. */
   #again(spread = false): void {
     if (!this.#wanted() || this.#timer !== undefined) return;
     const base = WAITS[Math.min(this.#failures - 1, WAITS.length - 1)] ?? 30_000;
@@ -327,7 +283,6 @@ export class LiveChanges {
     for (const { listener } of [...this.#listening]) listener(change);
   }
 
-  /** To the listeners of `containerId`, and to those of the reader's own things when `self`. */
   #tellContainer(containerId: string, change: Change, self: boolean): void {
     for (const { containerId: watched, listener } of [...this.#listening]) {
       if (watched === containerId || (self && watched === undefined)) listener(change);
@@ -348,50 +303,12 @@ export class LiveChanges {
       return;
     }
     if (typeof parsed !== 'object' || parsed === null) return;
-    if (this.rooms.text(parsed as Record<string, unknown>)) return;
-    if (this.presence.text(parsed as Record<string, unknown>)) return;
-    const message = parsed as Message;
-    if (typeof message.type !== 'string') return;
-    // Still on its way from a workspace that was left.
-    if (message.workspaceId !== undefined && message.workspaceId !== this.#workspaceId) return;
-    if (message.type === 'workspaceUnsubscribed') {
-      this.#send(JSON.stringify({ type: 'subscribeWorkspace', workspaceId: this.#workspaceId }));
-      this.#tellAll({ kind: 'resync' });
-      return;
-    }
-    if (message.type === 'notificationsChanged') {
-      this.#tellSelf({ kind: 'notifications' });
-    } else if (message.type === 'userChanged' && 'userId' in message) {
-      this.#tellSelf({ kind: 'user', userId: message.userId });
-    } else if (message.type === 'containerChanged' && 'container' in message) {
-      const { container } = message;
-      let change: Change;
-      if (container.deletedAt === undefined) {
-        const converted = containerOf(container);
-        this.#reads.learnContainer?.(converted);
-        change = { kind: 'container', container: converted };
-      } else {
-        change = { kind: 'containerDeleted', containerId: container.id };
-      }
-      this.#tellContainer(container.id, change, true);
-    } else if (message.type === 'blockChanged' && 'block' in message) {
-      this.#receiveBlock(message.block, message.summary);
-    } else if (
-      (message.type === 'containerMemberChanged' || message.type === 'containerMemberRemoved') &&
-      'member' in message
-    ) {
-      this.#sidebarSoon();
-      await this.#readMembers(message.member.containerId);
-    } else if (CATEGORY_MESSAGE_TYPES.has(message.type)) {
-      this.#sidebarSoon();
-    }
+    const record = parsed as Record<string, unknown>;
+    if (this.rooms.text(record)) return;
+    if (this.presence.text(record)) return;
+    await dispatchLiveMessage(record, this.#sink);
   }
 
-  /**
-   * Reads a board's members for its listeners, if it has any. Of two
-   * readings, only the later one is told. A board the reader may no longer
-   * read (taken off it) is gone for them.
-   */
   async #readMembers(containerId: string): Promise<void> {
     if (![...this.#listening].some((entry) => entry.containerId === containerId)) return;
     this.#readCount += 1;
@@ -406,82 +323,14 @@ export class LiveChanges {
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
         this.#tellContainer(containerId, { kind: 'containerDeleted', containerId }, false);
       }
-      // Anything else: the next message, or the next reading, brings them.
     }
   }
 
-  #receiveBlock(block: Schemas['Block'], summary: BodySummary | undefined): void {
-    if (block.deletedAt !== undefined) {
-      this.#tellContainer(
-        block.containerId,
-        { kind: 'blocksDeleted', containerId: block.containerId, blockIds: [block.id] },
-        false,
-      );
-      return;
-    }
-    if (block.type === 'page') {
-      this.#tellContainer(
-        block.containerId,
-        { kind: 'pages', containerId: block.containerId, pages: [pageOfBlock(block)] },
-        false,
-      );
-      return;
-    }
-    if (block.type === 'entry') {
-      this.#tellContainer(
-        block.containerId,
-        { kind: 'entries', containerId: block.containerId, entries: [entryOfBlock(block)] },
-        false,
-      );
-      return;
-    }
-    if (block.type === 'unit' || block.type === 'chapter') {
-      this.#tellContainer(
-        block.containerId,
-        { kind: 'units', containerId: block.containerId, units: [unitOfBlock(block)] },
-        false,
-      );
-      return;
-    }
-    const changed = changedBlock(block, summary);
-    if (changed) {
-      this.#reads.learnBlock?.(changed);
-      this.#tellContainer(
-        block.containerId,
-        { kind: 'blocks', containerId: block.containerId, blocks: [changed] },
-        false,
-      );
-    }
-  }
-
-  /** Has the reader's own listeners read the sidebar again, once for messages close together. */
   #sidebarSoon(): void {
     if (this.#gathering !== undefined) return;
     this.#gathering = setTimeout(() => {
       this.#gathering = undefined;
       this.#tellSelf({ kind: 'resync' });
     }, GATHER);
-  }
-}
-
-/**
- * A block of a message as the screens' changed block; other kinds are not
- * shown. A card's message carries the summary of its body in place of it.
- */
-function changedBlock(
-  block: Schemas['Block'],
-  summary: BodySummary | undefined,
-): ChangedBlock | undefined {
-  switch (block.type) {
-    case 'view':
-      return viewOf(block);
-    case 'card':
-      return summary && cardOfBlock(block, summary);
-    case 'comment':
-      return commentOf(block);
-    case 'attachment':
-      return attachmentOf(block);
-    default:
-      return undefined;
   }
 }

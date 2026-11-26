@@ -1,16 +1,16 @@
 /**
- * Post-authentication workspace load and onboarding flow for `SignInPage` in
- * `App.svelte`, extracted so `App.svelte` stays concise and under 500 lines.
+ * Post-authentication workspace load flow for `SignInPage` in `App.svelte`,
+ * extracted so `App.svelte` stays concise and under 500 lines. Welcome boards
+ * are created idempotently on the server (`workspaces.welcomed_at`).
  */
 import {
   BackendError,
-  whileHere,
   type Account,
   type AccountSettings,
   type Workspace,
 } from '$lib/state/index.ts';
 
-import { shownContainerId, workspaceIdOf, type Router } from './router.svelte.ts';
+import { workspaceIdOf, type Router } from './router.svelte.ts';
 
 export interface SignInFlowContext {
   account: Account | undefined;
@@ -53,13 +53,6 @@ export async function completePasswordSignIn(
   }
   if (ctx.registered && workspace?.status === 'ready') {
     ctx.clearRegistered();
-    if (isNew) {
-      const where = workspace.info?.id;
-      const welcome = await whileHere(workspace, () => workspace.onboard());
-      if (welcome && where && shownContainerId(router.route) !== welcome) {
-        router.openContainer({ id: welcome, workspaceId: where });
-      }
-    }
   }
   if (workspace?.status === 'ready') ctx.followsLanguage(workspace.settings);
 }

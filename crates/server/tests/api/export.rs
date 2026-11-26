@@ -99,10 +99,13 @@ async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Container {
         updated_at: 1,
         ..Block::default()
     };
-    ts.client
-        .insert_blocks_in(workspace_id, &board.id, std::slice::from_ref(&card))
-        .await
-        .check_created();
+    crate::blocks::insert_in(
+        &ts.client,
+        workspace_id,
+        &board.id,
+        std::slice::from_ref(&card),
+    )
+    .await;
     board
 }
 
@@ -408,6 +411,12 @@ async fn import_of_a_traversing_entry_is_harmless() {
 async fn export_of_a_board_whose_blocks_share_a_file() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
+    let cards: Vec<Block> = ts
+        .client
+        .get(&format!("{TEST_WS}/boards/{}/blocks?type=card", board.id))
+        .await
+        .ok_json();
+    let card_id = cards[0].id.clone();
     let upload = async |name: &str| {
         crate::files::uploaded_id(&crate::files::upload(&ts.client, &board.id, name, b"x").await)
     };
@@ -422,7 +431,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         fvoci_model::Block {
             id: fvoci_model::new_id(),
             container_id: board.id.clone(),
-            parent_id: String::new(),
+            parent_id: card_id.clone(),
             block_type: fvoci_model::BlockType::Attachment,
             fields,
             created_at: 1,
@@ -680,16 +689,17 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
     let body = serde_json::json!({"type": "doc", "content": [
         {"type": kind, "attrs": {"fileId": file_id}},
     ]});
-    ts.client
+    let card: serde_json::Value = ts
+        .client
         .post(
             &format!("{TEST_WS}/boards/{}/cards", board.id),
             &serde_json::json!({"title": "Card", "body": body}),
         )
         .await
-        .check_status(reqwest::StatusCode::CREATED);
+        .created_json();
     let without_file = Block {
         id: new_id(),
-        parent_id: String::new(),
+        parent_id: card["id"].as_str().expect("card id").to_owned(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         created_at: 1,
@@ -946,6 +956,12 @@ async fn an_archive_with_a_broken_entry_stores_nothing() {
 async fn an_archive_reads_back_whatever_an_attachment_names() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
+    let cards: Vec<Block> = ts
+        .client
+        .get(&format!("{TEST_WS}/boards/{}/blocks?type=card", board.id))
+        .await
+        .ok_json();
+    let card_id = cards[0].id.clone();
     let image = |file: &str| {
         let mut fields = fvoci_model::JsonMap::new();
         fields.insert(
@@ -955,7 +971,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
         Block {
             id: new_id(),
             container_id: board.id.clone(),
-            parent_id: String::new(),
+            parent_id: card_id.clone(),
             block_type: BlockType::Attachment,
             fields,
             created_at: 1,
@@ -1124,9 +1140,17 @@ async fn a_large_file_is_whole_in_the_archive() {
     let response = crate::files::upload(&ts.client, &board.id, "large.bin", &data).await;
     response.check_created();
     let file_id = crate::files::uploaded_id(&response);
+    let card: serde_json::Value = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &serde_json::json!({"title": "Card"}),
+        )
+        .await
+        .created_json();
     let attachment = Block {
         id: new_id(),
-        parent_id: String::new(),
+        parent_id: card["id"].as_str().expect("card id").to_owned(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields: serde_json::json!({"fileId": file_id})
@@ -1202,6 +1226,15 @@ async fn board_with_large_archive(ts: &TestServer) -> Container {
     let board = ts
         .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
+    let card: serde_json::Value = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &serde_json::json!({"title": "Card"}),
+        )
+        .await
+        .created_json();
+    let card_id = card["id"].as_str().expect("card id").to_owned();
     let mut state: u64 = 0x2545_f491_4f6c_dd1d;
     let mut attachments = Vec::new();
     for index in 0..3 {
@@ -1218,7 +1251,7 @@ async fn board_with_large_archive(ts: &TestServer) -> Container {
         response.check_created();
         attachments.push(Block {
             id: new_id(),
-            parent_id: String::new(),
+            parent_id: card_id.clone(),
             container_id: board.id.clone(),
             block_type: BlockType::Attachment,
             fields: serde_json::json!({"fileId": crate::files::uploaded_id(&response)})
@@ -1425,17 +1458,19 @@ async fn board_with_missing_files(ts: &TestServer) -> MissingFiles {
         {"type": "image", "attrs": {"fileId": present}},
         {"type": "image", "attrs": {"fileId": gone}},
     ]});
-    ts.client
+    let card: serde_json::Value = ts
+        .client
         .post(
             &format!("{TEST_WS}/boards/{}/cards", board.id),
             &serde_json::json!({"title": "Card", "body": body}),
         )
         .await
-        .check_status(StatusCode::CREATED);
+        .created_json();
     let mut fields = fvoci_model::JsonMap::new();
     fields.insert("fileId".to_owned(), serde_json::json!(unrecorded));
     let attachment = Block {
         id: new_id(),
+        parent_id: card["id"].as_str().expect("card id").to_owned(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields,

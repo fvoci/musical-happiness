@@ -117,11 +117,7 @@ async fn attach(ts: &TestServer, board_id: &str, file_id: &str) -> String {
         updated_at: 1,
         ..Block::default()
     };
-    let made: Vec<Block> = ts
-        .client
-        .insert_blocks(board_id, &[card])
-        .await
-        .created_json();
+    let made = crate::blocks::insert(&ts.client, board_id, &[card]).await;
     let mut fields = JsonMap::new();
     fields.insert("fileId".to_owned(), Value::String(file_id.to_owned()));
     let attachment = Block {

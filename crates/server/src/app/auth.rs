@@ -296,12 +296,12 @@ impl App {
     ///
     /// Returns the store's error if the session cannot be deleted.
     pub async fn logout(&self, session_id: &str) -> Result<(), AppError> {
-        self.store()
+        let ended = self
+            .store()
             .delete_session(session_id)
             .await
             .map_err(|error| AppError::from(error).context("unable to delete the session"))?;
-        // What the session had open ends with it.
-        self.ws().close_session(session_id);
+        self.ws().close(ended);
         Ok(())
     }
 
@@ -370,11 +370,28 @@ impl App {
         request: &RegisterRequest,
         address: Option<IpAddr>,
     ) -> Result<User, AppError> {
+        self.sign_up_with_language(request, address, None).await
+    }
+
+    /// [`App::sign_up`], passing `accept_language` (`Accept-Language`) for choosing the
+    /// welcome board language when `request.language` is empty or unsupported.
+    pub async fn sign_up_with_language(
+        &self,
+        request: &RegisterRequest,
+        address: Option<IpAddr>,
+        accept_language: Option<&str>,
+    ) -> Result<User, AppError> {
         // A registration costs a hash like a login, and is counted against where it
         // comes from like one. The turn is held until the user is stored.
-        let _attempt = self.admit_registration(address)?;
+        let attempt = self.admit_registration(address)?;
+        let preferred_language = super::language::Language::written_in(&request.language)
+            .map(super::language::Language::tag)
+            .or(accept_language);
         let Some(name) = request.organization() else {
-            return self.sign_up_alone(request).await;
+            drop(attempt);
+            return self
+                .sign_up_alone(request, preferred_language, address)
+                .await;
         };
         let mut user = self.new_account(&request.account(), None).await?;
         let policy = if self.config().takes_several_organizations() {
@@ -388,6 +405,7 @@ impl App {
             .await
         {
             Ok(workspace_id) => {
+                drop(attempt);
                 self.metrics().registered();
                 tracing::info!(
                     user_id = %user.id,
@@ -395,6 +413,24 @@ impl App {
                     first = user.is_admin,
                     "a user signed up and started an organization"
                 );
+                if let Ok(workspaces) = self
+                    .store()
+                    .workspaces_of_user(&user.id, fvoci_store::Making::with_password())
+                    .await
+                {
+                    for ws in workspaces {
+                        if ws.id == workspace_id || ws.kind == fvoci_model::OrgKind::Personal {
+                            self.welcome_workspace_in(
+                                &ws.org_id,
+                                &user.id,
+                                &ws.id,
+                                ws.kind == fvoci_model::OrgKind::Personal,
+                                preferred_language,
+                            )
+                            .await;
+                        }
+                    }
+                }
                 Ok(user)
             }
             Err(error) => Err(account_error(error)),
@@ -404,18 +440,34 @@ impl App {
     /// Makes the account of somebody who signs up without naming an organization: the
     /// account and its own space. Not on a server that takes one organization, where
     /// who is not its first user gets in by an invitation.
-    async fn sign_up_alone(&self, request: &RegisterRequest) -> Result<User, AppError> {
+    async fn sign_up_alone(
+        &self,
+        request: &RegisterRequest,
+        preferred_language: Option<&str>,
+        address: Option<IpAddr>,
+    ) -> Result<User, AppError> {
+        let attempt = self.admit_registration(address)?;
         self.require_organization_of_first(request).await?;
         if !self.config().takes_several_organizations() {
             return Err(AppError::invitation_required());
         }
         let mut user = self.new_account(&request.account(), None).await?;
-        self.store()
+        let own_space = self
+            .store()
             .sign_up_alone(&mut user)
             .await
             .map_err(account_error)?;
+        drop(attempt);
         self.metrics().registered();
         tracing::info!(user_id = %user.id, "a user signed up and started no organization");
+        self.welcome_workspace_in(
+            &own_space.org_id,
+            &user.id,
+            &own_space.workspace_id,
+            true,
+            preferred_language,
+        )
+        .await;
         Ok(user)
     }
 
@@ -504,11 +556,11 @@ impl App {
         username: &str,
         password: &str,
     ) -> Result<(), AppError> {
-        let user_id = self
+        let (_, ended) = self
             .store()
             .reset_user_password(username, &self.hash(password).await?)
             .await?;
-        self.ws().close_user(&user_id);
+        self.ws().close(ended);
         Ok(())
     }
 
@@ -544,7 +596,7 @@ impl App {
         )
         .await?;
         let token = new_secret();
-        let changed = self
+        let Some(ended) = self
             .store()
             .change_user_password(
                 &user.id,
@@ -554,17 +606,16 @@ impl App {
                 &token_digest(&token),
             )
             .await
-            .map_err(|error| AppError::from(error).context("unable to update password"))?;
-        if !changed {
+            .map_err(|error| AppError::from(error).context("unable to update password"))?
+        else {
             // Hashing takes a while. The password that was checked above is not the
             // user's any more: an administrator set another one, or another request
             // changed it. This change must not undo that.
             return Err(AppError::conflict(
                 "the password was changed in the meantime; sign in again",
             ));
-        }
-        self.ws()
-            .close_other_sessions_of_user(&user.id, &session.id);
+        };
+        self.ws().close(ended);
         self.ws().session_goes_on_under(&session.id, &token);
         Ok(token)
     }
@@ -600,7 +651,7 @@ impl App {
         // the account's other sessions and is the proof of what comes after.
         require_fresh_sign_in(session, now_millis(), "set a password")?;
         let token = new_secret();
-        let set = self
+        let Some(ended) = self
             .store()
             .change_user_password(
                 &user.id,
@@ -610,13 +661,12 @@ impl App {
                 &token_digest(&token),
             )
             .await
-            .map_err(|error| AppError::from(error).context("unable to set the password"))?;
-        if !set {
+            .map_err(|error| AppError::from(error).context("unable to set the password"))?
+        else {
             return Err(has_one());
-        }
+        };
         tracing::info!(user_id = %user.id, "an account without a password was given one");
-        self.ws()
-            .close_other_sessions_of_user(&user.id, &session.id);
+        self.ws().close(ended);
         self.ws().session_goes_on_under(&session.id, &token);
         self.shut_own_space_to(session).await;
         Ok(token)

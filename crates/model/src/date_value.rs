@@ -130,7 +130,8 @@ fn days_in_month(year: u32, month: u32) -> u32 {
 }
 
 /// The UTC calendar day of a time, as `YYYY-MM-DD`; `None` outside years 1 to 9999.
-fn utc_date(millis: i64) -> Option<String> {
+#[must_use]
+pub fn utc_date(millis: i64) -> Option<String> {
     // Days to the civil date: Howard Hinnant's `civil_from_days`.
     let days = millis.div_euclid(DAY_MILLIS) + 719_468;
     let era = days.div_euclid(146_097);

@@ -12,6 +12,10 @@
 //! the list with an error logged.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
+
+use fvoci_model::FileRecord;
+use tokio::io::AsyncRead;
 
 use super::App;
 use super::uploads::UPLOAD_LIFETIME_MILLIS;
@@ -62,7 +66,7 @@ struct Doomed<'a> {
 
 /// How far a write that is given up got: whether its object may yet appear.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Written {
+enum Written {
     /// The write is over, and what is there is all there will be: the record failed.
     Settled,
     /// The write failed, and the storage may have taken it all the same, its answer
@@ -77,8 +81,135 @@ const WRITE_SETTLE_MILLIS: i64 = 60 * 60 * 1000;
 /// The longest a write or a copy of an object may take before it is given up: an upload
 /// session's life, well within [`WRITING_GRACE_MILLIS`], so that no write goes on
 /// after the housekeeping took it for stopped.
-pub(crate) const WRITE_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_millis(UPLOAD_LIFETIME_MILLIS.unsigned_abs());
+pub(crate) const WRITE_TIMEOUT: Duration =
+    Duration::from_millis(UPLOAD_LIFETIME_MILLIS.unsigned_abs());
+
+/// A storage key marked in `loose_objects` as being written, awaiting bytes or copy.
+#[must_use = "a marked object place must be written or given up"]
+pub(crate) struct MarkedPlace {
+    app: App,
+    path: String,
+}
+
+/// A storage key whose bytes were written under a `loose_objects` mark, awaiting its DB
+/// record or batch transaction commit.
+#[must_use = "a written object place must be recorded in the store or given up"]
+pub(crate) struct WrittenPlace {
+    app: App,
+    path: String,
+    size: u64,
+}
+
+impl MarkedPlace {
+    /// Writes `reader` to the marked storage key within [`WRITE_TIMEOUT`]. On timeout or
+    /// storage failure, dooms the mark as unsettled.
+    pub(crate) async fn write(
+        self,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+    ) -> Result<WrittenPlace, AppError> {
+        let Self { app, path } = self;
+        match tokio::time::timeout(WRITE_TIMEOUT, app.files().write(&path, reader)).await {
+            Ok(Ok(size)) => Ok(WrittenPlace { app, path, size }),
+            failed => {
+                app.give_up_writing(&path, Written::Unsettled).await;
+                let error = match failed {
+                    Ok(Err(error)) => error.to_string(),
+                    _ => "it took longer than a write may take".to_owned(),
+                };
+                Err(AppError::internal(format_args!(
+                    "unable to store the file in the files storage: {error}"
+                )))
+            }
+        }
+    }
+
+    /// Writes `reader` within `timeout`, dooming the mark as unsettled on failure or
+    /// timeout and returning `Err(None)` on timeout or `Err(Some(StorageError))` on I/O
+    /// error.
+    pub(crate) async fn write_within(
+        self,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+        timeout: Duration,
+    ) -> Result<WrittenPlace, Option<StorageError>> {
+        let Self { app, path } = self;
+        match tokio::time::timeout(timeout, app.files().write(&path, reader)).await {
+            Ok(Ok(size)) => Ok(WrittenPlace { app, path, size }),
+            Ok(Err(error)) => {
+                app.give_up_writing(&path, Written::Unsettled).await;
+                Err(Some(error))
+            }
+            Err(_) => {
+                app.give_up_writing(&path, Written::Unsettled).await;
+                Err(None)
+            }
+        }
+    }
+
+    /// Copies `source_path` to this marked storage key within [`WRITE_TIMEOUT`]. On
+    /// timeout or storage failure, dooms the mark as unsettled.
+    pub(crate) async fn copy_from(
+        self,
+        source_path: &str,
+        size: u64,
+    ) -> Result<WrittenPlace, StorageError> {
+        let Self { app, path } = self;
+        let copied = tokio::time::timeout(WRITE_TIMEOUT, app.files().copy(source_path, &path))
+            .await
+            .unwrap_or_else(|_| Err(StorageError::Io(std::io::ErrorKind::TimedOut.into())));
+        match copied {
+            Ok(()) => Ok(WrittenPlace { app, path, size }),
+            Err(error) => {
+                app.give_up_writing(&path, Written::Unsettled).await;
+                Err(error)
+            }
+        }
+    }
+
+    /// Releases a marked key before any write to storage was started.
+    pub(crate) async fn give_up_unused(self) {
+        self.app.give_up_writing(&self.path, Written::Settled).await;
+    }
+}
+
+impl WrittenPlace {
+    /// Number of bytes written to storage.
+    #[must_use]
+    pub(crate) fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Storage key where the object was written.
+    #[must_use]
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// Commits `record` via `Store::record_written_file`; if the DB write fails, dooms
+    /// and cleans up the written object immediately.
+    pub(crate) async fn record(self, record: &FileRecord) -> Result<(), AppError> {
+        let Self { app, path, .. } = self;
+        match app.store().record_written_file(record).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(AppError::internal(
+                "the file was given up while it was written",
+            )),
+            Err(error) => {
+                app.give_up_writing(&path, Written::Settled).await;
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Dooms and cleans up the written object when validation or a batch transaction
+    /// rolls back.
+    pub(crate) async fn give_up(self) {
+        self.app.give_up_writing(&self.path, Written::Settled).await;
+    }
+
+    /// Consumes the witness after a multi-file database transaction atomically recorded
+    /// the file and cleared its `writing` mark (`loose_objects::record_written`).
+    pub(crate) fn settled_in_transaction(self) {}
+}
 
 /// What became of one doomed object.
 enum Removal {
@@ -269,25 +400,33 @@ impl App {
         )
     }
 
-    /// Marks the object about to be written at `path`, until it is recorded
-    /// (`Store::record_written_file`) or given up ([`App::give_up_writing`]).
+    /// Marks the object about to be written at `path` and returns a [`MarkedPlace`]
+    /// witness that must be written and recorded or given up.
     ///
     /// # Errors
     ///
     /// Returns the store's error; nothing is to be written then.
-    pub(crate) async fn mark_writing(&self, path: &str) -> Result<(), AppError> {
+    pub(crate) async fn mark_place(
+        &self,
+        path: impl Into<String>,
+    ) -> Result<MarkedPlace, AppError> {
+        let path = path.into();
+        self.mark_writing(&path).await?;
+        Ok(MarkedPlace {
+            app: self.clone(),
+            path,
+        })
+    }
+
+    /// Marks the object about to be written at `path`.
+    async fn mark_writing(&self, path: &str) -> Result<(), AppError> {
         let doom_at = now_millis().saturating_add(WRITING_GRACE_MILLIS);
         Ok(self.store().mark_writing(path, doom_at).await?)
     }
 
     /// Gives up the object being written at `path`, which will not be recorded, and
-    /// dooms it. One whose write is [`Written::Settled`] is removed now, unless
-    /// something holds it; one that may yet appear is left to the housekeeping, which
-    /// removes it once what the storage took with its answer lost is there. What cannot
-    /// be removed now stays doomed; a mark that cannot be doomed is doomed by the
-    /// housekeeping once its writing is to be over. A place that is no longer marked is
-    /// left alone: it was recorded, with the answer lost, or doomed already.
-    pub(crate) async fn give_up_writing(&self, path: &str, written: Written) {
+    /// dooms it.
+    async fn give_up_writing(&self, path: &str, written: Written) {
         let now = now_millis();
         let remove_at = match written {
             Written::Settled => now,

@@ -19,3 +19,30 @@ where
 {
     T::deserialize(deserializer).map(Some)
 }
+
+/// Deserializes a present deletion timestamp as `Some(i64)` strictly greater than zero,
+/// refusing `null`, `0`, and negative timestamps.
+pub(crate) fn positive_millis<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let millis = i64::deserialize(deserializer)?;
+    if millis > 0 {
+        Ok(Some(millis))
+    } else {
+        Err(serde::de::Error::custom(
+            "a time of deletion is after the epoch",
+        ))
+    }
+}
+
+/// Deserializes a patch member where omission is `None`, explicit `null` is `Some(None)`
+/// (clearing the field), and a value is `Some(Some(value))`.
+#[allow(clippy::option_option)]
+pub(crate) fn nullable_patch<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}

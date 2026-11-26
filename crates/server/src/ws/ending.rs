@@ -11,7 +11,8 @@ use fvoci_model::WorkspaceRole;
 use super::revocations::Revocations;
 use super::{
     Hub, Listener, ListenerId, Listeners, Outgoing, UnsubscribedBlocksMessage,
-    UnsubscribedWorkspaceMessage, remove_from, text_of, unsubscribe_from_blocks,
+    UnsubscribedWorkspaceMessage, WorkspaceRoleChangedMessage, remove_from, text_of,
+    unsubscribe_from_blocks,
 };
 use crate::metrics::Disconnect;
 
@@ -357,6 +358,37 @@ impl Hub {
             |revoked| revoked.user_in_workspace(user_id, workspace_id),
             |listener, workspace| listener.user_id == user_id && workspace == workspace_id,
         );
+    }
+
+    /// Announces the user's new `role` in `workspace_id` (`workspaceRoleChanged`) to
+    /// their subscribed connections and ends the old-role subscription so they
+    /// re-subscribe under `role` and refresh container permissions immediately.
+    pub fn workspace_role_changed_to(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        role: WorkspaceRole,
+    ) {
+        let mut listeners = self.listeners();
+        listeners.revoked.user_in_workspace(user_id, workspace_id);
+        let ids = listeners.of_user(workspace_id, user_id);
+        let message = WorkspaceRoleChangedMessage {
+            kind: "workspaceRoleChanged",
+            workspace_id,
+            user_id,
+            role,
+        };
+        let role_told = ids
+            .iter()
+            .filter(|&&id| listeners.tell(id, &message))
+            .count();
+        let unsubscribed = ids
+            .into_iter()
+            .filter(|&id| listeners.end_workspace(id, workspace_id, Ended::Access, Of::Any))
+            .count();
+        drop(listeners);
+        self.count_told("workspaceRoleChanged", role_told);
+        self.count_told("workspaceUnsubscribed", unsubscribed);
     }
 
     /// Stops every connection following the workspace. For when it goes to the trash:

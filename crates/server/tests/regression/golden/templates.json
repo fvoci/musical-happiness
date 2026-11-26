@@ -5,6 +5,7 @@
     "status": 0,
     "body": [
       "Getting started with fvoci",
+      "Welcome to your personal space",
       "Project schedule",
       "Issue tracker",
       "Meeting notes",
@@ -19,7 +20,7 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      12
+      13
     ]
   },
   {
@@ -31,6 +32,8 @@
       "createdAt",
       "createdBy",
       "description",
+      "doneWhen",
+      "dueDatePropertyId",
       "icon",
       "id",
       "isBuiltin",
@@ -52,7 +55,7 @@
     "request": "(observation)",
     "status": 0,
     "body": {
-      "card": 9,
+      "card": 12,
       "view": 5
     }
   },
@@ -214,6 +217,13 @@
       "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+      "doneWhen": {
+        "optionIds": [
+          "<id:8>"
+        ],
+        "propertyId": "<id:5>"
+      },
+      "dueDatePropertyId": "<id:15>",
       "icon": "👋",
       "id": "<id:4>",
       "isBuiltin": false,
@@ -223,7 +233,7 @@
       "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": true,
-      "templateVersion": 12,
+      "templateVersion": 13,
       "title": "Getting started with fvoci",
       "updatedAt": "<ts>",
       "visibility": "private",
@@ -234,7 +244,7 @@
     "name": "welcome board block count",
     "request": "(observation)",
     "status": 0,
-    "body": 14
+    "body": 17
   },
   {
     "name": "categories after the welcome board",

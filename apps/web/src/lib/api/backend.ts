@@ -15,14 +15,18 @@ import type {
   Account,
   AccountSettings,
   AccountSettingsPatch,
+  AccountToday,
   Attachment,
   Backend,
   BoardDraft,
+  BoardViewWriteResult,
   BodyDoc,
   BodyDocHears,
   BodyWrite,
   CardDetail,
   CardDraft,
+  CardMovesInput,
+  CardMovesOutput,
   CardPatch,
   CardSummary,
   CardTelling,
@@ -32,7 +36,10 @@ import type {
   ChangeListener,
   Comment,
   CommentVersion,
+  ContainerPermissions,
   ContainerRole,
+  CopiedContainerOutput,
+  CopyToWorkspaceInput,
   DownloadedFile,
   DownloadOptions,
   ImportOptions,
@@ -42,6 +49,7 @@ import type {
   UploadOptions,
   User,
   ViewDraft,
+  WorkspaceToday,
 } from '../state/backend.ts';
 import { openRoomLater } from '../state/doc-opener.ts';
 import { BlockTurns } from '../state/write.ts';
@@ -214,6 +222,26 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   joinContainer(id: string): Promise<ContainerMember> {
     return this.#containers.joinContainer(id);
   }
+  async trashRetentionDays(): Promise<number> {
+    return (await this.#config.read()).trashRetentionDays;
+  }
+  myPermissions(containerId: string): Promise<ContainerPermissions> {
+    return this.#containers.myPermissions(containerId);
+  }
+  copyContainerToWorkspace(
+    containerId: string,
+    request: CopyToWorkspaceInput,
+  ): Promise<CopiedContainerOutput> {
+    return this.#containers.copyContainerToWorkspace(containerId, request);
+  }
+  accountToday(): Promise<AccountToday> {
+    return this.#http.request<Schemas['AccountToday']>('/api/v1/users/me/today');
+  }
+  workspaceToday(workspaceId: string): Promise<WorkspaceToday> {
+    return this.#http.request<Schemas['WorkspaceToday']>(underWorkspace('/today'), {
+      workspaceId,
+    });
+  }
 
   categories(workspaceId: string): Promise<Category[]> {
     return this.#sidebar.categories(workspaceId);
@@ -240,8 +268,22 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   views(boardId: string): Promise<BoardView[]> {
     return this.#blocks.views(boardId);
   }
+  writeView(boardId: string, draft: ViewDraft): Promise<BoardViewWriteResult> {
+    return this.#blocks.writeView(boardId, draft);
+  }
   createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
     return this.#blocks.createView(boardId, draft);
+  }
+  moveView(boardId: string, viewId: string, after: string | null): Promise<BoardViewWriteResult> {
+    return this.#blocks.moveView(boardId, viewId, after);
+  }
+  duplicateView(
+    boardId: string,
+    viewId: string,
+    title?: string,
+    after?: string | null,
+  ): Promise<BoardViewWriteResult> {
+    return this.#blocks.duplicateView(boardId, viewId, title, after);
   }
   patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
     return this.#blocks.patchView(boardId, viewId, patch);
@@ -258,6 +300,23 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
     return this.#blocks.createCard(boardId, draft);
   }
+  duplicateCard(boardId: string, cardId: string, asTemplate?: boolean): Promise<CardSummary> {
+    return this.#blocks.duplicateCard(boardId, cardId, asTemplate);
+  }
+  moveViewCards(
+    boardId: string,
+    viewId: string,
+    move: CardMovesInput,
+    telling?: CardTelling,
+  ): Promise<CardMovesOutput> {
+    return this.#blocks.moveViewCards(boardId, viewId, move, telling);
+  }
+  batchDeleteCards(boardId: string, cardIds: readonly string[]): Promise<void> {
+    return this.#blocks.batchDeleteCards(boardId, cardIds);
+  }
+  batchRestoreCards(boardId: string, cardIds: readonly string[]): Promise<CardSummary[]> {
+    return this.#blocks.batchRestoreCards(boardId, cardIds);
+  }
   patchCard(b: string, c: string, patch: CardPatch, telling?: CardTelling): Promise<CardSummary> {
     return this.#blocks.patchCard(b, c, patch, telling);
   }
@@ -267,11 +326,22 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
     return this.#blocks.createComment(boardId, cardId, body);
   }
-  patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
-    return this.#blocks.patchComment(boardId, commentId, write);
+  patchComment(
+    boardId: string,
+    commentId: string,
+    write: BodyWrite,
+    cardId?: string,
+  ): Promise<Comment> {
+    return this.#blocks.patchComment(boardId, commentId, write, cardId);
   }
-  commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
-    return this.#blocks.commentVersions(boardId, commentId);
+  deleteComment(boardId: string, cardId: string, commentId: string): Promise<void> {
+    return this.#blocks.deleteComment(boardId, cardId, commentId);
+  }
+  restoreComment(boardId: string, cardId: string, commentId: string): Promise<Comment> {
+    return this.#blocks.restoreComment(boardId, cardId, commentId);
+  }
+  commentVersions(boardId: string, commentId: string, cardId?: string): Promise<CommentVersion[]> {
+    return this.#blocks.commentVersions(boardId, commentId, cardId);
   }
   attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     return this.#blocks.attachments(boardId, cardId);

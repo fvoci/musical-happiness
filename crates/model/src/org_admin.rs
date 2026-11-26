@@ -19,9 +19,17 @@ pub struct Organization {
     /// Whether its boards may be read by a public link. Off, every link is closed and
     /// none is made; on again, the links made before open again.
     pub public_links: bool,
+    /// Whether members may copy boards, wikis, and courses out of this organization
+    /// into another organization or into their personal space.
+    #[serde(default = "default_true")]
+    pub allow_copy_out: bool,
     /// The workspace somebody who joins the organization gets into. It cannot be
     /// deleted.
     pub default_workspace_id: String,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 /// A change of an organization: what is left out stays as it is.
@@ -34,6 +42,9 @@ pub struct OrganizationPatch {
     /// Whether boards may be read by a public link.
     #[serde(default)]
     pub public_links: Option<bool>,
+    /// Whether members may copy containers out to external organizations or personal spaces.
+    #[serde(default)]
+    pub allow_copy_out: Option<bool>,
 }
 
 /// The most characters a name of an organization or a workspace has.
@@ -83,7 +94,7 @@ pub struct OrgWorkspace {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::serde_util::non_null"
+        deserialize_with = "crate::serde_util::positive_millis"
     )]
     #[schema(nullable = false)]
     pub deleted_at: Option<i64>,
@@ -188,11 +199,18 @@ pub enum AuditAction {
     /// link for members, which made its account (the subject) a member. The target is
     /// the organization it joined.
     EmailVerifiedByOperator,
+    /// A member copied a container (the target) out of the organization into another
+    /// organization or their own personal space (`detail` names the target org kind).
+    ContainerCopiedOut,
+    /// Copying containers out of the organization was disabled.
+    CopyOutDisabled,
+    /// Copying containers out of the organization was enabled.
+    CopyOutEnabled,
 }
 
 impl AuditAction {
     /// Every action, in the order of the declaration.
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 32] = [
         Self::SelfAddedToContainer,
         Self::AddedToContainer,
         Self::OrgAdminJoined,
@@ -222,6 +240,9 @@ impl AuditAction {
         Self::OidcIdentityBound,
         Self::OidcIdentityCarriedOver,
         Self::EmailVerifiedByOperator,
+        Self::ContainerCopiedOut,
+        Self::CopyOutDisabled,
+        Self::CopyOutEnabled,
     ];
 
     /// The wire and database form.
@@ -257,6 +278,9 @@ impl AuditAction {
             Self::OidcIdentityBound => "oidc_identity_bound",
             Self::OidcIdentityCarriedOver => "oidc_identity_carried_over",
             Self::EmailVerifiedByOperator => "email_verified_by_operator",
+            Self::ContainerCopiedOut => "container_copied_out",
+            Self::CopyOutDisabled => "copy_out_disabled",
+            Self::CopyOutEnabled => "copy_out_enabled",
         }
     }
 }

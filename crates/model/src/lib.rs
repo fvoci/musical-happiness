@@ -12,6 +12,7 @@ mod archive;
 mod auth;
 mod block;
 mod block_ids;
+mod board_ops;
 mod body;
 mod body_version;
 mod card;
@@ -54,11 +55,13 @@ mod subscription;
 mod table_grid;
 mod team;
 mod time_entry;
+mod today;
 mod unit;
 mod unit_progress;
 mod unit_review;
 mod upload;
 mod user;
+mod view_fields;
 mod workspace;
 
 pub use account_deletion::{
@@ -81,6 +84,12 @@ pub use block::{
 pub use block_ids::{
     UnmatchedRelation, collect_block_references, generate_block_ids, renew_block_ids,
     rewrite_block_ids,
+};
+pub use board_ops::{
+    CardBatchIds, CardDuePoint, CardMovesRequest, CardMovesResult, CategoryContainerUpdate,
+    CategoryPatch, ContainerPermissions, CopiedContainerResult, CopyContainerToWorkspaceRequest,
+    DoneWhen, MAX_CARD_BATCH, NewCardAttachment, RestoredCards, default_blank_board_scaffolding,
+    extract_card_due_point, is_card_done,
 };
 pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
@@ -142,7 +151,7 @@ pub use course_schedule::{
 };
 pub use date_value::{
     DateValueError, add_days, check_date_value, date_property_ids, day_at, days_between,
-    is_calendar_date, move_dates, rewrite_previous_date_values,
+    is_calendar_date, move_dates, rewrite_previous_date_values, utc_date,
 };
 pub use deleted_item::DeletedItem;
 pub use diary::{
@@ -197,8 +206,8 @@ pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name
 pub use relation::{
     ParseRelationKindError, RELATION_LAG_MAX, RELATION_LAG_MIN, RELATION_LIMIT, RelationError,
     RelationKind, RelationLink, RelationLinkError, RelationProblem, RelationProperties,
-    check_relation_value, parse_relation_link, relation_link_card, relation_links_to_value,
-    relation_property_ids, tidy_copied_relations,
+    check_relation_value, closes_relation_cycle, parse_relation_link, relation_link_card,
+    relation_links_to_value, relation_property_ids, tidy_copied_relations,
 };
 pub use search::{SearchHit, SearchKind, SnippetPart, UnknownSearchKind};
 pub use settings::{
@@ -218,6 +227,10 @@ pub use time_entry::{
     TimeEntry, TimeEntryKind, TimeEntryKindTotals, TimeEntryList, TimeEntryPatch, TimeEntrySummary,
     TimeTargetKind,
 };
+pub use today::{
+    AccountToday, TODAY_SECTION_LIMIT, TodayCardItem, TodayMeetingItem, TodayReviewEntry,
+    TodayUnitEntry, TodayWorkspaceMeta, WorkspaceToday,
+};
 pub use unit::{
     CHAPTERS_PER_COURSE, COURSE_DEPTH, CourseLimits, DeletedUnit, NewUnit, NotUnitBlockError,
     UNITS_PER_COURSE, Unit, UnitKind, UnitMove, UnitNode, UnitPatch, sort_units,
@@ -236,6 +249,13 @@ pub use unit_review::{
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{ClientStatePatch, LoginOrigin, Me, Session, User};
+pub use view_fields::{
+    BoardViewDuplicate, BoardViewMove, BoardViewWrite, FILTER_DATE_TODAY, FILTER_PERSON_ME,
+    GanttZoom, NewBoardView, ParseViewTypeError, SHARED_VIEW_MEMBERS, VIEW_ORDER_MAX_CHARS,
+    ViewFieldsError, ViewType, drop_malformed_view_fields, gantt_dependency_property_ids,
+    place_view_at, sort_board_views, spread_view_orders, validate_view_fields,
+    validate_view_filter_values, view_order_of,
+};
 pub use workspace::{GuestInvitationsChange, Workspace};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.

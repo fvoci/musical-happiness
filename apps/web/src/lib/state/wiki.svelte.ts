@@ -10,7 +10,9 @@ import type { Container, ContainerMember, MemberRole } from '../logic/wire.ts';
 
 import {
   isBackendError,
+  READ_ONLY_PERMISSIONS,
   type Change,
+  type ContainerPermissions,
   type ContainerRole,
   type DeletedItem,
   type PageDraft,
@@ -57,6 +59,7 @@ export class WikiStore {
   wiki = $state.raw<Container | undefined>(undefined);
   pages = $state.raw<WikiPage[]>([]);
   members = $state.raw<ContainerMember[]>([]);
+  permissions = $state.raw<ContainerPermissions>({ ...READ_ONLY_PERMISSIONS });
   openPage = $state.raw<PageStore | undefined>(undefined);
 
   readonly tree = $derived(pageTree(this.pages));
@@ -70,8 +73,12 @@ export class WikiStore {
   readonly role = $derived<MemberRole>(
     roleOf(this.members.find((member) => member.userId === this.workspace.me?.id)),
   );
-  readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
-  readonly canManage = $derived(this.role === 'admin');
+  readonly canEdit = $derived(this.permissions.canEdit);
+  readonly canManage = $derived(
+    this.permissions.canManageVisibility || this.permissions.canManageRoles,
+  );
+  readonly canDelete = $derived(this.permissions.canDelete);
+  readonly canShare = $derived(this.permissions.canShare);
   readonly joinable = $derived(
     this.status === 'ready' && this.wiki?.visibility === 'open' && this.role === '',
   );
@@ -141,6 +148,7 @@ export class WikiStore {
       const backend = this.workspace.backend;
       const wikiRead = containerOfWorkspace(backend, this.wikiId, this.workspace.info?.id, 'wiki');
       const membersRead = backend.members(this.wikiId);
+      const permissionsRead = backend.myPermissions(this.wikiId);
       const pagesRead = this.#wikis.pages(this.wikiId);
       pagesRead.catch(() => undefined);
       if (initialPageId) {
@@ -149,10 +157,15 @@ export class WikiStore {
       } else {
         this.speculativePageId = undefined;
       }
-      const [wiki, members] = await Promise.all([wikiRead, membersRead]);
+      const [wiki, members, permissions] = await Promise.all([
+        wikiRead,
+        membersRead,
+        permissionsRead,
+      ]);
       if (this.#closed || reading !== this.#readings) return;
       void this.workspace.learnUsers(members.map(memberId), { members: true });
       this.takeWiki(wiki);
+      this.permissions = permissions;
       if (membersTold === this.#people.told) this.members = members;
       if (initialPageId && (wiki.visibility === 'open' || this.role !== '')) this.status = 'ready';
       const pages = await pagesRead;
@@ -271,6 +284,10 @@ export class WikiStore {
           this.workspace.evictContainer(this.wikiId);
         }
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });
+        void this.#refreshPermissions();
+        break;
+      case 'workspaceRole':
+        if (change.userId === this.workspace.me?.id) void this.#refreshPermissions();
         break;
       case 'resync':
         void this.#refresh();
@@ -293,6 +310,16 @@ export class WikiStore {
     else shown.pageChanged(page);
   }
 
+  async #refreshPermissions(): Promise<void> {
+    const reading = this.#readings;
+    try {
+      const permissions = await this.workspace.backend.myPermissions(this.wikiId);
+      if (!this.isClosed() && reading === this.#readings) this.permissions = permissions;
+    } catch {
+      // Handled on next load/refresh if access ended.
+    }
+  }
+
   async #refresh(): Promise<void> {
     if (this.status !== 'ready' || !this.pagesReady || this.isClosed()) return;
     this.#readings += 1;
@@ -301,13 +328,15 @@ export class WikiStore {
     const mark = this.#writes.forgettings;
     const membersTold = this.#people.told;
     try {
-      const [wiki, pages, members] = await Promise.all([
+      const [wiki, pages, members, permissions] = await Promise.all([
         this.workspace.backend.container(this.wikiId),
         this.#wikis.pages(this.wikiId),
         this.workspace.backend.members(this.wikiId),
+        this.workspace.backend.myPermissions(this.wikiId),
       ]);
       if (this.isClosed() || reading !== this.#readings) return;
       this.takeWiki(wiki);
+      this.permissions = permissions;
       if (membersTold === this.#people.told) this.members = members;
       const shown = this.openPage;
       const title = (shown && this.page(shown.pageId)?.title) ?? '';

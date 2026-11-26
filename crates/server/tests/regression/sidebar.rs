@@ -8,7 +8,7 @@
 use serde_json::json;
 
 use crate::common::ROOT_WORKSPACE_ID;
-use crate::fixtures::{add_member, block, id_of, merged, new_blocks, new_board};
+use crate::fixtures::{add_member, block, id_of, merged, new_board, new_card};
 use crate::harness::ROOT_API;
 use crate::harness::{API, Session};
 
@@ -209,15 +209,15 @@ pub(crate) async fn public_links(s: &mut Session) {
     let [alice, bob] = s.users("share", ["alice", "bob"]).await;
     let board = new_board(s, &alice, "Shared board", "private", json!({})).await;
     add_member(s, &alice, &board, &bob, "editor").await;
-    let created = new_blocks(
+    let card = new_card(
         s,
         &alice,
         &board,
-        json!([block("c1", &board, "card", "Visible card", "", json!({}))]),
+        "Visible card",
+        json!({}),
         "insert blocks",
     )
     .await;
-    let card = id_of(&created[0]);
     let path = format!("{ROOT_API}/containers/{board}/public-link");
     let board_path = format!("{ROOT_API}/containers/{board}");
     let shared_path = format!("{API}/shared/{board}");
@@ -356,15 +356,15 @@ pub(crate) async fn public_links(s: &mut Session) {
 pub(crate) async fn subscriptions(s: &mut Session) {
     let [alice, bob] = s.users("subs", ["alice", "bob"]).await;
     let board = new_board(s, &alice, "Subscribed board", "private", json!({})).await;
-    let created = new_blocks(
+    let card = new_card(
         s,
         &alice,
         &board,
-        json!([block("c1", &board, "card", "Watched card", "", json!({}))]),
+        "Watched card",
+        json!({}),
         "insert blocks",
     )
     .await;
-    let card = id_of(&created[0]);
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
     let path = format!("{ROOT_API}/subscriptions");

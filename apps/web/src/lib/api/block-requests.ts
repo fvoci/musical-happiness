@@ -1,7 +1,8 @@
 /**
  * View, card, comment, attachment, and block HTTP operations for `ServerBackend`
- * (`api/backend.ts`), keeping unconditional `patchView` at 1 round-trip while
- * re-reading server `updatedAt` after conditional (`readAt`) patches.
+ * (`api/backend.ts`), using server-authority fractional-indexed view writes,
+ * atomic `duplicateCard` / `card-moves` / `batch-delete` / `batch-restore`,
+ * formal card comment routes, and verified card attachments.
  */
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
@@ -11,9 +12,12 @@ import {
   isViewBlock,
   refusedMember,
   type Attachment,
+  type BoardViewWriteResult,
   type BodyWrite,
   type CardDetail,
   type CardDraft,
+  type CardMovesInput,
+  type CardMovesOutput,
   type CardPatch,
   type CardSummary,
   type CardTelling,
@@ -74,6 +78,14 @@ export class ServerBlocks {
     }
   }
 
+  #takeViewWrite(written: Schemas['BoardViewWrite']): BoardViewWriteResult {
+    const view = viewOf(written.view);
+    const companionViews = written.companionViews.map(viewOf);
+    this.#knownViews.set(view.id, view);
+    for (const companion of companionViews) this.#knownViews.set(companion.id, companion);
+    return { view, companionViews };
+  }
+
   async views(boardId: string): Promise<BoardView[]> {
     const blocks = await this.#inWorkspace<Schemas['Block'][]>(
       '/boards/{boardId}/blocks',
@@ -85,24 +97,55 @@ export class ServerBlocks {
     return views;
   }
 
-  async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
-    const block: Schemas['NewBlock'] = {
-      containerId: boardId,
-      type: 'view',
+  async writeView(boardId: string, draft: ViewDraft): Promise<BoardViewWriteResult> {
+    const request: Schemas['NewBoardView'] = {
       title: draft.title,
+      viewType: draft.fields.viewType,
       fields: draft.fields,
-      createdAt: 1,
-      updatedAt: 1,
+      ...(draft.after === undefined ? {} : { after: draft.after }),
     };
-    const [made] = await this.#inWorkspace<Schemas['Block'][]>(
-      '/boards/{boardId}/blocks',
+    const written = await this.#inWorkspace<Schemas['BoardViewWrite']>(
+      '/boards/{boardId}/views',
       { boardId },
-      { method: 'POST', json: [block] },
+      { method: 'POST', json: request },
     );
-    if (!made) throw new BackendError(500, { detail: 'the server made no view' });
-    const view = viewOf(made);
-    this.#knownViews.set(view.id, view);
-    return view;
+    return this.#takeViewWrite(written);
+  }
+
+  async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
+    return (await this.writeView(boardId, draft)).view;
+  }
+
+  async moveView(
+    boardId: string,
+    viewId: string,
+    after: string | null,
+  ): Promise<BoardViewWriteResult> {
+    const request: Schemas['BoardViewMove'] = { after };
+    const written = await this.#inWorkspace<Schemas['BoardViewWrite']>(
+      '/boards/{boardId}/views/{viewId}/move',
+      { boardId, viewId },
+      { method: 'POST', json: request },
+    );
+    return this.#takeViewWrite(written);
+  }
+
+  async duplicateView(
+    boardId: string,
+    viewId: string,
+    title?: string,
+    after?: string | null,
+  ): Promise<BoardViewWriteResult> {
+    const request: Schemas['BoardViewDuplicate'] = {
+      ...(title === undefined ? {} : { title }),
+      ...(after === undefined ? {} : { after }),
+    };
+    const written = await this.#inWorkspace<Schemas['BoardViewWrite']>(
+      '/boards/{boardId}/views/{viewId}/duplicate',
+      { boardId, viewId },
+      { method: 'POST', json: request },
+    );
+    return this.#takeViewWrite(written);
   }
 
   patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
@@ -192,6 +235,63 @@ export class ServerBlocks {
     return cardOf(card);
   }
 
+  async duplicateCard(boardId: string, cardId: string, asTemplate?: boolean): Promise<CardSummary> {
+    const card = await this.#inWorkspace<Schemas['Card']>(
+      '/boards/{boardId}/cards/{cardId}/duplicate',
+      { boardId, cardId },
+      {
+        method: 'POST',
+        query: { asTemplate: asTemplate === undefined ? undefined : String(asTemplate) },
+      },
+    );
+    return cardOf(card);
+  }
+
+  async moveViewCards(
+    boardId: string,
+    viewId: string,
+    move: CardMovesInput,
+    telling?: CardTelling,
+  ): Promise<CardMovesOutput> {
+    const request: Schemas['CardMovesRequest'] = {
+      cardIds: [...move.cardIds],
+      ...(move.groupPropertyId === undefined ? {} : { groupPropertyId: move.groupPropertyId }),
+      ...(move.groupValue === undefined ? {} : { groupValue: move.groupValue }),
+      ...(move.afterCardId === undefined ? {} : { afterCardId: move.afterCardId }),
+    };
+    const result = await this.#inWorkspace<Schemas['CardMovesResult']>(
+      '/boards/{boardId}/views/{viewId}/card-moves',
+      { boardId, viewId },
+      {
+        method: 'POST',
+        json: request,
+        query: { disableNotify: telling?.quiet ? 'true' : undefined },
+      },
+    );
+    const view = viewOf(result.view);
+    this.#knownViews.set(view.id, view);
+    return { view, cards: result.cards.map(cardOf) };
+  }
+
+  async batchDeleteCards(boardId: string, cardIds: readonly string[]): Promise<void> {
+    const request: Schemas['CardBatchIds'] = { cardIds: [...cardIds] };
+    await this.#inWorkspace(
+      '/boards/{boardId}/cards/batch-delete',
+      { boardId },
+      { method: 'POST', json: request },
+    );
+  }
+
+  async batchRestoreCards(boardId: string, cardIds: readonly string[]): Promise<CardSummary[]> {
+    const request: Schemas['CardBatchIds'] = { cardIds: [...cardIds] };
+    const restored = await this.#inWorkspace<Schemas['RestoredCards']>(
+      '/boards/{boardId}/cards/batch-restore',
+      { boardId },
+      { method: 'POST', json: request },
+    );
+    return restored.cards.map(cardOf);
+  }
+
   patchCard(
     boardId: string,
     cardId: string,
@@ -210,34 +310,33 @@ export class ServerBlocks {
   }
 
   async comments(boardId: string, cardId: string): Promise<Comment[]> {
-    const list = (await this.#children(boardId, cardId, 'comment')).map(commentOf);
+    const blocks = await this.#inWorkspace<Schemas['Block'][]>(
+      '/boards/{boardId}/cards/{cardId}/comments',
+      { boardId, cardId },
+    );
+    const list = blocks.map(commentOf);
     for (const comment of list) this.#knownComments.set(comment.id, comment);
     return list;
   }
 
   async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
-    const block = {
-      containerId: boardId,
-      parentId: cardId,
-      type: 'comment',
-      title: '',
-      fields: {},
-      createdAt: 1,
-      updatedAt: 1,
-      body: wireBody(body),
-    } satisfies Schemas['NewBlock'] & { body: Schemas['Body'] };
-    const [made] = await this.#inWorkspace<Schemas['Block'][]>(
-      '/boards/{boardId}/blocks',
-      { boardId },
-      { method: 'POST', json: [block] },
+    const request: Schemas['NewCardComment'] = { body: wireBody(body) };
+    const made = await this.#inWorkspace<Schemas['Block']>(
+      '/boards/{boardId}/cards/{cardId}/comments',
+      { boardId, cardId },
+      { method: 'POST', json: request },
     );
-    if (!made) throw new BackendError(500, { detail: 'the server made no comment' });
     const comment = commentOf(made);
     this.#knownComments.set(comment.id, comment);
     return comment;
   }
 
-  patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
+  patchComment(
+    boardId: string,
+    commentId: string,
+    write: BodyWrite,
+    cardId?: string,
+  ): Promise<Comment> {
     const body = write.body;
     if (!body) {
       return Promise.reject(
@@ -248,6 +347,18 @@ export class ServerBlocks {
       );
     }
     return this.#turns.run(commentId, async () => {
+      const parentCardId = cardId ?? this.#knownComments.get(commentId)?.parentId;
+      if (parentCardId) {
+        const request: Schemas['CardCommentPatch'] = { body: wireBody(body), readAt: write.readAt };
+        const updated = await this.#inWorkspace<Schemas['Block']>(
+          '/boards/{boardId}/cards/{cardId}/comments/{commentId}',
+          { boardId, cardId: parentCardId, commentId },
+          { method: 'PATCH', json: request },
+        );
+        const comment = commentOf(updated);
+        this.#knownComments.set(commentId, comment);
+        return comment;
+      }
       const patch: Schemas['BlockPatch'] = { body: wireBody(body), readAt: write.readAt };
       const answered = await this.#inWorkspace<Schemas['Block'] | undefined>(
         '/boards/{boardId}/blocks/{blockId}',
@@ -258,6 +369,25 @@ export class ServerBlocks {
       this.#knownComments.set(commentId, comment);
       return comment;
     });
+  }
+
+  async deleteComment(boardId: string, cardId: string, commentId: string): Promise<void> {
+    await this.#inWorkspace(
+      '/boards/{boardId}/cards/{cardId}/comments/{commentId}',
+      { boardId, cardId, commentId },
+      { method: 'DELETE' },
+    );
+  }
+
+  async restoreComment(boardId: string, cardId: string, commentId: string): Promise<Comment> {
+    const restored = await this.#inWorkspace<Schemas['Block']>(
+      '/boards/{boardId}/cards/{cardId}/comments/{commentId}/restore',
+      { boardId, cardId, commentId },
+      { method: 'POST' },
+    );
+    const comment = commentOf(restored);
+    this.#knownComments.set(comment.id, comment);
+    return comment;
   }
 
   async #comment(boardId: string, commentId: string): Promise<Comment> {
@@ -272,42 +402,40 @@ export class ServerBlocks {
     return commentOf(comment);
   }
 
-  async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
-    const versions = await this.#inWorkspace<Schemas['CommentVersion'][]>(
-      '/boards/{boardId}/blocks/{blockId}/versions',
-      { boardId, blockId: commentId },
-    );
+  async commentVersions(
+    boardId: string,
+    commentId: string,
+    cardId?: string,
+  ): Promise<CommentVersion[]> {
+    const parentCardId = cardId ?? this.#knownComments.get(commentId)?.parentId;
+    const versions = parentCardId
+      ? await this.#inWorkspace<Schemas['CommentVersion'][]>(
+          '/boards/{boardId}/cards/{cardId}/comments/{commentId}/versions',
+          { boardId, cardId: parentCardId, commentId },
+        )
+      : await this.#inWorkspace<Schemas['CommentVersion'][]>(
+          '/boards/{boardId}/blocks/{blockId}/versions',
+          { boardId, blockId: commentId },
+        );
     return versions.map(commentVersionOf);
   }
 
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
-    return (await this.#children(boardId, cardId, 'attachment')).map(attachmentOf);
-  }
-
-  #children(boardId: string, parentId: string, type: string): Promise<Schemas['Block'][]> {
-    return this.#inWorkspace<Schemas['Block'][]>(
+    const blocks = await this.#inWorkspace<Schemas['Block'][]>(
       '/boards/{boardId}/blocks',
       { boardId },
-      { query: { parentId, type } },
+      { query: { parentId: cardId, type: 'attachment' } },
     );
+    return blocks.map(attachmentOf);
   }
 
   async createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {
-    const block: Schemas['NewBlock'] = {
-      containerId: boardId,
-      parentId: cardId,
-      type: 'attachment',
-      title: file.name,
-      fields: { fileId: file.fileId, size: file.size, contentType: file.contentType },
-      createdAt: 1,
-      updatedAt: 1,
-    };
-    const [made] = await this.#inWorkspace<Schemas['Block'][]>(
-      '/boards/{boardId}/blocks',
-      { boardId },
-      { method: 'POST', json: [block] },
+    const request: Schemas['NewCardAttachment'] = { fileId: file.fileId };
+    const made = await this.#inWorkspace<Schemas['Block']>(
+      '/boards/{boardId}/cards/{cardId}/attachments',
+      { boardId, cardId },
+      { method: 'POST', json: request },
     );
-    if (!made) throw new BackendError(500, { detail: 'the server made no attachment' });
     return attachmentOf(made);
   }
 

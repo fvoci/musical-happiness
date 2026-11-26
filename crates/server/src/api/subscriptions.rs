@@ -121,6 +121,17 @@ impl SubscriptionRequest {
 )]
 async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiResult {
     let subscription = SubscriptionRequest::decode(&body)?.into_subscription()?;
+    if ws.kind == fvoci_model::OrgKind::Shared
+        && !matches!(
+            subscription.block_type,
+            BlockType::Card | BlockType::Page | BlockType::Unit
+        )
+    {
+        return Err(AppError::bad_request(
+            "subscriptions in a shared organization apply only to cards, pages, and units",
+        )
+        .with_field("blockType"));
+    }
     if ws.session.user_id != subscription.user_id {
         return Err(
             AppError::forbidden("a user subscribes for themselves only").with_field("userId")

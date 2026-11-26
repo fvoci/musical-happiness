@@ -9,6 +9,11 @@
     "description": "The periods and the order of your tasks, as a Gantt chart. Name the cards that have to end first under “Comes after”: they are joined by lines, and a task that starts too early is marked.",
     "icon": "🗓️",
     "showDescription": true,
+    "dueDatePropertyId": "88342316-ebe4-5a49-880c-fa57c660421f",
+    "doneWhen": {
+      "propertyId": "6c9349df-a282-5b45-9fff-80ccf96accd6",
+      "optionIds": ["f4b6ca92-4a4b-511b-bce0-0b0bf93235af"]
+    },
     "cardProperties": [
       {
         "id": "6c9349df-a282-5b45-9fff-80ccf96accd6",

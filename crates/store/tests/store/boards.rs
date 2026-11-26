@@ -1820,7 +1820,7 @@ impl FullBoard {
 
         let view = new_block(&board.id, "", BlockType::View);
         let card = new_block(&board.id, "", BlockType::Card);
-        let text = new_block(&board.id, &card.id, BlockType::Attachment);
+        let text = new_block(&board.id, &card.id, BlockType::Card);
         let checkbox = new_block(&board.id, &text.id, BlockType::Attachment);
         let card_id = card.id.clone();
         let mut blocks = vec![view, card, text, checkbox];
@@ -2382,7 +2382,7 @@ async fn a_block_deleted_before_its_board_stays_in_the_trash_when_the_board_is_r
     let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     let card = new_block(&board_id, "", BlockType::Card);
-    let paragraph = new_block(&board_id, &card.id, BlockType::Attachment);
+    let paragraph = new_block(&board_id, &card.id, BlockType::Card);
     let checkbox = new_block(&board_id, &paragraph.id, BlockType::Attachment);
     let (card_id, text_id, checkbox_id) =
         (card.id.clone(), paragraph.id.clone(), checkbox.id.clone());
@@ -3967,19 +3967,27 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         is_builtin: false,
         template_version: 3,
         properties: object(json!({ "color": "blue" })),
-        card_properties: vec![fvoci_model::CardPropertyDefinition {
-            id: "status".to_owned(),
-            name: "Status".to_owned(),
-            property_type: fvoci_model::PropertyType::Select,
-            options: vec![fvoci_model::PropertyOption::new(
-                "open",
-                "Open",
-                fvoci_model::PropertyColor::Green,
-            )],
-        }],
+        card_properties: vec![
+            fvoci_model::CardPropertyDefinition {
+                id: "status".to_owned(),
+                name: "Status".to_owned(),
+                property_type: fvoci_model::PropertyType::Select,
+                options: vec![fvoci_model::PropertyOption::new(
+                    "open",
+                    "Open",
+                    fvoci_model::PropertyColor::Green,
+                )],
+            },
+            fvoci_model::CardPropertyDefinition::new("due", "Due", fvoci_model::PropertyType::Date),
+        ],
         created_at: 0,
         updated_at: 0,
         deleted_at: None,
+        due_date_property_id: Some("due".to_owned()),
+        done_when: Some(fvoci_model::DoneWhen {
+            property_id: "status".to_owned(),
+            option_ids: vec!["open".to_owned()],
+        }),
     };
     test.insert_container(&mut board, &author_id)
         .await

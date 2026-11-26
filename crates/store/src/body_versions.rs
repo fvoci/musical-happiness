@@ -442,6 +442,25 @@ pub(crate) async fn record_change(
     Ok(())
 }
 
+/// Records the initial body version of a newly duplicated room-bearing block inside the
+/// duplication transaction, when the copied block carries a body.
+pub(crate) async fn keep_copied_body(
+    scope: &mut Scope<'_>,
+    block: &Block,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    if !block.block_type.has_room() || block.body.is_none() {
+        return Ok(());
+    }
+    let copied = BodyToKeep {
+        block,
+        written_by: Some(user_id),
+        cause: BodyVersionCause::Auto,
+    };
+    keep_and_refresh(scope, block, &copied).await?;
+    Ok(())
+}
+
 /// Keeps one body ([`Store::keep_body_version`]) and forgets the versions past those
 /// kept.
 async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, StoreError> {

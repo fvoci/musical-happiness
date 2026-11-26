@@ -9,7 +9,6 @@
  * it out of the list, which moves the pages after it; so "more" reads the
  * whole of the list so far again, one page longer, instead of the page after.
  */
-import { ancestorsOf } from '../logic/card-hierarchy.ts';
 import { isBackendError, type DeletedItem, type Paging } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
 import type { CourseStore } from './course.svelte.ts';
@@ -159,27 +158,12 @@ export function unitTrash(course: CourseStore): Trash {
 }
 
 /**
- * Brings a deleted card back (the undo of a deletion, or the trash) and shows
- * it. It is back even if reading it fails (it cannot be restored twice): the
- * server's message, or the next reading, shows it then. A refused restore is
- * thrown.
+ * Brings a deleted card and any deleted descendants back via `batchRestoreCards`
+ * without scanning all cards on the board.
  */
 export async function restoreCard(board: BoardStore, cardId: string): Promise<void> {
-  const { backend } = board.workspace;
-  await backend.restoreBlock(board.boardId, cardId);
-  try {
-    const restored = await backend.card(board.boardId, cardId);
-    let next = take(board.cards, restored);
-    const cards = await backend.cards(board.boardId);
-    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- local lookup map, never reactive
-    const byId = new Map(cards.map((card) => [card.id, card]));
-    for (const card of cards) {
-      if (ancestorsOf(card.id, byId).some((ancestor) => ancestor.id === cardId)) {
-        next = take(next, card);
-      }
-    }
-    board.cards = next;
-  } catch (error) {
-    board.workspace.report('load', error);
-  }
+  const restored = await board.workspace.backend.batchRestoreCards(board.boardId, [cardId]);
+  let next = board.cards;
+  for (const card of restored) next = take(next, card);
+  board.cards = next;
 }

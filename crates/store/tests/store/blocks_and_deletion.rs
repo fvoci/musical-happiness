@@ -43,7 +43,11 @@ async fn a_block_inserted_while_its_board_is_deleted_goes_with_the_board_or_is_n
             } else {
                 String::new()
             },
-            block_type: BlockType::Attachment,
+            block_type: if round % 2 == 0 {
+                BlockType::Attachment
+            } else {
+                BlockType::View
+            },
             title: "late".to_owned(),
             ..block(&late_id, &raced_board_id)
         };

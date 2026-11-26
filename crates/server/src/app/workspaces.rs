@@ -11,7 +11,7 @@ use fvoci_store::{Making, PublicContainers, SessionTaken, Tenant};
 
 use super::{App, Asker, as_managed, sso};
 use crate::collab::AccessScope;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 /// A workspace as a member of it enters it: the application behind the wall between
 /// organizations, and what the user is in the workspace and in its organization.
@@ -159,6 +159,27 @@ impl App {
         }))
     }
 
+    /// [`Self::enter_workspace_as`], mapping session-gated refusals (`sso_required` and
+    /// `password_sign_in_required`) to `Ok(None)` while propagating real store failures.
+    pub(crate) async fn enter_workspace_quietly(
+        &self,
+        asker: Asker<'_>,
+        workspace_id: &str,
+    ) -> Result<Option<Entered>, AppError> {
+        match self.enter_workspace_as(asker, workspace_id).await {
+            Ok(entered) => Ok(entered),
+            Err(error)
+                if matches!(
+                    error.reason(),
+                    Some(Reason::SsoRequired | Reason::PasswordSignInRequired)
+                ) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// The application as the holder of a read token reaches what it opens: behind the
     /// wall of its own organization, whichever the request came in for, and reaching
     /// its kind alone (boards for a board's token, wikis for a wiki's), which the
@@ -267,6 +288,33 @@ impl App {
             }
             Err(error) => {
                 tracing::warn!(user_id, %error, "a new member was not given their welcome board");
+            }
+        }
+    }
+
+    /// [`App::welcome_workspace`] behind the wall of `org_id`, for a newly founded
+    /// shared organization workspace or personal space.
+    pub(super) async fn welcome_workspace_in(
+        &self,
+        org_id: &str,
+        user_id: &str,
+        workspace_id: &str,
+        is_personal: bool,
+        accept_language: Option<&str>,
+    ) {
+        match self.in_organization(org_id) {
+            Ok(within) => {
+                within
+                    .welcome_workspace(org_id, user_id, workspace_id, is_personal, accept_language)
+                    .await;
+            }
+            Err(error) => {
+                tracing::warn!(
+                    user_id,
+                    workspace_id,
+                    %error,
+                    "a workspace was not given its welcome board"
+                );
             }
         }
     }
@@ -423,7 +471,7 @@ impl App {
         };
         if let Err(error) = shut.await {
             tracing::warn!(%error, user_id = %session.user_id, "the own space was not shut to the session that set its password; its connections are closed");
-            self.ws().close_session(&session.id);
+            self.ws().close_session_unread(&session.id);
         }
     }
 }

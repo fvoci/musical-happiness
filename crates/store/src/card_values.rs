@@ -1,6 +1,7 @@
-//! The checks of the card property values a write gives a block, beyond their shape
-//! ([`fvoci_model::Block::validate`]): what fits the kinds of the board's properties
-//! (`docs/s6-design.md` 5.7), and what a card relation names.
+//! The checks of the card property values and view filter/dependency rules a write gives
+//! a block, beyond their shape ([`fvoci_model::Block::validate`]): what fits the kinds
+//! of the board's properties (`docs/s6-design.md` 5.7), what a card relation names, and
+//! whether an active Gantt dependency relation stays acyclic.
 //!
 //! A relation value names cards of the block's board, in the trash or out of it. Which
 //! ones it names is asked once every block of a write is stored, so that two new cards
@@ -11,8 +12,9 @@ use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
     Block, BlockError, BlockType, CardPropertyDefinition, JsonMap, RELATION_LIMIT, RelationError,
-    RelationProblem, check_relation_value, relation_link_card, relation_links_to_value,
-    relation_property_ids, tidy_copied_relations, validate_card_property_kinds,
+    RelationProblem, check_relation_value, closes_relation_cycle, gantt_dependency_property_ids,
+    relation_link_card, relation_links_to_value, relation_property_ids, tidy_copied_relations,
+    validate_card_property_kinds, validate_view_filter_values,
 };
 use serde_json::Value;
 
@@ -34,12 +36,8 @@ pub(crate) struct NamedCards {
     ids: Vec<String>,
 }
 
-/// Checks the property values a write changes of a block, against what `existing` (the
-/// block as it is stored, if it is) has: a date value for a date property and none for
-/// another, and as a relation value of a card a list of other cards, each once, at most
-/// [`fvoci_model::RELATION_LIMIT`]. Only the values the write changes are checked; one
-/// that was stored before the rules, or that a change of the definitions left behind,
-/// stays until it is written.
+/// Checks the property values or view filter/dependency settings a write changes of a
+/// block, against what `existing` (the block as it is stored, if it is) has.
 ///
 /// Returns what the relation values name that they did not name before, to be asked for
 /// once the write is stored: an identifier a value had is not asked for again.
@@ -52,6 +50,9 @@ pub(crate) async fn check_written(
     block: &mut Block,
     existing: Option<&Block>,
 ) -> Result<Vec<NamedCards>, StoreError> {
+    if block.block_type == BlockType::View {
+        check_written_view(scope, block, existing).await?;
+    }
     let Some(Value::Object(values)) = block.fields.get("properties") else {
         return Ok(Vec::new());
     };
@@ -75,15 +76,72 @@ pub(crate) async fn check_written(
     };
     validate_card_property_kinds(&written, &board.card_properties)
         .map_err(|error| invalid(&block.id, error.into()))?;
-    // A relation is a card's: a value another block holds names nothing, and a copy
-    // leaves it as it is.
     if block.block_type != BlockType::Card {
         return Ok(Vec::new());
     }
-    let relations = relation_property_ids(&board.card_properties);
+    collect_written_relations(block, &written, before, &board.card_properties)
+}
+
+async fn check_written_view(
+    scope: &mut Scope<'_>,
+    block: &Block,
+    existing: Option<&Block>,
+) -> Result<(), StoreError> {
+    let filter_changed = block.fields.get("filter").is_some_and(|v| !v.is_null())
+        && existing.and_then(|e| e.fields.get("filter")) != block.fields.get("filter");
+    let gantt_dep = gantt_dep_of(&block.fields);
+    let prev_gantt_dep = existing.and_then(|e| gantt_dep_of(&e.fields));
+    let dep_changed = gantt_dep.is_some() && gantt_dep != prev_gantt_dep;
+    if !filter_changed && !dep_changed {
+        return Ok(());
+    }
+    let Some(board) = containers::find_container(scope, &block.container_id).await? else {
+        return Ok(());
+    };
+    if filter_changed {
+        validate_view_filter_values(&block.fields, &board.card_properties).map_err(|error| {
+            StoreError::InvalidBlock {
+                id: block.id.clone(),
+                source: error.into(),
+            }
+        })?;
+    }
+    if let Some(dep_id) = gantt_dep.filter(|_| dep_changed)
+        && relation_property_ids(&board.card_properties).contains(dep_id)
+        && board_has_relation_cycle(scope, &board.id, dep_id).await?
+    {
+        return Err(StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source: RelationError::new(dep_id, RelationProblem::Cycle).into(),
+        });
+    }
+    Ok(())
+}
+
+fn gantt_dep_of(fields: &JsonMap) -> Option<&str> {
+    if fields.get("viewType").and_then(Value::as_str) != Some("gantt") {
+        return None;
+    }
+    fields
+        .get("dependencyPropertyId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+}
+
+fn collect_written_relations(
+    block: &mut Block,
+    written: &JsonMap,
+    before: Option<&JsonMap>,
+    definitions: &[CardPropertyDefinition],
+) -> Result<Vec<NamedCards>, StoreError> {
+    let invalid = |id: &str, source: BlockError| StoreError::InvalidBlock {
+        id: id.to_owned(),
+        source,
+    };
+    let relations = relation_property_ids(definitions);
     let mut named = Vec::new();
     let mut normalized = Vec::new();
-    for (property, value) in &written {
+    for (property, value) in written {
         if !relations.contains(property.as_str()) {
             continue;
         }
@@ -126,18 +184,22 @@ pub(crate) async fn check_written(
 }
 
 /// Checks that what relation values name are cards of their blocks' boards, in the
-/// trash or out of it, as the write that gave them the values left the boards.
+/// trash or out of it, and that active Gantt dependency properties remain acyclic.
 ///
 /// # Errors
 ///
 /// Returns [`StoreError::InvalidBlock`] with a [`RelationError`] for the first value
 /// that names a block of its board that is no card
-/// ([`RelationProblem::NotACard`]), or a card that is not on its board
-/// ([`RelationProblem::CardNotFound`]): none of that identifier, or another board's.
+/// ([`RelationProblem::NotACard`]), a card that is not on its board
+/// ([`RelationProblem::CardNotFound`]), or an edge closing a Gantt dependency cycle
+/// ([`RelationProblem::Cycle`]).
 pub(crate) async fn check_named_cards(
     scope: &mut Scope<'_>,
     named: &[NamedCards],
 ) -> Result<(), StoreError> {
+    if named.is_empty() {
+        return Ok(());
+    }
     let mut by_board: HashMap<&str, HashSet<&str>> = HashMap::new();
     for value in named {
         by_board
@@ -164,7 +226,111 @@ pub(crate) async fn check_named_cards(
             });
         }
     }
+    check_gantt_dependency_cycles(scope, named).await
+}
+
+async fn check_gantt_dependency_cycles(
+    scope: &mut Scope<'_>,
+    named: &[NamedCards],
+) -> Result<(), StoreError> {
+    let mut boards_seen = HashSet::new();
+    for entry in named {
+        if !boards_seen.insert(entry.board_id.as_str()) {
+            continue;
+        }
+        let board_id = entry.board_id.as_str();
+        let Some(board) = containers::find_container(scope, board_id).await? else {
+            continue;
+        };
+        let views = live_view_fields(scope, board_id).await?;
+        let active_deps = gantt_dependency_property_ids(&views, &board.card_properties);
+        if active_deps.is_empty() {
+            continue;
+        }
+        let mut checked_props: HashMap<&str, HashMap<String, Vec<String>>> = HashMap::new();
+        for item in named.iter().filter(|n| n.board_id == board_id) {
+            if !active_deps.contains(item.property.as_str()) {
+                continue;
+            }
+            let preds_by_card = match checked_props.get(item.property.as_str()) {
+                Some(map) => map,
+                None => {
+                    let map = load_predecessors_map(scope, board_id, &item.property).await?;
+                    checked_props.entry(item.property.as_str()).or_insert(map)
+                }
+            };
+            if let Some(preds) = preds_by_card.get(&item.block_id)
+                && closes_relation_cycle(preds_by_card, &item.block_id, preds)
+            {
+                return Err(StoreError::InvalidBlock {
+                    id: item.block_id.clone(),
+                    source: RelationError::new(&item.property, RelationProblem::Cycle).into(),
+                });
+            }
+        }
+    }
     Ok(())
+}
+
+async fn board_has_relation_cycle(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    property_id: &str,
+) -> Result<bool, StoreError> {
+    let preds_by_card = load_predecessors_map(scope, board_id, property_id).await?;
+    Ok(preds_by_card
+        .iter()
+        .any(|(card_id, preds)| closes_relation_cycle(&preds_by_card, card_id, preds)))
+}
+
+async fn live_view_fields(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+) -> Result<Vec<JsonMap>, StoreError> {
+    let mut sql = scope.sql("SELECT fields FROM blocks WHERE container_id = ");
+    sql.bind(Id(board_id))
+        .push_bind(" AND type = ", BlockType::View.as_str());
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.json_map(0, "fields"))
+        .collect()
+}
+
+async fn load_predecessors_map(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    property_id: &str,
+) -> Result<HashMap<String, Vec<String>>, StoreError> {
+    let mut sql = scope.sql("SELECT id, fields FROM blocks WHERE container_id = ");
+    sql.bind(Id(board_id))
+        .push_bind(" AND type = ", BlockType::Card.as_str());
+    let mut map = HashMap::new();
+    for row in scope.fetch_all(sql).await? {
+        let card_id = row.id(0)?;
+        let fields = row.json_map(1, "fields")?;
+        if fields.get("isTemplate") == Some(&Value::Bool(true)) {
+            continue;
+        }
+        let Some(items) = fields
+            .get("properties")
+            .and_then(Value::as_object)
+            .and_then(|props| props.get(property_id))
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+        let preds: Vec<String> = items
+            .iter()
+            .filter_map(relation_link_card)
+            .map(str::to_owned)
+            .collect();
+        if !preds.is_empty() {
+            map.insert(card_id, preds);
+        }
+    }
+    Ok(map)
 }
 
 /// The types of the blocks of a board among `ids`, in the trash or out of it.

@@ -157,11 +157,13 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
     // A comment, a view and the board itself are no card and no page.
     let others = [BlockType::Comment, BlockType::View].map(|block_type| Block {
         container_id: mine.board.clone(),
-        parent_id: mine.card.clone(),
+        parent_id: if block_type == BlockType::Comment {
+            mine.card.clone()
+        } else {
+            String::new()
+        },
         block_type,
         title: "neither".to_owned(),
-        created_at: 1,
-        updated_at: 1,
         ..Block::default()
     });
     let stored: Vec<Block> = th
@@ -264,23 +266,22 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
 }
 
 /// To a member of the workspace, what is for the invited only is nothing until they
-/// are invited, and an open board nothing until they join it; an open wiki they read
-/// without joining it.
+/// are invited, whereas an open board and an open wiki are both read without joining.
 #[tokio::test]
 async fn what_a_member_is_not_on_is_resolved_as_nothing() {
     let th = Setup::native().start().await.init_basic().await;
     let own = made(&th.client2, TEST_WS, "private", "own").await;
     let private = made(&th.client, TEST_WS, "private", HIDDEN).await;
-    let open = made(&th.client, TEST_WS, "open", HIDDEN).await;
+    let open = made(&th.client, TEST_WS, "open", "open-title").await;
     let member = &th.client2;
     let member_id = member.me().await.id;
 
-    let hidden = [private.card.as_str(), &private.page, &open.card];
+    let hidden = [private.card.as_str(), &private.page];
     check_as_nothing(member, TEST_WS, &hidden, &own.card, "no member").await;
     assert_eq!(
-        named(&resolved(member, TEST_WS, &[&open.page]).await),
-        [open.page.as_str()],
-        "the page of an open wiki, unjoined"
+        named(&resolved(member, TEST_WS, &open.both()).await),
+        [open.card.as_str(), open.page.as_str()],
+        "open board card and open wiki page are resolved without joining"
     );
 
     // Joined, and invited: each is told from then on, and the other stays nothing.

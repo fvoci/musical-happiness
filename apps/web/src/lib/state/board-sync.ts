@@ -18,7 +18,6 @@ import type { BoardWrites, BlockWrites } from './board-writes.ts';
 import type { BoardStore } from './board.svelte.ts';
 import type { lastCommentsOf } from './last-comments.ts';
 import type { MemberWrites } from './member-writes.ts';
-import { restoreCard } from './trash.svelte.ts';
 import { authorIds, memberId } from './user-names.ts';
 import { reread, take } from './write.ts';
 
@@ -36,6 +35,7 @@ export interface BoardSyncInternals {
   takeBoard(board: Container): void;
   receiveCard(card: CardSummary): void;
   receiveView(view: BoardView): void;
+  refreshPermissions(): Promise<void>;
   refresh(): Promise<void>;
 }
 
@@ -68,6 +68,12 @@ export function applyBoardChange(internals: BoardSyncInternals, change: Change):
         store.workspace.evictContainer(store.boardId);
       }
       void store.workspace.learnUsers(change.members.map(memberId), { members: true });
+      void internals.refreshPermissions();
+      break;
+    case 'workspaceRole':
+      if (change.userId === store.workspace.me?.id) {
+        void internals.refreshPermissions();
+      }
       break;
     case 'blocks':
       for (const block of change.blocks) {
@@ -111,9 +117,13 @@ export async function refreshBoard(internals: BoardSyncInternals): Promise<void>
   const viewsBefore = store.views.map((view) => view.id);
   const membersTold = people.told;
   try {
-    const [board, views, cards, members] = await readBoard(store.workspace, store.boardId);
+    const [board, views, cards, members, permissions] = await readBoard(
+      store.workspace,
+      store.boardId,
+    );
     if (reading !== internals.currentRefresh() || internals.isInactive()) return;
     if (boardWrites.receive(board)) internals.takeBoard(board);
+    [store.permissions, store.permissionsRole] = [permissions, store.role];
     store.views = reread(store.views, views, viewsBefore, (view) => viewWrites.receive(view));
     const shown = store.cards;
     const read = cards.map((card) => lastComments.settle(card, heard));
@@ -184,24 +194,28 @@ export async function deleteBoardCards(
   store: BoardStore,
   cardIds: readonly string[],
 ): Promise<void> {
-  await store.inOneStep(async (groupId) => {
-    for (const cardId of cardIds) {
-      await performBoardAction(
-        store,
-        async () => {
-          const gone = new Set<string>([
-            cardId,
-            ...descendantsOf(cardId, store.hierarchy.childrenMap).map((card) => card.id),
-          ]);
-          for (const id of gone) store.deleting(id);
-          await store.workspace.backend.deleteBlock(store.boardId, cardId);
-          store.cards = store.cards.filter((card) => !gone.has(card.id));
-          if (store.openCard && gone.has(store.openCard.cardId)) store.closeCard();
-        },
-        () => restoreCard(store, cardId),
-        'deleteCard',
-        groupId,
-      );
-    }
-  });
+  const uniqueIds = [...new Set(cardIds)];
+  if (uniqueIds.length === 0) return;
+  await performBoardAction(
+    store,
+    async () => {
+      const gone = new Set<string>();
+      for (const cardId of uniqueIds) {
+        gone.add(cardId);
+        for (const child of descendantsOf(cardId, store.hierarchy.childrenMap)) gone.add(child.id);
+      }
+      for (const id of gone) store.deleting(id);
+      await store.workspace.backend.batchDeleteCards(store.boardId, uniqueIds);
+      store.cards = store.cards.filter((card) => !gone.has(card.id));
+      if (store.openCard && gone.has(store.openCard.cardId)) store.closeCard();
+      return uniqueIds;
+    },
+    async (deletedIds) => {
+      const restored = await store.workspace.backend.batchRestoreCards(store.boardId, deletedIds);
+      let next = store.cards;
+      for (const card of restored) next = take(next, card);
+      store.cards = next;
+    },
+    'deleteCard',
+  );
 }

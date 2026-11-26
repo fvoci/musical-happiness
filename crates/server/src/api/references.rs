@@ -1,19 +1,26 @@
 //! References: what the bodies of a workspace name.
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::{LinkedBlock, is_id};
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::ReferenceIds;
 use super::contract::params::{BlockId, MemberWorkspaceId, Page, PerPage, TitleTerm};
 use super::contract::tag;
-use super::paging::paging_params;
+use super::query::{PagingQuery, QueryParams};
 use super::workspace::InLinked;
-use super::{ApiResult, decode_json, json_response, query_param};
+use super::{ApiResult, decode_json, json_response};
 use crate::app::App;
 use crate::error::AppError;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct ReferenceSearchQuery {
+    q: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -72,9 +79,9 @@ async fn handle_resolve_references(InLinked(ws): InLinked, body: Bytes) -> ApiRe
 async fn handle_get_references_to(
     InLinked(ws): InLinked,
     Path((_, block_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
-    let asked = paging_params(query.as_deref())?;
+    let asked = query.into_list_page()?;
     // What has not the form of an identifier names nothing, and is answered so.
     let naming = if is_id(&block_id) {
         ws.app
@@ -104,11 +111,13 @@ async fn handle_get_references_to(
     params(MemberWorkspaceId, TitleTerm),
     responses((status = 200, description = "What was found.", body = Vec<LinkedBlock>)),
 )]
-async fn handle_search_references(InLinked(ws): InLinked, RawQuery(query): RawQuery) -> ApiResult {
-    let term = query_param(query.as_deref(), "q");
+async fn handle_search_references(
+    InLinked(ws): InLinked,
+    QueryParams(query): QueryParams<ReferenceSearchQuery>,
+) -> ApiResult {
     let found = ws
         .app
-        .search_references(&ws.session.user_id, &ws.workspace_id, &term)
+        .search_references(&ws.session.user_id, &ws.workspace_id, &query.q)
         .await?;
     Ok(json_response(&found))
 }

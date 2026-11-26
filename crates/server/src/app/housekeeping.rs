@@ -238,6 +238,98 @@ impl App {
             Err(error) => tracing::error!(%error, "unable to send due unit review notifications"),
         }
     }
+
+    /// Creates `due_soon` notifications for incomplete assigned cards due today, due
+    /// tomorrow, or overdue in each assignee's local calendar day (`App::user_today`),
+    /// across both shared organizations and personal spaces (`OrgKind::Personal`),
+    /// deduplicating via `card_due_notices(org_id, card_id, user_id, due_key)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the server lock is not held or a database query fails.
+    pub async fn notify_due_soon_cards(&self, now: i64) -> Result<u64, AppError> {
+        let app = self.housekeeping();
+        app.require_server_lock()?;
+        let utc_day = day_at(now, &TimeZone::default())
+            .ok_or_else(|| AppError::internal("current timestamp is outside supported years"))?;
+        let max_due_at = add_days(&utc_day, 2).unwrap_or(utc_day);
+
+        let mut user_days: HashMap<String, (String, TimeZone)> = HashMap::new();
+        let mut sent = 0_u64;
+
+        for _ in 0..REVIEW_NOTIFY_MAX_ROUNDS {
+            let batch = app
+                .store()
+                .due_soon_card_candidates("0001-01-01", &max_due_at, REVIEW_NOTIFY_ROUND)
+                .await?;
+            if batch.is_empty() {
+                break;
+            }
+            let reached_limit =
+                i64::try_from(batch.len()).unwrap_or(i64::MAX) >= REVIEW_NOTIFY_ROUND;
+            let mut progress = 0_u64;
+            for candidate in &batch {
+                let (soon_day, tz) = if let Some(cached) = user_days.get(&candidate.user_id) {
+                    cached.clone()
+                } else {
+                    let today = app.user_today(&candidate.user_id, now).await?;
+                    let soon = add_days(&today, 1).unwrap_or(today);
+                    let settings = app.store().get_user_settings(&candidate.user_id).await?;
+                    let pair = (soon, settings.time_zone);
+                    user_days.insert(candidate.user_id.clone(), pair.clone());
+                    pair
+                };
+                let effective_due = match candidate.due_millis {
+                    Some(ms) => day_at(ms, &tz)
+                        .or_else(|| day_at(ms, &TimeZone::default()))
+                        .unwrap_or_else(|| candidate.due_at.clone()),
+                    None => candidate.due_at.clone(),
+                };
+                if effective_due > soon_day {
+                    continue;
+                }
+                let readable = app
+                    .in_organization(&candidate.org_id)?
+                    .in_workspace(&candidate.workspace_id)
+                    .reaching(ContainerKinds::BOARDS)
+                    .container_access(&candidate.user_id, &candidate.board_id)
+                    .await?
+                    .is_some_and(|access| {
+                        access.grant.reads_on_joining() && !access.container.is_template
+                    });
+                if !readable {
+                    continue;
+                }
+                if app
+                    .store()
+                    .notify_due_soon_card(candidate, now, MOST_NOTIFICATIONS_PER_USER)
+                    .await?
+                {
+                    sent += 1;
+                    progress += 1;
+                    app.ws()
+                        .notifications_changed(&candidate.user_id, &[&candidate.org_id])
+                        .await;
+                }
+            }
+            if !reached_limit || progress == 0 {
+                break;
+            }
+        }
+        Ok(sent)
+    }
+
+    /// Housekeeping entry point for [`App::notify_due_soon_cards`].
+    pub async fn notify_due_soon_cards_upkeep(&self) {
+        if self.config().notifications_by_hand || !self.holds_server_lock() {
+            return;
+        }
+        match self.notify_due_soon_cards(now_millis()).await {
+            Ok(0) => {}
+            Ok(sent) => tracing::info!(sent, "sent due-soon card notifications"),
+            Err(error) => tracing::error!(%error, "unable to send due-soon card notifications"),
+        }
+    }
 }
 
 /// The entries of a directory with their names; none if it cannot be read.

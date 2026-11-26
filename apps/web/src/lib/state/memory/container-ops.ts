@@ -14,6 +14,8 @@ import {
 import type {
   BoardDraft,
   ContainerRole,
+  CopiedContainerOutput,
+  CopyToWorkspaceInput,
   DownloadedFile,
   DownloadOptions,
   ImportOptions,
@@ -110,13 +112,51 @@ export function createMemoryBoard(
     createdAt: now,
     updatedAt: now,
   };
-  if (draft.cardProperties) board.cardProperties = copy(draft.cardProperties);
+  if (draft.scaffold && !draft.cardProperties) {
+    const statusId = ctx.world.newId();
+    const assigneeId = ctx.world.newId();
+    const dueId = ctx.world.newId();
+    const todoOpt = ctx.world.newId();
+    const doingOpt = ctx.world.newId();
+    const doneOpt = ctx.world.newId();
+    board.cardProperties = [
+      {
+        id: statusId,
+        name: 'Status',
+        type: 'select',
+        options: [
+          { id: todoOpt, label: 'To do', color: 'gray' },
+          { id: doingOpt, label: 'In progress', color: 'blue' },
+          { id: doneOpt, label: 'Done', color: 'green' },
+        ],
+      },
+      { id: assigneeId, name: 'Assignee', type: 'person', options: [] },
+      { id: dueId, name: 'Due Date', type: 'date', options: [] },
+    ];
+    board.dueDatePropertyId = dueId;
+    board.doneWhen = { kind: 'option', propertyId: statusId, optionIds: [doneOpt] };
+  } else if (draft.cardProperties) {
+    board.cardProperties = copy(draft.cardProperties);
+  }
   ctx.world.containers.set(board.id, board);
   ctx.world.members.set(board.id, [memberOf(board.id, ctx.userId, 'admin')]);
   fileAsNew(ctx.world, ctx.userId, board);
   const view = newStoredBlock(ctx, board.id, '', 'view');
   view.title = firstView.title;
-  view.fields = copy(firstView.fields);
+  const statusProp = board.cardProperties.find((prop) => prop.type === 'select');
+  view.fields =
+    draft.scaffold && statusProp
+      ? {
+          ...copy(firstView.fields),
+          viewType: 'board',
+          groupBy: statusProp.id,
+          visibleGroups: [...statusProp.options.map((opt) => opt.id), ''],
+          shownProperties: board.cardProperties
+            .filter((prop) => prop.id !== statusProp.id)
+            .map((prop) => prop.id),
+          order: 'a0',
+        }
+      : copy(firstView.fields);
   ctx.world.blocks.set(view.id, view);
   tellContainer(ctx.world, board);
   tellBlocks(ctx.world, board.id, [view]);
@@ -200,10 +240,39 @@ export function duplicateMemoryContainer(
   const source = containerInWorld(ctx.world, id);
   if (source.kind === 'diary') fail(404, 'no board');
   if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
+  if (!source.isTemplate && !memberIdsOf(ctx.world, id).includes(ctx.userId)) {
+    fail(403, 'access denied to copy board');
+  }
   if (source.isBuiltin !== true && source.workspaceId !== to) fail(404, 'no board');
   const title = copyTitle(source, asTemplate, settingsOf(ctx.world, ctx.userId).language);
   const blocks = copiedBlocks(ctx.world, source);
   return insertMemoryContainer(ctx, { ...source, isTemplate: asTemplate, title }, blocks, to);
+}
+
+export function copyMemoryContainerToWorkspace(
+  ctx: MemoryContainerContext,
+  id: string,
+  request: CopyToWorkspaceInput,
+): CopiedContainerOutput {
+  const source = containerInWorld(ctx.world, id);
+  if (source.kind === 'diary') fail(404, 'no board');
+  spaces.checkWorkspace(ctx.world, ctx.userId, request.targetWorkspaceId);
+  if (!memberIdsOf(ctx.world, id).includes(ctx.userId)) {
+    fail(403, 'access denied to copy board');
+  }
+  if (source.workspaceId !== request.targetWorkspaceId && !ctx.world.allowCopyOut) {
+    fail(403, 'copying out of this organization is disabled', { reason: 'copy_out_disabled' });
+  }
+  const title =
+    request.title?.trim() || copyTitle(source, false, settingsOf(ctx.world, ctx.userId).language);
+  const blocks = copiedBlocks(ctx.world, source);
+  const container = insertMemoryContainer(
+    ctx,
+    { ...source, isTemplate: false, visibility: 'private', title },
+    blocks,
+    request.targetWorkspaceId,
+  );
+  return { container, missingFilesCount: 0 };
 }
 
 export function onboardMemoryWorkspace(ctx: MemoryContainerContext, workspaceId: string): string {

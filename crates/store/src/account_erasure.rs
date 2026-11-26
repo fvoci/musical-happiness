@@ -33,11 +33,12 @@ use fvoci_model::{AuditAction, ContainerMember, ContainerRole, OrgRole, Workspac
 use crate::account_deletion::{self, DeletionStanding, Held};
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::containers::{delete_member, find_member, save_member};
-use crate::db::{Dialect, Id, Param, Scope};
+use crate::db::{DeletedContainersHeld, Dialect, Id, LockRank, OrganizationHeld, Param, Scope};
 use crate::error::StoreError;
+use crate::sessions::{self, SessionsEnded};
 use crate::trash::{self, Purged, TrashedRoles};
 use crate::{
-    Store, email_revert, link_locks, members, org_admin, password_reset, sessions, users,
+    Store, email_revert, link_locks, members, org_admin, password_reset, users,
     workspace_membership,
 };
 
@@ -51,10 +52,11 @@ pub enum Erasing {
 }
 
 /// What became of beginning to erase an account.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ErasureStart {
-    /// It is marked, now or before: the steps after this are to be done.
-    Begun,
+    /// It is marked, now or before: the steps after this are to be done, and any
+    /// sessions ended in this call are carried in the witness.
+    Begun(SessionsEnded),
     /// There is no such account, or it is erased.
     NotThere,
     /// Its wait has not run out, or it did not ask.
@@ -160,7 +162,7 @@ impl Store {
     ) -> Result<ErasureStart, StoreError> {
         self.system()
             .transaction(async |scope| {
-                users::lock_instance(scope).await?;
+                let held_instance = users::lock_instance(scope).await?;
                 let mut sql = scope.sql(
                     "SELECT delete_after, erase_started_at FROM users \
                      WHERE erased_at = 0 AND id = ",
@@ -171,15 +173,14 @@ impl Store {
                 };
                 let (delete_after, started_at) = (row.int(0)?, row.int(1)?);
                 if started_at > 0 {
-                    return Ok(ErasureStart::Begun);
+                    return Ok(ErasureStart::Begun(SessionsEnded::none()));
                 }
                 let due = delete_after > 0 && delete_after <= now;
                 if erasing == Erasing::AfterTheWait && !due {
                     return Ok(ErasureStart::Waits);
                 }
-                let mut standing = account_deletion::standing(scope, user_id, Held::Yes).await?;
-                // Whoever is on their way into an organization that is to go is in it
-                // before it is asked once more who is.
+                let mut standing =
+                    account_deletion::standing(scope, user_id, Held::Yes(held_instance)).await?;
                 let (alone_in, joined) = {
                     let mut alone_in = Vec::new();
                     let mut joined = Vec::new();
@@ -200,14 +201,13 @@ impl Store {
                 if !standing.is_open() {
                     return Ok(ErasureStart::Refused(standing));
                 }
-                if !mark(scope, user_id, now, erasing).await? {
+                let Some(ended) = mark(scope, user_id, now, erasing).await? else {
                     return Ok(ErasureStart::Waits);
-                }
-                // The account's own space goes with it whoever is in it.
+                };
                 for organization in standing.alone_in.iter().chain(&standing.own_space) {
                     put_out_of_use(scope, &organization.id, now).await?;
                 }
-                Ok(ErasureStart::Begun)
+                Ok(ErasureStart::Begun(ended))
             })
             .await
     }
@@ -298,31 +298,26 @@ impl Store {
             Erasing::AtOnce => AuditActor::ServerOperator,
         };
         self.transaction(async |scope| {
-            org_admin::hold_organization_row(scope).await?;
+            let held_org = org_admin::hold_organization_row(scope).await?;
             if !is_being_erased(scope, user_id).await? {
                 return Ok(LeftFrom::default());
             }
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
             let mut erased = LeftFrom::default();
             if is_own_space_of(scope, user_id).await? {
-                erased.removed = Some(remove_organization(scope).await?);
+                erased.removed = Some(remove_organization(scope, held_org).await?);
                 return Ok(erased);
             }
             if is_out_of_use(scope).await? && administers_organization(scope, user_id).await? {
                 if !account_deletion::has_other_people(scope, &org_id, user_id).await? {
-                    erased.removed = Some(remove_organization(scope).await?);
+                    erased.removed = Some(remove_organization(scope, held_org).await?);
                     return Ok(erased);
                 }
-                // Somebody came in between the question and the mark: the
-                // organization is theirs to keep.
                 put_back_in_use(scope).await?;
                 erased.kept_for_newcomer = true;
             }
             leave_every_workspace(scope, user_id, actor, &mut erased).await?;
-            leave_organization(scope, user_id).await?;
-            // Who made the organization is nobody's to know once the account is gone: an
-            // erased account makes none, and is counted none. One that leaves of its own
-            // accord is counted still.
+            leave_organization(scope, held_org, user_id).await?;
             let mut sql =
                 scope.sql("UPDATE organizations SET created_by = NULL WHERE created_by = ");
             sql.bind(Id(user_id)).push_bind(" AND id = ", Id(&org_id));
@@ -353,9 +348,10 @@ impl Store {
     ) -> Result<ErasureEnd, StoreError> {
         self.system()
             .transaction(async |scope| {
-                link_locks::take_turn(scope).await?;
+                let turn = link_locks::take_turn(scope).await?;
                 let addresses = addresses_of(scope, user_id).await?;
-                hold_organizations_of_links_to(scope, &addresses).await?;
+                hold_organizations_of_links_to(scope, turn, &addresses).await?;
+                scope.record_lock(LockRank::Users, user_id);
                 let mut sql =
                     scope.sql("SELECT erase_started_at, erased_at FROM users WHERE id = ");
                 sql.bind(Id(user_id));
@@ -417,9 +413,11 @@ impl Store {
 ///
 /// `meeting_attendance` and `course_meetings` (`presenter_id`, `host_id`) are intentionally
 /// excluded: shared study meeting history stays under the erased user's tombstone identifier.
-const PERSONAL_DELETES: [&str; 17] = [
+const PERSONAL_DELETES: [&str; 19] = [
     "DELETE FROM notifications WHERE recipient_id = ",
     "DELETE FROM notification_outbox WHERE recipient_id = ",
+    "DELETE FROM card_due_notices WHERE user_id = ",
+    "DELETE FROM card_assignees WHERE user_id = ",
     "DELETE FROM time_entries WHERE user_id = ",
     "DELETE FROM user_identities WHERE user_id = ",
     "DELETE FROM email_changes WHERE user_id = ",
@@ -438,15 +436,13 @@ const PERSONAL_DELETES: [&str; 17] = [
 ];
 
 /// Marks the account as being erased from `now`, puts it out of use if it was in use,
-/// and ends its sessions and credentials. Says whether it did: not an account that is
-/// no more to be erased, its asking taken back since it was read, which the statement
-/// waits for and sees.
+/// and ends its sessions and credentials.
 async fn mark(
     scope: &mut Scope<'_>,
     user_id: &str,
     now: i64,
     erasing: Erasing,
-) -> Result<bool, StoreError> {
+) -> Result<Option<SessionsEnded>, StoreError> {
     let mut sql = scope.sql("UPDATE users SET erase_started_at = ");
     sql.bind(now)
         .push_bind(", deleted_at = COALESCE(deleted_at, ", now)
@@ -459,12 +455,12 @@ async fn mark(
         sql.push_bind(" AND delete_after > 0 AND delete_after <= ", now);
     }
     if scope.execute(sql).await? == 0 {
-        return Ok(false);
+        return Ok(None);
     }
-    sessions::delete_sessions_of_user(scope, user_id).await?;
+    let ended = sessions::delete_sessions_of_user(scope, user_id).await?;
     password_reset::end_links_of_user(scope, user_id).await?;
     email_revert::end_of_user(scope, user_id).await?;
-    Ok(true)
+    Ok(Some(ended))
 }
 
 /// Waits for whoever is on their way into the organization, on PostgreSQL: a sign-in
@@ -604,6 +600,7 @@ async fn leave_workspace(
     user_id: &str,
     actor: &AuditActor,
 ) -> Result<Option<LeftWorkspace>, StoreError> {
+    scope.record_lock(LockRank::Workspace, workspace_id);
     let mut sql = scope.sql("SELECT deleted_at FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?);
@@ -615,7 +612,7 @@ async fn leave_workspace(
     };
     let in_use = row.opt_int(0)?.is_none();
     let containers = workspace_membership::hold_containers_of(scope, workspace_id, user_id).await?;
-    trash::hold_deleted_containers(scope, workspace_id).await?;
+    let held_trashed = trash::hold_deleted_containers(scope, workspace_id).await?;
     let role = workspace_membership::held_role(scope, workspace_id, user_id).await?;
     let mut left = LeftWorkspace {
         without_administrator: in_use
@@ -653,7 +650,7 @@ async fn leave_workspace(
     }
     trash::change_member_of_deleted_containers(scope, workspace_id, user_id, TrashedRoles::Forget)
         .await?;
-    forget_places_in_the_trash(scope, workspace_id, user_id).await?;
+    forget_places_in_the_trash(scope, held_trashed, workspace_id, user_id).await?;
     crate::unit_progress::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::course_exams::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::unit_reviews::forget_user_in_workspace(scope, workspace_id, user_id).await?;
@@ -677,10 +674,10 @@ struct LeftWorkspace {
 }
 
 /// Takes the places the user filed the boards of a workspace under out of what its
-/// boards in the trash would come back with (`deleted_containers.places`): the places
-/// are theirs alone, and go with them. The caller holds the boards in the trash.
-async fn forget_places_in_the_trash(
-    scope: &mut Scope<'_>,
+/// boards in the trash would come back with (`deleted_containers.places`).
+async fn forget_places_in_the_trash<'c>(
+    scope: &mut Scope<'c>,
+    _held: DeletedContainersHeld<'c>,
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
@@ -731,13 +728,10 @@ async fn heir_in(
 /// Removes what the user still has in the scope's organization once they are out of
 /// its workspaces: a role left on a board of a workspace they had left before, what
 /// they follow there, the membership of the organization, and the links they made
-/// that nobody used. A link another was made like stays, and so do those made like it
-/// that were used and the registrations made by them, which the schema would take
-/// along: such a link lets nobody in, for its maker is no member of the organization.
-/// The caller holds the organization's row, as whoever holds several of its links does
-/// (`link_locks`).
-pub(crate) async fn leave_organization(
-    scope: &mut Scope<'_>,
+/// that nobody used.
+pub(crate) async fn leave_organization<'c>(
+    scope: &mut Scope<'c>,
+    _held: OrganizationHeld<'c>,
     user_id: &str,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM container_members WHERE user_id = ");
@@ -749,7 +743,6 @@ pub(crate) async fn leave_organization(
         .bind(scope.org()?)
         .push(")");
     scope.execute(sql).await?;
-    // Also what they followed without a role: a page of a wiki open to its workspace.
     let mut sql = scope.sql("DELETE FROM subscriptions WHERE user_id = ");
     sql.bind(Id(user_id))
         .push(
@@ -763,11 +756,13 @@ pub(crate) async fn leave_organization(
     trash::forget_watcher_of_organization(scope, user_id).await?;
     crate::unit_progress::forget_user_in_organization(scope, user_id).await?;
     crate::course_exams::forget_user_in_organization(scope, user_id).await?;
-    // Serialize with concurrent `start_time_entry` / `create_time_entry` / personal review
-    // and note writes (which hold `users`) so an in-flight write cannot insert an orphan
-    // after we clear rows.
     crate::users::hold_user_for_cleanup(scope, user_id).await?;
     crate::unit_reviews::forget_user_in_organization(scope, user_id).await?;
+    let mut due_sql = scope.sql("DELETE FROM card_due_notices WHERE user_id = ");
+    due_sql
+        .bind(Id(user_id))
+        .push_bind(" AND org_id = ", scope.org()?);
+    scope.execute(due_sql).await?;
     let mut sql = scope.sql("DELETE FROM time_entries WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
@@ -776,8 +771,6 @@ pub(crate) async fn leave_organization(
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
     scope.execute(sql).await?;
-    // Twice: the links made like another for the recipients of its mail first, and then
-    // the link they were made like, once none is left of them.
     for _ in 0..2 {
         let mut sql = scope.sql("DELETE FROM invitations WHERE uses = 0 AND created_by = ");
         sql.bind(Id(user_id))
@@ -792,13 +785,11 @@ pub(crate) async fn leave_organization(
 const UNLIKE_ANY: &str = " AND NOT EXISTS (SELECT 1 FROM invitations AS made_like \
                           WHERE made_like.parent_id = invitations.id)";
 
-/// Removes the scope's organization and everything in it: each of its workspaces as a
-/// workspace goes for good (`org_admin::remove_workspace`), the sessions made through
-/// its provider, and with its row what hangs from it (its members, its
-/// links, its provider settings and its audit log: the schema lets a record go once
-/// its organization is not there). What the search server and the file storage are
-/// still to be told (`search_outbox`, `loose_objects`) stays until they were.
-async fn remove_organization(scope: &mut Scope<'_>) -> Result<Purged, StoreError> {
+/// Removes the scope's organization and everything in it.
+async fn remove_organization<'c>(
+    scope: &mut Scope<'c>,
+    held_org: OrganizationHeld<'c>,
+) -> Result<Purged, StoreError> {
     let mut sql = scope.sql("UPDATE organizations SET default_workspace_id = NULL WHERE id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
@@ -815,7 +806,8 @@ async fn remove_organization(scope: &mut Scope<'_>) -> Result<Purged, StoreError
         .collect::<Result<_, _>>()?;
     let mut removed = Purged::default();
     for workspace_id in &workspaces {
-        let of_workspace = org_admin::remove_workspace(scope, workspace_id).await?;
+        scope.record_lock(LockRank::Workspace, workspace_id);
+        let of_workspace = org_admin::remove_workspace(scope, held_org, workspace_id).await?;
         removed.records += of_workspace.records;
         removed.files.extend(of_workspace.files);
     }
@@ -865,10 +857,10 @@ async fn addresses_of(scope: &mut Scope<'_>, user_id: &str) -> Result<Vec<String
 }
 
 /// Holds the row of each organization that has a link mailed to one of the addresses,
-/// in the order of their identifiers: the caller holds the turn, and holds the links
-/// after this.
+/// in the order of their identifiers.
 async fn hold_organizations_of_links_to(
     scope: &mut Scope<'_>,
+    _turn: link_locks::Turn,
     addresses: &[String],
 ) -> Result<(), StoreError> {
     if addresses.is_empty() {

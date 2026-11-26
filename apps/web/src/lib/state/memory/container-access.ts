@@ -5,10 +5,11 @@
  * no guests: everybody in it works there.
  */
 import type { ContainerKind } from '../../logic/wire.ts';
+import { permissionsOfRole, type ContainerPermissions } from '../authority-types.ts';
 
 import { roleOn, type Role } from './comments.ts';
 import { fail } from './refuse.ts';
-import { workersOf } from './spaces.ts';
+import { workspacesOf, workersOf } from './spaces.ts';
 import type { World } from './world.ts';
 
 /**
@@ -26,29 +27,62 @@ export function memberRole(
     fail(404, 'no such board');
   const role = roleOn(world.members.get(containerId) ?? [], userId);
   if (role !== '') return role;
-  // Of a workspace the user is not in (somebody else's own space), nothing is there.
   const works = workersOf(world, container.workspaceId).has(userId);
-  if (isOpenWiki(container) && works) return 'viewer';
-  if (container.visibility === 'open' && works) fail(403, 'access denied to board');
+  if (
+    (isOpenToRead(container) || (container.isTemplate && container.visibility === 'open')) &&
+    works
+  ) {
+    return 'viewer';
+  }
+  if (container.isBuiltin) return 'viewer';
   fail(404, 'no such board');
 }
 
 /**
- * Whether the user reads the board or wiki: has a role on it, or works in the
- * workspace of an open wiki.
+ * Whether the user reads the board, wiki, or course: has a role on it, or works in the
+ * workspace of an open non-diary container.
  */
 export function reads(world: World, userId: string, containerId: string): boolean {
   const container = world.containers.get(containerId);
   if (!container) return false;
   if (roleOn(world.members.get(containerId) ?? [], userId) !== '') return true;
-  return isOpenWiki(container) && workersOf(world, container.workspaceId).has(userId);
+  if (container.isBuiltin) return true;
+  return (
+    (isOpenToRead(container) || (container.isTemplate && container.visibility === 'open')) &&
+    workersOf(world, container.workspaceId).has(userId)
+  );
 }
 
-/** An open wiki or course: read by whoever works in its workspace (`OpenToRead`). */
-export function isOpenToRead(container: { visibility: string; kind?: string }): boolean {
-  return (
-    container.visibility === 'open' && (container.kind === 'wiki' || container.kind === 'course')
-  );
+/** Caller-specific `ContainerPermissions` in the memory world (`myPermissions`). */
+export function memoryPermissionsOf(
+  world: World,
+  userId: string,
+  containerId: string,
+): ContainerPermissions {
+  const container = world.containers.get(containerId) ?? fail(404, 'no such board');
+  const role = roleOn(world.members.get(containerId) ?? [], userId);
+  const wsInfo = workspacesOf(world, userId).find((w) => w.id === container.workspaceId);
+  const isWorkspaceAdmin = wsInfo?.role === 'admin';
+  const isGuest = wsInfo?.role === 'guest';
+  if (role === '' && !isWorkspaceAdmin && !reads(world, userId, containerId)) {
+    fail(404, 'no such board');
+  }
+  return permissionsOfRole(role, {
+    isGuest,
+    isWorkspaceAdmin,
+    isTemplate: container.isTemplate,
+  });
+}
+
+/** An open board, wiki, or course: read by whoever works in its workspace (`OpenToRead`). */
+export function isOpenToRead(container: {
+  visibility: string;
+  kind?: string;
+  isTemplate?: boolean;
+}): boolean {
+  if (container.visibility !== 'open' || container.isTemplate) return false;
+  const kind = container.kind ?? 'board';
+  return kind === 'board' || kind === 'wiki' || kind === 'course';
 }
 
 /** Alias kept for existing callers: open wikis and courses are read without joining. */

@@ -254,7 +254,10 @@ pub(crate) async fn erase(
         .begin_account_erasure(user_id, now, erasing)
         .await
         .expect("begun");
-    assert_eq!(begun, ErasureStart::Begun, "the erasing begins");
+    assert!(
+        matches!(begun, ErasureStart::Begun(_)),
+        "the erasing begins"
+    );
     let erased = erase_from_organizations(test, user_id, erasing).await;
     assert_eq!(
         test.finish_account_erasure(user_id, now)
@@ -963,12 +966,12 @@ async fn the_audit_log_gives_up_who_an_identity_is_and_nothing_else() {
             "an identity of an account that is not being erased",
         );
     }
-    assert_eq!(
+    assert!(matches!(
         test.begin_account_erasure(&leaver, T0, Erasing::AtOnce)
             .await
             .expect("begun"),
-        ErasureStart::Begun
-    );
+        ErasureStart::Begun(_)
+    ));
     // Of the record about the account being erased, every other change is refused: of
     // each column to another value, of one that is NULL to a value, and with the
     // identity taken out in the same statement.
@@ -1133,7 +1136,7 @@ async fn a_board_whose_only_admin_is_erased_passes_to_an_administrator_of_its_wo
         test.request_account_deletion(&leaver, "", T0, T0 + WAIT)
             .await
             .expect("asked"),
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     let erased = erase(&test, &leaver, Erasing::AfterTheWait, T0 + WAIT).await;
 
@@ -1221,7 +1224,7 @@ async fn an_account_that_became_the_only_administrator_meanwhile_is_not_erased()
         .request_account_deletion(&founder, "", T0, T0 + WAIT)
         .await
         .expect("asked");
-    assert!(matches!(asked, DeletionAsking::Asked(_)));
+    assert!(matches!(asked, DeletionAsking::Asked(..)));
 
     // Not before its wait ran out.
     let early = test
@@ -1276,12 +1279,12 @@ async fn an_account_that_became_the_only_administrator_meanwhile_is_not_erased()
     ))
     .await
     .expect("set");
-    assert_eq!(
+    assert!(matches!(
         test.begin_account_erasure(&founder, T0 + WAIT + 1, Erasing::AfterTheWait)
             .await
             .expect("asked"),
-        ErasureStart::Begun
-    );
+        ErasureStart::Begun(_)
+    ));
     assert!(
         !test
             .cancel_account_deletion(&founder, T0 + WAIT + 2)
@@ -1302,12 +1305,12 @@ async fn an_erasing_that_was_cut_off_is_taken_up_and_ends() {
     let leaver = person(&test).await;
     board_of(&test, &test.workspace_id, &leaver).await;
 
-    assert_eq!(
+    assert!(matches!(
         test.begin_account_erasure(&leaver, T0, Erasing::AtOnce)
             .await
             .expect("begun"),
-        ErasureStart::Begun
-    );
+        ErasureStart::Begun(_)
+    ));
     assert!(
         test.is_address_held("Ünder-LEAVER-mail@example.com")
             .await
@@ -1328,12 +1331,12 @@ async fn an_erasing_that_was_cut_off_is_taken_up_and_ends() {
         "the mark finds it again, whatever its wait"
     );
     // Taken up: the first step says it began, and the rest is done once.
-    assert_eq!(
+    assert!(matches!(
         test.begin_account_erasure(&leaver, T0 + 2, Erasing::AfterTheWait)
             .await
             .expect("asked"),
-        ErasureStart::Begun
-    );
+        ErasureStart::Begun(_)
+    ));
     erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await;
     assert_eq!(
         erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await,

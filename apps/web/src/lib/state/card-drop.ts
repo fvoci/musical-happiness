@@ -1,66 +1,183 @@
 /**
- * Cards dropped on a view, as one step of undo: into a column (their
- * grouping property takes the column's value) and, in a view without a
- * sort, at a place (the view's manual order changes).
+ * Cards dropped on a view, executed as one atomic `moveViewCards` server
+ * transaction and one step of undo: updates the view's `cardOrder` and (when
+ * dropped into another column) the grouping property on all moved cards.
  */
 import { manualComparator } from '../logic/sort.ts';
-import type { Card } from '../logic/wire.ts';
+import type { BoardView, Card } from '../logic/wire.ts';
 
-import type { CardDrop } from './board-parts.ts';
+import type { CardMovesInput } from './backend.ts';
+import { withCardProperty, type CardDrop } from './board-parts.ts';
+import { performBoardAction } from './board-sync.ts';
 import type { BoardStore } from './board.svelte.ts';
 import { droppedCardOrder, placeAmongAll } from './card-order.ts';
+import { put, take } from './write.ts';
+
+interface PlannedCardDrop {
+  viewId: string;
+  targetIds: string[];
+  groupBy: string | undefined;
+  optionId: string | undefined;
+  nextCardOrder: string[];
+  prevCardOrder: string[];
+  prevValues: Map<string, string>;
+  needsOrderChange: boolean;
+  needsGroupChange: boolean;
+  forwardMove: CardMovesInput;
+}
+
+function planCardDrop(board: BoardStore, view: BoardView, drop: CardDrop): PlannedCardDrop | null {
+  const groupBy = board.groupingOf(view)?.id;
+  const optionId = drop.optionId;
+  const valueOf = (card: Card): string => {
+    const value = groupBy ? card.fields.properties[groupBy] : undefined;
+    return typeof value === 'string' ? value : '';
+  };
+
+  const shown = [...board.realCards].sort(manualComparator(view.fields.cardOrder));
+  const movedIds = shown.filter((c) => drop.cardIds.includes(c.id)).map((c) => c.id);
+  const targetIds = movedIds.length > 0 ? movedIds : [...drop.cardIds];
+
+  let afterCardId: string | null | undefined;
+  let nextCardOrder = view.fields.cardOrder;
+  if (drop.index !== undefined) {
+    const column = shown
+      .filter((card) => !targetIds.includes(card.id))
+      .filter((card) => optionId === undefined || valueOf(card) === optionId)
+      .map((card) => card.id);
+    const insertIndex = drop.shown
+      ? placeAmongAll(
+          column,
+          drop.shown.filter((id) => !targetIds.includes(id)),
+          drop.index,
+        )
+      : drop.index;
+    nextCardOrder = droppedCardOrder(
+      shown.map((card) => card.id),
+      column,
+      targetIds,
+      insertIndex,
+    );
+    const firstMovedAt = nextCardOrder.indexOf(targetIds[0] ?? '');
+    afterCardId = firstMovedAt <= 0 ? '' : (nextCardOrder[firstMovedAt - 1] ?? '');
+  }
+
+  const prevCardOrder = [...view.fields.cardOrder];
+  const prevValues = new Map<string, string>();
+  if (groupBy && optionId !== undefined) {
+    for (const id of targetIds) {
+      const card = board.card(id);
+      if (card) prevValues.set(id, valueOf(card));
+    }
+  }
+
+  const needsOrderChange =
+    afterCardId !== undefined &&
+    (nextCardOrder.length !== prevCardOrder.length ||
+      nextCardOrder.some((id, idx) => prevCardOrder[idx] !== id));
+  const needsGroupChange =
+    Boolean(groupBy && optionId !== undefined) &&
+    targetIds.some((id) => {
+      const card = board.card(id);
+      return card !== undefined && valueOf(card) !== optionId;
+    });
+  if (!needsOrderChange && !needsGroupChange) return null;
+
+  const forwardMove: CardMovesInput = {
+    cardIds: targetIds,
+    ...(afterCardId === undefined ? {} : { afterCardId }),
+    ...(needsGroupChange && groupBy !== undefined
+      ? { groupPropertyId: groupBy, groupValue: optionId === '' ? null : (optionId ?? null) }
+      : {}),
+  };
+
+  return {
+    viewId: view.id,
+    targetIds,
+    groupBy,
+    optionId,
+    nextCardOrder,
+    prevCardOrder,
+    prevValues,
+    needsOrderChange,
+    needsGroupChange,
+    forwardMove,
+  };
+}
+
+function applyOptimisticCardDrop(board: BoardStore, plan: PlannedCardDrop): void {
+  if (plan.needsOrderChange) {
+    const curView = board.view(plan.viewId);
+    if (curView) {
+      board.views = put(board.views, {
+        ...curView,
+        fields: { ...curView.fields, cardOrder: plan.nextCardOrder },
+      });
+    }
+  }
+  if (plan.needsGroupChange && plan.groupBy) {
+    const val = plan.optionId === '' ? undefined : plan.optionId;
+    for (const id of plan.targetIds) {
+      const cur = board.card(id);
+      if (cur)
+        board.cards = put(board.cards, { ...cur, ...withCardProperty(cur, plan.groupBy, val) });
+    }
+  }
+}
+
+async function undoCardDrop(board: BoardStore, plan: PlannedCardDrop): Promise<void> {
+  if (plan.needsOrderChange) {
+    await board.writeView(
+      plan.viewId,
+      { updatedFields: { cardOrder: plan.prevCardOrder } },
+      { updatedFields: { cardOrder: plan.nextCardOrder } },
+    );
+  }
+  if (plan.needsGroupChange && plan.groupBy) {
+    for (const [id, prev] of plan.prevValues) {
+      const updated = await board.workspace.backend.patchCard(
+        board.boardId,
+        id,
+        prev === ''
+          ? { deletedProperties: [plan.groupBy] }
+          : { updatedProperties: { [plan.groupBy]: prev } },
+        { quiet: true },
+      );
+      board.receiveCard(updated);
+    }
+  }
+}
 
 export async function dropCardsOn(board: BoardStore, drop: CardDrop): Promise<void> {
   const view = board.view(drop.viewId);
-  if (!view) return;
-  await board.inOneStep(async (groupId) => {
-    const groupBy = board.groupingOf(view)?.id;
-    const optionId = drop.optionId;
-    const valueOf = (card: Card): string => {
-      const value = groupBy ? card.fields.properties[groupBy] : undefined;
-      return typeof value === 'string' ? value : '';
-    };
+  if (!view || drop.cardIds.length === 0) return;
+  const plan = planCardDrop(board, view, drop);
+  if (!plan) return;
 
-    if (drop.index !== undefined) {
-      // The cards as they stand in the manual order, the dropped ones taken out.
-      const shown = [...board.realCards].sort(manualComparator(view.fields.cardOrder));
-      const moved = drop.cardIds;
-      const column = shown
-        .filter((card) => !moved.includes(card.id))
-        .filter((card) => optionId === undefined || valueOf(card) === optionId)
-        .map((card) => card.id);
-      const cardOrder = droppedCardOrder(
-        shown.map((card) => card.id),
-        column,
-        // The dropped cards keep the order they had.
-        shown.filter((card) => moved.includes(card.id)).map((card) => card.id),
-        drop.shown
-          ? placeAmongAll(
-              column,
-              drop.shown.filter((id) => !moved.includes(id)),
-              drop.index,
-            )
-          : drop.index,
-      );
-      await board.changeView(
-        view.id,
-        (current) => ({ ...current, fields: { ...current.fields, cardOrder } }),
-        'moveCard',
-        groupId,
-      );
-    }
-
-    if (groupBy && optionId !== undefined) {
-      for (const cardId of drop.cardIds) {
-        const card = board.card(cardId);
-        if (!card || valueOf(card) === optionId) continue;
-        await board.setCardProperty(
-          cardId,
-          groupBy,
-          optionId === '' ? undefined : optionId,
-          groupId,
+  let said = false;
+  await performBoardAction(
+    board,
+    async () => {
+      const prevCards = board.cards;
+      const prevViews = board.views;
+      applyOptimisticCardDrop(board, plan);
+      try {
+        const res = await board.workspace.backend.moveViewCards(
+          board.boardId,
+          plan.viewId,
+          plan.forwardMove,
+          said ? { quiet: true } : undefined,
         );
+        said = true;
+        board.views = take(board.views, res.view);
+        for (const updated of res.cards) board.receiveCard(updated);
+      } catch (error) {
+        board.views = prevViews;
+        board.cards = prevCards;
+        throw error;
       }
-    }
-  });
+    },
+    () => undoCardDrop(board, plan),
+    'moveCard',
+  );
 }

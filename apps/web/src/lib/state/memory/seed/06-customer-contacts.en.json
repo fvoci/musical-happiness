@@ -9,6 +9,11 @@
     "description": "Keeps what was said to each customer, and when to call next, in one place. The table sums the expected amounts, and the board by stage hides the deals that are over. Every name and address in the examples is made up.",
     "icon": "🤝",
     "showDescription": true,
+    "dueDatePropertyId": "ad1093d4-e23c-5f26-8714-3b26df6cb0b1",
+    "doneWhen": {
+      "propertyId": "c98ec0be-784b-5243-931d-b2989975ff1c",
+      "optionIds": ["1b78a142-f648-5a60-8a86-16933769f012", "4d19697b-67b2-59c3-beb5-9b0385393563"]
+    },
     "cardProperties": [
       {
         "id": "c98ec0be-784b-5243-931d-b2989975ff1c",

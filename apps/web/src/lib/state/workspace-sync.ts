@@ -26,6 +26,7 @@ import type { WorkspaceCaches } from './workspace-caches.ts';
 import type { ProblemAction } from './workspace-types.ts';
 
 export interface WorkspaceChangeTarget<B extends CacheableBoard> {
+  readonly meId: string | undefined;
   readonly info: WorkspaceInfo | undefined;
   readonly board: B | undefined;
   containers: Container[];
@@ -34,6 +35,8 @@ export interface WorkspaceChangeTarget<B extends CacheableBoard> {
   readonly sidebarWrites: SidebarWrites;
   readonly userNames: UserNames;
   takeSettings(settings: AccountSettings): void;
+  setInfoRole(role: WorkspaceInfo['role']): void;
+  reloadWorkspaces(): void;
   invalidateVisitCache(): void;
   refresh(): void;
 }
@@ -74,6 +77,17 @@ export function applyWorkspaceChange<B extends CacheableBoard>(
       break;
     case 'user':
       void target.userNames.reread([change.userId]);
+      break;
+    case 'workspaceRole':
+      if (change.userId === target.meId) {
+        if (
+          change.workspaceId === target.info?.id &&
+          (change.role === 'admin' || change.role === 'member' || change.role === 'guest')
+        ) {
+          target.setInfoRole(change.role);
+        }
+        target.reloadWorkspaces();
+      }
       break;
     default:
       break;
@@ -147,10 +161,12 @@ export async function importWorkspaceArchive<B extends CacheableBoard>(
 
 export function buildChangeTarget<B extends CacheableBoard>(
   store: {
-    readonly info: WorkspaceInfo | undefined;
+    readonly me: { readonly id: string } | undefined;
+    info: WorkspaceInfo | undefined;
     readonly board: B | undefined;
     containers: Container[];
     categories: Category[];
+    reloadWorkspaces(): Promise<void>;
   },
   caches: WorkspaceCaches<B>,
   sidebarWrites: SidebarWrites,
@@ -160,6 +176,9 @@ export function buildChangeTarget<B extends CacheableBoard>(
   refresh: () => void,
 ): WorkspaceChangeTarget<B> {
   return {
+    get meId() {
+      return store.me?.id;
+    },
     get info() {
       return store.info;
     },
@@ -182,6 +201,12 @@ export function buildChangeTarget<B extends CacheableBoard>(
     sidebarWrites,
     userNames,
     takeSettings,
+    setInfoRole(role) {
+      if (store.info) store.info = { ...store.info, role };
+    },
+    reloadWorkspaces() {
+      void store.reloadWorkspaces();
+    },
     invalidateVisitCache,
     refresh,
   };

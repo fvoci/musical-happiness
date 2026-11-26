@@ -563,6 +563,7 @@ async fn assert_migrated_settings(store: &Store, sys: &Store, fx: &Pre0076Fixtur
             notify_mentions: false,
             notify_assignments: false,
             notify_comments: false,
+            notify_due: true,
         },
         "every setting of Alice migrated losslessly"
     );

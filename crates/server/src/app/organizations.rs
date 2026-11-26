@@ -29,13 +29,26 @@ impl App {
         name: &str,
         address: Option<IpAddr>,
     ) -> Result<UserWorkspace, AppError> {
+        self.start_organization_with_language(session, name, address, None)
+            .await
+    }
+
+    /// [`App::start_organization`], passing `accept_language` (`Accept-Language`) for
+    /// creating the new organization's default-workspace welcome board.
+    pub async fn start_organization_with_language(
+        &self,
+        session: &Session,
+        name: &str,
+        address: Option<IpAddr>,
+        accept_language: Option<&str>,
+    ) -> Result<UserWorkspace, AppError> {
         // Where one organization is taken, the first user started it by registering.
         if !self.config().takes_several_organizations() {
             return Err(AppError::invitation_required());
         }
         // An organization is what a registration makes, and is counted against where
         // it comes from as one is: a session is not a way around that count.
-        let _turn = self.admit_registration(address)?;
+        let turn = self.admit_registration(address)?;
         let started = self
             .store()
             .start_organization(
@@ -44,11 +57,20 @@ impl App {
                 self.account_limits().organizations_made,
             )
             .await?;
+        drop(turn);
         tracing::info!(
             user_id = %session.user_id,
             org_id = %started.org_id,
             "an account started an organization"
         );
+        self.welcome_workspace_in(
+            &started.org_id,
+            &session.user_id,
+            &started.workspace_id,
+            false,
+            accept_language,
+        )
+        .await;
         Ok(UserWorkspace {
             id: started.workspace_id,
             org_id: started.org_id,

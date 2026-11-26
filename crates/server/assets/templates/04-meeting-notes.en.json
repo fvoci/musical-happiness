@@ -9,6 +9,10 @@
     "description": "One card for each meeting. A new card starts from the “Notes form” card template, and the calendar shows the meetings behind and ahead.",
     "icon": "📝",
     "showDescription": true,
+    "dueDatePropertyId": "b905062a-b93a-5a21-ade3-c4a20972b7a7",
+    "doneWhen": {
+      "propertyId": "d80efada-5f9b-5764-ab78-3115440c512b"
+    },
     "cardProperties": [
       {
         "id": "b905062a-b93a-5a21-ade3-c4a20972b7a7",

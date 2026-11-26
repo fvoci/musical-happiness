@@ -55,11 +55,27 @@ pub(crate) fn block(
         "parentId": parent,
         "type": block_type,
         "title": title,
-        "createdAt": 1,
-        "updatedAt": 1,
     });
     block["fields"] = fields;
     block
+}
+
+/// Creates a card as `user` via `POST /boards/{board}/cards`, recorded as `name`, and
+/// returns its identifier.
+pub(crate) async fn new_card(
+    s: &mut Session,
+    user: &str,
+    board: &str,
+    title: &str,
+    extra: Value,
+    name: &str,
+) -> String {
+    let body = merged(&json!({"title": title}), extra);
+    s.post(name, &format!("{ROOT_API}/boards/{board}/cards"))
+        .json(body)
+        .user(user)
+        .await
+        .string("id")
 }
 
 /// The wire role field of a board member.

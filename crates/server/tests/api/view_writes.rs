@@ -27,13 +27,8 @@ async fn board_with_views(ts: &crate::common::TestServer, count: usize) -> (Stri
             title: format!("View {i}"),
             fields: JsonMap::from_iter([
                 ("viewType".to_owned(), json!("board")),
-                (
-                    "order".to_owned(),
-                    json!(i64::try_from(i + 1).expect("small") * 1000),
-                ),
+                ("order".to_owned(), json!(format!("V{}", i + 1))),
             ]),
-            created_at: 1,
-            updated_at: 1,
             ..Block::default()
         })
         .collect();
@@ -74,7 +69,7 @@ async fn patching_a_view_with_a_stale_read_at_returns_409() {
             &path,
             &json!({
                 "readAt": view.updated_at,
-                "updatedFields": {"order": 2500},
+                "updatedFields": {"order": "W5"},
             }),
         )
         .await;
@@ -82,7 +77,7 @@ async fn patching_a_view_with_a_stale_read_at_returns_409() {
     let after_first = read_view(&ts.client, &board_id, &view.id).await;
     assert_eq!(
         after_first.fields["order"],
-        json!(2500),
+        json!("W5"),
         "first write updated order"
     );
     assert!(
@@ -99,7 +94,7 @@ async fn patching_a_view_with_a_stale_read_at_returns_409() {
             &path,
             &json!({
                 "readAt": view.updated_at,
-                "updatedFields": {"order": 9999},
+                "updatedFields": {"order": "Z9"},
             }),
         )
         .await;
@@ -113,7 +108,7 @@ async fn patching_a_view_with_a_stale_read_at_returns_409() {
     let unchanged = read_view(&ts.client, &board_id, &view.id).await;
     assert_eq!(
         unchanged.fields["order"],
-        json!(2500),
+        json!("W5"),
         "stale write left the view unchanged"
     );
 
@@ -123,7 +118,7 @@ async fn patching_a_view_with_a_stale_read_at_returns_409() {
             &path,
             &json!({
                 "readAt": unchanged.updated_at,
-                "updatedFields": {"order": 3500},
+                "updatedFields": {"order": "X5"},
             }),
         )
         .await
@@ -131,7 +126,7 @@ async fn patching_a_view_with_a_stale_read_at_returns_409() {
     let updated = read_view(&ts.client, &board_id, &view.id).await;
     assert_eq!(
         updated.fields["order"],
-        json!(3500),
+        json!("X5"),
         "retry with fresh updatedAt persisted"
     );
     ts.teardown().await;
@@ -151,7 +146,7 @@ async fn batch_patching_views_with_one_stale_read_at_returns_409_and_changes_non
             &format!("{TEST_WS}/boards/{board_id}/blocks/{}", second.id),
             &json!({
                 "readAt": second.updated_at,
-                "updatedFields": {"order": 2500},
+                "updatedFields": {"order": "W5"},
             }),
         )
         .await
@@ -170,8 +165,8 @@ async fn batch_patching_views_with_one_stale_read_at_returns_409_and_changes_non
             &json!({
                 "blockIds": [first.id, second.id],
                 "blockPatches": [
-                    {"readAt": first.updated_at, "updatedFields": {"order": 1500}},
-                    {"readAt": second.updated_at, "updatedFields": {"order": 9999}},
+                    {"readAt": first.updated_at, "updatedFields": {"order": "V5"}},
+                    {"readAt": second.updated_at, "updatedFields": {"order": "Z9"}},
                 ],
             }),
         )
@@ -186,12 +181,12 @@ async fn batch_patching_views_with_one_stale_read_at_returns_409_and_changes_non
 
     assert_eq!(
         read_view(&ts.client, &board_id, &first.id).await.fields["order"],
-        json!(1000),
+        json!("V1"),
         "first view rolled back with the batch"
     );
     assert_eq!(
         read_view(&ts.client, &board_id, &second.id).await.fields["order"],
-        json!(2500),
+        json!("W5"),
         "second view kept its earlier order"
     );
     ts.teardown().await;
@@ -212,8 +207,8 @@ async fn two_users_moving_views_concurrently_succeed_on_distinct_views_and_confl
         format!("{TEST_WS}/boards/{board_id}/blocks/{}", view_a.id),
         format!("{TEST_WS}/boards/{board_id}/blocks/{}", view_b.id),
     );
-    let body_a = json!({"readAt": view_a.updated_at, "updatedFields": {"order": 1111}});
-    let body_b = json!({"readAt": view_b.updated_at, "updatedFields": {"order": 2222}});
+    let body_a = json!({"readAt": view_a.updated_at, "updatedFields": {"order": "V8"}});
+    let body_b = json!({"readAt": view_b.updated_at, "updatedFields": {"order": "W8"}});
     let (res_a, res_b) = tokio::join!(
         async {
             gate.wait().await;
@@ -228,20 +223,20 @@ async fn two_users_moving_views_concurrently_succeed_on_distinct_views_and_confl
     res_b.check_no_content();
     assert_eq!(
         read_view(&ts.client, &board_id, &view_a.id).await.fields["order"],
-        json!(1111),
+        json!("V8"),
         "first user's move persisted"
     );
     assert_eq!(
         read_view(&ts.client, &board_id, &view_b.id).await.fields["order"],
-        json!(2222),
+        json!("W8"),
         "second user's move persisted"
     );
 
     // User 1 and User 2 move the same view concurrently with the same readAt.
     let gate = Arc::new(Barrier::new(2));
     let shared_path = format!("{TEST_WS}/boards/{board_id}/blocks/{}", shared.id);
-    let move_1 = json!({"readAt": shared.updated_at, "updatedFields": {"order": 4100}});
-    let move_2 = json!({"readAt": shared.updated_at, "updatedFields": {"order": 4200}});
+    let move_1 = json!({"readAt": shared.updated_at, "updatedFields": {"order": "Y1"}});
+    let move_2 = json!({"readAt": shared.updated_at, "updatedFields": {"order": "Y2"}});
     let (first, second) = tokio::join!(
         async {
             gate.wait().await;
@@ -262,9 +257,9 @@ async fn two_users_moving_views_concurrently_succeed_on_distinct_views_and_confl
         second.text()
     );
     let winner_order: Value = if first.status.as_u16() == 204 {
-        json!(4100)
+        json!("Y1")
     } else {
-        json!(4200)
+        json!("Y2")
     };
     assert_eq!(
         read_view(&ts.client, &board_id, &shared.id).await.fields["order"],

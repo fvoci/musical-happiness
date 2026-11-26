@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::common::ROOT_WORKSPACE_ID;
-use crate::fixtures::{PNG, block, has_extension, id_of, new_blocks, new_board};
+use crate::fixtures::{PNG, block, has_extension, id_of, new_blocks, new_board, new_card};
 use crate::harness::ROOT_API;
 use crate::harness::{API, OCTET_STREAM, Payload, Session, multipart, string_member};
 
@@ -258,21 +258,27 @@ pub(crate) async fn files(s: &mut Session) {
     .await;
 
     // An attachment block that points at the file, then deleting it.
+    let card1 = new_card(
+        s,
+        &alice,
+        &board,
+        "Card with image",
+        json!({}),
+        "create card for attachment",
+    )
+    .await;
     let created = new_blocks(
         s,
         &alice,
         &board,
-        json!([
-            block("card1", &board, "card", "Card with image", "", json!({})),
-            block(
-                "img1",
-                &board,
-                "attachment",
-                "",
-                "card1",
-                json!({"fileId": file_id})
-            ),
-        ]),
+        json!([block(
+            "img1",
+            &board,
+            "attachment",
+            "",
+            &card1,
+            json!({"fileId": file_id})
+        )]),
         "insert an attachment block",
     )
     .await;
@@ -369,25 +375,26 @@ pub(crate) async fn archive(s: &mut Session) {
         .unrecorded()
         .await
         .string("fileId");
+    let card1 = new_card(
+        s,
+        &alice,
+        &board,
+        "Exported card",
+        json!({"icon": "x"}),
+        "create exported card",
+    )
+    .await;
     new_blocks(
         s,
         &alice,
         &board,
         json!([
             block(
-                "card1",
-                &board,
-                "card",
-                "Exported card",
-                "",
-                json!({"icon": "x"})
-            ),
-            block(
                 "text1",
                 &board,
                 "comment",
                 "Exported text",
-                "card1",
+                &card1,
                 json!({})
             ),
             block(
@@ -395,7 +402,7 @@ pub(crate) async fn archive(s: &mut Session) {
                 &board,
                 "attachment",
                 "",
-                "card1",
+                &card1,
                 json!({"fileId": file_id})
             ),
             block(

@@ -5,7 +5,20 @@
     "status": 201,
     "content_type": "application/json",
     "body": {
-      "cardProperties": [],
+      "cardProperties": [
+        {
+          "id": "p1",
+          "name": "P1",
+          "options": [],
+          "type": "text"
+        },
+        {
+          "id": "p2",
+          "name": "P2",
+          "options": [],
+          "type": "text"
+        }
+      ],
       "createdAt": "<ts>",
       "createdBy": "<id:2>",
       "description": "",

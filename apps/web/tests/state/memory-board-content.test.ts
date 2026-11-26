@@ -132,18 +132,20 @@ describe('membership changes', () => {
     expect(backend.fileUrl('b', 'file')).toBeUndefined();
   });
 
-  it('asks nonmembers of an open board to join instead of returning its content', async () => {
+  it('lets nonmembers read an open board while refusing writes until they join', async () => {
     const backend = inviteOnlyBoard();
     const board = backend.world.containers.get('b');
     if (!board) throw new Error('missing test board');
     board.visibility = 'open';
-    expect(await statusOf(backend.views('b'))).toBe(403);
-    expect(await statusOf(backend.cards('b'))).toBe(403);
-    expect(await statusOf(backend.card('b', 'c'))).toBe(403);
-    expect(await statusOf(backend.cardPreviews('b'))).toBe(403);
-    expect(await statusOf(backend.comments('b', 'c'))).toBe(403);
-    expect(await statusOf(backend.attachments('b', 'c'))).toBe(403);
-    expect(await statusOf(backend.fileBytes('b', 'file'))).toBe(403);
-    expect(backend.fileUrl('b', 'file')).toBeUndefined();
+    expect(await backend.views('b')).toHaveLength(1);
+    expect(await backend.cards('b')).toHaveLength(1);
+    expect((await backend.card('b', 'c')).id).toBe('c');
+    expect((await backend.cardPreviews('b')).size).toBe(1);
+    expect(await backend.comments('b', 'c')).toHaveLength(1);
+    expect(await backend.attachments('b', 'c')).toHaveLength(1);
+    expect((await backend.fileBytes('b', 'file')).size).toBe(12);
+    expect(backend.fileUrl('b', 'file')).toBe('blob:example');
+    expect(await statusOf(backend.createCard('b', { title: 'Nope' }))).toBe(403);
+    expect(await statusOf(backend.duplicateContainer('b', false, board.workspaceId))).toBe(403);
   });
 });

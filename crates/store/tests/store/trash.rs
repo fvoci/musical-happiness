@@ -39,7 +39,7 @@ async fn a_deletion_is_the_block_with_all_below_it_the_block_first() {
     let card_id = new_id();
     let mut blocks = [
         block(&card_id, &board.id, "", BlockType::Card),
-        block(&middle_id, &board.id, &card_id, BlockType::Attachment),
+        block(&middle_id, &board.id, &card_id, BlockType::Card),
         block(&leaf_id, &board.id, &middle_id, BlockType::Attachment),
     ];
     common::insert_blocks(store, &mut blocks, &user_id).await;

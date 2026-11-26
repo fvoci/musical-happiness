@@ -4,12 +4,9 @@
  * the place of a drop, the card a copy is made as.
  */
 import { cardsOfView, filteredCardsOfView, narrowCardsBySearch } from '../logic/card-list.ts';
-import { valuesOfCopy } from '../logic/dependencies.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
 import {
-  cardProperty,
-  relationCardIds,
   viewGrouping,
   viewQuery,
   type BoardView,
@@ -22,8 +19,7 @@ import {
   type PropertyValue,
 } from '../logic/wire.ts';
 
-import type { Backend, CardDraft, CardSummary } from './backend.ts';
-import { allPages } from './page-reads.ts';
+import type { Backend, CardSummary } from './backend.ts';
 import { BackendError } from './problems.ts';
 
 /**
@@ -46,54 +42,6 @@ export async function containerOfWorkspace(
     throw new BackendError(404, { detail: `the board is no ${kind}` });
   }
   return board;
-}
-
-/** What a copy of a card is made from: the board it is on, as its store has it. */
-interface CopiedFrom {
-  boardId: string;
-  board: Container | undefined;
-  cards: readonly Card[];
-}
-
-/**
- * The new card a copy of the card `cardId` of `from` is made as, read whole
- * from the backend: a card template if `asTemplate` says so (as the source
- * is, if it says nothing). Its relations name the cards its source named
- * that are on the board: those of the store, and those in the board's trash,
- * as the server's copy of a card keeps them ([valuesOfCopy]). The trash is
- * read only when the source names a card the store does not have.
- *
- * It keeps less than the server's copy does: the trash lists the cards
- * deleted by themselves, not those that went with the block they were on,
- * and a trash that cannot be read names none.
- */
-export async function draftOfCopy(
-  backend: Pick<Backend, 'card' | 'deletedCards'>,
-  from: CopiedFrom,
-  cardId: string,
-  asTemplate: boolean | undefined,
-): Promise<CardDraft> {
-  const source = await backend.card(from.boardId, cardId);
-  const templates = from.board?.cardProperties ?? [];
-  const onBoard = new Set(from.cards.map(({ id }) => id));
-  const named = templates
-    .filter((template) => template.type === 'relation')
-    .flatMap((template) => relationCardIds(cardProperty(source, template.id)));
-  if (named.some((id) => !onBoard.has(id))) {
-    // Unread, the trash names nothing: the copy then leaves those cards out.
-    const trash = await allPages((paging) => backend.deletedCards(from.boardId, paging)).catch(
-      () => [],
-    );
-    for (const item of trash) onBoard.add(item.id);
-  }
-  return {
-    title: source.title,
-    icon: source.fields.icon,
-    properties: valuesOfCopy(source, templates, onBoard),
-    isTemplate: asTemplate ?? source.fields.isTemplate,
-    body: source.body,
-    quiet: true,
-  };
 }
 
 const ROLE_RANK: Record<Exclude<MemberRole, ''>, number> = {
@@ -203,6 +151,7 @@ export interface BoardCardsSource {
   readonly cardsById: ReadonlyMap<string, CardSummary>;
   readonly workspace: {
     userName(userId: string): string | undefined;
+    readonly me?: { readonly id: string } | undefined;
     readonly locale: string;
     readonly regional: { readonly timeZone: string };
   };
@@ -218,6 +167,7 @@ export function filteredCardsOfBoardView(source: BoardCardsSource, view: BoardVi
       usernameOf: (userId) => source.workspace.userName(userId),
       locale: source.workspace.locale,
       timeZone: source.workspace.regional.timeZone,
+      meId: source.workspace.me?.id,
       cardTitle: (cardId) => source.cardsById.get(cardId)?.title,
     },
   );
@@ -249,6 +199,7 @@ export function cardsOfBoardView(
       usernameOf: (userId) => source.workspace.userName(userId),
       locale: source.workspace.locale,
       timeZone: source.workspace.regional.timeZone,
+      meId: source.workspace.me?.id,
       cardTitle: (cardId) => source.cardsById.get(cardId)?.title,
     },
   );

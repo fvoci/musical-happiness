@@ -1,19 +1,6 @@
 <!--
   The app: starts the backend, loads the reader's workspace, and puts the
-  screens together. Features do not import each other; this folder is where
-  they meet (src/lib/README.md).
-
-  The workspace shown is the one the address names. The root address names
-  none: the reader is taken to the one they were last in on this browser if
-  it is still theirs, else to their first, the address put in place of the
-  root's (`Workspace.firstChoice`, `last-workspace.ts`).
-
-  The link of an invitation (`/invite/<token>`) shows the page of the
-  invitation, to whoever is signed in and to whoever is not; where it lets
-  them in is then loaded afresh.
-  `/org/<organization>` is the screen of the organization's administrators
-  (`OrgPage`), in place of the workspace; the way to it is in the sidebar of
-  whoever administers one. Only the server has organizations.
+  screens together (`AppShell`, `WorkspacePane`, `SignInPage`, `InvitePage`, `OrgHost`).
 -->
 <script lang="ts" module>
   import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
@@ -269,6 +256,9 @@
   const openTime = (): void => {
     router.go({ meTime: true });
   };
+  const openTodayHub = (): void => {
+    router.go({ todayHub: true });
+  };
   const openReviewsToday = (): void => {
     const workspaceId = workspace?.info?.id ?? workspaceIdOf(router.route);
     if (workspaceId) router.go({ workspaceId, reviewsToday: true });
@@ -426,6 +416,7 @@
     meTime={router.route.kind === 'meTime'}
     timeHref={workspace.backend.time ? router.href({ meTime: true }) : undefined}
     onOpenTime={openTime}
+    todayHub={{ active: router.route.kind === 'todayHub', onOpen: openTodayHub }}
     reviewsToday={workspace.backend.course
       ? { active: router.route.kind === 'reviewsToday', onOpen: openReviewsToday }
       : undefined}

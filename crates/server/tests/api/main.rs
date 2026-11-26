@@ -169,6 +169,7 @@ mod search_isolation;
 mod search_pages;
 mod search_real;
 mod search_versions;
+mod server_authority;
 mod server_lock;
 mod shared;
 mod shared_blocks;

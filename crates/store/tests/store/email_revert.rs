@@ -81,7 +81,11 @@ async fn session(store: &Store, user_id: &str, digest: &str) -> Session {
 }
 
 async fn revert(store: &Store, back: &str, now: i64) -> Option<EmailReverted> {
-    store.revert_email_change(back, now).await.expect("used")
+    store
+        .revert_email_change(back, now)
+        .await
+        .expect("used")
+        .map(|(reverted, _)| reverted)
 }
 
 /// A confirmed change leaves one link back to the address before, under its digest.
@@ -215,6 +219,7 @@ async fn only_its_time_and_the_erasing_of_the_account_end_a_link() {
             .change_user_password(&ada.id, HASH, "changed", &kept.id, "ada's next")
             .await
             .expect("changed")
+            .is_some()
     );
     assert!(
         store
@@ -248,7 +253,7 @@ async fn only_its_time_and_the_erasing_of_the_account_end_a_link() {
         .request_account_deletion(&ada.id, HASH, T0 + 4, T0 + 4 + 1_000)
         .await
         .expect("asked");
-    assert!(matches!(asked, DeletionAsking::Asked(_)), "{asked:?}");
+    assert!(matches!(asked, DeletionAsking::Asked(..)), "{asked:?}");
 
     let ended = T0 + EMAIL_REVERT_LIFETIME_MILLIS;
     let reverted = revert(store, "back", ended - 1)
@@ -267,13 +272,13 @@ async fn only_its_time_and_the_erasing_of_the_account_end_a_link() {
     // The erasing of the account.
     let cy = account(store, "cy").await;
     moved(store, &cy.id, "cy@new.example.test", "cy's back", T0).await;
-    assert_eq!(
+    assert!(matches!(
         store
             .begin_account_erasure(&cy.id, T0 + 1, Erasing::AtOnce)
             .await
             .expect("begun"),
-        ErasureStart::Begun
-    );
+        ErasureStart::Begun(_)
+    ));
     assert_eq!(test.count_rows("email_reverts").await.expect("counted"), 0);
     assert_eq!(revert(store, "cy's back", T0 + 2).await, None);
     test.teardown().await;
@@ -649,12 +654,12 @@ async fn a_same_millisecond_carried_over_identity_after_a_change_is_removed_on_r
     let old_issuer = "https://old-idp.example.test";
     let new_issuer = "https://new-idp.example.test";
     let actor = new_id();
-    let old = store
+    let (old, _) = store
         .put_oidc_provider_as_read(&oidc_provider(old_issuer), None, &actor, Duration::ZERO)
         .await
         .expect("asked")
         .expect("stored");
-    let new = store
+    let (new, _) = store
         .put_oidc_provider_as_read(
             &oidc_provider(new_issuer),
             Some(&old),
@@ -777,10 +782,11 @@ async fn a_locked_password_proves_nothing_until_a_new_one_is_set() {
             .expect("asked")
     );
     assert!(
-        !store
+        store
             .change_user_password(&ada.id, HASH, "theirs", &late.id, "theirs")
             .await
-            .expect("asked"),
+            .expect("asked")
+            .is_none(),
         "no new password"
     );
     assert!(
@@ -835,7 +841,7 @@ async fn a_locked_password_proves_nothing_until_a_new_one_is_set() {
     moved(store, &bo.id, "bo@new.example.test", "bo's back", T0).await;
     revert(store, "bo's back", T0 + 1).await.expect("used");
     assert!(user(store, &bo.id).await.password_is_locked());
-    store
+    let (_, _) = store
         .reset_user_password(&bo.username, "the operator's")
         .await
         .expect("set");

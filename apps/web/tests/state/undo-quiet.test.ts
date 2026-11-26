@@ -48,16 +48,18 @@ it('changes a card quietly when undo takes the change back and redo makes it aga
   }
 });
 
-it('makes a copy of a card quietly, and quietly again on redo', async () => {
+it('duplicates a card atomically on the backend, and again on redo', async () => {
   const { board, backend, workspace } = await openFirstBoard();
   const card = board.realCards[0];
   if (!card) throw new Error('missing card');
-  const made = vi.spyOn(backend, 'createCard');
+  const duplicated = vi.spyOn(backend, 'duplicateCard');
+  const created = vi.spyOn(backend, 'createCard');
   try {
     await board.duplicateCard(card.id);
     await workspace.undoLast();
     await workspace.redoLast();
-    expect(made.mock.calls.map(([, draft]) => draft.quiet ?? false)).toEqual([true, true]);
+    expect(duplicated).toHaveBeenCalledTimes(2);
+    expect(created).not.toHaveBeenCalled();
     expect(workspace.problems).toEqual([]);
   } finally {
     workspace.close();

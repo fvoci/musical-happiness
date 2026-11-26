@@ -16,10 +16,10 @@ use super::contract::tag;
 use super::workspace::InShared;
 
 use super::{ApiResult, json_response, no_content};
-use super::{decode_object_with, refusal, require_container_permission, require_granted};
+use super::{decode_object_with, refusal, require_container_permission};
 use crate::app::App;
-use crate::error::{AppError, Reason};
-use crate::permissions::{self, ContainerPermission, Grant};
+use crate::error::AppError;
+use crate::permissions::ContainerPermission;
 
 /// The refusal to add, change or remove a member.
 const MODIFY_MEMBERS_DENIED: &str = "access denied to modify board members";
@@ -47,33 +47,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_update_member, handle_delete_member))
         .routes(routes!(handle_join_container))
         .routes(routes!(handle_leave_container))
-}
-
-/// A membership with `role` as its direct role.
-fn member_with_role(container_id: String, user_id: String, role: ContainerRole) -> ContainerMember {
-    ContainerMember {
-        container_id,
-        user_id,
-        role,
-        synthetic: false,
-        inherited_role: None,
-    }
-}
-
-/// Refuses a membership whose role the user's place in the workspace does not let
-/// them hold: a guest is no more than an editor (403, reason `guest_role_limit`).
-fn require_holdable(
-    workspace_role: WorkspaceRole,
-    member: &ContainerMember,
-) -> Result<(), AppError> {
-    if permissions::may_hold(workspace_role, member.role) {
-        Ok(())
-    } else {
-        Err(
-            AppError::forbidden("a guest of the workspace is given no role above editor")
-                .with_reason(Reason::GuestRoleLimit),
-        )
-    }
 }
 
 /// The members of a board
@@ -139,78 +112,22 @@ async fn handle_add_member(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
-    let access = ws
-        .app
-        .container_access(user_id, &container_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("board"))?;
-    let (container, grant) = (&access.container, access.grant);
-    let manages_roles = grant.allows(ContainerPermission::ManageRoles);
-    let edits_container = grant.allows(ContainerPermission::ManageProperties);
-    // A guest's editing adds nobody: who is in the workspace is not a guest's to learn.
-    let adds_to_open_container = edits_container
-        && container.visibility == ContainerVisibility::Open
-        && access.actor.works_there();
-    if !(manages_roles || adds_to_open_container) {
-        return Err(refusal(grant, MODIFY_MEMBERS_DENIED));
-    }
-
+    ws.app
+        .require_add_member_permission(user_id, &container_id, MODIFY_MEMBERS_DENIED)
+        .await?;
     let (request, raw_role): (AddMemberRequest, Option<Value>) =
         decode_object_with(&body, |members| members.remove("role"))?;
     let requested_role = parse_member_role(raw_role)?;
-    if request.user_id.is_empty() {
-        return Err(AppError::bad_request("empty userId").with_field("userId"));
-    }
-    // The target user must exist before a membership is created.
-    match ws.app.user(&request.user_id).await {
-        Ok(_) => {}
-        Err(error) if error.is_not_found() => {
-            return Err(AppError::bad_request("no such user").with_field("userId"));
-        }
-        // A lookup that failed is no answer to whether the user exists.
-        Err(error) => return Err(error),
-    }
-    // A board takes the people of its workspace, its guests too. Anybody else is, to who
-    // adds members, a user who does not exist: the answer is the same, so that it
-    // tells nothing of who has an account elsewhere on the server.
-    let Some(target_role) = ws
+    let added = ws
         .app
-        .actor(&request.user_id, &container.workspace_id)
-        .await?
-        .workspace
-    else {
-        return Err(AppError::bad_request("no such user").with_field("userId"));
-    };
-
-    // Granting the admin role requires role-management permission; otherwise an editor of
-    // an open board could promote a second account to admin and take the board over.
-    // The web app offers a user who does not manage roles the board's minimum role only.
-    if requested_role == Some(ContainerRole::Admin) && !manages_roles {
-        return Err(AppError::forbidden(MODIFY_MEMBERS_DENIED));
-    }
-
-    // Choosing explicit roles belongs to those who manage them; callers without role
-    // management always grant the board's minimum role.
-    let role = if manages_roles {
-        requested_role.ok_or_else(|| AppError::bad_request("missing role").with_field("role"))?
-    } else {
-        // The board's minimum role: what joining gives, and so what somebody gives who
-        // has no say about roles.
-        ContainerRole::from(container.minimum_role)
-    };
-    let member = member_with_role(container_id, request.user_id, role);
-    require_holdable(target_role, &member)?;
-    // A workspace's administrator who could not read the board and gives somebody a
-    // role on it is recorded doing so: themselves, by which they come to read it, or
-    // somebody else, who might be another account of theirs. The board was there a
-    // moment ago; if it is not any more, there is nothing to be a member of.
-    let added = if grant.manages_only() {
-        ws.app.add_member_as_manager(&member, user_id).await?
-    } else {
-        // Only if who asks is still what the check found, where it is written.
-        ws.app.add_member_asked(&member, user_id, &access).await?
-    };
-    let added = added.ok_or_else(|| AppError::not_found("board"))?;
+        .add_member(
+            user_id,
+            &container_id,
+            &request.user_id,
+            requested_role,
+            MODIFY_MEMBERS_DENIED,
+        )
+        .await?;
     Ok(json_response(&added))
 }
 
@@ -324,51 +241,33 @@ async fn handle_update_member(
     Path((_, container_id, member_user_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let asker = ws
+    let access = ws
         .app
         .container_access(&ws.session.user_id, &container_id)
-        .await?;
-    let grant = asker.as_ref().map_or(Grant::NONE, |access| access.grant);
-    require_granted(
-        grant,
-        ContainerPermission::ManageRoles,
-        MODIFY_MEMBERS_DENIED,
-    )?;
-    // The board may be deleted between the two lookups; then it is gone for everybody.
-    let target = ws
-        .app
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    if !access.grant.allows(ContainerPermission::ManageRoles) {
+        return Err(refusal(access.grant, MODIFY_MEMBERS_DENIED));
+    }
+    // Check target container access before decoding body so absent board stays 404.
+    ws.app
         .container_access(&member_user_id, &container_id)
         .await?
         .ok_or_else(|| AppError::not_found("board"))?;
     let (_, raw_role): (serde::de::IgnoredAny, Option<Value>) =
         decode_object_with(&body, |members| members.remove("role"))?;
-    let role = parse_member_role(raw_role)?
-        .ok_or_else(|| AppError::bad_request("missing role").with_field("role"))?;
-    let member = member_with_role(container_id, member_user_id, role);
-    // Who is no member of the board is not found, and so is who has left its
-    // workspace: the role left there opens nothing, and is not to be changed.
-    let (Some(_), Some(workspace_role)) = (target.member, target.actor.workspace) else {
-        return Err(AppError::not_found("member"));
-    };
-    require_holdable(workspace_role, &member)?;
-
-    // A workspace's administrator who could not read the board and gives somebody a
-    // role on it is recorded doing so, as one who adds a member.
-    let updated = if grant.manages_only() {
-        ws.app
-            .update_member_as_manager(&member, &ws.session.user_id)
-            .await?
-    } else {
-        // Only if who asks is still what the check found, where it is written.
-        let asker = asker.ok_or_else(|| AppError::not_found("board"))?;
-        ws.app
-            .update_member_asked(&member, &ws.session.user_id, &asker)
-            .await?
-    };
-    match updated {
-        Some(updated) => Ok(json_response(&updated)),
-        None => Err(AppError::not_found("member")),
-    }
+    let role = parse_member_role(raw_role)?;
+    let updated = ws
+        .app
+        .update_member(
+            &ws.session.user_id,
+            &container_id,
+            &member_user_id,
+            role,
+            MODIFY_MEMBERS_DENIED,
+        )
+        .await?;
+    Ok(json_response(&updated))
 }
 
 /// Remove a member from a board

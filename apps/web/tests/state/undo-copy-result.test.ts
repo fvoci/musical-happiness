@@ -10,14 +10,14 @@ it.each([false, true])(
     const source = board.realCards[0];
     if (!source) throw new Error('missing card');
     await board.showCard(source.id);
-    const read = backend.card.bind(backend);
+    const duplicate = backend.duplicateCard.bind(backend);
     let release = (): void => undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    vi.spyOn(backend, 'card').mockImplementationOnce(async (...args) => {
+    vi.spyOn(backend, 'duplicateCard').mockImplementationOnce(async (...args) => {
       await gate;
-      return read(...args);
+      return duplicate(...args);
     });
     const opened: string[] = [];
     try {

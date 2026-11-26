@@ -220,6 +220,10 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 403. While joined as organization administrator, you cannot add yourself to a team. Another workspace administrator may add you. Direct board roles end with the administrative joining."
         }
         Reason::GuestRoleLimit => "Status 403. A guest of a workspace has no role above editor.",
+        Reason::GuestCannotJoinTeam => {
+            "Status 409. A guest of a workspace cannot be added to a team: teams group workspace \
+             members who work there."
+        }
         Reason::SharingDisabled => {
             "Status 403. Sharing a board with whoever has its link is turned off in the \
              configuration of this server."
@@ -252,7 +256,8 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::RelationRepeated
         | Reason::RelationTooMany
         | Reason::RelationNotACard
-        | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
+        | Reason::RelationCardNotFound
+        | Reason::RelationCycle => describe_relation(reason).unwrap_or_default(),
         Reason::WorkspaceNameTaken
         | Reason::TeamNameTaken
         | Reason::DefaultWorkspace
@@ -262,7 +267,8 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::LastInstanceAdmin
         | Reason::CannotRemoveSelf
         | Reason::PasswordSignInRequired
-        | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
+        | Reason::PublicLinksOff
+        | Reason::CopyOutDisabled => describe_organization(reason).unwrap_or_default(),
         // The rest are the reasons of uploads and archives, of the search of bodies, of
         // the limits of a wiki's tree and of a body edited together, which the functions
         // below name one by one: a reason that is none of theirs fails the tests.
@@ -561,6 +567,10 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
              shared by a link until they are on again. Stopping a board's sharing is not \
              refused."
         }
+        Reason::CopyOutDisabled => {
+            "Status 403. The organization has turned off copying containers out to another \
+             organization, including to a user's personal space (`allowCopyOut`)."
+        }
         _ => return None,
     })
 }
@@ -598,6 +608,11 @@ fn describe_relation(reason: Reason) -> Option<&'static str> {
              one removed from the trash, or another board's, which the answer does not tell \
              apart. A card in the trash may be named, and what a value named before is not \
              asked for again. `errors` as for `relation-not-a-list`."
+        }
+        Reason::RelationCycle => {
+            "Status 400. A card's ordering relation property (`orderingRelations` of the board) \
+             would form a dependency cycle among the cards of the board. `errors` as for \
+             `relation-not-a-list`."
         }
         _ => return None,
     })

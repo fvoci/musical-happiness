@@ -201,6 +201,8 @@ export class World {
    * (`searchEnabled`): every server does; false shows a client that is told
    * otherwise, which has no search box.
    */
+  /** Whether cross-workspace copies out of the shared organization are allowed (`true` by default). */
+  allowCopyOut = true;
   searchEnabled = true;
   /** Before a card's body is written whole: what its room's editors wrote is written into the card (`rooms.ts`). */
   bodyFlushed: ((cardId: string) => void) | undefined;

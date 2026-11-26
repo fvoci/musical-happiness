@@ -39,6 +39,8 @@ export type Change =
   | { kind: 'user'; userId: string }
   /** What the reader was told changed: whoever shows it reads it again. */
   | { kind: 'notifications' }
+  /** Somebody's workspace role changed (`admin`, `member`, `guest`, or `''` on removal). */
+  | { kind: 'workspaceRole'; workspaceId: string; userId: string; role: string }
   /**
    * Changes may have been missed (the connection to the server dropped and
    * is back): read again what is shown. The memory backend never sends it.

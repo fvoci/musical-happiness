@@ -183,23 +183,26 @@ describe('uploading a file to the server', () => {
     expect(calls.map((call) => call.method)).toEqual(['GET']);
   });
 
-  it('attaches an uploaded file as a block under the card that names it', async () => {
+  it('attaches an uploaded file via the verified card attachments route', async () => {
     const calls: Call[] = [];
     vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
-      const json = JSON.parse(init.body as string) as { title: string; fields: object }[];
+      const json = JSON.parse(init.body as string) as { fileId: string };
       calls.push({ method: init.method ?? 'GET', url, size: undefined, headers: {}, json });
-      const [block] = json;
       return Promise.resolve(
         new Response(
-          JSON.stringify([
-            {
-              ...block,
-              id: 'a1',
-              body: null,
-              createdBy: 'u',
-              modifiedBy: 'u',
-            },
-          ]),
+          JSON.stringify({
+            id: 'a1',
+            containerId: 'b1',
+            parentId: 'c1',
+            type: 'attachment',
+            title: 'notes.txt',
+            fields: { fileId: json.fileId, size: 10, contentType: 'text/plain' },
+            body: null,
+            createdAt: 1,
+            updatedAt: 1,
+            createdBy: 'u',
+            modifiedBy: 'u',
+          }),
           { status: 201 },
         ),
       );
@@ -212,16 +215,8 @@ describe('uploading a file to the server', () => {
     });
     expect(calls[0]).toMatchObject({
       method: 'POST',
-      url: '/api/v1/w/w1/boards/b1/blocks',
-      json: [
-        {
-          containerId: 'b1',
-          parentId: 'c1',
-          type: 'attachment',
-          title: 'notes.txt',
-          fields: { fileId: 'f1.txt', size: 10, contentType: 'text/plain' },
-        },
-      ],
+      url: '/api/v1/w/w1/boards/b1/cards/c1/attachments',
+      json: { fileId: 'f1.txt' },
     });
     expect(attachment).toMatchObject({ id: 'a1', fileId: 'f1.txt', name: 'notes.txt', size: 10 });
     expect(serverBackend('/base').fileUrl('b1', 'f1.txt')).toBe(

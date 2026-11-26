@@ -8,7 +8,13 @@
 import type { DocNode } from '../editor/schema.ts';
 import type { MemberRole } from '../logic/wire.ts';
 
-import { isBackendError, isConflict, type Comment, type CommentVersion } from './backend.ts';
+import {
+  isBackendError,
+  isConflict,
+  type Comment,
+  type CommentVersion,
+  type ContainerPermissions,
+} from './backend.ts';
 import { canChangeComment } from './board-parts.ts';
 import type { CommentEdit } from './card-parts.ts';
 import { byCreation } from './order.ts';
@@ -29,6 +35,7 @@ export interface CommentThreadHost {
   readonly workspace: Workspace;
   readonly parentId: string;
   role(): MemberRole;
+  permissions?: () => ContainerPermissions;
   joinable?: () => boolean;
   isSpeculative?: () => boolean;
   onCommented?: () => void;
@@ -57,11 +64,20 @@ export class CommentThreadStore {
   }
 
   get canComment(): boolean {
+    const perms = this.#host.permissions?.();
+    if (perms) return perms.canComment;
     const role = this.#host.role();
     return role === 'admin' || role === 'editor' || role === 'commenter';
   }
 
   canEditComment(createdBy: string): boolean {
+    const perms = this.#host.permissions?.();
+    if (perms) {
+      return (
+        perms.canManageOthersComments ||
+        (perms.canComment && createdBy === this.#host.workspace.me?.id)
+      );
+    }
     return canChangeComment(this.#host.role(), createdBy, this.#host.workspace.me?.id);
   }
 

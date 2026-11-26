@@ -2163,6 +2163,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today across all open workspaces
+         * @description Aggregates incomplete cards assigned to the caller that are due today, due soon, or
+         *     overdue across every workspace opened by the current session, together with scheduled
+         *     units on enrolled courses, pending spaced-repetition reviews due today or earlier, and
+         *     upcoming study meetings within 48 hours. Workspaces locked behind an unfulfilled SSO
+         *     provider or personal-space password confirmation are omitted and counted in
+         *     `lockedWorkspaceCount`.
+         */
+        get: operations["getAccountToday"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/workspaces": {
         parameters: {
             query?: never;
@@ -2631,12 +2656,55 @@ export interface paths {
          *     refused with 400, and stored links always include all three fields normalized. Any
          *     other refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,
          *     `relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`
-         *     (a block of the board that is no card) or `relation_card_not_found`: no card of that
+         *     (a block of the board that is no card), `relation_cycle` (ordering dependencies form
+         *     a cycle on the board) or `relation_card_not_found`: no card of that
          *     identifier on the board, which is also the answer for a card of another board. Every
          *     write of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)
          *     the values it changes, and does not ask again for a card that a value named before.
          */
         post: operations["createCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/batch-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete multiple cards atomically
+         * @description Deletes `1..=200` distinct cards on `boardId` in one transaction so each card remains
+         *     individually restorable from the trash.
+         */
+        post: operations["batchDeleteCards"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/batch-restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore multiple deleted cards atomically
+         * @description Restores `1..=200` distinct deleted cards on `boardId` in one transaction and returns
+         *     all restored cards (including restored sub-cards).
+         */
+        post: operations["batchRestoreCards"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2663,6 +2731,148 @@ export interface paths {
         get: operations["getCardByNumber"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach an uploaded file to a card
+         * @description Verifies under the board lock that `fileId` belongs to `boardId`, sets the attachment
+         *     block's trusted filename and size from `files`, and stores the attachment block.
+         */
+        post: operations["createCardAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The comments on a card
+         * @description Every comment on the card, oldest first, as blocks of the `type` `comment` whose
+         *     parent is the card. For who reads the board: its members, and of an open board
+         *     whoever works in the workspace. A card in the trash is not there (404).
+         */
+        get: operations["getCardComments"];
+        put?: never;
+        /**
+         * Write a comment on a card
+         * @description For the board's members from the commenter's role up (whoever reads an open board
+         *     without joining it is refused with 403). The server chooses the identifier, the
+         *     author and the times. Every image of the text shows a file of the board (400
+         *     otherwise), and the text has no file block (400).
+         */
+        post: operations["createCardComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a comment on a card
+         * @description Moves the comment to the trash: by its author from the commenter's role up, and the
+         *     comment of somebody else by the board's admins only (403).
+         */
+        delete: operations["deleteCardComment"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a comment on a card
+         * @description Writes a new text over the comment: by its author from the commenter's role up, and
+         *     the comment of somebody else by the board's admins only (403).
+         */
+        patch: operations["patchCardComment"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a deleted comment on a card
+         * @description Restores a comment deleted on its own onto its card: for its author from the
+         *     commenter's role up if they deleted it themselves, and for the board's admins whoever
+         *     wrote or deleted it.
+         */
+        post: operations["restoreCardComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Earlier versions of a comment on a card
+         * @description Returns every prior version of the comment's body (excluding its current text), the
+         *     first version first, for who reads the board.
+         */
+        get: operations["getCardCommentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a card atomically
+         * @description Pre-copies referenced storage files under `loose_objects` marks and commits the
+         *     duplicated card, sub-cards, attachment blocks, `files` records, and initial
+         *     `body_versions` in a single database transaction. If any storage file copy fails, no
+         *     cloned blocks or dangling `fileId` references are stored.
+         */
+        post: operations["duplicateCard"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2711,6 +2921,89 @@ export interface paths {
         get: operations["getDeletedCards"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a board view
+         * @description Creates a view on `boardId` using server-side fractional indexing (`after`).
+         */
+        post: operations["createBoardView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views/{viewId}/card-moves": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move one or more cards within a board view
+         * @description Updates `cardOrder` on `viewId` and optionally assigns `groupValue` to
+         *     `groupPropertyId` on `1..=200` distinct cards in a single database transaction,
+         *     validating card property types/options and emitting assignee notifications.
+         */
+        post: operations["moveViewCards"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views/{viewId}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a board view
+         * @description Copies `viewId` on `boardId` and places the copy using server-side fractional
+         *     indexing.
+         */
+        post: operations["duplicateBoardView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views/{viewId}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a board view
+         * @description Reorders `viewId` among the views of `boardId` using server-side fractional indexing.
+         */
+        post: operations["moveBoardView"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2905,7 +3198,12 @@ export interface paths {
         delete: operations["deleteCategory"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Partially update a category
+         * @description Updates the display `name` and/or `collapsed` state of one of the user's categories
+         *     in a single transaction. System categories ignore name changes.
+         */
+        patch: operations["patchCategory"];
         trace?: never;
     };
     "/api/v1/w/{workspaceId}/categories/{categoryId}/container-order": {
@@ -2938,7 +3236,12 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Move and/or hide a container in a category atomically
+         * @description Moves the container into `categoryId` at optional 0-based `index` and/or sets its
+         *     `hidden` flag in one database transaction.
+         */
+        put: operations["putCategoryContainer"];
         /**
          * File a board under a category
          * @description Puts a board the user may see under one of the user's categories; it leaves the
@@ -3133,6 +3436,32 @@ export interface paths {
         get: operations["exportContainerArchive"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/copy-to-workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy a board, wiki, or course to another workspace
+         * @description Copies a live `board`, `wiki`, or `course` into `targetWorkspaceId` (in the same or
+         *     another organization opened by the session, including the caller's personal space),
+         *     stripping absent-member assignments/mentions, converting external `[` references to
+         *     plain text, enforcing `allowCopyOut` (403 with the reason `copy_out_disabled`) and
+         *     target storage limits (413 with the reason `storage_full`), and recording
+         *     `container_copied_out` in the source organization's audit log when copying across
+         *     organizations.
+         */
+        post: operations["copyContainerToWorkspace"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3520,6 +3849,27 @@ export interface paths {
          *     answered 204 like a removal.
          */
         delete: operations["removeMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/my-permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Caller's effective permissions on a container
+         * @description Returns the caller-scoped `ContainerPermissions` on `containerId` without embedding
+         *     caller permissions inside `Container` or WebSocket broadcasts.
+         */
+        get: operations["getMyContainerPermissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4357,20 +4707,15 @@ export interface paths {
         /**
          * The comments on a unit
          * @description Every comment on the unit, oldest first, as blocks of the `type` `comment` whose
-         *     parent is the unit; each says who wrote it (`createdBy`), and one whose text was
-         *     changed when that last happened (`editedAt`). For who reads the course: its members,
-         *     and of an open course whoever works in the workspace. A chapter or a unit in the
-         *     trash is not there (404).
+         *     parent is the unit. For who reads the course: its members, and of an open course
+         *     whoever works in the workspace. A chapter or a unit in the trash is not there (404).
          */
         get: operations["getUnitComments"];
         put?: never;
         /**
          * Write a comment on a unit
          * @description For the course's members from the commenter's role up (whoever reads an open course
-         *     without joining it is refused with 403). The server chooses the identifier, the
-         *     author and the times. Every image of the text shows a file of the course (400
-         *     otherwise), and the text has no file block (400). A chapter takes no comments (404).
-         *     Who reads the course is told with `blockChanged`, as of a comment on a card or page.
+         *     without joining it is refused with 403).
          */
         post: operations["createUnitComment"];
         delete?: never;
@@ -4391,21 +4736,16 @@ export interface paths {
         post?: never;
         /**
          * Delete a comment on a unit
-         * @description The comment goes to the trash, as a comment on a card or page does: by its author
-         *     from the commenter's role up, and the comment of somebody else by the course's admins
-         *     only (403, `access denied to delete other users' comments`). Who reads the course is
-         *     told with `blockChanged` with `deletedAt` set.
+         * @description The comment goes to the trash: by its author from the commenter's role up, and the
+         *     comment of somebody else by the course's admins only (403).
          */
         delete: operations["deleteUnitComment"];
         options?: never;
         head?: never;
         /**
          * Change a comment on a unit
-         * @description Writes a new text over the comment, as a card's or page's comments are changed: by
-         *     its author from the commenter's role up, and the comment of somebody else by the
-         *     course's admins only (403, `access denied to change other users' comments`); an
-         *     editor may not change it. The text it had is kept (`getUnitCommentVersions`), and the
-         *     comment's `editedAt` says when it last changed. The text has no file block (400).
+         * @description Writes a new text over the comment: by its author from the commenter's role up, and
+         *     the comment of somebody else by the course's admins only (403).
          */
         patch: operations["patchUnitComment"];
         trace?: never;
@@ -4421,15 +4761,9 @@ export interface paths {
         put?: never;
         /**
          * Bring a deleted comment on a unit back
-         * @description A comment deleted on its own comes back onto its unit, as `restorePageComment`
-         *     brings a page's comment back: for its author from the commenter's role up if they
-         *     deleted it themselves, and for the course's admins whoever wrote or deleted it (403,
-         *     `access denied to undelete other users' comments`, and for the author of a comment
-         *     somebody else deleted, `a comment somebody else deleted is brought back by the
-         *     board's admins`). A comment that went to the trash with its unit comes back with the
-         *     unit (`restoreUnit`), not on its own; that one, one not in the trash, and one of
-         *     another unit are not there (404), nor is any while the unit is in the trash. Who
-         *     reads the course is told with `blockChanged`.
+         * @description Restores a comment deleted on its own onto its unit: for its author from the
+         *     commenter's role up if they deleted it themselves, and for the course's admins
+         *     whoever wrote or deleted it.
          */
         post: operations["restoreUnitComment"];
         delete?: never;
@@ -4447,11 +4781,8 @@ export interface paths {
         };
         /**
          * What a comment on a unit said before
-         * @description The earlier texts of the comment, as `getPageCommentVersions` gives a page's
-         *     comment's: every version but the one it has now, the first one first, with who wrote
-         *     it and when. For who reads the course (as `getUnitComments`), also of a comment in
-         *     the trash while its unit is there: the versions go only when the comment is gone for
-         *     good. A chapter or a unit in the trash is not there (404).
+         * @description The earlier texts of the comment: every version but the one it has now, the first
+         *     one first, with who wrote it and when.
          */
         get: operations["getUnitCommentVersions"];
         put?: never;
@@ -5521,10 +5852,11 @@ export interface paths {
         get?: never;
         /**
          * Add a nonguest workspace member to a team
-         * @description For workspace administrators. Idempotent. A guest or somebody outside the
-         *     workspace is 404. Removing a workspace member or making them a guest removes
-         *     them from every team of that workspace. A person joined as organization administrator
-         *     cannot add themselves: 403, reason `team_self_joining`. Other administrators may add them.
+         * @description For workspace administrators. Idempotent. Somebody outside the workspace is 404;
+         *     adding a workspace guest is 409, reason `guest_cannot_join_team`. Removing a
+         *     workspace member or making them a guest removes them from every team of that
+         *     workspace. A person joined as organization administrator cannot add themselves:
+         *     403, reason `team_self_joining`. Other administrators may add them.
          */
         put: operations["addTeamMember"];
         post?: never;
@@ -5556,6 +5888,28 @@ export interface paths {
          *     in, the one `Accept-Language` prefers; failing both, English.
          */
         get: operations["getTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today in one workspace
+         * @description Returns the caller's due/overdue incomplete cards, scheduled course units, due
+         *     reviews, and upcoming study meetings inside `workspaceId`. 404 for guests and
+         *     non-members.
+         */
+        get: operations["getWorkspaceToday"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5998,13 +6352,7 @@ export interface paths {
          * Bring a deleted comment on a page back
          * @description A comment deleted on its own comes back onto its page, as `restoreBlock` brings a
          *     card's comment back: for its author from the commenter's role up if they deleted it
-         *     themselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied
-         *     to undelete other users' comments`, and for the author of a comment somebody else
-         *     deleted, `a comment somebody else deleted is brought back by the board's admins`). A
-         *     comment that went to the trash with its page comes back with the page
-         *     (`restorePage`), not on its own; that one, one not in the trash, and one of another
-         *     page are not there (404), nor is any while the page is in the trash. Who reads the
-         *     wiki is told with `blockChanged`.
+         *     themselves, and for the wiki's admins whoever wrote or deleted it.
          */
         post: operations["restorePageComment"];
         delete?: never;
@@ -6024,9 +6372,7 @@ export interface paths {
          * What a comment on a page said before
          * @description The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:
          *     every version but the one it has now, the first one first, with who wrote it and
-         *     when. For who reads the wiki (as `getPageComments`), also of a comment in the trash
-         *     while its page is there: the versions go only when the comment is gone for good. A
-         *     page in the trash is not there (404).
+         *     when.
          */
         get: operations["getPageCommentVersions"];
         put?: never;
@@ -6256,6 +6602,38 @@ export interface components {
              */
             deleteAfter: number;
         };
+        /**
+         * @description Account-wide `'Today'` hub summary (`GET /api/v1/users/me/today`).
+         *
+         *     Diary entries are intentionally absent so the server never chooses a diary day on the
+         *     caller's behalf; the web client renders personal diary streaks via `getDiaryRuns`.
+         */
+        AccountToday: {
+            /** @description Incomplete assigned cards overdue, due today, or due soon across open workspaces. */
+            cards: components["schemas"]["TodayCardItem"][];
+            /** @description Whether more than 100 due/overdue cards matched across open workspaces. */
+            hasMoreCards: boolean;
+            /** @description Whether more than 100 meetings matched across open workspaces. */
+            hasMoreMeetings: boolean;
+            /** @description Whether more than 100 reviews matched across open workspaces. */
+            hasMoreReviews: boolean;
+            /** @description Whether more than 100 units matched across open workspaces. */
+            hasMoreUnits: boolean;
+            /**
+             * Format: int32
+             * @description Number of workspaces excluded because the current session has not satisfied their
+             *     SSO requirement or personal-space password confirmation.
+             */
+            lockedWorkspaceCount: number;
+            /** @description Upcoming course meetings across open workspaces. */
+            meetings: components["schemas"]["TodayMeetingItem"][];
+            /** @description Pending personal reviews due today or overdue across open workspaces. */
+            reviews: components["schemas"]["TodayReviewEntry"][];
+            /** @description Caller's current calendar day (`YYYY-MM-DD`). */
+            today: string;
+            /** @description Enrolled course units scheduled for today or overdue across open workspaces. */
+            units: components["schemas"]["TodayUnitEntry"][];
+        };
         /** @description The caller's currently running timer, if any. */
         ActiveTimeEntry: {
             entry: components["schemas"]["TimeEntry"] | null;
@@ -6279,7 +6657,7 @@ export interface components {
          * @description What a record of the audit log says was done.
          * @enum {string}
          */
-        AuditAction: "self_added_to_container" | "added_to_container" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "org_member_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator";
+        AuditAction: "self_added_to_container" | "added_to_container" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "org_member_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled" | "oidc_provider_configured" | "oidc_provider_removed" | "sso_required" | "sso_released" | "oidc_provider_pending_saved" | "oidc_provider_pending_applied" | "oidc_provider_pending_discarded" | "password_reset_link_made" | "password_set_by_operator" | "oidc_former_provider_kept" | "oidc_former_provider_ended" | "oidc_former_provider_lapsed" | "oidc_identity_bound" | "oidc_identity_carried_over" | "email_verified_by_operator" | "container_copied_out" | "copy_out_disabled" | "copy_out_enabled";
         /** @description A user as a record of the audit log names them. */
         AuditPerson: {
             /** @description The name the user shows; empty for none. */
@@ -6444,6 +6822,37 @@ export interface components {
          * @enum {string}
          */
         BlockType: "card" | "view" | "comment" | "attachment" | "page" | "entry" | "unit" | "chapter";
+        /** @description Request body for duplicating a board view (`POST .../views/{viewId}/duplicate`). */
+        BoardViewDuplicate: {
+            /**
+             * @description Optional sibling view ID to place the duplicate after; defaults to right after the
+             *     source view.
+             */
+            after?: string | null;
+            /**
+             * @description Optional custom title for the duplicated view; when omitted, a localized copy
+             *     title is derived from the source view.
+             */
+            title?: string | null;
+        };
+        /** @description Request body for moving a board view (`POST .../views/{viewId}/move`). */
+        BoardViewMove: {
+            /**
+             * @description Sibling view ID to place this view immediately after; `""` or `null` moves it to
+             *     the first position.
+             */
+            after?: string | null;
+        };
+        /** @description Response returned when creating, moving, or duplicating a board view. */
+        BoardViewWrite: {
+            /**
+             * @description All sibling views whose `order` was initialized or renumbered in the same
+             *     transaction (empty when none needed renumbering).
+             */
+            companionViews: components["schemas"]["Block"][];
+            /** @description The created, moved, or duplicated view block. */
+            view: components["schemas"]["Block"];
+        };
         /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
         Body: {
             [key: string]: unknown;
@@ -6601,6 +7010,47 @@ export interface components {
              */
             updatedAt: number;
         };
+        /** @description Request body carrying `1..=200` distinct card identifiers for batch delete or restore. */
+        CardBatchIds: {
+            /** @description Card identifiers (`1..=200`, no duplicates). */
+            cardIds: string[];
+        };
+        /**
+         * @description What a comment on a card is changed to: its text, written over the comment as it was
+         *     read.
+         */
+        CardCommentPatch: {
+            /** @description The comment's new text, as a card's body is written; neither empty nor `null`. */
+            body: components["schemas"]["Body"];
+            /**
+             * Format: int64
+             * @description The `updatedAt` of the comment as the client read it: if the comment has changed
+             *     since, the patch is refused with 409 and changes nothing.
+             */
+            readAt: number;
+        };
+        /** @description Request body for moving one or more cards within a board view (`card-moves`). */
+        CardMovesRequest: {
+            /**
+             * @description Optional live card on the same board after which `cardIds` are placed in the
+             *     view's `cardOrder`; `""` places them at the start, omitted/`null` appends or
+             *     preserves relative placement when none is specified.
+             */
+            afterCardId?: string | null;
+            /** @description Ordered card identifiers to move (`1..=200`, no duplicates). */
+            cardIds: string[];
+            /** @description Optional grouping property identifier whose value is updated on every moved card. */
+            groupPropertyId?: string | null;
+            /** @description Value to assign to `groupPropertyId` (`null` or empty clears the property). */
+            groupValue?: unknown;
+        };
+        /** @description Response returned by `POST /w/{ws}/boards/{boardId}/views/{viewId}/card-moves`. */
+        CardMovesResult: {
+            /** @description Updated cards when `groupPropertyId` modified their properties. */
+            cards: components["schemas"]["Card"][];
+            /** @description Updated view block carrying the new `cardOrder`. */
+            view: components["schemas"]["Block"];
+        };
         /**
          * @description Where a card opens.
          * @enum {string}
@@ -6710,10 +7160,27 @@ export interface components {
             /** @description Whether the user has hidden the board from the sidebar. */
             hidden: boolean;
         };
+        /**
+         * @description Atomic move and/or visibility update of a container in a sidebar category
+         *     (`PUT /w/{ws}/categories/{categoryId}/containers/{containerId}`).
+         */
+        CategoryContainerUpdate: {
+            /** @description Optional hidden state of the container in the sidebar. */
+            hidden?: boolean | null;
+            /** @description Optional 0-based position within the target category's container order. */
+            index?: number | null;
+        };
         /** @description A category together with the boards in it, in display order. */
         CategoryContainers: components["schemas"]["Category"] & {
             /** @description The boards in the category. */
             containerMetadata: components["schemas"]["CategoryContainerMetadata"][];
+        };
+        /** @description Partial update of a sidebar category (`PATCH /w/{ws}/categories/{categoryId}`). */
+        CategoryPatch: {
+            /** @description Optional collapsed state in the sidebar. */
+            collapsed?: boolean | null;
+            /** @description Optional new display name (non-blank). */
+            name?: string | null;
         };
         /**
          * @description Whether a category was created by the server or by the user.
@@ -6775,6 +7242,12 @@ export interface components {
              *     answers each search 503 (`search_unavailable`).
              */
             searchEnabled: boolean;
+            /**
+             * Format: int32
+             * @description How many whole days deleted items stay in the trash before housekeeping purges
+             *     them (`trash_retention_days`, default 30).
+             */
+            trashRetentionDays: number;
         };
         /**
          * @description A change to the bag of state a client keeps with the account: entries the server
@@ -6877,6 +7350,13 @@ export interface components {
             deletedAt?: number;
             /** @description The board's description. */
             description: string;
+            doneWhen?: components["schemas"]["DoneWhen"] | null;
+            /**
+             * @description Optional identifier of the `date` property used as the board's due date in
+             *     `'Today'` and `due_soon` notifications. When absent, the board's first `date`
+             *     property is inferred automatically.
+             */
+            dueDatePropertyId?: string | null;
             /** @description The board's icon, usually one emoji. */
             icon: string;
             /** @description The board's identifier. */
@@ -6966,6 +7446,9 @@ export interface components {
             deletedProperties?: string[];
             /** @description The new description. */
             description?: string | null;
+            doneWhen?: components["schemas"]["DoneWhen"] | null;
+            /** @description Optional change to `dueDatePropertyId`: omitted keeps it, `null` or `""` clears it. */
+            dueDatePropertyId?: string | null;
             /** @description The new icon. */
             icon?: string | null;
             minimumRole?: components["schemas"]["MinimumRole"] | null;
@@ -6980,6 +7463,30 @@ export interface components {
                 [key: string]: unknown;
             };
             visibility?: components["schemas"]["ContainerVisibility"] | null;
+        };
+        /**
+         * @description Caller-specific effective permissions on a container.
+         *
+         *     Kept strictly separate from `Container` so WebSocket `containerChanged` broadcasts
+         *     never leak or overwrite another viewer's permissions.
+         */
+        ContainerPermissions: {
+            /** @description Whether the caller may post and edit their own comments. */
+            canComment: boolean;
+            /** @description Whether the caller may delete or restore the container itself. */
+            canDelete: boolean;
+            /** @description Whether the caller may create, edit, move, and delete cards/pages/units. */
+            canEdit: boolean;
+            /** @description Whether the caller may delete comments authored by other users. */
+            canManageOthersComments: boolean;
+            /** @description Whether the caller may edit container metadata, properties, and views. */
+            canManageProperties: boolean;
+            /** @description Whether the caller may add, update, or remove container members and team roles. */
+            canManageRoles: boolean;
+            /** @description Whether the caller may change container visibility (`open` / `private`) and `minimumRole`. */
+            canManageVisibility: boolean;
+            /** @description Whether the caller may manage public read-token sharing links on the container. */
+            canShare: boolean;
         };
         /**
          * @description A role on a board, from least to most privileged.
@@ -7009,6 +7516,23 @@ export interface components {
             blocks: components["schemas"]["Block"][];
             /** @description The boards. */
             containers: components["schemas"]["Container"][];
+        };
+        /** @description Response returned by `POST /w/{ws}/containers/{containerId}/copy-to-workspace`. */
+        CopiedContainerResult: {
+            /** @description Newly created container in `targetWorkspaceId`. */
+            container: components["schemas"]["Container"];
+            /** @description Number of missing source file references stripped during the copy. */
+            missingFilesCount: number;
+        };
+        /** @description Request body for copying a container to another workspace (`copy-to-workspace`). */
+        CopyContainerToWorkspaceRequest: {
+            /**
+             * @description Destination workspace identifier (in the same or another organization, including
+             *     the caller's personal space).
+             */
+            targetWorkspaceId: string;
+            /** @description Optional custom title for the copied container; defaults to a localized copy title. */
+            title?: string | null;
         };
         /**
          * @description A course exam with the caller's own score (if any) and aggregate statistics across
@@ -7453,6 +7977,17 @@ export interface components {
             from: string;
             /** @description The last day of the run, `2026-11-21`. */
             to: string;
+        };
+        /** @description Rule on a board defining when one of its cards counts as completed (`done`). */
+        DoneWhen: {
+            /**
+             * @description Option identifiers of `property_id` that mark a card complete when `property_id`
+             *     is `select` or `multiSelect`. Empty when `property_id` is `checkbox` (where
+             *     `"true"` marks completion).
+             */
+            optionIds?: string[];
+            /** @description Identifier of a `select`, `multiSelect`, or `checkbox` property on the board. */
+            propertyId: string;
         };
         /** @description Where a confirmed registration's account was let in. */
         EmailVerified: {
@@ -8053,12 +8588,6 @@ export interface components {
              */
             containerId: string;
             /**
-             * Format: int64
-             * @description Must be 1 or more. The server does not keep it: the block is created when the
-             *     server stores it.
-             */
-            createdAt: number;
-            /**
              * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card,
              *     a comment or an attachment and 800,000 for a view. The `properties` of a card
              *     among them are values by property identifier: a string, a list of strings, a date
@@ -8083,15 +8612,10 @@ export interface components {
             /** @description The display title. */
             title?: string;
             /**
-             * @description The block type: `card`, `view`, `comment` or `attachment`. Any other type is
-             *     refused (400 naming `type`): a card's content is its body.
+             * @description The block type (`view`, `comment` or `attachment` on `/boards/{boardId}/blocks`;
+             *     `card` is created via `createCard`, or in bulk via `createContainersAndBlocks`).
              */
             type: components["schemas"]["BlockType"];
-            /**
-             * Format: int64
-             * @description Must be 1 or more. The server does not keep it.
-             */
-            updatedAt: number;
         };
         /** @description A board to make. */
         NewBoard: {
@@ -8102,6 +8626,9 @@ export interface components {
             cardProperties?: components["schemas"]["CardPropertyDefinition"][];
             /** @description The board's description. */
             description?: string;
+            doneWhen?: components["schemas"]["DoneWhen"] | null;
+            /** @description Explicit card `date` property identifier driving `'Today'` and `due_soon` alerts. */
+            dueDatePropertyId?: string | null;
             /** @description The board's icon, usually one emoji. */
             icon?: string;
             /**
@@ -8119,6 +8646,11 @@ export interface components {
             properties?: {
                 [key: string]: unknown;
             };
+            /**
+             * @description When `true` on a blank non-template board, populates default status, assignee, and
+             *     due-date properties, `doneWhen`, and an initial Kanban view.
+             */
+            scaffold?: boolean;
             /** @description Whether the description is shown in the interface. */
             showDescription?: boolean;
             /**
@@ -8130,6 +8662,22 @@ export interface components {
             title?: string;
             /** @description Whether the board is open or private. */
             visibility: components["schemas"]["ContainerVisibility"];
+        };
+        /** @description Request body for creating a board view (`POST /w/{ws}/boards/{boardId}/views`). */
+        NewBoardView: {
+            /**
+             * @description Optional sibling view ID to place the new view immediately after (`""` for first,
+             *     omitted or `null` for last).
+             */
+            after?: string | null;
+            /** @description Optional initial `BoardViewFields` entries (`groupBy`, `shownProperties`, etc.). */
+            fields?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Display title of the view. */
+            title: string;
+            /** @description Layout kind (`board`, `table`, `gallery`, `calendar`, `gantt`). */
+            viewType: components["schemas"]["ViewType"];
         };
         /** @description A card to make. */
         NewCard: {
@@ -8155,6 +8703,16 @@ export interface components {
             };
             /** @description The display title. */
             title?: string;
+        };
+        /** @description Request body for creating a verified attachment block on a card. */
+        NewCardAttachment: {
+            /** @description Uploaded file identifier belonging to the same board (`files.id`). */
+            fileId: string;
+        };
+        /** @description A comment to write on a card. */
+        NewCardComment: {
+            /** @description The comment's text, as a card's body is written; neither empty nor `null`. */
+            body: components["schemas"]["Body"];
         };
         /** @description A sidebar category to make. */
         NewCategory: {
@@ -8191,7 +8749,7 @@ export interface components {
             description?: string;
             /** @description The course's icon, usually one emoji. Left out, none. */
             icon?: string;
-            /** @description The role a user gets who joins the course. Left out, `editor`. */
+            /** @description The role a user gets who joins the course. Left out, `commenter`. */
             minimumRole?: components["schemas"]["MinimumRole"];
             /** @description The course's title. Left out, empty. */
             title?: string;
@@ -8441,7 +8999,7 @@ export interface components {
          * @description What a notification tells of.
          * @enum {string}
          */
-        NotificationKind: "mention" | "assignment" | "comment" | "review_due" | "meeting_upcoming";
+        NotificationKind: "mention" | "assignment" | "comment" | "review_due" | "meeting_upcoming" | "due_soon" | "added_to_container";
         /** @description What a notification is about, for a reader who reads it now. */
         NotificationSubject: {
             /**
@@ -8684,6 +9242,11 @@ export interface components {
         /** @description An organization as its administrators see it. */
         Organization: {
             /**
+             * @description Whether members may copy boards, wikis, and courses out of this organization
+             *     into another organization or into their personal space.
+             */
+            allowCopyOut: boolean;
+            /**
              * @description The workspace somebody who joins the organization gets into. It cannot be
              *     deleted.
              */
@@ -8707,6 +9270,8 @@ export interface components {
         };
         /** @description A change of an organization: what is left out stays as it is. */
         OrganizationPatch: {
+            /** @description Whether members may copy containers out to external organizations or personal spaces. */
+            allowCopyOut?: boolean | null;
             /** @description The new name, at most `MAX_NAME_CHARS` characters; may be empty. */
             name?: string | null;
             /** @description Whether boards may be read by a public link. */
@@ -9127,6 +9692,11 @@ export interface components {
             /** @description The requester's language tag, as in `requestEmailChange`. */
             language?: string;
         };
+        /** @description Response returned by `POST /w/{ws}/boards/{boardId}/cards/batch-restore`. */
+        RestoredCards: {
+            /** @description All cards restored (including restored sub-cards), ready to merge into client state. */
+            cards: components["schemas"]["Card"][];
+        };
         RevertEmailChange: {
             /** @description The secret from the fragment of the link mailed with the notice of a change. */
             token: string;
@@ -9257,6 +9827,8 @@ export interface components {
             notifyAssignments?: boolean | null;
             /** @description Whether the user is told of the new comments on what they watch (`comment`). */
             notifyComments?: boolean | null;
+            /** @description Whether the user is told when a card or review is due soon (`due_soon`). */
+            notifyDue?: boolean | null;
             /** @description Whether the user is told when somebody mentions them (`mention`). */
             notifyMentions?: boolean | null;
             theme?: components["schemas"]["Theme"] | null;
@@ -9481,6 +10053,71 @@ export interface components {
          * @enum {string}
          */
         Title: "dr" | "prof";
+        /** @description An incomplete card assigned to the caller that is overdue, due today, or due soon. */
+        TodayCardItem: {
+            /** @description Board icon. */
+            boardIcon: string;
+            /** @description Board container identifier. */
+            boardId: string;
+            /** @description Board title. */
+            boardTitle: string;
+            /** @description Card block identifier. */
+            cardId: string;
+            /**
+             * Format: int32
+             * @description Board-scoped card number (`#12`), if any.
+             */
+            cardNumber?: number | null;
+            /**
+             * Format: int64
+             * @description Exact epoch milliseconds when the due property holds a timestamp; `null` for a
+             *     calendar date.
+             */
+            dueAtMillis?: number | null;
+            /** @description Effective due calendar day (`YYYY-MM-DD`) in the caller's time zone. */
+            dueDate: string;
+            /** @description Card icon, if any. */
+            icon: string;
+            /**
+             * Format: int32
+             * @description Days relative to `today`: `> 0` overdue, `0` due today, `< 0` due tomorrow / soon.
+             */
+            overdueDays: number;
+            /** @description Card title. */
+            title: string;
+            /** @description Workspace metadata for cross-workspace navigation. */
+            workspace: components["schemas"]["TodayWorkspaceMeta"];
+        };
+        /** @description An upcoming study meeting in an enrolled course. */
+        TodayMeetingItem: {
+            /** @description Course container identifier. */
+            containerId: string;
+            /** @description Current course title. */
+            courseTitle: string;
+            /**
+             * Format: int64
+             * @description Optional scheduled end time in milliseconds since the Unix epoch.
+             */
+            endsAt?: number | null;
+            /** @description Location text or link. */
+            location: string;
+            /** @description Meeting identifier. */
+            meetingId: string;
+            /**
+             * Format: int64
+             * @description Scheduled start time in milliseconds since the Unix epoch.
+             */
+            startsAt: number;
+            /** @description Meeting title. */
+            title: string;
+            /** @description Workspace metadata. */
+            workspace: components["schemas"]["TodayWorkspaceMeta"];
+        };
+        /** @description A pending spaced-repetition unit review due today or overdue, paired with its workspace. */
+        TodayReviewEntry: components["schemas"]["TodayReviewItem"] & {
+            /** @description Workspace metadata. */
+            workspace: components["schemas"]["TodayWorkspaceMeta"];
+        };
         /** @description One pending review due today or overdue for the caller in a workspace. */
         TodayReviewItem: {
             /** @description Identifier of the course container. */
@@ -9504,8 +10141,15 @@ export interface components {
              * @description Number of days overdue (`0` when due today).
              */
             overdueDays: number;
+            /** @description Effective review interval sequence configured on the course. */
+            reviewIntervals: number[];
             /** @description Scheduled calendar date (`YYYY-MM-DD`). */
             scheduledDate: string;
+            /**
+             * Format: int32
+             * @description Suggested next interval in days (`suggested_next_interval_days(Some(interval_days), &review_intervals)`).
+             */
+            suggestedNextIntervalDays: number;
             /** @description Identifier of the unit block. */
             unitId: string;
             /** @description Current title of the unit. */
@@ -9515,6 +10159,24 @@ export interface components {
              * @description Last modification time in milliseconds since the Unix epoch.
              */
             updatedAt: number;
+        };
+        /** @description An enrolled course unit scheduled for today or overdue, paired with its workspace. */
+        TodayUnitEntry: components["schemas"]["LearningTodayItem"] & {
+            /** @description Workspace metadata. */
+            workspace: components["schemas"]["TodayWorkspaceMeta"];
+        };
+        /** @description Workspace and organization context attached to each `'Today'` item. */
+        TodayWorkspaceMeta: {
+            /** @description `true` when this workspace is the caller's personal space (`OrgKind::Personal`). */
+            isPersonal: boolean;
+            /** @description Organization identifier. */
+            orgId: string;
+            /** @description Organization display name (empty for a personal space). */
+            orgName: string;
+            /** @description Workspace identifier. */
+            workspaceId: string;
+            /** @description Workspace display name (empty for a personal space's unnamed workspace). */
+            workspaceName: string;
         };
         /** @description A unit or chapter of a course. */
         Unit: {
@@ -9949,6 +10611,8 @@ export interface components {
             notifyAssignments: boolean;
             /** @description Whether the user is told of the new comments on what they watch (`comment`). */
             notifyComments: boolean;
+            /** @description Whether the user is told when an incomplete assigned card is due soon (`due_soon`). */
+            notifyDue: boolean;
             /** @description Whether the user is told when somebody mentions them (`mention`). */
             notifyMentions: boolean;
             /** @description The colors of the interface. */
@@ -9994,6 +10658,11 @@ export interface components {
              */
             ssoRequired: boolean;
         };
+        /**
+         * @description Layout kind of a board view.
+         * @enum {string}
+         */
+        ViewType: "board" | "table" | "gallery" | "calendar" | "gantt";
         /**
          * @description The day a week starts on.
          * @enum {string}
@@ -10077,6 +10746,29 @@ export interface components {
         WorkspaceRoleChange: {
             /** @description What the member is to be: `admin`, `member` or `guest`. */
             role: components["schemas"]["WorkspaceRole"];
+        };
+        /** @description Single-workspace `'Today'` summary (`GET /api/v1/w/{workspaceId}/today`). */
+        WorkspaceToday: {
+            /** @description Incomplete assigned cards overdue, due today, or due soon (up to 100). */
+            cards: components["schemas"]["TodayCardItem"][];
+            /** @description Whether more than 100 due/overdue cards matched. */
+            hasMoreCards: boolean;
+            /** @description Whether more than 100 meetings matched. */
+            hasMoreMeetings: boolean;
+            /** @description Whether more than 100 reviews matched. */
+            hasMoreReviews: boolean;
+            /** @description Whether more than 100 units matched. */
+            hasMoreUnits: boolean;
+            /** @description Upcoming course meetings starting soon or today (up to 100). */
+            meetings: components["schemas"]["TodayMeetingItem"][];
+            /** @description Pending personal reviews due today or overdue (up to 100). */
+            reviews: components["schemas"]["TodayReviewEntry"][];
+            /** @description Caller's current calendar day (`YYYY-MM-DD`). */
+            today: string;
+            /** @description Enrolled course units scheduled for today or overdue (up to 100). */
+            units: components["schemas"]["TodayUnitEntry"][];
+            /** @description Metadata of the queried workspace. */
+            workspace: components["schemas"]["TodayWorkspaceMeta"];
         };
     };
     responses: never;
@@ -10862,7 +11554,10 @@ export interface operations {
     createOrganization: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -11740,7 +12435,10 @@ export interface operations {
     register: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -13023,6 +13721,35 @@ export interface operations {
             };
         };
     };
+    getAccountToday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Today's items across session-opened workspaces. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountToday"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getMyWorkspaces: {
         parameters: {
             query?: never;
@@ -13300,7 +14027,10 @@ export interface operations {
     createBoard: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
@@ -13766,6 +14496,83 @@ export interface operations {
             };
         };
     };
+    batchDeleteCards: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardBatchIds"];
+            };
+        };
+        responses: {
+            /** @description The cards are deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    batchRestoreCards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardBatchIds"];
+            };
+        };
+        responses: {
+            /** @description The restored cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoredCards"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getCardByNumber: {
         parameters: {
             query?: never;
@@ -13784,6 +14591,327 @@ export interface operations {
         responses: {
             /** @description The card. */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCardAttachment: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCardAttachment"];
+            };
+        };
+        responses: {
+            /** @description The created attachment block. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCardComments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comments, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCardComment: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCardComment"];
+            };
+        };
+        responses: {
+            /** @description The comment as it was stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCardComment: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comment is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchCardComment: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardCommentPatch"];
+            };
+        };
+        responses: {
+            /** @description The comment as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreCardComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comment as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCardCommentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+                /** @description The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment. */
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The earlier versions, the first one first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    duplicateCard: {
+        parameters: {
+            query?: {
+                /** @description `true` makes the copy a template. Any other value does not. */
+                asTemplate?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The duplicated card. */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13866,6 +14994,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeletedItem"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createBoardView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewBoardView"];
+            };
+        };
+        responses: {
+            /** @description The created view and any rebalanced companion views. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardViewWrite"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    moveViewCards: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the board view. */
+                viewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardMovesRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated view and modified cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardMovesResult"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    duplicateBoardView: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the board view. */
+                viewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoardViewDuplicate"];
+            };
+        };
+        responses: {
+            /** @description The duplicated view and any rebalanced companion views. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardViewWrite"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    moveBoardView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the board view. */
+                viewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoardViewMove"];
+            };
+        };
+        responses: {
+            /** @description The moved view and any rebalanced companion views. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardViewWrite"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -14232,6 +15524,44 @@ export interface operations {
             };
         };
     };
+    patchCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of the category, one of the user's own. */
+                categoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategoryPatch"];
+            };
+        };
+        responses: {
+            /** @description The updated category. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     reorderCategoryContainers: {
         parameters: {
             query?: never;
@@ -14258,6 +15588,44 @@ export interface operations {
                 content: {
                     "application/json": string[];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putCategoryContainer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of the category, one of the user's own. */
+                categoryId: string;
+                /** @description The identifier of the board, the wiki, the diary or the course. */
+                containerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategoryContainerUpdate"];
+            };
+        };
+        responses: {
+            /** @description The container placement and visibility are updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -14656,6 +16024,47 @@ export interface operations {
             };
         };
     };
+    copyContainerToWorkspace: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it. */
+                containerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyContainerToWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description The copied container and missing source file count. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopiedContainerResult"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     duplicateContainer: {
         parameters: {
             query?: {
@@ -14671,7 +16080,7 @@ export interface operations {
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
-                /** @description The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is. */
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is. */
                 containerId: string;
             };
             cookie?: never;
@@ -15371,6 +16780,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMyContainerPermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board, the wiki, the diary or the course. */
+                containerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Caller's effective permissions on the container. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerPermissions"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -18942,6 +20385,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Container"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceToday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Today's items in the workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceToday"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

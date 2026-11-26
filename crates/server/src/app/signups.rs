@@ -390,18 +390,59 @@ impl App {
                 first = confirmed.user.is_admin,
                 "a registration was confirmed"
             );
-            // Whoever starts an organization asks for their welcome board (`onboard`);
-            // whoever comes into one as a member is given it here, in the language of
-            // the screen the registration was made from. A guest's link names a board,
-            // and who starts with their own space alone is given none.
-            if confirmed.start == Started::Invited && confirmed.container_id.is_none() {
-                self.welcome_member_in(
-                    &confirmed.org_id,
-                    &confirmed.user.id,
-                    &confirmed.workspace_id,
-                    Some(&signup.language),
-                )
-                .await;
+            let language = (!signup.language.is_empty()).then_some(signup.language.as_str());
+            match confirmed.start {
+                Started::Organization => {
+                    self.welcome_workspace_in(
+                        &confirmed.org_id,
+                        &confirmed.user.id,
+                        &confirmed.workspace_id,
+                        false,
+                        language,
+                    )
+                    .await;
+                    if let Ok(workspaces) = self
+                        .store()
+                        .workspaces_of_user(
+                            &confirmed.user.id,
+                            fvoci_store::Making::with_password(),
+                        )
+                        .await
+                    {
+                        for ws in workspaces {
+                            if ws.kind == fvoci_model::OrgKind::Personal {
+                                self.welcome_workspace_in(
+                                    &ws.org_id,
+                                    &confirmed.user.id,
+                                    &ws.id,
+                                    true,
+                                    language,
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                }
+                Started::Alone => {
+                    self.welcome_workspace_in(
+                        &confirmed.org_id,
+                        &confirmed.user.id,
+                        &confirmed.workspace_id,
+                        true,
+                        language,
+                    )
+                    .await;
+                }
+                Started::Invited if confirmed.container_id.is_none() => {
+                    self.welcome_member_in(
+                        &confirmed.org_id,
+                        &confirmed.user.id,
+                        &confirmed.workspace_id,
+                        language,
+                    )
+                    .await;
+                }
+                Started::Invited => {}
             }
         }
         Ok(confirmed)

@@ -106,7 +106,7 @@ async fn an_account_asked_to_be_deleted_waits_out_of_use_and_comes_back_as_it_wa
         requested_at: T0,
         delete_after: T0 + WAIT,
     };
-    assert_eq!(asked, DeletionAsking::Asked(leaving));
+    assert!(matches!(asked, DeletionAsking::Asked(got, _) if got == leaving));
     assert!(!opens(&test, "before").await, "its sessions are ended");
     assert_eq!(waits(&test, "before").await, None, "and gone");
     assert!(
@@ -168,7 +168,10 @@ async fn the_only_administrator_of_an_organization_with_other_people_stays() {
     let member = common::user(&test, "member").await;
 
     // Of two administrators one goes; the other is then the only one in use.
-    assert!(matches!(ask(&test, &first).await, DeletionAsking::Asked(_)));
+    assert!(matches!(
+        ask(&test, &first).await,
+        DeletionAsking::Asked(..)
+    ));
     let DeletionAsking::Refused(standing) = ask(&test, &second).await else {
         panic!("the last administrator went");
     };
@@ -188,11 +191,11 @@ async fn the_only_administrator_of_an_organization_with_other_people_stays() {
     );
     assert!(matches!(
         ask(&test, &second).await,
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     assert!(matches!(
         ask(&test, &member).await,
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     let DeletionAsking::Refused(standing) = ask(&test, &first).await else {
         panic!("the last administrator went");
@@ -290,7 +293,7 @@ async fn each_organization_of_an_account_is_asked_for_itself() {
     );
     assert!(matches!(
         ask(&test, &person).await,
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     test.teardown().await;
 }
@@ -345,7 +348,7 @@ async fn nothing_is_taken_back_once_the_erasing_began() {
     let deactivated = common::user(&test, "deactivated").await;
     assert!(matches!(
         ask(&test, &erasing).await,
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     assert!(open(&test, &erasing, "meanwhile").await);
     for statement in [
@@ -400,7 +403,7 @@ async fn a_deletion_asked_and_taken_back_moves_the_revision_of_the_space_alone()
 
     assert!(matches!(
         ask(&test, &leaver).await,
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     let asked = (
         test.visibility_version().await,

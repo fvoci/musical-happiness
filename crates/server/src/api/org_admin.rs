@@ -5,7 +5,7 @@
 //! (404).
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::{
     AuditRecord, OrgMember, OrgRoleChange, OrgWorkspace, Organization, OrganizationPatch,
     WorkspaceName,
@@ -16,7 +16,7 @@ use utoipa_axum::routes;
 use super::contract::params::{OrgId, OrgWorkspaceId, Page, PerPage, UserId};
 use super::contract::tag;
 use super::org::OrgAdmin;
-use super::paging::paging_params;
+use super::query::{PagingQuery, QueryParams};
 use super::{ApiResult, created, decode_object, json_response, no_content};
 use crate::app::App;
 
@@ -92,8 +92,11 @@ async fn handle_patch_organization(org: OrgAdmin, body: Bytes) -> ApiResult {
     params(OrgId, Page, PerPage),
     responses((status = 200, description = "The members of the page.", body = Vec<OrgMember>)),
 )]
-async fn handle_get_org_members(org: OrgAdmin, RawQuery(query): RawQuery) -> ApiResult {
-    let paging = paging_params(query.as_deref())?;
+async fn handle_get_org_members(
+    org: OrgAdmin,
+    QueryParams(query): QueryParams<PagingQuery>,
+) -> ApiResult {
+    let paging = query.into_list_page()?;
     Ok(json_response(&org.app.org_members(paging).await?))
 }
 
@@ -352,7 +355,10 @@ async fn handle_leave_org_workspace(
     params(OrgId, Page, PerPage),
     responses((status = 200, description = "The records of the page.", body = Vec<AuditRecord>)),
 )]
-async fn handle_get_org_audit(org: OrgAdmin, RawQuery(query): RawQuery) -> ApiResult {
-    let paging = paging_params(query.as_deref())?;
+async fn handle_get_org_audit(
+    org: OrgAdmin,
+    QueryParams(query): QueryParams<PagingQuery>,
+) -> ApiResult {
+    let paging = query.into_list_page()?;
     Ok(json_response(&org.app.org_audit(paging).await?))
 }

@@ -6,11 +6,12 @@
 use std::num::IntErrorKind;
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, State};
 use fvoci_model::{
     ActiveTimeEntry, CreateTimeEntryRequest, MAX_TIME_MILLIS, StartTimeEntryRequest,
     StartedTimeEntry, TimeEntry, TimeEntryKind, TimeEntryList, TimeEntryPatch,
 };
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -18,12 +19,22 @@ use super::contract::params::{
     Page, PerPage, TimeBlockId, TimeContainerId, TimeEntryId, TimeFrom, TimeKind, TimeTo,
 };
 use super::contract::tag;
-use super::paging::paging_params;
-use super::{
-    ApiResult, RequiredSession, created, decode_object, json_response, no_content, query_option,
-};
+use super::query::{QueryParams, non_empty_opt, paging_from_strings};
+use super::{ApiResult, RequiredSession, created, decode_object, json_response, no_content};
 use crate::app::{App, TimeEntryQuery};
 use crate::error::AppError;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct TimeEntriesListQuery {
+    from: String,
+    to: String,
+    kind: String,
+    block_id: String,
+    container_id: String,
+    page: String,
+    per_page: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -128,12 +139,11 @@ async fn handle_stop_time_entry(
 async fn handle_list_time_entries(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<TimeEntriesListQuery>,
 ) -> ApiResult {
-    let raw = query.as_deref();
-    let page = paging_params(raw)?;
-    let from = opt_time_query_param(raw, "from")?;
-    let to = opt_time_query_param(raw, "to")?;
+    let page = paging_from_strings(&query.page, &query.per_page)?;
+    let from = parse_opt_time(&query.from, "from")?;
+    let to = parse_opt_time(&query.to, "to")?;
     if let (Some(from_ms), Some(to_ms)) = (from, to)
         && to_ms < from_ms
     {
@@ -142,15 +152,15 @@ async fn handle_list_time_entries(
                 .with_parameter("to"),
         );
     }
-    let kind = match query_option(raw, "kind") {
+    let kind = match non_empty_opt(&query.kind) {
         Some(text) => Some(text.parse::<TimeEntryKind>().map_err(|_| {
             AppError::bad_request("invalid `kind` parameter: must be lecture, study, work or other")
                 .with_parameter("kind")
         })?),
         None => None,
     };
-    let block_id = query_option(raw, "blockId");
-    let container_id = query_option(raw, "containerId");
+    let block_id = non_empty_opt(&query.block_id);
+    let container_id = non_empty_opt(&query.container_id);
     let filter = TimeEntryQuery {
         from,
         to,
@@ -234,11 +244,11 @@ async fn handle_delete_time_entry(
     Ok(no_content())
 }
 
-fn opt_time_query_param(query: Option<&str>, name: &str) -> Result<Option<i64>, AppError> {
-    let Some(text) = query_option(query, name) else {
+fn parse_opt_time(raw: &str, name: &str) -> Result<Option<i64>, AppError> {
+    if raw.is_empty() {
         return Ok(None);
-    };
-    let value: i64 = text.parse().map_err(|error: std::num::ParseIntError| {
+    }
+    let value: i64 = raw.parse().map_err(|error: std::num::ParseIntError| {
         let reason = match error.kind() {
             IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => "out of range",
             _ => "not a whole number",

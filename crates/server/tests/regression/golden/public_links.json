@@ -38,25 +38,28 @@
   },
   {
     "name": "insert blocks",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as share-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/cards as share-alice",
     "status": 201,
     "content_type": "application/json",
-    "body": [
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:5>",
-        "modifiedBy": "<id:2>",
-        "number": 1,
-        "parentId": "",
-        "title": "Visible card",
-        "type": "card",
-        "updatedAt": "<ts>"
-      }
-    ]
+    "body": {
+      "boardId": "<id:3>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "",
+      "id": "<id:5>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 1,
+      "parentId": "",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "Visible card",
+      "updatedAt": "<ts>"
+    }
   },
   {
     "name": "get: none yet",
@@ -278,7 +281,11 @@
         "containerId": "<id:3>",
         "createdAt": "<ts>",
         "createdBy": "",
-        "fields": {},
+        "fields": {
+          "icon": "",
+          "isTemplate": false,
+          "properties": {}
+        },
         "id": "<id:5>",
         "modifiedBy": "",
         "number": 1,

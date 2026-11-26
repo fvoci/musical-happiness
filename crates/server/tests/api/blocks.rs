@@ -193,9 +193,138 @@ pub(crate) const NO_BOARD: &str = "board not found";
 /// What a block answers that is not there, or that is on another board than the path's.
 pub(crate) const NO_BLOCK: &str = "block not found";
 
+/// Inserts blocks on `board_id` in `workspace_id`, routing `BlockType::Card` fixtures
+/// through `createCard` while inserting other blocks through `createBlocks`.
+pub(crate) async fn insert_in(
+    client: &Client,
+    workspace_id: &str,
+    board_id: &str,
+    blocks: &[Block],
+) -> Vec<Block> {
+    if !blocks
+        .iter()
+        .any(|block| block.block_type == BlockType::Card)
+    {
+        return client
+            .insert_blocks_in(workspace_id, board_id, blocks)
+            .await
+            .created_json();
+    }
+    let mut results: Vec<Option<Block>> = vec![None; blocks.len()];
+    let mut id_map = std::collections::HashMap::<String, String>::new();
+    let temp_cards: std::collections::HashSet<&str> = blocks
+        .iter()
+        .filter(|block| block.block_type == BlockType::Card && !block.id.is_empty())
+        .map(|block| block.id.as_str())
+        .collect();
+    let mut pending_cards: Vec<usize> = blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, block)| (block.block_type == BlockType::Card).then_some(idx))
+        .collect();
+    while !pending_cards.is_empty() {
+        let pos = pending_cards
+            .iter()
+            .position(|&idx| {
+                let parent = blocks[idx].parent_id.as_str();
+                parent.is_empty() || !temp_cards.contains(parent) || id_map.contains_key(parent)
+            })
+            .expect("card hierarchy in test fixture is acyclic");
+        let idx = pending_cards.remove(pos);
+        let block = &blocks[idx];
+        let mut card_json = serde_json::Map::new();
+        card_json.insert("title".to_owned(), json!(block.title));
+        let parent_id = id_map
+            .get(&block.parent_id)
+            .cloned()
+            .unwrap_or_else(|| block.parent_id.clone());
+        if !parent_id.is_empty() {
+            card_json.insert("parentId".to_owned(), json!(parent_id));
+        }
+        for key in ["icon", "isTemplate", "properties"] {
+            if let Some(val) = block.fields.get(key) {
+                card_json.insert(key.to_owned(), val.clone());
+            }
+        }
+        if let Some(body) = &block.body {
+            card_json.insert(
+                "body".to_owned(),
+                serde_json::to_value(body).expect("body is JSON"),
+            );
+        }
+        if let Some(number) = block.number {
+            card_json.insert("number".to_owned(), json!(number));
+        }
+        let created: fvoci_model::Card = client
+            .post(
+                &format!("/w/{workspace_id}/boards/{board_id}/cards"),
+                &Value::Object(card_json),
+            )
+            .await
+            .created_json();
+        if !block.id.is_empty() {
+            id_map.insert(block.id.clone(), created.id.clone());
+        }
+        let extra: JsonMap = block
+            .fields
+            .iter()
+            .filter(|(k, _)| !matches!(k.as_str(), "icon" | "isTemplate" | "properties"))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if !extra.is_empty() {
+            client
+                .patch(
+                    &format!("/w/{workspace_id}/boards/{board_id}/blocks/{}", created.id),
+                    &BlockPatch {
+                        updated_fields: extra,
+                        ..BlockPatch::default()
+                    },
+                )
+                .await
+                .check_no_content();
+        }
+        let mut stored: Vec<Block> = client
+            .get(&format!(
+                "/w/{workspace_id}/boards/{board_id}/blocks?blockId={}",
+                created.id
+            ))
+            .await
+            .ok_json();
+        results[idx] = Some(stored.pop().expect("stored card block"));
+    }
+    let non_card_indices: Vec<usize> = blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, block)| (block.block_type != BlockType::Card).then_some(idx))
+        .collect();
+    if !non_card_indices.is_empty() {
+        let remapped: Vec<Block> = non_card_indices
+            .iter()
+            .map(|&idx| {
+                let mut cloned = blocks[idx].clone();
+                if let Some(mapped) = id_map.get(&cloned.parent_id) {
+                    cloned.parent_id.clone_from(mapped);
+                }
+                cloned
+            })
+            .collect();
+        let created_non_cards: Vec<Block> = client
+            .insert_blocks_in(workspace_id, board_id, &remapped)
+            .await
+            .created_json();
+        for (idx, stored) in non_card_indices.into_iter().zip(created_non_cards) {
+            results[idx] = Some(stored);
+        }
+    }
+    results
+        .into_iter()
+        .map(|entry| entry.expect("every block created"))
+        .collect()
+}
+
 /// `InsertBlocks`, expecting success.
 pub(crate) async fn insert(client: &Client, board_id: &str, blocks: &[Block]) -> Vec<Block> {
-    client.insert_blocks(board_id, blocks).await.created_json()
+    insert_in(client, TEST_WORKSPACE_ID, board_id, blocks).await
 }
 
 /// Inserts one block and returns it as the server answered.
@@ -1002,10 +1131,13 @@ async fn get_blocks_permissions() {
     let response = th.client.get(&blocks_path("no-such-board")).await;
     response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
-    // No member: the open board can be seen but not read; the private one does not
-    // exist.
-    let response = th.client2.get(&blocks_path(&open_board.id)).await;
-    response.check_error(StatusCode::FORBIDDEN, "access denied to board");
+    // No member: an open board can be read by workspace members; the private one does
+    // not exist.
+    let open_blocks: Vec<Block> = th.client2.get(&blocks_path(&open_board.id)).await.ok_json();
+    assert!(
+        open_blocks.is_empty(),
+        "open board is readable in the workspace"
+    );
     let response = th.client2.get(&blocks_path(&boards.board.id)).await;
     response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
@@ -1124,16 +1256,15 @@ async fn get_blocks_filters() {
             none.clone(),
         ),
         ("the type is case-sensitive", "?type=Card".to_owned(), none),
-        (
-            "there is no paging on this route",
-            "?page=1&perPage=1".to_owned(),
-            everything,
-        ),
     ];
     for (case, query, expected) in cases {
         let blocks: Vec<Block> = th.client.get(&format!("{path}{query}")).await.ok_json();
         assert_eq!(titles(&blocks), expected, "{case}");
     }
+    th.client
+        .get(&format!("{path}?page=1&perPage=1"))
+        .await
+        .check_bad_request();
 
     let no_children = th.client.get(&format!("{path}?parentId=nobody")).await;
     no_children.check_ok();
@@ -1184,9 +1315,8 @@ async fn get_blocks_by_block_id() {
     th.teardown().await;
 }
 
-/// A query parameter has one spelling. Any other spelling of it is a parameter the server
-/// does not know, and those are ignored: it filters nothing, opens nothing and names no
-/// source board.
+/// A query parameter has one spelling. Any other spelling of it is refused with 400
+/// (`deny_unknown_fields`), while the exact spelling filters or checks as documented.
 #[tokio::test]
 async fn a_query_parameter_spelled_another_way_is_no_parameter() {
     let th = Setup::local_mode().start().await.init_basic().await;
@@ -1194,7 +1324,6 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
     let content = card_with_content(&th, &boards).await;
     let path = blocks_path(&boards.board.id);
 
-    // No filter: the answer is the one to no parameters at all.
     for query in [
         format!("parent_id={}", content.card.id),
         "parent_id=nobody".to_owned(),
@@ -1203,8 +1332,10 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
         "block_id=no-such-block".to_owned(),
         format!("blockID={}", content.text.id),
     ] {
-        let blocks: Vec<Block> = th.client.get(&format!("{path}?{query}")).await.ok_json();
-        assert_eq!(titles(&blocks), ["card", "comment", "text"], "{query}");
+        th.client
+            .get(&format!("{path}?{query}"))
+            .await
+            .check_bad_request();
     }
     let children: Vec<Block> = th
         .client
@@ -1217,49 +1348,47 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
         "the parameter itself filters"
     );
 
-    // No read token, under any name: the board's routes are read with a session, and
-    // with the session of somebody who is no member the board does not exist.
+    // No read token, under any name: anonymous requests are refused for missing session,
+    // strict query routes refuse unknown parameters, and container routes hide private boards.
     let read_token = th.share(&boards.board.id).await;
     let anonymous = th.anonymous();
-    for route in [
-        path.clone(),
-        format!("{TEST_WS}/containers/{}", boards.board.id),
-    ] {
-        for name in ["readToken", "read_token", "readtoken", "ReadToken"] {
-            let with_token = format!("{route}?{name}={read_token}");
-            let response = anonymous.get(&with_token).await;
-            response.check_unauthorized();
-            assert_eq!(
-                response.problem_type(),
-                "/problems/unauthorized",
-                "{with_token}"
-            );
-            th.client2
-                .get(&with_token)
-                .await
-                .check_error(StatusCode::NOT_FOUND, NO_BOARD);
-        }
+    for name in ["readToken", "read_token", "readtoken", "ReadToken"] {
+        let blocks_with_token = format!("{path}?{name}={read_token}");
+        let response = anonymous.get(&blocks_with_token).await;
+        response.check_unauthorized();
+        assert_eq!(
+            response.problem_type(),
+            "/problems/unauthorized",
+            "{blocks_with_token}"
+        );
+        th.client2.get(&blocks_with_token).await.check_bad_request();
+
+        let container_with_token = format!(
+            "{TEST_WS}/containers/{}?{name}={read_token}",
+            boards.board.id
+        );
+        anonymous
+            .get(&container_with_token)
+            .await
+            .check_unauthorized();
+        th.client2
+            .get(&container_with_token)
+            .await
+            .check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
 
-    // No source board: a source that is not there is refused, and its other spellings
-    // are not looked at.
-    let card = new_block(&boards.board.id, BlockType::Card, "posted");
+    // Source board parameter: a missing source is 404, and other spellings are 400.
+    let view = new_block(&boards.board.id, BlockType::View, "posted");
     let response = th
         .client
-        .post(&format!("{path}?sourceBoardId=no-such-board"), &[&card])
+        .post(&format!("{path}?sourceBoardId=no-such-board"), &[&view])
         .await;
     response.check_error(StatusCode::NOT_FOUND, "source board not found");
     for name in ["sourceBoardID", "source_board_id"] {
-        let response = th
-            .client
-            .post(&format!("{path}?{name}=no-such-board"), &[&card])
-            .await;
-        assert_eq!(
-            response.status,
-            StatusCode::CREATED,
-            "{name}: {}",
-            response.text()
-        );
+        th.client
+            .post(&format!("{path}?{name}=no-such-board"), &[&view])
+            .await
+            .check_bad_request();
     }
 
     th.teardown().await;
@@ -1268,32 +1397,33 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
 // -- POST /boards/{board_id}/blocks -----------------------------------------------------
 
 /// What an insert answers and what it stores: new identifiers, the user as creator, and
-/// the request's `createdAt` in the answer while the stored block has the current time.
+/// server timestamps.
 #[tokio::test]
 async fn post_blocks_answer_and_stored_block() {
     let th = Setup::native().start().await.init_basic().await;
     let board = create_board_in_store(&th, ContainerVisibility::Private).await;
+    let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     let user = th.client.me().await;
     let before = fvoci_server::auth::now_millis();
 
-    let card = new_block(&board.id, BlockType::Card, "card");
+    let view = new_block(&board.id, BlockType::View, "view");
     let text = child_of(&card, BlockType::Attachment, "text");
     let response = th
         .client
-        .insert_blocks(&board.id, &[card.clone(), text])
+        .insert_blocks(&board.id, &[view.clone(), text])
         .await;
     let answered: Vec<Block> = response.created_json();
 
     assert_eq!(answered.len(), 2, "both blocks are answered, in order");
-    assert_ne!(answered[0].id, card.id, "the card has a new identifier");
+    assert_ne!(answered[0].id, view.id, "the view has a new identifier");
     assert!(
         fvoci_model::is_id(&answered[0].id),
         "a generated one: {}",
         answered[0].id
     );
     assert_eq!(
-        answered[1].parent_id, answered[0].id,
-        "the link between the blocks follows the new identifier"
+        answered[1].parent_id, card.id,
+        "the attachment stays linked to its card"
     );
     for block in &answered {
         assert_eq!(block.created_by, user.id, "created by the user");
@@ -1304,29 +1434,28 @@ async fn post_blocks_answer_and_stored_block() {
         );
         assert!(block.updated_at >= before, "the modification time is now");
     }
-    // A block sent without fields is stored and returned with an empty object.
     assert_eq!(response.value()[0]["fields"], json!({}), "no null fields");
 
     let stored = blocks_of(&th.client, &board.id).await;
-    assert_eq!(stored, answered, "both are stored as answered");
+    assert_eq!(stored, [card, answered[0].clone(), answered[1].clone()]);
 
     th.teardown().await;
 }
 
-/// Blocks may come without an identifier, as the contract says, and the blocks of one
-/// request are listed in the order they were sent in, whichever of them the others
-/// refer to: they are stored within a millisecond of each other, and what orders them
-/// then is the identifier the server gave each.
+/// Blocks may come without identifiers or timestamps, as `NewBlock` allows, and the
+/// blocks of one request are listed in the order they were sent in.
 #[tokio::test]
 async fn post_blocks_without_identifiers_and_in_the_order_of_the_request() {
     let th = Setup::native().start().await.init_basic().await;
     let board = create_board_in_store(&th, ContainerVisibility::Private).await;
+    let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "anchor")).await;
 
     let nameless: Vec<Value> = (0..3)
         .map(|index| {
             json!({
-                "containerId": board.id, "type": "card", "title": format!("nameless {index}"),
-                "createdAt": 1, "updatedAt": 1,
+                "containerId": board.id,
+                "type": "view",
+                "title": format!("nameless {index}"),
             })
         })
         .collect();
@@ -1338,46 +1467,55 @@ async fn post_blocks_without_identifiers_and_in_the_order_of_the_request() {
     assert_eq!(answered.len(), 3);
     for block in &answered {
         assert!(fvoci_model::is_id(&block.id), "{}", block.id);
-        assert_eq!(block.parent_id, "", "a block on the board has no parent");
+        assert_eq!(block.parent_id, "", "a view on the board has no parent");
     }
     assert_ne!(
         answered[0].id, answered[1].id,
         "each has its own identifier"
     );
 
-    // Cards and their texts, the texts first: the cards are what is referred to.
     let mut request: Vec<Block> = Vec::new();
     for index in 0..20 {
-        let card = new_block(&board.id, BlockType::Card, &format!("card {index}"));
         request.push(child_of(
             &card,
             BlockType::Attachment,
             &format!("text {index}"),
         ));
-        request.push(card);
+        request.push(new_block(
+            &board.id,
+            BlockType::View,
+            &format!("view {index}"),
+        ));
     }
-    let made = insert(&th.client, &board.id, &request).await;
+    let made: Vec<Block> = th
+        .client
+        .insert_blocks(&board.id, &request)
+        .await
+        .created_json();
     let listed = blocks_of(&th.client, &board.id).await;
-    // In the order they come in, not sorted.
     let in_order = |blocks: &[Block]| -> Vec<String> {
         blocks.iter().map(|block| block.title.clone()).collect()
     };
     let sent = in_order(&request);
     assert_eq!(in_order(&made), sent, "answered as sent");
-    let expected: Vec<String> = in_order(&answered).into_iter().chain(sent).collect();
+    let expected: Vec<String> = std::iter::once("anchor".to_owned())
+        .chain(in_order(&answered))
+        .chain(sent)
+        .collect();
     assert_eq!(in_order(&listed), expected, "listed as sent");
 
     th.teardown().await;
 }
 
-/// The refusals of an insert that come before any permission is looked at.
+/// The refusals of an insert that come before write-role checks: missing/invalid `type`,
+/// `type: "card"` (which belongs to `createCard`), and mismatched `containerId`.
 #[tokio::test]
 async fn post_blocks_validation() {
     let th = Setup::native().start().await.init_basic().await;
     let board = create_board_in_store(&th, ContainerVisibility::Private).await;
     let other_board = create_board_in_store(&th, ContainerVisibility::Private).await;
     let path = blocks_path(&board.id);
-    let valid = json!({"id": "x1", "containerId": board.id, "type": "card", "createdAt": 1, "updatedAt": 1});
+    let valid = json!({"id": "x1", "containerId": board.id, "type": "view"});
     let without = |member: &str| {
         let mut block = valid.as_object().expect("the block is an object").clone();
         block.remove(member);
@@ -1385,12 +1523,13 @@ async fn post_blocks_validation() {
     };
     let mut elsewhere = valid.clone();
     elsewhere["containerId"] = json!(other_board.id);
+    let mut raw_card = valid.clone();
+    raw_card["type"] = json!("card");
 
     let elsewhere_words = "the block is on another board than the path";
     let cases = [
         (without("type"), "the block has no type"),
-        (without("createdAt"), "a new block's createdAt is 1 or more"),
-        (without("updatedAt"), "a new block's updatedAt is 1 or more"),
+        (json!([raw_card]), "a card is made by createCard"),
         (without("containerId"), elsewhere_words),
         (json!([elsewhere]), elsewhere_words),
     ];
@@ -1476,17 +1615,22 @@ async fn post_blocks_permissions_by_block_type() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = boards_with_roles(&th).await;
     let board_id = &boards.board.id;
-    let card = || new_block(board_id, BlockType::Card, "card");
-    let on = insert_one(&th.client, &card()).await;
+    let on = insert_one(&th.client, &new_block(board_id, BlockType::Card, "card")).await;
+    let attachment = || child_of(&on, BlockType::Attachment, "attachment");
     let comment = || child_of(&on, BlockType::Comment, "comment");
 
     let cases: [(&str, &Client, Vec<Block>, Option<&str>); 8] = [
-        ("editor, card", &boards.editor, vec![card()], None),
+        (
+            "editor, attachment",
+            &boards.editor,
+            vec![attachment()],
+            None,
+        ),
         ("editor, comment", &boards.editor, vec![comment()], None),
         (
-            "commenter, card",
+            "commenter, attachment",
             &boards.commenter,
-            vec![card()],
+            vec![attachment()],
             Some(NO_CHANGES),
         ),
         (
@@ -1496,15 +1640,15 @@ async fn post_blocks_permissions_by_block_type() {
             None,
         ),
         (
-            "commenter, comment and card",
+            "commenter, comment and attachment",
             &boards.commenter,
-            vec![comment(), card()],
+            vec![comment(), attachment()],
             Some(NO_CHANGES),
         ),
         (
-            "viewer, card",
+            "viewer, attachment",
             &boards.viewer,
-            vec![card()],
+            vec![attachment()],
             Some(NO_CHANGES),
         ),
         (
@@ -1514,9 +1658,9 @@ async fn post_blocks_permissions_by_block_type() {
             Some(NO_COMMENTS),
         ),
         (
-            "admin, card and comment",
+            "admin, attachment and comment",
             &th.client,
-            vec![card(), comment()],
+            vec![attachment(), comment()],
             None,
         ),
     ];
@@ -1532,7 +1676,7 @@ async fn post_blocks_permissions_by_block_type() {
         }
     }
     // For who is no member of the private board (the outsider) there is no board to add to.
-    for blocks in [vec![card()], vec![comment()]] {
+    for blocks in [vec![attachment()], vec![comment()]] {
         let response = th.client2.insert_blocks(board_id, &blocks).await;
         response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
@@ -1550,17 +1694,18 @@ async fn post_blocks_permissions_by_block_type() {
 async fn post_blocks_size_limits() {
     let th = Setup::native().start().await.init_basic().await;
     let board = create_board_in_store(&th, ContainerVisibility::Private).await;
+    let on = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "on")).await;
 
-    let longest = new_block(
-        &board.id,
-        BlockType::Card,
+    let longest = child_of(
+        &on,
+        BlockType::Attachment,
         &"a".repeat(BLOCK_TITLE_MAX_CHARS),
     );
     insert_one(&th.client, &longest).await;
 
-    let too_long = new_block(
-        &board.id,
-        BlockType::Card,
+    let too_long = child_of(
+        &on,
+        BlockType::Attachment,
         &"a".repeat(BLOCK_TITLE_MAX_CHARS + 1),
     );
     let response = th
@@ -1581,7 +1726,7 @@ async fn post_blocks_size_limits() {
 
     let too_big = Block {
         fields: fields(json!({"big": "a".repeat(BLOCK_FIELDS_MAX_CHARS)})),
-        ..new_block(&board.id, BlockType::Card, "big fields")
+        ..child_of(&on, BlockType::Attachment, "big fields")
     };
     let response = th.client.insert_blocks(&board.id, &[too_big]).await;
     response.check_bad_request();
@@ -1593,9 +1738,9 @@ async fn post_blocks_size_limits() {
 
     // A request is stored atomically: whole or not at all.
     let blocks = [
-        new_block(&board.id, BlockType::Card, "before"),
+        child_of(&on, BlockType::Attachment, "before"),
         too_long,
-        new_block(&board.id, BlockType::Card, "after"),
+        child_of(&on, BlockType::Attachment, "after"),
     ];
     th.client
         .insert_blocks(&board.id, &blocks)
@@ -1604,8 +1749,8 @@ async fn post_blocks_size_limits() {
     let stored = blocks_of(&th.client, &board.id).await;
     assert_eq!(
         titles(&stored).len(),
-        1,
-        "nothing of the refused request, next to the block with the longest title"
+        2,
+        "nothing of the refused request, next to the card and longest-title attachment"
     );
 
     th.teardown().await;
@@ -2179,7 +2324,7 @@ async fn post_blocks_larger_than_two_megabytes() {
     let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     // Views, whose fields may be that large.
     let big = |title: &str| Block {
-        fields: fields(json!({"big": "a".repeat(750_000)})),
+        fields: fields(json!({"groupBy": "a".repeat(750_000)})),
         ..new_block(&board.id, BlockType::View, title)
     };
     let blocks = [big("1"), big("2"), big("3")];
@@ -2191,7 +2336,7 @@ async fn post_blocks_larger_than_two_megabytes() {
 
     // A patch is not limited either.
     let grow = BlockPatch {
-        updated_fields: fields(json!({"more": "b".repeat(40_000)})),
+        updated_fields: fields(json!({"dateProperty": "b".repeat(40_000)})),
         ..BlockPatch::default()
     };
     patch(&th.client, &inserted[0], &grow).await;
@@ -2255,7 +2400,7 @@ async fn duplicate_block_copies() {
     );
     assert_eq!(
         find(&stored, &card.id).fields.get("isTemplate"),
-        None,
+        Some(&json!(false)),
         "the source is untouched"
     );
 
@@ -2285,10 +2430,10 @@ async fn block_changes_are_broadcast() {
         assert_eq!(announced["title"], json!(block.title), "{announced}");
         assert_eq!(announced["containerId"], json!(board.id), "{announced}");
     }
-    let quiet_card = new_block(&board.id, BlockType::Card, "quiet card");
+    let quiet_view = new_block(&board.id, BlockType::View, "quiet view");
     let quiet: Vec<Block> = th
         .client
-        .post(&format!("{path}?disableNotify=true"), &[quiet_card])
+        .post(&format!("{path}?disableNotify=true"), &[quiet_view])
         .await
         .created_json();
     let announced = member.next_block().await;
@@ -2543,7 +2688,7 @@ async fn post_blocks_with_a_source_board_the_user_can_read_still_works() {
     let source = create_board_in_store(&th, ContainerVisibility::Private).await;
     let target = create_board_in_store(&th, ContainerVisibility::Private).await;
 
-    let card = new_block(&target.id, BlockType::Card, "copied card");
+    let view = new_block(&target.id, BlockType::View, "copied view");
     let response = th
         .client
         .request(
@@ -2553,7 +2698,7 @@ async fn post_blocks_with_a_source_board_the_user_can_read_still_works() {
                 target.id, source.id
             ),
         )
-        .json(&[&card])
+        .json(&[&view])
         .send()
         .await
         .expect("the server answers");
@@ -2563,6 +2708,6 @@ async fn post_blocks_with_a_source_board_the_user_can_read_still_works() {
         "a member copies from their own board"
     );
     let inserted: Vec<Block> = response.json().await.expect("the inserted blocks");
-    assert_eq!(inserted.len(), 1, "the card was inserted");
-    assert_eq!(inserted[0].title, "copied card", "as sent");
+    assert_eq!(inserted.len(), 1, "the view was inserted");
+    assert_eq!(inserted[0].title, "copied view", "as sent");
 }

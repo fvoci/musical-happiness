@@ -140,9 +140,8 @@ impl App {
             .await
             .map_err(|error| AppError::from(error).context("asking to delete an account"))?;
         match asking {
-            DeletionAsking::Asked(leaving) => {
-                // What the account had open ends with its sessions.
-                self.ws().close_user(&user.id);
+            DeletionAsking::Asked(leaving, ended) => {
+                self.ws().close(ended);
                 let own_space_id = standing.own_space.as_ref().map(|space| space.id.as_str());
                 self.end_readers_of_own_space(&user.id, own_space_id).await;
                 tracing::info!(

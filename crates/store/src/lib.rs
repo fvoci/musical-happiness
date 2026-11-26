@@ -13,6 +13,7 @@ mod audit;
 mod block_copies;
 mod block_derived;
 mod blocks;
+mod board_ops;
 mod body_digest;
 mod body_docs;
 mod body_links;
@@ -93,6 +94,7 @@ mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
 mod time_entries;
+mod today;
 mod trash;
 mod unit_progress;
 mod unit_reviews;
@@ -118,6 +120,7 @@ pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
     BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
 };
+pub use board_ops::PreparedCardDuplicate;
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
 pub use body_versions::{
@@ -157,8 +160,11 @@ pub use invitations::{
 };
 pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
+pub use notification_noting::AddedToContainerNotice;
 pub use notification_outbox::{NotificationEvent, NotificationLimits, Told};
-pub use notifications::{NotificationPlace, NotificationReader, StoredNotification};
+pub use notifications::{
+    ContainerNotificationPlace, NotificationPlace, NotificationReader, StoredNotification,
+};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
     FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
@@ -178,13 +184,14 @@ pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
 pub use search_text::{NumberSearch, TextFound, TextSearch};
 pub use server_lock::ServerLock;
-pub use sessions::ConfirmedPassword;
+pub use sessions::{ConfirmedPassword, EndedSessionScope, SessionsEnded};
 pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
     SignupStart, Started,
 };
 pub use subscriptions::WatchedBlock;
 pub use time_entries::{NewStoredTimeEntry, TimeEntryFilter, TimeEntryPatchOutcome, TimeReader};
+pub use today::{DueSoonCardCandidate, TodayWindow};
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use unit_reviews::DueReviewCandidate;
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};

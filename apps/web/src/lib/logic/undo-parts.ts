@@ -34,8 +34,6 @@ export interface Entry {
 /** A gesture under way, and its step once it has made a change. */
 export interface Gesture {
   over: Promise<void>;
-  /** A caller must not open a result that was already asked to be taken back. */
-  undoRequested: boolean;
   /** The step its next change joins. */
   entry: Entry | undefined;
   /** Every step it made: more than one where a change of the person came between its own. */
@@ -106,33 +104,21 @@ export function reaim(entries: readonly Entry[], asks: readonly Asked[], after: 
       ask.action,
     );
     if (!target) {
-      cancel(ask, asks);
+      cancel(ask);
       continue;
     }
     if (target !== ask.entry) {
-      const before = ask.entry;
       ask.entry = target;
-      unrequest(before.gesture, asks);
     }
-    if (ask.action === 'undo' && target.gesture) target.gesture.undoRequested = true;
     wanted.set(target, ask.action === 'redo');
   }
 }
 
-/** Drops `ask` (of `asks`): its gesture is no longer asked to be undone by it. */
-export function cancel(ask: Asked, asks: readonly Asked[]): void {
+/** Drops `ask`. */
+export function cancel(ask: Asked): void {
   if (ask.cancelled) return;
   ask.cancelled = true;
   ask.dropped.resolve();
-  if (!ask.begun) unrequest(ask.entry.gesture, asks);
-}
-
-/** `gesture` is asked to be undone while an undo of it is asked for and not dropped. */
-function unrequest(gesture: Gesture | undefined, asks: readonly Asked[]): void {
-  if (!gesture) return;
-  gesture.undoRequested = asks.some(
-    (ask) => !ask.cancelled && ask.action === 'undo' && ask.entry.gesture === gesture,
-  );
 }
 
 /** A step in no history. */

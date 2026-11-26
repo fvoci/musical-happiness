@@ -145,7 +145,10 @@ async fn begin_alone(test: &TestStore, leaver: &str, org: &str, now: i64) {
             .begin_account_erasure(leaver, now, Erasing::AfterTheWait)
             .await
             .expect("asked");
-        assert_eq!(begun, ErasureStart::Begun, "the erasing begins");
+        assert!(
+            matches!(begun, ErasureStart::Begun(_)),
+            "the erasing begins"
+        );
         return;
     }
     // Its asking was refused too: the operator's word is refused the same way.
@@ -349,7 +352,7 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
         .await
         .expect("asked");
     assert_eq!(
-        matches!(asked, DeletionAsking::Asked(_)),
+        matches!(asked, DeletionAsking::Asked(..)),
         several,
         "asked where the organization goes: {asked:?}"
     );
@@ -431,7 +434,7 @@ async fn an_organization_somebody_came_into_during_the_wait_stays() {
         test.request_account_deletion(&leaver, "", T0, T0 + WAIT)
             .await
             .expect("asked"),
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     let newcomer = common::user(&system, "newcomer").await;
     alone_store
@@ -485,7 +488,7 @@ async fn an_organization_somebody_came_into_past_the_mark_is_in_use_again() {
             test.request_account_deletion(&leaver, "", T0 - WAIT, T0)
                 .await
                 .expect("asked"),
-            DeletionAsking::Asked(_)
+            DeletionAsking::Asked(..)
         ));
     }
     begin_alone(&test, &leaver, &org, T0).await;
@@ -616,7 +619,7 @@ async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
         test.request_account_deletion(&leaver, "", T0 - WAIT, T0)
             .await
             .expect("asked"),
-        DeletionAsking::Asked(_)
+        DeletionAsking::Asked(..)
     ));
     begin_alone(&test, &leaver, &org, T0).await;
     let out_of_use = format!(
@@ -666,12 +669,12 @@ async fn an_erasure_cut_off_around_the_own_space_resumes_and_finishes() {
     let leaver = common::user(&test, "cut-off-space").await;
     let space = fill_the_space_of(&test, &leaver).await;
 
-    assert_eq!(
+    assert!(matches!(
         test.begin_account_erasure(&leaver, T0, Erasing::AtOnce)
             .await
             .expect("begun"),
-        ErasureStart::Begun
-    );
+        ErasureStart::Begun(_)
+    ));
     // Cut off after erasing the shared organization, before reaching the own space.
     let orgs = test
         .organizations_of_account(&leaver)

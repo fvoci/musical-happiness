@@ -127,7 +127,7 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
     assert_eq!(config["searchEnabled"], true, "{config}");
     assert_eq!(
         ids(&refund),
-        [titled.clone(), asked, rule.clone(), page.id.clone()],
+        [titled.clone(), asked.clone(), rule.clone(), page.id.clone()],
         "the title first, then the most recently changed, a page among the cards"
     );
     let rule_hit = refund.iter().find(|hit| hit.id == rule).expect("found");
@@ -143,7 +143,7 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
     assert_eq!(rule_hit.container_id, board.id);
     assert_eq!(
         ids(&every_word),
-        [rule],
+        [rule.clone()],
         "every word, in the title or the body"
     );
     assert_eq!(
@@ -172,12 +172,16 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
     );
     assert_eq!(ids(&backslash), [signs], r"a \ is a \");
     assert!(!ids(&percent).contains(&hundred));
-    assert_eq!(ids(&pages), [page.id]);
+    assert_eq!(ids(&pages), [page.id.clone()]);
     assert_eq!(cards.len(), 3);
-    assert_eq!(ids(&one), [titled]);
+    assert_eq!(ids(&one), [titled.clone()]);
     assert_eq!(nul.ok_json::<Vec<SearchHit>>(), [], "no text holds a NUL");
     assert_eq!(blank, []);
-    assert_eq!(unjoined, [], "an open board not joined is not searched");
+    assert_eq!(
+        ids(&unjoined),
+        [titled, asked, rule],
+        "an open board is searched without joining, while the private wiki stays hidden"
+    );
 }
 
 #[tokio::test]

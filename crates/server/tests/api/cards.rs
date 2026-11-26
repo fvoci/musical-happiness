@@ -156,14 +156,18 @@ pub(crate) async fn insert_block(client: &Client, block: &Block) -> Block {
     inserted.pop().expect("one block was inserted")
 }
 
-/// Inserts a card block with the given fields through the blocks route, which checks
-/// nothing about them.
-async fn insert_card_block(client: &Client, board_id: &str, fields: Value) -> Block {
-    let block = Block {
+/// Inserts a card block with the given raw fields through the application store.
+async fn insert_card_block(th: &TestServer, board_id: &str, fields: Value) -> Block {
+    let mut block = Block {
         fields: serde_json::from_value(fields).expect("the fields are a JSON object"),
         ..new_block(board_id, "", BlockType::Card)
     };
-    insert_block(client, &block).await
+    let user_id = th.client.me().await.id;
+    th.app
+        .insert_block(&mut block, &user_id, ChangeNotification::Suppress)
+        .await
+        .expect("card block is stored");
+    block
 }
 
 fn title_patch(title: &str) -> CardPatch {
@@ -571,16 +575,18 @@ async fn app_get_cards_error_scenario() {
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
-    let block = Block {
-        fields: serde_json::from_value(json!({"icon": 5})).expect("an object"),
-        ..new_block(&board.id, "", BlockType::Card)
-    };
     let response = th
         .client
-        .insert_blocks(&board.id, std::slice::from_ref(&block))
+        .post(
+            &format!("{TEST_WS}/containers-and-blocks"),
+            &json!({
+                "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}],
+                "blocks": [{"id": "c1", "containerId": "b1", "type": "card", "fields": {"icon": 5}}],
+            }),
+        )
         .await;
     response.check_bad_request();
-    assert_eq!(response.refused_at(), "/0/fields");
+    assert_eq!(response.refused_at(), "/blocks/0/fields");
 
     let cards = th
         .app
@@ -702,12 +708,16 @@ async fn app_get_card_success_scenario() {
         "icon": "😀",
         "isTemplate": true,
     });
-    let block = Block {
+    let mut block = Block {
         title: "test card".to_owned(),
         fields: serde_json::from_value(fields).expect("the fields are a JSON object"),
         ..new_block(&board.id, "", BlockType::Card)
     };
-    let block = insert_block(&th.client, &block).await;
+    let user_id = th.client.me().await.id;
+    th.app
+        .insert_block(&mut block, &user_id, ChangeNotification::Suppress)
+        .await
+        .expect("the card block is stored");
 
     let card = th.app.card(&block.id).await.expect("the card is read");
 
@@ -743,9 +753,9 @@ async fn app_get_card_error_scenario() {
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
-    let text = insert_block(&th.client, &new_block(&board.id, "", BlockType::Attachment)).await;
+    let view = insert_block(&th.client, &new_block(&board.id, "", BlockType::View)).await;
 
-    let error = th.app.card(&text.id).await.expect_err("a text is no card");
+    let error = th.app.card(&view.id).await.expect_err("a view is no card");
 
     assert_eq!(error.kind(), ErrorKind::Internal, "{error:?}");
     assert_eq!(
@@ -1088,9 +1098,13 @@ async fn get_cards_paging() {
     assert_eq!(count("?page=2").await, 3, "the rest is on the third page");
     assert_eq!(count("?page=3").await, 0, "and nothing on the fourth");
     assert_eq!(count("?page=&perPage=").await, 50, "empty is absent");
-    // The page size has one spelling; another is a parameter the server does not know.
-    assert_eq!(count("?per_page=2").await, 50, "no page size");
-    assert_eq!(count("?per_page=x").await, 50, "and nothing to refuse");
+    // The page size has one spelling; another is refused under strict query validation.
+    for bad_query in ["?per_page=2", "?per_page=x"] {
+        th.client
+            .get(&format!("{}{bad_query}", cards_path(&board.id)))
+            .await
+            .check_bad_request();
+    }
     assert_eq!(count("?perPage=2").await, 2, "a smaller page");
     assert_eq!(count("?perPage=%2B2").await, 2, "a sign is fine");
     assert_eq!(count("?page=00&perPage=03").await, 3, "so are zeros");
@@ -1135,19 +1149,9 @@ async fn a_malformed_card_block_is_refused() {
         .await;
     create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
     // Side-by-side content layout stores nested arrays in `contentOrder`.
-    insert_card_block(
-        &th.client,
-        &board.id,
-        json!({"contentOrder": ["a", ["b", "c"]]}),
-    )
-    .await;
-    insert_card_block(&th.client, &board.id, json!({"contentOrder": "a"})).await;
-    let nulls = insert_card_block(
-        &th.client,
-        &board.id,
-        json!({"icon": null, "isTemplate": null}),
-    )
-    .await;
+    insert_card_block(&th, &board.id, json!({"contentOrder": ["a", ["b", "c"]]})).await;
+    insert_card_block(&th, &board.id, json!({"contentOrder": "a"})).await;
+    let nulls = insert_card_block(&th, &board.id, json!({"icon": null, "isTemplate": null})).await;
     let cards = cards_of(&th.client, &board.id, "").await;
     assert_eq!(cards.len(), 4, "four cards");
     let read: Card = th.client.get(&card_path(&nulls.id)).await.ok_json();
@@ -1160,16 +1164,18 @@ async fn a_malformed_card_block_is_refused() {
         json!({"isTemplate": "yes"}),
         json!({"isTemplate": 1}),
     ] {
-        let block = Block {
-            fields: serde_json::from_value(fields.clone()).expect("an object"),
-            ..new_block(&board.id, "", BlockType::Card)
-        };
         let response = th
             .client
-            .insert_blocks(&board.id, std::slice::from_ref(&block))
+            .post(
+                &format!("{TEST_WS}/containers-and-blocks"),
+                &json!({
+                    "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}],
+                    "blocks": [{"id": "c1", "containerId": "b1", "type": "card", "fields": fields}],
+                }),
+            )
             .await;
         response.check_bad_request();
-        assert_eq!(response.refused_at(), "/0/fields", "{fields}");
+        assert_eq!(response.refused_at(), "/blocks/0/fields", "{fields}");
 
         // Nor can a card get it by a patch.
         let response = th
@@ -1198,11 +1204,11 @@ async fn a_malformed_card_block_is_refused() {
         );
     }
     // Another block may hold such fields: only a card is read as one.
-    let view = Block {
+    let attachment = Block {
         fields: serde_json::from_value(json!({"icon": 5})).expect("an object"),
-        ..new_block(&board.id, "", BlockType::View)
+        ..new_block(&board.id, &nulls.id, BlockType::Attachment)
     };
-    insert_block(&th.client, &view).await;
+    insert_block(&th.client, &attachment).await;
     assert_eq!(
         cards_of(&th.client, &board.id, "").await.len(),
         4,
@@ -1274,9 +1280,16 @@ async fn a_title_with_u0000_is_refused() {
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
+    let response = th
+        .client
+        .post(&cards_path(&board.id), &json!({"title": "a\u{0}b"}))
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.refused_at(), "/title");
+
     let block = Block {
         title: "a\u{0}b".to_owned(),
-        ..new_block(&board.id, "", BlockType::Card)
+        ..new_block(&board.id, "", BlockType::View)
     };
     let response = th
         .client
@@ -1374,7 +1387,7 @@ async fn get_card_permissions_and_refusals() {
     }
 
     // A card block without fields is an empty card.
-    let bare = insert_card_block(&th.client, board_id, json!({})).await;
+    let bare = insert_card_block(&th, board_id, json!({})).await;
     let response = th.client.get(&card_path(&bare.id)).await;
     response.check_ok();
     assert_eq!(
@@ -1655,7 +1668,7 @@ async fn patch_card_changes() {
     );
 
     // A card block stored with empty fields can still be patched cleanly.
-    let bare = insert_card_block(&th.client, board_id, json!({})).await;
+    let bare = insert_card_block(&th, board_id, json!({})).await;
     let patched = send(
         &th.client,
         &card_path(&bare.id),

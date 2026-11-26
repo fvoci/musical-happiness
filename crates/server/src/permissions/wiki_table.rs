@@ -7,7 +7,7 @@ use super::ContainerPermission::{
     CommentCards, Delete, Join, ListMembers, ManageCards, ManageProperties, ManageRoles, See, View,
 };
 use super::ContainerScope::{BuiltIn, InvitedOnlyTemplate, OpenTemplate};
-use super::ContainerScope::{InvitedOnly, Open, OpenToRead};
+use super::ContainerScope::{InvitedOnly, OpenToRead};
 use super::table::{
     GUEST, MEMBER, ORG_ADMIN_IN_WORKSPACE, ORG_ADMIN_ONLY, OUTSIDE_GUEST, REMOVED, STRANGER,
     WORKSPACE_ADMIN,
@@ -116,8 +116,8 @@ fn a_role_on_an_open_wiki_is_the_role_on_a_wiki_for_the_invited_only() {
 }
 
 #[test]
-fn an_open_board_is_still_read_only_once_joined() {
-    assert_eq!(granted(MEMBER, Open, None), exactly(&[See, Join]));
+fn an_open_board_shares_open_to_read_with_wikis_and_courses() {
+    assert_eq!(granted(MEMBER, OpenToRead, None), exactly(READS_AND_JOINS));
 }
 
 #[test]
@@ -163,7 +163,6 @@ fn whoever_reads_an_open_wiki_without_joining_it_is_no_mere_manager_of_it() {
 fn the_changes_of_an_open_wiki_are_told_to_whoever_works_there_and_of_nothing_else() {
     for scope in [
         OpenToRead,
-        Open,
         InvitedOnly,
         OpenTemplate,
         InvitedOnlyTemplate,
@@ -210,7 +209,7 @@ fn open_courses_share_the_open_to_read_scope_with_open_wikis() {
     );
     assert_eq!(
         ContainerScope::of(&container(ContainerKind::Board, ContainerVisibility::Open)),
-        Open
+        OpenToRead
     );
     assert_eq!(
         ContainerScope::of(&container(ContainerKind::Diary, ContainerVisibility::Open)),

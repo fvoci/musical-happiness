@@ -227,6 +227,9 @@ pub enum RelationProblem {
     /// The value names no card of the board, in the trash or out of it: there is none
     /// of that identifier, or it is another board's. The two are not told apart.
     CardNotFound,
+    /// Adding or updating the relation on a Gantt dependency property would close a
+    /// directed cycle (`A -> ... -> A`) among live cards on the board.
+    Cycle,
 }
 
 /// A relation value that is refused, with the property it is the value of.
@@ -254,6 +257,9 @@ fn message(property: &str, problem: RelationProblem) -> String {
         }
         RelationProblem::CardNotFound => {
             format!("card relation {property:?} names a card that is not on the board")
+        }
+        RelationProblem::Cycle => {
+            format!("card relation {property:?} would create a dependency cycle")
         }
     }
 }
@@ -399,6 +405,37 @@ impl RelationProperties {
     pub(crate) fn of(&self, board_id: &str) -> Option<&HashSet<String>> {
         self.by_board.get(board_id)
     }
+}
+
+/// Returns whether setting `card_id`'s predecessors in a Gantt dependency relation to
+/// `predecessors` closes a directed cycle (`predecessor -> ... -> card_id`) given the
+/// board's full predecessor map (`card -> predecessors`, after applying the write).
+///
+/// Only newly introduced or modified edges from `card_id` are tested: if `card_id` is
+/// reachable forward from `card_id` (equivalently, `card_id` is an ancestor of one of its
+/// `predecessors`), a cycle is closed.
+#[must_use]
+pub fn closes_relation_cycle<S: BuildHasher>(
+    predecessors_by_card: &HashMap<String, Vec<String>, S>,
+    card_id: &str,
+    predecessors: &[String],
+) -> bool {
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut stack: Vec<&str> = predecessors.iter().map(String::as_str).collect();
+    while let Some(current) = stack.pop() {
+        if current == card_id {
+            return true;
+        }
+        if !visited.insert(current) {
+            continue;
+        }
+        if let Some(before) = predecessors_by_card.get(current) {
+            for next in before {
+                stack.push(next.as_str());
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]

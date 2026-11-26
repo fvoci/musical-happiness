@@ -30,6 +30,7 @@ pub(super) async fn stored_settings(
         notify_mentions: row.bool(8)?,
         notify_assignments: row.bool(9)?,
         notify_comments: row.bool(10)?,
+        notify_due: row.bool(11)?,
     })
 }
 
@@ -54,6 +55,7 @@ fn setting_column_param(
         SettingName::NotifyMentions => ("notify_mentions", flag(true)),
         SettingName::NotifyAssignments => ("notify_assignments", flag(true)),
         SettingName::NotifyComments => ("notify_comments", flag(true)),
+        SettingName::NotifyDue => ("notify_due", flag(true)),
     }
 }
 

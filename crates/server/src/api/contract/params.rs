@@ -58,7 +58,7 @@ parameter!(BoardId: Path "boardId", String, True, "The identifier of the board."
 parameter!(ContainerId: Path "containerId", String, True, "The identifier of the board, the wiki, the diary or the course.");
 parameter!(PeopleContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.");
 parameter!(LinkedContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.");
-parameter!(CopiedContainerId: Path "containerId", String, True, "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.");
+parameter!(CopiedContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.");
 parameter!(OwnWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.");
 parameter!(DiaryId: Path "diaryId", String, True, "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.");
 parameter!(EntryId: Path "entryId", String, True, "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.");
@@ -74,6 +74,8 @@ parameter!(MonthDayOfYear: Path "monthDay", String, True, "A month and a day wit
 parameter!(EntryVersionNumber: Path "version", i64, True, "The number of the version of the entry's body, as `getDiaryEntryBodyVersions` lists it.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
+parameter!(ViewId: Path "viewId", String, True, "The identifier of the board view.");
+parameter!(CardCommentId: Path "commentId", String, True, "The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment.");
 parameter!(WikiId: Path "wikiId", String, True, "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.");
 parameter!(PageId: Path "pageId", String, True, "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.");
 parameter!(CommentId: Path "commentId", String, True, "The identifier of the comment: a comment on the page of the path. 404 for a comment on another page, and for a block that is no comment.");

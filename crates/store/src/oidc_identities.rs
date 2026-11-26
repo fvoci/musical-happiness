@@ -194,8 +194,8 @@ impl Store {
                 .push_bind(" AND issuer = ", identity.issuer)
                 .push_bind(" AND subject = ", identity.subject);
             scope.execute(sql).await?;
-            sessions::end_sessions_of_identity(scope, user_id, identity).await?;
-            Ok(Unlinked::Removed)
+            let ended = sessions::end_sessions_of_identity(scope, user_id, identity).await?;
+            Ok(Unlinked::Removed(ended))
         })
         .await
     }
@@ -338,10 +338,10 @@ pub enum LinkRefusal {
 }
 
 /// What came of removing an identity from an account.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Unlinked {
-    /// It is removed.
-    Removed,
+    /// It is removed, and the sessions made for it ended.
+    Removed(sessions::SessionsEnded),
     /// It is not the account's.
     NotTied,
     /// It stays: the account has no password, and no other identity.

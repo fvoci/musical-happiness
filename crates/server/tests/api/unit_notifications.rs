@@ -11,9 +11,8 @@ use fvoci_model::{
 use serde_json::{Value, json};
 
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS};
-use crate::notifications::{kinds, mentioning, plain, told, unread};
+use crate::notifications::{give, kinds, mentioning, plain, told, unread};
 use crate::rooms::{PATIENCE, Peer};
-use crate::wiki_isolation::put_on;
 
 fn id(value: &Value) -> String {
     value["id"].as_str().expect("an id").to_owned()
@@ -64,7 +63,7 @@ async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
     let th = Setup::native().start().await.init_basic().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
     let (course, chapter, unit) = make_course(&th.client, TEST_WS, "private").await;
-    put_on(&th.client, &course, &b.id, "editor").await;
+    give(&th, &course, &b.id, "editor").await;
 
     // 1) Creating the unit auto-subscribed `a` (creator), and NOT to the chapter.
     let a_subs: Vec<Subscription> = th
@@ -129,25 +128,33 @@ async fn workspace_course_unit_mentions_comments_watching_and_subscriptions() {
     assert_eq!(kinds(&b_told), (vec!["mention"], 0), "{b_told:?}");
     assert_eq!(unread(&th.client2).await, 1);
 
-    // 4) Manual subscription works for a unit and returns 404 for a chapter.
+    // 4) Manual subscription works for a unit, returns 404 when a chapter ID is given
+    // with `unit` blockType, and 400 when `chapter` blockType is requested.
     th.client2
         .delete(&format!("{TEST_WS}/subscriptions/{unit}/{}", b.id))
         .await
         .check_no_content();
-    for (block_id, block_type, ok) in [(&unit, "unit", true), (&chapter, "chapter", false)] {
-        let res = th
-            .client2
-            .post(
-                &format!("{TEST_WS}/subscriptions"),
-                &json!({"blockId": block_id, "blockType": block_type, "userId": b.id}),
-            )
-            .await;
-        if ok {
-            res.check_created();
-        } else {
-            res.check_not_found();
-        }
-    }
+    th.client2
+        .post(
+            &format!("{TEST_WS}/subscriptions"),
+            &json!({"blockId": unit, "blockType": "unit", "userId": b.id}),
+        )
+        .await
+        .check_created();
+    th.client2
+        .post(
+            &format!("{TEST_WS}/subscriptions"),
+            &json!({"blockId": chapter, "blockType": "unit", "userId": b.id}),
+        )
+        .await
+        .check_not_found();
+    th.client2
+        .post(
+            &format!("{TEST_WS}/subscriptions"),
+            &json!({"blockId": chapter, "blockType": "chapter", "userId": b.id}),
+        )
+        .await
+        .check_bad_request();
 
     // 5) Removing `b` clears the subject; open-course mention notifies an unjoined member.
     th.client

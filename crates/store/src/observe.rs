@@ -98,6 +98,8 @@ impl Outcome {
             | StoreError::InvalidPath(_)
             | StoreError::NoOrganization => Self::Failed,
             StoreError::TeamSelfJoining
+            | StoreError::GuestCannotJoinTeam
+            | StoreError::DuplicateReorderId(_)
             | StoreError::NotFound(_)
             | StoreError::TooManyClientStateEntries { .. }
             | StoreError::NotFirstUser

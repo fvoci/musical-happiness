@@ -5,14 +5,19 @@
 //! transaction, so that nothing that follows from a block is left as it was when the
 //! block changes.
 
-use fvoci_model::{Block, SearchKind};
+use fvoci_model::{
+    Block, BlockType, Container, ContainerKind, JsonMap, SearchKind, assigned_users,
+    extract_card_due_point, is_card_done, is_id,
+};
+use serde_json::Value;
 
-use crate::db::{Id, Scope};
+use crate::db::{Id, Param, Scope, SqlFragment};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 use crate::search_outbox;
 use crate::{
-    body_docs, body_links, body_versions, comment_versions, diaries, unit_progress, unit_reviews,
+    body_docs, body_links, body_versions, comment_versions, containers, diaries, unit_progress,
+    unit_reviews,
 };
 
 /// Whether the search server holds a document of the block: of a card or a page, but
@@ -60,6 +65,7 @@ pub(crate) async fn refresh(
     diaries::refresh(scope, block, Refreshing(())).await?;
     file_refs::refresh(scope, block, new_files, Refreshing(())).await?;
     body_links::refresh(scope, block, Refreshing(())).await?;
+    refresh_card_derived(scope, block).await?;
     let told = match before {
         Before::Absent | Before::Unknown => is_searched(block),
         Before::Unchanged => false,
@@ -146,6 +152,17 @@ pub(crate) async fn forget_block(
         }
         scope.execute(sql).await?;
     }
+    for prefix in [
+        "DELETE FROM card_assignees WHERE card_id = ",
+        "DELETE FROM card_due_notices WHERE card_id = ",
+    ] {
+        let mut sql = scope.sql(prefix);
+        sql.changing_no_access().bind(Id(block_id));
+        if let Some(org) = org.clone() {
+            sql.push_bind(" AND org_id = ", org);
+        }
+        scope.execute(sql).await?;
+    }
 
     let mut refs = scope.sql("DELETE FROM file_refs WHERE block_id = ");
     refs.bind(Id(block_id)).push(" RETURNING name");
@@ -174,6 +191,160 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
     body_links::forget_gone_blocks(scope).await?;
     unit_progress::forget_gone_blocks(scope).await?;
     unit_reviews::forget_gone_blocks(scope).await?;
+    forget_gone_card_due_notices(scope).await?;
     file_refs::forget_gone_blocks(scope).await?;
     file_refs::mark(scope, None).await
+}
+
+async fn forget_gone_card_due_notices(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    let mut frag = SqlFragment::of(&[
+        "DELETE FROM card_due_notices WHERE NOT EXISTS (SELECT 1 FROM blocks AS b \
+         WHERE b.id = card_due_notices.card_id",
+    ]);
+    frag.push_fragment(&scope.same_organization(&[("b", "card_due_notices")]))
+        .push(") AND NOT EXISTS (SELECT 1 FROM deleted_blocks AS d WHERE d.id = card_due_notices.card_id")
+        .push_fragment(&scope.same_organization(&[("d", "card_due_notices")]))
+        .push(")");
+    let mut sql = scope.sql(&frag);
+    sql.changing_no_access();
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+async fn refresh_card_derived(scope: &mut Scope<'_>, block: &Block) -> Result<(), StoreError> {
+    if block.block_type != BlockType::Card {
+        return Ok(());
+    }
+    let Some(board) = containers::find_container(scope, &block.container_id).await? else {
+        return Ok(());
+    };
+    if board.kind != ContainerKind::Board {
+        return Ok(());
+    }
+    let org_id = resolve_container_org_id(scope, &board.id).await?;
+    sync_one_card_derived(scope, &board, &org_id, &block.id, &block.fields).await
+}
+
+pub(crate) async fn refresh_board_cards(
+    scope: &mut Scope<'_>,
+    board: &Container,
+) -> Result<(), StoreError> {
+    if board.kind != ContainerKind::Board {
+        return Ok(());
+    }
+    let org_id = resolve_container_org_id(scope, &board.id).await?;
+    let mut sql = scope.sql("SELECT id, fields FROM blocks WHERE container_id = ");
+    sql.bind(Id(&board.id))
+        .push_bind(" AND type = ", BlockType::Card.as_str())
+        .push(" ORDER BY id");
+    let rows = scope.fetch_all(sql).await?;
+    for row in &rows {
+        let card_id = row.id(0)?;
+        let fields = row.json_map(1, "fields")?;
+        sync_one_card_derived(scope, board, &org_id, &card_id, &fields).await?;
+    }
+    Ok(())
+}
+
+async fn resolve_container_org_id(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+) -> Result<String, StoreError> {
+    if let Some(org_id) = scope.org_id() {
+        return Ok(org_id);
+    }
+    let mut sql = scope.sql(
+        "SELECT w.org_id FROM containers AS c JOIN workspaces AS w ON w.id = c.workspace_id \
+         WHERE c.id = ",
+    );
+    sql.bind(Id(container_id));
+    match scope.fetch_optional(sql).await? {
+        Some(row) => row.id(0),
+        None => Ok(String::new()),
+    }
+}
+
+async fn sync_one_card_derived(
+    scope: &mut Scope<'_>,
+    board: &Container,
+    org_id: &str,
+    card_id: &str,
+    fields: &JsonMap,
+) -> Result<(), StoreError> {
+    let is_card_template = fields.get("isTemplate") == Some(&Value::Bool(true));
+    let empty_props = JsonMap::new();
+    let values = fields
+        .get("properties")
+        .and_then(Value::as_object)
+        .unwrap_or(&empty_props);
+
+    let (due_at, due_millis, is_done, assignees) = if board.is_template || is_card_template {
+        (None, None, false, Vec::new())
+    } else {
+        let due = extract_card_due_point(values, board.effective_due_date_property_id());
+        let done = is_card_done(values, &board.card_properties, board.done_when.as_ref());
+        let candidate_users: Vec<&str> = assigned_users(values, &board.card_properties)
+            .into_iter()
+            .filter(|uid| is_id(uid))
+            .collect();
+        (
+            due.as_ref().map(|d| d.due_at.clone()),
+            due.and_then(|d| d.due_millis),
+            done,
+            existing_user_ids(scope, &candidate_users).await?,
+        )
+    };
+
+    let mut upd = scope.sql("UPDATE blocks SET due_at = ");
+    upd.changing_no_access()
+        .bind(Param::OptText(due_at))
+        .push_bind(", due_millis = ", Param::OptInt(due_millis))
+        .push_bind(", is_done = ", is_done)
+        .push_bind(" WHERE id = ", Id(card_id));
+    scope.execute(upd).await?;
+
+    let mut del = scope.sql("DELETE FROM card_assignees WHERE card_id = ");
+    del.changing_no_access().bind(Id(card_id));
+    if !org_id.is_empty() {
+        del.push_bind(" AND org_id = ", Id(org_id));
+    }
+    scope.execute(del).await?;
+
+    if !assignees.is_empty() && !org_id.is_empty() {
+        let mut ins = scope
+            .sql("INSERT INTO card_assignees (org_id, container_id, card_id, user_id) VALUES ");
+        ins.changing_no_access();
+        for (idx, uid) in assignees.iter().enumerate() {
+            if idx > 0 {
+                ins.push(", ");
+            }
+            ins.push("(")
+                .bind(Id(org_id))
+                .push_bind(", ", Id(&board.id))
+                .push_bind(", ", Id(card_id))
+                .push_bind(", ", Id(uid))
+                .push(")");
+        }
+        ins.push(" ON CONFLICT DO NOTHING");
+        scope.execute(ins).await?;
+    }
+    Ok(())
+}
+
+async fn existing_user_ids(
+    scope: &mut Scope<'_>,
+    user_ids: &[&str],
+) -> Result<Vec<String>, StoreError> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut sql = scope.sql("SELECT id FROM users WHERE id IN (");
+    sql.bind_list(user_ids.iter().copied().map(Id))
+        .push(") ORDER BY id");
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.id(0))
+        .collect()
 }

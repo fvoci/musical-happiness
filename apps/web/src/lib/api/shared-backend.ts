@@ -15,6 +15,7 @@ import type { BoardView } from '../logic/wire.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
 import {
   BackendError,
+  READ_ONLY_PERMISSIONS,
   type AccountSettings,
   type Attachment,
   type Backend,
@@ -388,6 +389,22 @@ export class SharedBackend implements Backend {
   commentVersions: Backend['commentVersions'] = nothing;
   deletedContainers: Backend['deletedContainers'] = nothing;
   deletedCards: Backend['deletedCards'] = nothing;
+  trashRetentionDays: Backend['trashRetentionDays'] = () => Promise.resolve(30);
+  myPermissions: Backend['myPermissions'] = () => Promise.resolve({ ...READ_ONLY_PERMISSIONS });
+  accountToday: Backend['accountToday'] = () =>
+    Promise.resolve({
+      today: '1970-01-01',
+      lockedWorkspaceCount: 0,
+      cards: [],
+      hasMoreCards: false,
+      units: [],
+      hasMoreUnits: false,
+      reviews: [],
+      hasMoreReviews: false,
+      meetings: [],
+      hasMoreMeetings: false,
+    });
+  workspaceToday: Backend['workspaceToday'] = refused;
 
   // What is on the screen alone: kept for the visit.
   patchScreenState: Backend['patchScreenState'] = done;
@@ -420,14 +437,24 @@ export class SharedBackend implements Backend {
   moveContainerToCategory: Backend['moveContainerToCategory'] = refused;
   setContainerHidden: Backend['setContainerHidden'] = refused;
   createView: Backend['createView'] = refused;
+  writeView: Backend['writeView'] = refused;
+  moveView: Backend['moveView'] = refused;
+  duplicateView: Backend['duplicateView'] = refused;
   patchView: Backend['patchView'] = refused;
   createCard: Backend['createCard'] = refused;
+  duplicateCard: Backend['duplicateCard'] = refused;
+  moveViewCards: Backend['moveViewCards'] = refused;
+  batchDeleteCards: Backend['batchDeleteCards'] = refused;
+  batchRestoreCards: Backend['batchRestoreCards'] = refused;
   patchCard: Backend['patchCard'] = refused;
   createComment: Backend['createComment'] = refused;
   patchComment: Backend['patchComment'] = refused;
+  deleteComment: Backend['deleteComment'] = refused;
+  restoreComment: Backend['restoreComment'] = refused;
   createAttachment: Backend['createAttachment'] = refused;
   deleteBlock: Backend['deleteBlock'] = refused;
   restoreBlock: Backend['restoreBlock'] = refused;
+  copyContainerToWorkspace: Backend['copyContainerToWorkspace'] = refused;
   upload: Backend['upload'] = refused;
   exportContainer: Backend['exportContainer'] = refused;
   exportWorkspace: Backend['exportWorkspace'] = refused;

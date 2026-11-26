@@ -4,14 +4,15 @@
 
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
+use axum::http::HeaderMap;
 use fvoci_model::{NewOrganization, Problem, UserWorkspace};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::auth::address_of;
-use super::contract::params::MemberOrgId;
+use super::contract::params::{AcceptLanguage, MemberOrgId};
 use super::contract::tag;
-use super::{ApiResult, RequiredSession, created, decode_object, no_content};
+use super::{ApiResult, RequiredSession, accept_language, created, decode_object, no_content};
 use crate::app::App;
 use crate::client_address::ClientAddress;
 
@@ -42,6 +43,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     path = "/org",
     operation_id = "createOrganization",
     tag = tag::ORGANIZATION,
+    params(AcceptLanguage),
     request_body = NewOrganization,
     responses(
         (status = 201, description = "The first workspace of the organization that was made.", body = UserWorkspace),
@@ -58,12 +60,18 @@ async fn handle_create_organization(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
     client: Option<Extension<ClientAddress>>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
     let request: NewOrganization = decode_object(&body)?;
     let name = request.stored_name()?;
     let workspace = app
-        .start_organization(&session, &name, address_of(client))
+        .start_organization_with_language(
+            &session,
+            &name,
+            address_of(client),
+            accept_language(&headers),
+        )
         .await?;
     Ok(created(&workspace))
 }

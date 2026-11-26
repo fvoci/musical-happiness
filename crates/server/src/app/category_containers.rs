@@ -34,7 +34,7 @@ fn default_category(user_id: &str, workspace_id: &str, existing: usize) -> Categ
 fn has_default_category(category_containers: &[CategoryContainers]) -> bool {
     category_containers
         .iter()
-        .any(|entry| entry.category.name == DEFAULT_CATEGORY_CONTAINERS)
+        .any(|entry| entry.category.category_type == CategoryType::System)
 }
 
 impl App {
@@ -293,10 +293,7 @@ impl App {
         Ok(new_order)
     }
 
-    /// Checks that a new order names the boards of the category and nothing else.
-    ///
-    /// Only the count and membership are compared, so an order that names one board twice
-    /// and omits another passes.
+    /// Checks that a new order names every board of the category once and nothing else.
     async fn verify_new_category_containers_match_existing(
         &self,
         user_id: &str,
@@ -319,6 +316,14 @@ impl App {
                 target.container_metadata.len(),
             )));
         }
+        let mut seen = HashSet::with_capacity(new_order.len());
+        for container_id in new_order {
+            if !seen.insert(container_id.as_str()) {
+                return Err(AppError::bad_request(format_args!(
+                    "the new order lists {container_id} more than once"
+                )));
+            }
+        }
         let existing_ids: HashSet<&str> = target
             .container_metadata
             .iter()
@@ -333,6 +338,60 @@ impl App {
             ))),
             None => Ok(()),
         }
+    }
+
+    /// Moves a board into `category_id` (optionally positioned via `index` and setting
+    /// `hidden`) in a single database transaction and broadcasts the updated category
+    /// entries and order.
+    pub async fn put_category_container(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        category_id: &str,
+        container_id: &str,
+        update: &fvoci_model::CategoryContainerUpdate,
+    ) -> Result<(), AppError> {
+        self.user_category(workspace_id, user_id, category_id)
+            .await?;
+        self.require_container_of_workspace(workspace_id, container_id)
+            .await?;
+        self.store()
+            .put_category_container(user_id, workspace_id, category_id, container_id, update)
+            .await
+            .map_err(|error| {
+                if error.is_not_found() {
+                    AppError::not_found(CATEGORY)
+                } else {
+                    error.into()
+                }
+            })?;
+        let category_containers = self.user_category_containers(user_id, workspace_id).await?;
+        if let Some(updated) = category_containers
+            .iter()
+            .find(|entry| entry.category.id == category_id)
+        {
+            let payload: Vec<ContainerCategoryWebsocketData> = updated
+                .container_metadata
+                .iter()
+                .map(|metadata| ContainerCategoryWebsocketData {
+                    container_id: metadata.container_id.clone(),
+                    category_id: category_id.to_owned(),
+                    hidden: metadata.hidden,
+                })
+                .collect();
+            let order: Vec<String> = updated
+                .container_metadata
+                .iter()
+                .map(|metadata| metadata.container_id.clone())
+                .collect();
+            self.ws()
+                .broadcast_category_container_change(workspace_id, user_id, &payload)
+                .await;
+            self.ws()
+                .broadcast_category_containers_reorder(workspace_id, user_id, category_id, &order)
+                .await;
+        }
+        Ok(())
     }
 
     /// Hides a board in one of a user's categories, or shows it again, and tells the

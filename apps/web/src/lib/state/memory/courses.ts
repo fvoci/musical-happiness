@@ -262,7 +262,7 @@ export class MemoryCourses extends MemoryPageComments implements Courses {
       createdBy: userId,
       modifiedBy: userId,
       visibility: draft.visibility,
-      minimumRole: draft.minimumRole ?? 'editor',
+      minimumRole: draft.minimumRole ?? 'commenter',
       title: draft.title,
       description: draft.description ?? '',
       icon: draft.icon ?? '',

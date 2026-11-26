@@ -74,10 +74,11 @@ fn block_validate_limits_the_title_in_characters() {
 
 #[test]
 fn block_validate_limits_the_serialized_fields_by_type() {
-    // {"k":"<value>"} is the value plus eight characters of JSON syntax.
-    let with_value_len = |block_type: &BlockType, len: usize| -> Block {
+    // {"k":"<value>"} is the value plus eight characters of JSON syntax; for View,
+    // {"defaultTemplateId":"<value>"} is the value plus twenty-four characters.
+    let with_value_len = |block_type: &BlockType, key: &str, len: usize| -> Block {
         let mut fields = fvoci_model::JsonMap::new();
-        fields.insert("k".to_owned(), json!("a".repeat(len)));
+        fields.insert(key.to_owned(), json!("a".repeat(len)));
         Block {
             block_type: *block_type,
             fields,
@@ -87,20 +88,25 @@ fn block_validate_limits_the_serialized_fields_by_type() {
     assert_eq!(CARD_FIELDS_MAX_CHARS, 64_000);
     assert_eq!(BLOCK_FIELDS_MAX_CHARS, 800_000);
     let cases = [
-        (BlockType::Card, CARD_FIELDS_MAX_CHARS),
-        (BlockType::Comment, CARD_FIELDS_MAX_CHARS),
-        (BlockType::Attachment, CARD_FIELDS_MAX_CHARS),
-        (BlockType::View, BLOCK_FIELDS_MAX_CHARS),
+        (BlockType::Card, "k", 8, CARD_FIELDS_MAX_CHARS),
+        (BlockType::Comment, "k", 8, CARD_FIELDS_MAX_CHARS),
+        (BlockType::Attachment, "k", 8, CARD_FIELDS_MAX_CHARS),
+        (
+            BlockType::View,
+            "defaultTemplateId",
+            24,
+            BLOCK_FIELDS_MAX_CHARS,
+        ),
     ];
-    for (block_type, limit) in cases {
+    for (block_type, key, overhead, limit) in cases {
         assert_eq!(block_type.fields_max_chars(), limit, "{block_type}");
         assert_eq!(
-            with_value_len(&block_type, limit - 8).validate(),
+            with_value_len(&block_type, key, limit - overhead).validate(),
             Ok(()),
             "{block_type} at the limit"
         );
         assert_eq!(
-            with_value_len(&block_type, limit - 7).validate(),
+            with_value_len(&block_type, key, limit - overhead + 1).validate(),
             Err(BlockError::FieldsSizeLimitExceeded),
             "{block_type} over the limit"
         );

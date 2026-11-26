@@ -1,18 +1,26 @@
 //! Searching what the cards and the pages of a workspace say.
 
-use axum::extract::RawQuery;
 use fvoci_model::{SearchHit, SearchKind};
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::params::{ContentKind, ContentLimit, ContentText, MemberWorkspaceId};
 use super::contract::tag;
-use super::paging::int_query_param;
+use super::query::{QueryParams, int_param};
 use super::workspace::InContainer;
-use super::{ApiResult, json_response, query_param};
+use super::{ApiResult, json_response};
 use crate::app::App;
 use crate::error::AppError;
 use crate::search::{Asked, AskedError};
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct ContentSearchQuery {
+    q: String,
+    kind: String,
+    limit: String,
+}
 
 /// How many hits a search answers with unless it asks for another number.
 const DEFAULT_LIMIT: i64 = 20;
@@ -67,20 +75,18 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 )]
 async fn handle_search_content(
     InContainer(ws): InContainer,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<ContentSearchQuery>,
 ) -> ApiResult {
-    let query = query.as_deref();
-    let kind = match query_param(query, "kind").as_str() {
+    let kind = match query.kind.as_str() {
         "" => None,
         word => Some(
             word.parse::<SearchKind>()
                 .map_err(|error| AppError::bad_request(error).with_parameter("kind"))?,
         ),
     };
-    let limit = int_query_param(query, "limit", DEFAULT_LIMIT)?;
-    // A number that is no count of hits is out of range as one too large is.
+    let limit = int_param(&query.limit, "limit", DEFAULT_LIMIT)?;
     let limit = usize::try_from(limit).unwrap_or(0);
-    let asked = Asked::new(&query_param(query, "q"), kind, limit).map_err(|error| {
+    let asked = Asked::new(&query.q, kind, limit).map_err(|error| {
         AppError::bad_request(error).with_parameter(match error {
             AskedError::TextTooLong => "q",
             AskedError::LimitOutOfRange => "limit",

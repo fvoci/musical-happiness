@@ -130,10 +130,11 @@ const byLanguage = (language: string): BuiltinTemplate[] =>
 describe('the built-in templates', () => {
   const everything = JSON.stringify(templates);
 
-  it('are eight in each language, the first the welcome board and the eighth the course template', () => {
+  it('are nine in each language, with personal and shared welcome boards and the course template', () => {
     for (const language of LANGUAGES) {
       const written = byLanguage(language);
       expect(written.map((template) => template.key)).toEqual([
+        'welcome-personal',
         'welcome',
         'project-schedule',
         'issue-tracker',
@@ -147,15 +148,15 @@ describe('the built-in templates', () => {
         'welcome',
       ]);
     }
-    expect(templates).toHaveLength(8 * LANGUAGES.length);
+    expect(templates).toHaveLength(9 * LANGUAGES.length);
   });
 
-  it('hold 41 cards, 31 views, 2 chapters, and 5 units in each language, each body accepted by the validator', () => {
+  it('hold 50 cards, 34 views, 2 chapters, and 5 units in each language, each body accepted by the validator', () => {
     for (const language of LANGUAGES) {
       const cards = byLanguage(language).flatMap((template) => template.cards);
-      expect(cards).toHaveLength(41);
+      expect(cards).toHaveLength(50);
       for (const card of cards) expect(validateDoc(card.body), card.title).toEqual([]);
-      expect(byLanguage(language).flatMap((template) => template.views)).toHaveLength(31);
+      expect(byLanguage(language).flatMap((template) => template.views)).toHaveLength(34);
       const chapters = byLanguage(language).flatMap((template) => template.chapters ?? []);
       const units = byLanguage(language).flatMap((template) => template.units ?? []);
       expect(chapters).toHaveLength(2);
@@ -246,6 +247,7 @@ describe('the built-in templates', () => {
     // A board opens on its first tab, and the tabs are sorted by title in the
     // reader's language: the titles of a template's views decide.
     const first: Record<string, string> = {
+      'welcome-personal': 'board',
       welcome: 'board',
       'project-schedule': 'gantt',
       'issue-tracker': 'board',

@@ -9,6 +9,11 @@
     "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
     "icon": "👋",
     "showDescription": true,
+    "dueDatePropertyId": "0181ce69-589b-5981-9166-9a7340b53a48",
+    "doneWhen": {
+      "propertyId": "5bfbc5cb-596f-5a90-9d0a-8c2b259bf5ad",
+      "optionIds": ["b85715c5-85df-5e1c-b84a-7e6135ad4606"]
+    },
     "cardProperties": [
       {
         "id": "5bfbc5cb-596f-5a90-9d0a-8c2b259bf5ad",
@@ -99,7 +104,10 @@
           "430842d5-e669-5b81-82ba-f325d20bbf9d",
           "80fdb5ab-38aa-5917-929f-93342dcbf14a",
           "d1e693bb-e55c-5417-8e2c-841dc141f54b",
-          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3"
+          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3",
+          "c1111111-2222-5333-8444-555555555501",
+          "c1111111-2222-5333-8444-555555555502",
+          "c1111111-2222-5333-8444-555555555503"
         ],
         "collapsedGroups": [],
         "columnCalculations": {},
@@ -139,7 +147,10 @@
           "430842d5-e669-5b81-82ba-f325d20bbf9d",
           "80fdb5ab-38aa-5917-929f-93342dcbf14a",
           "d1e693bb-e55c-5417-8e2c-841dc141f54b",
-          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3"
+          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3",
+          "c1111111-2222-5333-8444-555555555501",
+          "c1111111-2222-5333-8444-555555555502",
+          "c1111111-2222-5333-8444-555555555503"
         ],
         "collapsedGroups": [],
         "columnCalculations": {
@@ -185,7 +196,10 @@
           "430842d5-e669-5b81-82ba-f325d20bbf9d",
           "80fdb5ab-38aa-5917-929f-93342dcbf14a",
           "d1e693bb-e55c-5417-8e2c-841dc141f54b",
-          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3"
+          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3",
+          "c1111111-2222-5333-8444-555555555501",
+          "c1111111-2222-5333-8444-555555555502",
+          "c1111111-2222-5333-8444-555555555503"
         ],
         "collapsedGroups": [],
         "columnCalculations": {},
@@ -217,7 +231,10 @@
           "430842d5-e669-5b81-82ba-f325d20bbf9d",
           "80fdb5ab-38aa-5917-929f-93342dcbf14a",
           "d1e693bb-e55c-5417-8e2c-841dc141f54b",
-          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3"
+          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3",
+          "c1111111-2222-5333-8444-555555555501",
+          "c1111111-2222-5333-8444-555555555502",
+          "c1111111-2222-5333-8444-555555555503"
         ],
         "collapsedGroups": [],
         "columnCalculations": {},
@@ -250,7 +267,10 @@
           "430842d5-e669-5b81-82ba-f325d20bbf9d",
           "80fdb5ab-38aa-5917-929f-93342dcbf14a",
           "d1e693bb-e55c-5417-8e2c-841dc141f54b",
-          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3"
+          "bd5a25b1-25aa-5ca1-b529-e278a81e1ed3",
+          "c1111111-2222-5333-8444-555555555501",
+          "c1111111-2222-5333-8444-555555555502",
+          "c1111111-2222-5333-8444-555555555503"
         ],
         "collapsedGroups": [],
         "columnCalculations": {},
@@ -1938,6 +1958,99 @@
               {
                 "type": "text",
                 "text": "You are alone on this board. Open “Share” at the top of the board to add people."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "c1111111-2222-5333-8444-555555555501",
+      "type": "card",
+      "title": "Learn step by step in a course",
+      "fields": {
+        "icon": "🎓",
+        "isTemplate": false,
+        "properties": {
+          "5bfbc5cb-596f-5a90-9d0a-8c2b259bf5ad": "de9f9830-d321-5ea0-93eb-75474b12a7a9",
+          "71019124-7b11-5930-9898-f92ad857b013": "e6a530b5-a4cd-5d31-b3d8-1bd2bafad7f0",
+          "0181ce69-589b-5981-9166-9a7340b53a48": {
+            "from": "2026-12-12"
+          },
+          "bde3dd15-2849-5b86-a9f2-ae55788ea043": "5"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Create a Course from the sidebar to structure onboarding lessons or shared study plans into chapters and units, track completion, schedule meetings, and leave unit questions."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "c1111111-2222-5333-8444-555555555502",
+      "type": "card",
+      "title": "Jump anywhere with ⌘K",
+      "fields": {
+        "icon": "⚡",
+        "isTemplate": false,
+        "properties": {
+          "5bfbc5cb-596f-5a90-9d0a-8c2b259bf5ad": "de9f9830-d321-5ea0-93eb-75474b12a7a9",
+          "71019124-7b11-5930-9898-f92ad857b013": "d9774bd7-74f8-54db-b3cc-cd275479abe9",
+          "0181ce69-589b-5981-9166-9a7340b53a48": {
+            "from": "2026-12-13"
+          },
+          "bde3dd15-2849-5b86-a9f2-ae55788ea043": "2"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Press ⌘K (or Ctrl+K) from anywhere to search cards, wiki pages and course units across the workspace and jump straight to them."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "c1111111-2222-5333-8444-555555555503",
+      "type": "card",
+      "title": "Stay on top of Today and notifications",
+      "fields": {
+        "icon": "🔔",
+        "isTemplate": false,
+        "properties": {
+          "5bfbc5cb-596f-5a90-9d0a-8c2b259bf5ad": "de9f9830-d321-5ea0-93eb-75474b12a7a9",
+          "71019124-7b11-5930-9898-f92ad857b013": "4f67cfad-2507-5e05-8267-bc7815d86019",
+          "0181ce69-589b-5981-9166-9a7340b53a48": {
+            "from": "2026-12-14"
+          },
+          "bde3dd15-2849-5b86-a9f2-ae55788ea043": "3"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Open “Today” in the sidebar to see due cards, course units, reviews and upcoming meetings across your spaces, and check the notification bell whenever someone mentions or assigns you."
               }
             ]
           }

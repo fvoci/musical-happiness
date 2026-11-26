@@ -96,6 +96,12 @@
         return m.audit_oidc_identity_carried_over({ actor, issuer });
       case 'email_verified_by_operator':
         return m.audit_email_verified_by_operator({ actor, subject });
+      case 'container_copied_out':
+        return m.audit_container_copied_out({ actor, board });
+      case 'copy_out_disabled':
+        return m.audit_copy_out_disabled({ actor });
+      case 'copy_out_enabled':
+        return m.audit_copy_out_enabled({ actor });
     }
   }
 

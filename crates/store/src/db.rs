@@ -372,6 +372,52 @@ impl Sql {
     }
 }
 
+/// Global lock acquisition rank within a transaction (`debug_assert!` checked).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum LockRank {
+    Instance,
+    LinkTurn,
+    Organization,
+    Workspace,
+    Container,
+    DeletedContainers,
+    Block,
+    WorkspaceMembers,
+    Users,
+}
+
+/// Compile-time witness that [`crate::users::lock_instance`] holds the instance row in
+/// this transaction scope.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InstanceHeld<'c>(std::marker::PhantomData<fn(&'c ()) -> &'c ()>);
+
+impl InstanceHeld<'_> {
+    pub(crate) const fn new() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
+/// Compile-time witness that an organization row is held in this transaction scope.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OrganizationHeld<'c>(std::marker::PhantomData<fn(&'c ()) -> &'c ()>);
+
+impl OrganizationHeld<'_> {
+    pub(crate) const fn new() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
+/// Compile-time witness that [`crate::trash::hold_deleted_containers`] holds a
+/// workspace's trashed containers in this transaction scope.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeletedContainersHeld<'c>(std::marker::PhantomData<fn(&'c ()) -> &'c ()>);
+
+impl DeletedContainersHeld<'_> {
+    pub(crate) const fn new() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
 /// A borrowed connection to either database.
 #[derive(Debug)]
 pub(crate) enum ConnRef<'c> {
@@ -407,6 +453,9 @@ pub(crate) struct Scope<'c> {
     /// Whether the writes of blocks of this scope note whom to tell
     /// ([`crate::Store::telling_nobody`], [`crate::Store::quietly`]).
     noting: Noting,
+    /// Acquired `(rank, key)` locks in this scope for debug lock-order assertions.
+    #[cfg(debug_assertions)]
+    locks: Vec<(LockRank, String)>,
 }
 
 /// Whom the writes of blocks of a handle, and of its scopes, note to be told.
@@ -479,6 +528,63 @@ impl<'c> Scope<'c> {
             versions_kept,
             search_outbox: None,
             noting: Noting::Named,
+            #[cfg(debug_assertions)]
+            locks: Vec::new(),
+        }
+    }
+
+    /// Records a lock acquisition at `(rank, key)` and asserts global lock ordering in
+    /// debug and test builds.
+    pub(crate) fn record_lock(&mut self, rank: LockRank, key: &str) {
+        #[cfg(debug_assertions)]
+        {
+            if self.locks.iter().any(|(r, k)| *r == rank && k == key) {
+                return;
+            }
+            let holds_users = self.locks.iter().any(|(r, _)| *r >= LockRank::Users);
+            if !holds_users
+                && rank == LockRank::Organization
+                && self.locks.iter().any(|(r, _)| *r == LockRank::LinkTurn)
+            {
+                self.locks.retain(|(r, _)| *r < LockRank::Organization);
+                self.locks.push((rank, key.to_owned()));
+                return;
+            }
+            if !holds_users
+                && rank == LockRank::Workspace
+                && self.locks.iter().any(|(r, _)| *r == LockRank::Organization)
+            {
+                if let Some((_, prev_ws)) = self
+                    .locks
+                    .iter()
+                    .rev()
+                    .find(|(r, _)| *r == LockRank::Workspace)
+                {
+                    debug_assert!(
+                        prev_ws.as_str() < key,
+                        "out-of-order workspace lock: holding ({:?}, {prev_ws:?}), acquiring ({rank:?}, {key:?}); all={:?}",
+                        LockRank::Workspace,
+                        self.locks
+                    );
+                }
+                self.locks.retain(|(r, _)| *r <= LockRank::Workspace);
+                self.locks.push((rank, key.to_owned()));
+                return;
+            }
+            if let Some((last_rank, last_key)) = self.locks.last() {
+                debug_assert!(
+                    rank > *last_rank
+                        || (rank == *last_rank
+                            && (rank == LockRank::WorkspaceMembers || last_key.as_str() < key)),
+                    "lock rank violation: holding ({last_rank:?}, {last_key:?}), acquiring ({rank:?}, {key:?}); all={:?}",
+                    self.locks
+                );
+            }
+            self.locks.push((rank, key.to_owned()));
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = (rank, key);
         }
     }
 

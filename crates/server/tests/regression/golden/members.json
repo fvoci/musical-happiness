@@ -376,16 +376,8 @@
   {
     "name": "leave: not a member",
     "request": "POST /api/v1/w/<id:1>/containers/<id:4>/leave as members-carol",
-    "status": 403,
-    "content_type": "application/problem+json",
-    "body": {
-      "detail": "access denied to board",
-      "instance": "urn:uuid:<request-id>",
-      "requestId": "<request-id>",
-      "status": 403,
-      "title": "Forbidden",
-      "type": "/problems/forbidden"
-    }
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "leave: the last admin",

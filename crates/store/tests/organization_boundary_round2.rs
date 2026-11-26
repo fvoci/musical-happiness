@@ -137,7 +137,15 @@ async fn one_orgs_file_reference_cannot_prevent_another_orgs_attachment_edit() {
     }
     let test = common::setup().await;
     let b = other(&test).await;
-    let attachment = block(&b.store, &b.board_id, "", BlockType::Attachment, &b.user_id).await;
+    let b_card = block(&b.store, &b.board_id, "", BlockType::Card, &b.user_id).await;
+    let attachment = block(
+        &b.store,
+        &b.board_id,
+        &b_card.id,
+        BlockType::Attachment,
+        &b.user_id,
+    )
+    .await;
     let inserted = test
         .execute_unchecked(&format!(
             "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', 'B-file.txt')",
@@ -356,7 +364,15 @@ async fn the_purge_forgets_a_row_whose_block_is_only_another_orgs() {
     let user_id = common::user(&test, "A-owner").await;
     let ours = common::create_test_boards(&test, &test.workspace_id, &user_id, 1).await;
     let b = other(&test).await;
-    let attachment = block(&b.store, &b.board_id, "", BlockType::Attachment, &b.user_id).await;
+    let b_card = block(&b.store, &b.board_id, "", BlockType::Card, &b.user_id).await;
+    let attachment = block(
+        &b.store,
+        &b.board_id,
+        &b_card.id,
+        BlockType::Attachment,
+        &b.user_id,
+    )
+    .await;
     let forged = [
         format!(
             "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', 'A-file.txt')",

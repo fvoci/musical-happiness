@@ -9,6 +9,7 @@ use fvoci_model::{AuditAction, OrgKind};
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
+use crate::sessions::SessionsEnded;
 use crate::{Store, directory, password_reset, users};
 
 impl Store {
@@ -16,7 +17,7 @@ impl Store {
     /// deletes their sessions, so that nobody stays signed in with the old password. For
     /// a password the server's operator sets: recorded as theirs in every organization
     /// the user is a member of ([`AuditAction::PasswordSetByOperator`]), with no word
-    /// of the password. Returns the identifier of that user.
+    /// of the password. Returns the identifier of that user and the ended sessions.
     ///
     /// All of it happens or none.
     ///
@@ -27,19 +28,17 @@ impl Store {
         &self,
         username: &str,
         password_hash: &str,
-    ) -> Result<String, StoreError> {
+    ) -> Result<(String, SessionsEnded), StoreError> {
         self.system()
             .transaction(async |scope| {
-                let user_id = users::reset_password(scope, username, password_hash).await?;
-                // It may be the account's first, which changes which sessions its own
-                // space takes (`SessionTaken::of_space`): what was read of that is
-                // read again.
+                let (user_id, ended) =
+                    users::reset_password(scope, username, password_hash).await?;
                 if let Some(space) = directory::space_of(scope, &user_id).await? {
                     scope.invalidate_visibility_of(&space)?;
                 }
                 record_in_organizations_of(scope, &user_id, AuditAction::PasswordSetByOperator)
                     .await?;
-                Ok(user_id)
+                Ok((user_id, ended))
             })
             .await
     }

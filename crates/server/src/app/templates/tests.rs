@@ -141,7 +141,13 @@ fn skeleton(file: &Value) -> Value {
         .collect();
     serde_json::json!({
         "onboarding": file["onboarding"],
-        "board": [file["board"]["id"], file["board"]["icon"], definitions],
+        "board": [
+            file["board"]["id"],
+            file["board"]["icon"],
+            file["board"]["dueDatePropertyId"],
+            file["board"]["doneWhen"],
+            definitions
+        ],
         "views": views,
         "cards": cards,
         "files": file["files"].as_array().expect("the files").len(),

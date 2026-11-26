@@ -77,7 +77,7 @@ async fn create_and_get_and_delete_session() {
     assert!(error.is_not_found(), "which counts as not found");
 
     // "DeleteAndGetSession"
-    store
+    let _ = store
         .delete_session(&session.id)
         .await
         .expect("the session is deleted");
@@ -85,11 +85,11 @@ async fn create_and_get_and_delete_session() {
         !is_valid(store, "digest", T0 + 1, T0 - 1).await,
         "a deleted session is gone"
     );
-    store
+    let _ = store
         .delete_session(&session.id)
         .await
         .expect("deleting it again succeeds");
-    store
+    let _ = store
         .delete_session(&new_id())
         .await
         .expect("as does deleting one that never was");
@@ -295,10 +295,16 @@ async fn clean_up_deletes_the_sessions_that_have_ended() {
 
     let now = T0 + 100;
     let idle_since = T0 - 100;
-    let mut deleted = store
+    let mut deleted = match store
         .clean_up_sessions(now, idle_since)
         .await
-        .expect("the clean-up runs");
+        .expect("the clean-up runs")
+        .into_scope()
+    {
+        fvoci_store::EndedSessionScope::Sessions(ids) => ids,
+        fvoci_store::EndedSessionScope::None => Vec::new(),
+        other => panic!("unexpected scope: {other:?}"),
+    };
     deleted.sort();
     let mut ended = [idle.id.clone(), past_its_end.id.clone()];
     ended.sort();
@@ -320,8 +326,9 @@ async fn clean_up_deletes_the_sessions_that_have_ended() {
         store
             .clean_up_sessions(now, idle_since)
             .await
-            .expect("the clean-up runs again"),
-        [""; 0],
+            .expect("the clean-up runs again")
+            .into_scope(),
+        fvoci_store::EndedSessionScope::None,
         "nothing is left to delete"
     );
 
@@ -340,7 +347,7 @@ async fn reset_user_password_deletes_the_sessions_of_that_user_only() {
         open(store, &session_of(user), digest).await;
     }
 
-    let reset = store
+    let (reset, _) = store
         .reset_user_password("alice", "new-hash")
         .await
         .expect("the password is set");
@@ -398,7 +405,7 @@ async fn change_user_password_keeps_one_session_and_ends_the_others() {
         .change_user_password(&alice, NO_HASH, "new-hash", &kept.id, "alice-here-anew")
         .await
         .expect("the password is changed");
-    assert!(changed, "the hash was still the one seen");
+    assert!(changed.is_some(), "the hash was still the one seen");
 
     assert!(
         is_valid(store, "alice-here-anew", T0 + 1, T0 - 1).await,
@@ -435,7 +442,7 @@ async fn change_user_password_keeps_one_session_and_ends_the_others() {
         .change_user_password(&new_id(), NO_HASH, "hash", &kept.id, "unused")
         .await
         .expect("a change for no user is answered");
-    assert!(!changed, "no such user");
+    assert!(changed.is_none(), "no such user");
     assert!(
         is_valid(store, "alice-here-anew", T0 + 1, T0 - 1).await,
         "untouched: the session is where it was"
@@ -455,7 +462,7 @@ async fn replace_password_hash_replaces_the_hash_it_was_made_from() {
     let test = common::setup().await;
     let store = &test.store;
     let alice = common::user(store, "alice").await;
-    store
+    let _ = store
         .reset_user_password("alice", "old-hash")
         .await
         .expect("a first hash");
@@ -515,7 +522,7 @@ async fn create_session_with_a_hash_that_is_not_the_users_stores_nothing() {
     let test = common::setup().await;
     let store = &test.store;
     let alice = common::user(store, "alice").await;
-    store
+    let _ = store
         .reset_user_password("alice", "current-hash")
         .await
         .expect("the password is set");
@@ -621,7 +628,7 @@ async fn a_session_opened_with_the_old_password_does_not_outlive_a_reset() {
             .await
             .expect("the opening task runs to its end")
             .unwrap_or_else(|error| panic!("round {round}: opening a session: {error:?}"));
-        resetting
+        let _ = resetting
             .await
             .expect("the resetting task runs to its end")
             .unwrap_or_else(|error| panic!("round {round}: setting the password: {error:?}"));
@@ -646,7 +653,8 @@ async fn a_session_opened_with_the_old_password_does_not_outlive_a_reset() {
         .await
         .expect("the clean-up runs");
     assert_eq!(
-        left, [""; 0],
+        left.into_scope(),
+        fvoci_store::EndedSessionScope::None,
         "{refused} sessions were refused and {ended} ended by the reset: none is left"
     );
 
@@ -746,10 +754,16 @@ async fn clean_up_returns_the_identifiers_of_the_sessions_it_deleted() {
     }
     ended.sort();
 
-    let mut deleted = store
+    let mut deleted = match store
         .clean_up_sessions(now, idle_since)
         .await
-        .expect("the clean-up runs");
+        .expect("the clean-up runs")
+        .into_scope()
+    {
+        fvoci_store::EndedSessionScope::Sessions(ids) => ids,
+        fvoci_store::EndedSessionScope::None => Vec::new(),
+        other => panic!("unexpected scope: {other:?}"),
+    };
     deleted.sort();
     assert_eq!(deleted, ended, "exactly the sessions that have ended");
 

@@ -9,6 +9,13 @@
     "description": "버그와 요청을 모아 처리합니다. 누가 언제 올리고 고쳤는지는 저절로 적히고, ‘남은 이슈’ 뷰는 닫힌 것을 걸러 냅니다.",
     "icon": "🐞",
     "showDescription": true,
+    "doneWhen": {
+      "propertyId": "41fb4307-4d35-515d-8f28-ee0bd207e0fd",
+      "optionIds": [
+        "41e2d65c-a5b7-5f21-83a1-cde59a83c25d",
+        "0dc0879a-7d99-594d-ba6b-cf906869740a"
+      ]
+    },
     "cardProperties": [
       {
         "id": "41fb4307-4d35-515d-8f28-ee0bd207e0fd",

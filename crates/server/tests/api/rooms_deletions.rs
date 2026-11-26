@@ -252,11 +252,7 @@ async fn a_card_below_the_deleted_block_keeps_its_rooms_last_body() {
         updated_at: 1,
         ..Block::default()
     };
-    let stored: Vec<Block> = th
-        .client
-        .insert_blocks(&table.board_id, &[child])
-        .await
-        .created_json();
+    let stored = crate::blocks::insert(&th.client, &table.board_id, &[child]).await;
     let child_id = stored[0].id.clone();
     let mut writer = Peer::connect(&th.client, 401).await;
     writer.joined(TEST_WORKSPACE_ID, &child_id).await;

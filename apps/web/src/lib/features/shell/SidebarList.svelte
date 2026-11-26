@@ -60,6 +60,7 @@
     searching: boolean;
     /** Whether the reader may delete the board or wiki on the page. Of the others the sidebar does not know. */
     canDeleteOpenContainer: boolean;
+    openContainerJoinable?: boolean | undefined;
     onOpenContainer: (container: Container) => void;
     onNewCategory: () => void;
     onRenameCategory: (category: Category) => void;
@@ -69,6 +70,7 @@
     onTemplateFromBoard: (boardId: string) => void;
     /** Copies the board or wiki whole, to be opened. */
     onDuplicateContainer: (containerId: string) => void;
+    onCopyToWorkspace?: ((container: Container) => void) | undefined;
   }
 
   let {
@@ -79,6 +81,7 @@
     found,
     searching,
     canDeleteOpenContainer,
+    openContainerJoinable,
     onOpenContainer,
     onNewCategory,
     onRenameCategory,
@@ -86,6 +89,7 @@
     onDeleteContainer,
     onTemplateFromBoard,
     onDuplicateContainer,
+    onCopyToWorkspace,
   }: Props = $props();
 
   const uid = $props.id();
@@ -136,12 +140,14 @@
     guest,
     containerId,
     canDeleteOpenContainer,
+    openContainerJoinable,
     onNewCategory,
     onRenameCategory,
     onDeleteCategory,
     onDeleteContainer,
     onTemplateFromBoard,
     onDuplicateContainer,
+    onCopyToWorkspace,
   });
 
   const sortable = new Sortable({

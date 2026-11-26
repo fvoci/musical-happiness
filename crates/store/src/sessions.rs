@@ -9,7 +9,7 @@
 use fvoci_model::{LoginOrigin, Session};
 
 use crate::Store;
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
+use crate::db::{Dialect, Id, LockRank, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::oidc::Identity;
 
@@ -21,6 +21,76 @@ const STORED_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at,
 /// that has not. A session is stored without it ([`insert_session`]), and one
 /// statement sets it ([`Store::confirm_session_password`]).
 const CONFIRMED_COLUMN: &str = "password_confirmed_at";
+
+/// Which sessions were ended by a store operation, requiring the WebSocket hub to close
+/// any open connections for them.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EndedSessionScope {
+    /// No sessions ended.
+    None,
+    /// One session, by identifier.
+    Session(String),
+    /// Specific sessions, by identifier.
+    Sessions(Vec<String>),
+    /// Every session of this user.
+    User(String),
+    /// Every session of `user_id` except `kept_session_id`.
+    UserExcept {
+        /// The user whose other sessions ended.
+        user_id: String,
+        /// The session kept open.
+        kept_session_id: String,
+    },
+    /// Every session created through a provider of `org_id` with `issuer`.
+    Origin {
+        /// Organization of the provider.
+        org_id: String,
+        /// Issuer of the provider.
+        issuer: String,
+    },
+    /// Every session of `user_id` created for `(issuer, subject)` (or without subject).
+    Identity {
+        /// The user who unlinked the identity.
+        user_id: String,
+        /// Issuer of the unlinked identity.
+        issuer: String,
+        /// Subject of the unlinked identity.
+        subject: String,
+    },
+}
+
+/// Witness returned by every store operation that ends sessions so callers cannot
+/// forget to close open WebSocket connections (`Hub::close`).
+#[must_use = "close open WebSocket connections with Hub::close"]
+#[derive(Debug, PartialEq, Eq)]
+pub struct SessionsEnded(pub(crate) EndedSessionScope);
+
+impl SessionsEnded {
+    pub(crate) const fn none() -> Self {
+        Self(EndedSessionScope::None)
+    }
+
+    /// Borrows the scope of ended sessions.
+    #[must_use]
+    pub const fn scope(&self) -> &EndedSessionScope {
+        &self.0
+    }
+
+    /// Consumes this witness and returns the scope of ended sessions.
+    #[must_use]
+    pub fn into_scope(self) -> EndedSessionScope {
+        self.0
+    }
+
+    /// Session identifiers when this witness came from [`Store::clean_up_sessions`].
+    #[must_use]
+    pub fn session_ids(&self) -> &[String] {
+        match &self.0 {
+            EndedSessionScope::Sessions(ids) => ids,
+            _ => &[],
+        }
+    }
+}
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
@@ -208,19 +278,21 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn delete_session(&self, session_id: &str) -> Result<(), StoreError> {
+    pub async fn delete_session(&self, session_id: &str) -> Result<SessionsEnded, StoreError> {
         self.with_write_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM sessions WHERE id = ");
             sql.bind(Id(session_id));
             scope.execute(sql).await?;
-            Ok(())
+            Ok(SessionsEnded(EndedSessionScope::Session(
+                session_id.to_owned(),
+            )))
         })
         .await
     }
 
     /// Deletes every session that has ended at `now`: past its `expires_at`, or not
-    /// used after `idle_since`. Returns the identifiers of the sessions that went, for
-    /// whoever holds something open on their behalf.
+    /// used after `idle_since`. Returns a [`SessionsEnded`] witness naming the sessions
+    /// that went.
     ///
     /// # Errors
     ///
@@ -229,7 +301,7 @@ impl Store {
         &self,
         now: i64,
         idle_since: i64,
-    ) -> Result<Vec<String>, StoreError> {
+    ) -> Result<SessionsEnded, StoreError> {
         self.transaction(async |scope| {
             let mut sql = scope.sql("SELECT id FROM sessions WHERE expires_at <= ");
             sql.bind(now).push_bind(" OR last_used_at <= ", idle_since);
@@ -242,7 +314,11 @@ impl Store {
             let mut sql = scope.sql("DELETE FROM sessions WHERE expires_at <= ");
             sql.bind(now).push_bind(" OR last_used_at <= ", idle_since);
             scope.execute(sql).await?;
-            Ok(ended)
+            Ok(if ended.is_empty() {
+                SessionsEnded::none()
+            } else {
+                SessionsEnded(EndedSessionScope::Sessions(ended))
+            })
         })
         .await
     }
@@ -300,10 +376,10 @@ fn delete_sessions_where_user(scope: &Scope<'_>, user_id: &str) -> Sql {
 pub(crate) async fn delete_sessions_of_user(
     scope: &mut Scope<'_>,
     user_id: &str,
-) -> Result<(), StoreError> {
+) -> Result<SessionsEnded, StoreError> {
     let sql = delete_sessions_where_user(scope, user_id);
     scope.execute(sql).await?;
-    Ok(())
+    Ok(SessionsEnded(EndedSessionScope::User(user_id.to_owned())))
 }
 
 /// Puts a session under another token digest: its old token no longer finds it.
@@ -324,11 +400,14 @@ pub(crate) async fn delete_other_sessions_of_user(
     scope: &mut Scope<'_>,
     user_id: &str,
     kept_session_id: &str,
-) -> Result<(), StoreError> {
+) -> Result<SessionsEnded, StoreError> {
     let mut sql = delete_sessions_where_user(scope, user_id);
     sql.push_bind(" AND id <> ", Id(kept_session_id));
     scope.execute(sql).await?;
-    Ok(())
+    Ok(SessionsEnded(EndedSessionScope::UserExcept {
+        user_id: user_id.to_owned(),
+        kept_session_id: kept_session_id.to_owned(),
+    }))
 }
 
 /// Ends the sessions made through a provider of the organization `org_id` under
@@ -337,12 +416,15 @@ pub(crate) async fn end_sessions_of_origin(
     scope: &mut Scope<'_>,
     org_id: &str,
     issuer: &str,
-) -> Result<(), StoreError> {
+) -> Result<SessionsEnded, StoreError> {
     let mut sql = scope.sql("DELETE FROM sessions WHERE login_org_id = ");
     sql.bind(Id(org_id))
         .push_bind(" AND login_issuer = ", issuer);
     scope.execute(sql).await?;
-    Ok(())
+    Ok(SessionsEnded(EndedSessionScope::Origin {
+        org_id: org_id.to_owned(),
+        issuer: issuer.to_owned(),
+    }))
 }
 
 /// Ends the sessions of a user made for `identity`, through a provider of its issuer
@@ -352,7 +434,7 @@ pub(crate) async fn end_sessions_of_identity(
     scope: &mut Scope<'_>,
     user_id: &str,
     identity: Identity<'_>,
-) -> Result<(), StoreError> {
+) -> Result<SessionsEnded, StoreError> {
     let mut sql = delete_sessions_where_user(scope, user_id);
     sql.push_bind(" AND login_issuer = ", identity.issuer)
         .push_bind(
@@ -361,7 +443,11 @@ pub(crate) async fn end_sessions_of_identity(
         )
         .push(")");
     scope.execute(sql).await?;
-    Ok(())
+    Ok(SessionsEnded(EndedSessionScope::Identity {
+        user_id: user_id.to_owned(),
+        issuer: identity.issuer.to_owned(),
+        subject: identity.subject.to_owned(),
+    }))
 }
 
 /// What the account somebody signs in to is.
@@ -412,6 +498,7 @@ async fn hold_account_proved_by(
     seen_password_hash: &str,
     proof: Proof,
 ) -> Result<Option<SignedInto>, StoreError> {
+    scope.record_lock(LockRank::Users, user_id);
     let mut sql = scope.sql([
         "SELECT password_hash, deleted_at, password_locked_at FROM users \
          WHERE (deleted_at IS NULL OR (",

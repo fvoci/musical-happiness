@@ -67,6 +67,8 @@ reasons! {
     AdminRequired => "admin_required", "Administrator required";
     /// A guest of the workspace is given no role on a board above editor.
     GuestRoleLimit => "guest_role_limit", "A guest is no more than an editor";
+    /// A guest of the workspace cannot be added to a team.
+    GuestCannotJoinTeam => "guest_cannot_join_team", "A guest of the workspace cannot be on a team";
     /// A temporary organization administrator cannot add themselves to a team.
     TeamSelfJoining => "team_self_joining", "Cannot add yourself to a team during administrative joining";
     /// Public sharing is turned off in the server's configuration.
@@ -193,6 +195,8 @@ reasons! {
     RelationNotACard => "relation_not_a_card", "Card relation names no card";
     /// A card relation names a card that is not on the board.
     RelationCardNotFound => "relation_card_not_found", "Card relation names a card not on the board";
+    /// Ordering card dependencies form a cycle on the board.
+    RelationCycle => "relation_cycle", "Card dependency cycle";
     /// Another workspace in use of the organization has the name.
     WorkspaceNameTaken => "workspace_name_taken", "Workspace name taken";
     /// Another team of the workspace has the name, in some letter case.
@@ -215,6 +219,8 @@ reasons! {
     CannotRemoveSelf => "cannot_remove_self", "Cannot remove yourself";
     /// The organization has turned its public links off.
     PublicLinksOff => "public_links_off", "Public links turned off";
+    /// The organization has turned off copying containers out to another organization.
+    CopyOutDisabled => "copy_out_disabled", "Copying out of the organization turned off";
     /// An invitation mail request names more recipients than one may.
     TooManyRecipients => "too_many_recipients", "Too many recipients";
     /// The workspace queued as many invitation messages within the hour as it may.

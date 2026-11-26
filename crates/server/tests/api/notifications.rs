@@ -15,7 +15,32 @@ use serde_json::{Value, json};
 use crate::blocks::{block_path, child_of, delete, insert_one, undelete_path};
 use crate::boards::{delete_member, new_board};
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID};
-use crate::rooms::{Peer, card_holds, give};
+use crate::rooms::{Peer, card_holds};
+
+/// Seeds a container membership directly in the store so mention/comment/assignment tests
+/// measure content notifications independently of HTTP `added_to_container` alerts.
+pub(crate) async fn give(th: &TestServer, container_id: &str, user_id: &str, role: &str) {
+    let member = fvoci_model::ContainerMember::new(
+        container_id,
+        user_id,
+        role.parse().expect("a valid role"),
+    );
+    th.app
+        .store()
+        .save_member(&member)
+        .await
+        .expect("the membership is stored");
+}
+
+pub(crate) async fn give_in(
+    th: &TestServer,
+    _workspace_id: &str,
+    container_id: &str,
+    user_id: &str,
+    role: &str,
+) {
+    give(th, container_id, user_id, role).await;
+}
 
 /// The identifier of the person property of [`board_with_owner`].
 pub(crate) const OWNER: &str = "owner";
@@ -512,13 +537,17 @@ async fn a_mention_typed_by_one_of_several_is_told_as_theirs_and_ones_own_is_not
     th.teardown().await;
 }
 
-/// Makes a card of the board that names the user in its body and by its person
-/// property, as one of those of the board `source_id`: with `sourceBoardId`.
+/// Makes a comment on the board naming `user_id` with `sourceBoardId`, verifying that
+/// copied blocks suppress notifications and auto-subscriptions.
 async fn made_from_another_board(th: &TestServer, board_id: &str, source_id: &str, user_id: &str) {
-    let mut card = crate::blocks::new_block(board_id, BlockType::Card, "Made from");
-    card.body = fvoci_model::Body::parse(mentioning(&[user_id])).expect("a body");
-    card.fields
-        .insert("properties".to_owned(), json!({OWNER: user_id}));
+    let anchor = card_with(&th.client, board_id, &Value::Null).await;
+    let parent = Block {
+        id: anchor.id,
+        container_id: board_id.to_owned(),
+        ..Block::default()
+    };
+    let mut comment = child_of(&parent, BlockType::Comment, "Made from");
+    comment.body = fvoci_model::Body::parse(mentioning(&[user_id])).expect("a body");
     let made: Vec<Block> = th
         .client
         .post(
@@ -526,7 +555,7 @@ async fn made_from_another_board(th: &TestServer, board_id: &str, source_id: &st
                 "{}?sourceBoardId={source_id}",
                 crate::blocks::blocks_path(board_id)
             ),
-            &[card],
+            &[comment],
         )
         .await
         .created_json();

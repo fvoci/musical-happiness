@@ -6,7 +6,7 @@
 //! reaches diaries and nothing else, in that workspace alone (`InDiary`).
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::{
     Block, Container, ContainerKind, ContainerVisibility, DAYS_PER_LIST, DeletedDiaryEntry,
     DiaryDate, DiaryDay, DiaryEntry, DiaryEntryPatch, DiaryMaking, DiaryRun, MonthDay,
@@ -23,16 +23,22 @@ use super::contract::params::{
     DaysFrom, DaysTo, DiaryId, EntryId, MonthDayOfYear, OwnWorkspaceId, PerPage,
 };
 use super::contract::tag;
-use super::paging::paging_params;
+use super::query::{PagingQuery, QueryParams};
 use super::workspace::{InDiary, InWorkspace};
 use super::{
-    ApiResult, created, decode_object, json_response, no_content, query_param,
-    require_container_permission,
+    ApiResult, created, decode_object, json_response, no_content, require_container_permission,
 };
 use crate::app::{App, ChangeNotification, EntryAnswer};
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct DiaryDaysQuery {
+    from: String,
+    to: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -158,8 +164,8 @@ pub(super) async fn entry_with_permission(
 }
 
 /// The day a query names, which it must.
-fn day_param(query: Option<&str>, name: &str) -> Result<DiaryDate, AppError> {
-    match query_param(query, name).as_str() {
+fn day_param(raw: &str, name: &str) -> Result<DiaryDate, AppError> {
+    match raw {
         "" => Err(AppError::bad_request(format_args!(
             "the days of a diary are listed from a day to a day: `{name}` is left out"
         ))
@@ -188,7 +194,7 @@ fn day_param(query: Option<&str>, name: &str) -> Result<DiaryDate, AppError> {
 async fn handle_get_diary_days(
     InDiary(ws): InDiary,
     Path((_, diary_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<DiaryDaysQuery>,
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
@@ -198,8 +204,7 @@ async fn handle_get_diary_days(
         "access denied to fetch the days of the diary",
     )
     .await?;
-    let query = query.as_deref();
-    let (from, to) = (day_param(query, "from")?, day_param(query, "to")?);
+    let (from, to) = (day_param(&query.from, "from")?, day_param(&query.to, "to")?);
     if !from.lists_to(to) {
         return Err(AppError::bad_request(format_args!(
             "at most {DAYS_PER_LIST} days of a diary are listed at once"
@@ -480,7 +485,7 @@ async fn handle_delete_diary_entry(
 async fn handle_get_deleted_diary_entries(
     InDiary(ws): InDiary,
     Path((_, diary_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
@@ -490,7 +495,7 @@ async fn handle_get_deleted_diary_entries(
         "access denied to the trash of the diary",
     )
     .await?;
-    let page = paging_params(query.as_deref())?;
+    let page = query.into_list_page()?;
     Ok(json_response(
         &ws.app.deleted_diary_entries(&diary_id, page).await?,
     ))

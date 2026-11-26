@@ -7,7 +7,7 @@ use fvoci_model::{
 };
 use fvoci_server::app::Inviting;
 use fvoci_store::{DbType, Store, Tenant};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::common::{Client, PASSWORD, ROOT_WORKSPACE_ID, ROOT_WS, Setup, TestServer};
 use crate::fake_oidc::{FakeProvider, Person};
@@ -175,7 +175,11 @@ async fn a_member_let_in_by_a_link_has_a_welcome_board_of_their_own() {
     let ts = welcoming().await;
     let store = ts.app.store();
     let founder = ts.client.me().await.id;
-    assert_eq!(welcome_boards(store, &founder).await, [], "not asked for");
+    assert_eq!(
+        welcome_boards(store, &founder).await.len(),
+        1,
+        "welcomed automatically on sign-up"
+    );
 
     let member = ts.client2.me().await.id;
     let boards = welcome_boards(store, &member).await;
@@ -278,12 +282,6 @@ async fn an_account_is_given_its_welcome_board_once() {
     let store = ts.app.store();
     let member = ts.client2.me().await.id;
     let founder = ts.client.me().await.id;
-    let asked: Value = ts
-        .client
-        .post_empty(&format!("{ROOT_WS}/onboard"))
-        .await
-        .ok_json();
-    assert!(asked["boardId"].is_string(), "{asked}");
 
     let before = [
         welcome_boards(store, &founder).await,

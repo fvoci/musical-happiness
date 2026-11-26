@@ -5,7 +5,7 @@
 //! handle these routes work with reaches wikis and no board (`InWiki`).
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::{
     Block, Container, ContainerKind, ContainerVisibility, DeletedPage, MinimumRole, NewPage, Page,
     PageDuplicate, PageMove, PageNode, PagePatch,
@@ -18,7 +18,7 @@ use utoipa_axum::routes;
 use super::contract::params::Page as PageNumber;
 use super::contract::params::{MemberWorkspaceId, PageId, PerPage, WikiId};
 use super::contract::tag;
-use super::paging::paging_params;
+use super::query::{PagingQuery, QueryParams};
 use super::workspace::{InWiki, InWorkspace};
 use super::{
     ApiResult, created, decode_object, decode_with_document, json_response, no_content,
@@ -442,7 +442,7 @@ async fn handle_delete_page(
 async fn handle_get_deleted_pages(
     InWiki(ws): InWiki,
     Path((_, wiki_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
@@ -452,7 +452,7 @@ async fn handle_get_deleted_pages(
         "access denied to the trash of the wiki",
     )
     .await?;
-    let page = paging_params(query.as_deref())?;
+    let page = query.into_list_page()?;
     Ok(json_response(&ws.app.deleted_pages(&wiki_id, page).await?))
 }
 

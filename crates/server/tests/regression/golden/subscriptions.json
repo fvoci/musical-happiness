@@ -27,25 +27,28 @@
   },
   {
     "name": "insert blocks",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as subs-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/cards as subs-alice",
     "status": 201,
     "content_type": "application/json",
-    "body": [
-      {
-        "body": null,
-        "containerId": "<id:3>",
-        "createdAt": "<ts>",
-        "createdBy": "<id:2>",
-        "fields": {},
-        "id": "<id:4>",
-        "modifiedBy": "<id:2>",
-        "number": 1,
-        "parentId": "",
-        "title": "Watched card",
-        "type": "card",
-        "updatedAt": "<ts>"
-      }
-    ]
+    "body": {
+      "boardId": "<id:3>",
+      "body": null,
+      "createdAt": "<ts>",
+      "createdBy": "<id:2>",
+      "hasBody": false,
+      "icon": "",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "lastCommentAt": 0,
+      "modifiedBy": "<id:2>",
+      "number": 1,
+      "parentId": "",
+      "properties": {},
+      "tasksDone": 0,
+      "tasksTotal": 0,
+      "title": "Watched card",
+      "updatedAt": "<ts>"
+    }
   },
   {
     "name": "list: the card its writer wrote",

@@ -95,7 +95,7 @@ async fn get_blocks_with_the_board_as_parent_finds_nothing() {
         &[
             ("card", "", "card"),
             ("view", "", "view"),
-            ("text", "card", "attachment"),
+            ("text", "card", "card"),
             ("checkbox", "text", "attachment"),
         ],
     );

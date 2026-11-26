@@ -247,4 +247,8 @@ export class OrgAdmin {
   setPublicLinks(on: boolean): Promise<boolean> {
     return this.#change(() => this.#api.changeOrganization(this.orgId, { publicLinks: on }));
   }
+
+  setAllowCopyOut(on: boolean): Promise<boolean> {
+    return this.#change(() => this.#api.changeOrganization(this.orgId, { allowCopyOut: on }));
+  }
 }

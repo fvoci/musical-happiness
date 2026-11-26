@@ -126,6 +126,7 @@ export function visibleTemplates(world: World, userId: string, workspaceId: stri
     .filter(
       (board) =>
         board.isTemplate &&
+        board.properties.templateKey !== 'welcome-personal' &&
         (board.isBuiltin === true
           ? board.properties.templateLanguage === undefined ||
             writtenIn(board.properties.templateLanguage) === language

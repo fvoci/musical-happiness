@@ -216,6 +216,20 @@
           />
         {/key}
       </label>
+      <label class="flex items-start gap-3 rounded-md border px-3 py-2">
+        <span class="min-w-0 flex-1">
+          <span class="block">{m.org_allow_copy_out()}</span>
+          <span class="block text-xs text-muted-foreground">{m.org_allow_copy_out_hint()}</span>
+        </span>
+        {#key admin.organization}
+          <Switch
+            checked={admin.organization?.allowCopyOut ?? true}
+            disabled={admin.busy}
+            data-testid="org-allow-copy-out"
+            onCheckedChange={(on: boolean) => void admin.setAllowCopyOut(on)}
+          />
+        {/key}
+      </label>
     </section>
 
     <section class="flex flex-col gap-3" aria-labelledby="org-records">

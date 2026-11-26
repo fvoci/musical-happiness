@@ -49,14 +49,13 @@ impl App {
             .begin_account_erasure(user_id, now_millis(), erasing)
             .await
             .map_err(|error| AppError::from(error).context("beginning to erase an account"))?;
-        match begun {
-            ErasureStart::Begun => {}
+        let ended = match begun {
+            ErasureStart::Begun(ended) => ended,
             ErasureStart::NotThere => return Ok(Erasure::NotThere),
             ErasureStart::Waits => return Ok(Erasure::Waits),
             ErasureStart::Refused(standing) => return Ok(Erasure::Refused(standing)),
-        }
-        // What the account had open ends with its sessions.
-        self.ws().close_user(user_id);
+        };
+        self.ws().close(ended);
         let organizations = app
             .store()
             .organizations_of_account(user_id)

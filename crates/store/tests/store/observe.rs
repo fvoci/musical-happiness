@@ -94,7 +94,7 @@ async fn every_call_is_told_with_whether_it_wrote_and_how_it_ended() {
         "the name is taken"
     );
     // One statement that writes, on one connection.
-    store
+    let _ = store
         .delete_session(&new_id())
         .await
         .expect("no such session is deleted");

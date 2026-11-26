@@ -542,7 +542,7 @@ impl App {
         }
         Ok(match ended.applied {
             Some(applied) => {
-                org.follow_applied(&applied).await;
+                org.follow_applied(applied).await;
                 FinishedLogin::Applied { token }
             }
             None => FinishedLogin::SignedIn { token },

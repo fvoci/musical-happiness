@@ -411,6 +411,15 @@ pub enum CardPropertyError {
         /// The option identifier that is there twice.
         option_id: String,
     },
+    /// The value of a typed property (`number`, `email`, `url`, `checkbox`, `select`,
+    /// `multiSelect`, `person`, `multiPerson`) does not match that property's rules.
+    #[error("the value of card property {id:?} must be {expected}")]
+    InvalidTypedValue {
+        /// The identifier of the property.
+        id: String,
+        /// Expected format description.
+        expected: &'static str,
+    },
 }
 
 /// Checks the property values of a card: each is a string, a list of strings, a date
@@ -498,7 +507,8 @@ pub fn validate_card_property_kinds(
     definitions: &[CardPropertyDefinition],
 ) -> Result<(), CardPropertyError> {
     for (id, value) in values {
-        if is_property_of_type(id, PropertyType::Date, definitions) {
+        let definition = definitions.iter().find(|def| def.id == *id);
+        if definition.is_some_and(|def| def.property_type == PropertyType::Date) {
             if !matches!(value, Value::Null | Value::Object(_)) {
                 return Err(CardPropertyError::NotADateValue { id: id.clone() });
             }
@@ -508,22 +518,132 @@ pub fn validate_card_property_kinds(
             return Err(CardPropertyError::DateValueOfOtherProperty { id: id.clone() });
         }
         if is_relation_links_array(value)
-            && !is_property_of_type(id, PropertyType::Relation, definitions)
+            && !definition.is_some_and(|def| def.property_type == PropertyType::Relation)
         {
             return Err(CardPropertyError::RelationValueOfOtherProperty { id: id.clone() });
+        }
+        if let Some(def) = definition {
+            check_typed_property_value(def, value)?;
         }
     }
     Ok(())
 }
 
-fn is_property_of_type(
-    id: &str,
-    property_type: PropertyType,
-    definitions: &[CardPropertyDefinition],
-) -> bool {
-    definitions
+fn check_typed_property_value(
+    definition: &CardPropertyDefinition,
+    value: &Value,
+) -> Result<(), CardPropertyError> {
+    if value.is_null() {
+        return Ok(());
+    }
+    let bad = |expected: &'static str| {
+        Err(CardPropertyError::InvalidTypedValue {
+            id: definition.id.clone(),
+            expected,
+        })
+    };
+    match definition.property_type {
+        PropertyType::Date | PropertyType::Relation => Ok(()),
+        PropertyType::Number => match value.as_str() {
+            Some(text) if is_number_entry(text) => Ok(()),
+            _ => bad("a number text or empty string"),
+        },
+        PropertyType::Email => match value.as_str() {
+            Some(text) if is_email_entry(text) => Ok(()),
+            _ => bad("an email address or empty string"),
+        },
+        PropertyType::Url => match value.as_str() {
+            Some(text) if is_url_entry(text) => Ok(()),
+            _ => bad("a URL without whitespace or empty string"),
+        },
+        PropertyType::Checkbox => match value.as_str() {
+            Some("" | "true" | "false") => Ok(()),
+            _ => bad("\"true\", \"false\" or empty string"),
+        },
+        PropertyType::Select => match value.as_str() {
+            Some(text)
+                if text.is_empty() || definition.options.iter().any(|opt| opt.id == text) =>
+            {
+                Ok(())
+            }
+            _ => bad("one of the property's option IDs or empty string"),
+        },
+        PropertyType::MultiSelect => match value {
+            Value::String(text) if text.is_empty() => Ok(()),
+            Value::Array(items)
+                if items.iter().all(|item| {
+                    item.as_str().is_some_and(|text| {
+                        text.is_empty() || definition.options.iter().any(|opt| opt.id == text)
+                    })
+                }) =>
+            {
+                Ok(())
+            }
+            _ => bad("a list of the property's option IDs"),
+        },
+        PropertyType::Person => match value.as_str() {
+            Some(_) => Ok(()),
+            None => bad("a user ID or empty string"),
+        },
+        PropertyType::MultiPerson => match value {
+            Value::String(text) if text.is_empty() => Ok(()),
+            Value::Array(items) if items.iter().all(Value::is_string) => Ok(()),
+            _ => bad("a list of user IDs"),
+        },
+        PropertyType::Text
+        | PropertyType::Phone
+        | PropertyType::File
+        | PropertyType::CreatedTime
+        | PropertyType::CreatedBy
+        | PropertyType::UpdatedTime
+        | PropertyType::UpdatedBy => Ok(()),
+    }
+}
+
+fn is_number_entry(text: &str) -> bool {
+    if text.is_empty() {
+        return true;
+    }
+    let trimmed = text.trim_start();
+    let digits = trimmed.strip_prefix(['+', '-']).unwrap_or(trimmed);
+    digits.bytes().next().is_some_and(|b| b.is_ascii_digit())
+}
+
+fn is_email_entry(text: &str) -> bool {
+    if text.is_empty() {
+        return true;
+    }
+    let Some((local, host)) = text.split_once('@') else {
+        return false;
+    };
+    if local.is_empty()
+        || host.contains('@')
+        || local.chars().any(|c| {
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    '@' | '<' | '>' | '(' | ')' | '[' | ']' | '\\' | ',' | ';' | ':' | '"'
+                )
+        })
+    {
+        return false;
+    }
+    let parts: Vec<&str> = host.split('.').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    let (tld, labels) = parts.split_last().expect("at least 2 parts");
+    labels
         .iter()
-        .any(|definition| definition.id == id && definition.property_type == property_type)
+        .all(|label| !label.is_empty() && label.chars().all(|c| c.is_alphanumeric() || c == '-'))
+        && tld.chars().count() >= 2
+        && tld.chars().all(char::is_alphabetic)
+}
+
+fn is_url_entry(text: &str) -> bool {
+    let address = text.trim();
+    address.is_empty()
+        || (!address.chars().any(char::is_whitespace) && address.chars().any(char::is_alphanumeric))
 }
 
 /// Whether a value is a non-empty list of relation link objects.
@@ -544,18 +664,43 @@ pub fn clear_values_of_another_kind(
 ) -> usize {
     let mut cleared = 0;
     for (id, value) in values.iter_mut() {
-        let is_date = is_property_of_type(id, PropertyType::Date, definitions);
+        let definition = definitions.iter().find(|def| def.id == *id);
+        let is_date = definition.is_some_and(|def| def.property_type == PropertyType::Date);
         // A value of another kind; a malformed one is left to be refused.
-        let other_kind = match value {
+        let mut other_kind = match value {
             Value::Object(_) => !is_date,
             Value::String(_) => is_date,
             Value::Array(_) => {
                 is_date
                     || (is_relation_links_array(value)
-                        && !is_property_of_type(id, PropertyType::Relation, definitions))
+                        && !definition
+                            .is_some_and(|def| def.property_type == PropertyType::Relation))
             }
             Value::Null | Value::Bool(_) | Value::Number(_) => false,
         };
+        if !other_kind
+            && let Some(def) = definition
+            && !matches!(
+                def.property_type,
+                PropertyType::Date | PropertyType::Relation
+            )
+            && check_property_value(id, value).is_ok()
+        {
+            if def.property_type == PropertyType::MultiSelect
+                && let Value::Array(items) = value
+            {
+                let before = items.len();
+                items.retain(|item| {
+                    item.as_str()
+                        .is_some_and(|opt_id| def.options.iter().any(|opt| opt.id == opt_id))
+                });
+                if items.len() != before {
+                    cleared += 1;
+                }
+            } else if check_typed_property_value(def, value).is_err() {
+                other_kind = true;
+            }
+        }
         if other_kind {
             *value = Value::Null;
             cleared += 1;
@@ -728,6 +873,8 @@ impl PersonProperties {
     /// anything else (or by nothing) is grouped by the app by a property of its choosing,
     /// a person property among them, whose users the lists may hold.
     pub fn hide_view_fields(&self, fields: &mut JsonMap) {
+        fields
+            .retain(|member, _| crate::view_fields::SHARED_VIEW_MEMBERS.contains(&member.as_str()));
         if let Some(filter) = fields.get_mut("filter") {
             self.hide_filter_values(filter);
         }
@@ -740,12 +887,24 @@ impl PersonProperties {
             group.is_empty() || options.as_ref().is_some_and(|ids| ids.contains(group))
         };
         for list in VIEW_GROUP_LISTS {
-            if let Some(Value::Array(groups)) = fields.get_mut(list) {
-                groups.retain(|group| group.as_str().is_some_and(shown));
+            match fields.get_mut(list) {
+                Some(Value::Array(groups)) => {
+                    groups.retain(|group| group.as_str().is_some_and(shown));
+                }
+                Some(_) => {
+                    fields.remove(list);
+                }
+                None => {}
             }
         }
-        if let Some(Value::Object(groups)) = fields.get_mut(VIEW_GROUP_KEYED) {
-            groups.retain(|group, _| shown(group));
+        match fields.get_mut(VIEW_GROUP_KEYED) {
+            Some(Value::Object(groups)) => {
+                groups.retain(|group, _| shown(group));
+            }
+            Some(_) => {
+                fields.remove(VIEW_GROUP_KEYED);
+            }
+            None => {}
         }
     }
 

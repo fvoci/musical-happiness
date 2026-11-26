@@ -133,10 +133,11 @@ async fn delete_team(ws: InWorkspace, Path(place): Path<TeamPlace>) -> ApiResult
 
 /// Add a nonguest workspace member to a team
 ///
-/// For workspace administrators. Idempotent. A guest or somebody outside the
-/// workspace is 404. Removing a workspace member or making them a guest removes
-/// them from every team of that workspace. A person joined as organization administrator
-/// cannot add themselves: 403, reason `team_self_joining`. Other administrators may add them.
+/// For workspace administrators. Idempotent. Somebody outside the workspace is 404;
+/// adding a workspace guest is 409, reason `guest_cannot_join_team`. Removing a
+/// workspace member or making them a guest removes them from every team of that
+/// workspace. A person joined as organization administrator cannot add themselves:
+/// 403, reason `team_self_joining`. Other administrators may add them.
 #[utoipa::path(put, path = "/w/{workspaceId}/teams/{teamId}/members/{userId}", operation_id = "addTeamMember", tag = tag::WORKSPACES,
     params(PeopleWorkspaceId, TeamId, UserId), responses((status = 204, description = "The person is in the team.")))]
 async fn add_team_member(ws: InWorkspace, Path(place): Path<MemberPlace>) -> ApiResult {

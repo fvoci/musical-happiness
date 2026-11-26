@@ -1,7 +1,12 @@
 /** Reads a board's content and learns the names it carries beyond current membership. */
 import type { BoardView, Container, ContainerMember } from '../logic/wire.ts';
 
-import { isBackendError, type CardSummary } from './backend.ts';
+import {
+  isBackendError,
+  READ_ONLY_PERMISSIONS,
+  type CardSummary,
+  type ContainerPermissions,
+} from './backend.ts';
 import { assignedIds, authorIds, memberId } from './user-names.ts';
 import { containerOfWorkspace } from './board-parts.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
@@ -13,11 +18,12 @@ export interface BoardFailureHost {
   readonly openCard: { readonly missing: boolean } | undefined;
   status: LoadStatus;
   missing: boolean;
-  joinable: boolean;
   board: Container | undefined;
   views: BoardView[];
   cards: CardSummary[];
   members: ContainerMember[];
+  permissions: ContainerPermissions;
+  permissionsRole: ContainerMember['role'] | '' | undefined;
   closeCard(): void;
   isClosed(): boolean;
 }
@@ -33,7 +39,6 @@ export async function joinOpenBoard(
   } catch (error) {
     if (isBackendError(error) && error.status === 404) {
       host.workspace.evictContainer(host.boardId);
-      host.joinable = false;
       host.missing = true;
     } else host.workspace.report('save', error);
     return false;
@@ -54,18 +59,20 @@ export async function handleBoardLoadFailure(
   if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
     host.workspace.evictContainer(host.boardId);
     if (!host.openCard?.missing) host.closeCard();
-    [host.board, host.views, host.cards, host.members] = [undefined, [], [], []];
+    [host.board, host.views, host.cards, host.members, host.permissions, host.permissionsRole] = [
+      undefined,
+      [],
+      [],
+      [],
+      { ...READ_ONLY_PERMISSIONS },
+      undefined,
+    ];
     if (error.status === 404) {
       host.missing = true;
       return;
     }
     const explained = await explainBoardRefusal(host.workspace, host.boardId);
     if (host.isClosed()) return;
-    if (explained.kind === 'joinable') {
-      host.board = explained.board;
-      host.joinable = true;
-      return;
-    }
     if (explained.kind === 'missing') {
       host.missing = true;
       return;
@@ -94,20 +101,19 @@ export async function handleBoardRefreshFailure(
 export async function readBoard(workspace: Workspace, boardId: string) {
   const backend = workspace.backend;
   const visit = workspace.info;
-  const [board, views, cards, members] = await Promise.all([
+  const [board, views, cards, members, permissions] = await Promise.all([
     containerOfWorkspace(backend, boardId, visit?.id),
     backend.views(boardId),
     backend.cards(boardId),
     backend.members(boardId),
+    backend.myPermissions(boardId),
   ]);
   if (workspace.info === visit) {
-    // One request for the authors, whom the cards are set to and the members together;
-    // only the members are asked again.
     const memberIds = members.map(memberId);
     const named = [...authorIds(cards), ...assignedIds(cards, board.cardProperties)];
     void workspace.learnUsers([board.createdBy, ...named, ...memberIds], { members: memberIds });
   }
-  return [board, views, cards, members] as const;
+  return [board, views, cards, members, permissions] as const;
 }
 
 /**

@@ -30,6 +30,10 @@
       label: m.shell_settings_notify_comment,
       hint: m.shell_settings_notify_comment_hint,
     },
+    due_soon: {
+      label: m.shell_settings_notify_due,
+      hint: m.shell_settings_notify_due_hint,
+    },
   };
 
   function change(setting: keyof NotifySettings, on: boolean): void {

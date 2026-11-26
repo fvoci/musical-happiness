@@ -18,18 +18,20 @@
 //! cannot be guessed at speed.
 
 use axum::extract::rejection::RawPathParamsRejection;
-use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery};
+use axum::extract::{FromRequestParts, Path, RawPathParams};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use fvoci_model::{
     Block, Card, Container, ContainerKind, FileRecord, Page, PageNode, PersonProperties, Unit,
     UnitNode,
 };
+use serde::Deserialize;
+use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::blocks::asked_blocks;
-use super::cards::cards_page;
+use super::blocks::{BlocksFilterQuery, asked_blocks};
+use super::cards::{CardsListQuery, cards_page};
 use super::contract::bodies::Binary;
 use super::contract::params::{
     AllBlocks, BlockTypeFilter, ContainerId, FileId, OneBlockId, Page as PageNumber, PageId,
@@ -37,10 +39,37 @@ use super::contract::params::{
 };
 use super::contract::tag;
 use super::files::{container_file_record, serve_container_file};
-use super::{ApiResult, json_response, query_param};
+use super::query::{QueryParams, parse_query_map};
+use super::{ApiResult, json_response};
 use crate::app::App;
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct SharedTokenQuery {
+    read_token: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct SharedBlocksQuery {
+    read_token: String,
+    all: String,
+    block_id: String,
+    parent_id: String,
+    #[serde(rename = "type")]
+    block_type: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct SharedCardsQuery {
+    read_token: String,
+    page: String,
+    per_page: String,
+    preview: String,
+}
 
 /// The path parameter that names the shared board.
 const CONTAINER_ID: &str = "containerId";
@@ -94,8 +123,12 @@ impl FromRequestParts<App> for InSharedContainer {
             Err(RawPathParamsRejection::InvalidUtf8InPathParam(_)) => String::new(),
             Err(_) => return Err(AppError::internal("the route has no path parameters")),
         };
-        let token = query_param(parts.uri.query(), READ_TOKEN);
-        let Some(app) = app.enter_shared_container(&container_id, &token).await? else {
+        let query_map = parse_query_map(parts.uri.query());
+        let token = query_map
+            .get(READ_TOKEN)
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let Some(app) = app.enter_shared_container(&container_id, token).await? else {
             app.shared_reads().failed(address);
             return Err(not_shared());
         };
@@ -149,7 +182,10 @@ impl InSharedContainer {
     security(()),
     responses((status = 200, description = "The board, wiki or course.", body = Container)),
 )]
-async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
+async fn handle_get_shared_container(
+    shared: InSharedContainer,
+    QueryParams(_): QueryParams<SharedTokenQuery>,
+) -> ApiResult {
     Ok(json_response(&shared.container().await?))
 }
 
@@ -180,11 +216,17 @@ async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
 )]
 async fn handle_get_shared_blocks(
     shared: InSharedContainer,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<SharedBlocksQuery>,
 ) -> ApiResult {
     shared.require_kind(ContainerKind::Board)?;
     let container = shared.container().await?;
-    let mut blocks = asked_blocks(&shared.app, &shared.container_id, query.as_deref()).await?;
+    let filter = BlocksFilterQuery {
+        all: query.all,
+        block_id: query.block_id,
+        parent_id: query.parent_id,
+        block_type: query.block_type,
+    };
+    let mut blocks = asked_blocks(&shared.app, &shared.container_id, &filter).await?;
     let people = container.person_properties();
     let bodies = blocks.iter().filter_map(|block| block.body.as_ref());
     let shown = shared
@@ -218,11 +260,16 @@ async fn handle_get_shared_blocks(
 )]
 async fn handle_get_shared_cards(
     shared: InSharedContainer,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<SharedCardsQuery>,
 ) -> ApiResult {
     shared.require_kind(ContainerKind::Board)?;
     let container = shared.container().await?;
-    let mut cards = cards_page(&shared.app, &shared.container_id, query.as_deref()).await?;
+    let list_query = CardsListQuery {
+        page: query.page,
+        per_page: query.per_page,
+        preview: query.preview,
+    };
+    let mut cards = cards_page(&shared.app, &shared.container_id, &list_query).await?;
     let people = container.person_properties();
     for card in &mut cards {
         card.hide_people(&people);
@@ -249,6 +296,7 @@ async fn handle_get_shared_cards(
 async fn handle_get_shared_file(
     shared: InSharedContainer,
     Path((_, file_id)): Path<(String, String)>,
+    QueryParams(_): QueryParams<SharedTokenQuery>,
     headers: HeaderMap,
 ) -> ApiResult {
     serve_container_file(&shared.app, &shared.container_id, &file_id, &headers).await
@@ -270,6 +318,7 @@ async fn handle_get_shared_file(
 async fn handle_get_shared_file_record(
     shared: InSharedContainer,
     Path((_, file_id)): Path<(String, String)>,
+    QueryParams(_): QueryParams<SharedTokenQuery>,
 ) -> ApiResult {
     Ok(json_response(
         &container_file_record(&shared.app, &shared.container_id, &file_id).await?,
@@ -290,7 +339,10 @@ async fn handle_get_shared_file_record(
     security(()),
     responses((status = 200, description = "The pages.", body = Vec<PageNode>)),
 )]
-async fn handle_get_shared_page_tree(shared: InSharedContainer) -> ApiResult {
+async fn handle_get_shared_page_tree(
+    shared: InSharedContainer,
+    QueryParams(_): QueryParams<SharedTokenQuery>,
+) -> ApiResult {
     shared.require_kind(ContainerKind::Wiki)?;
     Ok(json_response(
         &shared.app.page_tree(&shared.container_id).await?,
@@ -318,6 +370,7 @@ async fn handle_get_shared_page_tree(shared: InSharedContainer) -> ApiResult {
 async fn handle_get_shared_page(
     shared: InSharedContainer,
     Path((_, page_id)): Path<(String, String)>,
+    QueryParams(_): QueryParams<SharedTokenQuery>,
 ) -> ApiResult {
     shared.require_kind(ContainerKind::Wiki)?;
     let mut page = shared.app.page_of(&shared.container_id, &page_id).await?;
@@ -346,7 +399,10 @@ async fn handle_get_shared_page(
     security(()),
     responses((status = 200, description = "The chapters and units.", body = Vec<UnitNode>)),
 )]
-async fn handle_get_shared_unit_tree(shared: InSharedContainer) -> ApiResult {
+async fn handle_get_shared_unit_tree(
+    shared: InSharedContainer,
+    QueryParams(_): QueryParams<SharedTokenQuery>,
+) -> ApiResult {
     shared.require_kind(ContainerKind::Course)?;
     Ok(json_response(
         &shared.app.unit_tree(&shared.container_id).await?,
@@ -374,6 +430,7 @@ async fn handle_get_shared_unit_tree(shared: InSharedContainer) -> ApiResult {
 async fn handle_get_shared_unit(
     shared: InSharedContainer,
     Path((_, unit_id)): Path<(String, String)>,
+    QueryParams(_): QueryParams<SharedTokenQuery>,
 ) -> ApiResult {
     shared.require_kind(ContainerKind::Course)?;
     let mut unit = shared

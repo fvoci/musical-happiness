@@ -76,7 +76,8 @@ impl Store {
             } else {
                 None
             };
-            let member = match row.opt_text(19)? {
+            let member_col = 1 + containers::CONTAINER_COLUMN_COUNT;
+            let member = match row.opt_text(member_col)? {
                 Some(raw_role) => Some(ContainerMember {
                     container_id: container_id.to_owned(),
                     user_id: user_id.to_owned(),
@@ -89,7 +90,7 @@ impl Store {
                 }),
                 None => None,
             };
-            let team_role = match row.opt_int(20)? {
+            let team_role = match row.opt_int(member_col + 1)? {
                 None => None,
                 Some(3) => Some(ContainerRole::Editor),
                 Some(2) => Some(ContainerRole::Commenter),

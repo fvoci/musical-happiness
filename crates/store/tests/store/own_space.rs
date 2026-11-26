@@ -280,13 +280,13 @@ async fn a_first_password_moves_the_revision_of_the_space_alone() {
             space.visibility_version().await,
         );
         if name == "operated" {
-            let set = test.reset_user_password(name, "a hash").await;
-            assert_eq!(set.expect("set"), user, "the operator's word");
+            let (set_user, _) = test.reset_user_password(name, "a hash").await.expect("set");
+            assert_eq!(set_user, user, "the operator's word");
         } else {
             let set = test
                 .change_user_password(&user, "", "a hash", &new_id(), "no digest")
                 .await;
-            assert!(set.expect("set"), "the account's first password");
+            assert!(set.expect("set").is_some(), "the account's first password");
         }
         let after = (
             test.visibility_version().await,

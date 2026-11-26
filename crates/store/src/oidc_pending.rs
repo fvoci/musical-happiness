@@ -11,7 +11,7 @@ use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::db::{Dialect, Id, Row, Scope};
+use crate::db::{Dialect, Id, LockRank, Row, Scope};
 use crate::error::StoreError;
 use crate::oidc::{
     self, Identity, Newcomers, OidcAccount, OidcRefusal, StoredProvider,
@@ -21,7 +21,7 @@ use crate::oidc_former::Keeping;
 use crate::oidc_held::{self, Tied, Tying};
 use crate::oidc_identities::LinkingSession;
 use crate::org_admin;
-use crate::sessions;
+use crate::sessions::{self, SessionsEnded};
 
 /// The columns of pending settings, in the order [`pending_from_row`] reads them.
 const PENDING_COLUMNS: &str = "provider_id, issuer, client_id, client_secret, created_at";
@@ -106,7 +106,7 @@ pub struct Trial<'a> {
 }
 
 /// What a trial of the pending settings that ended well did.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Applied {
     /// The provider as it was before.
     pub before: StoredProvider,
@@ -115,6 +115,8 @@ pub struct Applied {
     pub provider: StoredProvider,
     /// Whether the account joined the organization by it.
     pub joined: bool,
+    /// Sessions ended if the issuer changed.
+    pub ended: SessionsEnded,
 }
 
 impl Store {
@@ -150,7 +152,7 @@ impl Store {
         actor_id: &str,
     ) -> Result<Option<(StoredProvider, PendingProvider)>, StoreError> {
         self.transaction(async |scope| {
-            hold_provider_of_organization(scope).await?;
+            let held = hold_provider_of_organization(scope).await?;
             let Some(mut provider) = read_provider(scope).await? else {
                 return Ok(None);
             };
@@ -165,9 +167,11 @@ impl Store {
                     auto_join: kept.auto_join,
                     ..before.clone()
                 };
-                provider = oidc::write_provider(scope, Some(&before), &kept, Keeping::NOTHING)
-                    .await?
-                    .provider;
+                let written =
+                    oidc::write_provider(scope, held, Some(&before), &kept, Keeping::NOTHING)
+                        .await?;
+                let _ = written.ended;
+                provider = written.provider;
                 oidc::record_provider_change(scope, actor_id, Some(&before), &provider).await?;
             }
             // Later than the settings before, also within one millisecond or when the
@@ -277,7 +281,7 @@ impl Store {
             keep_former,
         } = trial;
         self.transaction(async |scope| {
-            hold_provider_of_organization(scope).await?;
+            let held = hold_provider_of_organization(scope).await?;
             let (Some(before), Some(pending)) =
                 (read_provider(scope).await?, read_pending(scope).await?)
             else {
@@ -337,9 +341,9 @@ impl Store {
                 time: keep_former,
                 actor_id: Some(trier_id),
             };
-            let provider = oidc::write_provider(scope, Some(&before), &applied, keeping)
-                .await?
-                .provider;
+            let written =
+                oidc::write_provider(scope, held, Some(&before), &applied, keeping).await?;
+            let provider = written.provider;
             let entry = AuditEntry::new(
                 "",
                 &session.user_id,
@@ -359,6 +363,7 @@ impl Store {
                 before,
                 provider,
                 joined,
+                ended: written.ended,
             }))
         })
         .await
@@ -507,6 +512,7 @@ async fn is_made_just_now(
         .push_bind(" AND s.login_org_id = ", Id(&provider.org_id))
         .push_bind(" AND s.login_revision = ", provider.revision)
         .push_bind(" AND s.created_at >= ", binding.made_since);
+    scope.record_lock(LockRank::Users, trier_id);
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR SHARE OF u");
     }

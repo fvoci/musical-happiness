@@ -468,15 +468,19 @@ describe('deleted and brought back', () => {
     expect(card.summary?.title).toBe('Alpha');
   });
 
-  it('undo of a delete counts once the card is restored, even if reading it fails', async () => {
+  it('restores deleted cards atomically without rereading all board cards, and keeps failed undo retryable', async () => {
     const { board, workspace, backend, cardId } = await openAlpha();
+    const cardsSpy = vi.spyOn(backend, 'cards');
     await board.deleteCards([cardId]);
-    vi.spyOn(backend, 'card').mockRejectedValueOnce(new BackendError(500, { detail: 'down' }));
+    vi.spyOn(backend, 'batchRestoreCards').mockRejectedValueOnce(
+      new BackendError(500, { detail: 'down' }),
+    );
     await workspace.undoLast();
     expect(workspace.problems).toHaveLength(1);
-    // Not undone again: the next undo would restore it twice.
+    expect(workspace.undo.canUndo).toBe(true);
+    await workspace.undoLast();
     expect(workspace.undo.canUndo).toBe(false);
-    await settle();
+    expect(cardsSpy).not.toHaveBeenCalled();
     expect(board.card(cardId)?.title).toBe('Alpha');
   });
 

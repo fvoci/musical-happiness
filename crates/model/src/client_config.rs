@@ -26,4 +26,7 @@ pub struct ClientConfig {
     /// is configured; a search server that does not answer, or cannot hold the index,
     /// answers each search 503 (`search_unavailable`).
     pub search_enabled: bool,
+    /// How many whole days deleted items stay in the trash before housekeeping purges
+    /// them (`trash_retention_days`, default 30).
+    pub trash_retention_days: u32,
 }

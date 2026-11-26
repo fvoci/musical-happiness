@@ -28,7 +28,12 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { filterConditionDisplayString } from '$lib/logic/filter-conditions.ts';
   import type { Regional } from '$lib/logic/regional.ts';
-  import type { FilterClause, FilterCondition, PropertyTemplate } from '$lib/logic/wire.ts';
+  import {
+    DYNAMIC_FILTER_ME,
+    type FilterClause,
+    type FilterCondition,
+    type PropertyTemplate,
+  } from '$lib/logic/wire.ts';
   import { Input } from '$lib/ui/input/index.js';
 
   import {
@@ -76,6 +81,10 @@
   const valueType = $derived(filterValueTypeOf(clause.propertyId, templates));
   const conditions = $derived(conditionsFor(valueType));
   const valueName = $derived(m.viewheader_filter_value_of({ property: name }));
+  const peopleWithMe = $derived<readonly PropertyUser[]>([
+    { id: DYNAMIC_FILTER_ME, username: DYNAMIC_FILTER_ME, displayName: m.filter_me() },
+    ...people,
+  ]);
   const withValue = $derived(valueType !== 'none' && takesValue(clause.condition));
 
   const propertyActions = $derived<MenuAction[]>(
@@ -181,7 +190,7 @@
             name={valueName}
             ids={clause.values}
             multiple
-            users={people}
+            users={peopleWithMe}
             {named}
             editable
             placeholder={m['FilterValue.empty']()}

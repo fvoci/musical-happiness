@@ -649,6 +649,7 @@ async fn check_space(
     workspace_id: &str,
     coming: u32,
 ) -> Result<(), StoreError> {
+    scope.record_lock(crate::db::LockRank::Workspace, workspace_id);
     let mut sql = scope.sql(
         "SELECT o.kind FROM workspaces AS w JOIN organizations AS o ON o.id = w.org_id \
          WHERE w.id = ",
@@ -690,9 +691,6 @@ pub(crate) async fn hold_place_of_deleted(
     scope: &mut Scope<'_>,
     container_id: &str,
 ) -> Result<(), StoreError> {
-    if scope.dialect() != Dialect::Postgres {
-        return Ok(());
-    }
     let mut sql = scope.sql("SELECT container FROM deleted_containers WHERE id = ");
     sql.bind(Id(container_id));
     let Some(row) = scope.fetch_optional(sql).await? else {

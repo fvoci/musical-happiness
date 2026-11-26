@@ -454,7 +454,7 @@ impl Server {
     pub async fn shutdown(mut self) {
         // Websocket connections are not part of the HTTP server's own connections once
         // they are upgraded; they end here.
-        self.app.ws().close();
+        self.app.ws().shutdown();
         // The bodies of the documents being edited are written before the background
         // work is waited for, which tells of them.
         self.app.collab().end(&self.app).await;
@@ -509,6 +509,9 @@ pub async fn keep_house(app: &App) {
     if let Err(error) = app.notify_upcoming_meetings(auth::now_millis()).await {
         tracing::warn!(%error, "upcoming course meeting notifications were not sent");
     }
+    if let Err(error) = app.notify_due_soon_cards(auth::now_millis()).await {
+        tracing::warn!(%error, "due-soon card notifications were not sent");
+    }
     // What became of each job is the metrics' to count, where the tasks run them.
     let _ = purge_trash(app).await;
     let _ = collect_unreferenced_files(app).await;
@@ -528,11 +531,14 @@ async fn clean_up_sessions(app: &App) {
     let idle_since = now.saturating_sub(app.config().session_idle_millis());
     match app.store().clean_up_sessions(now, idle_since).await {
         Ok(ended) => {
-            for session_id in &ended {
-                app.ws().close_session(session_id);
-            }
-            if !ended.is_empty() {
-                tracing::debug!(ended = ended.len(), "removed sessions that had ended");
+            let count = match ended.scope() {
+                fvoci_store::EndedSessionScope::None => 0,
+                fvoci_store::EndedSessionScope::Sessions(ids) => ids.len(),
+                _ => 1,
+            };
+            app.ws().close(ended);
+            if count > 0 {
+                tracing::debug!(ended = count, "removed sessions that had ended");
             }
         }
         Err(error) => tracing::error!(%error, "unable to clean up the sessions"),
@@ -660,6 +666,7 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
                 tracing::warn!(%error, "upcoming course meeting notifications were not sent");
             }
             app.notify_due_reviews_upkeep().await;
+            app.notify_due_soon_cards_upkeep().await;
         }
     })
 }

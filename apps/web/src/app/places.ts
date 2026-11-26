@@ -4,6 +4,7 @@
  * shown, or else over the board's first view; a page at its wiki's address.
  */
 import { parseCalendarDate } from '$lib/logic/dates.ts';
+import type { ContainerKind } from '$lib/logic/wire.ts';
 
 import type { RouteFields, Router } from './router.svelte.ts';
 
@@ -14,19 +15,25 @@ import type { RouteFields, Router } from './router.svelte.ts';
  */
 export const ANY_VIEW = '-';
 
-/** A card, a page, a diary entry, a course unit, or a course meeting, and where it is. */
+/** A card, a page, a diary entry, a course unit, a course meeting, or a container itself, and where it is. */
 export interface Place {
-  kind: 'card' | 'page' | 'entry' | 'unit' | 'meeting';
+  kind: 'card' | 'page' | 'entry' | 'unit' | 'meeting' | 'container';
   id: string;
   containerId: string;
+  containerKind?: ContainerKind;
   workspaceId: string | undefined;
   /** The entry's day (`YYYY-MM-DD`), for a diary entry. */
   title?: string;
 }
 
-/** The route of a card (over the view shown where its board is shown, else over any), a page, a diary entry, a course unit, or a course meeting. */
+/** The route of a card (over the view shown where its board is shown, else over any), a page, a diary entry, a course unit, a course meeting, or a container. */
 export function routeOfPlace(router: Router, place: Place): RouteFields {
   const { workspaceId, containerId, id } = place;
+  if (place.kind === 'container') {
+    if (place.containerKind === 'wiki') return { workspaceId, wikiId: containerId };
+    if (place.containerKind === 'course') return { workspaceId, courseId: containerId };
+    return { workspaceId, boardId: containerId };
+  }
   if (place.kind === 'meeting') {
     return { workspaceId, courseId: containerId, courseTab: 'meetings', meetingId: id };
   }
@@ -58,7 +65,13 @@ export function routeOfPlace(router: Router, place: Place): RouteFields {
 export function goToPlace(router: Router, place: Place): void {
   const route = routeOfPlace(router, place);
   const now = router.route;
-  if (place.kind === 'page' && now.kind === 'wiki' && now.wikiId === place.containerId) {
+  if (place.kind === 'container') {
+    router.openContainer({
+      id: place.containerId,
+      workspaceId: place.workspaceId ?? '',
+      kind: place.containerKind ?? 'board',
+    });
+  } else if (place.kind === 'page' && now.kind === 'wiki' && now.wikiId === place.containerId) {
     router.openPage(place.id);
   } else if (
     place.kind === 'meeting' &&

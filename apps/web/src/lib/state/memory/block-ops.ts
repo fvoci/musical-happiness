@@ -3,6 +3,7 @@
  * `MemoryBackend` (`state/memory/backend.ts`), extracted to keep `MemoryBackend`
  * within 500 lines without dismantling it.
  */
+import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
 import type { DocNode } from '../../editor/schema.ts';
 import type { BlockPatch, BoardView } from '../../logic/wire.ts';
 import type {
@@ -40,7 +41,7 @@ import { noteComment } from './notifications.ts';
 import { checkRelations } from './references.ts';
 import { fail } from './refuse.ts';
 import { attachmentOf, commentOf, copy, detailOf, scramble, summaryOf, viewOf } from './shapes.ts';
-import { deletion, subtreeOf, takeBlockBack } from './trash.ts';
+import { deletion, mayManageCards, subtreeOf, takeBlockBack } from './trash.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
 export function blockInBoard(
@@ -71,6 +72,7 @@ export function createMemoryView(
   draft: ViewDraft,
 ): BoardView {
   containerInWorld(ctx.world, boardId, 'board');
+  mayManageCards(ctx.world, ctx.userId, boardId, 'access denied to make board changes');
   const block = newStoredBlock(ctx, boardId, '', 'view');
   block.title = draft.title;
   block.fields = copy(draft.fields);
@@ -85,6 +87,7 @@ export function patchMemoryView(
   viewId: string,
   sent: BlockPatch,
 ): { before: BoardView; after: BoardView } {
+  mayManageCards(ctx.world, ctx.userId, boardId, 'access denied to make board changes');
   const stored = blockInBoard(ctx.world, boardId, viewId, 'view') as StoredView;
   if (sent.readAt !== undefined && stored.updatedAt !== sent.readAt) {
     fail(409, 'the block has changed since it was read');
@@ -112,6 +115,7 @@ export function createMemoryCard(
   draft: CardDraft,
 ): CardSummary {
   const board = containerInWorld(ctx.world, boardId, 'board');
+  mayManageCards(ctx.world, ctx.userId, boardId, 'access denied to create card');
   const block = newStoredBlock(ctx, boardId, draft.parentId ?? '', 'card');
   const stored = storeNewCard(ctx.world, board, block, draft);
   tellBlocks(ctx.world, boardId, [stored]);
@@ -124,6 +128,7 @@ export function patchMemoryCard(
   cardId: string,
   patch: CardPatch,
 ): CardSummary {
+  mayManageCards(ctx.world, ctx.userId, boardId, 'access denied to patch card');
   const before = blockInBoard(ctx.world, boardId, cardId, 'card') as StoredCard;
   const card = applyCardPatch(before, patch);
   checkCardParent(ctx.world, boardId, card, card.parentId, false, before);
@@ -285,4 +290,24 @@ export function restoreMemoryBlock(
     },
   );
   tellBlocks(ctx.world, boardId, restored);
+}
+
+export function listMemoryViews(ctx: MemoryContainerContext, boardId: string): BoardView[] {
+  memberRole(ctx.world, ctx.userId, boardId);
+  return scramble(ctx.world.blocksOf(boardId).filter((b) => b.type === 'view')).map(viewOf);
+}
+
+export function listMemoryCards(ctx: MemoryContainerContext, boardId: string): CardSummary[] {
+  memberRole(ctx.world, ctx.userId, boardId);
+  const cards = ctx.world.blocksOf(boardId).filter((b) => b.type === 'card');
+  return scramble(cards).map((c) => withLastComment(ctx.world, summaryOf(c as StoredCard)));
+}
+
+export function listMemoryCardPreviews(
+  ctx: MemoryContainerContext,
+  boardId: string,
+): Map<string, CardPreview> {
+  memberRole(ctx.world, ctx.userId, boardId);
+  const cards = ctx.world.blocksOf(boardId).filter((b) => b.type === 'card');
+  return new Map(cards.map((c) => [c.id, cardPreviewOf(c.body)]));
 }

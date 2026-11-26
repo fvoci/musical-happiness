@@ -117,7 +117,7 @@
   /** What a comment of the card said before, with its writers known by name. */
   async function readVersions(commentId: string): Promise<CommentVersion[]> {
     const workspace = board.workspace;
-    const list = await workspace.backend.commentVersions(board.boardId, commentId);
+    const list = await workspace.backend.commentVersions(board.boardId, commentId, card.cardId);
     await workspace.learnUsers(list.map((version) => version.writtenBy).filter((id) => id !== ''));
     return list;
   }

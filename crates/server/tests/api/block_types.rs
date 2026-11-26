@@ -197,21 +197,30 @@ async fn the_fields_of_a_block_are_limited_by_its_type() {
     let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
-    // {"k":"<value>"} is the value and eight characters.
-    let sized = |block_type: BlockType, len: usize| Block {
-        fields: fields(json!({"k": "a".repeat(len)})),
-        ..child_of(&card, block_type, "sized")
+    let sized = |block_type: BlockType, len: usize| match block_type {
+        BlockType::View => Block {
+            fields: fields(json!({"groupBy": "a".repeat(len)})),
+            ..new_block(&board.id, BlockType::View, "sized")
+        },
+        _ => Block {
+            fields: fields(json!({"k": "a".repeat(len)})),
+            ..child_of(&card, block_type, "sized")
+        },
     };
-    for (block_type, limit) in [
-        (BlockType::Card, CARD_FIELDS_MAX_CHARS),
-        (BlockType::Comment, CARD_FIELDS_MAX_CHARS),
-        (BlockType::Attachment, CARD_FIELDS_MAX_CHARS),
-        (BlockType::View, BLOCK_FIELDS_MAX_CHARS),
+    for (block_type, limit, overhead) in [
+        (BlockType::Comment, CARD_FIELDS_MAX_CHARS, 8),
+        (BlockType::Attachment, CARD_FIELDS_MAX_CHARS, 8),
+        (BlockType::View, BLOCK_FIELDS_MAX_CHARS, 14),
     ] {
-        insert(&th.client, &board.id, &[sized(block_type, limit - 8)]).await;
+        insert(
+            &th.client,
+            &board.id,
+            &[sized(block_type, limit - overhead)],
+        )
+        .await;
         let response = th
             .client
-            .insert_blocks(&board.id, &[sized(block_type, limit - 7)])
+            .insert_blocks(&board.id, &[sized(block_type, limit - overhead + 1)])
             .await;
         response.check_bad_request();
         assert!(
@@ -222,6 +231,43 @@ async fn the_fields_of_a_block_are_limited_by_its_type() {
             response.value()
         );
     }
+    let card_at_limit = json!({
+        "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}],
+        "blocks": [{
+            "id": "c1",
+            "containerId": "b1",
+            "type": "card",
+            "fields": {"k": "a".repeat(CARD_FIELDS_MAX_CHARS - 8)},
+        }],
+    });
+    th.client
+        .post(&format!("{TEST_WS}/containers-and-blocks"), &card_at_limit)
+        .await
+        .check_created();
+    let card_over_limit = json!({
+        "containers": [{"id": "b2", "workspaceId": TEST_WORKSPACE_ID, "visibility": "open"}],
+        "blocks": [{
+            "id": "c2",
+            "containerId": "b2",
+            "type": "card",
+            "fields": {"k": "a".repeat(CARD_FIELDS_MAX_CHARS - 7)},
+        }],
+    });
+    let response = th
+        .client
+        .post(
+            &format!("{TEST_WS}/containers-and-blocks"),
+            &card_over_limit,
+        )
+        .await;
+    response.check_bad_request();
+    assert!(
+        response.value()["detail"]
+            .as_str()
+            .is_some_and(|message| message.contains("block fields size limit exceeded")),
+        "card over the limit: {}",
+        response.value()
+    );
 
     let grow = BlockPatch {
         updated_fields: fields(json!({"more": "b".repeat(CARD_FIELDS_MAX_CHARS)})),

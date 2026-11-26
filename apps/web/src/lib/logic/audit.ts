@@ -32,6 +32,9 @@ export const AUDIT_ACTIONS = [
   'oidc_identity_bound',
   'oidc_identity_carried_over',
   'email_verified_by_operator',
+  'container_copied_out',
+  'copy_out_disabled',
+  'copy_out_enabled',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

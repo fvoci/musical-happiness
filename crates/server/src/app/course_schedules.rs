@@ -110,7 +110,7 @@ impl App {
                 .course_schedule_redistributed(ScheduleRedistributionScope::SharedAuto);
         }
         if !updated_ids.is_empty() {
-            self.announce_course_block_ids(&course.workspace_id, updated_ids);
+            self.announce_blocks(&course.workspace_id, updated_ids);
         }
         self.course_schedule_view(course_id, user_id, enrollment)
             .await
@@ -151,7 +151,7 @@ impl App {
         self.metrics()
             .course_schedule_redistributed(ScheduleRedistributionScope::SharedManual);
         if !updated_ids.is_empty() {
-            self.announce_course_block_ids(&course.workspace_id, updated_ids);
+            self.announce_blocks(&course.workspace_id, updated_ids);
         }
         self.course_schedule_view_at(course_id, user_id, enrollment, today)
             .await
@@ -217,31 +217,5 @@ impl App {
             .store()
             .get_workspace_learning_today(workspace_id, user_id, today)
             .await?)
-    }
-
-    /// Announces modified unit blocks to websocket listeners and webhooks in the
-    /// background, loading one block at a time so memory stays bounded regardless of
-    /// course size (mirroring `App::patch_blocks`).
-    fn announce_course_block_ids(&self, workspace_id: &str, block_ids: Vec<String>) {
-        let app = self.clone();
-        let workspace_id = workspace_id.to_owned();
-        self.spawn_background(async move {
-            for block_id in &block_ids {
-                let block = match app.store().get_block(block_id).await {
-                    Ok(block) => block,
-                    Err(error) if error.is_not_found() => continue,
-                    Err(error) => {
-                        tracing::error!(
-                            %error,
-                            block_id,
-                            "cannot read a rescheduled unit block to announce it"
-                        );
-                        return;
-                    }
-                };
-                app.ws().broadcast_block_change(&workspace_id, &block).await;
-                app.tell_webhooks(&block);
-            }
-        });
     }
 }

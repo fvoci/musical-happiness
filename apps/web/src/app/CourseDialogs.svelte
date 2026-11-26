@@ -126,7 +126,7 @@
     {trash}
     {workspace}
     title={m.course_trash()}
-    description={m.course_trash_description()}
+    description={m.course_trash_retention({ days: workspace.trashRetentionDays })}
     untitled={m.course_unit_untitled()}
     belowLabel={(count: number) => m.course_trash_below({ count })}
     testId="unit-trash"

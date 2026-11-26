@@ -3,7 +3,9 @@
 //! A category is a row while it exists. Deleting one removes the row, and with it the
 //! filing of boards under it.
 
-use fvoci_model::{Category, CategoryType};
+use std::collections::HashSet;
+
+use fvoci_model::{Category, CategoryPatch, CategoryType};
 
 use crate::Store;
 use crate::db::{Id, Row, Scope};
@@ -108,6 +110,55 @@ impl Store {
         .await
     }
 
+    /// Partially updates `name` and/or `collapsed` of a user's category in `workspace_id`
+    /// in a single transaction, returning the updated category.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if the category does not exist or belongs to
+    /// another user or workspace, and [`StoreError::InvalidCategory`] if the resulting
+    /// category fails validation.
+    pub async fn patch_category(
+        &self,
+        workspace_id: &str,
+        category_id: &str,
+        user_id: &str,
+        patch: &CategoryPatch,
+    ) -> Result<Category, StoreError> {
+        self.transaction(async |scope| {
+            let mut category = get_category(scope, category_id).await?;
+            if category.workspace_id != workspace_id || category.user_id != user_id {
+                return Err(StoreError::not_found(format_args!(
+                    "category ID={category_id}"
+                )));
+            }
+            if category.category_type != CategoryType::System
+                && let Some(name) = &patch.name
+            {
+                category.name = name.trim().to_owned();
+            }
+            if let Some(collapsed) = patch.collapsed {
+                category.collapsed = collapsed;
+            }
+            category.updated_at = scope.now_millis();
+            category.validate()?;
+            let mut sql = scope.sql("UPDATE categories SET name = ");
+            sql.bind(&category.name)
+                .push_bind(", updated_at = ", category.updated_at)
+                .push_bind(", collapsed = ", category.collapsed)
+                .push_bind(" WHERE id = ", Id(&category.id))
+                .push_bind(" AND user_id = ", Id(user_id))
+                .push_bind(" AND workspace_id = ", Id(workspace_id));
+            if scope.execute(sql).await? == 0 {
+                return Err(StoreError::not_found(format_args!(
+                    "category ID={category_id}"
+                )));
+            }
+            Ok(category)
+        })
+        .await
+    }
+
     /// Gives the categories of a user in a workspace the sort orders 0, 10, 20 and so on, in
     /// the order of their identifiers in `new_order`, and returns `new_order`.
     ///
@@ -116,13 +167,20 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the statement fails.
+    /// Returns [`StoreError::DuplicateReorderId`] if `new_order` contains duplicate IDs,
+    /// and [`StoreError::Database`] if the statement fails.
     pub async fn reorder_categories(
         &self,
         user_id: &str,
         workspace_id: &str,
         new_order: Vec<String>,
     ) -> Result<Vec<String>, StoreError> {
+        let mut seen = HashSet::with_capacity(new_order.len());
+        for category_id in &new_order {
+            if !seen.insert(category_id.as_str()) {
+                return Err(StoreError::DuplicateReorderId(category_id.clone()));
+            }
+        }
         self.with_write_conn(async |scope| {
             if new_order.is_empty() {
                 return Ok(());

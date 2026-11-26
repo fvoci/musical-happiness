@@ -670,9 +670,23 @@ async fn course_duplication_permissions_own_space_guest_sso_and_cross_org_isolat
     let member = &ts.client2;
     let member_id = member.me().await.id;
 
-    // Shared workspace: open course readable by unjoined member (can duplicate), private 404.
+    // Shared workspace: open course readable by unjoined member, but duplication requires membership (403); private 404.
     let open_course = create_course(owner, TEST_WS, "open", "Open Study").await;
     let priv_course = create_course(owner, TEST_WS, "private", "Private Study").await;
+    member
+        .post(
+            &format!("{TEST_WS}/containers/{open_course}/duplicate"),
+            &json!({}),
+        )
+        .await
+        .check_forbidden();
+    member
+        .post(
+            &format!("{TEST_WS}/containers/{open_course}/join"),
+            &json!({}),
+        )
+        .await
+        .check_ok();
     member
         .post(
             &format!("{TEST_WS}/containers/{open_course}/duplicate"),

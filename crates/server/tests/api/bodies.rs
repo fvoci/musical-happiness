@@ -403,13 +403,19 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
 
     // Made with a body, which is checked and counted.
-    let made: Vec<Value> = th
-        .client
-        .post(&blocks, &[card_block(&board.id, &document())])
-        .await
-        .created_json();
-    let card_id = made[0]["id"].as_str().expect("an id").to_owned();
-    assert_eq!(made[0]["body"], document(), "{made:?}");
+    let made: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": document()}),
+    )
+    .await
+    .created_json();
+    let card_id = made.id.clone();
+    assert_eq!(
+        made.body.as_ref().map(fvoci_model::Body::document),
+        Some(&document()),
+        "{made:?}"
+    );
     assert_eq!(listed(&th.client, &board.id, &card_id).await, (true, 2, 1));
     // Changed with the `updatedAt` it was read at, through each route of patches.
     let path = format!("{blocks}/{card_id}");
@@ -518,14 +524,6 @@ async fn files_of_a_body_are_files_of_its_board(kind: &str) {
         )
         .await;
         check_refused_member(&response, "body");
-        let response = th
-            .client
-            .post(
-                &format!("{TEST_WS}/boards/{}/blocks", board.id),
-                &[card_block(&board.id, &with_node(kind, missing))],
-            )
-            .await;
-        check_refused_member(&response, "0/body");
     }
     let created: Card = new_card(
         &th.client,
@@ -534,6 +532,22 @@ async fn files_of_a_body_are_files_of_its_board(kind: &str) {
     )
     .await
     .created_json();
+    for missing in [elsewhere.as_str(), "7nofile.png"] {
+        let response = th
+            .client
+            .post(
+                &format!("{TEST_WS}/boards/{}/blocks", board.id),
+                &[json!({
+                    "id": "c1",
+                    "containerId": board.id,
+                    "parentId": created.id,
+                    "type": "comment",
+                    "body": with_node(kind, missing),
+                })],
+            )
+            .await;
+        check_refused_member(&response, "0/body");
+    }
     let response = th
         .client
         .patch(
@@ -591,26 +605,30 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
         .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Private)
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
-    let made: Vec<Value> = th
-        .client
-        .post(&blocks, &[card_block(&board.id, &document())])
-        .await
-        .created_json();
-    let card_id = made[0]["id"].as_str().expect("an id").to_owned();
+    let made: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": document()}),
+    )
+    .await
+    .created_json();
+    let card_id = made.id;
 
-    // What may not be stored, and a body on a block that is no card.
+    // What may not be stored, and a body on a block that cannot hold one.
     for (block, field) in [
-        (card_block(&board.id, &json!("attachment")), "0/body"),
         (
-            card_block(
-                &board.id,
-                &json!({"type": "doc", "content": [{"type": "table"}]}),
-            ),
+            json!({"id": "c1", "containerId": board.id, "parentId": card_id, "type": "comment",
+                   "body": "attachment"}),
+            "0/body",
+        ),
+        (
+            json!({"id": "c2", "containerId": board.id, "parentId": card_id, "type": "comment",
+                   "body": {"type": "doc", "content": [{"type": "table"}]}}),
             "0/body/content/0",
         ),
         (
             json!({"id": "t1", "containerId": board.id, "parentId": card_id, "type": "attachment",
-                   "createdAt": 1, "updatedAt": 1, "body": document()}),
+                   "body": document()}),
             "0/body",
         ),
     ] {
@@ -685,27 +703,68 @@ async fn copies_of_a_body_show_copies_of_its_files(kind: &str) {
     .await
     .created_json();
 
-    // Blocks made from another board's: the body shows files of that board, copied.
-    let response = th
-        .client
-        .post(
-            &format!(
-                "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
-                other.id, board.id
-            ),
-            &[card_block(&other.id, &with_node(kind, &file_id))],
-        )
-        .await;
-    let made: Vec<Value> = response.created_json();
-    let moved = made[0]["body"]["content"][1]["attrs"]["fileId"]
-        .as_str()
-        .expect("a file")
-        .to_owned();
-    assert_ne!(moved, file_id, "a copy of the file");
-    th.client
-        .get(&format!("{TEST_WS}/containers/{}/files/{moved}", other.id))
-        .await
-        .check_ok();
+    // Blocks made from another board's (`sourceBoardId` for comments, `copy-to-workspace` for cards):
+    if kind == "image" {
+        let other_card: Card = new_card(&th.client, &other.id, &json!({"title": "Target"}))
+            .await
+            .created_json();
+        let response = th
+            .client
+            .post(
+                &format!(
+                    "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
+                    other.id, board.id
+                ),
+                &[json!({
+                    "id": "c1",
+                    "containerId": other.id,
+                    "parentId": other_card.id,
+                    "type": "comment",
+                    "body": with_node(kind, &file_id),
+                })],
+            )
+            .await;
+        let made: Vec<Value> = response.created_json();
+        let moved = made[0]["body"]["content"][1]["attrs"]["fileId"]
+            .as_str()
+            .expect("a file")
+            .to_owned();
+        assert_ne!(moved, file_id, "a copy of the file");
+        th.client
+            .get(&format!("{TEST_WS}/containers/{}/files/{moved}", other.id))
+            .await
+            .check_ok();
+    } else {
+        let copied_ws: Value = th
+            .client
+            .post(
+                &format!("{TEST_WS}/containers/{}/copy-to-workspace", board.id),
+                &json!({"targetWorkspaceId": TEST_WORKSPACE_ID}),
+            )
+            .await
+            .created_json();
+        let copied_board_id = copied_ws["container"]["id"]
+            .as_str()
+            .expect("copied board id");
+        let copied_blocks: Vec<Value> = th
+            .client
+            .get(&format!(
+                "{TEST_WS}/boards/{copied_board_id}/blocks?type=card"
+            ))
+            .await
+            .ok_json();
+        let moved = copied_blocks[0]["body"]["content"][1]["attrs"]["fileId"]
+            .as_str()
+            .expect("a file")
+            .to_owned();
+        assert_ne!(moved, file_id, "a copy of the file");
+        th.client
+            .get(&format!(
+                "{TEST_WS}/containers/{copied_board_id}/files/{moved}"
+            ))
+            .await
+            .check_ok();
+    }
 
     // The copy of the card shows a copy of the file, a file of the same board.
     let copies: Vec<Value> = th
@@ -998,27 +1057,57 @@ async fn copied_files_are_shown_and_unused_ones_collected(kind: &str) {
         ))
         .await
         .created_json();
-    let made: Vec<Value> = th
-        .client
-        .post(
-            &format!(
-                "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
-                other.id, board.id
-            ),
-            &[card_block(&other.id, &with_node(kind, &file_id))],
-        )
-        .await
-        .created_json();
     let shown = |block: &Value| {
         block["body"]["content"][1]["attrs"]["fileId"]
             .as_str()
             .expect("a file")
             .to_owned()
     };
-    let copies = [
-        (board.id.clone(), shown(&copy[0])),
-        (other.id.clone(), shown(&made[0])),
-    ];
+    let other_copy = if kind == "image" {
+        let other_card: Card = new_card(&th.client, &other.id, &json!({"title": "Target"}))
+            .await
+            .created_json();
+        let made: Vec<Value> = th
+            .client
+            .post(
+                &format!(
+                    "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
+                    other.id, board.id
+                ),
+                &[json!({
+                    "id": "c1",
+                    "containerId": other.id,
+                    "parentId": other_card.id,
+                    "type": "comment",
+                    "body": with_node(kind, &file_id),
+                })],
+            )
+            .await
+            .created_json();
+        (other.id.clone(), shown(&made[0]))
+    } else {
+        let copied_ws: Value = th
+            .client
+            .post(
+                &format!("{TEST_WS}/containers/{}/copy-to-workspace", board.id),
+                &json!({"targetWorkspaceId": TEST_WORKSPACE_ID}),
+            )
+            .await
+            .created_json();
+        let copied_board_id = copied_ws["container"]["id"]
+            .as_str()
+            .expect("copied board id")
+            .to_owned();
+        let copied_blocks: Vec<Value> = th
+            .client
+            .get(&format!(
+                "{TEST_WS}/boards/{copied_board_id}/blocks?type=card"
+            ))
+            .await
+            .ok_json();
+        (copied_board_id, shown(&copied_blocks[0]))
+    };
+    let copies = [(board.id.clone(), shown(&copy[0])), other_copy];
 
     let collected = th
         .app

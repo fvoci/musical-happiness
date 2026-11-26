@@ -56,6 +56,7 @@ impl Reaches {
 const REACHED: &[(&str, Reaches)] = &[
     // The container itself, in the trash too.
     ("getContainer", Reaches::EVERY),
+    ("getMyContainerPermissions", Reaches::EVERY),
     ("patchContainer", Reaches::EVERY),
     ("deleteContainer", Reaches::EVERY),
     ("restoreContainer", Reaches::EVERY),
@@ -92,13 +93,19 @@ const REACHED: &[(&str, Reaches)] = &[
     ("deleteSubscription", Reaches::LINKED),
     // Its place in the sidebar.
     ("setContainerCategory", Reaches::EVERY),
+    ("putCategoryContainer", Reaches::EVERY),
     ("hideContainer", Reaches::EVERY),
     ("unhideContainer", Reaches::EVERY),
     // A copy of it whole, and its archive.
     ("duplicateContainer", Reaches::COPIED),
+    ("copyContainerToWorkspace", Reaches::COPIED),
     ("exportContainerArchive", Reaches::EVERY),
     // What a board holds.
     ("reorderCardProperties", Reaches::BOARDS),
+    ("createBoardView", Reaches::BOARDS),
+    ("moveBoardView", Reaches::BOARDS),
+    ("duplicateBoardView", Reaches::BOARDS),
+    ("moveViewCards", Reaches::BOARDS),
     ("createBlocks", Reaches::BOARDS),
     ("getBlocks", Reaches::BOARDS),
     ("patchBlocks", Reaches::BOARDS),
@@ -108,10 +115,20 @@ const REACHED: &[(&str, Reaches)] = &[
     ("duplicateBlock", Reaches::BOARDS),
     ("getCommentVersions", Reaches::BOARDS),
     ("createCard", Reaches::BOARDS),
+    ("duplicateCard", Reaches::BOARDS),
+    ("batchDeleteCards", Reaches::BOARDS),
+    ("batchRestoreCards", Reaches::BOARDS),
     ("getCards", Reaches::BOARDS),
     ("getCardByNumber", Reaches::BOARDS),
     ("getCard", Reaches::BOARDS),
     ("patchCard", Reaches::BOARDS),
+    ("getCardComments", Reaches::BOARDS),
+    ("createCardComment", Reaches::BOARDS),
+    ("patchCardComment", Reaches::BOARDS),
+    ("deleteCardComment", Reaches::BOARDS),
+    ("restoreCardComment", Reaches::BOARDS),
+    ("getCardCommentVersions", Reaches::BOARDS),
+    ("createCardAttachment", Reaches::BOARDS),
     ("getCardBodyVersions", Reaches::BOARDS),
     ("getCardBodyVersion", Reaches::BOARDS),
     ("restoreCardBodyVersion", Reaches::BOARDS),
@@ -244,6 +261,8 @@ struct Things {
     container: String,
     /// A card of the board; a page of the wiki.
     block: String,
+    /// A view of the board (otherwise an unknown identifier).
+    view: String,
     /// A comment on the card; on the page.
     comment: String,
     /// A study meeting of a course (otherwise an unknown identifier).
@@ -270,6 +289,7 @@ impl Things {
             workspace: workspace.to_owned(),
             container: UNKNOWN_ID.to_owned(),
             block: UNKNOWN_ID.to_owned(),
+            view: UNKNOWN_ID.to_owned(),
             comment: UNKNOWN_ID.to_owned(),
             meeting: UNKNOWN_ID.to_owned(),
             exam: UNKNOWN_ID.to_owned(),
@@ -370,9 +390,15 @@ impl World {
         } else {
             "no-token".to_owned()
         };
-        let (block, comment) = match kind {
-            ContainerKind::Wiki => self.wiki_page_with_a_comment(&container).await,
-            ContainerKind::Course => self.course_unit_with_a_comment(&container).await,
+        let (block, view, comment) = match kind {
+            ContainerKind::Wiki => {
+                let (b, c) = self.wiki_page_with_a_comment(&container).await;
+                (b, UNKNOWN_ID.to_owned(), c)
+            }
+            ContainerKind::Course => {
+                let (b, c) = self.course_unit_with_a_comment(&container).await;
+                (b, UNKNOWN_ID.to_owned(), c)
+            }
             _ => self.card_with_a_comment(&container).await,
         };
         let (meeting, exam, review, note) = if kind == ContainerKind::Course {
@@ -391,6 +417,7 @@ impl World {
             workspace: ROOT_WORKSPACE_ID.to_owned(),
             container,
             block,
+            view,
             comment,
             meeting,
             exam,
@@ -493,9 +520,14 @@ impl World {
         (text(&review.value(), "id"), text(&note.value(), "id"))
     }
 
-    async fn card_with_a_comment(&self, board: &str) -> (String, String) {
+    async fn card_with_a_comment(&self, board: &str) -> (String, String, String) {
         let client = &self.ts.client;
         let at = format!("{ROOT_WS}/boards/{board}");
+        let view_res = client
+            .post(&format!("{at}/views"), &json!({"title": "Board"}))
+            .await;
+        view_res.check_done();
+        let view = text(&view_res.value()["view"], "id");
         let card = client
             .post(&format!("{at}/cards"), &json!({"title": "a card"}))
             .await;
@@ -513,16 +545,13 @@ impl World {
             )
             .await
             .check_ok();
-        let comments = client
+        let comment = client
             .post(
-                &format!("{at}/blocks"),
-                &json!([{
-                    "containerId": board, "parentId": card, "type": "comment", "body": text_of,
-                    "createdAt": 1, "updatedAt": 1,
-                }]),
+                &format!("{at}/cards/{card}/comments"),
+                &json!({"body": text_of}),
             )
             .await;
-        comments.check_done();
+        comment.check_done();
         let subscribed = client
             .post(
                 &format!("{ROOT_WS}/subscriptions"),
@@ -532,7 +561,7 @@ impl World {
             )
             .await;
         subscribed.check_done();
-        (card, text(&comments.value()[0], "id"))
+        (card, view, text(&comment.value(), "id"))
     }
 
     /// Brings `things` to where the operation does something: what it brings back is
@@ -541,12 +570,19 @@ impl World {
         let at = format!("{ROOT_WS}/containers/{}", things.container);
         let deleted = match operation {
             "restoreContainer" => self.ts.client.delete(&at).await,
-            "restoreBlock" => {
+            "restoreBlock" | "batchRestoreCards" => {
                 let block = format!(
                     "{ROOT_WS}/boards/{}/blocks/{}",
                     things.container, things.block
                 );
                 self.ts.client.delete(&block).await
+            }
+            "restoreCardComment" => {
+                let comment = format!(
+                    "{ROOT_WS}/boards/{}/cards/{}/comments/{}",
+                    things.container, things.block, things.comment
+                );
+                self.ts.client.delete(&comment).await
             }
             "restorePage" => {
                 let page = format!(
@@ -611,6 +647,7 @@ impl World {
             .replace("{boardId}", &things.container)
             .replace("{wikiId}", &things.container)
             .replace("{cardId}", block)
+            .replace("{viewId}", &things.view)
             .replace("{blockId}", block)
             .replace("{pageId}", block)
             .replace("{commentId}", &things.comment)
@@ -708,8 +745,19 @@ impl World {
             }
             "createBlocks" | "reorderCardProperties" => json!([]),
             "createCard" => json!({"title": "another card"}),
-            "createPageComment" | "createUnitComment" => json!({"body": said()}),
-            "patchPageComment" | "patchUnitComment" => json!({"body": said(), "readAt": 1}),
+            "createBoardView" => json!({"title": "Board view"}),
+            "moveBoardView" => json!({"after": null}),
+            "moveViewCards" | "batchDeleteCards" | "batchRestoreCards" => {
+                json!({"cardIds": [things.block]})
+            }
+            "createCardAttachment" => json!({"fileId": things.file, "title": "kept.txt"}),
+            "copyContainerToWorkspace" => json!({"targetWorkspaceId": things.workspace}),
+            "createCardComment" | "createPageComment" | "createUnitComment" => {
+                json!({"body": said()})
+            }
+            "patchCardComment" | "patchPageComment" | "patchUnitComment" => {
+                json!({"body": said(), "readAt": 1})
+            }
             _ => json!({}),
         }
     }
@@ -1326,7 +1374,7 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     )
     .await;
     let copied =
-        json!([{"containerId": board.container, "type": "card", "createdAt": 1, "updatedAt": 1}]);
+        json!([{"containerId": board.container, "type": "view", "fields": {"viewType": "board"}}]);
     let from = async |source: &str| {
         let path = format!(
             "{ROOT_WS}/boards/{}/blocks?sourceBoardId={source}",
@@ -1414,7 +1462,7 @@ async fn assert_course_subscriptions(world: &World, course_id: &str, unit_id: &s
             .client
             .post(
                 &format!("{ROOT_WS}/subscriptions"),
-                &subscribe(&chapter_id, "chapter"),
+                &subscribe(&chapter_id, "unit"),
             )
             .await,
         world
@@ -1422,7 +1470,7 @@ async fn assert_course_subscriptions(world: &World, course_id: &str, unit_id: &s
             .client
             .post(
                 &format!("{ROOT_WS}/subscriptions"),
-                &subscribe(UNKNOWN_ID, "chapter"),
+                &subscribe(UNKNOWN_ID, "unit"),
             )
             .await,
     );

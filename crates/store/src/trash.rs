@@ -37,7 +37,9 @@ use crate::blocks::{self, Paging, parents_first};
 use crate::card_hierarchy;
 use crate::category_containers::{self, ContainerPlace};
 use crate::containers;
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, SqlFragment};
+use crate::db::{
+    DeletedContainersHeld, Dialect, Id, LockRank, OptId, Param, Row, Scope, Sql, SqlFragment,
+};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
 use crate::files;
@@ -597,17 +599,18 @@ pub(crate) enum TrashedRoles {
 /// Holds the boards of a workspace that are in the trash, in the order of their
 /// identifiers, against whoever restores one or changes who it comes back with. Who
 /// also holds a membership of the workspace takes these first, as a restore does.
-pub(crate) async fn hold_deleted_containers(
-    scope: &mut Scope<'_>,
+pub(crate) async fn hold_deleted_containers<'c>(
+    scope: &mut Scope<'c>,
     workspace_id: &str,
-) -> Result<(), StoreError> {
+) -> Result<DeletedContainersHeld<'c>, StoreError> {
+    scope.record_lock(LockRank::DeletedContainers, workspace_id);
     if scope.dialect() != Dialect::Postgres {
-        return Ok(());
+        return Ok(DeletedContainersHeld::new());
     }
     let mut sql = scope.sql("SELECT id FROM deleted_containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id)).push(" ORDER BY id FOR UPDATE");
     scope.fetch_all(sql).await?;
-    Ok(())
+    Ok(DeletedContainersHeld::new())
 }
 
 /// Changes the memberships of a user that the boards of a workspace in the trash would
@@ -619,7 +622,7 @@ pub(crate) async fn change_member_of_deleted_containers(
     user_id: &str,
     roles: TrashedRoles,
 ) -> Result<(), StoreError> {
-    hold_deleted_containers(scope, workspace_id).await?;
+    let _held = hold_deleted_containers(scope, workspace_id).await?;
     let mut sql = scope.sql("SELECT id, members FROM deleted_containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id));
     for row in scope.fetch_all(sql).await? {
@@ -864,6 +867,7 @@ pub(crate) async fn undelete_container(
     container_id: &str,
     user_id: &str,
 ) -> Result<Container, StoreError> {
+    scope.record_lock(LockRank::DeletedContainers, container_id);
     let mut sql = scope.sql(
         "SELECT container, members, files, deletion_id, places FROM deleted_containers WHERE id = ",
     );

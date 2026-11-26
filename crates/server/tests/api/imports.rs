@@ -127,13 +127,22 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
     // A file is at most a part when sent whole: two of them make an archive of two.
     let data = incompressible(PART);
     let mut attachments = Vec::new();
+    let card: serde_json::Value = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "Card"}),
+        )
+        .await
+        .created_json();
+    let card_id = card["id"].as_str().expect("card id").to_owned();
     for half in data.chunks(PART / 2 + 1024) {
         let response = crate::files::upload(&ts.client, &board.id, "half.bin", half).await;
         response.check_created();
         let file_id = crate::files::uploaded_id(&response);
         attachments.push(Block {
             id: new_id(),
-            parent_id: String::new(),
+            parent_id: card_id.clone(),
             container_id: board.id.clone(),
             block_type: BlockType::Attachment,
             fields: json!({"fileId": file_id})
@@ -501,12 +510,20 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
     let board = ts
         .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
+    let card: serde_json::Value = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "Card"}),
+        )
+        .await
+        .created_json();
     let response = crate::files::upload(&ts.client, &board.id, "a.bin", b"in the bucket").await;
     response.check_created();
     let file_id = crate::files::uploaded_id(&response);
     let attachment = Block {
         id: new_id(),
-        parent_id: String::new(),
+        parent_id: card["id"].as_str().expect("card id").to_owned(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields: json!({"fileId": file_id})

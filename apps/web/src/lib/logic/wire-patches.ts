@@ -93,7 +93,16 @@ export function createCardPropertiesPatches(
   ];
 }
 
-const BOARD_MEMBERS_WITH_OWN_PATCH = ['properties', 'cardProperties'];
+const BOARD_MEMBERS_WITH_OWN_PATCH = [
+  'properties',
+  'cardProperties',
+  'dueDatePropertyId',
+  'doneWhen',
+];
+
+const sameJson = (first: unknown, second: unknown): boolean =>
+  (first ?? null) === (second ?? null) ||
+  JSON.stringify(first ?? null) === JSON.stringify(second ?? null);
 
 export function createPatchesFromContainers(
   newBoard: Container,
@@ -103,16 +112,22 @@ export function createPatchesFromContainers(
     newBoard.cardProperties,
     oldBoard.cardProperties,
   );
+  const dueChanged = (newBoard.dueDatePropertyId ?? null) !== (oldBoard.dueDatePropertyId ?? null);
+  const doneChanged = !sameJson(newBoard.doneWhen, oldBoard.doneWhen);
   return [
     {
       ...changedMembers(newBoard, oldBoard, BOARD_MEMBERS_WITH_OWN_PATCH),
       ...cardPropertiesPatch,
+      ...(dueChanged ? { dueDatePropertyId: newBoard.dueDatePropertyId ?? null } : {}),
+      ...(doneChanged ? { doneWhen: newBoard.doneWhen ?? null } : {}),
       updatedProperties: changedMembers(newBoard.properties, oldBoard.properties, []),
       deletedProperties: keysOnlyIn(oldBoard.properties, newBoard.properties),
     },
     {
       ...changedMembers(oldBoard, newBoard, BOARD_MEMBERS_WITH_OWN_PATCH),
       ...cardPropertiesUndoPatch,
+      ...(dueChanged ? { dueDatePropertyId: oldBoard.dueDatePropertyId ?? null } : {}),
+      ...(doneChanged ? { doneWhen: oldBoard.doneWhen ?? null } : {}),
       updatedProperties: changedMembers(oldBoard.properties, newBoard.properties, []),
       deletedProperties: keysOnlyIn(newBoard.properties, oldBoard.properties),
     },

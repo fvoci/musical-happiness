@@ -60,6 +60,7 @@ async fn put(
         .await
         .expect("asked")
         .expect("stored")
+        .0
 }
 
 async fn former(store: &Store, now: i64) -> Option<FormerProvider> {

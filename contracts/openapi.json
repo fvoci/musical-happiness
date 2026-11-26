@@ -198,6 +198,78 @@
         ],
         "type": "object"
       },
+      "AccountToday": {
+        "description": "Account-wide `'Today'` hub summary (`GET /api/v1/users/me/today`).\n\nDiary entries are intentionally absent so the server never chooses a diary day on the\ncaller's behalf; the web client renders personal diary streaks via `getDiaryRuns`.",
+        "properties": {
+          "cards": {
+            "description": "Incomplete assigned cards overdue, due today, or due soon across open workspaces.",
+            "items": {
+              "$ref": "#/components/schemas/TodayCardItem"
+            },
+            "type": "array"
+          },
+          "hasMoreCards": {
+            "description": "Whether more than 100 due/overdue cards matched across open workspaces.",
+            "type": "boolean"
+          },
+          "hasMoreMeetings": {
+            "description": "Whether more than 100 meetings matched across open workspaces.",
+            "type": "boolean"
+          },
+          "hasMoreReviews": {
+            "description": "Whether more than 100 reviews matched across open workspaces.",
+            "type": "boolean"
+          },
+          "hasMoreUnits": {
+            "description": "Whether more than 100 units matched across open workspaces.",
+            "type": "boolean"
+          },
+          "lockedWorkspaceCount": {
+            "description": "Number of workspaces excluded because the current session has not satisfied their\nSSO requirement or personal-space password confirmation.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "meetings": {
+            "description": "Upcoming course meetings across open workspaces.",
+            "items": {
+              "$ref": "#/components/schemas/TodayMeetingItem"
+            },
+            "type": "array"
+          },
+          "reviews": {
+            "description": "Pending personal reviews due today or overdue across open workspaces.",
+            "items": {
+              "$ref": "#/components/schemas/TodayReviewEntry"
+            },
+            "type": "array"
+          },
+          "today": {
+            "description": "Caller's current calendar day (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "units": {
+            "description": "Enrolled course units scheduled for today or overdue across open workspaces.",
+            "items": {
+              "$ref": "#/components/schemas/TodayUnitEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cards",
+          "hasMoreCards",
+          "hasMoreMeetings",
+          "hasMoreReviews",
+          "hasMoreUnits",
+          "lockedWorkspaceCount",
+          "meetings",
+          "reviews",
+          "today",
+          "units"
+        ],
+        "type": "object"
+      },
       "ActiveTimeEntry": {
         "description": "The caller's currently running timer, if any.",
         "properties": {
@@ -281,7 +353,10 @@
           "oidc_former_provider_lapsed",
           "oidc_identity_bound",
           "oidc_identity_carried_over",
-          "email_verified_by_operator"
+          "email_verified_by_operator",
+          "container_copied_out",
+          "copy_out_disabled",
+          "copy_out_enabled"
         ],
         "type": "string"
       },
@@ -617,6 +692,62 @@
         ],
         "type": "string"
       },
+      "BoardViewDuplicate": {
+        "additionalProperties": false,
+        "description": "Request body for duplicating a board view (`POST .../views/{viewId}/duplicate`).",
+        "properties": {
+          "after": {
+            "description": "Optional sibling view ID to place the duplicate after; defaults to right after the\nsource view.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "Optional custom title for the duplicated view; when omitted, a localized copy\ntitle is derived from the source view.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BoardViewMove": {
+        "additionalProperties": false,
+        "description": "Request body for moving a board view (`POST .../views/{viewId}/move`).",
+        "properties": {
+          "after": {
+            "description": "Sibling view ID to place this view immediately after; `\"\"` or `null` moves it to\nthe first position.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BoardViewWrite": {
+        "description": "Response returned when creating, moving, or duplicating a board view.",
+        "properties": {
+          "companionViews": {
+            "description": "All sibling views whose `order` was initialized or renumbered in the same\ntransaction (empty when none needed renumbering).",
+            "items": {
+              "$ref": "#/components/schemas/Block"
+            },
+            "type": "array"
+          },
+          "view": {
+            "$ref": "#/components/schemas/Block",
+            "description": "The created, moved, or duplicated view block."
+          }
+        },
+        "required": [
+          "companionViews",
+          "view"
+        ],
+        "type": "object"
+      },
       "Body": {
         "additionalProperties": true,
         "description": "A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes.",
@@ -848,6 +979,98 @@
         ],
         "type": "object"
       },
+      "CardBatchIds": {
+        "additionalProperties": false,
+        "description": "Request body carrying `1..=200` distinct card identifiers for batch delete or restore.",
+        "properties": {
+          "cardIds": {
+            "description": "Card identifiers (`1..=200`, no duplicates).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cardIds"
+        ],
+        "type": "object"
+      },
+      "CardCommentPatch": {
+        "additionalProperties": false,
+        "description": "What a comment on a card is changed to: its text, written over the comment as it was\nread.",
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/Body",
+            "description": "The comment's new text, as a card's body is written; neither empty nor `null`."
+          },
+          "readAt": {
+            "description": "The `updatedAt` of the comment as the client read it: if the comment has changed\nsince, the patch is refused with 409 and changes nothing.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "body",
+          "readAt"
+        ],
+        "type": "object"
+      },
+      "CardMovesRequest": {
+        "additionalProperties": false,
+        "description": "Request body for moving one or more cards within a board view (`card-moves`).",
+        "properties": {
+          "afterCardId": {
+            "description": "Optional live card on the same board after which `cardIds` are placed in the\nview's `cardOrder`; `\"\"` places them at the start, omitted/`null` appends or\npreserves relative placement when none is specified.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cardIds": {
+            "description": "Ordered card identifiers to move (`1..=200`, no duplicates).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "groupPropertyId": {
+            "description": "Optional grouping property identifier whose value is updated on every moved card.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groupValue": {
+            "description": "Value to assign to `groupPropertyId` (`null` or empty clears the property)."
+          }
+        },
+        "required": [
+          "cardIds"
+        ],
+        "type": "object"
+      },
+      "CardMovesResult": {
+        "description": "Response returned by `POST /w/{ws}/boards/{boardId}/views/{viewId}/card-moves`.",
+        "properties": {
+          "cards": {
+            "description": "Updated cards when `groupPropertyId` modified their properties.",
+            "items": {
+              "$ref": "#/components/schemas/Card"
+            },
+            "type": "array"
+          },
+          "view": {
+            "$ref": "#/components/schemas/Block",
+            "description": "Updated view block carrying the new `cardOrder`."
+          }
+        },
+        "required": [
+          "cards",
+          "view"
+        ],
+        "type": "object"
+      },
       "CardOpen": {
         "description": "Where a card opens.",
         "enum": [
@@ -1044,6 +1267,28 @@
         ],
         "type": "object"
       },
+      "CategoryContainerUpdate": {
+        "additionalProperties": false,
+        "description": "Atomic move and/or visibility update of a container in a sidebar category\n(`PUT /w/{ws}/categories/{categoryId}/containers/{containerId}`).",
+        "properties": {
+          "hidden": {
+            "description": "Optional hidden state of the container in the sidebar.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "index": {
+            "description": "Optional 0-based position within the target category's container order.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "CategoryContainers": {
         "allOf": [
           {
@@ -1067,6 +1312,27 @@
           }
         ],
         "description": "A category together with the boards in it, in display order."
+      },
+      "CategoryPatch": {
+        "additionalProperties": false,
+        "description": "Partial update of a sidebar category (`PATCH /w/{ws}/categories/{categoryId}`).",
+        "properties": {
+          "collapsed": {
+            "description": "Optional collapsed state in the sidebar.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Optional new display name (non-blank).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
       },
       "CategoryType": {
         "description": "Whether a category was created by the server or by the user.",
@@ -1160,6 +1426,12 @@
           "searchEnabled": {
             "description": "Whether what cards and pages say can be searched (`searchWorkspaceContent`):\nalways, on this server. It searches its search server, or its database where none\nis configured; a search server that does not answer, or cannot hold the index,\nanswers each search 503 (`search_unavailable`).",
             "type": "boolean"
+          },
+          "trashRetentionDays": {
+            "description": "How many whole days deleted items stay in the trash before housekeeping purges\nthem (`trash_retention_days`, default 30).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -1168,7 +1440,8 @@
           "maxFileBytes",
           "maxImportBytes",
           "nameDisplay",
-          "searchEnabled"
+          "searchEnabled",
+          "trashRetentionDays"
         ],
         "type": "object"
       },
@@ -1347,6 +1620,24 @@
             "description": "The board's description.",
             "type": "string"
           },
+          "doneWhen": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DoneWhen",
+                "description": "Optional completion rule marking which cards on this board are finished."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dueDatePropertyId": {
+            "description": "Optional identifier of the `date` property used as the board's due date in\n`'Today'` and `due_soon` notifications. When absent, the board's first `date`\nproperty is inferred automatically.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "icon": {
             "description": "The board's icon, usually one emoji.",
             "type": "string"
@@ -1507,6 +1798,24 @@
               "null"
             ]
           },
+          "doneWhen": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DoneWhen",
+                "description": "Optional change to `doneWhen`: omitted keeps it, `null` clears it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dueDatePropertyId": {
+            "description": "Optional change to `dueDatePropertyId`: omitted keeps it, `null` or `\"\"` clears it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "icon": {
             "description": "The new icon.",
             "type": [
@@ -1563,6 +1872,54 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ContainerPermissions": {
+        "description": "Caller-specific effective permissions on a container.\n\nKept strictly separate from `Container` so WebSocket `containerChanged` broadcasts\nnever leak or overwrite another viewer's permissions.",
+        "properties": {
+          "canComment": {
+            "description": "Whether the caller may post and edit their own comments.",
+            "type": "boolean"
+          },
+          "canDelete": {
+            "description": "Whether the caller may delete or restore the container itself.",
+            "type": "boolean"
+          },
+          "canEdit": {
+            "description": "Whether the caller may create, edit, move, and delete cards/pages/units.",
+            "type": "boolean"
+          },
+          "canManageOthersComments": {
+            "description": "Whether the caller may delete comments authored by other users.",
+            "type": "boolean"
+          },
+          "canManageProperties": {
+            "description": "Whether the caller may edit container metadata, properties, and views.",
+            "type": "boolean"
+          },
+          "canManageRoles": {
+            "description": "Whether the caller may add, update, or remove container members and team roles.",
+            "type": "boolean"
+          },
+          "canManageVisibility": {
+            "description": "Whether the caller may change container visibility (`open` / `private`) and `minimumRole`.",
+            "type": "boolean"
+          },
+          "canShare": {
+            "description": "Whether the caller may manage public read-token sharing links on the container.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canComment",
+          "canDelete",
+          "canEdit",
+          "canManageOthersComments",
+          "canManageProperties",
+          "canManageRoles",
+          "canManageVisibility",
+          "canShare"
+        ],
         "type": "object"
       },
       "ContainerRole": {
@@ -1635,6 +1992,46 @@
         "required": [
           "blocks",
           "containers"
+        ],
+        "type": "object"
+      },
+      "CopiedContainerResult": {
+        "description": "Response returned by `POST /w/{ws}/containers/{containerId}/copy-to-workspace`.",
+        "properties": {
+          "container": {
+            "$ref": "#/components/schemas/Container",
+            "description": "Newly created container in `targetWorkspaceId`."
+          },
+          "missingFilesCount": {
+            "description": "Number of missing source file references stripped during the copy.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "container",
+          "missingFilesCount"
+        ],
+        "type": "object"
+      },
+      "CopyContainerToWorkspaceRequest": {
+        "additionalProperties": false,
+        "description": "Request body for copying a container to another workspace (`copy-to-workspace`).",
+        "properties": {
+          "targetWorkspaceId": {
+            "description": "Destination workspace identifier (in the same or another organization, including\nthe caller's personal space).",
+            "type": "string"
+          },
+          "title": {
+            "description": "Optional custom title for the copied container; defaults to a localized copy title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "targetWorkspaceId"
         ],
         "type": "object"
       },
@@ -2553,6 +2950,27 @@
           "days",
           "from",
           "to"
+        ],
+        "type": "object"
+      },
+      "DoneWhen": {
+        "additionalProperties": false,
+        "description": "Rule on a board defining when one of its cards counts as completed (`done`).",
+        "properties": {
+          "optionIds": {
+            "description": "Option identifiers of `property_id` that mark a card complete when `property_id`\nis `select` or `multiSelect`. Empty when `property_id` is `checkbox` (where\n`\"true\"` marks completion).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "propertyId": {
+            "description": "Identifier of a `select`, `multiSelect`, or `checkbox` property on the board.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "propertyId"
         ],
         "type": "object"
       },
@@ -3689,11 +4107,6 @@
             "description": "The board the block belongs to: the board of the path, or, where boards and\nblocks are made together, the `id` of one of the request's boards.",
             "type": "string"
           },
-          "createdAt": {
-            "description": "Must be 1 or more. The server does not keep it: the block is created when the\nserver stores it.",
-            "format": "int64",
-            "type": "integer"
-          },
           "fields": {
             "additionalProperties": true,
             "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, a date\nvalue, a list of relation link objects (`{\"card\", \"kind\", \"lagDays\"}`), or `null`.",
@@ -3713,19 +4126,12 @@
           },
           "type": {
             "$ref": "#/components/schemas/BlockType",
-            "description": "The block type: `card`, `view`, `comment` or `attachment`. Any other type is\nrefused (400 naming `type`): a card's content is its body."
-          },
-          "updatedAt": {
-            "description": "Must be 1 or more. The server does not keep it.",
-            "format": "int64",
-            "type": "integer"
+            "description": "The block type (`view`, `comment` or `attachment` on `/boards/{boardId}/blocks`;\n`card` is created via `createCard`, or in bulk via `createContainersAndBlocks`)."
           }
         },
         "required": [
           "containerId",
-          "type",
-          "createdAt",
-          "updatedAt"
+          "type"
         ],
         "type": "object"
       },
@@ -3742,6 +4148,24 @@
           "description": {
             "description": "The board's description.",
             "type": "string"
+          },
+          "doneWhen": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DoneWhen",
+                "description": "Rule defining when a card on the board counts as completed (`done`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dueDatePropertyId": {
+            "description": "Explicit card `date` property identifier driving `'Today'` and `due_soon` alerts.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "icon": {
             "description": "The board's icon, usually one emoji.",
@@ -3764,6 +4188,10 @@
             "description": "Free-form properties of the board itself.",
             "type": "object"
           },
+          "scaffold": {
+            "description": "When `true` on a blank non-template board, populates default status, assignee, and\ndue-date properties, `doneWhen`, and an initial Kanban view.",
+            "type": "boolean"
+          },
           "showDescription": {
             "description": "Whether the description is shown in the interface.",
             "type": "boolean"
@@ -3784,6 +4212,40 @@
         },
         "required": [
           "visibility"
+        ],
+        "type": "object"
+      },
+      "NewBoardView": {
+        "additionalProperties": false,
+        "description": "Request body for creating a board view (`POST /w/{ws}/boards/{boardId}/views`).",
+        "properties": {
+          "after": {
+            "description": "Optional sibling view ID to place the new view immediately after (`\"\"` for first,\nomitted or `null` for last).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fields": {
+            "additionalProperties": true,
+            "description": "Optional initial `BoardViewFields` entries (`groupBy`, `shownProperties`, etc.).",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "Display title of the view.",
+            "type": "string"
+          },
+          "viewType": {
+            "$ref": "#/components/schemas/ViewType",
+            "description": "Layout kind (`board`, `table`, `gallery`, `calendar`, `gantt`)."
+          }
+        },
+        "required": [
+          "title",
+          "viewType"
         ],
         "type": "object"
       },
@@ -3830,6 +4292,34 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "NewCardAttachment": {
+        "additionalProperties": false,
+        "description": "Request body for creating a verified attachment block on a card.",
+        "properties": {
+          "fileId": {
+            "description": "Uploaded file identifier belonging to the same board (`files.id`).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fileId"
+        ],
+        "type": "object"
+      },
+      "NewCardComment": {
+        "additionalProperties": false,
+        "description": "A comment to write on a card.",
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/Body",
+            "description": "The comment's text, as a card's body is written; neither empty nor `null`."
+          }
+        },
+        "required": [
+          "body"
+        ],
         "type": "object"
       },
       "NewCategory": {
@@ -3906,7 +4396,7 @@
           },
           "minimumRole": {
             "$ref": "#/components/schemas/MinimumRole",
-            "description": "The role a user gets who joins the course. Left out, `editor`."
+            "description": "The role a user gets who joins the course. Left out, `commenter`."
           },
           "title": {
             "description": "The course's title. Left out, empty.",
@@ -4370,7 +4860,9 @@
           "assignment",
           "comment",
           "review_due",
-          "meeting_upcoming"
+          "meeting_upcoming",
+          "due_soon",
+          "added_to_container"
         ],
         "type": "string"
       },
@@ -4790,6 +5282,10 @@
       "Organization": {
         "description": "An organization as its administrators see it.",
         "properties": {
+          "allowCopyOut": {
+            "description": "Whether members may copy boards, wikis, and courses out of this organization\ninto another organization or into their personal space.",
+            "type": "boolean"
+          },
           "defaultWorkspaceId": {
             "description": "The workspace somebody who joins the organization gets into. It cannot be\ndeleted.",
             "type": "string"
@@ -4808,6 +5304,7 @@
           }
         },
         "required": [
+          "allowCopyOut",
           "defaultWorkspaceId",
           "id",
           "name",
@@ -4837,6 +5334,13 @@
         "additionalProperties": false,
         "description": "A change of an organization: what is left out stays as it is.",
         "properties": {
+          "allowCopyOut": {
+            "description": "Whether members may copy containers out to external organizations or personal spaces.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "name": {
             "description": "The new name, at most `MAX_NAME_CHARS` characters; may be empty.",
             "type": [
@@ -5370,6 +5874,11 @@
             "type": "/problems/guest-role-limit"
           },
           {
+            "reason": "guest_cannot_join_team",
+            "title": "A guest of the workspace cannot be on a team",
+            "type": "/problems/guest-cannot-join-team"
+          },
+          {
             "reason": "team_self_joining",
             "title": "Cannot add yourself to a team during administrative joining",
             "type": "/problems/team-self-joining"
@@ -5665,6 +6174,11 @@
             "type": "/problems/relation-card-not-found"
           },
           {
+            "reason": "relation_cycle",
+            "title": "Card dependency cycle",
+            "type": "/problems/relation-cycle"
+          },
+          {
             "reason": "workspace_name_taken",
             "title": "Workspace name taken",
             "type": "/problems/workspace-name-taken"
@@ -5708,6 +6222,11 @@
             "reason": "public_links_off",
             "title": "Public links turned off",
             "type": "/problems/public-links-off"
+          },
+          {
+            "reason": "copy_out_disabled",
+            "title": "Copying out of the organization turned off",
+            "type": "/problems/copy-out-disabled"
           },
           {
             "reason": "too_many_recipients",
@@ -6069,6 +6588,22 @@
         },
         "type": "object"
       },
+      "RestoredCards": {
+        "description": "Response returned by `POST /w/{ws}/boards/{boardId}/cards/batch-restore`.",
+        "properties": {
+          "cards": {
+            "description": "All cards restored (including restored sub-cards), ready to merge into client state.",
+            "items": {
+              "$ref": "#/components/schemas/Card"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cards"
+        ],
+        "type": "object"
+      },
       "RevertEmailChange": {
         "properties": {
           "token": {
@@ -6363,6 +6898,13 @@
           },
           "notifyComments": {
             "description": "Whether the user is told of the new comments on what they watch (`comment`).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "notifyDue": {
+            "description": "Whether the user is told when a card or review is due soon (`due_soon`).",
             "type": [
               "boolean",
               "null"
@@ -6822,6 +7364,150 @@
         ],
         "type": "string"
       },
+      "TodayCardItem": {
+        "description": "An incomplete card assigned to the caller that is overdue, due today, or due soon.",
+        "properties": {
+          "boardIcon": {
+            "description": "Board icon.",
+            "type": "string"
+          },
+          "boardId": {
+            "description": "Board container identifier.",
+            "type": "string"
+          },
+          "boardTitle": {
+            "description": "Board title.",
+            "type": "string"
+          },
+          "cardId": {
+            "description": "Card block identifier.",
+            "type": "string"
+          },
+          "cardNumber": {
+            "description": "Board-scoped card number (`#12`), if any.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "dueAtMillis": {
+            "description": "Exact epoch milliseconds when the due property holds a timestamp; `null` for a\ncalendar date.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "dueDate": {
+            "description": "Effective due calendar day (`YYYY-MM-DD`) in the caller's time zone.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "Card icon, if any.",
+            "type": "string"
+          },
+          "overdueDays": {
+            "description": "Days relative to `today`: `> 0` overdue, `0` due today, `< 0` due tomorrow / soon.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Card title.",
+            "type": "string"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/TodayWorkspaceMeta",
+            "description": "Workspace metadata for cross-workspace navigation."
+          }
+        },
+        "required": [
+          "boardIcon",
+          "boardId",
+          "boardTitle",
+          "cardId",
+          "dueDate",
+          "icon",
+          "overdueDays",
+          "title",
+          "workspace"
+        ],
+        "type": "object"
+      },
+      "TodayMeetingItem": {
+        "description": "An upcoming study meeting in an enrolled course.",
+        "properties": {
+          "containerId": {
+            "description": "Course container identifier.",
+            "type": "string"
+          },
+          "courseTitle": {
+            "description": "Current course title.",
+            "type": "string"
+          },
+          "endsAt": {
+            "description": "Optional scheduled end time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "location": {
+            "description": "Location text or link.",
+            "type": "string"
+          },
+          "meetingId": {
+            "description": "Meeting identifier.",
+            "type": "string"
+          },
+          "startsAt": {
+            "description": "Scheduled start time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Meeting title.",
+            "type": "string"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/TodayWorkspaceMeta",
+            "description": "Workspace metadata."
+          }
+        },
+        "required": [
+          "containerId",
+          "courseTitle",
+          "location",
+          "meetingId",
+          "startsAt",
+          "title",
+          "workspace"
+        ],
+        "type": "object"
+      },
+      "TodayReviewEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TodayReviewItem",
+            "description": "Due review details (including `suggestedNextIntervalDays` and `reviewIntervals`)."
+          },
+          {
+            "properties": {
+              "workspace": {
+                "$ref": "#/components/schemas/TodayWorkspaceMeta",
+                "description": "Workspace metadata."
+              }
+            },
+            "required": [
+              "workspace"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "A pending spaced-repetition unit review due today or overdue, paired with its workspace."
+      },
       "TodayReviewItem": {
         "description": "One pending review due today or overdue for the caller in a workspace.",
         "properties": {
@@ -6854,9 +7540,24 @@
             "minimum": 0,
             "type": "integer"
           },
+          "reviewIntervals": {
+            "description": "Effective review interval sequence configured on the course.",
+            "items": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
           "scheduledDate": {
             "description": "Scheduled calendar date (`YYYY-MM-DD`).",
             "type": "string"
+          },
+          "suggestedNextIntervalDays": {
+            "description": "Suggested next interval in days (`suggested_next_interval_days(Some(interval_days), &review_intervals)`).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
           },
           "unitId": {
             "description": "Identifier of the unit block.",
@@ -6879,10 +7580,66 @@
           "id",
           "intervalDays",
           "overdueDays",
+          "reviewIntervals",
           "scheduledDate",
+          "suggestedNextIntervalDays",
           "unitId",
           "unitTitle",
           "updatedAt"
+        ],
+        "type": "object"
+      },
+      "TodayUnitEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LearningTodayItem",
+            "description": "Scheduled unit details."
+          },
+          {
+            "properties": {
+              "workspace": {
+                "$ref": "#/components/schemas/TodayWorkspaceMeta",
+                "description": "Workspace metadata."
+              }
+            },
+            "required": [
+              "workspace"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "An enrolled course unit scheduled for today or overdue, paired with its workspace."
+      },
+      "TodayWorkspaceMeta": {
+        "description": "Workspace and organization context attached to each `'Today'` item.",
+        "properties": {
+          "isPersonal": {
+            "description": "`true` when this workspace is the caller's personal space (`OrgKind::Personal`).",
+            "type": "boolean"
+          },
+          "orgId": {
+            "description": "Organization identifier.",
+            "type": "string"
+          },
+          "orgName": {
+            "description": "Organization display name (empty for a personal space).",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Workspace identifier.",
+            "type": "string"
+          },
+          "workspaceName": {
+            "description": "Workspace display name (empty for a personal space's unnamed workspace).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "isPersonal",
+          "orgId",
+          "orgName",
+          "workspaceId",
+          "workspaceName"
         ],
         "type": "object"
       },
@@ -7645,6 +8402,10 @@
             "description": "Whether the user is told of the new comments on what they watch (`comment`).",
             "type": "boolean"
           },
+          "notifyDue": {
+            "description": "Whether the user is told when an incomplete assigned card is due soon (`due_soon`).",
+            "type": "boolean"
+          },
           "notifyMentions": {
             "description": "Whether the user is told when somebody mentions them (`mention`).",
             "type": "boolean"
@@ -7673,7 +8434,8 @@
           "language",
           "notifyMentions",
           "notifyAssignments",
-          "notifyComments"
+          "notifyComments",
+          "notifyDue"
         ],
         "type": "object"
       },
@@ -7719,6 +8481,17 @@
           "ssoRequired"
         ],
         "type": "object"
+      },
+      "ViewType": {
+        "description": "Layout kind of a board view.",
+        "enum": [
+          "board",
+          "table",
+          "gallery",
+          "calendar",
+          "gantt"
+        ],
+        "type": "string"
       },
       "WeekStart": {
         "description": "The day a week starts on.",
@@ -7892,6 +8665,76 @@
         },
         "required": [
           "role"
+        ],
+        "type": "object"
+      },
+      "WorkspaceToday": {
+        "description": "Single-workspace `'Today'` summary (`GET /api/v1/w/{workspaceId}/today`).",
+        "properties": {
+          "cards": {
+            "description": "Incomplete assigned cards overdue, due today, or due soon (up to 100).",
+            "items": {
+              "$ref": "#/components/schemas/TodayCardItem"
+            },
+            "type": "array"
+          },
+          "hasMoreCards": {
+            "description": "Whether more than 100 due/overdue cards matched.",
+            "type": "boolean"
+          },
+          "hasMoreMeetings": {
+            "description": "Whether more than 100 meetings matched.",
+            "type": "boolean"
+          },
+          "hasMoreReviews": {
+            "description": "Whether more than 100 reviews matched.",
+            "type": "boolean"
+          },
+          "hasMoreUnits": {
+            "description": "Whether more than 100 units matched.",
+            "type": "boolean"
+          },
+          "meetings": {
+            "description": "Upcoming course meetings starting soon or today (up to 100).",
+            "items": {
+              "$ref": "#/components/schemas/TodayMeetingItem"
+            },
+            "type": "array"
+          },
+          "reviews": {
+            "description": "Pending personal reviews due today or overdue (up to 100).",
+            "items": {
+              "$ref": "#/components/schemas/TodayReviewEntry"
+            },
+            "type": "array"
+          },
+          "today": {
+            "description": "Caller's current calendar day (`YYYY-MM-DD`).",
+            "type": "string"
+          },
+          "units": {
+            "description": "Enrolled course units scheduled for today or overdue (up to 100).",
+            "items": {
+              "$ref": "#/components/schemas/TodayUnitEntry"
+            },
+            "type": "array"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/TodayWorkspaceMeta",
+            "description": "Metadata of the queried workspace."
+          }
+        },
+        "required": [
+          "cards",
+          "hasMoreCards",
+          "hasMoreMeetings",
+          "hasMoreReviews",
+          "hasMoreUnits",
+          "meetings",
+          "reviews",
+          "today",
+          "units",
+          "workspace"
         ],
         "type": "object"
       }
@@ -9079,6 +9922,17 @@
       "post": {
         "description": "Makes an organization that people work in together, and its first workspace, both\nunder `name`, for the account of the session, which administers both: what\n`register` does with `organizationName`, for an account that is there. Answers the\nworkspace as `getMyWorkspaces` lists it from then on.\n\nAn account makes a few organizations and no more: the ones in use that it started\nare counted, by `register` or here, and not the ones it was invited into, nor its\nown space. One more than the limit is 400 with the reason `too_many_organizations`,\nand `limit` tells how many that is. On a server that takes one organization\n(`org_creation` is `first_user_only`; `registrationOpen` of `getLoginOptions` is\nfalse once it has its first user) nobody starts another: 403 with the reason\n`invitation_required`. The name is read as `organizationName` of `register` is:\nblank, too long or with a character it may not have is 400, and `errors` names\n`name`. Counted by where it comes from, with the registrations: too many are 429.",
         "operationId": "createOrganization",
+        "parameters": [
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -10324,6 +11178,17 @@
       "post": {
         "description": "Makes an account, with its own space (see \"The user's own space\"), and the\norganization it starts if it names one: `organizationName` names the organization\nand its first workspace, and the account administers both. Without\n`organizationName` (left out, or blank) the account starts with its own space\nalone, in no organization, and may start one later (`createOrganization`).\n\nThe first user of a server starts the server's own organization and administers\nthe server too: until there is one (`organizationRequired` of `getLoginOptions`), a\nregistration without `organizationName` is 400, and `errors` names it with the\nreason `required`. On a server that takes one organization (`org_creation` is\n`first_user_only`) only the first user registers; everybody after is\nrefused with 403 and the reason `invitation_required`, whatever else the request\nsays, and gets in by the link of an invitation (`acceptInvitation`). A name or an\nemail address that is taken is 409 with the reason `username_taken` or\n`email_taken`. Registering does not sign in.\n\nOn a server that asks for the email address to be confirmed (`emailVerification` of\n`getLoginOptions`), registering makes no account: it answers 202 with no body, and\nmails a link to the address, in the language of `language` (English or Korean), that\nmakes the account, and the organization if it names one, and signs in\n(`completeEmailVerification`).\nUntil then there is nothing of it but its name and address, which are taken as an\naccount's are, for seven days; a registration that is not confirmed by then is\nremoved, and its name and address are free again. The 202 sets a cookie that tells\nthe browser the registration was made from (`fvoci_signup`, `__Host-fvoci_signup`\nover HTTPS; `HttpOnly`, for the seven days): no session, it reaches nothing, and\nshows `completeEmailVerification` that the browser is the registrant's. A\nregistration from a browser that has the cookie of one that waits still replaces\nthat one: whoever mistyped an address registers again at once, under the same user\nname, and the link mailed for the first confirms nothing any more. Without the\ncookie the name and the address of a registration that waits are taken.\n\nThe name and the email address must not be blank, the email address must look like\none, the display name (`displayName`, may be left out) is checked as `patchMe` checks it,\nthe password must have at least 8 characters and at most 1024 bytes, and the organization\nname, where there is one, is read as a display name is; otherwise the\nrequest is 400, and `errors` names every member that is refused, each with\nits `reason`: `required`, `invalid_format`, `too_short`, `too_long` or\n`invalid_characters`.",
         "operationId": "register",
+        "parameters": [
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -12174,6 +13039,38 @@
         ]
       }
     },
+    "/api/v1/users/me/today": {
+      "get": {
+        "description": "Aggregates incomplete cards assigned to the caller that are due today, due soon, or\noverdue across every workspace opened by the current session, together with scheduled\nunits on enrolled courses, pending spaced-repetition reviews due today or earlier, and\nupcoming study meetings within 48 hours. Workspaces locked behind an unfulfilled SSO\nprovider or personal-space password confirmation are omitted and counted in\n`lockedWorkspaceCount`.",
+        "operationId": "getAccountToday",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountToday"
+                }
+              }
+            },
+            "description": "Today's items across session-opened workspaces."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Today across all open workspaces",
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/users/me/workspaces": {
       "get": {
         "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first; the one workspace of the user's own space (`kind` `personal`, see\n\"The user's own space\") comes last, whenever it was made, and a client puts it where\nit shows it. Every account has one, so the list is never empty. A workspace of an\norganization that takes only sessions made\nthrough its provider is listed for any session, with `ssoRequired` true for one that\nwas not made so: what is under it answers 401 with the reason `sso_required` until\nthe user signs in through the provider of `orgId`. The user's own space asks for no\nprovider: its `ssoRequired` is false. Once its account has a password it takes only\nsessions that have shown that, and is listed with `passwordRequired` true for a\nsession made through a provider that has not: what is under it answers 401 with the\nreason `password_sign_in_required` until the session gives the password\n(`confirmPassword`), or the user signs in with it (`login`).",
@@ -12595,6 +13492,15 @@
             "in": "path",
             "name": "workspaceId",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -13358,7 +14264,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)\nthe values it changes, and does not ask again for a card that a value named before.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card), `relation_cycle` (ordering dependencies form\na cycle on the board) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)\nthe values it changes, and does not ask again for a card that a value named before.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -13427,6 +14333,132 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/batch-delete": {
+      "post": {
+        "description": "Deletes `1..=200` distinct cards on `boardId` in one transaction so each card remains\nindividually restorable from the trash.",
+        "operationId": "batchDeleteCards",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardBatchIds"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The cards are deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete multiple cards atomically",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/batch-restore": {
+      "post": {
+        "description": "Restores `1..=200` distinct deleted cards on `boardId` in one transaction and returns\nall restored cards (including restored sub-cards).",
+        "operationId": "batchRestoreCards",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardBatchIds"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoredCards"
+                }
+              }
+            },
+            "description": "The restored cards."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Restore multiple deleted cards atomically",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/by-number/{number}": {
       "get": {
         "description": "The card of the board that has the number (`Card.number`, as `#12` names the card),\nfor the members of the board, as `getCard` gives it. One answer, 404, says that there\nis no such card, whatever the reason: no card of the board has the number (the card\nis in the trash, is gone for good, or is a template of the board's cards), the\nnumber is none, the board is one the user does not read (a private board they are\nno member of, one they only manage, one they are no guest of), or is no board of\nthis workspace (of another workspace or organization, a wiki, or none at all).",
@@ -13484,6 +14516,600 @@
           }
         },
         "summary": "A card by its number",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/attachments": {
+      "post": {
+        "description": "Verifies under the board lock that `fileId` belongs to `boardId`, sets the attachment\nblock's trusted filename and size from `files`, and stores the attachment block.",
+        "operationId": "createCardAttachment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCardAttachment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The created attachment block."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Attach an uploaded file to a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments": {
+      "get": {
+        "description": "Every comment on the card, oldest first, as blocks of the `type` `comment` whose\nparent is the card. For who reads the board: its members, and of an open board\nwhoever works in the workspace. A card in the trash is not there (404).",
+        "operationId": "getCardComments",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Block"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The comments, oldest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The comments on a card",
+        "tags": [
+          "cards"
+        ]
+      },
+      "post": {
+        "description": "For the board's members from the commenter's role up (whoever reads an open board\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the board (400\notherwise), and the text has no file block (400).",
+        "operationId": "createCardComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCardComment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The comment as it was stored."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Write a comment on a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}": {
+      "delete": {
+        "description": "Moves the comment to the trash: by its author from the commenter's role up, and the\ncomment of somebody else by the board's admins only (403).",
+        "operationId": "deleteCardComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The comment is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a comment on a card",
+        "tags": [
+          "cards"
+        ]
+      },
+      "patch": {
+        "description": "Writes a new text over the comment: by its author from the commenter's role up, and\nthe comment of somebody else by the board's admins only (403).",
+        "operationId": "patchCardComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardCommentPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The comment as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change a comment on a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}/restore": {
+      "post": {
+        "description": "Restores a comment deleted on its own onto its card: for its author from the\ncommenter's role up if they deleted it themselves, and for the board's admins whoever\nwrote or deleted it.",
+        "operationId": "restoreCardComment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The comment as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Restore a deleted comment on a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}/versions": {
+      "get": {
+        "description": "Returns every prior version of the comment's body (excluding its current text), the\nfirst version first, for who reads the board.",
+        "operationId": "getCardCommentVersions",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment.",
+            "in": "path",
+            "name": "commentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CommentVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The earlier versions, the first one first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Earlier versions of a comment on a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/duplicate": {
+      "post": {
+        "description": "Pre-copies referenced storage files under `loose_objects` marks and commits the\nduplicated card, sub-cards, attachment blocks, `files` records, and initial\n`body_versions` in a single database transaction. If any storage file copy fails, no\ncloned blocks or dangling `fileId` references are stored.",
+        "operationId": "duplicateCard",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` makes the copy a template. Any other value does not.",
+            "in": "query",
+            "name": "asTemplate",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The duplicated card."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Duplicate a card atomically",
         "tags": [
           "cards"
         ]
@@ -13632,6 +15258,299 @@
         "summary": "The deleted cards of a board",
         "tags": [
           "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views": {
+      "post": {
+        "description": "Creates a view on `boardId` using server-side fractional indexing (`after`).",
+        "operationId": "createBoardView",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewBoardView"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardViewWrite"
+                }
+              }
+            },
+            "description": "The created view and any rebalanced companion views."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Create a board view",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views/{viewId}/card-moves": {
+      "post": {
+        "description": "Updates `cardOrder` on `viewId` and optionally assigns `groupValue` to\n`groupPropertyId` on `1..=200` distinct cards in a single database transaction,\nvalidating card property types/options and emitting assignee notifications.",
+        "operationId": "moveViewCards",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board view.",
+            "in": "path",
+            "name": "viewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardMovesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardMovesResult"
+                }
+              }
+            },
+            "description": "Updated view and modified cards."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Move one or more cards within a board view",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views/{viewId}/duplicate": {
+      "post": {
+        "description": "Copies `viewId` on `boardId` and places the copy using server-side fractional\nindexing.",
+        "operationId": "duplicateBoardView",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board view.",
+            "in": "path",
+            "name": "viewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardViewDuplicate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardViewWrite"
+                }
+              }
+            },
+            "description": "The duplicated view and any rebalanced companion views."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Duplicate a board view",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views/{viewId}/move": {
+      "post": {
+        "description": "Reorders `viewId` among the views of `boardId` using server-side fractional indexing.",
+        "operationId": "moveBoardView",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board view.",
+            "in": "path",
+            "name": "viewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardViewMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardViewWrite"
+                }
+              }
+            },
+            "description": "The moved view and any rebalanced companion views."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Move a board view",
+        "tags": [
+          "boards"
         ]
       }
     },
@@ -14126,6 +16045,66 @@
           "sidebar"
         ]
       },
+      "patch": {
+        "description": "Updates the display `name` and/or `collapsed` state of one of the user's categories\nin a single transaction. System categories ignore name changes.",
+        "operationId": "patchCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": "The updated category."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Partially update a category",
+        "tags": [
+          "sidebar"
+        ]
+      },
       "put": {
         "description": "Changes the name of one of the user's categories and whether it is collapsed.\nNothing else changes, and a system category keeps its name. A `userId` that is not\nthe user of the session is 400.",
         "operationId": "updateCategory",
@@ -14304,6 +16283,68 @@
           }
         },
         "summary": "File a board under a category",
+        "tags": [
+          "sidebar"
+        ]
+      },
+      "put": {
+        "description": "Moves the container into `categoryId` at optional 0-based `index` and/or sets its\n`hidden` flag in one database transaction.",
+        "operationId": "putCategoryContainer",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board, the wiki, the diary or the course.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryContainerUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The container placement and visibility are updated."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Move and/or hide a container in a category atomically",
         "tags": [
           "sidebar"
         ]
@@ -14849,6 +16890,77 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/copy-to-workspace": {
+      "post": {
+        "description": "Copies a live `board`, `wiki`, or `course` into `targetWorkspaceId` (in the same or\nanother organization opened by the session, including the caller's personal space),\nstripping absent-member assignments/mentions, converting external `[` references to\nplain text, enforcing `allowCopyOut` (403 with the reason `copy_out_disabled`) and\ntarget storage limits (413 with the reason `storage_full`), and recording\n`container_copied_out` in the source organization's audit log when copying across\norganizations.",
+        "operationId": "copyContainerToWorkspace",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyContainerToWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopiedContainerResult"
+                }
+              }
+            },
+            "description": "The copied container and missing source file count."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Copy a board, wiki, or course to another workspace",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/containers/{containerId}/duplicate": {
       "post": {
         "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy, which is always private. A copy of the same kind\nhas the title of the original with ` copy` after it; a template made from a board is\ntitled `New board template` (from a course, `New course template`), and a container\nmade from a template keeps the title. The\nserver writes those words in English and in Korean (` 사본`, `새 보드 템플릿`,\n`새 학습 템플릿`), and\nchooses by the language of the user's settings; where the settings leave the language\nto the device, or name one the server does not write in, by the first of the two that\n`Accept-Language` prefers; failing both, English. The container's members may copy it;\nan open template is for everyone in its workspace, and a built-in template for everyone.\n\nA wiki is copied as a board is, with its pages as they stand: their tree and order,\ntitles, icons and bodies, the images and file blocks of the bodies given files of\ntheir own, and what a body names among the wiki's pages named in the copy by its\ncopy (what it names elsewhere stays as it was). The comments on the pages, the\nversions of their bodies, the pages in the trash, the wiki's other members and teams\nand its public link are not copied. A wiki is no template: `asTemplate=true` is 400.\nA copy deeper or with more pages than the organization's limits allow, lowered since\nthe wiki grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the\n`limit`.\n\nA course is copied with its live chapters and units, their hierarchy, order, bodies,\nfiles, internal unit references remapped to the copies, study amounts (`amount`,\n`amountUnit`), shared `scheduledDate`, and shared course schedule (`course_schedules`).\nWhen copied from a built-in course template, template marks are stripped and shared\nschedule dates are shifted to the copier's day. Personal learner progress\n(`unit_progress`), comments, trashed units, body versions, subscriptions, notifications,\nother members, access groups, and public links are never copied.",
@@ -14864,7 +16976,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -16026,6 +18138,58 @@
         "summary": "Change the role of a member",
         "tags": [
           "members"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/my-permissions": {
+      "get": {
+        "description": "Returns the caller-scoped `ContainerPermissions` on `containerId` without embedding\ncaller permissions inside `Container` or WebSocket broadcasts.",
+        "operationId": "getMyContainerPermissions",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board, the wiki, the diary or the course.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerPermissions"
+                }
+              }
+            },
+            "description": "Caller's effective permissions on the container."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Caller's effective permissions on a container",
+        "tags": [
+          "boards"
         ]
       }
     },
@@ -18671,7 +20835,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments": {
       "get": {
-        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit; each says who wrote it (`createdBy`), and one whose text was\nchanged when that last happened (`editedAt`). For who reads the course: its members,\nand of an open course whoever works in the workspace. A chapter or a unit in the\ntrash is not there (404).",
+        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit. For who reads the course: its members, and of an open course\nwhoever works in the workspace. A chapter or a unit in the trash is not there (404).",
         "operationId": "getUnitComments",
         "parameters": [
           {
@@ -18733,7 +20897,7 @@
         ]
       },
       "post": {
-        "description": "For the course's members from the commenter's role up (whoever reads an open course\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the course (400\notherwise), and the text has no file block (400). A chapter takes no comments (404).\nWho reads the course is told with `blockChanged`, as of a comment on a card or page.",
+        "description": "For the course's members from the commenter's role up (whoever reads an open course\nwithout joining it is refused with 403).",
         "operationId": "createUnitComment",
         "parameters": [
           {
@@ -18804,7 +20968,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}": {
       "delete": {
-        "description": "The comment goes to the trash, as a comment on a card or page does: by its author\nfrom the commenter's role up, and the comment of somebody else by the course's admins\nonly (403, `access denied to delete other users' comments`). Who reads the course is\ntold with `blockChanged` with `deletedAt` set.",
+        "description": "The comment goes to the trash: by its author from the commenter's role up, and the\ncomment of somebody else by the course's admins only (403).",
         "operationId": "deleteUnitComment",
         "parameters": [
           {
@@ -18865,7 +21029,7 @@
         ]
       },
       "patch": {
-        "description": "Writes a new text over the comment, as a card's or page's comments are changed: by\nits author from the commenter's role up, and the comment of somebody else by the\ncourse's admins only (403, `access denied to change other users' comments`); an\neditor may not change it. The text it had is kept (`getUnitCommentVersions`), and the\ncomment's `editedAt` says when it last changed. The text has no file block (400).",
+        "description": "Writes a new text over the comment: by its author from the commenter's role up, and\nthe comment of somebody else by the course's admins only (403).",
         "operationId": "patchUnitComment",
         "parameters": [
           {
@@ -18945,7 +21109,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/restore": {
       "post": {
-        "description": "A comment deleted on its own comes back onto its unit, as `restorePageComment`\nbrings a page's comment back: for its author from the commenter's role up if they\ndeleted it themselves, and for the course's admins whoever wrote or deleted it (403,\n`access denied to undelete other users' comments`, and for the author of a comment\nsomebody else deleted, `a comment somebody else deleted is brought back by the\nboard's admins`). A comment that went to the trash with its unit comes back with the\nunit (`restoreUnit`), not on its own; that one, one not in the trash, and one of\nanother unit are not there (404), nor is any while the unit is in the trash. Who\nreads the course is told with `blockChanged`.",
+        "description": "Restores a comment deleted on its own onto its unit: for its author from the\ncommenter's role up if they deleted it themselves, and for the course's admins\nwhoever wrote or deleted it.",
         "operationId": "restoreUnitComment",
         "parameters": [
           {
@@ -19015,7 +21179,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/versions": {
       "get": {
-        "description": "The earlier texts of the comment, as `getPageCommentVersions` gives a page's\ncomment's: every version but the one it has now, the first one first, with who wrote\nit and when. For who reads the course (as `getUnitComments`), also of a comment in\nthe trash while its unit is there: the versions go only when the comment is gone for\ngood. A chapter or a unit in the trash is not there (404).",
+        "description": "The earlier texts of the comment: every version but the one it has now, the first\none first, with who wrote it and when.",
         "operationId": "getUnitCommentVersions",
         "parameters": [
           {
@@ -21794,7 +23958,7 @@
         ]
       },
       "put": {
-        "description": "For workspace administrators. Idempotent. A guest or somebody outside the\nworkspace is 404. Removing a workspace member or making them a guest removes\nthem from every team of that workspace. A person joined as organization administrator\ncannot add themselves: 403, reason `team_self_joining`. Other administrators may add them.",
+        "description": "For workspace administrators. Idempotent. Somebody outside the workspace is 404;\nadding a workspace guest is 409, reason `guest_cannot_join_team`. Removing a\nworkspace member or making them a guest removes them from every team of that\nworkspace. A person joined as organization administrator cannot add themselves:\n403, reason `team_self_joining`. Other administrators may add them.",
         "operationId": "addTeamMember",
         "parameters": [
           {
@@ -21898,6 +24062,49 @@
         "summary": "The templates of a workspace",
         "tags": [
           "boards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/today": {
+      "get": {
+        "description": "Returns the caller's due/overdue incomplete cards, scheduled course units, due\nreviews, and upcoming study meetings inside `workspaceId`. 404 for guests and\nnon-members.",
+        "operationId": "getWorkspaceToday",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceToday"
+                }
+              }
+            },
+            "description": "Today's items in the workspace."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Today in one workspace",
+        "tags": [
+          "workspaces"
         ]
       }
     },
@@ -23289,7 +25496,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/restore": {
       "post": {
-        "description": "A comment deleted on its own comes back onto its page, as `restoreBlock` brings a\ncard's comment back: for its author from the commenter's role up if they deleted it\nthemselves, and for the wiki's admins whoever wrote or deleted it (403, `access denied\nto undelete other users' comments`, and for the author of a comment somebody else\ndeleted, `a comment somebody else deleted is brought back by the board's admins`). A\ncomment that went to the trash with its page comes back with the page\n(`restorePage`), not on its own; that one, one not in the trash, and one of another\npage are not there (404), nor is any while the page is in the trash. Who reads the\nwiki is told with `blockChanged`.",
+        "description": "A comment deleted on its own comes back onto its page, as `restoreBlock` brings a\ncard's comment back: for its author from the commenter's role up if they deleted it\nthemselves, and for the wiki's admins whoever wrote or deleted it.",
         "operationId": "restorePageComment",
         "parameters": [
           {
@@ -23359,7 +25566,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions": {
       "get": {
-        "description": "The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:\nevery version but the one it has now, the first one first, with who wrote it and\nwhen. For who reads the wiki (as `getPageComments`), also of a comment in the trash\nwhile its page is there: the versions go only when the comment is gone for good. A\npage in the trash is not there (404).",
+        "description": "The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:\nevery version but the one it has now, the first one first, with who wrote it and\nwhen.",
         "operationId": "getPageCommentVersions",
         "parameters": [
           {

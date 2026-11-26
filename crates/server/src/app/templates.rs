@@ -20,11 +20,11 @@ use serde_json::{Value, json};
 use super::App;
 use super::files::{FilePlace, file_record};
 use super::language::Language;
-use super::loose_objects::Written;
+use super::loose_objects::WrittenPlace;
 use crate::error::AppError;
 
 /// The current version of the built-in templates. Raising it stores them again.
-const DEFAULT_TEMPLATE_VERSION: i64 = 12;
+const DEFAULT_TEMPLATE_VERSION: i64 = 13;
 
 /// The longest the storing of one file of the templates may take. The files are a few
 /// kilobytes each, and a server does not serve, nor a request for a first board that
@@ -57,7 +57,7 @@ const TEMPLATE_BASE_DATE_PROPERTY: &str = "templateBaseDate";
 
 /// The properties that say of a board what only a built-in template is: a copy, which
 /// is somebody's own board, is made without them.
-const TEMPLATE_MARKS: [&str; 5] = [
+pub(super) const TEMPLATE_MARKS: [&str; 5] = [
     ONBOARDING_PROPERTY,
     TEMPLATE_KEY_PROPERTY,
     TEMPLATE_LANGUAGE_PROPERTY,
@@ -82,14 +82,19 @@ macro_rules! embedded {
     };
 }
 
+/// The `templateKey` of the built-in welcome board for a personal space (`OrgKind::Personal`).
+pub(crate) const PERSONAL_ONBOARDING_KEY: &str = "welcome-personal";
+
 /// The template files of `assets/templates/`, by name, in the order of their names:
 /// the order the templates are stored and offered in.
-const TEMPLATE_FILES: [(&str, &str); 16] = embedded!(
+const TEMPLATE_FILES: [(&str, &str); 18] = embedded!(
     text,
     "",
     [
         "01-welcome.en.json",
         "01-welcome.ko.json",
+        "01-welcome-personal.en.json",
+        "01-welcome-personal.ko.json",
         "02-project-schedule.en.json",
         "02-project-schedule.ko.json",
         "03-issue-tracker.en.json",
@@ -175,6 +180,10 @@ struct TemplateBoard {
     show_description: bool,
     #[serde(default)]
     card_properties: Vec<fvoci_model::CardPropertyDefinition>,
+    #[serde(default)]
+    due_date_property_id: Option<String>,
+    #[serde(default)]
+    done_when: Option<fvoci_model::DoneWhen>,
 }
 
 /// A file that the bodies of a template show.
@@ -362,6 +371,8 @@ fn template_board(
         icon,
         show_description,
         card_properties,
+        due_date_property_id,
+        done_when,
     } = board;
     let mut board = Container {
         id,
@@ -372,6 +383,8 @@ fn template_board(
         icon,
         show_description,
         card_properties,
+        due_date_property_id,
+        done_when,
         is_template: true,
         template_version: DEFAULT_TEMPLATE_VERSION,
         visibility: ContainerVisibility::Open,
@@ -583,13 +596,7 @@ impl App {
             boards_and_blocks: mut templates,
             files,
         } = builtin_templates(SYSTEM_WORKSPACE_ID).map_err(other)?;
-        if let Err(error) = system.write_template_files(&files).await {
-            // The write that failed may yet appear, its answer lost.
-            system
-                .give_up_template_files(&files, Written::Unsettled)
-                .await;
-            return Err(error);
-        }
+        let written_places = system.write_template_files(&files).await?;
         let records: Vec<FileRecord> = files.iter().map(|file| file.record.clone()).collect();
         // One transaction that decides again: of two servers, or requests for a first
         // board, that found the templates missing, one stores them. What is stored on
@@ -606,20 +613,19 @@ impl App {
             // The records of the old templates' files went with them, and their
             // objects are doomed: the housekeeping removes them.
             Ok(Some(_)) => {
+                for place in written_places {
+                    place.settled_in_transaction();
+                }
                 system.announce_created(&templates, &[]).await;
                 Ok(true)
             }
             // Every write is over: what was written is removed now.
             Ok(None) => {
-                system
-                    .give_up_template_files(&files, Written::Settled)
-                    .await;
+                give_up_written_places(written_places).await;
                 Ok(false)
             }
             Err(error) => {
-                system
-                    .give_up_template_files(&files, Written::Settled)
-                    .await;
+                give_up_written_places(written_places).await;
                 Err(other(
                     AppError::from(error).context("cannot store the built-in templates"),
                 ))
@@ -628,20 +634,31 @@ impl App {
     }
 
     /// Writes the files of the templates, each at its place, marked as being written.
-    async fn write_template_files(&self, files: &[StoredAsset]) -> Result<(), NotStored> {
+    async fn write_template_files(
+        &self,
+        files: &[StoredAsset],
+    ) -> Result<Vec<WrittenPlace>, NotStored> {
+        let mut written = Vec::with_capacity(files.len());
         for file in files {
             let path = &file.record.path;
-            self.mark_writing(path).await.map_err(NotStored::Other)?;
+            let marked = match self.mark_place(path).await {
+                Ok(marked) => marked,
+                Err(error) => {
+                    give_up_written_places(written).await;
+                    return Err(NotStored::Other(error));
+                }
+            };
             let mut bytes = file.bytes;
-            let write = self.files().write(path, &mut bytes);
-            match tokio::time::timeout(TEMPLATE_FILE_TIMEOUT, write).await {
-                Ok(Ok(_)) => {}
-                Ok(Err(error)) => {
+            match marked.write_within(&mut bytes, TEMPLATE_FILE_TIMEOUT).await {
+                Ok(place) => written.push(place),
+                Err(Some(error)) => {
+                    give_up_written_places(written).await;
                     return Err(NotStored::Files(AppError::internal(format_args!(
                         "unable to store a file of the built-in templates at {path}: {error}"
                     ))));
                 }
-                Err(_) => {
+                Err(None) => {
+                    give_up_written_places(written).await;
                     return Err(NotStored::Files(AppError::internal(format_args!(
                         "storing a file of the built-in templates at {path} took longer than {} seconds",
                         TEMPLATE_FILE_TIMEOUT.as_secs()
@@ -649,16 +666,7 @@ impl App {
                 }
             }
         }
-        Ok(())
-    }
-
-    /// Gives up the files of templates that are not stored after all, `written` saying
-    /// whether a write of theirs may yet appear. One that was never marked, or is
-    /// recorded (the templates were stored, with the answer lost), is left alone.
-    async fn give_up_template_files(&self, files: &[StoredAsset], written: Written) {
-        for file in files {
-            self.give_up_writing(&file.record.path, written).await;
-        }
+        Ok(written)
     }
 
     /// Returns the template boards of a workspace, for the templates route: for an
@@ -699,6 +707,12 @@ impl App {
     }
 }
 
+async fn give_up_written_places(places: Vec<WrittenPlace>) {
+    for place in places {
+        place.give_up().await;
+    }
+}
+
 /// Returns whether a board is a built-in template that a new account's first board is
 /// copied from: a template of the system organization that the system created and
 /// marked.
@@ -709,6 +723,17 @@ pub(crate) fn is_onboarding_template(board: &Container) -> bool {
     board.is_template
         && board.is_builtin
         && board.properties.get(ONBOARDING_PROPERTY) == Some(&Value::Bool(true))
+}
+
+/// Returns whether `board` is the built-in personal-space welcome template (`welcome-personal`).
+pub(crate) fn is_personal_onboarding_template(board: &Container) -> bool {
+    board.is_template
+        && board.is_builtin
+        && board
+            .properties
+            .get(TEMPLATE_KEY_PROPERTY)
+            .and_then(Value::as_str)
+            == Some(PERSONAL_ONBOARDING_KEY)
 }
 
 /// What a copy of `source` made on the day `today` (`YYYY-MM-DD`) does not take from it

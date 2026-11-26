@@ -1,17 +1,24 @@
 //! What the user of the session was told: that they were mentioned, that a card was
 //! given to them, and that what they watch has a new comment.
 
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, State};
 use fvoci_model::{Notification, UnreadNotifications};
+use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::params::{NotificationId, Page, PerPage, ReadThrough};
 use super::contract::tag;
-use super::paging::{int_query_param, paging_params};
+use super::query::{PagingQuery, QueryParams, int_param};
 use super::{ApiResult, RequiredSession, json_response, no_content};
 use crate::app::App;
 use crate::auth::now_millis;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct ReadNotificationsQuery {
+    through: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -64,9 +71,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 async fn handle_get_notifications(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
-    let page = paging_params(query.as_deref())?;
+    let page = query.into_list_page()?;
     Ok(json_response(&app.notifications(&session, page).await?))
 }
 
@@ -107,9 +114,9 @@ async fn handle_get_unread_notifications(
 async fn handle_read_notifications(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<ReadNotificationsQuery>,
 ) -> ApiResult {
-    let through = int_query_param(query.as_deref(), "through", now_millis())?;
+    let through = int_param(&query.through, "through", now_millis())?;
     app.read_notifications((&session).into(), through).await?;
     Ok(no_content())
 }

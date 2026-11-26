@@ -16,9 +16,8 @@ use crate::boards::{delete_member, patch_board};
 use crate::common::{Client, HIDDEN_WORKSPACE_ID, Setup, TEST_WS, TestServer};
 use crate::content_search::set_role;
 use crate::notifications::{
-    OWNER, board_with_owner, card_with, comment_on, kinds, mentioning, plain, told,
+    OWNER, board_with_owner, card_with, comment_on, give, kinds, mentioning, plain, told,
 };
-use crate::rooms::give;
 use crate::search_pages::{new_page, new_wiki};
 use crate::workspaces::another_organization;
 

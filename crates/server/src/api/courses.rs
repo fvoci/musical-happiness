@@ -6,7 +6,7 @@
 //! reaches courses and nothing else (`InCourse`).
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::{
     Block, BlockError, Container, ContainerKind, ContainerVisibility, DeletedUnit, MinimumRole,
     NewUnit, Unit, UnitKind, UnitMove, UnitNode, UnitPatch,
@@ -19,7 +19,7 @@ use utoipa_axum::routes;
 use super::contract::params::Page as PageNumber;
 use super::contract::params::{CourseId, MemberWorkspaceId, PerPage, UnitId};
 use super::contract::tag;
-use super::paging::paging_params;
+use super::query::{PagingQuery, QueryParams};
 use super::workspace::{InCourse, InWorkspace};
 use super::{
     ApiResult, created, decode_object, decode_with_document, json_response, no_content,
@@ -43,6 +43,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_restore_unit))
 }
 
+fn default_course_minimum_role() -> MinimumRole {
+    MinimumRole::Commenter
+}
+
 /// A course to make.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -51,8 +55,8 @@ pub(crate) struct NewCourse {
     /// search without joining, and to join to enroll, or `private`, for whom it is
     /// shared with.
     visibility: ContainerVisibility,
-    /// The role a user gets who joins the course. Left out, `editor`.
-    #[serde(default)]
+    /// The role a user gets who joins the course. Left out, `commenter`.
+    #[serde(default = "default_course_minimum_role")]
     minimum_role: MinimumRole,
     /// The course's title. Left out, empty.
     #[serde(default)]
@@ -418,7 +422,7 @@ async fn handle_delete_unit(
 async fn handle_get_deleted_units(
     InCourse(ws): InCourse,
     Path((_, course_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
@@ -428,7 +432,7 @@ async fn handle_get_deleted_units(
         "access denied to the trash of the course",
     )
     .await?;
-    let page = paging_params(query.as_deref())?;
+    let page = query.into_list_page()?;
     Ok(json_response(
         &ws.app.deleted_units(&course_id, page).await?,
     ))

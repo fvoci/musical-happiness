@@ -26,18 +26,16 @@ async fn moving_a_content_block_is_no_route() {
         ..Block::default()
     };
     let (card, first, second) = (new_id(), new_id(), new_id());
-    let created: Vec<Block> = ts
-        .client
-        .insert_blocks(
-            &board.id,
-            &[
-                block(&card, "", BlockType::Card),
-                block(&first, &card, BlockType::Attachment),
-                block(&second, &card, BlockType::Attachment),
-            ],
-        )
-        .await
-        .created_json();
+    let created = crate::blocks::insert(
+        &ts.client,
+        &board.id,
+        &[
+            block(&card, "", BlockType::Card),
+            block(&first, &card, BlockType::Attachment),
+            block(&second, &card, BlockType::Attachment),
+        ],
+    )
+    .await;
     let [_, first, second] = &created[..] else {
         panic!("three blocks are made: {created:?}");
     };

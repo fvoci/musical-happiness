@@ -204,11 +204,11 @@ describe('a changed comment', () => {
       boardId,
       (world.members.get(boardId) ?? []).filter((member) => member.userId !== other.userId),
     );
-    // Not there for who is no member; refused on a board open to the workspace.
+    // Not there for who is no member on a private board; readable on an open board.
     expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(404);
     const board = world.containers.get(boardId);
     if (board) world.containers.set(boardId, { ...board, visibility: 'open' });
-    expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(403);
+    expect(await other.commentVersions(boardId, posted.id)).toHaveLength(1);
 
     await backend.deleteBlock(boardId, posted.id);
     expect(await backend.commentVersions(boardId, posted.id)).toHaveLength(1);

@@ -871,6 +871,7 @@ async fn settings_are_read_changed_and_reset() {
         "theme": "auto", "cardOpen": "center", "density": "auto", "haptics": true,
         "language": "auto",
         "notifyMentions": true, "notifyAssignments": true, "notifyComments": true,
+        "notifyDue": true,
     });
 
     assert_eq!(th.client.get(SETTINGS).await.value(), defaults, "defaults");
@@ -884,6 +885,7 @@ async fn settings_are_read_changed_and_reset() {
                 "theme": "dark", "cardOpen": "side", "density": "compact", "haptics": false,
                 "language": "ko",
                 "notifyMentions": false, "notifyAssignments": false, "notifyComments": false,
+                "notifyDue": false,
             }),
         )
         .await;
@@ -893,6 +895,7 @@ async fn settings_are_read_changed_and_reset() {
         "theme": "dark", "cardOpen": "side", "density": "compact", "haptics": false,
         "language": "ko",
         "notifyMentions": false, "notifyAssignments": false, "notifyComments": false,
+        "notifyDue": false,
     });
     assert_eq!(changed.value(), all_set, "the answer is every setting");
     assert_eq!(th.client.get(SETTINGS).await.value(), all_set, "as stored");
@@ -915,7 +918,7 @@ async fn settings_are_read_changed_and_reset() {
             SETTINGS,
             &json!({
                 "theme": null, "haptics": null, "cardOpen": "full", "language": "en-US",
-                "notifyComments": null,
+                "notifyComments": null, "notifyDue": null,
             }),
         )
         .await
@@ -927,8 +930,9 @@ async fn settings_are_read_changed_and_reset() {
             "theme": "auto", "cardOpen": "full", "density": "compact", "haptics": true,
             "language": "en-US",
             "notifyMentions": false, "notifyAssignments": false, "notifyComments": true,
+            "notifyDue": true,
         }),
-        "three put back, two changed, the rest as they were"
+        "four put back, two changed, the rest as they were"
     );
     assert_eq!(
         th.client.patch(SETTINGS, &json!({})).await.value(),

@@ -277,6 +277,32 @@ export class MemoryNotifications implements Notifications {
         },
       };
     }
+    if (one.kind === 'added_to_container') {
+      const container = world.containers.get(one.containerId);
+      if (!container || !reads(world, this.#userId, container.id)) {
+        return { id, createdAt, updatedAt, readAt, subject: null };
+      }
+      return {
+        id,
+        createdAt,
+        updatedAt,
+        readAt,
+        subject: {
+          kind: 'added_to_container',
+          actorId: one.actorId,
+          times: one.times,
+          people: one.doers.length,
+          workspaceId: container.workspaceId,
+          containerId: container.id,
+          containerKind: container.kind ?? 'board',
+          blockId: '',
+          blockKind:
+            container.kind === 'wiki' ? 'page' : container.kind === 'course' ? 'unit' : 'card',
+          title: container.title,
+          commentId: '',
+        },
+      };
+    }
     const block = world.blocks.get(one.blockId);
     const container = world.containers.get(block?.containerId ?? '');
     if (!block || !container || !reads(world, this.#userId, container.id)) {
@@ -300,7 +326,12 @@ export class MemoryNotifications implements Notifications {
             ? ('unit' as const)
             : ('card' as const),
       title: block.title,
-      commentId: kind === 'review_due' ? '' : comment?.parentId === block.id ? comment.id : '',
+      commentId:
+        kind === 'review_due' || kind === 'due_soon'
+          ? ''
+          : comment?.parentId === block.id
+            ? comment.id
+            : '',
     };
     return { id, createdAt, updatedAt, readAt, subject };
   }

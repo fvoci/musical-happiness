@@ -183,17 +183,20 @@ impl App {
     /// Follows the pending settings that became the provider's: the sessions of the
     /// issuer before end with their connections, and where the organization takes
     /// only the provider, now another one, who it shuts out is shut out.
-    pub(super) async fn follow_applied(&self, applied: &Applied) {
-        let (before, provider) = (&applied.before, &applied.provider);
+    pub(super) async fn follow_applied(&self, applied: Applied) {
+        let Applied {
+            before,
+            provider,
+            ended,
+            joined: _,
+        } = applied;
         tracing::info!(org_id = %provider.org_id, issuer = %provider.issuer, "the pending settings of a provider were tried and taken");
-        if before.issuer != provider.issuer {
-            self.close_sessions_of_origin(before);
-        }
+        self.ws().close(ended);
         if provider.sso_required {
             if provider.id != before.id {
                 self.collab().put_out_shut_out(self, &provider.id).await;
             }
-            self.end_subscriptions_shut_out(provider).await;
+            self.end_subscriptions_shut_out(&provider).await;
         }
     }
 }

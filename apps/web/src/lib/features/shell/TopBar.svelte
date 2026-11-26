@@ -31,6 +31,7 @@
   import MenuIcon from '@lucide/svelte/icons/menu';
   import Redo2Icon from '@lucide/svelte/icons/redo-2';
   import Share2Icon from '@lucide/svelte/icons/share-2';
+  import SunIcon from '@lucide/svelte/icons/sun';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
   import type { Snippet } from 'svelte';
@@ -59,6 +60,8 @@
     containerId: string | undefined;
     /** Whether the personal "My time" screen is shown. */
     meTime?: boolean;
+    /** Whether the unified account "Today" hub is shown. */
+    todayHub?: boolean;
     /** Whether the workspace "Today's reviews" screen is shown. */
     reviewsToday?: boolean;
     /** Whether the workspace "Today's learning" screen is shown. */
@@ -78,6 +81,7 @@
     workspace,
     containerId,
     meTime = false,
+    todayHub = false,
     reviewsToday = false,
     learningToday = false,
     sharedHref,
@@ -221,6 +225,16 @@
         {m.time_title()}
       </h1>
     </div>
+  {:else if todayHub}
+    <div class="flex min-w-0 shrink items-center gap-2 pl-1">
+      <SunIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <h1
+        class="min-w-0 truncate text-base font-semibold @columns/pane:text-lg"
+        data-testid="top-bar-today-hub-title"
+      >
+        {m.today_hub_title()}
+      </h1>
+    </div>
   {:else if reviewsToday}
     <div class="flex min-w-0 shrink items-center gap-2 pl-1">
       <CalendarCheckIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -306,7 +320,7 @@
   <div class="min-w-0 flex-1"></div>
 
   <!-- The own space has its owner alone: nobody to see here, no members to count. -->
-  {#if store && !store.missing && !store.joinable && !isOwnSpace(workspace.info)}
+  {#if store && !store.missing && !isOwnSpace(workspace.info)}
     <PresenceRoster
       board={store}
       onMembers={() => {
@@ -400,7 +414,7 @@
     {trash}
     {workspace}
     title={m.shell_trash_cards()}
-    description={m.shell_trash_cards_description()}
+    description={m.shell_trash_cards_retention({ days: workspace.trashRetentionDays })}
     untitled={m['KanbanCard.untitled']()}
     testId="card-trash"
   />

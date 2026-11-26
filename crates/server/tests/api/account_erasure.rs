@@ -46,10 +46,13 @@ async fn board_with_a_card(client: &Client) -> (Container, Block) {
         updated_at: 1,
         ..Block::default()
     };
-    let stored: Vec<Block> = client
-        .insert_blocks_in(ROOT_WORKSPACE_ID, &board.id, std::slice::from_ref(&card))
-        .await
-        .created_json();
+    let stored = crate::blocks::insert_in(
+        client,
+        ROOT_WORKSPACE_ID,
+        &board.id,
+        std::slice::from_ref(&card),
+    )
+    .await;
     (
         board,
         stored.into_iter().next().expect("the card is stored"),

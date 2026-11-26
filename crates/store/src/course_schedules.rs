@@ -20,7 +20,7 @@ use crate::Store;
 use crate::containers::{
     PublicContainers, fetch_containers, lock_container_of_kind, select_containers_of_user,
 };
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope};
+use crate::db::{Dialect, Id, LockRank, OptId, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::unit_progress::{progress_from_row, require_live_unit};
 
@@ -360,13 +360,13 @@ async fn require_live_course_locked(
 }
 
 /// Locks the live course container (`FOR KEY SHARE` on PostgreSQL) and returns its
-/// workspace identifier. First step of the global lock order (`containers` -> `blocks` ->
-/// `workspace_members` -> `users` -> `unit_progress`).
+/// workspace identifier.
 async fn lock_live_course_for_learner(
     scope: &mut Scope<'_>,
     course_id: &str,
     org: Param,
 ) -> Result<String, StoreError> {
+    scope.record_lock(LockRank::Container, course_id);
     let mut sql = scope.sql(
         "SELECT c.workspace_id \
          FROM containers AS c \
@@ -389,8 +389,8 @@ async fn lock_live_course_for_learner(
     row.id(0)
 }
 
-/// Locks `workspace_members` (`FOR SHARE`) and `users` (`FOR KEY SHARE`) in global lock
-/// order, ensuring `user_id` is an active enrolled member of `course_id` in `workspace_id`.
+/// Locks `workspace_members` (`FOR SHARE`) and `users` (`FOR KEY SHARE`), ensuring
+/// `user_id` is an active enrolled member of `course_id` in `workspace_id`.
 async fn lock_active_learner(
     scope: &mut Scope<'_>,
     course_id: &str,
@@ -398,6 +398,10 @@ async fn lock_active_learner(
     user_id: &str,
     org: Param,
 ) -> Result<(), StoreError> {
+    scope.record_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+    );
     let mut member = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
     member
         .bind(Id(workspace_id))
@@ -409,6 +413,7 @@ async fn lock_active_learner(
         return Err(StoreError::not_found("course"));
     }
 
+    scope.record_lock(LockRank::Users, user_id);
     let mut user = scope.sql("SELECT 1 FROM users WHERE id = ");
     user.bind(Id(user_id))
         .push(" AND deleted_at IS NULL")
@@ -713,6 +718,7 @@ async fn fetch_course_nodes_locked(
     scope: &mut Scope<'_>,
     course_id: &str,
 ) -> Result<Vec<UnitNode>, StoreError> {
+    scope.record_lock(LockRank::Block, course_id);
     let mut sql = scope.sql(
         "SELECT id, parent_id, type, title, fields, created_at, updated_at FROM blocks \
          WHERE container_id = ",

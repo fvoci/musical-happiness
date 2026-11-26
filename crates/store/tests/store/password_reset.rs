@@ -164,7 +164,10 @@ async fn setting_a_password_any_way_revokes_every_earlier_reset_credential() {
         .consume_password_reset("used", "reset", 101)
         .await
         .expect("consumed");
-    assert_eq!(ended.as_deref(), Some(account.id.as_str()));
+    assert_eq!(
+        ended.as_ref().map(|(id, _)| id.as_str()),
+        Some(account.id.as_str())
+    );
     assert!(
         test.consume_password_reset("sibling", "again", 102)
             .await
@@ -194,6 +197,7 @@ async fn setting_a_password_any_way_revokes_every_earlier_reset_credential() {
         test.change_user_password(&account.id, "reset", "changed", &kept.id, "kept-anew")
             .await
             .expect("changed")
+            .is_some()
     );
     assert!(
         test.consume_password_reset("before-change", "again", 201)
@@ -208,7 +212,8 @@ async fn setting_a_password_any_way_revokes_every_earlier_reset_credential() {
             .await
             .expect("reset stored")
     );
-    test.reset_user_password(&account.username, "operator")
+    let _ = test
+        .reset_user_password(&account.username, "operator")
         .await
         .expect("set by the operator");
     assert!(

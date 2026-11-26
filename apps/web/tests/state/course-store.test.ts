@@ -75,7 +75,7 @@ describe('an open course', () => {
     store.close();
   });
 
-  it('reads an open course unjoined and lets a workspace member join to edit', async () => {
+  it('reads an open course unjoined and lets a workspace member join as commenter by default', async () => {
     const made = await openCourse('open');
     const otherWorkspace = new Workspace({ backend: made.other, locale: () => 'en' });
     await otherWorkspace.load();
@@ -88,12 +88,13 @@ describe('an open course', () => {
       false,
     ]);
     expect(await store.join()).toBe(true);
-    expect([store.joinable, store.status, store.role, store.canEdit]).toEqual([
-      false,
-      'ready',
-      'editor',
-      true,
-    ]);
+    expect([
+      store.joinable,
+      store.status,
+      store.role,
+      store.canEdit,
+      store.permissions.canComment,
+    ]).toEqual([false, 'ready', 'commenter', false, true]);
     store.close();
     made.store.close();
   });

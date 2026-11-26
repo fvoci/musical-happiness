@@ -155,13 +155,13 @@ async fn actions(store: &Store) -> Vec<AuditAction> {
 async fn a_trial_of_the_last_settings_saved_applies_them() {
     let test = common::setup().await;
     let user = person(&test).await;
-    let open = test
+    let (open, _) = test
         .put_oidc_provider_as_read(&provider(Passwords::Taken), None, &user, Duration::ZERO)
         .await
         .expect("stored")
         .expect("new");
     let not_enforced = set_aside(&test, "another", &open, &user).await;
-    let enforced = test
+    let (enforced, _) = test
         .put_oidc_provider_as_read(
             &provider(Passwords::Refused),
             Some(&open),
@@ -219,7 +219,7 @@ async fn a_trial_of_the_last_settings_saved_applies_them() {
 async fn a_trial_of_settings_thrown_away_makes_nothing() {
     let test = common::setup().await;
     let user = person(&test).await;
-    let enforced = test
+    let (enforced, _) = test
         .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user, Duration::ZERO)
         .await
         .expect("stored")
@@ -241,7 +241,8 @@ async fn a_trial_of_settings_thrown_away_makes_nothing() {
         .expect("set aside");
     let mut released = provider(Passwords::Taken);
     released.sealed_client_secret = "three".to_owned();
-    test.put_oidc_provider_as_read(&released, Some(&enforced), &user, Duration::ZERO)
+    let _ = test
+        .put_oidc_provider_as_read(&released, Some(&enforced), &user, Duration::ZERO)
         .await
         .expect("stored")
         .expect("as read");
@@ -272,7 +273,7 @@ async fn a_trial_of_settings_thrown_away_makes_nothing() {
 async fn a_trial_ends_only_in_its_administrators_account() {
     let test = common::setup().await;
     let user = person(&test).await;
-    let enforced = test
+    let (enforced, _) = test
         .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user, Duration::ZERO)
         .await
         .expect("stored")
@@ -333,7 +334,7 @@ async fn a_trial_ends_only_in_its_administrators_account() {
 async fn a_trial_does_not_end_in_an_account_that_waits_to_be_deleted() {
     let test = common::setup().await;
     let user = person(&test).await;
-    let enforced = test
+    let (enforced, _) = test
         .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user, Duration::ZERO)
         .await
         .expect("stored")

@@ -8,16 +8,16 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{
     CardPropertyDefinition, Container, ContainerError, ContainerKind, ContainerKinds,
-    ContainerMember, ContainerPatch, ContainerRole, ContainerVisibility, MinimumRole,
+    ContainerMember, ContainerPatch, ContainerRole, ContainerVisibility, DoneWhen, MinimumRole,
 };
 use serde_json::Value;
 
 use crate::Store;
 // Re-exported through `containers` so newer modules avoid naming the legacy table module.
 pub(crate) use crate::container_team_access::inherited_members_source;
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
+use crate::db::{Dialect, Id, LockRank, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
-use crate::{container_kinds, members, subscriptions};
+use crate::{block_derived, container_kinds, members, subscriptions};
 
 /// The order of a list of boards read through the alias `b`: by when they were made,
 /// and by identifier where that is the same.
@@ -28,13 +28,17 @@ pub use crate::container_team_access::ContainerAccessFacts;
 /// The name of every board column, in the order rows are read and written.
 pub(crate) const CONTAINER_COLUMNS: &str = "id, workspace_id, created_by, modified_by, \
      visibility, minimum_role, title, description, icon, show_description, is_template, \
-     is_builtin, template_version, properties, card_properties, created_at, updated_at, kind";
+     is_builtin, template_version, properties, card_properties, created_at, updated_at, kind, \
+     due_date_property_id, done_when";
 
 /// Select list of every board column qualified with alias `b.`.
 pub(crate) const CONTAINER_SELECT_B: &str = "b.id, b.workspace_id, b.created_by, b.modified_by, \
      b.visibility, b.minimum_role, b.title, b.description, b.icon, b.show_description, \
      b.is_template, b.is_builtin, b.template_version, b.properties, b.card_properties, \
-     b.created_at, b.updated_at, b.kind";
+     b.created_at, b.updated_at, b.kind, b.due_date_property_id, b.done_when";
+
+/// Number of columns in [`CONTAINER_COLUMNS`] and [`CONTAINER_SELECT_B`].
+pub(crate) const CONTAINER_COLUMN_COUNT: usize = 20;
 
 /// Whether a board query also returns the open boards the user is not a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -440,11 +444,25 @@ pub(crate) fn container_from_row_at(row: &Row, base: usize) -> Result<Container,
         template_version: row.int(base + 12)?,
         properties: row.json_map(base + 13, "properties")?,
         card_properties: card_properties_from_json(row.json(base + 14, "card_properties")?)?,
+        due_date_property_id: row.opt_text(base + 18)?.filter(|id| !id.is_empty()),
+        done_when: done_when_from_json(row.json(base + 19, "done_when")?)?,
         created_at: row.int(base + 15)?,
         updated_at: row.int(base + 16)?,
         // A board that exists is not deleted.
         deleted_at: None,
     })
+}
+
+fn done_when_from_json(value: Value) -> Result<Option<DoneWhen>, StoreError> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|error| StoreError::Corrupt {
+            column: "done_when",
+            reason: error.to_string(),
+        })
 }
 
 fn visibility_from_text(text: &str) -> Result<ContainerVisibility, StoreError> {
@@ -584,6 +602,11 @@ pub(crate) async fn insert_container(
             }
             .into());
         }
+        let derived_changed = container.kind == ContainerKind::Board
+            && (existing.card_properties != container.card_properties
+                || existing.due_date_property_id != container.due_date_property_id
+                || existing.done_when != container.done_when
+                || existing.is_template != container.is_template);
         let access_unchanged = existing.visibility == container.visibility
             && existing.minimum_role == container.minimum_role
             && existing.is_template == container.is_template
@@ -611,6 +634,14 @@ pub(crate) async fn insert_container(
                 ", card_properties = ",
                 Param::jsonb(&container.card_properties)?,
             )
+            .push_bind(
+                ", due_date_property_id = ",
+                Param::OptText(container.due_date_property_id.clone()),
+            )
+            .push_bind(
+                ", done_when = ",
+                Param::opt_jsonb(container.done_when.as_ref())?,
+            )
             .push_bind(", updated_at = ", container.updated_at)
             .push_bind(" WHERE id = ", Id(&container.id));
         if scope.execute(sql).await? == 0 {
@@ -618,6 +649,9 @@ pub(crate) async fn insert_container(
                 "board ID={}",
                 container.id
             )));
+        }
+        if derived_changed {
+            block_derived::refresh_board_cards(scope, container).await?;
         }
         Ok(())
     } else {
@@ -654,6 +688,8 @@ pub(crate) async fn insert_container_row(
         .push_bind(", ", container.created_at)
         .push_bind(", ", container.updated_at)
         .push_bind(", ", container.kind.as_str())
+        .push_bind(", ", Param::OptText(container.due_date_property_id.clone()))
+        .push_bind(", ", Param::opt_jsonb(container.done_when.as_ref())?)
         .push(")");
     scope.execute(sql).await?;
     Ok(())
@@ -801,7 +837,10 @@ pub(crate) async fn lock_container_of_kind(
         sql.push(" FOR NO KEY UPDATE");
     }
     match scope.fetch_optional(sql).await? {
-        Some(row) => Ok(Some(container_kinds::kind_from_text(&row.text(0)?)?)),
+        Some(row) => {
+            scope.record_lock(LockRank::Container, container_id);
+            Ok(Some(container_kinds::kind_from_text(&row.text(0)?)?))
+        }
         None => Ok(None),
     }
 }
@@ -836,7 +875,11 @@ pub(crate) async fn lock_container_for_deletion(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    let found = scope.fetch_optional(sql).await?.is_some();
+    if found {
+        scope.record_lock(LockRank::Container, container_id);
+    }
+    Ok(found)
 }
 
 /// Takes the lock of [`lock_container`] on several boards, in the order of their
@@ -895,4 +938,23 @@ pub(crate) async fn remove_builtin_templates(scope: &mut Scope<'_>) -> Result<()
     let count = scope.execute(sql).await?;
     tracing::debug!(count, "removed the built-in templates");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_count_of_the_columns_is_the_columns() {
+        assert_eq!(
+            CONTAINER_COLUMNS.split(',').count(),
+            CONTAINER_COLUMN_COUNT,
+            "{CONTAINER_COLUMNS}"
+        );
+        assert_eq!(
+            CONTAINER_SELECT_B.split(',').count(),
+            CONTAINER_COLUMN_COUNT,
+            "{CONTAINER_SELECT_B}"
+        );
+    }
 }

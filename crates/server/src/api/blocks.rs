@@ -1,11 +1,12 @@
 //! Blocks: reading, inserting, patching, deleting, restoring and duplicating.
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery};
+use axum::extract::Path;
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, CommentVersion, Container,
     JsonMap, RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
 };
+use serde::Deserialize;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -17,14 +18,15 @@ use super::contract::params::{
     SourceBoardId,
 };
 use super::contract::tag;
+use super::query::{AsTemplateQuery, DisableNotifyQuery, QueryParams, non_empty_opt};
 use super::workspace::InWorkspace;
 
-use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
+use super::{ApiResult, TRUE, created, decode_json, json_response, no_content};
 use super::{
     BlockAction, require_block_patch_permission_with_grant, require_block_permission_with_grant,
-    require_delete_permission, require_deletion_permission, require_granted,
+    require_container_permission, require_delete_permission, require_deletion_permission,
+    require_granted,
 };
-use super::{change_notification, duplicate_as, query_option, require_container_permission};
 use super::{
     decode_object_with, element_pointer, objects_mut, put_patch_bodies, take_block_bodies,
     take_patch_bodies,
@@ -33,6 +35,23 @@ use crate::app::{App, ChangeNotification};
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct BlocksFilterQuery {
+    pub(super) all: String,
+    pub(super) block_id: String,
+    pub(super) parent_id: String,
+    #[serde(rename = "type")]
+    pub(super) block_type: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct CreateBlocksQuery {
+    source_board_id: String,
+    disable_notify: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -129,11 +148,11 @@ async fn require_source_board_access(
 async fn handle_get_blocks(
     ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<BlocksFilterQuery>,
 ) -> ApiResult {
     let board = ws.app.container(&board_id).await?;
     require_read_access(&ws, &board).await?;
-    let blocks = asked_blocks(&ws.app, &board_id, query.as_deref()).await?;
+    let blocks = asked_blocks(&ws.app, &board_id, &query).await?;
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
     Ok(json_response(&blocks))
 }
@@ -143,18 +162,17 @@ async fn handle_get_blocks(
 pub(super) async fn asked_blocks(
     app: &App,
     container_id: &str,
-    query: Option<&str>,
+    query: &BlocksFilterQuery,
 ) -> Result<Vec<Block>, AppError> {
-    if !query_param(query, "all").is_empty() {
+    if !query.all.is_empty() {
         app.blocks_for_container(container_id).await
-    } else if let Some(block_id) = query_option(query, "blockId") {
+    } else if let Some(block_id) = non_empty_opt(&query.block_id) {
         Ok(vec![
             block_on_container(app, &block_id, container_id).await?,
         ])
     } else {
-        let parent_id = query_option(query, "parentId");
-        // The type is matched as it is written: one that no block has finds nothing.
-        let block_type = match query_option(query, "type") {
+        let parent_id = non_empty_opt(&query.parent_id);
+        let block_type = match non_empty_opt(&query.block_type) {
             None => None,
             Some(raw) => match raw.parse::<BlockType>() {
                 Ok(parsed) => Some(parsed),
@@ -172,16 +190,10 @@ pub(super) async fn asked_blocks(
 async fn check_and_copy_body_files(
     ws: &InWorkspace,
     board_id: &str,
-    query: Option<&str>,
+    source_board_id: &str,
     blocks: &mut [Block],
 ) -> Result<(), AppError> {
     let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
-    // Set when a template is made from a board or a board from a template: the files
-    // the blocks refer to are then copied over from that board.
-    let source_board_id = query_param(query, "sourceBoardId");
-    // Copying files into the board is an editor's: a commenter, who may post comments
-    // with bodies, may not upload either.
-    // A request with anything but comments needed the editor's permission already.
     if !source_board_id.is_empty()
         && blocks
             .iter()
@@ -197,13 +209,11 @@ async fn check_and_copy_body_files(
         )
         .await?;
     }
-    // The images of a body show files of the board, or of the board they are copied
-    // from.
     let files_board_id = if source_board_id.is_empty() {
         board_id
     } else {
-        require_source_board_access(ws, &source_board_id).await?;
-        &source_board_id
+        require_source_board_access(ws, source_board_id).await?;
+        source_board_id
     };
     for (index, block) in blocks.iter().enumerate() {
         app.check_body_files(files_board_id, block.body.as_ref())
@@ -211,9 +221,7 @@ async fn check_and_copy_body_files(
             .map_err(|error| error.under(&element_pointer(Some(""), index)))?;
     }
     if !source_board_id.is_empty() {
-        // The blocks are not stored yet: each is pointed at its copy here, and stored
-        // with that below.
-        app.copy_card_files_into(&source_board_id, blocks).await;
+        app.copy_card_files_into(source_board_id, blocks).await;
     }
 
     Ok(())
@@ -255,21 +263,19 @@ fn give_bodies(blocks: &mut [RawNewBlock], bodies: Vec<Option<Body>>) -> Result<
 async fn handle_post_blocks(
     ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<CreateBlocksQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let query = query.as_deref();
     let user_id = ws.session.user_id.as_str();
-    // Blocks made from those of another board (a board from a template, a template
-    // from a board) are copies: whom they name was named there, and is neither told
-    // again nor made a watcher.
-    let notification = if query_param(query, "sourceBoardId").is_empty() {
-        change_notification(query)
+    let notification = if query.source_board_id.is_empty() {
+        if query.disable_notify == TRUE {
+            ChangeNotification::Suppress
+        } else {
+            ChangeNotification::Send
+        }
     } else {
         ChangeNotification::Copied
     };
-    // Which permission is needed depends on the blocks, so the body is read first; but
-    // whoever may not even see the board learns nothing from what the body is like.
     require_container_permission(
         &ws.app,
         user_id,
@@ -278,14 +284,11 @@ async fn handle_post_blocks(
         CHANGES_DENIED,
     )
     .await?;
-    // A list first, so that a request that is none is refused as before, and the bodies
-    // apart, so that one that may not be stored is refused as a body.
     let mut raw_values: Vec<Value> = decode_json(&body)?;
     let bodies = take_block_bodies(raw_values.iter_mut().map(Value::as_object_mut), Some(""))?;
     let mut raw_blocks: Vec<RawNewBlock> =
         serde_json::from_value(Value::Array(raw_values)).map_err(AppError::bad_request)?;
     give_bodies(&mut raw_blocks, bodies)?;
-    // Where a block is in the request: the body is the list.
     let place = |index: usize| element_pointer(Some(""), index);
 
     let mut has_comments = false;
@@ -300,6 +303,9 @@ async fn handle_post_blocks(
                     .with_field(member)
                     .under(&place(index))
             })?;
+        if block.block_type == BlockType::Card {
+            return Err(AppError::from(BlockError::CardByBlocks).under(&place(index)));
+        }
         if block.block_type == BlockType::Comment {
             has_comments = true;
         } else {
@@ -331,7 +337,7 @@ async fn handle_post_blocks(
     renew_request_ids(&ws.app, &board_id, &mut blocks).await?;
     stamp_modification_metadata(user_id, &mut blocks, now_millis());
 
-    check_and_copy_body_files(&ws, &board_id, query, &mut blocks).await?;
+    check_and_copy_body_files(&ws, &board_id, &query.source_board_id, &mut blocks).await?;
 
     // The store names a block it refuses by its identifier.
     let ids: Vec<String> = blocks.iter().map(|block| block.id.clone()).collect();
@@ -466,18 +472,6 @@ impl RawNewBlock {
             }
             RawBlockType::Known(bt) => bt,
         };
-        if self.created_at < 1 {
-            return Err((
-                "createdAt",
-                "a new block's createdAt is 1 or more".to_owned(),
-            ));
-        }
-        if self.updated_at < 1 {
-            return Err((
-                "updatedAt",
-                "a new block's updatedAt is 1 or more".to_owned(),
-            ));
-        }
         Ok(Block {
             id: self.id,
             parent_id: self.parent_id,
@@ -555,10 +549,10 @@ async fn renew_request_ids(
 async fn handle_delete_block(
     ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<DisableNotifyQuery>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let notification = change_notification(query.as_deref());
+    let notification = query.notification();
     // Nobody below the commenter's role deletes anything, whatever the block is.
     require_container_permission(
         &ws.app,
@@ -717,11 +711,11 @@ async fn handle_get_comment_versions(
 async fn handle_patch_block(
     ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let notification = change_notification(query.as_deref());
+    let notification = query.notification();
     // Who cannot even comment changes nothing, whatever the block.
     let grant = ws.app.container_grant(user_id, &board_id).await?;
     require_granted(grant, ContainerPermission::CommentCards, CHANGES_DENIED)?;
@@ -771,11 +765,11 @@ async fn handle_patch_block(
 async fn handle_patch_blocks(
     ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let notification = change_notification(query.as_deref());
+    let notification = query.notification();
     // Who cannot even comment changes nothing, whatever the blocks.
     let grant = ws.app.container_grant(user_id, &board_id).await?;
     require_granted(grant, ContainerPermission::CommentCards, CHANGES_DENIED)?;
@@ -861,10 +855,10 @@ async fn handle_patch_blocks(
 async fn handle_duplicate_block(
     ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
-    RawQuery(query): RawQuery,
+    QueryParams(query): QueryParams<AsTemplateQuery>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    let duplicate_as = duplicate_as(query.as_deref());
+    let duplicate_as = query.duplicate_as();
 
     require_container_permission(
         &ws.app,

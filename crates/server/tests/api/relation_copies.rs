@@ -333,8 +333,8 @@ async fn a_relation_value_of_a_block_that_is_no_card_does_not_stop_a_copy() {
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([{
-                "id": "v", "containerId": board.id, "type": "view",
-                "title": "Odd", "createdAt": 1, "updatedAt": 1,
+                "id": "att", "containerId": board.id, "parentId": cards["A"], "type": "attachment",
+                "title": "Odd",
                 "fields": {"properties": {RELATION: [
                     {"card": cards["A"], "kind": "fs", "lagDays": 0},
                     {"card": new_id(), "kind": "ss", "lagDays": 1},

@@ -227,7 +227,7 @@
   ></span>
   <span class="grid min-w-0 flex-1 gap-0.5">
     <span class={['flex items-start gap-1.5', unread && 'font-medium']}>
-      {#if notification.subject?.kind === 'review_due'}
+      {#if notification.subject?.kind === 'review_due' || notification.subject?.kind === 'due_soon'}
         <CalendarCheckIcon class="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
       {/if}
       <span>{notificationText(notification.subject, nameOf(notification))}</span>

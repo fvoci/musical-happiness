@@ -407,7 +407,11 @@ async fn duplicate_container_permissions_and_parameters() {
     // An open board that is not a template can only be duplicated by its members.
     let response = duplicate_board(&th.client2, &board.id, "").await;
     response.check_forbidden();
-    assert_eq!(response.error_message(), "access denied to board", "why");
+    assert_eq!(
+        response.error_message(),
+        "access denied to copy board",
+        "why"
+    );
 
     // Without `toWorkspace` the copy stays in the workspace of the source; comments are not
     // copied.
