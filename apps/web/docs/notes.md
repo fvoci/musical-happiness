@@ -286,7 +286,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 
 ## 이름 검사
 
-`pnpm --filter web run names`(`check`에 포함)가 `apps/web` 아래에서 git이 추적하거나 추적할 파일의 이름과 내용을 본다. 워크스페이스의 옛 이름이 `tools/names/exceptions.txt`가 까닭과 함께 적어 둔 곳에만 있는지 본다. 저장소 전체에 두지 않는 낱말은 `cargo xtask check`의 이름 단계가 본다(`xtask/src/banned.rs`).
+`pnpm --filter web run names`(`check`에 포함)가 `apps/web` 아래에서 git이 추적하거나 추적할 파일의 이름과 내용을 본다. 워크스페이스의 옛 이름이 저장소의 예외 목록(`xtask/exceptions/names.txt`의 `apps/web/` 항목, 까닭과 함께)이 적어 둔 곳과 검사가 스스로 넘기는 세 경우(다른 낱말 안의 글자, 주소, 메시지 파일의 문구; `tools/names/workspace.ts`)에만 있는지 본다. 웹앱에 따로 두는 예외 목록은 없다. 저장소 전체에 두지 않는 낱말은 `cargo xtask check`의 이름 단계가 본다(`xtask/src/banned.rs`).
 
 ## 순수 로직 (`src/lib/logic`)
 

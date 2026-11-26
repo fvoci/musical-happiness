@@ -117,8 +117,12 @@
       </Dialog.Close>
     </Dialog.Header>
 
+    <!-- Full screen, its foot is under the keyboard; the window, smaller, stands above it. -->
     <div
-      class="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain p-4 pb-[calc(1rem+var(--keyboard))]"
+      class={[
+        'grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain p-4',
+        compact && 'pb-[calc(1rem+var(--keyboard))]',
+      ]}
     >
       <div class="grid gap-1.5">
         <label for="{uid}-title" class="text-sm font-medium">{m.new_title_label()}</label>
