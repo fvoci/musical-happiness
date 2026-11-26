@@ -3,17 +3,19 @@
   (`workspace.changeSettings`): it shows immediately and goes back, with a
   line telling so, if the server refuses it.
 
+  In groups: the screen, dates and language, notifications, data, and the
+  account and its security.
+
   - Theme, density, haptics: how the app looks and feels here. The line
     numbers of code blocks are this device's alone (code-lines.ts).
-  - How a card opens: only the dialog in the middle is built. The other two
-    answers are shown, so that the place is known, and cannot be chosen.
   - Time zone, first day of the week, way of writing hours: `Automatic`
     follows the device and the language.
   - Language: an account setting, `Automatic` following the browser; the page
     loads again in the chosen one. The list and the function that changes it
     come from the app (a feature cannot import them).
   - What the reader is told of: a switch for each kind (`NotificationSettings.svelte`).
-  - The layout readout: for whoever works on the layout (dev.svelte.ts).
+  - The layout readout: for whoever works on the layout, in a development
+    build (dev.svelte.ts).
   - Archives: every board and wiki of the workspace exported, an archive imported; the
     progress shows at the foot of the page (`Transfers.svelte`). An import that
     left members out, who are not in the workspace, says how many in a line.
@@ -41,11 +43,8 @@
   import type { ContainerPlace } from '$lib/logic/urls.ts';
   import {
     THEME_SETTINGS,
-    CARD_OPEN_BUILT,
-    CARD_OPEN_SETTINGS,
     DENSITY_SETTINGS,
     type ThemeSetting,
-    type CardOpenSetting,
     type DensitySetting,
   } from '$lib/logic/display.ts';
   import {
@@ -142,17 +141,20 @@
   );
 
   const settings = $derived(workspace.settings);
+  /** The data group: the workspace's archives, where it is open here, and its records. */
+  const hasData = $derived(Boolean(workspace.info) || Boolean(onOpenRecords));
+  /** The account group: the name, and where there are accounts, the password and signing out. */
+  const hasAccount = $derived(
+    [workspace.me, onChangePassword, account, onSignOut].some((one) => one !== undefined),
+  );
+  /** How the name of a group of settings looks. */
+  const GROUP = 'text-xs font-semibold tracking-wide text-muted-foreground uppercase';
   const compact = $derived(page.stage === 'compact');
 
   const THEME_LABELS: Record<ThemeSetting, () => string> = {
     auto: m.shell_settings_auto,
     light: m.shell_settings_theme_light,
     dark: m.shell_settings_theme_dark,
-  };
-  const CARD_OPEN_LABELS: Record<CardOpenSetting, () => string> = {
-    center: m.shell_settings_card_open_center,
-    side: m.shell_settings_card_open_side,
-    full: m.shell_settings_card_open_full,
   };
   const DENSITY_LABELS: Record<DensitySetting, () => string> = {
     auto: m.shell_settings_auto,
@@ -244,182 +246,195 @@
       </Dialog.Close>
     </Dialog.Header>
 
-    <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
-      <SettingChoice
-        name="theme"
-        label={m.shell_settings_theme()}
-        value={settings.theme}
-        options={THEME_SETTINGS.map((value) => ({ value, label: THEME_LABELS[value]() }))}
-        onChange={(theme: ThemeSetting) => void workspace.changeSettings({ theme })}
-      />
-      <SettingChoice
-        name="density"
-        label={m.shell_settings_density()}
-        value={settings.density}
-        options={DENSITY_SETTINGS.map((value) => ({ value, label: DENSITY_LABELS[value]() }))}
-        onChange={(density: DensitySetting) => void workspace.changeSettings({ density })}
-      />
-      <SettingChoice
-        name="cardOpen"
-        label={m.shell_settings_card_open()}
-        value={settings.cardOpen}
-        options={CARD_OPEN_SETTINGS.map((value) => {
-          const built = CARD_OPEN_BUILT.includes(value);
-          return {
-            value,
-            label: CARD_OPEN_LABELS[value](),
-            disabled: !built,
-            note: built ? undefined : m.shell_settings_coming(),
-          };
-        })}
-        onChange={(cardOpen: CardOpenSetting) => void workspace.changeSettings({ cardOpen })}
-      />
-      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="haptics">
-        <span class="grid min-w-0 flex-1 gap-0.5">
-          <span class="font-medium">{m.shell_settings_haptics()}</span>
-          <span class="text-xs text-muted-foreground">{m.shell_settings_haptics_hint()}</span>
-        </span>
-        <Switch
-          checked={settings.haptics}
-          onCheckedChange={(haptics: boolean) => void workspace.changeSettings({ haptics })}
+    <div class="grid min-h-0 flex-1 content-start gap-6 overflow-y-auto overscroll-contain p-4">
+      <section class="grid gap-5" aria-labelledby="{uid}-display">
+        <h3 id="{uid}-display" class={GROUP}>{m.shell_settings_group_display()}</h3>
+        <SettingChoice
+          name="theme"
+          label={m.shell_settings_theme()}
+          value={settings.theme}
+          options={THEME_SETTINGS.map((value) => ({ value, label: THEME_LABELS[value]() }))}
+          onChange={(theme: ThemeSetting) => void workspace.changeSettings({ theme })}
         />
-      </label>
-      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="codeLines">
-        <span class="grid min-w-0 flex-1 gap-0.5">
-          <span class="font-medium">{m.shell_settings_code_lines()}</span>
-          <span class="text-xs text-muted-foreground">{m.shell_settings_code_lines_hint()}</span>
-        </span>
-        <Switch
-          checked={codeLines.shown}
-          onCheckedChange={(shown: boolean) => {
-            codeLines.set(shown);
-          }}
+        <SettingChoice
+          name="density"
+          label={m.shell_settings_density()}
+          value={settings.density}
+          options={DENSITY_SETTINGS.map((value) => ({ value, label: DENSITY_LABELS[value]() }))}
+          onChange={(density: DensitySetting) => void workspace.changeSettings({ density })}
         />
-      </label>
+        <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="haptics">
+          <span class="grid min-w-0 flex-1 gap-0.5">
+            <span class="font-medium">{m.shell_settings_haptics()}</span>
+            <span class="text-xs text-muted-foreground">{m.shell_settings_haptics_hint()}</span>
+          </span>
+          <Switch
+            checked={settings.haptics}
+            onCheckedChange={(haptics: boolean) => void workspace.changeSettings({ haptics })}
+          />
+        </label>
+        <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="codeLines">
+          <span class="grid min-w-0 flex-1 gap-0.5">
+            <span class="font-medium">{m.shell_settings_code_lines()}</span>
+            <span class="text-xs text-muted-foreground">{m.shell_settings_code_lines_hint()}</span>
+          </span>
+          <Switch
+            checked={codeLines.shown}
+            onCheckedChange={(shown: boolean) => {
+              codeLines.set(shown);
+            }}
+          />
+        </label>
+      </section>
 
-      <SettingPicker
-        name="timeZone"
-        label={m.shell_settings_time_zone()}
-        searchLabel={m.shell_settings_time_zone_search()}
-        items={timeZones}
-        value={settings.timeZone}
-        onPick={(timeZone: string) => void workspace.changeSettings({ timeZone })}
-      />
-      <SettingChoice
-        name="weekStart"
-        label={m.shell_settings_week_start()}
-        value={settings.weekStart}
-        options={WEEK_START_SETTINGS.map((value) => ({ value, label: WEEK_START_LABELS[value]() }))}
-        onChange={(weekStart: WeekStartSetting) => void workspace.changeSettings({ weekStart })}
-      />
-      <SettingChoice
-        name="hourCycle"
-        label={m.shell_settings_hour_cycle()}
-        value={settings.hourCycle}
-        options={HOUR_CYCLE_SETTINGS.map((value) => ({ value, label: HOUR_CYCLE_LABELS[value]() }))}
-        onChange={(hourCycle: HourCycleSetting) => void workspace.changeSettings({ hourCycle })}
-      />
-
-      {#if locales.length > 0 && language !== undefined && onChooseLanguage}
+      <section class="grid gap-5 border-t pt-4" aria-labelledby="{uid}-regional">
+        <h3 id="{uid}-regional" class={GROUP}>{m.shell_settings_group_regional()}</h3>
         <SettingPicker
-          name="language"
-          label={m.shell_settings_language()}
-          searchLabel={m.shell_settings_language_search()}
-          items={languages}
-          value={language}
-          onPick={chooseLanguage}
+          name="timeZone"
+          label={m.shell_settings_time_zone()}
+          searchLabel={m.shell_settings_time_zone_search()}
+          items={timeZones}
+          value={settings.timeZone}
+          onPick={(timeZone: string) => void workspace.changeSettings({ timeZone })}
         />
-      {/if}
+        <SettingChoice
+          name="weekStart"
+          label={m.shell_settings_week_start()}
+          value={settings.weekStart}
+          options={WEEK_START_SETTINGS.map((value) => ({
+            value,
+            label: WEEK_START_LABELS[value](),
+          }))}
+          onChange={(weekStart: WeekStartSetting) => void workspace.changeSettings({ weekStart })}
+        />
+        <SettingChoice
+          name="hourCycle"
+          label={m.shell_settings_hour_cycle()}
+          value={settings.hourCycle}
+          options={HOUR_CYCLE_SETTINGS.map((value) => ({
+            value,
+            label: HOUR_CYCLE_LABELS[value](),
+          }))}
+          onChange={(hourCycle: HourCycleSetting) => void workspace.changeSettings({ hourCycle })}
+        />
+
+        {#if locales.length > 0 && language !== undefined && onChooseLanguage}
+          <SettingPicker
+            name="language"
+            label={m.shell_settings_language()}
+            searchLabel={m.shell_settings_language_search()}
+            items={languages}
+            value={language}
+            onPick={chooseLanguage}
+          />
+        {/if}
+      </section>
 
       <NotificationSettings {workspace} />
 
-      <label
-        class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch"
-        data-setting="dev"
-      >
-        <span class="grid min-w-0 flex-1 gap-0.5">
-          <span class="font-medium">{m.shell_settings_dev()}</span>
-          <span class="text-xs text-muted-foreground">{m.shell_settings_dev_hint()}</span>
-        </span>
-        <Switch
-          checked={devReadout.shown}
-          onCheckedChange={(shown: boolean) => {
-            devReadout.set(shown);
-          }}
-        />
-      </label>
+      {#if hasData}
+        <section class="grid gap-5 border-t pt-4" aria-labelledby="{uid}-data">
+          <h3 id="{uid}-data" class={GROUP}>{m.shell_settings_group_data()}</h3>
+          <!-- Of the workspace shown: none where it is closed to this session. -->
+          {#if workspace.info}
+            <ArchiveImportSection
+              {workspace}
+              {workspaceName}
+              summary={lastSummaryHere}
+              onStartImport={() => {
+                lastImport = undefined;
+                return dialogSession;
+              }}
+              onImported={(workspaceId: string, summary: ImportSummary, session: number) => {
+                if (open && session === dialogSession) {
+                  lastImport = { workspaceId, summary };
+                }
+              }}
+              {containerHref}
+              onOpenContainer={onOpenContainer
+                ? (container: ContainerPlace) => {
+                    resetImportSession();
+                    onOpenContainer(container);
+                  }
+                : undefined}
+            />
+          {/if}
 
-      <!-- Of the workspace shown: none where it is closed to this session. -->
-      {#if workspace.info}
-        <ArchiveImportSection
-          {workspace}
-          {workspaceName}
-          summary={lastSummaryHere}
-          onStartImport={() => {
-            lastImport = undefined;
-            return dialogSession;
-          }}
-          onImported={(workspaceId: string, summary: ImportSummary, session: number) => {
-            if (open && session === dialogSession) {
-              lastImport = { workspaceId, summary };
-            }
-          }}
-          {containerHref}
-          onOpenContainer={onOpenContainer
-            ? (container: ContainerPlace) => {
-                resetImportSession();
-                onOpenContainer(container);
-              }
-            : undefined}
-        />
-      {/if}
-
-      {#if onOpenRecords}
-        <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-records">
-          <h3 id="{uid}-records" class="font-medium">
-            {isOwnSpace(workspace.info) ? workspaceName : m.shell_settings_workspace()}
-          </h3>
-          <div>
-            <Button
-              variant="outline"
-              class="roomy:min-h-touch"
-              aria-haspopup="dialog"
-              data-testid="open-records"
-              onclick={() => {
-                resetImportSession();
-                onOpenRecords();
-              }}>{m.audit_title()}</Button
-            >
-          </div>
-          <p class="text-xs text-muted-foreground">{m.audit_description()}</p>
+          {#if onOpenRecords}
+            <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-records">
+              <h4 id="{uid}-records" class="font-medium">
+                {isOwnSpace(workspace.info) ? workspaceName : m.shell_settings_workspace()}
+              </h4>
+              <div>
+                <Button
+                  variant="outline"
+                  class="roomy:min-h-touch"
+                  aria-haspopup="dialog"
+                  data-testid="open-records"
+                  onclick={() => {
+                    resetImportSession();
+                    onOpenRecords();
+                  }}>{m.audit_title()}</Button
+                >
+              </div>
+              <p class="text-xs text-muted-foreground">{m.audit_description()}</p>
+            </section>
+          {/if}
         </section>
       {/if}
 
-      {#if workspace.me}
-        <div class="border-t pt-4">
-          <NameFields {workspace} />
-        </div>
+      {#if hasAccount}
+        <section class="grid gap-5 border-t pt-4" aria-labelledby="{uid}-account">
+          <h3 id="{uid}-account" class={GROUP}>{m.shell_settings_group_account()}</h3>
+          {#if workspace.me}
+            <div class="border-t pt-4">
+              <NameFields {workspace} />
+            </div>
+          {/if}
+
+          {#if onChangePassword}
+            <PasswordChange onChange={onChangePassword} />
+          {/if}
+
+          {@render account?.()}
+
+          {#if onSignOut}
+            <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
+              <span
+                class="min-w-0 flex-1 truncate text-muted-foreground"
+                data-testid="signed-in-as"
+              >
+                {m.account_signed_in_as({
+                  // The reader is not always among the people read of where they
+                  // are (somebody new there, before they are on a board).
+                  name: workspace.me ? userDisplayName(workspace.me) : '',
+                })}
+              </span>
+              <Button variant="outline" class="roomy:min-h-touch" onclick={onSignOut}>
+                {m.account_sign_out()}
+              </Button>
+            </div>
+          {/if}
+        </section>
       {/if}
 
-      {#if onChangePassword}
-        <PasswordChange onChange={onChangePassword} />
-      {/if}
-
-      {@render account?.()}
-
-      {#if onSignOut}
-        <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
-          <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="signed-in-as">
-            {m.account_signed_in_as({
-              // The reader is not always among the people read of where they
-              // are (somebody new there, before they are on a board).
-              name: workspace.me ? userDisplayName(workspace.me) : '',
-            })}
+      <!-- For whoever works on the layout: in a development build only (`?dev=1` anywhere). -->
+      {#if import.meta.env.DEV}
+        <label
+          class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch"
+          data-setting="dev"
+        >
+          <span class="grid min-w-0 flex-1 gap-0.5">
+            <span class="font-medium">{m.shell_settings_dev()}</span>
+            <span class="text-xs text-muted-foreground">{m.shell_settings_dev_hint()}</span>
           </span>
-          <Button variant="outline" class="roomy:min-h-touch" onclick={onSignOut}>
-            {m.account_sign_out()}
-          </Button>
-        </div>
+          <Switch
+            checked={devReadout.shown}
+            onCheckedChange={(shown: boolean) => {
+              devReadout.set(shown);
+            }}
+          />
+        </label>
       {/if}
     </div>
   </Dialog.Content>

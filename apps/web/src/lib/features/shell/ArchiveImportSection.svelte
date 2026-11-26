@@ -180,7 +180,7 @@
 </script>
 
 <section class="grid gap-3 border-t pt-4" aria-labelledby="{uid}-archives">
-  <h3 id="{uid}-archives" class="font-medium">{m.shell_archive_title()}</h3>
+  <h4 id="{uid}-archives" class="font-medium">{m.shell_archive_title()}</h4>
 
   {#if !isGuest(workspace)}
     <SettingChoice

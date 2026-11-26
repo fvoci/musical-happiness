@@ -164,16 +164,21 @@ test('density: "Comfortable" makes what is pressed 44px, "Compact" 32px, and a r
   await expect.poll(height).toBe(32);
 });
 
-test('how a card opens: the dialog is the one answer; the other two are shown and cannot be chosen', async ({
+test('the settings come in groups, and how a card opens is not asked: it opens in a dialog', async ({
   page,
 }) => {
   await openApp(page);
   await openSettings(page);
-  await expect(choice(page, 'cardOpen', 'In a dialog')).toBeChecked();
-  for (const label of [/Beside the board/, /Full screen/]) {
-    await expect(choice(page, 'cardOpen', label)).toBeDisabled();
-    await expect(choice(page, 'cardOpen', label)).toContainText('Coming soon');
-  }
+  const dialog = page.getByTestId('settings-dialog');
+  await expect(dialog.getByRole('heading', { level: 3 })).toHaveText([
+    'Screen',
+    'Dates and language',
+    'Notifications',
+    'Data',
+    'Account and security',
+  ]);
+  await expect(dialog.getByRole('region', { name: 'Screen' })).toContainText('Brightness');
+  await expect(dialog.locator('[data-setting="cardOpen"]')).toHaveCount(0);
   expect((await stored(page)).cardOpen).toBe('center');
 });
 
@@ -437,23 +442,20 @@ test('pictures of the name in the settings', async ({ page }, testInfo) => {
   }
 });
 
-test('the layout readout is switched on and off in the settings', async ({ page }) => {
+test('the layout readout is no setting of a built app: the address switches it on and off', async ({
+  page,
+}) => {
   await openApp(page);
   const readout = page.getByTestId('dev-readout');
   await expect(readout).toHaveCount(0);
-
   await openSettings(page);
-  const toggle = setting(page, 'dev').getByRole('switch');
-  await expect(toggle).not.toBeChecked();
-  await toggle.click();
-  await expect(toggle).toBeChecked();
-  await expect(readout).toBeVisible();
+  await expect(setting(page, 'dev')).toHaveCount(0);
 
-  await page.reload();
+  const here = new URL(page.url()).pathname;
+  await page.goto(`${here}?dev=1`);
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(readout).toBeVisible();
-
-  await openSettings(page);
-  await setting(page, 'dev').getByRole('switch').click();
+  await page.goto(`${here}?dev=0`);
+  await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(readout).toHaveCount(0);
 });

@@ -137,7 +137,7 @@
 
 <form class="grid gap-4" data-setting="name" onsubmit={(event) => void save(event)}>
   <div class="grid gap-1">
-    <h3 class="font-medium">{m.account_name()}</h3>
+    <h4 class="font-medium">{m.account_name()}</h4>
     <p class="text-xs text-muted-foreground">{m.account_name_hint()}</p>
   </div>
   <div class="grid gap-3 sm:grid-cols-2">
