@@ -234,6 +234,7 @@ export type {
   ApiTokenScope,
   ApiTokenWorkspace,
   IssuedApiToken,
+  MemberApiToken,
   NewApiToken,
   OrgApiTokens,
 } from './api-tokens.ts';

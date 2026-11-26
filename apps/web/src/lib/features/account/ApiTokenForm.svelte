@@ -2,13 +2,16 @@
   Making a personal API token, in the settings: one choice of what it may do
   (read only, or read and write content), a name it is given at first
   ("Agent · 11/27"), and the workspace shown, for 90 days. "More" unfolds the
-  rest: the other workspaces of organizations the reader works in, and their
-  own space, which takes the account's password. A refusal is told by its
-  reason (`api-tokens.ts`), at the field it is about.
+  rest: the other workspaces of organizations the reader works in, their own
+  space, which takes the account's password, and whether they are told of what
+  the agent does (on at first). Folded again, it gives what it hid up: only
+  what is shown is asked for. A refusal is told by its reason
+  (`api-tokens.ts`), at the field it is about.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
 
+  import { scopeLabel } from '$lib/components/api-token/words.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ApiTokenScope, IssuedApiToken, NewApiToken } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -20,7 +23,6 @@
   import {
     TOKEN_DAYS,
     defaultTokenName,
-    scopeLabel,
     tokenProblemOf,
     type TokenProblem,
     type TokenWorkspace,
@@ -52,6 +54,7 @@
   let more = $state(false);
   let ownSpace = $state(false);
   let password = $state('');
+  let notifySelf = $state(true);
   let working = $state(false);
   let problem = $state.raw<TokenProblem | undefined>(undefined);
   let nameField = $state<HTMLInputElement | null>(null);
@@ -63,6 +66,15 @@
 
   function choose(id: string, on: boolean): void {
     chosen = on ? [...chosen, id] : chosen.filter((one) => one !== id);
+  }
+
+  /** Folds "More" and gives up what it held: a choice the reader cannot see is not made. */
+  function fold(): void {
+    more = false;
+    chosen = chosen.filter((one) => one === currentWorkspaceId);
+    ownSpace = false;
+    password = '';
+    notifySelf = true;
   }
 
   async function submit(event: SubmitEvent): Promise<void> {
@@ -79,6 +91,7 @@
           expiresInDays: TOKEN_DAYS,
           allowPersonalSpace: ownSpace,
           password: ownSpace && hasPassword ? password : undefined,
+          notifySelf,
         }),
       );
     } catch (error) {
@@ -127,7 +140,8 @@
       aria-expanded={more}
       aria-controls={more ? `${uid}-more` : undefined}
       onclick={() => {
-        more = !more;
+        if (more) fold();
+        else more = true;
       }}>{m.account_api_tokens_more()}</Button
     >
     {#if more}
@@ -169,7 +183,9 @@
                 autocomplete="current-password"
                 required
                 aria-invalid={problem?.field === 'password' ? 'true' : undefined}
-                aria-describedby="{uid}-password-hint"
+                aria-describedby={problem?.field === 'password'
+                  ? `${uid}-password-hint ${uid}-problem`
+                  : `${uid}-password-hint`}
                 class="roomy:h-touch roomy:text-base"
               />
               <p id="{uid}-password-hint" class="text-xs text-muted-foreground">
@@ -178,6 +194,21 @@
             </div>
           {/if}
         {/if}
+        <div class="grid gap-1">
+          <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
+            <span class="min-w-0 flex-1">{m.account_api_tokens_notify_self()}</span>
+            <Switch
+              checked={notifySelf}
+              aria-describedby="{uid}-notify-hint"
+              onCheckedChange={(on: boolean) => {
+                notifySelf = on;
+              }}
+            />
+          </label>
+          <p id="{uid}-notify-hint" class="text-xs text-muted-foreground">
+            {m.account_api_tokens_notify_self_hint()}
+          </p>
+        </div>
       </div>
     {/if}
   </div>

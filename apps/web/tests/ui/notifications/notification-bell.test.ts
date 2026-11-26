@@ -2,7 +2,8 @@
  * The bell (features/notifications/NotificationBell.svelte) in a simulated
  * page: the count on it, and when "Mark all as read" may be pressed: only
  * once the list is read and while one of it is unread. Pressed, it marks
- * what is shown, and what came before it, as read.
+ * what is shown, and what came before it, as read. One an agent did says
+ * whose agent did it.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -167,5 +168,15 @@ describe('the bell', () => {
       expect(readAll()).toBeDisabled();
       cleanup();
     }
+  });
+
+  it('names the token of an agent that did it, and nothing of one a person did', async () => {
+    const byAgent = told('a', 2);
+    if (byAgent.subject) byAgent.subject.agentTokenName = 'Planner';
+    const { answerNext } = mount([byAgent, told('b', 1)]);
+    await fireEvent.click(screen.getByTestId('open-notifications'));
+    answerNext();
+    const agents = await screen.findAllByTestId('notification-agent');
+    expect(agents.map((one) => one.textContent.trim())).toEqual(['Agent · Planner']);
   });
 });

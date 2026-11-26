@@ -3,13 +3,13 @@
  * it sends, the command a token made is shown once as, what a refusal is told
  * as, and the list that ends one.
  */
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { lastUsedOf } from '$lib/components/api-token/words.ts';
 import ApiTokensSection from '$lib/features/account/ApiTokensSection.svelte';
 import {
   defaultTokenName,
-  lastUsedOf,
   mcpCommand,
   tokenProblemOf,
   tokenWorkspaces,
@@ -35,6 +35,7 @@ const made = (over: Partial<ApiToken> = {}): ApiToken => ({
   scope: 'write',
   workspaces: [{ workspaceId: 'ws-1', orgId: 'org-1', name: 'Studio' }],
   allowPersonalSpace: false,
+  notifySelf: true,
   createdAt: Date.UTC(2026, 10, 27),
   expiresAt: Date.UTC(2026, 10, 27) + 90 * DAY,
   ...over,
@@ -133,14 +134,16 @@ describe('the settings', () => {
       expiresInDays: 90,
       allowPersonalSpace: false,
       password: undefined,
+      notifySelf: true,
     });
 
-    // Shown once, as the command, with the line on the shell's history.
+    // Shown once, as the command and as itself, with the line on the shell's history.
     const issued = await screen.findByTestId('api-token-issued');
     expect(issued).toHaveFocus();
     expect(within(issued).getByTestId('api-token-command')).toHaveTextContent(
       'claude mcp add --transport http fvoci https://fvoci.example/api/v1/mcp --header "Authorization: Bearer fvoci_pat_secret"',
     );
+    expect(within(issued).getByTestId('api-token-raw')).toHaveTextContent('fvoci_pat_secret');
     expect(issued).toHaveTextContent('The command stays in your shell history.');
     await fireEvent.click(within(issued).getByRole('button', { name: 'Done' }));
     expect(screen.queryByTestId('api-token-issued')).toBeNull();
@@ -201,8 +204,80 @@ describe('the settings', () => {
       ),
     ).toBe('Last used Nov 28, 2026 from 203.0.113.7');
     await fireEvent.click(within(row).getByRole('button', { name: 'End: Agent · 11/27' }));
+    const asked = await screen.findByRole('alertdialog');
+    expect(asked).toHaveTextContent('End the token Agent · 11/27?');
+    expect(revoke).not.toHaveBeenCalled();
+    await fireEvent.click(within(asked).getByRole('button', { name: 'End' }));
     expect(revoke).toHaveBeenCalledWith('tok-1');
     expect(await screen.findByText('The token is ended.')).toBeInTheDocument();
     expect(screen.queryByTestId('api-token')).toBeNull();
+  });
+
+  it('give up what "More" held when it is folded, and tell of the agent unless asked not to', async () => {
+    const { issue } = section();
+    await fireEvent.click(await screen.findByRole('button', { name: 'New token' }));
+    const more = screen.getByRole('button', { name: 'More' });
+    await fireEvent.click(more);
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Lab' }));
+    await fireEvent.click(
+      screen.getByRole('switch', { name: 'My own space too (not its diaries)' }),
+    );
+    await fireEvent.input(screen.getByLabelText('Current password'), {
+      target: { value: 'pass phrase' },
+    });
+    const notify = screen.getByRole('switch', { name: 'Tell me of what the agent does too' });
+    expect(notify).toBeChecked();
+    expect(notify).toHaveAccessibleDescription(/Nothing is told in your own space\./);
+    await fireEvent.click(notify);
+    await fireEvent.click(more);
+    await fireEvent.click(screen.getByRole('button', { name: 'Make' }));
+    expect(issue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceIds: ['ws-1'],
+        allowPersonalSpace: false,
+        password: undefined,
+        notifySelf: true,
+      }),
+    );
+  });
+
+  it('tell a wrong password as its field describes it', async () => {
+    section({
+      issue: () =>
+        Promise.reject(new BackendError(403, { detail: 'no', reason: 'invalid_credentials' })),
+    });
+    await fireEvent.click(await screen.findByRole('button', { name: 'New token' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    await fireEvent.click(
+      screen.getByRole('switch', { name: 'My own space too (not its diaries)' }),
+    );
+    const field = screen.getByLabelText('Current password');
+    await fireEvent.input(field, { target: { value: 'wrong' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Make' }));
+    await waitFor(() => {
+      expect(field).toHaveAccessibleDescription(/The current password is wrong\./);
+    });
+  });
+
+  it('ask before a new token leaves the one made uncopied, and not once it is copied', async () => {
+    section();
+    const toggle = await screen.findByRole('button', { name: 'New token' });
+    await fireEvent.click(toggle);
+    await fireEvent.click(screen.getByRole('button', { name: 'Make' }));
+    const issued = await screen.findByTestId('api-token-issued');
+    await fireEvent.click(toggle);
+    const asked = await screen.findByRole('alertdialog');
+    expect(asked).toHaveTextContent('Did you copy the token?');
+    await fireEvent.click(within(asked).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByTestId('api-token-issued')).toBe(issued);
+
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await fireEvent.click(within(issued).getByRole('button', { name: 'Copy the token' }));
+    expect(writeText).toHaveBeenCalledWith('fvoci_pat_secret');
+    expect(await within(issued).findByTestId('api-token-copy-token')).toHaveTextContent('Copied');
+    await fireEvent.click(toggle);
+    expect(screen.queryByTestId('api-token-issued')).toBeNull();
+    expect(screen.getByTestId('api-token-form')).toBeInTheDocument();
   });
 });

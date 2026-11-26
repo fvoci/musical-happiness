@@ -102,6 +102,12 @@
         return m.audit_copy_out_disabled({ actor });
       case 'copy_out_enabled':
         return m.audit_copy_out_enabled({ actor });
+      case 'api_tokens_enabled':
+        return m.audit_api_tokens_enabled({ actor });
+      case 'api_tokens_disabled':
+        return m.audit_api_tokens_disabled({ actor });
+      case 'api_token_revoked':
+        return m.audit_api_token_revoked({ actor, subject, prefix: record.detail ?? '' });
     }
   }
 

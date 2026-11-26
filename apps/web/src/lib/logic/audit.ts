@@ -35,6 +35,9 @@ export const AUDIT_ACTIONS = [
   'container_copied_out',
   'copy_out_disabled',
   'copy_out_enabled',
+  'api_tokens_enabled',
+  'api_tokens_disabled',
+  'api_token_revoked',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -63,7 +66,10 @@ export interface AuditRecord {
   /** The board's title where the reader sees the board, the workspace's name; null otherwise. */
   targetName: string | null;
   createdAt: number;
-  /** The issuer a record of a provider's move names; null for the others. */
+  /**
+   * The issuer a record of a provider's move names, the characters a token taken out
+   * is shown by; null for the others.
+   */
   detail: string | null;
   /**
    * Who the identity a record of `oidc_identity_bound` or `oidc_identity_carried_over`

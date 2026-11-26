@@ -57,7 +57,7 @@ names, of those its owner works in (no guest's), and the owner's own space if it
 that, but never a diary. It reads (`scope` `read`), or reads and writes the content of cards, \
 pages, units, their comments and files (`write`): an operation says in its description \
 whether a token is taken, and which. Every other operation answers a token with 403 and the \
-reason `token_forbidden_endpoint`, the websocket with 401: what is of the account, of who is \
+reason `token_forbidden_endpoint`, the websocket too: what is of the account, of who is \
 on what, of what is shared, and of an administrator is done by a person. A token that reads \
 only is answered 403 with the reason `token_scope_insufficient` where an operation writes. A \
 token sends at most 120 requests a minute, and the tokens that reach one organization 600 \

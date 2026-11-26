@@ -36,6 +36,11 @@ export interface NotificationSubject {
   title: string;
   /** The comment the latest of it happened in, where that is still there; else empty. */
   commentId: string;
+  /**
+   * The personal API token through which an agent of `actorId` did the latest of it;
+   * `undefined` where they did it themselves.
+   */
+  agentTokenName?: string | undefined;
 }
 
 /** One thing the reader was told. */

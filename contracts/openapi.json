@@ -313,7 +313,7 @@
         "type": "string"
       },
       "ApiToken": {
-        "description": "A personal API token as its owner, or an administrator of an organization it\nreaches, sees it: never the token itself, which is shown once, when it is made.",
+        "description": "A personal API token as its owner sees it: never the token itself, which is shown\nonce, when it is made.",
         "properties": {
           "allowPersonalSpace": {
             "description": "Whether it reaches the owner's own space too (never its diaries).",
@@ -353,7 +353,7 @@
             "type": "string"
           },
           "notifySelf": {
-            "description": "Whether its owner asked to be told of what it does, as of anybody's doing. Kept\nwith the token; the server tells nobody of their own token's doing yet.",
+            "description": "Whether its owner is told of what it does, as of anybody's doing: of a comment\nit writes on what they watch, of a mention of them it writes (in a comment, or in\na body), of a card it gives them. The notification names the owner as its doer\nand the token by `agentTokenName`. Nobody is told anything in the owner's own\nspace, whatever this says.",
             "type": "boolean"
           },
           "scope": {
@@ -369,7 +369,7 @@
             "type": "string"
           },
           "workspaces": {
-            "description": "The workspaces of organizations it reaches. For an administrator's list, those\nof the administrator's organization alone.",
+            "description": "The workspaces of organizations it reaches.",
             "items": {
               "$ref": "#/components/schemas/ApiTokenWorkspace"
             },
@@ -465,7 +465,10 @@
           "email_verified_by_operator",
           "container_copied_out",
           "copy_out_disabled",
-          "copy_out_enabled"
+          "copy_out_enabled",
+          "api_tokens_enabled",
+          "api_tokens_disabled",
+          "api_token_revoked"
         ],
         "type": "string"
       },
@@ -1800,7 +1803,8 @@
           "merged_cell",
           "cell_with_blocks",
           "uneven_table",
-          "unwritten_formula"
+          "unwritten_formula",
+          "heading_with_break"
         ],
         "type": "string"
       },
@@ -4283,6 +4287,67 @@
         ],
         "type": "object"
       },
+      "MemberApiToken": {
+        "description": "A personal API token as an administrator of an organization it reaches sees it:\nwhose it is, what it may do there, and when it was made, last used and ends. What\nit opens elsewhere (other organizations' workspaces, its owner's own space), where\nit was used from and what its owner asked of it are its owner's alone.",
+        "properties": {
+          "createdAt": {
+            "description": "When it was made.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "expiresAt": {
+            "description": "When it stops opening anything.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The token's identifier.",
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "description": "When it was last used, wherever, in milliseconds since the Unix epoch, to within\nfive minutes; absent if never.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "The name its owner gave it.",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ApiTokenScope",
+            "description": "What it may do."
+          },
+          "tokenPrefix": {
+            "description": "The first characters of the token (`fvoci_pat_` and six more).",
+            "type": "string"
+          },
+          "userId": {
+            "description": "Whose it is.",
+            "type": "string"
+          },
+          "workspaces": {
+            "description": "The workspaces of the administrator's organization it reaches.",
+            "items": {
+              "$ref": "#/components/schemas/ApiTokenWorkspace"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "createdAt",
+          "expiresAt",
+          "id",
+          "name",
+          "scope",
+          "tokenPrefix",
+          "userId",
+          "workspaces"
+        ],
+        "type": "object"
+      },
       "MemberCourseProgress": {
         "description": "Aggregate completion count of one active course member.\n\nIntentionally omits unit identifiers, completion timestamps, planned dates, and last\npositions so personal learning details are never disclosed to other members.",
         "properties": {
@@ -5238,6 +5303,13 @@
           "actorId": {
             "description": "Who did the latest of it; empty where nobody is known to have. The identifier\nalone, as a card says who wrote it: the name is asked of the workspace's\npeople, where its reader is told the names they may see.",
             "type": "string"
+          },
+          "agentTokenName": {
+            "description": "The name of the personal API token through which an agent of `actorId` did the\nlatest of it; left out where `actorId` did it themselves. A token that tells its\nowner (`notifySelf`) names them as `actorId` of their own notifications.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "blockId": {
             "description": "The card or the page it is about: what the reader opens.",
@@ -6540,6 +6612,16 @@
             "reason": "token_rate_limited",
             "title": "Too many requests of personal API tokens",
             "type": "/problems/token-rate-limited"
+          },
+          {
+            "reason": "token_expired_for_organization",
+            "title": "Personal API token too old for the organization",
+            "type": "/problems/token-expired-for-organization"
+          },
+          {
+            "reason": "too_many_api_tokens",
+            "title": "Too many personal API tokens",
+            "type": "/problems/too-many-api-tokens"
           },
           {
             "reason": "complex_blocks_use_append",
@@ -9162,7 +9244,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Personal API tokens\n\nA user makes a personal API token (`createApiToken`) for an agent, which sends it as `Authorization: Bearer fvoci_pat_...`, never in a cookie. A token reaches the workspaces it names, of those its owner works in (no guest's), and the owner's own space if it was given that, but never a diary. It reads (`scope` `read`), or reads and writes the content of cards, pages, units, their comments and files (`write`): an operation says in its description whether a token is taken, and which. Every other operation answers a token with 403 and the reason `token_forbidden_endpoint`, the websocket with 401: what is of the account, of who is on what, of what is shared, and of an administrator is done by a person. A token that reads only is answered 403 with the reason `token_scope_insufficient` where an operation writes. A token sends at most 120 requests a minute, and the tokens that reach one organization 600 together; past that it is answered 429 with `Retry-After` and the reason `token_rate_limited`. It lasts as long as it was made for (90 days unless asked, at most 365, at most 90 where it reaches an organization that takes only sessions made through its provider), and ends with what ends its owner's sessions: a password changed, set or reset, an identity unlinked, the provider it was made through changed or removed, the account put out of use.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setPublicLink`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setPublicLink` refuses a `token`.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Personal API tokens\n\nA user makes a personal API token (`createApiToken`) for an agent, which sends it as `Authorization: Bearer fvoci_pat_...`, never in a cookie. A token reaches the workspaces it names, of those its owner works in (no guest's), and the owner's own space if it was given that, but never a diary. It reads (`scope` `read`), or reads and writes the content of cards, pages, units, their comments and files (`write`): an operation says in its description whether a token is taken, and which. Every other operation answers a token with 403 and the reason `token_forbidden_endpoint`, the websocket too: what is of the account, of who is on what, of what is shared, and of an administrator is done by a person. A token that reads only is answered 403 with the reason `token_scope_insufficient` where an operation writes. A token sends at most 120 requests a minute, and the tokens that reach one organization 600 together; past that it is answered 429 with `Retry-After` and the reason `token_rate_limited`. It lasts as long as it was made for (90 days unless asked, at most 365, at most 90 where it reaches an organization that takes only sessions made through its provider), and ends with what ends its owner's sessions: a password changed, set or reset, an identity unlinked, the provider it was made through changed or removed, the account put out of use.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setPublicLink`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setPublicLink` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -10495,7 +10577,7 @@
     },
     "/api/v1/org/{orgId}/api-tokens": {
       "get": {
-        "description": "The tokens of its members that reach a workspace of it and open anything now, the\nnewest first, each with those of its workspaces it reaches.",
+        "description": "The tokens of its members that reach a workspace of it and open anything now, the\nnewest first, each with those of its workspaces it reaches. Nothing is told of what\na token opens elsewhere, or where it was used from.",
         "operationId": "getOrgApiTokens",
         "parameters": [
           {
@@ -10514,7 +10596,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/ApiToken"
+                    "$ref": "#/components/schemas/MemberApiToken"
                   },
                   "type": "array"
                 }
@@ -10541,7 +10623,7 @@
     },
     "/api/v1/org/{orgId}/api-tokens/{tokenId}": {
       "delete": {
-        "description": "From now on the token opens nothing, in this organization or any other. 404 for one\nthat reaches no workspace of it, or was taken back.",
+        "description": "From now on the token reaches no workspace of this organization; the audit log says\nwho took it out. What it reaches elsewhere stays its owner's to end, and a token\nleft reaching nothing (no other workspace, not its owner's own space) is taken back.\n404 for one that reaches no workspace of it, or opens nothing.",
         "operationId": "revokeOrgApiToken",
         "parameters": [
           {
@@ -10565,7 +10647,7 @@
         ],
         "responses": {
           "204": {
-            "description": "The token opens nothing."
+            "description": "The token reaches the organization no more."
           },
           "default": {
             "content": {
@@ -10578,7 +10660,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Take back a personal API token that reaches an organization",
+        "summary": "Take a personal API token out of an organization",
         "tags": [
           "organization"
         ]
@@ -26981,7 +27063,7 @@
       "name": "wikis"
     },
     {
-      "description": "Diaries and their entries, in the workspace of a user's own space and nowhere else. A diary is a board of the kind `diary` that holds one entry a day and nothing else; its owner alone reads it. What it shares with a board is asked under `/containers/{containerId}` with the diary's identifier: the diary itself (`getContainer`), its title, description and icon (`patchContainer`), the trash (`deleteContainer`, `restoreContainer`, `getDeletedContainers`), its files and their versions and leases, its place in the sidebar, and its archive (`exportContainer`; the archive of the workspace holds its diaries, and an archive that is imported makes each diary anew, in the user's own space only). Its entries are found by `searchWorkspaceContent`, by their writer. What is about the people of a board answers 404 for a diary, as for an identifier of nothing: its members, joining and leaving it, its teams, its link (`/public-link`, `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no blocks but its entries, no cards, no views, no pages, no comments and no templates; and no reference names an entry.",
+      "description": "Diaries and their entries, in the workspace of a user's own space and nowhere else. A diary is a board of the kind `diary` that holds one entry a day and nothing else; its owner alone reads it. What it shares with a board is asked under `/containers/{containerId}` with the diary's identifier: the diary itself (`getContainer`), its title, description and icon (`patchContainer`), the trash (`deleteContainer`, `restoreContainer`, `getDeletedContainers`), its files and their versions and leases, its place in the sidebar, and its archive (`exportContainer`; the archive of the workspace holds its diaries, and an archive that is imported makes each diary anew, in the user's own space only). Its entries are found by `searchWorkspaceContent`, by their writer. What is about the people of a board answers 404 for a diary, as for an identifier of nothing: its members, joining and leaving it, its groups, its link (`/public-link`, `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no blocks but its entries, no cards, no views, no pages, no comments and no templates; and no reference names an entry.",
       "name": "diaries"
     },
     {

@@ -2,26 +2,23 @@
   The reader's personal API tokens, in the settings: the keys they give an
   agent to work as them. "New token" unfolds the form (`ApiTokenForm.svelte`)
   under it; a token made is shown once, as the command that connects Claude
-  Code with it, copied by one press, with a line on the shell's history. The
-  list says what each may do, where, until when and when it was last used,
-  and ends one at once.
+  Code with it and as itself, for another client, each copied by one press,
+  with a line on the shell's history. Leaving it for a new token before
+  either is copied is asked about first. The list says what each may do,
+  where, until when and when it was last used, and ends one after asking.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
 
+  import { lastUsedOf, scopeLabel } from '$lib/components/api-token/words.ts';
+  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ApiToken, IssuedApiToken, NewApiToken } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import ApiTokenForm from './ApiTokenForm.svelte';
-  import {
-    lastUsedOf,
-    mcpCommand,
-    scopeLabel,
-    tokenProblemOf,
-    type TokenWorkspace,
-  } from './api-tokens.ts';
+  import { mcpCommand, tokenProblemOf, type TokenWorkspace } from './api-tokens.ts';
 
   interface Props {
     /** The reader's tokens, the newest first. */
@@ -52,10 +49,14 @@
   let unread = $state(false);
   let open = $state(false);
   let issued = $state.raw<IssuedApiToken | undefined>(undefined);
-  let copied = $state(false);
+  /** What of the token made was copied last: the command, or the token itself. */
+  let copied = $state<'command' | 'token' | undefined>(undefined);
   let status = $state('');
   let problem = $state('');
   let toggle = $state<HTMLElement | null>(null);
+  /** What the reader is asked before it is done: ending a token, or leaving one made uncopied. */
+  let asked = $state.raw<{ end: ApiToken } | 'leave' | undefined>(undefined);
+  let asking = $state(false);
 
   const command = $derived(issued ? mcpCommand(origin, issued.token) : '');
   const dates = $derived(new Intl.DateTimeFormat(getLocale(), { dateStyle: 'medium' }));
@@ -76,7 +77,7 @@
   function made(token: IssuedApiToken): void {
     issued = token;
     open = false;
-    copied = false;
+    copied = undefined;
     status = m.account_api_tokens_made();
     tokens = [token.apiToken, ...(tokens ?? [])];
   }
@@ -86,15 +87,29 @@
     node.focus();
   }
 
-  /** Copies the command; where the browser lets no page write the clipboard, says to copy it by hand. */
-  async function copy(): Promise<void> {
+  /**
+   * Copies the command or the token itself; where the browser lets no page write the
+   * clipboard, says to copy it by hand.
+   */
+  async function copy(what: 'command' | 'token'): Promise<void> {
     problem = '';
     try {
-      await navigator.clipboard.writeText(command);
-      copied = true;
+      await navigator.clipboard.writeText(what === 'command' ? command : (issued?.token ?? ''));
+      copied = what;
     } catch {
       problem = m.account_api_tokens_copy_failed();
     }
+  }
+
+  function toggleForm(): void {
+    open = !open;
+    issued = undefined;
+    status = '';
+  }
+
+  function ask(what: { end: ApiToken } | 'leave'): void {
+    asked = what;
+    asking = true;
   }
 
   function done(): void {
@@ -136,9 +151,9 @@
       aria-expanded={open}
       data-testid="api-token-new"
       onclick={() => {
-        open = !open;
-        issued = undefined;
-        status = '';
+        // A token made is not shown again: leaving it before it is copied is asked about.
+        if (issued && copied === undefined) ask('leave');
+        else toggleForm();
       }}
     >
       {open ? m.shared_cancel() : m.account_api_tokens_new()}
@@ -174,14 +189,33 @@
         data-testid="api-token-command">{command}</code
       >
       <p class="text-xs text-muted-foreground">{m.account_api_tokens_history()}</p>
-      <div class="flex gap-2">
-        <Button class="roomy:min-h-touch" onclick={() => void copy()} data-testid="api-token-copy">
-          {copied ? m.account_api_tokens_copied() : m.account_api_tokens_copy()}
-        </Button>
-        <Button variant="outline" class="roomy:min-h-touch" onclick={done}>
-          {m.account_api_tokens_done()}
+      <Button
+        class="justify-self-start roomy:min-h-touch"
+        onclick={() => void copy('command')}
+        data-testid="api-token-copy"
+      >
+        {copied === 'command' ? m.account_api_tokens_copied() : m.account_api_tokens_copy()}
+      </Button>
+      <p id="{uid}-raw" class="text-sm font-medium">{m.account_api_tokens_token()}</p>
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <code
+          class="min-w-0 flex-1 overflow-x-auto rounded bg-muted p-2 font-mono text-xs break-all"
+          translate="no"
+          aria-labelledby="{uid}-raw"
+          data-testid="api-token-raw">{issued.token}</code
+        >
+        <Button
+          variant="outline"
+          class="roomy:min-h-touch"
+          onclick={() => void copy('token')}
+          data-testid="api-token-copy-token"
+        >
+          {copied === 'token' ? m.account_api_tokens_copied() : m.account_api_tokens_copy_token()}
         </Button>
       </div>
+      <Button variant="outline" class="justify-self-start roomy:min-h-touch" onclick={done}>
+        {m.account_api_tokens_done()}
+      </Button>
     </div>
   {/if}
 
@@ -215,7 +249,9 @@
             variant="outline"
             class="roomy:min-h-touch"
             aria-label="{m.account_api_tokens_revoke()}: {token.name}"
-            onclick={() => void end(token)}
+            onclick={() => {
+              ask({ end: token });
+            }}
           >
             {m.account_api_tokens_revoke()}
           </Button>
@@ -224,3 +260,20 @@
     </ul>
   {/if}
 </section>
+
+<ConfirmDialog
+  bind:open={asking}
+  title={asked === 'leave'
+    ? m.account_api_tokens_leave_title()
+    : m.account_api_tokens_revoke_title({ name: asked?.end.name ?? '' })}
+  description={asked === 'leave'
+    ? m.account_api_tokens_leave_info()
+    : m.account_api_tokens_revoke_info()}
+  confirmLabel={asked === 'leave' ? m.account_api_tokens_new() : m.account_api_tokens_revoke()}
+  destructive={asked !== 'leave'}
+  focusAfter={() => toggle}
+  onConfirm={() => {
+    if (asked === 'leave') toggleForm();
+    else if (asked) void end(asked.end);
+  }}
+/>

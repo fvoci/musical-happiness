@@ -3,6 +3,7 @@ import type {
   ApiToken,
   ApiTokens,
   IssuedApiToken,
+  MemberApiToken,
   NewApiToken,
   OrgApiTokens,
 } from '../state/api-tokens.ts';
@@ -21,10 +22,25 @@ function tokenOf(token: Schemas['ApiToken']): ApiToken {
     scope: token.scope,
     workspaces: token.workspaces,
     allowPersonalSpace: token.allowPersonalSpace,
+    notifySelf: token.notifySelf,
     createdAt: token.createdAt,
     expiresAt: token.expiresAt,
     lastUsedAt: token.lastUsedAt ?? undefined,
     lastUsedAddress: token.lastUsedAddress ?? undefined,
+  };
+}
+
+function memberTokenOf(token: Schemas['MemberApiToken']): MemberApiToken {
+  return {
+    id: token.id,
+    userId: token.userId,
+    name: token.name,
+    tokenPrefix: token.tokenPrefix,
+    scope: token.scope,
+    workspaces: token.workspaces,
+    createdAt: token.createdAt,
+    expiresAt: token.expiresAt,
+    lastUsedAt: token.lastUsedAt ?? undefined,
   };
 }
 
@@ -47,6 +63,7 @@ export class ServerApiTokens implements ApiTokens {
       workspaceIds: token.workspaceIds,
       expiresInDays: token.expiresInDays,
       allowPersonalSpace: token.allowPersonalSpace,
+      notifySelf: token.notifySelf,
       ...(token.password ? { password: token.password } : {}),
     };
     const issued = await this.#http.request<Schemas['IssuedApiToken']>(
@@ -76,12 +93,12 @@ export class ServerOrgApiTokens implements OrgApiTokens {
     this.#http = http;
   }
 
-  async list(orgId: string): Promise<ApiToken[]> {
-    const listed = await this.#http.request<Schemas['ApiToken'][]>(
+  async list(orgId: string): Promise<MemberApiToken[]> {
+    const listed = await this.#http.request<Schemas['MemberApiToken'][]>(
       '/api/v1/org/{orgId}/api-tokens',
       { orgId },
     );
-    return listed.map(tokenOf);
+    return listed.map(memberTokenOf);
   }
 
   async revoke(orgId: string, tokenId: string): Promise<void> {

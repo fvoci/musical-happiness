@@ -9,7 +9,8 @@
   keeps them up to date while the page is open; the list is read when the
   bell is opened.
 
-  Each says where it happened under it: the board, wiki or course, and the
+  Each says under it whose agent did it, where an agent did (its token's
+  name), and where it happened: the board, wiki or course, and the
   organization (`sourceOf`). In a narrow pane (a phone) the bell opens the
   same list as a sheet of the whole screen.
 -->
@@ -231,6 +232,11 @@
       {/if}
       <span>{notificationText(notification.subject, nameOf(notification))}</span>
     </span>
+    {#if notification.subject?.agentTokenName}
+      <span class="truncate text-xs text-muted-foreground" data-testid="notification-agent">
+        {m.agent_badge({ name: notification.subject.agentTokenName })}
+      </span>
+    {/if}
     {#if source}
       <span class="truncate text-xs text-muted-foreground" data-testid="notification-source">
         {source}
