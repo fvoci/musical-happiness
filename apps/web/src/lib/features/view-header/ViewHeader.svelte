@@ -442,7 +442,8 @@
     where a thumb is. Placed against the box of the board page; it stays
     clear of the home indicator and rides on top of the on-screen keyboard.
     The lists of the views end `--fab-room` (the board page's) below their
-    last card, which then scrolls clear of it.
+    last card, which then scrolls clear of it; a table's last rows scroll
+    above its summary row, which stays at the bottom.
   -->
   <Button
     aria-label={m['ViewHeader.new']()}

@@ -384,6 +384,25 @@ test('`[[` in an entry puts a reference to a page of the own space, which leads 
   await expect(page).toHaveURL(new RegExp(`/wikis/${wikiId}/${pageId}$`, 'u'));
 });
 
+/** The mood of the entry of `monthDay` of the diary shown, as the backend has it. */
+async function moodOn(page: Page, monthDay: string): Promise<unknown> {
+  return page.evaluate(
+    async ([diaryId, day]) => {
+      const { diary } = (
+        window as unknown as {
+          fvociDev: {
+            backend: {
+              diary: { entriesOn(id: string, day: string): Promise<{ mood: unknown }[]> };
+            };
+          };
+        }
+      ).fvociDev.backend;
+      return (await diary.entriesOn(diaryId, day))[0]?.mood;
+    },
+    [dayOf(page).diaryId, monthDay] as const,
+  );
+}
+
 /** Deletes the entry of `monthDay` of the diary shown, as another device of the reader would. */
 async function deletedElsewhere(page: Page, monthDay: string): Promise<void> {
   await page.evaluate(
@@ -412,22 +431,25 @@ test('the menu brings a deleted entry back to its day, unless the day has one si
 }) => {
   await openDiary(page);
   const today = year(page, '2026-11-21');
-  await editorOf(today).click();
-  await page.keyboard.type('Rain all day.');
+  // A day with a mood is no empty one, which a deletion would not keep.
+  const notes = today.getByTestId('entry-notes');
+  await notes.getByRole('button', { name: 'Good', exact: true }).click();
   await expect(today).toHaveAttribute('data-written', '');
+  await expect.poll(() => moodOn(page, '11-21')).toBe('good');
   await deletedElsewhere(page, '11-21');
   await expect(today).not.toHaveAttribute('data-written');
 
   await page.getByTestId('diary-menu').click();
   await page.locator('[data-action="trash"]').click();
   const trash = page.getByTestId('entry-trash');
-  const row = trash.locator('[data-trash-item="Saturday, November 21, 2026"]');
+  const row = trash.locator('[data-trash-item="Saturday, November 21, 2026 · Good"]');
   await expect(row).toBeVisible();
   await expect(row.getByTestId('trash-days-left')).toHaveText('30 days left');
   await row.getByRole('button', { name: /Restore/u }).click();
   await expect(trash.getByTestId('trash-empty')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(today).toContainText('Rain all day.');
+  await expect(today).toHaveAttribute('data-written', '');
+  await expect(notes.getByRole('button', { name: 'Good' })).toHaveAttribute('aria-pressed', 'true');
 
   // Deleted again, and the day written anew: the one in the trash finds it taken.
   await deletedElsewhere(page, '11-21');
