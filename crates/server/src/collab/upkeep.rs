@@ -9,6 +9,7 @@ use tokio::time::{Instant, sleep_until};
 
 use super::open::{Made, unexpected};
 use super::place::{AskedFor, Held, OpenDoc, Opening, Unanswered, died_over};
+use super::senders::SenderOf;
 use super::versions::Versioned;
 use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken};
 use crate::app::App;
@@ -65,7 +66,13 @@ impl Collab {
         };
         self.at_epoch(app, card_id, slot, epoch).await?;
         let answer = match self
-            .ask_for(app, card_id, slot, request, AskedFor::Sender(user_id))
+            .ask_for(
+                app,
+                card_id,
+                slot,
+                request,
+                AskedFor::Sender(user_id.into()),
+            )
             .await
         {
             Err(refused @ (Unanswered::Refused(_) | Unanswered::TooManySteps(_))) => {
@@ -103,7 +110,16 @@ impl Collab {
             nodes: nodes.to_vec(),
         };
         let answer = match self
-            .ask_for(app, card_id, slot, request, AskedFor::Sender(sender))
+            .ask_for(
+                app,
+                card_id,
+                slot,
+                request,
+                AskedFor::Sender(SenderOf {
+                    key: sender,
+                    owner: by.user_id,
+                }),
+            )
             .await
         {
             Err(refused @ (Unanswered::Refused(_) | Unanswered::TooManySteps(_))) => {

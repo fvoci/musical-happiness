@@ -56,13 +56,34 @@ const ROLLBACK_WINDOW: Duration = Duration::from_secs(60);
 /// How long a sender is held back after exceeding [`ROLLBACKS_FORGIVEN`].
 const ROLLBACK_HOLD: Duration = Duration::from_secs(30);
 
+/// Who sent an update, as what it does to a worker is put down: the key the sender is
+/// held back by (the user, or a token of theirs as `token:<id>`), and the user it is
+/// of, by whom the organization counts its senders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SenderOf<'a> {
+    pub(super) key: &'a str,
+    pub(super) owner: &'a str,
+}
+
+impl<'a> From<&'a str> for SenderOf<'a> {
+    /// A user, by a session of theirs.
+    fn from(user_id: &'a str) -> Self {
+        Self {
+            key: user_id,
+            owner: user_id,
+        }
+    }
+}
+
 /// The deaths of a sender.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Deaths {
     count: u32,
     last: Instant,
     /// Until when their updates are refused.
     held_until: Option<Instant>,
+    /// The user the sender is of ([`SenderOf::owner`]).
+    owner: String,
 }
 
 /// Recent post-mutation rollbacks caused by a sender.
@@ -75,8 +96,8 @@ struct Rollbacks {
 /// What an organization remembers of the updates of its users that ended a worker.
 #[derive(Debug, Default)]
 struct Organization {
-    /// Its users, by their identifier: who sends an update has a session (a room lets
-    /// in nobody without one).
+    /// Its senders, by their key ([`SenderOf::key`]): a user by a session (a room lets
+    /// in nobody without one), or an agent by a token of theirs.
     senders: HashMap<String, Deaths>,
     /// Post-mutation rollbacks per sender within [`ROLLBACK_WINDOW`].
     rollbacks: HashMap<String, Rollbacks>,
@@ -100,10 +121,10 @@ impl Organization {
     /// Counts an update the worker took in place and had to rebuild from its checkpoint
     /// to refuse: past [`ROLLBACKS_FORGIVEN`] in [`ROLLBACK_WINDOW`], holds the sender
     /// alone for [`ROLLBACK_HOLD`] without escalating to an organization-wide hold.
-    fn rolled_back(&mut self, user_id: &str, now: Instant) {
+    fn rolled_back(&mut self, sender: SenderOf<'_>, now: Instant) {
         let seen = self
             .rollbacks
-            .entry(user_id.to_owned())
+            .entry(sender.key.to_owned())
             .or_insert(Rollbacks {
                 count: 0,
                 since: now,
@@ -116,32 +137,46 @@ impl Organization {
         }
         seen.count = seen.count.saturating_add(1);
         if seen.count > ROLLBACKS_FORGIVEN {
-            let deaths = self.senders.entry(user_id.to_owned()).or_insert(Deaths {
-                count: 0,
-                last: now,
-                held_until: None,
-            });
+            let deaths = self.deaths_of(sender, now);
             deaths.last = now;
             deaths.held_until = deaths.held_until.max(Some(now + ROLLBACK_HOLD));
         }
     }
 
-    /// Counts a death of a user at `now`, and holds everyone back if the user is one
-    /// more that it remembers past [`ORGANIZATION_SPARED`].
-    fn ended_worker(&mut self, user_id: &str, now: Instant) {
-        let new_user = !self.senders.contains_key(user_id);
-        let deaths = self.senders.entry(user_id.to_owned()).or_insert(Deaths {
-            count: 0,
-            last: now,
-            held_until: None,
-        });
+    /// What it remembers of a sender, made at `now` if it remembers nothing.
+    fn deaths_of(&mut self, sender: SenderOf<'_>, now: Instant) -> &mut Deaths {
+        self.senders
+            .entry(sender.key.to_owned())
+            .or_insert_with(|| Deaths {
+                count: 0,
+                last: now,
+                held_until: None,
+                owner: sender.owner.to_owned(),
+            })
+    }
+
+    /// Counts a death of a sender at `now`, and holds everyone back if the sender is of
+    /// one more user that it remembers past [`ORGANIZATION_SPARED`]: a user and the
+    /// tokens of theirs are one, so that one person's agents do not hold back the
+    /// organization where the person alone would not.
+    fn ended_worker(&mut self, sender: SenderOf<'_>, now: Instant) {
+        let new_user = !self
+            .senders
+            .values()
+            .any(|deaths| deaths.owner == sender.owner);
+        let deaths = self.deaths_of(sender, now);
         deaths.count = deaths.count.saturating_add(1);
         deaths.last = now;
         if let Some(hold) = hold(deaths.count, 0) {
             deaths.held_until = Some(now + hold);
         }
         if new_user {
-            let users = u32::try_from(self.senders.len()).unwrap_or(u32::MAX);
+            let owners: std::collections::HashSet<&str> = self
+                .senders
+                .values()
+                .map(|deaths| deaths.owner.as_str())
+                .collect();
+            let users = u32::try_from(owners.len()).unwrap_or(u32::MAX);
             // Users forgotten meanwhile may leave fewer than at the hold under way,
             // which this does not shorten.
             if let Some(hold) = hold(users, ORGANIZATION_SPARED) {
@@ -269,9 +304,14 @@ impl Senders {
             .max()
     }
 
-    /// Puts down that an update of a user of an organization ended a worker at `now`,
+    /// Puts down that an update of a sender of an organization ended a worker at `now`,
     /// after forgetting the senders, and the organizations, no longer remembered.
-    pub(super) fn ended_worker(&self, tenant: Tenant, user_id: &str, now: Instant) {
+    pub(super) fn ended_worker<'a>(
+        &self,
+        tenant: Tenant,
+        sender: impl Into<SenderOf<'a>>,
+        now: Instant,
+    ) {
         let mut organizations = self
             .organizations
             .lock()
@@ -280,12 +320,17 @@ impl Senders {
         organizations
             .entry(tenant)
             .or_default()
-            .ended_worker(user_id, now);
+            .ended_worker(sender.into(), now);
     }
 
     /// Puts down that an update of a user of an organization forced a worker rollback at
     /// `now`, holding that user back briefly past [`ROLLBACKS_FORGIVEN`].
-    pub(super) fn rolled_back(&self, tenant: Tenant, user_id: &str, now: Instant) {
+    pub(super) fn rolled_back<'a>(
+        &self,
+        tenant: Tenant,
+        sender: impl Into<SenderOf<'a>>,
+        now: Instant,
+    ) {
         let mut organizations = self
             .organizations
             .lock()
@@ -294,7 +339,7 @@ impl Senders {
         organizations
             .entry(tenant)
             .or_default()
-            .rolled_back(user_id, now);
+            .rolled_back(sender.into(), now);
     }
 }
 
@@ -406,6 +451,31 @@ mod tests {
             senders.held_until(ONE, "ann", later),
             Some(later + FIRST_HOLD),
             "her first again"
+        );
+    }
+
+    /// A user and the tokens of theirs are one sender to the organization: each is held
+    /// back by itself, and the organization only from its third user.
+    #[test]
+    fn a_user_and_their_tokens_count_once_to_the_organization() {
+        let senders = Senders::default();
+        let now = Instant::now();
+        let token = |key| SenderOf { key, owner: "ann" };
+        senders.ended_worker(ONE, "ann", now);
+        senders.ended_worker(ONE, token("token:one"), now);
+        senders.ended_worker(ONE, token("token:two"), now);
+        senders.ended_worker(ONE, "bob", now);
+        assert_eq!(senders.held_until(ONE, "cat", now), None, "two users");
+        assert_eq!(
+            senders.held_until(ONE, "token:two", now),
+            Some(now + FIRST_HOLD),
+            "a token is held by itself"
+        );
+        senders.ended_worker(ONE, "cat", now);
+        assert_eq!(
+            senders.held_until(ONE, "dan", now),
+            Some(now + FIRST_HOLD),
+            "the third user"
         );
     }
 
