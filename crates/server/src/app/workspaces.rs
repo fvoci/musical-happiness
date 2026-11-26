@@ -183,11 +183,11 @@ impl App {
         let mut app = self
             .in_organization(&access.org_id)?
             .with_org_kind(access.kind);
-        if asker.delegation.is_some() {
+        if let Some(delegation) = asker.delegation {
             self.authenticator()
                 .token_limits()
                 .admit_organization(&access.org_id, Instant::now())?;
-            app = app.capped_to(AGENT_KINDS);
+            app = app.capped_to(AGENT_KINDS).writing_for(delegation);
         }
         Ok(Some(Entered {
             app,

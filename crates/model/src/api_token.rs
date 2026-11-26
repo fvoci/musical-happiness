@@ -124,8 +124,11 @@ pub struct ApiToken {
     pub workspaces: Vec<ApiTokenWorkspace>,
     /// Whether it reaches the owner's own space too (never its diaries).
     pub allow_personal_space: bool,
-    /// Whether its owner asked to be told of what it does, as of anybody's doing. Kept
-    /// with the token; the server tells nobody of their own token's doing yet.
+    /// Whether its owner is told of what it does, as of anybody's doing: of a comment
+    /// it writes on what they watch, of a mention of them it writes (in a comment, or in
+    /// a body), of a card it gives them. The notification names the owner as its doer
+    /// and the token by `agentTokenName`. Nobody is told anything in the owner's own
+    /// space, whatever this says.
     pub notify_self: bool,
     /// When it was last used, in milliseconds since the Unix epoch, to within five
     /// minutes; absent if never.

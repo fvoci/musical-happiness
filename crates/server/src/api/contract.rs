@@ -354,7 +354,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcPendingProvider", Members::All),
     ("Notification", Members::All),
     ("NotificationKind", Members::AsWritten),
-    ("NotificationSubject", Members::All),
+    ("NotificationSubject", Members::AllBut(&["agentTokenName"])),
     ("TimeEntry", Members::All),
     ("TimeEntryKind", Members::AsWritten),
     ("TimeTargetKind", Members::AsWritten),

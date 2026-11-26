@@ -220,6 +220,11 @@ impl Store {
     /// since holds what the writer of these never took, and nothing of this call is
     /// written.
     ///
+    /// A handle of an agent ([`Store::by_agent`]) logs the updates of a user as sent
+    /// through its token, and puts the agent down as having written the body since its
+    /// newest version: the next version kept is the agent's
+    /// ([`Store::keep_body_version`]), whoever writes the body to the block.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the block, or its document, is not there,
@@ -252,10 +257,18 @@ impl Store {
                 .rev()
                 .map(|(_, written_by)| *written_by)
                 .find(|written_by| !written_by.is_empty());
+            let agent = scope
+                .agent()
+                .filter(|_| last_writer.is_some())
+                .map(|agent| (agent.token_id.to_owned(), agent.token_name.to_owned()));
             let mut sql = scope.sql("UPDATE body_docs SET log_end = log_end + ");
             sql.bind(count);
             if let Some(written_by) = last_writer {
                 sql.push_bind(", last_writer = ", OptId(written_by));
+            }
+            if let Some((token_id, token_name)) = &agent {
+                sql.push_bind(", agent_token_id = ", Id(token_id))
+                    .push_bind(", agent_token_name = ", token_name.as_str());
             }
             sql.push_bind(", updated_at = ", now);
             where_as_read(&mut sql, block_id, as_read);
@@ -270,11 +283,16 @@ impl Store {
                 let base_seq =
                     first_seq + i64::try_from(chunk_idx * UPDATE_INSERT_BATCH).unwrap_or(0);
                 let mut insert = scope.sql(
-                    "INSERT INTO body_updates (block_id, seq, bytes, written_by, written_at) \
-                     VALUES ",
+                    "INSERT INTO body_updates (block_id, seq, bytes, written_by, written_at, \
+                     actor_token_id) VALUES ",
                 );
                 for (offset, (bytes, written_by)) in chunk.iter().enumerate() {
                     let seq = base_seq + i64::try_from(offset).unwrap_or(0);
+                    // The server's own update (a repair) is nobody's, and no agent's.
+                    let token_id = match &agent {
+                        Some((token_id, _)) if !written_by.is_empty() => token_id.as_str(),
+                        _ => "",
+                    };
                     insert
                         .push(if offset == 0 { "(" } else { ", (" })
                         .bind(Id(block_id))
@@ -282,6 +300,7 @@ impl Store {
                         .push_bind(", ", Param::Bytes(bytes.to_vec()))
                         .push_bind(", ", OptId(written_by))
                         .push_bind(", ", now)
+                        .push_bind(", ", OptId(token_id))
                         .push(")");
                 }
                 scope.execute(insert).await?;
@@ -631,17 +650,66 @@ pub(crate) async fn updates_since(
     scope: &mut Scope<'_>,
     block_id: &str,
     seq: i64,
-) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
-    let mut sql = scope.sql("SELECT written_by, bytes FROM body_updates WHERE block_id = ");
+) -> Result<Vec<TypedUpdate>, StoreError> {
+    // A token is no organization's: it is read by its identifier alone.
+    let mut sql = scope.sql(
+        "SELECT u.written_by, u.bytes, t.id, t.name, t.notify_self FROM body_updates AS u \
+         LEFT JOIN api_tokens AS t ON t.id = u.actor_token_id WHERE u.block_id = ",
+    );
     sql.bind(Id(block_id))
-        .push_bind(" AND seq > ", seq)
-        .push(" AND written_by IS NOT NULL ORDER BY seq");
+        .push_bind(" AND u.seq > ", seq)
+        .push(" AND u.written_by IS NOT NULL ORDER BY u.seq");
     scope
         .fetch_all(sql)
         .await?
         .iter()
-        .map(|row| Ok((row.id(0)?, row.bytes(1)?)))
+        .map(|row| {
+            let token_id = row.id(2)?;
+            let agent = if token_id.is_empty() {
+                None
+            } else {
+                Some(TypingAgent {
+                    token_id,
+                    token_name: row.text(3)?,
+                    notify_self: row.bool(4)?,
+                })
+            };
+            Ok(TypedUpdate {
+                written_by: row.id(0)?,
+                bytes: row.bytes(1)?,
+                agent,
+            })
+        })
         .collect()
+}
+
+/// An update of a document that its body did not hold yet ([`updates_since`]).
+#[derive(Debug, Clone)]
+pub(crate) struct TypedUpdate {
+    /// Who sent it.
+    pub(crate) written_by: String,
+    /// The update.
+    pub(crate) bytes: Vec<u8>,
+    /// The agent that sent it through a token of `written_by`, if one did.
+    pub(crate) agent: Option<TypingAgent>,
+}
+
+/// The agent of a [`TypedUpdate`], as its token is now.
+#[derive(Debug, Clone)]
+pub(crate) struct TypingAgent {
+    pub(crate) token_id: String,
+    pub(crate) token_name: String,
+    pub(crate) notify_self: bool,
+}
+
+impl TypingAgent {
+    pub(crate) fn by(&self) -> crate::ByAgent<'_> {
+        crate::ByAgent {
+            token_id: &self.token_id,
+            token_name: &self.token_name,
+            notify_self: self.notify_self,
+        }
+    }
 }
 
 /// Removes the documents whose blocks are gone for good: neither there nor in the

@@ -47,12 +47,17 @@ impl ChangeAction {
 
 impl App {
     /// The database for a write of blocks that tells of itself as `notification`
-    /// says: one that is suppressed tells nobody whom it newly names.
+    /// says: one that is suppressed tells nobody whom it newly names. A handle an
+    /// agent writes through ([`App::writing_for`]) tells of the write as the agent's.
     pub(super) fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
+        let store = match &self.agent {
+            Some(delegation) => self.store().by_agent(delegation.by_agent()),
+            None => self.store().clone(),
+        };
         match notification {
-            ChangeNotification::Send => self.store().clone(),
-            ChangeNotification::Suppress => self.store().quietly(),
-            ChangeNotification::Copied => self.store().telling_nobody(),
+            ChangeNotification::Send => store,
+            ChangeNotification::Suppress => store.quietly(),
+            ChangeNotification::Copied => store.telling_nobody(),
         }
     }
 
@@ -352,16 +357,23 @@ impl App {
             Some(_) => OverEditors::Refuse,
             None => OverEditors::Replace,
         };
-        let agent = agent.map(|agent| (agent.token_id.to_owned(), agent.token_name.to_owned()));
+        let agent = agent.map(|agent| {
+            (
+                agent.token_id.to_owned(),
+                agent.token_name.to_owned(),
+                agent.notify_self,
+            )
+        });
         let (block_id, patch, modified_by) =
             (block_id.to_owned(), patch.clone(), modified_by.to_owned());
         let write = async move |app: Self| {
             let store = app.store_telling(notification);
             Ok(match &agent {
-                Some((token_id, token_name)) => {
+                Some((token_id, token_name, notify_self)) => {
                     let agent = ByAgent {
                         token_id,
                         token_name,
+                        notify_self: *notify_self,
                     };
                     store
                         .patch_block_by_agent(&block_id, &patch, &modified_by, agent)

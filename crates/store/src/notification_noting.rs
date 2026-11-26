@@ -17,11 +17,12 @@ use fvoci_model::{
 };
 use serde_json::Value;
 
-use crate::Store;
-use crate::body_docs;
+use crate::body_docs::{self, TypedUpdate, TypingAgent};
+use crate::body_versions::AgentOfHandle;
 use crate::containers;
-use crate::db::{Dialect, Id, Noting, OptId, Scope, Sql};
+use crate::db::{Dialect, Id, Noting, OptId, Param, Scope, Sql};
 use crate::error::StoreError;
+use crate::{ByAgent, Store};
 
 /// How many identifiers one statement binds.
 const BATCH: usize = 300;
@@ -117,12 +118,15 @@ pub(crate) async fn note_named(
     if block.fields.get("isTemplate") == Some(&Value::Bool(true)) {
         return Ok(());
     }
+    // Owned: the scope is written to while the agent is asked of.
+    let agent = scope.agent().map(AgentOfHandle::of);
     if matches!(telling, Telling::Quiet) {
         if before.is_none() {
             let event = Noted {
                 block,
                 about,
                 writer,
+                agent: None,
                 typed: &[],
             };
             event.watch(scope, &[writer]).await?;
@@ -152,6 +156,7 @@ pub(crate) async fn note_named(
         block,
         about,
         writer,
+        agent: agent.as_ref().map(AgentOfHandle::by),
         typed: &typed,
     };
     event
@@ -206,7 +211,8 @@ const NOTED_AGAIN: &str = " ORDER BY u.id ON CONFLICT (org_id, recipient_id, kin
      DO UPDATE SET seq = CASE WHEN notification_outbox.seq >= excluded.seq \
      THEN notification_outbox.seq + 1 ELSE excluded.seq END, \
      due_at = excluded.due_at, attempts = 0, actor_id = excluded.actor_id, \
-     block_id = excluded.block_id, container_id = excluded.container_id";
+     actor_token_name = excluded.actor_token_name, block_id = excluded.block_id, \
+     container_id = excluded.container_id";
 
 /// A write of a block that names people.
 struct Noted<'a> {
@@ -215,38 +221,53 @@ struct Noted<'a> {
     /// The card or the page it is about.
     about: &'a str,
     writer: &'a str,
+    /// The agent the writer wrote through ([`crate::Store::by_agent`]), if one.
+    agent: Option<ByAgent<'a>>,
     /// The updates of its document that its body did not hold before, the oldest
     /// first, each with who sent it ([`Telling::Typed`]); none for a block that was
     /// written as it is.
-    typed: &'a [(String, Vec<u8>)],
+    typed: &'a [TypedUpdate],
 }
+
+/// Who did what a row of the list tells: the user, and the agent they did it through.
+type Doer<'a> = (&'a str, Option<&'a str>);
 
 impl Noted<'_> {
     /// Who named `user`: whoever sent the first update that holds the user's
-    /// identifier, or the writer where no update does. `None` where that is the user:
-    /// nobody is told of their own doing.
-    fn doer_for(&self, user: &str) -> Option<&str> {
-        let doer = self
+    /// identifier, or the writer where no update does, with the name of the token
+    /// they sent it through, if any. `None` where that is the user: nobody is told of
+    /// their own doing, but of an agent's of theirs that tells them
+    /// ([`ByAgent::notify_self`]).
+    fn doer_for(&self, user: &str) -> Option<Doer<'_>> {
+        let (doer, agent) = self
             .typed
             .iter()
-            .find(|(_, bytes)| holds(bytes, user.as_bytes()))
-            .map_or(self.writer, |(typist, _)| typist.as_str());
-        (doer != user).then_some(doer)
+            .find(|update| holds(&update.bytes, user.as_bytes()))
+            .map_or((self.writer, self.agent), |update| {
+                (
+                    update.written_by.as_str(),
+                    update.agent.as_ref().map(TypingAgent::by),
+                )
+            });
+        let told_of_own = agent.is_some_and(|agent| agent.notify_self);
+        (doer != user || told_of_own).then_some((doer, agent.map(|agent| agent.token_name)))
     }
 
     /// Begins a statement that notes rows of `kind` by `doer` on the list, for the
     /// block's board or wiki as `bo`, its workspace as `w` and its organization as
     /// `o`; the recipients follow as `u`.
-    fn noting(&self, scope: &Scope<'_>, kind: NotificationKind, doer: &str) -> Sql {
+    fn noting(&self, scope: &Scope<'_>, kind: NotificationKind, (doer, token): Doer<'_>) -> Sql {
         let now = scope.now_millis();
         let mut sql = scope.sql(
             "INSERT INTO notification_outbox (org_id, recipient_id, kind, source_id, \
-             block_id, container_id, actor_id, seq, due_at) SELECT w.org_id, u.id, ",
+             block_id, container_id, actor_id, actor_token_name, seq, due_at) \
+             SELECT w.org_id, u.id, ",
         );
         sql.bind(kind.as_str())
             .push_bind(", ", Id(&self.block.id))
             .push_bind(", ", Id(self.about))
             .push_bind(", bo.id, ", OptId(doer))
+            .push_bind(", ", Param::OptText(token.map(str::to_owned)))
             .push_bind(", ", now)
             .push_bind(", ", now)
             .push(" FROM containers AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
@@ -278,13 +299,13 @@ impl Noted<'_> {
         kind: NotificationKind,
         users: &[&str],
     ) -> Result<(), StoreError> {
-        let told: Vec<(&str, &str)> = users
+        let told: Vec<(&str, Doer<'_>)> = users
             .iter()
             .filter(|user| fvoci_model::is_id(user))
             .filter_map(|user| Some((*user, self.doer_for(user)?)))
             .take(MOST_NAMED_BY_A_WRITE)
             .collect();
-        let doers: BTreeSet<&str> = told.iter().map(|(_, doer)| *doer).collect();
+        let doers: BTreeSet<Doer<'_>> = told.iter().map(|(_, doer)| *doer).collect();
         for doer in doers {
             let users: Vec<&str> = told
                 .iter()
@@ -305,20 +326,24 @@ impl Noted<'_> {
     }
 
     /// Notes that the watchers of the card or the page a new comment is on may be told
-    /// of it, as its writer's doing: all of them but the writer and those of
-    /// `mentioned`, who are told of the mention.
+    /// of it, as its writer's doing: all of them but the writer (unless an agent of
+    /// theirs wrote it that tells them) and those of `mentioned`, who are told of the
+    /// mention.
     async fn note_watchers(
         &self,
         scope: &mut Scope<'_>,
         mentioned: &[&str],
     ) -> Result<(), StoreError> {
-        let mut sql = self.noting(scope, NotificationKind::Comment, self.writer);
+        let doer = (self.writer, self.agent.map(|agent| agent.token_name));
+        let mut sql = self.noting(scope, NotificationKind::Comment, doer);
         sql.push(" JOIN subscriptions AS s ON s.block_id = ")
             .bind(Id(self.about))
             .push(&scope.same_organization(&[("s", "bo")]))
             .push(" JOIN users AS u ON u.id = s.user_id");
         self.push_noted(&mut sql, NotificationKind::Comment);
-        sql.push_bind(" AND u.id <> ", Id(self.writer));
+        if !self.agent.is_some_and(|agent| agent.notify_self) {
+            sql.push_bind(" AND u.id <> ", Id(self.writer));
+        }
         let named: Vec<&str> = mentioned
             .iter()
             .copied()

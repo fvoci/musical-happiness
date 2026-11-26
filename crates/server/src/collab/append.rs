@@ -9,6 +9,7 @@ use serde_json::Value;
 use fvoci_store::ByAgent;
 
 use super::place::{Held, Unanswered};
+use super::upkeep::Sent;
 use super::{Collab, Taken, whole};
 use crate::app::App;
 use crate::error::AppError;
@@ -63,9 +64,13 @@ impl Collab {
         let nodes = serde_json::to_vec(nodes)
             .map_err(|error| AppError::internal(format_args!("the nodes as JSON: {error}")))?;
         let user_id = by.user_id.to_owned();
-        let agent = by
-            .agent
-            .map(|agent| (agent.token_id.to_owned(), agent.token_name.to_owned()));
+        let agent = by.agent.map(|agent| {
+            (
+                agent.token_id.to_owned(),
+                agent.token_name.to_owned(),
+                agent.notify_self,
+            )
+        });
         let appended = self
             .on_slot_while(
                 app,
@@ -76,10 +81,13 @@ impl Collab {
                     let by = Added {
                         user_id: &user_id,
                         sender: &sender,
-                        agent: agent.as_ref().map(|(token_id, token_name)| ByAgent {
-                            token_id,
-                            token_name,
-                        }),
+                        agent: agent
+                            .as_ref()
+                            .map(|(token_id, token_name, notify_self)| ByAgent {
+                                token_id,
+                                token_name,
+                                notify_self: *notify_self,
+                            }),
                     };
                     let appended = collab.append_held(app, card_id, slot, by, &nodes).await;
                     collab.retire(slot);
@@ -118,8 +126,12 @@ impl Collab {
         if by.agent.is_some() {
             self.keep_before_agent(app, card_id, slot).await?;
         }
+        let sent = Sent {
+            user_id: by.user_id,
+            agent: by.agent,
+        };
         let appended = self
-            .append_in(app, card_id, slot, by.user_id, by.sender, nodes)
+            .append_in(app, card_id, slot, sent, by.sender, nodes)
             .await;
         if appended.is_ok() {
             let written = match by.agent {

@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use fvoci_model::{API_TOKEN_PREFIX, API_TOKEN_SHOWN_CHARS, ApiTokenScope};
-use fvoci_store::LiveApiToken;
+use fvoci_store::{ByAgent, LiveApiToken};
 
 use super::limiter::AddressKey;
 use super::secret;
@@ -160,6 +160,16 @@ pub struct Delegation {
 }
 
 impl Delegation {
+    /// The agent of the token, as what it writes names it.
+    #[must_use]
+    pub fn by_agent(&self) -> ByAgent<'_> {
+        ByAgent {
+            token_id: &self.token_id,
+            token_name: &self.name,
+            notify_self: self.notify_self,
+        }
+    }
+
     /// When the token ends in an organization that takes only sessions made through its
     /// provider: `days` after it was made at the latest, as such a session would, also
     /// for a token made to last longer before the organization began to take only those.

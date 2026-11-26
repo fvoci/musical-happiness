@@ -54,10 +54,7 @@ impl Caller {
     /// writes are kept; `None` for a session.
     #[must_use]
     pub fn agent(&self) -> Option<ByAgent<'_>> {
-        self.delegation().map(|delegation| ByAgent {
-            token_id: &delegation.token_id,
-            token_name: &delegation.name,
-        })
+        self.delegation().map(Delegation::by_agent)
     }
 
     /// The caller as the rule of what opens what asks of them.
