@@ -462,7 +462,8 @@ async fn a_token_reaching(store: &Store, workspace_id: &str, user_id: &str) {
         store
             .create_session(&session, &new_id(), "")
             .await
-            .expect("a session is stored")
+            .expect("a session is stored"),
+        "a new session"
     );
     let granted = [GrantedWorkspace {
         workspace_id,

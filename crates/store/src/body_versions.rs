@@ -661,18 +661,7 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         )
         .push(")");
     scope.execute(sql).await?;
-    if !editors.is_empty() {
-        let mut sql =
-            scope.sql("INSERT INTO body_version_editors (block_id, version, user_id) VALUES ");
-        for (index, user_id) in editors.iter().enumerate() {
-            sql.push(if index == 0 { "(" } else { ", (" })
-                .bind(Id(&block.id))
-                .push_bind(", ", version)
-                .push_bind(", ", Id(user_id))
-                .push(")");
-        }
-        scope.execute(sql).await?;
-    }
+    name_editors(scope, &block.id, version, &editors).await?;
     let through = version.saturating_sub(scope.body_versions_kept());
     let forgot_by_count = forget_past(scope, &block.id, through).await?;
     let forgot_by_bytes = if newest.is_some() && scope.body_versions_kept() > 1 {
@@ -684,6 +673,29 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
         version: Some(version),
         forgot_some: forgot_by_count || forgot_by_bytes,
     })
+}
+
+/// Puts down `editors` as those who wrote version `version` of a card's body.
+async fn name_editors(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+    version: i64,
+    editors: &BTreeSet<String>,
+) -> Result<(), StoreError> {
+    if editors.is_empty() {
+        return Ok(());
+    }
+    let mut sql =
+        scope.sql("INSERT INTO body_version_editors (block_id, version, user_id) VALUES ");
+    for (index, user_id) in editors.iter().enumerate() {
+        sql.push(if index == 0 { "(" } else { ", (" })
+            .bind(Id(block_id))
+            .push_bind(", ", version)
+            .push_bind(", ", Id(user_id))
+            .push(")");
+    }
+    scope.execute(sql).await?;
+    Ok(())
 }
 
 /// The agent put down as having written a card's body since its newest version

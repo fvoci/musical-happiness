@@ -64,8 +64,11 @@ token sends at most 120 requests a minute, and the tokens that reach one organiz
 together; past that it is answered 429 with `Retry-After` and the reason `token_rate_limited`. \
 It lasts as long as it was made for (90 days unless asked, at most 365, at most 90 where it \
 reaches an organization that takes only sessions made through its provider), and ends with \
-what ends its owner's sessions: a password changed, set or reset, an identity unlinked, the \
-provider it was made through changed or removed, the account put out of use.
+what ends its owner's sessions: a password changed, set or reset, the identity it was made \
+through unlinked, the provider it was made through changed or removed, the account put out \
+of use. An organization that takes only sessions made through its provider holds to its 90 \
+days a token made before it did: older, the token is answered 401 there with the reason \
+`token_expired_for_organization`.
 
 ## Requests that change something
 

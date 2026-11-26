@@ -190,7 +190,10 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
         )
         .await
         .ok_json();
-    assert_eq!(rewritten["fields"]["agentTokenName"], "agent", "{rewritten}");
+    assert_eq!(
+        rewritten["fields"]["agentTokenName"], "agent",
+        "{rewritten}"
+    );
     // What a person sends of the name is no one's word: it is the server's to say.
     let comment_block = |comment: &Value| fvoci_model::Block {
         id: id_of(comment),
@@ -211,11 +214,8 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
         )
         .await
         .check_no_content();
-    let mut forged = crate::blocks::child_of(
-        &comment_block(&card),
-        fvoci_model::BlockType::Comment,
-        "",
-    );
+    let mut forged =
+        crate::blocks::child_of(&comment_block(&card), fvoci_model::BlockType::Comment, "");
     forged.body = fvoci_model::Body::parse(text.clone()).expect("a body");
     forged
         .fields
@@ -231,7 +231,11 @@ async fn a_comment_an_agent_writes_names_its_token_and_one_a_person_writes_does_
         .iter()
         .map(|comment| &comment["fields"]["agentTokenName"])
         .collect();
-    assert_eq!(names, [&json!("agent"), &json!("agent"), &Value::Null], "{listed:?}");
+    assert_eq!(
+        names,
+        [&json!("agent"), &json!("agent"), &Value::Null],
+        "{listed:?}"
+    );
 
     th.teardown().await;
 }

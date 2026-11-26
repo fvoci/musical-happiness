@@ -35,7 +35,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// content of what it reaches. A workspace of an organization that takes only sessions
 /// made through its provider is given only if the organization lets it (403,
 /// `api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as
-/// `expiresInDays` asks, 90 unless it asks, at most 365.
+/// `expiresInDays` asks, 90 unless it asks, at most 365. An account holds at most 25
+/// tokens that still open something (400, `too_many_api_tokens`), and a session that
+/// has ended makes none (401).
 #[utoipa::path(
     post,
     path = "/users/me/api-tokens",

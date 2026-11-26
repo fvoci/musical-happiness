@@ -29,7 +29,8 @@ async fn session_of(store: &Store, user_id: &str) -> String {
         store
             .create_session(&session, &new_id(), "")
             .await
-            .expect("the session is stored")
+            .expect("the session is stored"),
+        "a new session"
     );
     session.id
 }

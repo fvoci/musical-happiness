@@ -373,6 +373,84 @@ async fn an_organization_that_takes_no_password_gives_its_workspaces_to_tokens_w
         .await
         .check_status(StatusCode::UNAUTHORIZED);
 
+    // The organization's records say who let tokens in, stopped them and took one out.
+    let records: Vec<fvoci_model::AuditRecord> = admin.get(&format!("{org}/audit")).await.ok_json();
+    let tokens: Vec<_> = records
+        .iter()
+        .filter_map(|record| {
+            let action = record.action.as_str();
+            action.contains("api_token").then(|| {
+                let subject = record.subject.as_ref().map(|subject| subject.id.as_str());
+                (action, subject, record.detail.as_deref())
+            })
+        })
+        .collect();
+    let owner = issued.api_token.user_id.as_str();
+    let prefix = issued.api_token.token_prefix.as_str();
+    assert_eq!(
+        tokens,
+        [
+            ("api_token_revoked", Some(owner), Some(prefix)),
+            ("api_tokens_enabled", None, None),
+            ("api_tokens_disabled", None, None),
+            ("api_tokens_enabled", None, None),
+        ],
+        "{records:?}"
+    );
+
+    ts.teardown().await;
+}
+
+/// A token made to last a year before its organization took only sessions made through
+/// its provider still opens it while it is younger than the 90 days such an
+/// organization gives a token, and not after.
+#[tokio::test]
+async fn a_token_made_before_an_organization_took_only_its_provider_lasts_its_90_days_there() {
+    use crate::fake_oidc::FakeProvider;
+    use crate::oidc::{org_of, server_for, set_provider};
+    use crate::sso::{Passwords, admin_through_provider, require_sso};
+
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let admin = admin_through_provider(&ts, &fake, &org_id).await;
+    let issued: IssuedApiToken = admin
+        .post(
+            "/users/me/api-tokens",
+            &json!({
+                "name": "agent", "scope": "read", "workspaceIds": [ROOT_WORKSPACE_ID],
+                "expiresInDays": 365,
+            }),
+        )
+        .await
+        .created_json();
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+    admin
+        .patch(&format!("/org/{org_id}"), &json!({"allowApiTokens": true}))
+        .await
+        .check_ok();
+    let reader = agent(&ts, &issued);
+    let boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
+    reader.get(&boards).await.check_ok();
+
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE api_tokens SET created_at = created_at - {} WHERE id = '{}'",
+            91 * 86_400_000_i64,
+            issued.api_token.id
+        ))
+        .await
+        .expect("the token is older");
+    check_refused(
+        &reader.get(&boards).await,
+        StatusCode::UNAUTHORIZED,
+        "token_expired_for_organization",
+    );
+
     ts.teardown().await;
 }
 

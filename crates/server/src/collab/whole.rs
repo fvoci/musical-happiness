@@ -160,7 +160,7 @@ impl Collab {
             let slot = self.slot_in(app, &card_id, &container_id).await;
             held.push((card_id, slot));
         }
-        let mut written_first = self.refused_over(app, &held, over).await;
+        let mut written_first = self.refused_over(app, &held, over);
         if written_first.is_ok() {
             for (card_id, slot) in &mut held {
                 if let Err(error) = self
@@ -195,7 +195,7 @@ impl Collab {
 
     /// Refuses a whole write `over` the editors of one of the held cards, where it
     /// does not replace what they hold: 409 `room_has_active_editors`.
-    async fn refused_over(
+    fn refused_over(
         &self,
         app: &App,
         held: &[(String, Held)],
