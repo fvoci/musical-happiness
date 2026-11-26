@@ -5,7 +5,8 @@
  * before it folded; an entry is made by what is written first, not before;
  * a year nobody wrote on is written on afterwards; the days step through
  * `02-29`; midnight moves today and leaves what is being written where it
- * is; and all of it goes by the keyboard alone and fits a phone.
+ * is; `[[` puts a reference to a page of the own space; and all of it goes
+ * by the keyboard alone and fits a phone.
  *
  * The world in memory starts anew on a load: going about inside the page is
  * done as the app's links do (`goInside`). The same diary over a load and
@@ -28,7 +29,7 @@ import {
 import { primaryKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 import { openApp, showSidebar, sidebar } from './shell.support.ts';
-import { goInside } from './wiki.support.ts';
+import { ON_A_WIKI, goInside } from './wiki.support.ts';
 
 test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
 
@@ -337,4 +338,48 @@ test('keeps a manual body version with ⌘S/Ctrl+S and restores from the version
   await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Restore' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(editorOf(today)).toHaveText('First entry draft.');
+});
+
+test('`[[` in an entry puts a reference to a page of the own space, which leads there', async ({
+  page,
+}) => {
+  await openDiary(page);
+  // A wiki of the own space, with a page.
+  await showSidebar(page);
+  await sidebar(page).getByTestId('add-board').click();
+  const picker = page.getByTestId('template-picker');
+  await picker.getByTestId('new-title').fill('Trips');
+  await picker.getByTestId('new-title').press('Enter');
+  await picker.getByTestId('new-wiki').click();
+  await expect(page).toHaveURL(ON_A_WIKI);
+  const wikiId = ON_A_WIKI.exec(page.url())?.[1] ?? '';
+  const pageId = await page.evaluate(async (id) => {
+    const dev = (
+      window as unknown as {
+        fvociDev: {
+          backend: {
+            wiki: { createPage(id: string, draft: object): Promise<{ id: string }> };
+          };
+        };
+      }
+    ).fvociDev;
+    return (await dev.backend.wiki.createPage(id, { title: 'Packing list' })).id;
+  }, wikiId);
+
+  await showSidebar(page);
+  await sidebar(page).getByTestId('open-diary').click();
+  await expect(page).toHaveURL(ON_A_DAY);
+  const today = year(page, '2026-11-21');
+  await editorOf(today).click();
+  await page.keyboard.type('Packed by [[Packing');
+  const option = page
+    .locator('[data-suggestions="reference"]')
+    .getByRole('option', { name: 'Packing list · Page' });
+  await expect(option).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  const chip = today.locator(`[data-reference][data-block-id="${pageId}"]`);
+  await expect(chip).toHaveAttribute('data-state', 'shown');
+  await expect(chip).toHaveText('Packing list');
+  await chip.getByRole('link').click();
+  await expect(page).toHaveURL(new RegExp(`/wikis/${wikiId}/${pageId}$`, 'u'));
 });
