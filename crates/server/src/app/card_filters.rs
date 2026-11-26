@@ -1,8 +1,9 @@
 //! The cards of a board that a list asks for by more than its page: by their title or
 //! number, their place, the people they are given to, a value, their last change, and
-//! in another order than the oldest first. They are read whole and chosen here.
+//! in another order than the oldest first. Their blocks are read and chosen here, and
+//! only those of the page asked for are made cards.
 
-use fvoci_model::{BlockType, Card, CardPropertyDefinition, assigned_users};
+use fvoci_model::{Block, BlockType, Card, CardPropertyDefinition, assigned_users};
 use fvoci_store::{BlockFilter, ListedBlock};
 use serde_json::Value;
 
@@ -64,42 +65,84 @@ impl CardsFilter {
     }
 }
 
+/// What a list asks of the titles, read once for all the cards: the card of a number
+/// (`#12`), or a text the title holds whatever the case of its letters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TitleQuery {
+    Number(u32),
+    Holds(String),
+}
+
+impl TitleQuery {
+    fn of(text: &str) -> Self {
+        match text.strip_prefix('#').and_then(|n| n.parse::<u32>().ok()) {
+            Some(number) => Self::Number(number),
+            None => Self::Holds(text.to_lowercase()),
+        }
+    }
+
+    fn chooses(&self, block: &Block) -> bool {
+        match self {
+            Self::Number(number) => block.shown_number() == Some(*number),
+            Self::Holds(text) => block.title.to_lowercase().contains(text.as_str()),
+        }
+    }
+}
+
 impl CardsFilter {
-    /// Whether the card is one the filter chooses, `definitions` being the properties
-    /// of its board.
-    fn chooses(&self, card: &Card, definitions: &[CardPropertyDefinition]) -> bool {
-        self.text
-            .as_deref()
-            .is_none_or(|text| title_holds(card, text))
+    /// Whether the card of `block` is one the filter chooses, asked of the block as
+    /// the list read it (as its card would say), `title` being what the filter asks of
+    /// the titles and `definitions` the properties of its board.
+    fn chooses(
+        &self,
+        block: &Block,
+        title: Option<&TitleQuery>,
+        definitions: &[CardPropertyDefinition],
+    ) -> bool {
+        // A card whose properties are no object has none, as its card says.
+        let properties = block.fields.get("properties").and_then(Value::as_object);
+        title.is_none_or(|title| title.chooses(block))
             && self.under.as_ref().is_none_or(|under| match under {
-                CardsUnder::Top => card.parent_id.is_empty(),
-                CardsUnder::Card(parent) => &card.parent_id == parent,
+                CardsUnder::Top => block.parent_id.is_empty(),
+                CardsUnder::Card(parent) => &block.parent_id == parent,
+            })
+            && self.given_to.as_deref().is_none_or(|user| {
+                properties.is_some_and(|properties| {
+                    assigned_users(properties, definitions).contains(&user)
+                })
+            })
+            && self.value.as_ref().is_none_or(|(property, value)| {
+                holds(
+                    properties.and_then(|properties| properties.get(property)),
+                    value,
+                )
             })
             && self
-                .given_to
-                .as_deref()
-                .is_none_or(|user| assigned_users(&card.properties, definitions).contains(&user))
-            && self
-                .value
-                .as_ref()
-                .is_none_or(|(property, value)| holds(card.properties.get(property), value))
-            && self
                 .updated_since
-                .is_none_or(|since| card.updated_at >= since)
+                .is_none_or(|since| block.updated_at >= since)
     }
 }
 
 impl CardsOrder {
-    fn sort(self, cards: &mut [Card]) {
+    fn sort(self, listed: &mut [&ListedBlock]) {
         match self {
             Self::CreatedFirst => {
-                cards.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
+                listed.sort_by(|a, b| {
+                    let (a, b) = (&a.block, &b.block);
+                    (a.created_at, &a.id).cmp(&(b.created_at, &b.id))
+                });
             }
             Self::UpdatedLast => {
-                cards.sort_by(|a, b| (b.updated_at, &b.id).cmp(&(a.updated_at, &a.id)));
+                listed.sort_by(|a, b| {
+                    let (a, b) = (&a.block, &b.block);
+                    (b.updated_at, &b.id).cmp(&(a.updated_at, &a.id))
+                });
             }
             Self::Numbered => {
-                cards.sort_by_key(|card| (card.number.is_none(), card.number, card.created_at));
+                listed.sort_by_key(|listed| {
+                    let number = listed.block.shown_number();
+                    (number.is_none(), number, listed.block.created_at)
+                });
             }
         }
     }
@@ -111,13 +154,6 @@ fn holds(value: Option<&Value>, wanted: &str) -> bool {
         Some(Value::Array(items)) => items.iter().any(|item| item.as_str() == Some(wanted)),
         _ => false,
     }
-}
-
-fn title_holds(card: &Card, text: &str) -> bool {
-    if let Some(number) = text.strip_prefix('#').and_then(|n| n.parse::<u32>().ok()) {
-        return card.number == Some(number);
-    }
-    card.title.to_lowercase().contains(&text.to_lowercase())
 }
 
 impl App {
@@ -138,7 +174,8 @@ impl App {
     }
 
     /// One page of the cards of the board `board_id` that `filter` chooses, in its
-    /// order.
+    /// order. The cards below a card are asked of the store as such; the rest is
+    /// chosen and ordered among the blocks it lists, and only the page made cards.
     ///
     /// # Errors
     ///
@@ -150,7 +187,13 @@ impl App {
         page: ListPage,
         previews: CardPreviews,
     ) -> Result<Vec<Card>, AppError> {
-        let filter_of_store = BlockFilter::container(board_id).with_type(BlockType::Card);
+        let mut filter_of_store = BlockFilter::container(board_id).with_type(BlockType::Card);
+        if let Some(CardsUnder::Card(parent)) = &filter.under {
+            if !fvoci_model::is_id(parent) {
+                return Ok(Vec::new());
+            }
+            filter_of_store = filter_of_store.with_parent(parent);
+        }
         let listed = self
             .store()
             .get_listed_blocks(&filter_of_store, previews.into())
@@ -159,23 +202,28 @@ impl App {
             Some(_) => self.store().get_container(board_id).await?.card_properties,
             None => Vec::new(),
         };
-        let now = now_millis();
-        let mut cards = Vec::new();
-        for listed in &listed {
-            let card = Self::card_of_listed(listed, now)?;
-            if filter.chooses(&card, &definitions) {
-                cards.push(card);
-            }
-        }
-        filter.order.sort(&mut cards);
+        let title = filter.text.as_deref().map(TitleQuery::of);
+        let mut chosen: Vec<&ListedBlock> = listed
+            .iter()
+            .filter(|listed| filter.chooses(&listed.block, title.as_ref(), &definitions))
+            .collect();
+        filter.order.sort(&mut chosen);
         let paging = page.paging();
-        if paging.per_page == 0 {
-            return Ok(cards);
-        }
-        let per_page = usize::try_from(paging.per_page).unwrap_or(usize::MAX);
-        let skipped = usize::try_from(paging.page)
-            .unwrap_or(usize::MAX)
-            .saturating_mul(per_page);
-        Ok(cards.into_iter().skip(skipped).take(per_page).collect())
+        let (skipped, per_page) = if paging.per_page == 0 {
+            (0, usize::MAX)
+        } else {
+            let per_page = usize::try_from(paging.per_page).unwrap_or(usize::MAX);
+            let skipped = usize::try_from(paging.page)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(per_page);
+            (skipped, per_page)
+        };
+        let now = now_millis();
+        chosen
+            .into_iter()
+            .skip(skipped)
+            .take(per_page)
+            .map(|listed| Self::card_of_listed(listed, now))
+            .collect()
     }
 }
