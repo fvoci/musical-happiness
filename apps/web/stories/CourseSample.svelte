@@ -18,6 +18,7 @@
   import { pane } from '$lib/layout/room.svelte.ts';
   import { courseTreeRules } from '$lib/logic/page-moves.ts';
   import { ancestorsOf, firstUnit } from '$lib/logic/page-tree.ts';
+  import { UnitOpenings } from '$lib/features/course/unit-openings.svelte.ts';
   import { CourseStore, type CourseUnit, type UnitStore } from '$lib/state/index.ts';
   import { MemoryBackend } from '$lib/state/memory/backend.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -148,6 +149,8 @@
       });
     }
   });
+
+  const openings = new UnitOpenings();
 </script>
 
 <div
@@ -160,6 +163,7 @@
     <CourseScreen
       course={store}
       unit={store.openUnit}
+      {openings}
       onCreateFirstUnit={() => undefined}
       onEditCourse={() => undefined}
       onDeleteCourse={() => undefined}

@@ -160,12 +160,12 @@ test('saves schedule with auto-assign, preserves overdue units, isolates viewer 
 
     await boraPage.reload();
     await expect(boraPage.getByTestId('course-schedule-overdue-count')).toHaveText('Overdue 0');
-    await expect(boraPage.getByTestId('unit-my-date-input')).not.toHaveValue('');
+    await expect(boraPage.getByTestId('unit-my-date-text')).toBeVisible();
 
     // Ada reloads: Bora's personal redistribution did NOT touch Ada's schedule or overdue count!
     await adaPage.reload();
     await expect(adaPage.getByTestId('course-schedule-overdue-count')).toHaveText('Overdue 1');
-    await expect(adaPage.getByTestId('unit-my-date-input')).toHaveValue('');
+    await expect(adaPage.getByTestId('unit-my-date-text')).toHaveCount(0);
 
     // Ada opens "Today's learning" from sidebar button and completes Unit Past.
     await adaPage.getByTestId('open-learning-today').click();

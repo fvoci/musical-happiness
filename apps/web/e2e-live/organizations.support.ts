@@ -207,9 +207,10 @@ export async function invitedColleague(
   await form.getByLabel(/password/i).fill(newcomer.password);
   await form.getByRole('button', { name: 'Create account and join' }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  await sidebar(page)
-    .locator(`a[href*="${placeOf(address).boardId}"]`)
-    .click();
+  // Somebody else's, open to them: among the open ones to join, at the sidebar's foot.
+  const waiting = sidebar(page).getByTestId('open-to-join');
+  await waiting.locator('button[aria-expanded="false"]').click();
+  await waiting.locator(`a[href*="${placeOf(address).boardId}"]`).click();
   await expect(page.getByText('Second launch draft', { exact: true })).toBeVisible();
   return { page, context, observation, errors };
 }

@@ -164,9 +164,11 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     ).toHaveAttribute('aria-pressed', 'true');
 
     // Ada switches to Exams tab, creates an exam, and records her personal score (80).
-    await adaPage.getByTestId('course-tab-exams').click();
+    // No exam yet, so no tab of them: the course menu makes the first.
+    await expect(adaPage.getByTestId('course-tab-exams')).toHaveCount(0);
+    await adaPage.getByTestId('course-menu').click();
+    await adaPage.locator('[data-action="add-exam"]').click();
     await expect(adaPage.getByTestId('exams-privacy-notice')).toBeVisible();
-    await adaPage.getByTestId('new-exam').click();
     const examDialog = adaPage.getByTestId('course-exam-dialog');
     await examDialog.getByTestId('exam-title-input').fill('Live Midterm');
     await examDialog.getByTestId('exam-date-input').fill('2026-12-12');
@@ -184,6 +186,7 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
 
     // Bora switches to Exams tab: as a non-manager learner with < 5 scorers, bucketed count is 0
     // so Bora cannot even tell whether Ada submitted (`No scores yet`), and saves own score (100).
+    await boraPage.reload();
     await boraPage.getByTestId('course-tab-exams').click();
     const boraExam = boraPage.getByTestId('exam-card').first();
     await expect(boraExam.getByTestId('exam-average')).toContainText('No scores yet');

@@ -1,7 +1,9 @@
 <!--
-  Personal spaced-repetition review schedule panel for one course unit.
-  Shows pending and completed reviews for the caller, allows manual scheduling,
-  completing a review (with optional atomic follow-up scheduling), and deleting.
+  Personal spaced-repetition review schedule panel for one course unit, shown
+  once the unit has a review of the caller's or one is being planned (from the
+  unit's menu, `openings.review`). Shows pending and completed reviews, allows
+  manual scheduling, completing a review (with optional atomic follow-up
+  scheduling), and deleting.
   Unjoined open-course readers see a join hint; never mounted on public links
   or chapters.
 -->
@@ -17,7 +19,6 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { daysBetween, parseCalendarDate } from '$lib/logic/dates.ts';
-  import { isTimeZone } from '$lib/logic/regional.ts';
   import {
     courseReviewIntervals,
     courseReviews,
@@ -30,24 +31,22 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import ReviewIntervalPicker from './ReviewIntervalPicker.svelte';
+  import type { UnitOpenings } from './unit-openings.svelte.ts';
 
   interface Props {
     course: CourseStore;
     unitId: string;
+    openings: UnitOpenings;
   }
 
-  let { course, unitId }: Props = $props();
+  let { course, unitId, openings }: Props = $props();
 
   const store = $derived(courseReviews(course));
   const canTrack = $derived(course.canTrackProgress);
   const intervals = $derived(
     courseReviewIntervals(course.course?.properties as Record<string, unknown> | undefined),
   );
-  const timeZone = $derived.by(() => {
-    const configured = course.workspace.settings.timeZone;
-    return configured !== 'auto' && isTimeZone(configured) ? configured : 'UTC';
-  });
-  const todayClock = new DeviceToday(() => timeZone);
+  const todayClock = new DeviceToday(() => course.workspace.regional.timeZone);
   const today = $derived(todayClock.date);
 
   const unitReviews = $derived(store.reviewsForUnit(unitId));
@@ -64,10 +63,9 @@
     return suggestedNextIntervalDays(latest?.intervalDays ?? null, intervals);
   });
 
-  let schedulingFor = $state<string | undefined>(undefined);
   let completingId = $state<string | undefined>(undefined);
   let statusMessage = $state<{ unitId: string; text: string } | undefined>(undefined);
-  const scheduling = $derived(schedulingFor === unitId);
+  const scheduling = $derived(openings.review === unitId);
 
   $effect(() => {
     const active = canTrack;
@@ -91,7 +89,7 @@
     const targetId = unitId;
     const created = await store.scheduleReview(targetId, selection);
     if (!created) return;
-    if (schedulingFor === targetId) schedulingFor = undefined;
+    if (openings.review === targetId) openings.review = undefined;
     statusMessage = {
       unitId: targetId,
       text: m.review_scheduled_status({ date: created.scheduledDate }),
@@ -127,7 +125,7 @@
   }
 </script>
 
-{#if canTrack}
+{#if canTrack && (unitReviews.length > 0 || scheduling || store.reviewsStatus === 'failed')}
   <section
     class="flex flex-col gap-3 border-t pt-5"
     aria-label={m.review_panel_title()}
@@ -153,7 +151,7 @@
         data-testid="unit-review-add-toggle"
         aria-expanded={scheduling}
         onclick={() => {
-          schedulingFor = scheduling ? undefined : unitId;
+          openings.review = scheduling ? undefined : unitId;
         }}
       >
         <PlusIcon class="size-3.5" aria-hidden="true" />
@@ -173,7 +171,7 @@
         testId="unit-review-manual-picker"
         onConfirm={scheduleManual}
         onSkip={() => {
-          schedulingFor = undefined;
+          openings.review = undefined;
         }}
       />
     {/if}
@@ -198,10 +196,6 @@
           {m.app_retry()}
         </Button>
       </div>
-    {:else if pendingReviews.length === 0 && completedReviews.length === 0}
-      <p class="text-sm text-muted-foreground" data-testid="unit-reviews-empty">
-        {m.review_panel_empty()}
-      </p>
     {:else}
       {#if pendingReviews.length > 0}
         <div class="flex flex-col gap-2" data-testid="unit-reviews-pending">

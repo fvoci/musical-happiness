@@ -66,8 +66,9 @@ test('a second organization goes from signup through the full app to a shared li
   await fileUnderCategory(page, api, workspaceId, title);
   await observation.screen();
 
+  // Made in the organization's space: open to it from the start.
   await page.getByTestId('share-board').click();
-  await page.getByTestId('share-dialog').getByTestId('share-open').click();
+  await expect(page.getByTestId('share-dialog').getByTestId('share-open')).toBeChecked();
   await page.keyboard.press('Escape');
   await page
     .getByRole('button', { name: /^New card in / })

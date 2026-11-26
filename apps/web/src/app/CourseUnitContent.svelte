@@ -14,6 +14,7 @@
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
   import UnitNotesPanel from '$lib/features/course/UnitNotesPanel.svelte';
   import UnitReviewsPanel from '$lib/features/course/UnitReviewsPanel.svelte';
+  import type { UnitOpenings } from '$lib/features/course/unit-openings.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CourseStore, UnitStore, Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -22,10 +23,12 @@
     workspace: Workspace;
     store: CourseStore;
     unit: UnitStore;
+    /** What the unit's menu opens below its head: a review planned here. */
+    openings: UnitOpenings;
     outlined: Attachment<HTMLElement>;
   }
 
-  let { workspace, store, unit, outlined }: Props = $props();
+  let { workspace, store, unit, openings, outlined }: Props = $props();
 </script>
 
 <div {@attach outlined}>
@@ -39,7 +42,7 @@
   />
 </div>
 {#if unit.status === 'ready'}
-  <UnitReviewsPanel course={store} unitId={unit.unitId} />
+  <UnitReviewsPanel course={store} unitId={unit.unitId} {openings} />
   <UnitNotesPanel course={store} unitId={unit.unitId} />
 {/if}
 <CardBacklinks {workspace} blockId={unit.unitId} of="unit" heading="h2" />

@@ -48,9 +48,6 @@
   const todayCount = $derived(course.schedule.todayCount);
   const overdueCount = $derived(course.schedule.overdueCount);
   const busy = $derived(course.schedule.busy || !viewReady);
-  const serverTimeZone = $derived(
-    course.workspace.settings.timeZone === 'auto' ? 'UTC' : course.workspace.settings.timeZone,
-  );
 
   function defaultTarget(base: string): string {
     const parsed = parseCalendarDate(base);
@@ -226,7 +223,7 @@
       >
         <div class="flex flex-wrap items-center justify-between gap-2">
           <span class="text-muted-foreground">
-            {m.course_schedule_today_label({ today, timeZone: serverTimeZone })}
+            {m.course_schedule_today_label({ today, timeZone: course.workspace.regional.timeZone })}
           </span>
           <div class="flex items-center gap-1.5">
             <span

@@ -2018,7 +2018,6 @@
   "review_panel_title": "복습 일정",
   "review_panel_private": "나만 보이는 개인 일정",
   "review_panel_add": "복습 예약",
-  "review_panel_empty": "이 단원에 예약된 복습이 없습니다.",
   "review_panel_pending": "예정된 복습",
   "review_panel_completed": "완료된 복습 ({count})",
   "review_interval_badge": "{days}일 간격",
@@ -2051,7 +2050,6 @@
   "unit_notes_input_label": "개인 메모 작성",
   "unit_notes_placeholder": "궁금한 질문, 헷갈린 오답, 복습 요약 등을 기록해 두세요...",
   "unit_notes_submit": "메모 추가",
-  "unit_notes_empty": "아직 작성한 개인 메모가 없습니다.",
   "unit_notes_empty_filtered": "이 종류의 메모가 없습니다.",
   "unit_notes_edit": "메모 수정",
   "unit_notes_delete": "메모 삭제",
@@ -2333,5 +2331,8 @@
   "new_templates_course": "학습 템플릿",
   "new_templates_wiki": "위키 템플릿",
   "space_of_org": "{org} · {space}",
-  "shell_open_to_join": "열린 항목 {count}개"
+  "shell_open_to_join": "열린 항목 {count}개",
+  "course_unit_set_schedule": "일정·분량 정하기",
+  "course_unit_schedule_summary": "일정·분량 바꾸기",
+  "course_menu_new_meeting": "모임 잡기"
 }

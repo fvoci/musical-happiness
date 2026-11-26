@@ -56,7 +56,10 @@ test('a newcomer signs in through the provider and opens a board', async ({ page
 
   await page.goto(boardPath(board, board.viewId));
   await expect(page.getByTestId('board-page')).toBeVisible();
-  await expect(page.getByTestId('top-bar')).toContainText('Through the provider');
+  // Open to them, and theirs to write in: the first write joins it.
+  await expect(page.getByTestId('top-bar').getByTestId('board-title')).toHaveValue(
+    'Through the provider',
+  );
   expect(errors).toEqual([]);
   // The other files' sign-in pages are as they were: no provider.
   expect((await admin.delete(`/api/v1/org/${orgId}/oidc`)).status()).toBe(204);

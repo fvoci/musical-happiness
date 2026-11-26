@@ -156,6 +156,7 @@ test('full review & note lifecycle on live server with strict user and public-li
     // 3. Personal notes CRUD on Unit 1 (question & mistake), persisting across reload.
     await adaPage.goto(unit1Url);
     const notesPanel = adaPage.getByTestId('unit-notes-panel');
+    await adaPage.getByTestId('unit-notes-add').click();
     await expect(notesPanel.getByTestId('unit-notes-private-badge')).toBeVisible();
 
     await notesPanel.getByTestId('unit-note-kind-question').click();
@@ -189,8 +190,9 @@ test('full review & note lifecycle on live server with strict user and public-li
     watched.push(boraSession.errors);
     const boraPage = boraSession.page;
 
-    await expect(boraPage.getByTestId('unit-reviews-empty')).toBeVisible();
-    await expect(boraPage.getByTestId('unit-notes-empty')).toBeVisible();
+    // Bora's own: no reviews, so no panel of them, and no notes but the button that starts one.
+    await expect(boraPage.getByTestId('unit-notes-add')).toBeVisible();
+    await expect(boraPage.getByTestId('unit-reviews-panel')).toHaveCount(0);
     await expect(boraPage.getByTestId('course-screen')).not.toContainText('Ada private question');
 
     await boraPage.getByTestId('open-today-reviews').click();

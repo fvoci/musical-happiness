@@ -104,8 +104,10 @@ test('completes unit with interval suggestion, manages Today reviews, CRUDs pers
   const reviewsPanel = page.getByTestId('unit-reviews-panel');
   await expect(reviewsPanel.getByTestId('unit-review-item')).toHaveCount(1);
 
-  // 2. Personal notes CRUD + filtering + private badge.
+  // 2. Personal notes CRUD + filtering + private badge; without notes, only the button that starts one.
   const notesPanel = page.getByTestId('unit-notes-panel');
+  await expect(notesPanel).toHaveCount(0);
+  await page.getByTestId('unit-notes-add').click();
   await expect(notesPanel.getByTestId('unit-notes-private-badge')).toBeVisible();
 
   await notesPanel.getByTestId('unit-note-kind-question').click();

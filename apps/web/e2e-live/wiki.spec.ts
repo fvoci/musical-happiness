@@ -337,7 +337,7 @@ test('an open wiki is listed to and read by whoever works in the workspace, and 
   const title = page.getByTestId('page-title');
   await title.fill('Hello, joined');
   await title.press('Enter');
-  await expect(waiting).toHaveCount(0);
+  await expect(waiting.getByRole('link', { name: 'Open notes, wiki' })).toHaveCount(0);
   await expect(sidebar(page).getByRole('link', { name: 'Open notes, wiki' })).toBeVisible();
   const read = (await (
     await api.get(`${inWorkspace}/wikis/${wiki.id}/pages/${first.id}`)

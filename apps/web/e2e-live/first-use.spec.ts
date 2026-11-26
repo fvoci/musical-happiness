@@ -133,7 +133,7 @@ test('somebody starts an organization, and a second person comes in by its link 
   await expect(koreanPage.getByTestId('invitation-needed')).toBeVisible();
   await look(koreanPage, 'the sign-in page of a server with its organization, in Korean');
 
-  // The first board, open to the workspace.
+  // The first board, made in the organization's space: open to it from the start.
   const made = page.waitForResponse(
     (answer) => answer.url().endsWith('/containers-and-blocks') && answer.status() === 201,
   );
@@ -146,7 +146,7 @@ test('somebody starts an organization, and a second person comes in by its link 
   await expect(boardLink(page, 'Launch plan')).toBeVisible();
   await page.getByTestId('share-board').click();
   const share = page.getByTestId('share-dialog');
-  await share.getByTestId('share-open').click();
+  await expect(share.getByTestId('share-open')).toBeChecked();
   await look(page, 'the first board, shared with the workspace');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'New card in No Status' }).click();

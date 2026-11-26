@@ -2018,7 +2018,6 @@
   "review_panel_title": "Review schedule",
   "review_panel_private": "Private to you",
   "review_panel_add": "Schedule review",
-  "review_panel_empty": "No reviews scheduled for this unit yet.",
   "review_panel_pending": "Upcoming",
   "review_panel_completed": "Completed ({count})",
   "review_interval_badge": "Every {days}d",
@@ -2051,7 +2050,6 @@
   "unit_notes_input_label": "Write a personal note",
   "unit_notes_placeholder": "Write a question, mistake to remember, or review takeaway...",
   "unit_notes_submit": "Add note",
-  "unit_notes_empty": "No personal notes yet.",
   "unit_notes_empty_filtered": "No notes in this category.",
   "unit_notes_edit": "Edit note",
   "unit_notes_delete": "Delete note",
@@ -2333,5 +2331,8 @@
   "new_templates_course": "Course templates",
   "new_templates_wiki": "Wiki templates",
   "space_of_org": "{org} · {space}",
-  "shell_open_to_join": "Open to join ({count})"
+  "shell_open_to_join": "Open to join ({count})",
+  "course_unit_set_schedule": "Set schedule and amount",
+  "course_unit_schedule_summary": "Change schedule and amount",
+  "course_menu_new_meeting": "Schedule a meeting"
 }

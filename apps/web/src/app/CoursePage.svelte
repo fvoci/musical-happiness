@@ -20,6 +20,7 @@
   import CourseSchedulePanel from '$lib/features/course/CourseSchedulePanel.svelte';
   import CourseScreen from '$lib/features/course/CourseScreen.svelte';
   import UnitMenu from '$lib/features/course/UnitMenu.svelte';
+  import { UnitOpenings } from '$lib/features/course/unit-openings.svelte.ts';
   import OutlineButton from '$lib/features/wiki/OutlineButton.svelte';
   import OutlineColumns from '$lib/features/wiki/OutlineColumns.svelte';
   import { PageOutline } from '$lib/features/wiki/page-outline.svelte.ts';
@@ -139,6 +140,7 @@
       : undefined,
   );
   const outline = new PageOutline();
+  const openings = new UnitOpenings();
 
   // Keep ancestors of the open unit unfolded in the outline tree.
   const above = $derived(course && unitId ? ancestorsOf(course.units, unitId).join(' ') : '');
@@ -332,6 +334,7 @@
       <CourseScreen
         course={store}
         unit={store.openUnit}
+        {openings}
         {activeTab}
         onSelectTab={(tab: CourseTab) => {
           router.openCourseTab(tab);
@@ -445,7 +448,9 @@
               />
             {/if}
             <UnitMenu
+              course={store}
               unit={shown}
+              {openings}
               onVersions={() => {
                 versions = {
                   unitId: unit.unitId,
@@ -460,7 +465,7 @@
           <NotFound {router} />
         {/snippet}
         {#snippet body(unit: UnitStore)}
-          <CourseUnitContent {workspace} {store} {unit} outlined={outline.source} />
+          <CourseUnitContent {workspace} {store} {unit} {openings} outlined={outline.source} />
         {/snippet}
       </CourseScreen>
     </div>

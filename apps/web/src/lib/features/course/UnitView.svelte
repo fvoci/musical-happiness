@@ -16,11 +16,14 @@
 
   import UnitProgressControls from './UnitProgressControls.svelte';
   import UnitScheduleControls from './UnitScheduleControls.svelte';
+  import type { UnitOpenings } from './unit-openings.svelte.ts';
 
   interface Props {
     course: CourseStore;
     store: UnitStore;
     unit: CourseUnit;
+    /** What the unit's menu opens below its head. */
+    openings: UnitOpenings;
     /** Start with the caret in the title: for a unit that was just made. */
     autofocus?: boolean;
     /** Live viewers badge, supplied by the app shell. */
@@ -30,7 +33,16 @@
     body: Snippet<[UnitStore]>;
   }
 
-  let { course, store, unit, autofocus = false, viewers, actions, body }: Props = $props();
+  let {
+    course,
+    store,
+    unit,
+    openings,
+    autofocus = false,
+    viewers,
+    actions,
+    body,
+  }: Props = $props();
 
   const PAUSE = 800;
 
@@ -160,7 +172,7 @@
       {/if}
     </div>
     <UnitProgressControls {course} unitId={unit.id} />
-    <UnitScheduleControls {course} {unit} />
+    <UnitScheduleControls {course} {unit} {openings} />
   </header>
   {@render body(store)}
 </article>

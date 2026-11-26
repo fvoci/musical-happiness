@@ -1,13 +1,15 @@
 <!--
   Personal study notes panel for one course unit: question, mistake, and review
   notes visible strictly to the caller. Supports kind filtering, creation,
-  inline editing (content and kind), and deletion. Never mounted on public share
-  links or chapters; unjoined open-course readers see a join hint.
+  inline editing (content and kind), and deletion. A unit without notes shows
+  only the button that starts one. Never mounted on public share links or
+  chapters; unjoined open-course readers see a join hint.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
 
   import LockIcon from '@lucide/svelte/icons/lock';
+  import PlusIcon from '@lucide/svelte/icons/plus';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import StickyNoteIcon from '@lucide/svelte/icons/sticky-note';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -82,6 +84,11 @@
   const editingId = $derived(editing?.unitId === unitId ? editing.noteId : undefined);
 
   const unitNotes = $derived(store.notesUnitId === unitId ? store.notes : []);
+  /** The unit whose first note is being written. */
+  let startedFor = $state<string | undefined>(undefined);
+  const shown = $derived(
+    unitNotes.length > 0 || startedFor === unitId || store.notesStatus === 'failed',
+  );
   const filteredNotes = $derived(
     filterKind === 'all' ? unitNotes : unitNotes.filter((note) => note.kind === filterKind),
   );
@@ -95,6 +102,12 @@
       else current.clearNotes();
     });
   });
+
+  async function startNote(): Promise<void> {
+    startedFor = unitId;
+    await tick();
+    document.getElementById(`${uid}-composer`)?.focus();
+  }
 
   function setFilter(next: UnitNoteKind | 'all'): void {
     filterKind = next;
@@ -177,7 +190,20 @@
   }
 </script>
 
-{#if canTrack}
+{#if canTrack && !shown}
+  <div class="border-t pt-4">
+    <Button
+      variant="ghost"
+      size="sm"
+      class="text-muted-foreground roomy:min-h-touch"
+      data-testid="unit-notes-add"
+      onclick={() => void startNote()}
+    >
+      <PlusIcon class="size-3.5" aria-hidden="true" />
+      {m.unit_notes_submit()}
+    </Button>
+  </div>
+{:else if canTrack}
   <section
     class="flex flex-col gap-3 border-t pt-5"
     aria-label={m.unit_notes_title()}
@@ -197,46 +223,48 @@
       </span>
     </div>
 
-    <div
-      class="flex flex-wrap items-center gap-1.5"
-      role="group"
-      aria-label={m.unit_notes_filter_label()}
-    >
-      <button
-        type="button"
-        aria-pressed={filterKind === 'all'}
-        data-testid="unit-notes-filter-all"
-        class={[
-          'min-h-8 rounded-full border px-3 text-xs font-medium transition-colors roomy:min-h-touch',
-          filterKind === 'all'
-            ? 'border-foreground bg-foreground text-background'
-            : 'border-border bg-background text-muted-foreground hover:bg-muted',
-        ]}
-        onclick={() => {
-          setFilter('all');
-        }}
+    {#if unitNotes.length > 0}
+      <div
+        class="flex flex-wrap items-center gap-1.5"
+        role="group"
+        aria-label={m.unit_notes_filter_label()}
       >
-        {m.unit_notes_filter_all()}
-      </button>
-      {#each UNIT_NOTE_KINDS as kind (kind)}
         <button
           type="button"
-          aria-pressed={filterKind === kind}
-          data-testid="unit-notes-filter-{kind}"
+          aria-pressed={filterKind === 'all'}
+          data-testid="unit-notes-filter-all"
           class={[
             'min-h-8 rounded-full border px-3 text-xs font-medium transition-colors roomy:min-h-touch',
-            filterKind === kind
-              ? [KIND_BADGE_CLASS[kind], 'ring-1 ring-ring/50']
+            filterKind === 'all'
+              ? 'border-foreground bg-foreground text-background'
               : 'border-border bg-background text-muted-foreground hover:bg-muted',
           ]}
           onclick={() => {
-            setFilter(kind);
+            setFilter('all');
           }}
         >
-          {kindLabel(kind)}
+          {m.unit_notes_filter_all()}
         </button>
-      {/each}
-    </div>
+        {#each UNIT_NOTE_KINDS as kind (kind)}
+          <button
+            type="button"
+            aria-pressed={filterKind === kind}
+            data-testid="unit-notes-filter-{kind}"
+            class={[
+              'min-h-8 rounded-full border px-3 text-xs font-medium transition-colors roomy:min-h-touch',
+              filterKind === kind
+                ? [KIND_BADGE_CLASS[kind], 'ring-1 ring-ring/50']
+                : 'border-border bg-background text-muted-foreground hover:bg-muted',
+            ]}
+            onclick={() => {
+              setFilter(kind);
+            }}
+          >
+            {kindLabel(kind)}
+          </button>
+        {/each}
+      </div>
+    {/if}
 
     <form
       class="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3"
@@ -270,6 +298,7 @@
       </div>
 
       <textarea
+        id="{uid}-composer"
         value={draft}
         rows="3"
         aria-label={m.unit_notes_input_label()}
@@ -322,11 +351,11 @@
           {m.app_retry()}
         </Button>
       </div>
-    {:else if filteredNotes.length === 0}
+    {:else if unitNotes.length > 0 && filteredNotes.length === 0}
       <p class="text-sm text-muted-foreground" data-testid="unit-notes-empty">
-        {filterKind === 'all' ? m.unit_notes_empty() : m.unit_notes_empty_filtered()}
+        {m.unit_notes_empty_filtered()}
       </p>
-    {:else}
+    {:else if filteredNotes.length > 0}
       <ul class="flex flex-col gap-2" data-testid="unit-notes-list">
         {#each filteredNotes as note (note.id)}
           {@const busy = store.noteBusyIds.has(note.id)}
