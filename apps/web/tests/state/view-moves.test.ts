@@ -151,6 +151,47 @@ describe('a move', () => {
     expect(titles(theirs)).toEqual(titles(board));
   });
 
+  it('is not put back by the late word of an earlier move while a later one is under way', async () => {
+    const { board, backend, world } = await openFirstBoard(setup([FIVE]));
+    const delta = idOf(board, 'Delta');
+    await moveView(board, delta, 1);
+    await settle();
+    expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Gamma', 'Delta']);
+    const afterFirst = board.views.find((view) => view.id === delta);
+    if (!afterFirst) throw new Error('no view');
+    backend.latency = 20;
+    const second = moveView(board, delta, -1);
+    const shown = ['Alpha', 'Beta', 'Board', 'Delta', 'Gamma'];
+    expect(titles(board)).toEqual(shown);
+    // The word of the first move, late: it would put Delta back at the end.
+    world.tellContainer(board.boardId, { kind: 'blocks', blocks: [afterFirst] });
+    await settle();
+    expect(titles(board)).toEqual(shown);
+    await second;
+    await settle();
+    expect(titles(board)).toEqual(shown);
+    const stored = orderViews(await backend.views(board.boardId), 'en');
+    expect(stored.map((view) => view.title)).toEqual(shown);
+  });
+
+  it('takes what was said of a view during a move once the move is answered', async () => {
+    const { board, backend, world } = await openFirstBoard(setup([FIVE]));
+    const gamma = board.views.find((view) => view.title === 'Gamma');
+    if (!gamma) throw new Error('no view');
+    backend.latency = 20;
+    const moving = moveView(board, idOf(board, 'Delta'), 1);
+    world.tellContainer(board.boardId, {
+      kind: 'blocks',
+      // Renamed by somebody else after the move is stored: the newer version.
+      blocks: [{ ...gamma, title: 'Gamma renamed', updatedAt: Date.now() + 60_000 }],
+    });
+    await settle();
+    expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Gamma', 'Delta']);
+    await moving;
+    await settle();
+    expect(titles(board)).toContain('Gamma renamed');
+  });
+
   it('restores the previous order and reports once when moveView is refused', async () => {
     const { board, backend, theirs, workspace } = await twoReaders();
     vi.spyOn(backend, 'moveView').mockRejectedValueOnce(new BackendError(403, { detail: 'no' }));

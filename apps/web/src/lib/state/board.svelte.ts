@@ -70,7 +70,7 @@ import { MemberWrites } from './member-writes.ts';
 import { orderMembers, orderViews } from './order.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
-import { take } from './write.ts';
+import { receiveView } from './view-moves.ts';
 
 export type { CardDrop } from './board-parts.ts';
 
@@ -208,7 +208,7 @@ export class BoardStore {
         receiveBoardCard(this, this.#lastComments, this.#cardWrites, card);
       },
       receiveView: (view) => {
-        if (this.#viewWrites.receive(view)) this.views = take(this.views, view);
+        receiveView(this, this.#viewWrites, view);
       },
       refreshPermissions: () => this.#refreshPermissions(),
       refresh: () => this.#refresh(),
