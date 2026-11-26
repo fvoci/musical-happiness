@@ -121,7 +121,8 @@ pub struct ApiToken {
     pub workspaces: Vec<ApiTokenWorkspace>,
     /// Whether it reaches the owner's own space too (never its diaries).
     pub allow_personal_space: bool,
-    /// Whether its owner is told of what it does, as of anybody's doing.
+    /// Whether its owner asked to be told of what it does, as of anybody's doing. Kept
+    /// with the token; the server tells nobody of their own token's doing yet.
     pub notify_self: bool,
     /// When it was last used, in milliseconds since the Unix epoch, to within five
     /// minutes; absent if never.
@@ -153,7 +154,8 @@ pub struct NewApiToken {
     /// it in `password`.
     #[serde(default)]
     pub allow_personal_space: bool,
-    /// Whether the owner is told of what it does. On unless given.
+    /// Whether the owner asks to be told of what it does (`ApiToken.notifySelf`). On
+    /// unless given.
     #[serde(default = "notify_self_by_default")]
     pub notify_self: bool,
     /// How many days it lasts, 1 to 365; 90 if absent. A token that reaches an
@@ -179,15 +181,6 @@ pub struct IssuedApiToken {
     pub token: String,
     /// The token as its list shows it.
     pub api_token: ApiToken,
-}
-
-/// A change of whether an organization lets its members give its workspaces to
-/// personal API tokens (`setOrganizationApiTokens`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ApiTokensPolicy {
-    /// Whether tokens may reach the organization's workspaces.
-    pub allow_api_tokens: bool,
 }
 
 #[cfg(test)]

@@ -7010,7 +7010,10 @@ export interface components {
             lastUsedAt?: number | null;
             /** @description The name its owner gave it. */
             name: string;
-            /** @description Whether its owner is told of what it does, as of anybody's doing. */
+            /**
+             * @description Whether its owner asked to be told of what it does, as of anybody's doing. Kept
+             *     with the token; the server tells nobody of their own token's doing yet.
+             */
             notifySelf: boolean;
             /** @description What it may do. */
             scope: components["schemas"]["ApiTokenScope"];
@@ -9112,7 +9115,10 @@ export interface components {
             expiresInDays?: number | null;
             /** @description Its name, 1 to 80 characters after trimming. */
             name: string;
-            /** @description Whether the owner is told of what it does. On unless given. */
+            /**
+             * @description Whether the owner asks to be told of what it does (`ApiToken.notifySelf`). On
+             *     unless given.
+             */
             notifySelf?: boolean;
             /** @description The account's password, for a token that reaches the owner's own space. */
             password?: string | null;

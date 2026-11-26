@@ -353,7 +353,7 @@
             "type": "string"
           },
           "notifySelf": {
-            "description": "Whether its owner is told of what it does, as of anybody's doing.",
+            "description": "Whether its owner asked to be told of what it does, as of anybody's doing. Kept\nwith the token; the server tells nobody of their own token's doing yet.",
             "type": "boolean"
           },
           "scope": {
@@ -4426,7 +4426,7 @@
             "type": "string"
           },
           "notifySelf": {
-            "description": "Whether the owner is told of what it does. On unless given.",
+            "description": "Whether the owner asks to be told of what it does (`ApiToken.notifySelf`). On\nunless given.",
             "type": "boolean"
           },
           "password": {
