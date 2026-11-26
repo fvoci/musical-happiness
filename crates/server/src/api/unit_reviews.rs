@@ -116,7 +116,7 @@ async fn handle_list_my_course_reviews(
     Path((_, course_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<CourseReviewsQuery>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -157,7 +157,7 @@ async fn handle_schedule_unit_review(
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -199,7 +199,7 @@ async fn handle_complete_unit_review(
     Path((_, course_id, review_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -251,7 +251,7 @@ async fn handle_delete_unit_review(
     InCourse(ws): InCourse,
     Path((_, course_id, review_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -286,7 +286,7 @@ async fn handle_list_my_unit_notes(
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     QueryParams(query): QueryParams<UnitNotesQuery>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access =
         course_view_access(&ws.app, user_id, &course_id, "access denied to unit notes").await?;
     let kind = parse_note_kind(&query.kind)?;
@@ -322,7 +322,7 @@ async fn handle_create_unit_note(
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -359,7 +359,7 @@ async fn handle_patch_unit_note(
     Path((_, course_id, note_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -393,7 +393,7 @@ async fn handle_delete_unit_note(
     InCourse(ws): InCourse,
     Path((_, course_id, note_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -424,7 +424,7 @@ async fn handle_delete_unit_note(
     responses((status = 200, description = "The caller's pending reviews due today or overdue.", body = Vec<TodayReviewItem>)),
 )]
 async fn handle_get_workspace_today_reviews(InCourse(ws): InCourse) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let now = ws.app.schedule_now_millis();
     let today = ws.app.user_today(user_id, now).await?;
     let items = ws

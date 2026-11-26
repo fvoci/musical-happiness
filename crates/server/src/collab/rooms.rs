@@ -177,6 +177,7 @@ impl Connection {
         Asker {
             user_id: &self.user_id,
             making: self.making.making(),
+            delegation: None,
         }
     }
 
@@ -301,6 +302,7 @@ impl Who {
         Asker {
             user_id: &self.user_id,
             making: self.making.as_deref(),
+            delegation: None,
         }
     }
 }

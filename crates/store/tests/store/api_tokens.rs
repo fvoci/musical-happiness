@@ -192,13 +192,8 @@ async fn a_token_is_given_no_workspace_its_maker_does_not_work_in() {
         assert_eq!(issuance, Issuance::NoLongerWorksIn(refused.clone()));
         assert!(!is_live(store, digest).await, "nothing of the token stays");
     }
-    assert!(
-        store
-            .api_tokens_of_user(&alice)
-            .await
-            .expect("listed")
-            .is_empty()
-    );
+    let listed = store.api_tokens_of_user(&alice).await.expect("listed");
+    assert_eq!(listed, [], "no token was made");
 
     test.teardown().await;
 }

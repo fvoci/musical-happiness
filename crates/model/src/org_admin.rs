@@ -23,6 +23,11 @@ pub struct Organization {
     /// into another organization or into their personal space.
     #[serde(default = "default_true")]
     pub allow_copy_out: bool,
+    /// Whether members may give its workspaces to personal API tokens, while it takes
+    /// only sessions made through its provider. One that takes any session lets them
+    /// whatever this says.
+    #[serde(default)]
+    pub allow_api_tokens: bool,
     /// The workspace somebody who joins the organization gets into. It cannot be
     /// deleted.
     pub default_workspace_id: String,
@@ -45,6 +50,11 @@ pub struct OrganizationPatch {
     /// Whether members may copy containers out to external organizations or personal spaces.
     #[serde(default)]
     pub allow_copy_out: Option<bool>,
+    /// Whether members may give its workspaces to personal API tokens while it takes
+    /// only sessions made through its provider. Switched off, the tokens that reach
+    /// them open nothing of it until it is switched on again.
+    #[serde(default)]
+    pub allow_api_tokens: Option<bool>,
 }
 
 /// The most characters a name of an organization or a workspace has.

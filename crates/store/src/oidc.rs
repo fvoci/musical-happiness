@@ -278,12 +278,11 @@ impl Store {
     }
 
     /// Removes the provider of the handle's organization, the sign-ins under way
-    /// through it, the former provider kept beside it, and the sessions made through a
-    /// provider of the organization under its issuer, unless it is the one the
-    /// organization takes nothing else than (`sso_required`): that one stays, and is
-    /// released first. Asked and removed in
-    /// one transaction that holds the provider, so that no removal passes an
-    /// enforcement that is switched on beside it.
+    /// through it, the former provider kept beside it, and the sessions (and tokens)
+    /// made through a provider of the organization under its issuer, unless it is the
+    /// one the organization takes nothing else than (`sso_required`): that one stays,
+    /// and is released first. Asked and removed in one transaction that holds the
+    /// provider, so that no removal passes an enforcement that is switched on beside it.
     ///
     /// # Errors
     ///
@@ -302,7 +301,7 @@ impl Store {
             scope.execute(sql).await?;
             let ended =
                 sessions::end_sessions_of_origin(scope, &provider.org_id, &provider.issuer).await?;
-            crate::api_tokens::revoke_of_provider(scope, &provider.id, None).await?;
+            crate::api_tokens::follow_provider(scope, Some(&provider), None).await?;
             oidc_former::give_way(scope, Some(actor_id)).await?;
             let entry = AuditEntry::new(
                 "",
@@ -675,13 +674,7 @@ pub(crate) async fn write_provider<'c>(
             .push_bind(" AND allow_copy_out = ", true);
         scope.execute(lock_copy).await?;
     }
-    // A token made through the provider proves what its session proved: the revision
-    // it was made at. Another revision signs in otherwise, and ends it.
-    if let Some(before) = before
-        && before.revision != stored.revision
-    {
-        crate::api_tokens::revoke_of_provider(scope, &stored.id, Some(stored.revision)).await?;
-    }
+    crate::api_tokens::follow_provider(scope, before, Some(&stored)).await?;
     let ended = if let Some(before) = before
         && before.issuer != stored.issuer
     {

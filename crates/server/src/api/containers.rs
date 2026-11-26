@@ -22,6 +22,7 @@ use super::contract::params::{
 use super::contract::tag;
 use super::query::QueryParams;
 use super::workspace::{InContainer, InCopied, InWorkspace};
+use super::{Delegated, Read};
 
 use super::{
     ApiResult, RequiredSession, accept_language, created, decode_json, decode_object,
@@ -164,7 +165,7 @@ fn decode_container_patch(body: &[u8]) -> Result<ContainerPatch, AppError> {
     responses((status = 201, description = "The board that was made.", body = Container)),
 )]
 async fn handle_create_board(ws: InWorkspace, headers: HeaderMap, body: Bytes) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     // Whoever works in the workspace makes boards in it, open ones and private ones.
     ws.require_container_maker("access denied to create board")?;
     let mut requested = json_object(decode_json(&body)?)?;
@@ -201,14 +202,14 @@ async fn handle_create_board(ws: InWorkspace, headers: HeaderMap, body: Bytes) -
     responses((status = 200, description = "The board.", body = Container)),
 )]
 async fn handle_get_container(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     // An open board is for whoever works in its workspace, a private one for its
     // members, and its name for the workspace's administrators.
     let access = ws
         .app
-        .container_access(&ws.session.user_id, &container_id)
+        .container_access(&ws.caller.user_id, &container_id)
         .await?
         .filter(|access| access.grant.sees())
         .ok_or_else(|| AppError::not_found("board"))?;
@@ -233,12 +234,12 @@ async fn handle_get_container(
     responses((status = 200, description = "Caller's effective permissions on the container.", body = ContainerPermissions)),
 )]
 async fn handle_get_my_container_permissions(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let access = ws
         .app
-        .container_access(&ws.session.user_id, &container_id)
+        .container_access(&ws.caller.user_id, &container_id)
         .await?
         .filter(|access| access.grant.sees())
         .ok_or_else(|| AppError::not_found("board"))?;
@@ -266,7 +267,7 @@ async fn handle_patch_container(
     Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     require_container_permission(
         &ws.app,
         user_id,
@@ -326,7 +327,7 @@ async fn handle_reorder_card_properties(
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     require_container_permission(
         &ws.app,
         user_id,
@@ -364,7 +365,7 @@ async fn handle_delete_container(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &container_id,
         ContainerPermission::Delete,
         "access denied to delete board",
@@ -374,7 +375,7 @@ async fn handle_delete_container(
     ws.app.container(&container_id).await?;
 
     ws.app
-        .delete_container(&container_id, &ws.session.user_id)
+        .delete_container(&container_id, &ws.caller.user_id)
         .await?;
     Ok(no_content())
 }
@@ -428,7 +429,7 @@ async fn handle_duplicate_container(
     QueryParams(query): QueryParams<DuplicateContainerQuery>,
     headers: HeaderMap,
 ) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     let duplicate_as = if query.as_template == TRUE {
         DuplicateAs::Template
     } else {
@@ -537,7 +538,7 @@ async fn handle_restore_container(
     // board that is not in the trash, there is no such board.
     let grant = ws
         .app
-        .deleted_container_access(&ws.session.user_id, &container_id)
+        .deleted_container_access(&ws.caller.user_id, &container_id)
         .await?
         .map_or(Grant::NONE, |access| access.grant);
     require_granted(
@@ -548,7 +549,7 @@ async fn handle_restore_container(
 
     let container = ws
         .app
-        .undelete_container(&container_id, &ws.session.user_id)
+        .undelete_container(&container_id, &ws.caller.user_id)
         .await?;
     if grant.manages_only() {
         return Ok(json_response(&as_managed(container)));

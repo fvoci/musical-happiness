@@ -10,6 +10,7 @@ use super::contract::params::WorkspaceId;
 use super::contract::tag;
 use super::workspace::TextInContainer;
 use super::{ApiResult, RequiredSession, json_response};
+use super::{Delegated, Read};
 use crate::app::App;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -54,11 +55,13 @@ async fn handle_get_account_today(
     params(WorkspaceId),
     responses((status = 200, description = "Today's items in the workspace.", body = WorkspaceToday)),
 )]
-async fn handle_get_workspace_today(TextInContainer(ws): TextInContainer) -> ApiResult {
+async fn handle_get_workspace_today(
+    Delegated(TextInContainer(ws), ..): Delegated<Read, TextInContainer>,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let today = ws
         .app
-        .workspace_today(&ws.workspace_id, &ws.session.user_id)
+        .workspace_today(&ws.workspace_id, &ws.caller.user_id)
         .await?;
     Ok(json_response(&today))
 }

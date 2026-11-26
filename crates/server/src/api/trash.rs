@@ -43,7 +43,7 @@ async fn handle_get_deleted_cards(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &board_id,
         ContainerPermission::ManageCards,
         "access denied to the trash of the board",
@@ -79,7 +79,7 @@ async fn handle_get_deleted_containers(
     let page = query.into_list_page()?;
     Ok(json_response(
         &ws.app
-            .deleted_containers(&ws.workspace_id, &ws.session.user_id, ws.role, page)
+            .deleted_containers(&ws.workspace_id, &ws.caller.user_id, ws.role, page)
             .await?,
     ))
 }

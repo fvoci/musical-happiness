@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
     CATEGORY_CONTAINERS_SORT_ORDER_GAP, Category, CategoryContainerMetadata, CategoryContainers,
-    CategoryType, Container, ContainerCategoryWebsocketData, ContainerKinds, SidebarVisibility,
+    CategoryType, Container, ContainerCategoryWebsocketData, SidebarVisibility,
 };
 use fvoci_store::PublicContainers;
 
@@ -131,7 +131,7 @@ impl App {
                 user_id,
                 workspace_id,
                 PublicContainers::Exclude,
-                ContainerKinds::EVERY,
+                self.allowed_kinds(),
             )
             .await
             .map_err(|error| {

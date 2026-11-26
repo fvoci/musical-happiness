@@ -20,6 +20,7 @@ use super::{
     ApiResult, created, decode_object, json_response, no_content, require_container_permission,
     require_granted,
 };
+use super::{Delegated, Read};
 use crate::app::{App, ContainerAccess};
 use crate::error::AppError;
 use crate::permissions::{ContainerPermission, Grant};
@@ -76,12 +77,12 @@ async fn course_view_access(
     responses((status = 200, description = "The study meetings of the course.", body = Vec<CourseMeeting>)),
 )]
 async fn handle_list_course_meetings(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
     let access = course_view_access(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         "access denied to course meetings",
     )
@@ -125,7 +126,7 @@ async fn handle_create_course_meeting(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         ContainerPermission::ManageCards,
         "access denied to create course meeting",
@@ -158,7 +159,7 @@ async fn handle_patch_course_meeting(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         ContainerPermission::ManageCards,
         "access denied to update course meeting",
@@ -191,7 +192,7 @@ async fn handle_delete_course_meeting(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         ContainerPermission::ManageCards,
         "access denied to delete course meeting",
@@ -231,7 +232,7 @@ async fn handle_put_meeting_attendance(
     Path((_, course_id, meeting_id, target_user_id)): Path<(String, String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let caller_id = ws.session.user_id.as_str();
+    let caller_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         caller_id,
@@ -277,10 +278,10 @@ async fn handle_put_meeting_attendance(
     responses((status = 200, description = "The exams of the course.", body = Vec<CourseExam>)),
 )]
 async fn handle_list_course_exams(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let caller_id = ws.session.user_id.as_str();
+    let caller_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         caller_id,
@@ -315,7 +316,7 @@ async fn handle_create_course_exam(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         ContainerPermission::ManageCards,
         "access denied to create course exam",
@@ -346,7 +347,7 @@ async fn handle_patch_course_exam(
     Path((_, course_id, exam_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let caller_id = ws.session.user_id.as_str();
+    let caller_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         caller_id,
@@ -386,7 +387,7 @@ async fn handle_delete_course_exam(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         ContainerPermission::ManageCards,
         "access denied to delete course exam",
@@ -421,7 +422,7 @@ async fn handle_put_my_exam_score(
     Path((_, course_id, exam_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -460,7 +461,7 @@ async fn handle_delete_my_exam_score(
     InCourse(ws): InCourse,
     Path((_, course_id, exam_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -499,7 +500,7 @@ async fn handle_publish_course_exam_results(
     InCourse(ws): InCourse,
     Path((_, course_id, exam_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let caller_id = ws.session.user_id.as_str();
+    let caller_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         caller_id,
@@ -537,7 +538,7 @@ async fn handle_unpublish_course_exam_results(
     InCourse(ws): InCourse,
     Path((_, course_id, exam_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let caller_id = ws.session.user_id.as_str();
+    let caller_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         caller_id,

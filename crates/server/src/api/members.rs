@@ -69,7 +69,7 @@ async fn handle_get_members_for_container(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &container_id,
         ContainerPermission::ListMembers,
         "access denied to board members",
@@ -111,7 +111,7 @@ async fn handle_add_member(
     Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     ws.app
         .require_add_member_permission(user_id, &container_id, MODIFY_MEMBERS_DENIED)
         .await?;
@@ -149,7 +149,7 @@ async fn handle_join_container(
     InShared(ws): InShared,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     let access = ws
         .app
         .container_access(user_id, &container_id)
@@ -202,7 +202,7 @@ async fn handle_leave_container(
     InShared(ws): InShared,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     require_container_permission(
         &ws.app,
         user_id,
@@ -243,7 +243,7 @@ async fn handle_update_member(
 ) -> ApiResult {
     let access = ws
         .app
-        .container_access(&ws.session.user_id, &container_id)
+        .container_access(&ws.caller.user_id, &container_id)
         .await?
         .ok_or_else(|| AppError::not_found("board"))?;
     if !access.grant.allows(ContainerPermission::ManageRoles) {
@@ -260,7 +260,7 @@ async fn handle_update_member(
     let updated = ws
         .app
         .update_member(
-            &ws.session.user_id,
+            &ws.caller.user_id,
             &container_id,
             &member_user_id,
             role,
@@ -289,7 +289,7 @@ async fn handle_delete_member(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &container_id,
         ContainerPermission::ManageRoles,
         MODIFY_MEMBERS_DENIED,

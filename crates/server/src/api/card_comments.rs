@@ -19,6 +19,7 @@ use super::contract::tag;
 use super::query::{DisableNotifyQuery, QueryParams};
 use super::workspace::InWorkspace;
 use super::{ApiResult, json_response, require_container_permission};
+use super::{Delegated, Read, Write};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
@@ -123,12 +124,12 @@ pub(crate) struct CardCommentPatch {
     responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
 )]
 async fn handle_get_card_comments(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, card_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &board_id,
         ContainerPermission::View,
         READ_DENIED,
@@ -154,7 +155,7 @@ async fn handle_get_card_comments(
     responses((status = 201, description = "The comment as it was stored.", body = Block)),
 )]
 async fn handle_create_card_comment(
-    commenter: CommenterOf<CardCommentParent>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<CardCommentParent>>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
@@ -184,7 +185,7 @@ async fn handle_create_card_comment(
     responses((status = 200, description = "The comment as it is now.", body = Block)),
 )]
 async fn handle_patch_card_comment(
-    commenter: CommenterOf<CardCommentParent>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<CardCommentParent>>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
@@ -216,7 +217,7 @@ async fn handle_patch_card_comment(
     responses((status = 204, description = "The comment is deleted.")),
 )]
 async fn handle_delete_card_comment(
-    commenter: CommenterOf<CardCommentParent>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<CardCommentParent>>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
 ) -> ApiResult {
     let comment_id = commenter.comment_id()?;
@@ -263,12 +264,12 @@ async fn handle_restore_card_comment(commenter: CommenterOf<CardCommentParent>) 
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_card_comment_versions(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, card_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &board_id,
         ContainerPermission::View,
         READ_DENIED,

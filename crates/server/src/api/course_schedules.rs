@@ -22,6 +22,7 @@ use super::{
     ApiResult, decode_object, json_response, no_content, require_container_permission,
     require_granted,
 };
+use super::{Delegated, Read};
 use crate::app::{App, ContainerAccess, CourseEnrollment};
 use crate::error::AppError;
 use crate::permissions::{ContainerPermission, Grant};
@@ -83,10 +84,10 @@ async fn course_edit_access(
     responses((status = 200, description = "The course schedule and live unit dates for the caller.", body = CourseScheduleView)),
 )]
 async fn handle_get_course_schedule(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -124,7 +125,7 @@ async fn handle_put_course_schedule(
     Path((_, course_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let enrollment = course_edit_access(
         &ws.app,
         user_id,
@@ -160,7 +161,7 @@ async fn handle_delete_course_schedule(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         ContainerPermission::ManageCards,
         "access denied to delete course schedule",
@@ -193,7 +194,7 @@ async fn handle_redistribute_course_schedule(
     Path((_, course_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let enrollment = course_edit_access(
         &ws.app,
         user_id,
@@ -234,7 +235,7 @@ async fn handle_redistribute_my_course_schedule(
     Path((_, course_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -279,7 +280,7 @@ async fn handle_put_unit_schedule(
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -320,10 +321,12 @@ async fn handle_put_unit_schedule(
     params(MemberWorkspaceId),
     responses((status = 200, description = "The caller's incomplete units due today and overdue in this workspace.", body = WorkspaceLearningToday)),
 )]
-async fn handle_get_workspace_learning_today(InCourse(ws): InCourse) -> ApiResult {
+async fn handle_get_workspace_learning_today(
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
+) -> ApiResult {
     let feed = ws
         .app
-        .workspace_learning_today(&ws.workspace_id, &ws.session.user_id)
+        .workspace_learning_today(&ws.workspace_id, &ws.caller.user_id)
         .await?;
     Ok(json_response(&feed))
 }

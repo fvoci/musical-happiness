@@ -6,6 +6,7 @@
 mod access;
 mod account_deletion;
 mod admin;
+mod api_tokens;
 mod archive;
 mod auth;
 mod blocks;
@@ -25,6 +26,7 @@ pub mod contract;
 mod course_events;
 mod course_schedules;
 mod courses;
+pub(crate) mod delegated;
 mod diaries;
 mod diary_versions;
 mod email_change;
@@ -92,6 +94,7 @@ pub(crate) use body::{
     decode_json, decode_object, decode_object_with, decode_with_document, element_pointer,
     json_object, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
 };
+pub(crate) use delegated::{Delegated, Read, Write};
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
 pub(crate) use session::{OptionalSession, RequiredSession};
 
@@ -137,6 +140,7 @@ struct Routes {
 fn routes() -> Routes {
     let json = OpenApiRouter::new()
         .merge(account_deletion::routes())
+        .merge(api_tokens::routes())
         .merge(archive::routes())
         .merge(auth::routes())
         .merge(blocks::routes())

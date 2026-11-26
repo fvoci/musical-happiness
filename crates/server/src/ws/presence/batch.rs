@@ -318,6 +318,7 @@ async fn read_anew(app: &App, batch: &Batch, reader: &mut Reader) -> Result<Look
     let asker = batch.making.as_ref().map(|making| Asker {
         user_id: &batch.user_id,
         making: making.making(),
+        delegation: None,
     });
     let visit = &batch.visit;
     let access = app

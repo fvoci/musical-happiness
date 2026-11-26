@@ -312,6 +312,115 @@
         ],
         "type": "string"
       },
+      "ApiToken": {
+        "description": "A personal API token as its owner, or an administrator of an organization it\nreaches, sees it: never the token itself, which is shown once, when it is made.",
+        "properties": {
+          "allowPersonalSpace": {
+            "description": "Whether it reaches the owner's own space too (never its diaries).",
+            "type": "boolean"
+          },
+          "createdAt": {
+            "description": "When it was made.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "expiresAt": {
+            "description": "When it stops opening anything.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The token's identifier.",
+            "type": "string"
+          },
+          "lastUsedAddress": {
+            "description": "The address it was last used from; absent if never, or unknown.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastUsedAt": {
+            "description": "When it was last used, in milliseconds since the Unix epoch, to within five\nminutes; absent if never.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "The name its owner gave it.",
+            "type": "string"
+          },
+          "notifySelf": {
+            "description": "Whether its owner is told of what it does, as of anybody's doing.",
+            "type": "boolean"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ApiTokenScope",
+            "description": "What it may do."
+          },
+          "tokenPrefix": {
+            "description": "The first characters of the token (`fvoci_pat_` and six more): enough to tell\nwhich token a client holds, never to sign in.",
+            "type": "string"
+          },
+          "userId": {
+            "description": "Whose it is.",
+            "type": "string"
+          },
+          "workspaces": {
+            "description": "The workspaces of organizations it reaches. For an administrator's list, those\nof the administrator's organization alone.",
+            "items": {
+              "$ref": "#/components/schemas/ApiTokenWorkspace"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "allowPersonalSpace",
+          "createdAt",
+          "expiresAt",
+          "id",
+          "name",
+          "notifySelf",
+          "scope",
+          "tokenPrefix",
+          "userId",
+          "workspaces"
+        ],
+        "type": "object"
+      },
+      "ApiTokenScope": {
+        "description": "What a token may do with the content it reaches.",
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
+      "ApiTokenWorkspace": {
+        "description": "A workspace a token reaches, as its list shows it.",
+        "properties": {
+          "name": {
+            "description": "Its name.",
+            "type": "string"
+          },
+          "orgId": {
+            "description": "Its organization.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "The workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "orgId",
+          "workspaceId"
+        ],
+        "type": "object"
+      },
       "AttendanceStatus": {
         "description": "A member's attendance status for a course study meeting.",
         "enum": [
@@ -3575,6 +3684,24 @@
         ],
         "type": "object"
       },
+      "IssuedApiToken": {
+        "description": "A token as it is made: the only time the token itself is told.",
+        "properties": {
+          "apiToken": {
+            "$ref": "#/components/schemas/ApiToken",
+            "description": "The token as its list shows it."
+          },
+          "token": {
+            "description": "The token, to be sent as `Authorization: Bearer <token>`. It is not stored, and\nnot shown again.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiToken",
+          "token"
+        ],
+        "type": "object"
+      },
       "KeptBodyVersion": {
         "description": "The answer to an editor who asked to keep a body as a version now.",
         "properties": {
@@ -4097,6 +4224,56 @@
           "username",
           "email",
           "password"
+        ],
+        "type": "object"
+      },
+      "NewApiToken": {
+        "additionalProperties": false,
+        "description": "What the owner of an account asks a new token to be (`createApiToken`).",
+        "properties": {
+          "allowPersonalSpace": {
+            "description": "Whether it reaches the owner's own space too. An account with a password gives\nit in `password`.",
+            "type": "boolean"
+          },
+          "expiresInDays": {
+            "description": "How many days it lasts, 1 to 365; 90 if absent. A token that reaches an\norganization that takes only sessions made through its provider lasts no longer\nthan such a session may: what is asked beyond that is cut to it.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Its name, 1 to 80 characters after trimming.",
+            "type": "string"
+          },
+          "notifySelf": {
+            "description": "Whether the owner is told of what it does. On unless given.",
+            "type": "boolean"
+          },
+          "password": {
+            "description": "The account's password, for a token that reaches the owner's own space.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ApiTokenScope",
+            "description": "What it may do."
+          },
+          "workspaceIds": {
+            "description": "The workspaces of organizations it reaches: at most 50, each one the owner works\nin (no guest's), and none of the owner's own space, which `allowPersonalSpace`\nsays.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "scope"
         ],
         "type": "object"
       },
@@ -5290,6 +5467,10 @@
       "Organization": {
         "description": "An organization as its administrators see it.",
         "properties": {
+          "allowApiTokens": {
+            "description": "Whether members may give its workspaces to personal API tokens, while it takes\nonly sessions made through its provider. One that takes any session lets them\nwhatever this says.",
+            "type": "boolean"
+          },
           "allowCopyOut": {
             "description": "Whether members may copy boards, wikis, and courses out of this organization\ninto another organization or into their personal space.",
             "type": "boolean"
@@ -5312,6 +5493,7 @@
           }
         },
         "required": [
+          "allowApiTokens",
           "allowCopyOut",
           "defaultWorkspaceId",
           "id",
@@ -5342,6 +5524,13 @@
         "additionalProperties": false,
         "description": "A change of an organization: what is left out stays as it is.",
         "properties": {
+          "allowApiTokens": {
+            "description": "Whether members may give its workspaces to personal API tokens while it takes\nonly sessions made through its provider. Switched off, the tokens that reach\nthem open nothing of it until it is switched on again.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "allowCopyOut": {
             "description": "Whether members may copy containers out to external organizations or personal spaces.",
             "type": [
@@ -6150,6 +6339,26 @@
             "reason": "sso_enforced",
             "title": "Provider held while no password is taken",
             "type": "/problems/sso-enforced"
+          },
+          {
+            "reason": "token_forbidden_endpoint",
+            "title": "Not open to a personal API token",
+            "type": "/problems/token-forbidden-endpoint"
+          },
+          {
+            "reason": "token_scope_insufficient",
+            "title": "Personal API token reads only",
+            "type": "/problems/token-scope-insufficient"
+          },
+          {
+            "reason": "api_tokens_disallowed",
+            "title": "Organization takes no personal API tokens",
+            "type": "/problems/api-tokens-disallowed"
+          },
+          {
+            "reason": "token_rate_limited",
+            "title": "Too many requests of personal API tokens",
+            "type": "/problems/token-rate-limited"
           },
           {
             "reason": "relation_not_a_list",
@@ -8762,7 +8971,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setPublicLink`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setPublicLink` refuses a `token`.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Personal API tokens\n\nA user makes a personal API token (`createApiToken`) for an agent, which sends it as `Authorization: Bearer fvoci_pat_...`, never in a cookie. A token reaches the workspaces it names, of those its owner works in (no guest's), and the owner's own space if it was given that, but never a diary. It reads (`scope` `read`), or reads and writes the content of cards, pages, units, their comments and files (`write`): an operation says in its description whether a token is taken, and which. Every other operation answers a token with 403 and the reason `token_forbidden_endpoint`, the websocket with 401: what is of the account, of who is on what, of what is shared, and of an administrator is done by a person. A token that reads only is answered 403 with the reason `token_scope_insufficient` where an operation writes. A token sends at most 120 requests a minute, and the tokens that reach one organization 600 together; past that it is answered 429 with `Retry-After` and the reason `token_rate_limited`. It lasts as long as it was made for (90 days unless asked, at most 365, at most 90 where it reaches an organization that takes only sessions made through its provider), and ends with what ends its owner's sessions: a password changed, set or reset, an identity unlinked, the provider it was made through changed or removed, the account put out of use.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setPublicLink`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large`, `document_too_large` or `table_too_large` (`table_too_large` also comes from writing a body whole over HTTP when a table has more than 200 rows or more than 20 columns); `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings`, `patchMe` and `createSubscription` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setPublicLink` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -10088,6 +10297,97 @@
           }
         },
         "summary": "Change an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/api-tokens": {
+      "get": {
+        "description": "The tokens of its members that reach a workspace of it and open anything now, the\nnewest first, each with those of its workspaces it reaches.",
+        "operationId": "getOrgApiTokens",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiToken"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The tokens."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The personal API tokens that reach an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/api-tokens/{tokenId}": {
+      "delete": {
+        "description": "From now on the token opens nothing, in this organization or any other. 404 for one\nthat reaches no workspace of it, or was taken back.",
+        "operationId": "revokeOrgApiToken",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the personal API token.",
+            "in": "path",
+            "name": "tokenId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The token opens nothing."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take back a personal API token that reaches an organization",
         "tags": [
           "organization"
         ]
@@ -11966,6 +12266,117 @@
         ]
       }
     },
+    "/api/v1/users/me/api-tokens": {
+      "get": {
+        "description": "The tokens of the user of the session that are not taken back, the newest first,\neach with the workspaces it reaches; those past their end too, until they are taken\nback. Never a token itself.",
+        "operationId": "getApiTokens",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiToken"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The tokens."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The personal API tokens of the user",
+        "tags": [
+          "api-tokens"
+        ]
+      },
+      "post": {
+        "description": "Makes a token for an agent to act as the user with, and answers it once: it is not\nstored, only its digest, and is not shown again. It reaches the workspaces of\n`workspaceIds`, each one the user works in (no guest's) and the session opens, and\nthe user's own space if `allowPersonalSpace` (with the account's `password`, if it\nhas one), never a diary. `scope` says whether it reads, or reads and writes the\ncontent of what it reaches. A workspace of an organization that takes only sessions\nmade through its provider is given only if the organization lets it (403,\n`api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as\n`expiresInDays` asks, 90 unless it asks, at most 365.",
+        "operationId": "createApiToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewApiToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedApiToken"
+                }
+              }
+            },
+            "description": "The token, told this once."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a personal API token",
+        "tags": [
+          "api-tokens"
+        ]
+      }
+    },
+    "/api/v1/users/me/api-tokens/{tokenId}": {
+      "delete": {
+        "description": "From now on the token opens nothing. 404 for one that is not the user's, or was\ntaken back.",
+        "operationId": "revokeApiToken",
+        "parameters": [
+          {
+            "description": "The identifier of the personal API token.",
+            "in": "path",
+            "name": "tokenId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The token opens nothing."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take back a personal API token",
+        "tags": [
+          "api-tokens"
+        ]
+      }
+    },
     "/api/v1/users/me/client-state": {
       "get": {
         "description": "The state the client keeps with the account.",
@@ -13169,7 +13580,7 @@
     },
     "/api/v1/w/{workspaceId}": {
       "get": {
-        "description": "Its name, and whether the admins of its boards may invite guests to them.",
+        "description": "Its name, and whether the admins of its boards may invite guests to them.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getWorkspace",
         "parameters": [
           {
@@ -13207,7 +13618,8 @@
         "summary": "A workspace",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/archive/export": {
@@ -13448,7 +13860,7 @@
     },
     "/api/v1/w/{workspaceId}/boards": {
       "get": {
-        "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former, an administrator every board\nof the workspace (what is on a private board they are no member of stays 404 to\nthem). Templates are not among them. Oldest first. 404 unless the user is a member of\nthe workspace.",
+        "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former, an administrator every board\nof the workspace (what is on a private board they are no member of stays 404 to\nthem). Templates are not among them. Oldest first. 404 unless the user is a member of\nthe workspace.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getWorkspaceBoards",
         "parameters": [
           {
@@ -13489,7 +13901,8 @@
         "summary": "The boards of a workspace",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template. A board is made here and no wiki: a `kind` other\nthan `board` is 400 at `/kind` (`createWiki` makes a wiki).",
@@ -13554,7 +13967,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/search": {
       "get": {
-        "description": "The boards of the workspace the user finds (a member of them, or open where the user\nworks), whose title matches the term: a title matches if every word of the term, as\nspaces divide it, is somewhere in it, whatever the case of the letters (of every\nletter, not only ASCII); `%` and `_` are characters like any other. With\n`field=property_name` those whose own `properties` have a member of exactly that\nname, whatever its value (`null` too). A `field` that is neither is 400. Templates are\nnever found, and an empty term finds nothing. Oldest first.",
+        "description": "The boards of the workspace the user finds (a member of them, or open where the user\nworks), whose title matches the term: a title matches if every word of the term, as\nspaces divide it, is somewhere in it, whatever the case of the letters (of every\nletter, not only ASCII); `%` and `_` are characters like any other. With\n`field=property_name` those whose own `properties` have a member of exactly that\nname, whatever its value (`null` too). A `field` that is neither is 400. Templates are\nnever found, and an empty term finds nothing. Oldest first.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "searchWorkspaceBoards",
         "parameters": [
           {
@@ -13613,12 +14026,13 @@
         "summary": "Search the boards of a workspace",
         "tags": [
           "boards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open or built-in template everyone who works in\nits workspace.\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
+        "description": "For the board's members, and for an open or built-in template everyone who works in\nits workspace.\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getBlocks",
         "parameters": [
           {
@@ -13704,7 +14118,8 @@
         "summary": "The blocks of a board",
         "tags": [
           "blocks"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "patch": {
         "description": "Applies a patch to each of several blocks of the board, all or none. A body that\nnames no block changes nothing and is answered 204 too. Each block needs what\n`patchBlock` needs: the editor's role, for a comment its author's commenter role or\nfor the comment of somebody else the board's admin role.",
@@ -14123,7 +14538,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/versions": {
       "get": {
-        "description": "The earlier versions of a comment's body: every version but the one it has now, with\nwho wrote it and when. The first one first; it is the text the comment was posted\nwith, by its author. The server keeps the first version and the newest ones, up to\nits setting `max_comment_versions` in all, so the numbers of the versions may leave\ngaps. Empty for a comment whose body was never changed; the comment's `editedAt` says\nwhether it was. For the board's members, also in the trash: the versions go only\nwhen the comment is gone for good. Not for a reader by the board's read token. A\nblock that is no comment is not there (404).",
+        "description": "The earlier versions of a comment's body: every version but the one it has now, with\nwho wrote it and when. The first one first; it is the text the comment was posted\nwith, by its author. The server keeps the first version and the newest ones, up to\nits setting `max_comment_versions` in all, so the numbers of the versions may leave\ngaps. Empty for a comment whose body was never changed; the comment's `editedAt` says\nwhether it was. For the board's members, also in the trash: the versions go only\nwhen the comment is gone for good. Not for a reader by the board's read token. A\nblock that is no comment is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCommentVersions",
         "parameters": [
           {
@@ -14182,12 +14597,13 @@
         "summary": "What a comment said before",
         "tags": [
           "blocks"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards": {
       "get": {
-        "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. With `preview=true` each card has its `preview` (the first image and the beginning of the\ntext of its body), which a list without it leaves out.",
+        "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. With `preview=true` each card has its `preview` (the first image and the beginning of the\ntext of its body), which a list without it leaves out.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCards",
         "parameters": [
           {
@@ -14269,10 +14685,11 @@
         "summary": "The cards of a board",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card), `relation_cycle` (ordering dependencies form\na cycle on the board) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)\nthe values it changes, and does not ask again for a card that a value named before.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card), `relation_cycle` (ordering dependencies form\na cycle on the board) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)\nthe values it changes, and does not ask again for a card that a value named before.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -14338,7 +14755,8 @@
         "summary": "Make a card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/batch-delete": {
@@ -14469,7 +14887,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/by-number/{number}": {
       "get": {
-        "description": "The card of the board that has the number (`Card.number`, as `#12` names the card),\nfor the members of the board, as `getCard` gives it. One answer, 404, says that there\nis no such card, whatever the reason: no card of the board has the number (the card\nis in the trash, is gone for good, or is a template of the board's cards), the\nnumber is none, the board is one the user does not read (a private board they are\nno member of, one they only manage, one they are no guest of), or is no board of\nthis workspace (of another workspace or organization, a wiki, or none at all).",
+        "description": "The card of the board that has the number (`Card.number`, as `#12` names the card),\nfor the members of the board, as `getCard` gives it. One answer, 404, says that there\nis no such card, whatever the reason: no card of the board has the number (the card\nis in the trash, is gone for good, or is a template of the board's cards), the\nnumber is none, the board is one the user does not read (a private board they are\nno member of, one they only manage, one they are no guest of), or is no board of\nthis workspace (of another workspace or organization, a wiki, or none at all).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCardByNumber",
         "parameters": [
           {
@@ -14526,12 +14944,13 @@
         "summary": "A card by its number",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/attachments": {
       "post": {
-        "description": "Verifies under the board lock that `fileId` belongs to `boardId`, sets the attachment\nblock's trusted filename and size from `files`, and stores the attachment block.",
+        "description": "Verifies under the board lock that `fileId` belongs to `boardId`, sets the attachment\nblock's trusted filename and size from `files`, and stores the attachment block.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createCardAttachment",
         "parameters": [
           {
@@ -14606,12 +15025,13 @@
         "summary": "Attach an uploaded file to a card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments": {
       "get": {
-        "description": "Every comment on the card, oldest first, as blocks of the `type` `comment` whose\nparent is the card. For who reads the board: its members, and of an open board\nwhoever works in the workspace. A card in the trash is not there (404).",
+        "description": "Every comment on the card, oldest first, as blocks of the `type` `comment` whose\nparent is the card. For who reads the board: its members, and of an open board\nwhoever works in the workspace. A card in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCardComments",
         "parameters": [
           {
@@ -14670,10 +15090,11 @@
         "summary": "The comments on a card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "For the board's members from the commenter's role up (whoever reads an open board\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the board (400\notherwise), and the text has no file block (400).",
+        "description": "For the board's members from the commenter's role up (whoever reads an open board\nwithout joining it is refused with 403). The server chooses the identifier, the\nauthor and the times. Every image of the text shows a file of the board (400\notherwise), and the text has no file block (400).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createCardComment",
         "parameters": [
           {
@@ -14748,12 +15169,13 @@
         "summary": "Write a comment on a card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}": {
       "delete": {
-        "description": "Moves the comment to the trash: by its author from the commenter's role up, and the\ncomment of somebody else by the board's admins only (403).",
+        "description": "Moves the comment to the trash: by its author from the commenter's role up, and the\ncomment of somebody else by the board's admins only (403).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "deleteCardComment",
         "parameters": [
           {
@@ -14820,10 +15242,11 @@
         "summary": "Delete a comment on a card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       },
       "patch": {
-        "description": "Writes a new text over the comment: by its author from the commenter's role up, and\nthe comment of somebody else by the board's admins only (403).",
+        "description": "Writes a new text over the comment: by its author from the commenter's role up, and\nthe comment of somebody else by the board's admins only (403).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "patchCardComment",
         "parameters": [
           {
@@ -14907,7 +15330,8 @@
         "summary": "Change a comment on a card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}/restore": {
@@ -14982,7 +15406,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments/{commentId}/versions": {
       "get": {
-        "description": "Returns every prior version of the comment's body (excluding its current text), the\nfirst version first, for who reads the board.",
+        "description": "Returns every prior version of the comment's body (excluding its current text), the\nfirst version first, for who reads the board.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCardCommentVersions",
         "parameters": [
           {
@@ -15050,7 +15474,8 @@
         "summary": "Earlier versions of a comment on a card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/duplicate": {
@@ -15564,7 +15989,7 @@
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}": {
       "get": {
-        "description": "For the members of the card's board. To a user who is no member of it there is no\nsuch card.",
+        "description": "For the members of the card's board. To a user who is no member of it there is no\nsuch card.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCard",
         "parameters": [
           {
@@ -15611,10 +16036,11 @@
         "summary": "A card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "patch": {
-        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.\n`parentId` reparents the card within the same board (empty or `null` moves it to the\ntop level; left out keeps its current parent), checked for cycles and maximum depth 3\nincluding any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).",
+        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.\n`parentId` reparents the card within the same board (empty or `null` moves it to the\ntop level; left out keeps its current parent), checked for cycles and maximum depth 3\nincluding any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "patchCard",
         "parameters": [
           {
@@ -15680,12 +16106,13 @@
         "summary": "Change a card",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions": {
       "get": {
-        "description": "The server keeps the body of a card as a version each time it changed: when the\nlast of those who wrote it since the newest version leaves it, at an interval\nwhile it is edited on (its setting `collab_version_minutes`, ten minutes unless\nset otherwise), and before and after a write of the whole body (`patchCard` and the\nblock routes). The newest first, each with when it was kept and who wrote the body\nup to it, without the bodies (`getCardBodyVersion`). The server keeps the newest\nof them (its setting `collab_body_versions`, fifty unless set otherwise), so the\nnumbers may leave the lowest out. Empty for a card whose body never changed since\nversions were kept. For the members of the card's board, whatever\ntheir role; to a user who is no member of it there is no such card, and a reader by\nthe board's read token has no session to ask with. A card in the trash is not\nthere (404); its versions come back with it, and go when it is gone for good.",
+        "description": "The server keeps the body of a card as a version each time it changed: when the\nlast of those who wrote it since the newest version leaves it, at an interval\nwhile it is edited on (its setting `collab_version_minutes`, ten minutes unless\nset otherwise), and before and after a write of the whole body (`patchCard` and the\nblock routes). The newest first, each with when it was kept and who wrote the body\nup to it, without the bodies (`getCardBodyVersion`). The server keeps the newest\nof them (its setting `collab_body_versions`, fifty unless set otherwise), so the\nnumbers may leave the lowest out. Empty for a card whose body never changed since\nversions were kept. For the members of the card's board, whatever\ntheir role; to a user who is no member of it there is no such card, and a reader by\nthe board's read token has no session to ask with. A card in the trash is not\nthere (404); its versions come back with it, and go when it is gone for good.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCardBodyVersions",
         "parameters": [
           {
@@ -15735,7 +16162,8 @@
         "summary": "The versions kept of a card's body",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "Keeps the body the card has as a version, by hand (`cause` `manual`), as an editor\nasks for one: what those who edit the card together typed is written to it first, so\nthat the version is their body of that moment, and what they see and type goes on as\nit was. The version names who wrote the body since the one before, as every version\ndoes, and is as of now; the caller is not named for asking. It counts with the\nothers against the versions kept, the oldest going. After it, the next version the\nserver keeps on its own is of what is typed after it.\n\nNothing is kept (`outcome` `unchanged`, `version` the newest) of a body that is the\ncard's newest version already, nor (`outcome` `recent`, `version` that one) within\na minute of a version kept by hand, the server then keeping what was typed since on\nits own. For editors of the card's board, as `restoreCardBodyVersion` is (403 for\nits other members); to a user who is no member of it there is no such card, and a\ncard in the trash is not there (404). 503 (`document_unavailable`) if what was typed\ncannot be written to the card now.",
@@ -15790,7 +16218,7 @@
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}": {
       "get": {
-        "description": "The version with its body, as `getCard` gives a body. For whom\n`getCardBodyVersions` is for. A number the card has no version of, or has none of\nany more, is 404.",
+        "description": "The version with its body, as `getCard` gives a body. For whom\n`getCardBodyVersions` is for. A number the card has no version of, or has none of\nany more, is 404.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCardBodyVersion",
         "parameters": [
           {
@@ -15847,7 +16275,8 @@
         "summary": "A version kept of a card's body",
         "tags": [
           "cards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore": {
@@ -16718,7 +17147,7 @@
         ]
       },
       "get": {
-        "description": "For a user who may see the board: a member of it, or for an open board anyone in\nits workspace.",
+        "description": "For a user who may see the board: a member of it, or for an open board anyone in\nits workspace.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getContainer",
         "parameters": [
           {
@@ -16765,7 +17194,8 @@
         "summary": "A board",
         "tags": [
           "boards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "patch": {
         "description": "For who may manage the board's properties. Changing `visibility` or `minimumRole` is\nfor the board's admins. A wiki is changed here too, by its identifier; it takes no\ncard properties (400 at `/updatedCardProperties`), and nothing changes the `kind` of a\nboard: a patch with a `kind`, even the board's own, is 400 at `/kind`. Other members\nit does not know are left out.",
@@ -17050,7 +17480,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files": {
       "post": {
-        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name of at most 255 characters, without\nU+0000, of which what follows its last `/` is kept. A name whose last segment,\nparted by `/` or `\\`, is blank (`dir/`), `.` or `..` is 400, as is one too long or\nwith U+0000. The file is limited to one part of an\nupload in parts (8 MiB unless the server is configured otherwise), and to the\n`maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where\nthe limit is the part, the refusal has the reason `upload_in_parts`: a file within\n`maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the\nreason is `file_too_large`; where storing the file would exceed the organization's\nstorage limit, the refusal is 413 with the reason `storage_full`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower\ncase, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with\nanything but letters and digits in it, is left off. For editors.",
+        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name of at most 255 characters, without\nU+0000, of which what follows its last `/` is kept. A name whose last segment,\nparted by `/` or `\\`, is blank (`dir/`), `.` or `..` is 400, as is one too long or\nwith U+0000. The file is limited to one part of an\nupload in parts (8 MiB unless the server is configured otherwise), and to the\n`maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where\nthe limit is the part, the refusal has the reason `upload_in_parts`: a file within\n`maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the\nreason is `file_too_large`; where storing the file would exceed the organization's\nstorage limit, the refusal is 413 with the reason `storage_full`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower\ncase, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with\nanything but letters and digits in it, is left off. For editors.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "uploadFile",
         "parameters": [
           {
@@ -17107,12 +17537,13 @@
         "summary": "Upload a file",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}": {
       "get": {
-        "description": "The content of a file of the board, for the board's members. A file is asked for\nthrough its own board only: through another board it is not there.\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under the name it was uploaded with, which\n`getFileRecord` has: `filename*` carries that name, and `filename` the `fileId` for a\nreader that knows no `filename*`. A file whose record has no name, or one of more\nthan 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.",
+        "description": "The content of a file of the board, for the board's members. A file is asked for\nthrough its own board only: through another board it is not there.\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under the name it was uploaded with, which\n`getFileRecord` has: `filename*` carries that name, and `filename` the `fileId` for a\nreader that knows no `filename*`. A file whose record has no name, or one of more\nthan 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getFile",
         "parameters": [
           {
@@ -17205,12 +17636,13 @@
         "summary": "A file",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/info": {
       "get": {
-        "description": "The name a file was uploaded under, its size and when it was uploaded. For the\nboard's members.",
+        "description": "The name a file was uploaded under, its size and when it was uploaded. For the\nboard's members.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getFileRecord",
         "parameters": [
           {
@@ -17266,7 +17698,8 @@
         "summary": "What is known about a file",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease": {
@@ -17474,7 +17907,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions": {
       "get": {
-        "description": "The newest first, each with when it was written, by whom and its size, without the\nbytes (`getFileVersion`). A file that was never written anew has one version, the\nupload. The server keeps the newest versions of a file (its setting\n`max_file_versions`, fifty unless set otherwise), so the numbers may begin above 1.\nFor who reads the board or the wiki; a file of another is 404.",
+        "description": "The newest first, each with when it was written, by whom and its size, without the\nbytes (`getFileVersion`). A file that was never written anew has one version, the\nupload. The server keeps the newest versions of a file (its setting\n`max_file_versions`, fifty unless set otherwise), so the numbers may begin above 1.\nFor who reads the board or the wiki; a file of another is 404.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getFileVersions",
         "parameters": [
           {
@@ -17533,7 +17966,8 @@
         "summary": "The versions kept of a file",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "Makes a file that was uploaded to the same board or wiki (`uploadFile`,\n`completeUpload`) the new version of the file of the path: its bytes are what\n`getFile` gives from now on, wherever the file is shown, and the version before\nstays to be read (`getFileVersion`) and gone back to (`restoreFileVersion`). The\nuploaded file is no file of its own after: its `fileId` names nothing. The file of\nthe path keeps its `fileId` and the name it was uploaded with. Versions past those\nthe server keeps go, the oldest first.\n\n`baseVersion` is the version the new one was made from. If the file has a newer\none by now, nothing changes: 409 with the reason `file_version_stale`, and the\nuploaded file is still a file of the board, to be attached on its own.\n\nThe uploaded file is one that no block shows and that has no versions of its own,\nand its `fileId` ends in the same extension as the file's; any other, and one the\nboard does not have, is 400 at `/fileId`. For editors.",
@@ -17617,7 +18051,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions/{version}": {
       "get": {
-        "description": "As `getFile` gives the newest version: sent as `application/octet-stream`, offered\nas a download under the name the file was uploaded with, with one range honoured. For whom\n`getFileVersions` is for. A number the file has no version of, or has none of any\nmore, is 404.",
+        "description": "As `getFile` gives the newest version: sent as `application/octet-stream`, offered\nas a download under the name the file was uploaded with, with one range honoured. For whom\n`getFileVersions` is for. A number the file has no version of, or has none of any\nmore, is 404.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getFileVersion",
         "parameters": [
           {
@@ -17720,7 +18154,8 @@
         "summary": "The bytes of a version of a file",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions/{version}/restore": {
@@ -18151,7 +18586,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/my-permissions": {
       "get": {
-        "description": "Returns the caller-scoped `ContainerPermissions` on `containerId` without embedding\ncaller permissions inside `Container` or WebSocket broadcasts.",
+        "description": "Returns the caller-scoped `ContainerPermissions` on `containerId` without embedding\ncaller permissions inside `Container` or WebSocket broadcasts.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getMyContainerPermissions",
         "parameters": [
           {
@@ -18198,7 +18633,8 @@
         "summary": "Caller's effective permissions on a container",
         "tags": [
           "boards"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/public-link": {
@@ -18538,7 +18974,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/uploads": {
       "post": {
-        "description": "Opens an upload of a file to the board in parts. The answer says how large the\nparts are and how many; send each with `putUploadPart`, in any order and again\nafter a failure, then `completeUpload`. A file larger than `maxFileBytes` of\n`getClientConfig` is 413 with the reason `file_too_large`, and one that would exceed\nthe organization's storage limit is 413 with the reason `storage_full`. A user has at most 8\nuploads open, holding back at most twice `maxFileBytes` together, and the server's\nopen uploads hold back at most what it is configured for: an upload over one of\nthese is 429, with the reason `too_many_uploads`, `uploads_pending` or\n`server_uploads_pending`. An upload is open until it is completed, abandoned or\nends; one that ends is thrown away with its parts within the hour. For editors, as\n`uploadFile`.",
+        "description": "Opens an upload of a file to the board in parts. The answer says how large the\nparts are and how many; send each with `putUploadPart`, in any order and again\nafter a failure, then `completeUpload`. A file larger than `maxFileBytes` of\n`getClientConfig` is 413 with the reason `file_too_large`, and one that would exceed\nthe organization's storage limit is 413 with the reason `storage_full`. A user has at most 8\nuploads open, holding back at most twice `maxFileBytes` together, and the server's\nopen uploads hold back at most what it is configured for: an upload over one of\nthese is 429, with the reason `too_many_uploads`, `uploads_pending` or\n`server_uploads_pending`. An upload is open until it is completed, abandoned or\nends; one that ends is thrown away with its parts within the hour. For editors, as\n`uploadFile`.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createUpload",
         "parameters": [
           {
@@ -18595,12 +19031,13 @@
         "summary": "Open an upload",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/courses": {
       "get": {
-        "description": "The courses of the workspace that the user is a member of, and the workspace's open\ncourses; a guest of the workspace gets only the former, an administrator every course\nof the workspace (the units of a private course they are no member of stay 404 to\nthem). Each is a container of the `kind` `course`. Oldest first. 404 unless the user\nis a member of the workspace.",
+        "description": "The courses of the workspace that the user is a member of, and the workspace's open\ncourses; a guest of the workspace gets only the former, an administrator every course\nof the workspace (the units of a private course they are no member of stay 404 to\nthem). Each is a container of the `kind` `course`. Oldest first. 404 unless the user\nis a member of the workspace.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCourses",
         "parameters": [
           {
@@ -18641,7 +19078,8 @@
         "summary": "The courses of a workspace",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "The user becomes the course's admin, and the course is filed under the user's default\ncategory, as a board is. Whoever works in the workspace makes courses in it; a guest\nis refused (403). A member the request does not know is 400.",
@@ -18697,7 +19135,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/exams": {
       "get": {
-        "description": "Returns every exam of the course ordered by `examDate` ascending (exams without a date\nlast), then by `createdAt` and `id`. Enrolled course managers (`ManageRoles`) receive\nthe exact `scoreCount` across active enrolled course members; other enrolled members\nreceive `scoreCount` rounded down to a multiple of `5` so single-student score\nsubmissions are not exposed. Every enrolled member receives `myScore` containing only\ntheir own score and — once a course manager publishes a result snapshot\n(`publishCourseExamResults`) — the frozen coarse snapshot (`averageScore` rounded to\none decimal place, `resultsPublishedAt`, and `publishedScoreBucket` rounded down to a\nmultiple of `5`). Before publication, `averageScore` is `null` for every role\n(including admins). Unjoined readers receive `myScore: null`, `averageScore: null`,\nand `scoreCount: 0`. Another member's individual score or note is never returned under\nany role.",
+        "description": "Returns every exam of the course ordered by `examDate` ascending (exams without a date\nlast), then by `createdAt` and `id`. Enrolled course managers (`ManageRoles`) receive\nthe exact `scoreCount` across active enrolled course members; other enrolled members\nreceive `scoreCount` rounded down to a multiple of `5` so single-student score\nsubmissions are not exposed. Every enrolled member receives `myScore` containing only\ntheir own score and — once a course manager publishes a result snapshot\n(`publishCourseExamResults`) — the frozen coarse snapshot (`averageScore` rounded to\none decimal place, `resultsPublishedAt`, and `publishedScoreBucket` rounded down to a\nmultiple of `5`). Before publication, `averageScore` is `null` for every role\n(including admins). Unjoined readers receive `myScore: null`, `averageScore: null`,\nand `scoreCount: 0`. Another member's individual score or note is never returned under\nany role.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "listCourseExams",
         "parameters": [
           {
@@ -18747,7 +19185,8 @@
         "summary": "Exams of a course",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "Creates an exam definition on the course. Requires editor permission or above on the\ncourse (or ownership of a personal-space course).",
@@ -19178,7 +19617,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/meetings": {
       "get": {
-        "description": "Returns every study meeting of the course ordered by `startsAt` ascending, then by `id`.\nEnrolled course members and course role managers (`ManageRoles`) receive per-member\n`attendance` records (ordered by `userId`), with `updatedAt` populated only for\n`ManageRoles` managers (`0` for non-manager members); unjoined open-course readers and\nnon-enrolled guests receive `attendance: []`. Non-course containers and\nunreadable private courses answer 404.",
+        "description": "Returns every study meeting of the course ordered by `startsAt` ascending, then by `id`.\nEnrolled course members and course role managers (`ManageRoles`) receive per-member\n`attendance` records (ordered by `userId`), with `updatedAt` populated only for\n`ManageRoles` managers (`0` for non-manager members); unjoined open-course readers and\nnon-enrolled guests receive `attendance: []`. Non-course containers and\nunreadable private courses answer 404.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "listCourseMeetings",
         "parameters": [
           {
@@ -19228,7 +19667,8 @@
         "summary": "Study meetings of a course",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "Creates a study meeting on the course. Requires editor permission or above on the\ncourse (or ownership of a personal-space course); viewers, commenters, and unjoined\nopen-course readers are refused with 403. Non-course containers, unreadable private\ncourses, and `presenterId`/`hostId` values that are not active enrolled course members\nanswer 404.",
@@ -19681,7 +20121,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/progress": {
       "get": {
-        "description": "Returns the caller's own personal progress rows for every live unit in the course,\nordered by `unitId`. Enrolled course members (including viewers and invited guests)\nand personal-space owners receive their own rows; an unjoined reader of an open course\nreceives an empty array `[]`. Other users' personal rows are never returned. Non-course\ncontainers and unreadable private courses answer 404.",
+        "description": "Returns the caller's own personal progress rows for every live unit in the course,\nordered by `unitId`. Enrolled course members (including viewers and invited guests)\nand personal-space owners receive their own rows; an unjoined reader of an open course\nreceives an empty array `[]`. Other users' personal rows are never returned. Non-course\ncontainers and unreadable private courses answer 404.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getMyCourseProgress",
         "parameters": [
           {
@@ -19731,7 +20171,8 @@
         "summary": "My progress in a course",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/progress/summary": {
@@ -20029,7 +20470,7 @@
         ]
       },
       "get": {
-        "description": "Returns the course's shared schedule settings (`schedule`, or `null` if unset),\ntoday's calendar date (`today`) computed in the caller's configured `timeZone` (UTC\nwhen set to `auto`), `todayCount`, `overdueCount`, and every live unit in outline\ntree order (chapters and trashed units excluded). For enrolled members and\npersonal-space owners, each unit includes the caller's own `myPlannedDate`,\n`effectiveDate` (`myPlannedDate ?? scheduledDate`), `completed`, and `overdue`\n(`!completed && effectiveDate < today`). Unjoined readers of an open course receive\n`myPlannedDate: null` and `completed: false`. Other users' personal planned dates are\nnever disclosed. Overdue units never auto-shift when read.",
+        "description": "Returns the course's shared schedule settings (`schedule`, or `null` if unset),\ntoday's calendar date (`today`) computed in the caller's configured `timeZone` (UTC\nwhen set to `auto`), `todayCount`, `overdueCount`, and every live unit in outline\ntree order (chapters and trashed units excluded). For enrolled members and\npersonal-space owners, each unit includes the caller's own `myPlannedDate`,\n`effectiveDate` (`myPlannedDate ?? scheduledDate`), `completed`, and `overdue`\n(`!completed && effectiveDate < today`). Unjoined readers of an open course receive\n`myPlannedDate: null` and `completed: false`. Other users' personal planned dates are\nnever disclosed. Overdue units never auto-shift when read.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCourseSchedule",
         "parameters": [
           {
@@ -20076,7 +20517,8 @@
         "summary": "Schedule of a course",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "put": {
         "description": "Creates or updates the course's shared study period (`startDate`..=`targetDate`) and\nweekday bitmask (`studyDays`, 1..=127 where bit 0 is Monday and bit 6 is Sunday). For\neditors and admins of the course (and personal-space owners); viewers and unjoined\nreaders are refused with 403. When `autoAssign` is `true`, proportionally assigns\nshared `scheduledDate` values across all live units in outline tree order by study\namount (default weight 1) and announces modified blocks to websocket listeners and\nwebhooks in the background.",
@@ -20281,7 +20723,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units": {
       "get": {
-        "description": "Every chapter and unit of the course without its body, for whoever reads the course:\neach names the chapter it is below (`parentId`, empty for a chapter or a top-level\nunit) and its `kind` (`unit` or `chapter`). By `order` as strings compare by code\nunit, then by `id`: the siblings of one parent are in their order when taken out of\nthe list as it is.",
+        "description": "Every chapter and unit of the course without its body, for whoever reads the course:\neach names the chapter it is below (`parentId`, empty for a chapter or a top-level\nunit) and its `kind` (`unit` or `chapter`). By `order` as strings compare by code\nunit, then by `id`: the siblings of one parent are in their order when taken out of\nthe list as it is.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnitTree",
         "parameters": [
           {
@@ -20331,10 +20773,11 @@
         "summary": "The outline of a course",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the course. With `kind` `unit` (also when left out), the unit goes below\n`parentId`, a chapter of the same course (400 at `/parentId` otherwise), or at the\ntop of the course. With `kind` `chapter`, the chapter is a title-only heading at the\ntop of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no\nbody and no room. Among the siblings of that parent it goes right after `after` (400\nat `/after` if that is no sibling of the same parent), first if `after` is empty, and\nlast if it is left out. A unit may also carry optional study-schedule fields\n(`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;\nforbidden on chapters with 400). A unit's body is written by `patchUnit`, or together\nin its room (`joinDoc`).\n\nA course holds at most 2,000 units and 200 chapters, those in the trash not counted\n(chapters do not count toward the 2,000-unit limit): one more unit is 400 with the\nreason `too_many_units` and the `limit`, and one more chapter is 400 with the reason\n`too_many_chapters` and the `limit`.\n\nThe course's listeners are told with `blockChanged`, whose block of the `type` `unit`\nor `chapter` carries its `order` among its `fields`. Any sibling numbered anew to\nleave room is told of too.",
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the course. With `kind` `unit` (also when left out), the unit goes below\n`parentId`, a chapter of the same course (400 at `/parentId` otherwise), or at the\ntop of the course. With `kind` `chapter`, the chapter is a title-only heading at the\ntop of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no\nbody and no room. Among the siblings of that parent it goes right after `after` (400\nat `/after` if that is no sibling of the same parent), first if `after` is empty, and\nlast if it is left out. A unit may also carry optional study-schedule fields\n(`amount` `1..=100_000`, `amountUnit`, and shared `scheduledDate` `YYYY-MM-DD`;\nforbidden on chapters with 400). A unit's body is written by `patchUnit`, or together\nin its room (`joinDoc`).\n\nA course holds at most 2,000 units and 200 chapters, those in the trash not counted\n(chapters do not count toward the 2,000-unit limit): one more unit is 400 with the\nreason `too_many_units` and the `limit`, and one more chapter is 400 with the reason\n`too_many_chapters` and the `limit`.\n\nThe course's listeners are told with `blockChanged`, whose block of the `type` `unit`\nor `chapter` carries its `order` among its `fields`. Any sibling numbered anew to\nleave room is told of too.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createUnit",
         "parameters": [
           {
@@ -20391,7 +20834,8 @@
         "summary": "Make a unit or chapter",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}": {
@@ -20448,7 +20892,7 @@
         ]
       },
       "get": {
-        "description": "The unit with its body, or the chapter (`body` is `null`), for whoever reads its\ncourse.",
+        "description": "The unit with its body, or the chapter (`body` is `null`), for whoever reads its\ncourse.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnit",
         "parameters": [
           {
@@ -20504,10 +20948,11 @@
         "summary": "A unit or chapter",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "patch": {
-        "description": "Its title, or (for a unit) its whole body and optional study-schedule fields (`amount`,\n`amountUnit`, `scheduledDate`, each clearable with `null`), for editors of the course.\nA chapter has no body or schedule fields: sending `body`, `amount`, `amountUnit`, or\n`scheduledDate` on a chapter is 400. A new body is sent with\n`readAt`, the `updatedAt` of the unit as it was read: 409 if the unit has changed\nsince, and nothing is changed. Where the body is being edited together, what the\neditors typed is written to the unit first, so a writer who read it before is refused\nand reads it again. Where the node stands in the course does not change here.",
+        "description": "Its title, or (for a unit) its whole body and optional study-schedule fields (`amount`,\n`amountUnit`, `scheduledDate`, each clearable with `null`), for editors of the course.\nA chapter has no body or schedule fields: sending `body`, `amount`, `amountUnit`, or\n`scheduledDate` on a chapter is 400. A new body is sent with\n`readAt`, the `updatedAt` of the unit as it was read: 409 if the unit has changed\nsince, and nothing is changed. Where the body is being edited together, what the\neditors typed is written to the unit first, so a writer who read it before is refused\nand reads it again. Where the node stands in the course does not change here.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "patchUnit",
         "parameters": [
           {
@@ -20573,12 +21018,13 @@
         "summary": "Change a unit or chapter",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions": {
       "get": {
-        "description": "As `getPageBodyVersions` gives a page's: the newest first, each with when it was kept\nand who wrote the body up to it, without the bodies (`getUnitBodyVersion`). For who\nreads the course, whatever their role: its members, and of an open course whoever\nworks in the workspace. A chapter or a unit in the trash is not there (404); a unit's\nversions are kept while it is in the trash, and go when it is gone for good.",
+        "description": "As `getPageBodyVersions` gives a page's: the newest first, each with when it was kept\nand who wrote the body up to it, without the bodies (`getUnitBodyVersion`). For who\nreads the course, whatever their role: its members, and of an open course whoever\nworks in the workspace. A chapter or a unit in the trash is not there (404); a unit's\nversions are kept while it is in the trash, and go when it is gone for good.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnitBodyVersions",
         "parameters": [
           {
@@ -20637,7 +21083,8 @@
         "summary": "The versions kept of a unit's body",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "As `keepPageBodyVersion` keeps a page's: the body the unit has, with what those who\nedit it together typed, by hand; nothing of a body that is its newest version already\n(`unchanged`), nor within a minute of a version kept by hand (`recent`). For editors\nof the course (403 for its other members and for who reads an open course unjoined).\nA chapter or a unit in the trash is not there (404).",
@@ -20701,7 +21148,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions/{version}": {
       "get": {
-        "description": "The version with its body, as `getUnit` gives a body. For whom `getUnitBodyVersions`\nis for. A chapter, or a number the unit has no version of (or has none of any more),\nis 404.",
+        "description": "The version with its body, as `getUnit` gives a body. For whom `getUnitBodyVersions`\nis for. A chapter, or a number the unit has no version of (or has none of any more),\nis 404.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnitBodyVersion",
         "parameters": [
           {
@@ -20767,7 +21214,8 @@
         "summary": "A version kept of a unit's body",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/body-versions/{version}/restore": {
@@ -20843,7 +21291,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments": {
       "get": {
-        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit. For who reads the course: its members, and of an open course\nwhoever works in the workspace. A chapter or a unit in the trash is not there (404).",
+        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit. For who reads the course: its members, and of an open course\nwhoever works in the workspace. A chapter or a unit in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnitComments",
         "parameters": [
           {
@@ -20902,10 +21350,11 @@
         "summary": "The comments on a unit",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "For the course's members from the commenter's role up (whoever reads an open course\nwithout joining it is refused with 403).",
+        "description": "For the course's members from the commenter's role up (whoever reads an open course\nwithout joining it is refused with 403).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createUnitComment",
         "parameters": [
           {
@@ -20971,12 +21420,13 @@
         "summary": "Write a comment on a unit",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}": {
       "delete": {
-        "description": "The comment goes to the trash: by its author from the commenter's role up, and the\ncomment of somebody else by the course's admins only (403).",
+        "description": "The comment goes to the trash: by its author from the commenter's role up, and the\ncomment of somebody else by the course's admins only (403).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "deleteUnitComment",
         "parameters": [
           {
@@ -21034,10 +21484,11 @@
         "summary": "Delete a comment on a unit",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       },
       "patch": {
-        "description": "Writes a new text over the comment: by its author from the commenter's role up, and\nthe comment of somebody else by the course's admins only (403).",
+        "description": "Writes a new text over the comment: by its author from the commenter's role up, and\nthe comment of somebody else by the course's admins only (403).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "patchUnitComment",
         "parameters": [
           {
@@ -21112,7 +21563,8 @@
         "summary": "Change a comment on a unit",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/restore": {
@@ -21187,7 +21639,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments/{commentId}/versions": {
       "get": {
-        "description": "The earlier texts of the comment: every version but the one it has now, the first\none first, with who wrote it and when.",
+        "description": "The earlier texts of the comment: every version but the one it has now, the first\none first, with who wrote it and when.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnitCommentVersions",
         "parameters": [
           {
@@ -21255,7 +21707,8 @@
         "summary": "What a comment on a unit said before",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/move": {
@@ -21473,7 +21926,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/progress": {
       "put": {
-        "description": "Creates or updates the caller's own progress row on a live unit of the course.\nEnrolled members of any role (viewer, commenter, editor, admin, including invited\nguests) and personal-space owners may record their own progress; an unjoined reader\nof an open course is refused with 403 until they join the course.\n\nSetting `completed: true` is idempotent and preserves an existing `completedAt`\ntimestamp. Setting `completed: false` clears `completedAt` to `null`. Omitting\n`completed` or `lastPosition` preserves the existing value; sending `lastPosition:\nnull` clears it. Personal progress writes never broadcast over websockets, never\nenter search indexes or archives, and emit no webhooks or audit logs. Chapters,\ntrashed units, units of another course, and non-course containers answer 404.",
+        "description": "Creates or updates the caller's own progress row on a live unit of the course.\nEnrolled members of any role (viewer, commenter, editor, admin, including invited\nguests) and personal-space owners may record their own progress; an unjoined reader\nof an open course is refused with 403 until they join the course.\n\nSetting `completed: true` is idempotent and preserves an existing `completedAt`\ntimestamp. Setting `completed: false` clears `completedAt` to `null`. Omitting\n`completed` or `lastPosition` preserves the existing value; sending `lastPosition:\nnull` clears it. Personal progress writes never broadcast over websockets, never\nenter search indexes or archives, and emit no webhooks or audit logs. Chapters,\ntrashed units, units of another course, and non-course containers answer 404.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "putUnitProgress",
         "parameters": [
           {
@@ -21539,7 +21992,8 @@
         "summary": "Record my progress on a unit",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/restore": {
@@ -22991,7 +23445,7 @@
     },
     "/api/v1/w/{workspaceId}/learning/today": {
       "get": {
-        "description": "Returns the caller's incomplete units due today (`effectiveDate == today`) and\noverdue (`effectiveDate < today`) across all live courses in this workspace that the\ncaller is enrolled in (direct membership or inherited group role), evaluated in the\ncaller's configured `timeZone` (UTC when set to `auto`). `todayUnits` are ordered by\ncourse creation order (`createdAt`, `courseId`) and then outline order within each\ncourse; `overdueUnits` are ordered by `effectiveDate` ascending (oldest first), then\ncourse creation order, then outline order. Never includes private courses the caller\nis not enrolled in (even for workspace or organization admins) and never reads\nanother user's personal `plannedDate` or completion status.",
+        "description": "Returns the caller's incomplete units due today (`effectiveDate == today`) and\noverdue (`effectiveDate < today`) across all live courses in this workspace that the\ncaller is enrolled in (direct membership or inherited group role), evaluated in the\ncaller's configured `timeZone` (UTC when set to `auto`). `todayUnits` are ordered by\ncourse creation order (`createdAt`, `courseId`) and then outline order within each\ncourse; `overdueUnits` are ordered by `effectiveDate` ascending (oldest first), then\ncourse creation order, then outline order. Never includes private courses the caller\nis not enrolled in (even for workspace or organization admins) and never reads\nanother user's personal `plannedDate` or completion status.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getWorkspaceLearningToday",
         "parameters": [
           {
@@ -23029,7 +23483,8 @@
         "summary": "Today's and overdue learning units in a workspace",
         "tags": [
           "courses"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/members": {
@@ -23237,7 +23692,7 @@
     },
     "/api/v1/w/{workspaceId}/references/resolve": {
       "post": {
-        "description": "A body names a card, a page or a unit by its identifier alone (the node `reference`),\nand no body, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards, pages and units\nof this workspace on a board, a wiki or a course the user reads (as `getCard`,\n`getPage` and `getUnit` ask), each once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card, a page or a unit the user does not read, or a block that is none\nof those (such as a chapter of a course).\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.",
+        "description": "A body names a card, a page or a unit by its identifier alone (the node `reference`),\nand no body, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards, pages and units\nof this workspace on a board, a wiki or a course the user reads (as `getCard`,\n`getPage` and `getUnit` ask), each once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card, a page or a unit the user does not read, or a block that is none\nof those (such as a chapter of a course).\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "resolveReferences",
         "parameters": [
           {
@@ -23288,12 +23743,13 @@
         "summary": "What references name",
         "tags": [
           "references"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/references/search": {
       "get": {
-        "description": "The cards, pages and units of this workspace, on a board, a wiki or a course the user\nreads, whose title has every word of `q` in it, as spaces divide it and whatever the\ncase of the letters (of every letter, not only ASCII); `%` and `_` are characters like\nany other. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, a chapter of\na course, and a block whose `isTemplate` is `true` (for a card, a template of its\nboard's cards) are never found. A `q` of more than 200 characters is 400.",
+        "description": "The cards, pages and units of this workspace, on a board, a wiki or a course the user\nreads, whose title has every word of `q` in it, as spaces divide it and whatever the\ncase of the letters (of every letter, not only ASCII); `%` and `_` are characters like\nany other. At most 20, the one changed last first; without `q`, the 20 changed last.\nBodies are not looked into. What is in the trash, what is on a template, a chapter of\na course, and a block whose `isTemplate` is `true` (for a card, a template of its\nboard's cards) are never found. A `q` of more than 200 characters is 400.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "searchReferences",
         "parameters": [
           {
@@ -23343,12 +23799,13 @@
         "summary": "Find what a reference may name",
         "tags": [
           "references"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/references/to/{blockId}": {
       "get": {
-        "description": "The cards, pages and units of this workspace whose body names the block of the path\nwith a reference, or which have a comment whose body does, on a board, a wiki or a\ncourse the user reads; the block itself is never among them. Oldest first. What names\nit from where the user does not read is left out and takes no place in a page: the\nanswer does not say how many there are, nor whether there are any.\n\n404 unless the block is a card, a page or a unit the user reads, as\n`resolveReferences` tells of it: for anything else, as for an identifier of nothing.",
+        "description": "The cards, pages and units of this workspace whose body names the block of the path\nwith a reference, or which have a comment whose body does, on a board, a wiki or a\ncourse the user reads; the block itself is never among them. Oldest first. What names\nit from where the user does not read is left out and takes no place in a page: the\nanswer does not say how many there are, nor whether there are any.\n\n404 unless the block is a card, a page or a unit the user reads, as\n`resolveReferences` tells of it: for anything else, as for an identifier of nothing.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getReferencesTo",
         "parameters": [
           {
@@ -23421,12 +23878,13 @@
         "summary": "What names a card, a page or a unit",
         "tags": [
           "references"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/search": {
       "get": {
-        "description": "The cards of the boards, the pages of the wikis and the units of the courses of the\nworkspace that the user has a role on, their own or a team's, the pages of its open\nwikis and the units of its open courses for who works there (an open board they have\nnot joined is not searched), and, in the workspace of the user's own space, the\nentries of its diaries, whose title and body together hold every word of `q`. When\n`q` is `#` followed only by ASCII digits (such as `#12`, or `#00012` normalized to\n`12`) and `kind` is omitted or `card`, it matches non-template cards across every\nreadable board of the workspace whose `number` equals that positive integer; any\nother text (including non-digits mixed in) or other `kind` runs ordinary word search. The\ntitle of an entry is its day (`2026-11-21`). Chapters, comments, property values and\nattached files are not searched, and neither are templates. How words match depends\non the server: with a search server, Korean is matched by its words, whatever\nparticles and endings they carry, and a compound by its parts too (\"환불 규정\" finds\n\"환불규정을\"); without one, each word (what is between white space) is in the title\nor the body as it is written there, ASCII letters in either case (\"환불\" finds\n\"환불규정을\", \"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page,\nthe entry or the unit as it is now: its `kind`, its `title`, the container it is in\n(`containerId`, `containerKind`, and `containerTitle`, by which a client tells their\naddresses and names apart),\nand `snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing to\nshow. The best match first (without a search server: those whose title holds every\nword, then the most recently changed). Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role on\nmore containers than a search names, 1,000 with a search server and 10,000 without:\namong the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
+        "description": "The cards of the boards, the pages of the wikis and the units of the courses of the\nworkspace that the user has a role on, their own or a team's, the pages of its open\nwikis and the units of its open courses for who works there (an open board they have\nnot joined is not searched), and, in the workspace of the user's own space, the\nentries of its diaries, whose title and body together hold every word of `q`. When\n`q` is `#` followed only by ASCII digits (such as `#12`, or `#00012` normalized to\n`12`) and `kind` is omitted or `card`, it matches non-template cards across every\nreadable board of the workspace whose `number` equals that positive integer; any\nother text (including non-digits mixed in) or other `kind` runs ordinary word search. The\ntitle of an entry is its day (`2026-11-21`). Chapters, comments, property values and\nattached files are not searched, and neither are templates. How words match depends\non the server: with a search server, Korean is matched by its words, whatever\nparticles and endings they carry, and a compound by its parts too (\"환불 규정\" finds\n\"환불규정을\"); without one, each word (what is between white space) is in the title\nor the body as it is written there, ASCII letters in either case (\"환불\" finds\n\"환불규정을\", \"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page,\nthe entry or the unit as it is now: its `kind`, its `title`, the container it is in\n(`containerId`, `containerKind`, and `containerTitle`, by which a client tells their\naddresses and names apart),\nand `snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing to\nshow. The best match first (without a search server: those whose title holds every\nword, then the most recently changed). Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role on\nmore containers than a search names, 1,000 with a search server and 10,000 without:\namong the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "searchWorkspaceContent",
         "parameters": [
           {
@@ -23495,7 +23953,8 @@
         "summary": "Search what the cards, pages, entries and units of a workspace say",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/subscriptions": {
@@ -24075,7 +24534,7 @@
     },
     "/api/v1/w/{workspaceId}/today": {
       "get": {
-        "description": "Returns the caller's due/overdue incomplete cards, scheduled course units, due\nreviews, and upcoming study meetings inside `workspaceId`. 404 for guests and\nnon-members.",
+        "description": "Returns the caller's due/overdue incomplete cards, scheduled course units, due\nreviews, and upcoming study meetings inside `workspaceId`. 404 for guests and\nnon-members.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getWorkspaceToday",
         "parameters": [
           {
@@ -24113,7 +24572,8 @@
         "summary": "Today in one workspace",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/trash/containers": {
@@ -24187,7 +24647,7 @@
     },
     "/api/v1/w/{workspaceId}/uploads/{uploadId}": {
       "delete": {
-        "description": "Ends the upload and throws its parts away. An upload that is being completed is\n409.",
+        "description": "Ends the upload and throws its parts away. An upload that is being completed is\n409.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "deleteUpload",
         "parameters": [
           {
@@ -24227,10 +24687,11 @@
         "summary": "Abandon an upload",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       },
       "get": {
-        "description": "The upload and the parts it has received: what a client that lost its place sends\nnext. Another user's upload, and one that has ended, is 404.",
+        "description": "The upload and the parts it has received: what a client that lost its place sends\nnext. Another user's upload, and one that has ended, is 404.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "getUpload",
         "parameters": [
           {
@@ -24277,12 +24738,13 @@
         "summary": "Get an upload",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/uploads/{uploadId}/complete": {
       "post": {
-        "description": "Makes the file of the upload from its parts and ends the upload. Every part must\nhave been received; a part missing is 400, and the upload stays open for it. The\nanswer is the one of `uploadFile`. For editors of the board, at completion as when\nthe upload was opened: a user who may not upload to the board any more is refused,\nand the upload is thrown away. An upload that is being completed is 409; an upload\nof an archive is 400, and is imported with `importArchive`.",
+        "description": "Makes the file of the upload from its parts and ends the upload. Every part must\nhave been received; a part missing is 400, and the upload stays open for it. The\nanswer is the one of `uploadFile`. For editors of the board, at completion as when\nthe upload was opened: a user who may not upload to the board any more is refused,\nand the upload is thrown away. An upload that is being completed is 409; an upload\nof an archive is 400, and is imported with `importArchive`.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "completeUpload",
         "parameters": [
           {
@@ -24329,12 +24791,13 @@
         "summary": "Complete an upload",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/uploads/{uploadId}/parts/{partNumber}": {
       "put": {
-        "description": "Sends part `partNumber` of the upload as the body, `application/octet-stream`.\n`Content-Length` is required and must be the part's size: `partSize`, or the rest\nfor the last part; another length is refused with 400 before the body is looked at.\nWhat is sent of a refused part is read and thrown away, up to 16 MiB and for up to 5\nseconds, so that the client reads the answer; a larger or slower body is cut off.\n(A browser sets `Content-Length` itself.)\n`Content-Digest` carries the part's SHA-256. A part whose length or digest differs\nis 400 and is not kept; a part sent again replaces the one received. An upload that\nis being completed or abandoned is 409.",
+        "description": "Sends part `partNumber` of the upload as the body, `application/octet-stream`.\n`Content-Length` is required and must be the part's size: `partSize`, or the rest\nfor the last part; another length is refused with 400 before the body is looked at.\nWhat is sent of a refused part is read and thrown away, up to 16 MiB and for up to 5\nseconds, so that the client reads the answer; a larger or slower body is cut off.\n(A browser sets `Content-Length` itself.)\n`Content-Digest` carries the part's SHA-256. A part whose length or digest differs\nis 400 and is not kept; a part sent again replaces the one received. An upload that\nis being completed or abandoned is 409.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "putUploadPart",
         "parameters": [
           {
@@ -24405,12 +24868,13 @@
         "summary": "Send a part",
         "tags": [
           "files"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/users": {
       "get": {
-        "description": "Up to ten of the users the user sees in the workspace: whoever works there sees its\nmembers and who is on a board of it with them, a guest only who is on a board of it\nwith them; and the user. With `search` those whose login name, display name or a\npart of whose name (either way round, and the name they wrote) has that text in it,\nwhatever the case of the letters, without it the ten oldest accounts. Oldest account\nfirst.",
+        "description": "Up to ten of the users the user sees in the workspace: whoever works there sees its\nmembers and who is on a board of it with them, a guest only who is on a board of it\nwith them; and the user. With `search` those whose login name, display name or a\npart of whose name (either way round, and the name they wrote) has that text in it,\nwhatever the case of the letters, without it the ten oldest accounts. Oldest account\nfirst.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getWorkspaceUsers",
         "parameters": [
           {
@@ -24460,10 +24924,11 @@
         "summary": "The users of a workspace",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request:\nby `createdAt`, then by identifier.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier, an empty `username`, `email`\nand `displayName`, every part of the name empty, no title nor credentials,\n`nameShown` `name`, `createdAt` and `updatedAt` both zero, and `deletedAt` absent: no\ntime of the account is answered, neither when it went nor when it was asked to (the\nidentifier is kept as it was made). The empty `username` is what tells it, not a\ntime: a page shows a deleted user where it wrote or is mentioned.\n`deletedAt` is present for a writer whose account waits to be deleted, who is\nanswered as they are, with their name.",
+        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request:\nby `createdAt`, then by identifier.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier, an empty `username`, `email`\nand `displayName`, every part of the name empty, no title nor credentials,\n`nameShown` `name`, `createdAt` and `updatedAt` both zero, and `deletedAt` absent: no\ntime of the account is answered, neither when it went nor when it was asked to (the\nidentifier is kept as it was made). The empty `username` is what tells it, not a\ntime: a page shows a deleted user where it wrote or is mentioned.\n`deletedAt` is present for a writer whose account waits to be deleted, who is\nanswered as they are, with their name.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {
@@ -24514,12 +24979,13 @@
         "summary": "Users of a workspace by their identifiers",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/users/{userId}": {
       "get": {
-        "description": "A user the user sees in the workspace, as `getWorkspaceUsersById` finds them; anybody\nelse is 404, as one who does not exist.",
+        "description": "A user the user sees in the workspace, as `getWorkspaceUsersById` finds them; anybody\nelse is 404, as one who does not exist.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getWorkspaceUser",
         "parameters": [
           {
@@ -24566,12 +25032,13 @@
         "summary": "A user of a workspace",
         "tags": [
           "workspaces"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/wikis": {
       "get": {
-        "description": "The wikis of the workspace that the user is a member of, and the workspace's open\nwikis; a guest of the workspace gets only the former, an administrator every wiki\nof the workspace (the pages of a private wiki they are no member of stay 404 to\nthem). Each is a board of the `kind` `wiki`. Oldest first. 404 unless the user is a\nmember of the workspace.",
+        "description": "The wikis of the workspace that the user is a member of, and the workspace's open\nwikis; a guest of the workspace gets only the former, an administrator every wiki\nof the workspace (the pages of a private wiki they are no member of stay 404 to\nthem). Each is a board of the `kind` `wiki`. Oldest first. 404 unless the user is a\nmember of the workspace.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getWikis",
         "parameters": [
           {
@@ -24612,7 +25079,8 @@
         "summary": "The wikis of a workspace",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "The user becomes the wiki's admin, and the wiki is filed under the user's default\ncategory, as a board is. Whoever works in the workspace makes wikis in it; a guest\nis refused (403). A member the request does not know is 400.",
@@ -24668,7 +25136,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages": {
       "get": {
-        "description": "Every page of the wiki without its body, for the wiki's members: each names the page\nit is below (`parentId`, empty at the top of the wiki), which is how they are a\ntree. By `order` as strings compare by code unit, then by `id`: the pages of one\nparent are in their order when they are taken out of the list as it is.",
+        "description": "Every page of the wiki without its body, for the wiki's members: each names the page\nit is below (`parentId`, empty at the top of the wiki), which is how they are a\ntree. By `order` as strings compare by code unit, then by `id`: the pages of one\nparent are in their order when they are taken out of the list as it is.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPageTree",
         "parameters": [
           {
@@ -24718,10 +25186,11 @@
         "summary": "The pages of a wiki",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`joinDoc`).\n\nThe tree is held to the organization's limits: a page deeper than its depth is 400\nat `/parentId` with the reason `page_too_deep`, and one more page than a wiki may\nhave (those in the trash not counted) is 400 with the reason `too_many_pages`, each\nwith the `limit`.\n\nThe wiki's members are told with `blockChanged`, whose block of the `type` `page`\nhas the icon and the order among its `fields`. Where the pages of the parent had no\nroom left between them (two of one order, or orders grown long), they are numbered\nanew, and each that changed is told of too.",
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the wiki. The page goes below `parentId`, a page of the same wiki (400 at\n`/parentId` otherwise), or at the top of the wiki; among the pages of that parent it\ngoes right after the page `after` (400 at `/after` if that is no page of the same\nparent), first if `after` is empty, and last if it is left out. Its body is written\nby `patchPage`, or together in its room (`joinDoc`).\n\nThe tree is held to the organization's limits: a page deeper than its depth is 400\nat `/parentId` with the reason `page_too_deep`, and one more page than a wiki may\nhave (those in the trash not counted) is 400 with the reason `too_many_pages`, each\nwith the `limit`.\n\nThe wiki's members are told with `blockChanged`, whose block of the `type` `page`\nhas the icon and the order among its `fields`. Where the pages of the parent had no\nroom left between them (two of one order, or orders grown long), they are numbered\nanew, and each that changed is told of too.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createPage",
         "parameters": [
           {
@@ -24778,7 +25247,8 @@
         "summary": "Make a page",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}": {
@@ -24835,7 +25305,7 @@
         ]
       },
       "get": {
-        "description": "The page with its body, for the members of its wiki.",
+        "description": "The page with its body, for the members of its wiki.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPage",
         "parameters": [
           {
@@ -24891,10 +25361,11 @@
         "summary": "A page",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "patch": {
-        "description": "Its title, its icon, or its whole body, for editors of the wiki. A new body is sent\nwith `readAt`, the `updatedAt` of the page as it was read: 409 if the page has\nchanged since, and nothing is changed. Where the body is being edited together, what\nthe editors typed is written to the page first, so a writer who read it before is\nrefused and reads it again. Where the page is in the tree does not change here.",
+        "description": "Its title, its icon, or its whole body, for editors of the wiki. A new body is sent\nwith `readAt`, the `updatedAt` of the page as it was read: 409 if the page has\nchanged since, and nothing is changed. Where the body is being edited together, what\nthe editors typed is written to the page first, so a writer who read it before is\nrefused and reads it again. Where the page is in the tree does not change here.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "patchPage",
         "parameters": [
           {
@@ -24960,12 +25431,13 @@
         "summary": "Change a page",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions": {
       "get": {
-        "description": "As `getCardBodyVersions` gives a card's: the newest first, each with when it was\nkept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).\nFor who reads the wiki, whatever their role: its members, and of an open wiki\nwhoever works in the workspace. A page in the trash is not there (404); its versions are kept while it is there, and go when it is gone for good.",
+        "description": "As `getCardBodyVersions` gives a card's: the newest first, each with when it was\nkept and who wrote the body up to it, without the bodies (`getPageBodyVersion`).\nFor who reads the wiki, whatever their role: its members, and of an open wiki\nwhoever works in the workspace. A page in the trash is not there (404); its versions are kept while it is there, and go when it is gone for good.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPageBodyVersions",
         "parameters": [
           {
@@ -25024,7 +25496,8 @@
         "summary": "The versions kept of a page's body",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
         "description": "As `keepCardBodyVersion` keeps a card's: the body the page has, with what those who\nedit it together typed, by hand; nothing of a body that is its newest version\nalready (`unchanged`), nor within a minute of a version kept by hand (`recent`). For\neditors of the wiki (403 for its other members). A page in the trash is not there\n(404).",
@@ -25088,7 +25561,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions/{version}": {
       "get": {
-        "description": "The version with its body, as `getPage` gives a body. For whom\n`getPageBodyVersions` is for. A number the page has no version of, or has none of\nany more, is 404.",
+        "description": "The version with its body, as `getPage` gives a body. For whom\n`getPageBodyVersions` is for. A number the page has no version of, or has none of\nany more, is 404.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPageBodyVersion",
         "parameters": [
           {
@@ -25154,7 +25627,8 @@
         "summary": "A version kept of a page's body",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions/{version}/restore": {
@@ -25230,7 +25704,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments": {
       "get": {
-        "description": "Every comment on the page, oldest first, as blocks of the `type` `comment` whose\nparent is the page; each says who wrote it (`createdBy`), and one whose text was\nchanged when that last happened (`editedAt`). For who reads the wiki: its members,\nand of an open wiki whoever works in the workspace. A page in the trash is not\nthere (404).",
+        "description": "Every comment on the page, oldest first, as blocks of the `type` `comment` whose\nparent is the page; each says who wrote it (`createdBy`), and one whose text was\nchanged when that last happened (`editedAt`). For who reads the wiki: its members,\nand of an open wiki whoever works in the workspace. A page in the trash is not\nthere (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPageComments",
         "parameters": [
           {
@@ -25289,10 +25763,11 @@
         "summary": "The comments on a page",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "For the wiki's members from the commenter's role up. The server chooses the\nidentifier, the author and the times. Every image of the text shows a file of the\nwiki (400 otherwise), and the text has no file block (400). Who reads the wiki is\ntold with `blockChanged`, as of a comment on a card.",
+        "description": "For the wiki's members from the commenter's role up. The server chooses the\nidentifier, the author and the times. Every image of the text shows a file of the\nwiki (400 otherwise), and the text has no file block (400). Who reads the wiki is\ntold with `blockChanged`, as of a comment on a card.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createPageComment",
         "parameters": [
           {
@@ -25358,12 +25833,13 @@
         "summary": "Write a comment on a page",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}": {
       "delete": {
-        "description": "The comment goes to the trash, as a comment on a card does: by its author from the\ncommenter's role up, and the comment of somebody else by the wiki's admins only\n(403, `access denied to delete other users' comments`). Who reads the wiki is told\nwith `blockChanged` with `deletedAt` set.",
+        "description": "The comment goes to the trash, as a comment on a card does: by its author from the\ncommenter's role up, and the comment of somebody else by the wiki's admins only\n(403, `access denied to delete other users' comments`). Who reads the wiki is told\nwith `blockChanged` with `deletedAt` set.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "deletePageComment",
         "parameters": [
           {
@@ -25421,10 +25897,11 @@
         "summary": "Delete a comment on a page",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       },
       "patch": {
-        "description": "Writes a new text over the comment, as the card's comments are changed: by its\nauthor from the commenter's role up, and the comment of somebody else by the wiki's\nadmins only (403, `access denied to change other users' comments`); an editor may\nnot change it. The text it had is kept (`getPageCommentVersions`), and the comment's\n`editedAt` says when it last changed. The text has no file block (400).",
+        "description": "Writes a new text over the comment, as the card's comments are changed: by its\nauthor from the commenter's role up, and the comment of somebody else by the wiki's\nadmins only (403, `access denied to change other users' comments`); an editor may\nnot change it. The text it had is kept (`getPageCommentVersions`), and the comment's\n`editedAt` says when it last changed. The text has no file block (400).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "patchPageComment",
         "parameters": [
           {
@@ -25499,7 +25976,8 @@
         "summary": "Change a comment on a page",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/restore": {
@@ -25574,7 +26052,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions": {
       "get": {
-        "description": "The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:\nevery version but the one it has now, the first one first, with who wrote it and\nwhen.",
+        "description": "The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:\nevery version but the one it has now, the first one first, with who wrote it and\nwhen.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPageCommentVersions",
         "parameters": [
           {
@@ -25642,7 +26120,8 @@
         "summary": "What a comment on a page said before",
         "tags": [
           "wikis"
-        ]
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/duplicate": {
@@ -26021,6 +26500,10 @@
     {
       "description": "What an organization's administrators manage: the organization, its members' roles, its workspaces and their trash, joining a workspace, and the audit logs.",
       "name": "organization"
+    },
+    {
+      "description": "Personal API tokens: what a user gives an agent to read, or read and write, the content of some of their workspaces on their behalf (see \"Personal API tokens\" above).",
+      "name": "api-tokens"
     }
   ]
 }

@@ -89,7 +89,7 @@ pub(crate) struct NewDiary {
 async fn handle_get_diaries(InDiary(ws): InDiary) -> ApiResult {
     let diaries = ws
         .app
-        .workspace_containers(&ws.session.user_id, &ws.workspace_id, ws.role)
+        .workspace_containers(&ws.caller.user_id, &ws.workspace_id, ws.role)
         .await?;
     Ok(json_response(&diaries))
 }
@@ -137,7 +137,7 @@ async fn handle_create_diary(InDiary(ws): InDiary, body: Bytes) -> ApiResult {
     };
     let made = ws
         .app
-        .create_diary(diary, &ws.session.user_id, making)
+        .create_diary(diary, &ws.caller.user_id, making)
         .await?;
     Ok(match made.made {
         Some(_) => created(&made.diary),
@@ -158,8 +158,7 @@ pub(super) async fn entry_with_permission(
     permission: ContainerPermission,
     denial: &str,
 ) -> Result<Block, AppError> {
-    require_container_permission(&ws.app, &ws.session.user_id, diary_id, permission, denial)
-        .await?;
+    require_container_permission(&ws.app, &ws.caller.user_id, diary_id, permission, denial).await?;
     ws.app.diary_entry_of(diary_id, entry_id).await
 }
 
@@ -198,7 +197,7 @@ async fn handle_get_diary_days(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &diary_id,
         ContainerPermission::View,
         "access denied to fetch the days of the diary",
@@ -238,7 +237,7 @@ async fn handle_get_diary_runs(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &diary_id,
         ContainerPermission::View,
         "access denied to fetch the days of the diary",
@@ -268,7 +267,7 @@ async fn handle_get_diary_entries_on(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &diary_id,
         ContainerPermission::View,
         READ_DENIED,
@@ -321,7 +320,7 @@ async fn handle_create_diary_entry(
     Path((_, diary_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -399,7 +398,7 @@ async fn handle_patch_diary_entry(
     Path((_, diary_id, entry_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let entry = entry_with_permission(
         &ws,
         &diary_id,
@@ -453,7 +452,7 @@ async fn handle_delete_diary_entry(
     InDiary(ws): InDiary,
     Path((_, diary_id, entry_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let entry = entry_with_permission(
         &ws,
         &diary_id,
@@ -489,7 +488,7 @@ async fn handle_get_deleted_diary_entries(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &diary_id,
         ContainerPermission::ManageCards,
         "access denied to the trash of the diary",
@@ -520,7 +519,7 @@ async fn handle_restore_diary_entry(
     InDiary(ws): InDiary,
     Path((_, diary_id, entry_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,

@@ -26,6 +26,7 @@ use super::contract::bodies::{Binary, FileForm};
 use super::contract::params::{ContainerId, FileId, MemberWorkspaceId};
 use super::contract::tag;
 use super::workspace::InContainer;
+use super::{Delegated, Read, Write};
 
 use super::{ApiResult, created, json_response, require_container_permission, require_granted};
 use crate::app::App;
@@ -117,11 +118,11 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
     ),
 )]
 async fn handle_serve_file(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     Path((_, container_id, file_id)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> ApiResult {
-    require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
+    require_file_reader(&ws.app, &ws.caller.user_id, &container_id).await?;
     serve_container_file(&ws.app, &container_id, &file_id, &headers).await
 }
 
@@ -220,10 +221,10 @@ impl<'a> DownloadName<'a> {
     responses((status = 200, description = "What is known about the file.", body = FileRecord)),
 )]
 async fn handle_get_file_record(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     Path((_, container_id, file_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
+    require_file_reader(&ws.app, &ws.caller.user_id, &container_id).await?;
     Ok(json_response(
         &container_file_record(&ws.app, &container_id, file_id.as_str()).await?,
     ))
@@ -266,12 +267,12 @@ pub(super) async fn container_file_record(
     responses((status = 201, description = "The file is stored.", body = UploadedFile)),
 )]
 async fn handle_upload_file(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Write, InContainer>,
     Path((_, container_id)): Path<(String, String)>,
     headers: HeaderMap,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,

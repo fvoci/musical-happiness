@@ -13,6 +13,7 @@ use super::contract::tag;
 use super::query::{PagingQuery, QueryParams};
 use super::workspace::InLinked;
 use super::{ApiResult, decode_json, json_response};
+use super::{Delegated, Read};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -52,9 +53,12 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     request_body = ReferenceIds,
     responses((status = 200, description = "What the user is shown of them.", body = Vec<LinkedBlock>)),
 )]
-async fn handle_resolve_references(InLinked(ws): InLinked, body: Bytes) -> ApiResult {
+async fn handle_resolve_references(
+    Delegated(InLinked(ws), ..): Delegated<Read, InLinked>,
+    body: Bytes,
+) -> ApiResult {
     let ids: Vec<String> = decode_json(&body)?;
-    let linked = ws.app.resolve_references(&ws.session.user_id, &ids).await?;
+    let linked = ws.app.resolve_references(&ws.caller.user_id, &ids).await?;
     Ok(json_response(&linked))
 }
 
@@ -77,7 +81,7 @@ async fn handle_resolve_references(InLinked(ws): InLinked, body: Bytes) -> ApiRe
     responses((status = 200, description = "What names it, of the page.", body = Vec<LinkedBlock>)),
 )]
 async fn handle_get_references_to(
-    InLinked(ws): InLinked,
+    Delegated(InLinked(ws), ..): Delegated<Read, InLinked>,
     Path((_, block_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
@@ -85,7 +89,7 @@ async fn handle_get_references_to(
     // What has not the form of an identifier names nothing, and is answered so.
     let naming = if is_id(&block_id) {
         ws.app
-            .references_to(&ws.session.user_id, &ws.workspace_id, &block_id, asked)
+            .references_to(&ws.caller.user_id, &ws.workspace_id, &block_id, asked)
             .await?
     } else {
         None
@@ -112,12 +116,12 @@ async fn handle_get_references_to(
     responses((status = 200, description = "What was found.", body = Vec<LinkedBlock>)),
 )]
 async fn handle_search_references(
-    InLinked(ws): InLinked,
+    Delegated(InLinked(ws), ..): Delegated<Read, InLinked>,
     QueryParams(query): QueryParams<ReferenceSearchQuery>,
 ) -> ApiResult {
     let found = ws
         .app
-        .search_references(&ws.session.user_id, &ws.workspace_id, &query.q)
+        .search_references(&ws.caller.user_id, &ws.workspace_id, &query.q)
         .await?;
     Ok(json_response(&found))
 }

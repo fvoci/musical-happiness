@@ -24,6 +24,7 @@ use super::{
     ApiResult, created, decode_object, decode_with_document, json_response, no_content,
     require_container_permission,
 };
+use super::{Delegated, Read, Write};
 use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
@@ -79,10 +80,10 @@ pub(crate) struct NewWiki {
     params(MemberWorkspaceId),
     responses((status = 200, description = "The wikis.", body = Vec<Container>)),
 )]
-async fn handle_get_wikis(InWiki(ws): InWiki) -> ApiResult {
+async fn handle_get_wikis(Delegated(InWiki(ws), ..): Delegated<Read, InWiki>) -> ApiResult {
     let wikis = ws
         .app
-        .workspace_containers(&ws.session.user_id, &ws.workspace_id, ws.role)
+        .workspace_containers(&ws.caller.user_id, &ws.workspace_id, ws.role)
         .await?;
     Ok(json_response(&wikis))
 }
@@ -122,7 +123,7 @@ async fn handle_create_wiki(InWiki(ws): InWiki, body: Bytes) -> ApiResult {
     };
     let wiki = ws
         .app
-        .create_container_with_admin(wiki, &ws.session.user_id)
+        .create_container_with_admin(wiki, &ws.caller.user_id)
         .await?;
     Ok(created(&wiki))
 }
@@ -142,7 +143,7 @@ pub(super) async fn page_with_permission(
     permission: ContainerPermission,
     denial: &str,
 ) -> Result<Block, AppError> {
-    require_container_permission(&ws.app, &ws.session.user_id, wiki_id, permission, denial).await?;
+    require_container_permission(&ws.app, &ws.caller.user_id, wiki_id, permission, denial).await?;
     ws.app.page_of(wiki_id, page_id).await
 }
 
@@ -161,12 +162,12 @@ pub(super) async fn page_with_permission(
     responses((status = 200, description = "The pages.", body = Vec<PageNode>)),
 )]
 async fn handle_get_page_tree(
-    InWiki(ws): InWiki,
+    Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &wiki_id,
         ContainerPermission::View,
         "access denied to fetch pages",
@@ -203,11 +204,11 @@ async fn handle_get_page_tree(
     responses((status = 201, description = "The page that was made.", body = Page)),
 )]
 async fn handle_create_page(
-    InWiki(ws): InWiki,
+    Delegated(InWiki(ws), ..): Delegated<Write, InWiki>,
     Path((_, wiki_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -235,7 +236,7 @@ async fn handle_create_page(
     responses((status = 200, description = "The page.", body = Page)),
 )]
 async fn handle_get_page(
-    InWiki(ws): InWiki,
+    Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let block = page_with_permission(
@@ -266,11 +267,11 @@ async fn handle_get_page(
     responses((status = 200, description = "The page as it is now.", body = Page)),
 )]
 async fn handle_patch_page(
-    InWiki(ws): InWiki,
+    Delegated(InWiki(ws), ..): Delegated<Write, InWiki>,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let page = page_with_permission(
         &ws,
         &wiki_id,
@@ -326,7 +327,7 @@ async fn handle_move_page(
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let page = page_with_permission(
         &ws,
         &wiki_id,
@@ -370,7 +371,7 @@ async fn handle_duplicate_page(
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let page = page_with_permission(
         &ws,
         &wiki_id,
@@ -407,7 +408,7 @@ async fn handle_delete_page(
     InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let page = page_with_permission(
         &ws,
         &wiki_id,
@@ -446,7 +447,7 @@ async fn handle_get_deleted_pages(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &wiki_id,
         ContainerPermission::ManageCards,
         "access denied to the trash of the wiki",
@@ -481,7 +482,7 @@ async fn handle_restore_page(
     InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,

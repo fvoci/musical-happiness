@@ -125,7 +125,7 @@ async fn handle_set_workspace_role(
             &ws.workspace_id,
             &place.user_id,
             change.role,
-            &ws.session.user_id,
+            &ws.caller.user_id,
         )
         .await?;
     Ok(json_response(&member))
@@ -162,7 +162,7 @@ async fn handle_remove_workspace_member(
 ) -> ApiResult {
     let ws = managing_people(ws)?;
     ws.app
-        .remove_workspace_member(&ws.workspace_id, &place.user_id, &ws.session.user_id)
+        .remove_workspace_member(&ws.workspace_id, &place.user_id, &ws.caller.user_id)
         .await?;
     Ok(no_content())
 }

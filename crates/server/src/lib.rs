@@ -50,7 +50,7 @@ use crate::auth::token::Credential;
 use crate::client_address::{ClientAddress, TrustedProxies};
 use crate::config::Configuration;
 use crate::connection::{BreakableListener, Connection};
-use crate::error::{AppError, ErrorKind};
+use crate::error::{AppError, ErrorKind, Reason};
 use crate::error_response::ReportedError;
 use crate::metrics::{Job, JobOutcome};
 use crate::scheduler::RecurringTask;
@@ -778,7 +778,8 @@ async fn handle_websocket(
 ///
 /// Returns a 403 for a handshake from another origin, a 401 for one without an
 /// `Origin` header that has no valid token in its `Authorization` header, and for any
-/// handshake whose `Authorization` header carries a token that is no session's.
+/// handshake whose `Authorization` header carries a token that is no session's: also a
+/// personal API token (reason `token_forbidden_endpoint`), which follows nothing.
 async fn websocket_identity(
     app: &App,
     headers: &HeaderMap,
@@ -789,7 +790,17 @@ async fn websocket_identity(
         return Err(api::foreign_origin());
     }
     let from_a_browser = headers.contains_key(ORIGIN);
-    match auth.session_cookie().credential(headers) {
+    let credential = auth.session_cookie().credential(headers);
+    if credential
+        .as_ref()
+        .is_some_and(|credential| auth::api_token::is_api_token(credential.token()))
+    {
+        return Err(
+            AppError::unauthorized("a personal API token opens no websocket")
+                .with_reason(Reason::TokenForbiddenEndpoint),
+        );
+    }
+    match credential {
         // Sent on purpose: it is a session's, or the handshake is refused.
         Some(Credential::Bearer(token)) => {
             let session = auth.find_session(&token).await?;

@@ -14,17 +14,17 @@ use serde_json::{Value, json};
 use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID};
 
 /// A server, and the path of the workspace of its first user's own space.
-async fn in_a_space() -> (TestServer, String) {
+pub(crate) async fn in_a_space() -> (TestServer, String) {
     let th = Setup::local_mode().start().await.init_basic().await;
     let own = crate::own_space::own_workspace(&th.client).await.id;
     (th, format!("/w/{own}"))
 }
 
-fn id_of(answer: &ApiResponse) -> String {
+pub(crate) fn id_of(answer: &ApiResponse) -> String {
     text_of(&answer.value(), "id")
 }
 
-fn text_of(value: &Value, member: &str) -> String {
+pub(crate) fn text_of(value: &Value, member: &str) -> String {
     value[member]
         .as_str()
         .unwrap_or_else(|| panic!("{member} in {value}"))
@@ -32,19 +32,19 @@ fn text_of(value: &Value, member: &str) -> String {
 }
 
 /// Makes a diary in the space and returns its path.
-async fn a_diary(client: &Client, ws: &str) -> String {
+pub(crate) async fn a_diary(client: &Client, ws: &str) -> String {
     let made = client.post(&format!("{ws}/diaries"), &json!({})).await;
     made.check_created();
     format!("{ws}/diaries/{}", id_of(&made))
 }
 
 /// The identifier a path ends with.
-fn last_of(path: &str) -> &str {
+pub(crate) fn last_of(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
 /// Makes the entry of the day, which had none, and returns it.
-async fn written(client: &Client, diary: &str, entry: &Value) -> Value {
+pub(crate) async fn written(client: &Client, diary: &str, entry: &Value) -> Value {
     let made = client.post(&format!("{diary}/entries"), entry).await;
     made.check_created();
     made.value()
@@ -57,7 +57,7 @@ fn body(text: &str) -> Value {
 }
 
 /// Writes the body of the entry `made`, as who read it as it was made.
-async fn write_body(client: &Client, entry: &str, made: &Value, text: &str) -> Value {
+pub(crate) async fn write_body(client: &Client, entry: &str, made: &Value, text: &str) -> Value {
     let patch = json!({"readAt": made["updatedAt"], "body": body(text)});
     let patched = client.patch(entry, &patch).await;
     patched.check_ok();

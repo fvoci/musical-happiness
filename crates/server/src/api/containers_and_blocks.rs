@@ -73,7 +73,7 @@ struct RawContainersAndBlocks {
     )),
 )]
 async fn handle_create_containers_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     // Whoever works in the workspace makes boards in it.
     ws.require_container_maker("access denied to create board")?;
     let mut object = json_object(decode_json(&body)?)?;
@@ -170,7 +170,7 @@ async fn handle_create_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Ap
     )),
 )]
 async fn handle_patch_containers_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     let mut object = json_object(decode_json(&body)?)?;
     // Each patch's type and minimum role are refused as `patchContainer` refuses them.
     check_listed_boards(&object, "containerPatches", BoardObject::Patch)?;
@@ -364,7 +364,7 @@ async fn require_block_patches(
     responses((status = 204, description = "The boards and blocks are deleted.")),
 )]
 async fn handle_delete_containers_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     let request: DeleteContainersAndBlocks = decode_object(&body)?;
     request.validate().map_err(AppError::bad_request)?;
 

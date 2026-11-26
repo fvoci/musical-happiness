@@ -206,7 +206,11 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::TeamSelfJoining
         | Reason::GuestRoleLimit
         | Reason::GuestCannotJoinTeam
-        | Reason::SharingDisabled => describe_access(reason).unwrap_or_default(),
+        | Reason::SharingDisabled
+        | Reason::TokenForbiddenEndpoint
+        | Reason::TokenScopeInsufficient
+        | Reason::ApiTokensDisallowed
+        | Reason::TokenRateLimited => describe_access(reason).unwrap_or_default(),
         Reason::SecretKeyRequired
         | Reason::OidcIssuerUnverified
         | Reason::OidcUnavailable
@@ -945,6 +949,18 @@ fn describe_access(reason: Reason) -> Option<&'static str> {
         }
         Reason::SharingDisabled => {
             "Status 403. Sharing a board with whoever has its link is turned off in the configuration of this server."
+        }
+        Reason::TokenForbiddenEndpoint => {
+            "Status 403, for a request with a personal API token (`Authorization: Bearer fvoci_pat_...`) to an operation that is not open to one: what is of the account (its password, sessions, tokens, notifications and settings), of who is on what (members, invitations, groups), of what is shared (public links), and of an administrator (`/org/...`). Status 401 for the handshake of the websocket, which a token opens for nothing. A token is sent in the `Authorization` header alone; in the session cookie it opens nothing. Sign in, or do it in the app."
+        }
+        Reason::TokenScopeInsufficient => {
+            "Status 403, for a request with a personal API token that reads only (`scope` `read`) to an operation that writes. Make a token that reads and writes (`createApiToken` with `scope` `write`)."
+        }
+        Reason::ApiTokensDisallowed => {
+            "Status 403, for a request with a personal API token to a workspace whose organization takes only sessions made through its provider and gives its workspaces to no token (`allowApiTokens` of the organization off). An administrator of it switches that on."
+        }
+        Reason::TokenRateLimited => {
+            "Status 429, for a request with a personal API token: the token, or the tokens that reach the workspace's organization together, sent as many requests as they may in a minute. Wait for as many seconds as `Retry-After` says."
         }
         _ => return None,
     })

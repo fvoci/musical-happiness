@@ -24,6 +24,7 @@ use fvoci_model::Session;
 use fvoci_store::{Making, SessionTaken, StoredProvider};
 
 use super::App;
+use crate::auth::api_token::Delegation;
 use crate::error::{AppError, Reason};
 
 /// What was done to an organization's taking no password.
@@ -157,8 +158,11 @@ pub(crate) fn proves(session: &Session, provider: &StoredProvider) -> bool {
 pub struct Asker<'a> {
     /// The user of the session.
     pub user_id: &'a str,
-    /// How the session was made, and what it confirmed since.
+    /// How the session was made, and what it confirmed since: of a token, how the
+    /// session that made it was.
     pub making: Making<&'a str>,
+    /// The personal API token the request came with; `None` for a session.
+    pub delegation: Option<&'a Delegation>,
 }
 
 /// How a session was made and what it had confirmed at one moment ([`Making`]), to be
@@ -273,6 +277,7 @@ impl<'a> Asker<'a> {
         Self {
             user_id,
             making: Making::with_password(),
+            delegation: None,
         }
     }
 }
@@ -282,6 +287,7 @@ impl<'a> From<&'a Session> for Asker<'a> {
         Self {
             user_id: &session.user_id,
             making: session.into(),
+            delegation: None,
         }
     }
 }

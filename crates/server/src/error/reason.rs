@@ -183,6 +183,17 @@ reasons! {
     SsoUnproven => "sso_unproven", "Provider not signed in through";
     /// The organization takes no password, and its provider stays as it is meanwhile.
     SsoEnforced => "sso_enforced", "Provider held while no password is taken";
+    /// A personal API token was sent to a route that is not open to tokens: what is of
+    /// the account, of who is on what, of what is shared, or of an administrator.
+    TokenForbiddenEndpoint => "token_forbidden_endpoint", "Not open to a personal API token";
+    /// A personal API token that reads only was sent to a route that writes.
+    TokenScopeInsufficient => "token_scope_insufficient", "Personal API token reads only";
+    /// The workspace's organization, which takes only sessions made through its
+    /// provider, gives its workspaces to no personal API token.
+    ApiTokensDisallowed => "api_tokens_disallowed", "Organization takes no personal API tokens";
+    /// A personal API token, or the tokens that reach one organization together, sent
+    /// more requests than they may in a minute.
+    TokenRateLimited => "token_rate_limited", "Too many requests of personal API tokens";
     /// The value of a card relation is neither `null` nor a list of identifiers.
     RelationNotAList => "relation_not_a_list", "Card relation that is no list";
     /// A card relation names the card it is the value of.

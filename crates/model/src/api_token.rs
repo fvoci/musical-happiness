@@ -89,7 +89,7 @@ impl FromStr for ApiTokenScope {
 }
 
 /// A workspace a token reaches, as its list shows it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiTokenWorkspace {
     /// The workspace.
@@ -102,7 +102,7 @@ pub struct ApiTokenWorkspace {
 
 /// A personal API token as its owner, or an administrator of an organization it
 /// reaches, sees it: never the token itself, which is shown once, when it is made.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiToken {
     /// The token's identifier.
@@ -125,10 +125,10 @@ pub struct ApiToken {
     pub notify_self: bool,
     /// When it was last used, in milliseconds since the Unix epoch, to within five
     /// minutes; absent if never.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used_at: Option<i64>,
     /// The address it was last used from; absent if never, or unknown.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used_address: Option<String>,
     /// When it was made.
     pub created_at: i64,
@@ -171,7 +171,7 @@ const fn notify_self_by_default() -> bool {
 }
 
 /// A token as it is made: the only time the token itself is told.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuedApiToken {
     /// The token, to be sent as `Authorization: Bearer <token>`. It is not stored, and

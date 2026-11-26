@@ -45,7 +45,7 @@ async fn list(InShared(ws): InShared, Path(place): Path<ContainerPlace>) -> ApiR
     let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &place.container_id,
         ContainerPermission::ListMembers,
         "access denied to board members",
@@ -70,7 +70,7 @@ async fn assign(InShared(ws): InShared, Path(place): Path<TeamPlace>, body: Byte
     let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &place.container_id,
         ContainerPermission::ManageRoles,
         "access denied to modify board members",
@@ -84,7 +84,7 @@ async fn assign(InShared(ws): InShared, Path(place): Path<TeamPlace>, body: Byte
             &place.container_id,
             &place.team_id,
             Some(request.role),
-            &ws.session.user_id,
+            &ws.caller.user_id,
         )
         .await?;
     Ok(no_content())
@@ -100,7 +100,7 @@ async fn remove(InShared(ws): InShared, Path(place): Path<TeamPlace>) -> ApiResu
     let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &place.container_id,
         ContainerPermission::ManageRoles,
         "access denied to modify board members",
@@ -113,7 +113,7 @@ async fn remove(InShared(ws): InShared, Path(place): Path<TeamPlace>) -> ApiResu
             &place.container_id,
             &place.team_id,
             None,
-            &ws.session.user_id,
+            &ws.caller.user_id,
         )
         .await?;
     Ok(no_content())

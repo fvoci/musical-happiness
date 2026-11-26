@@ -19,6 +19,7 @@ use super::contract::params::{
 use super::contract::tag;
 use super::query::{DisableNotifyQuery, QueryParams, paging_from_strings};
 use super::workspace::InWorkspace;
+use super::{Delegated, Read, Write};
 
 use super::blocks::BLOCK_FIELDS;
 use super::body_versions::{
@@ -111,12 +112,12 @@ async fn card_with_permission(
     responses((status = 201, description = "The card that was made.", body = Card)),
 )]
 async fn handle_create_card(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Write, InWorkspace>,
     Path((_, board_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let notification = query.notification();
     require_container_permission(
         &ws.app,
@@ -169,11 +170,11 @@ async fn handle_create_card(
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
 )]
 async fn handle_get_cards(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<CardsListQuery>,
 ) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     require_container_permission(
         &ws.app,
         user_id,
@@ -220,12 +221,12 @@ pub(super) async fn cards_page(
     responses((status = 200, description = "The card as it is now.", body = Card)),
 )]
 async fn handle_patch_card(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Write, InWorkspace>,
     Path((_, card_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let notification = query.notification();
 
     let card = card_with_permission(
@@ -266,8 +267,11 @@ async fn handle_patch_card(
     params(MemberWorkspaceId, CardId),
     responses((status = 200, description = "The card.", body = Card)),
 )]
-async fn handle_get_card(ws: InWorkspace, Path((_, card_id)): Path<(String, String)>) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+async fn handle_get_card(
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
+    Path((_, card_id)): Path<(String, String)>,
+) -> ApiResult {
+    let user_id = ws.caller.user_id.as_str();
     let block = card_with_permission(
         &ws.app,
         user_id,
@@ -299,11 +303,11 @@ async fn handle_get_card(ws: InWorkspace, Path((_, card_id)): Path<(String, Stri
     responses((status = 200, description = "The card.", body = Card)),
 )]
 async fn handle_get_card_by_number(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, number)): Path<(String, String, String)>,
 ) -> ApiResult {
     const WHAT: &str = "card";
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let denial = "access denied to fetch card";
     let view = ContainerPermission::View;
     require_permission_through(&ws.app, user_id, &board_id, view, denial, WHAT).await?;
@@ -346,10 +350,10 @@ async fn handle_get_card_by_number(
     responses((status = 200, description = "The versions, the newest first.", body = Vec<BodyVersion>)),
 )]
 async fn handle_get_card_body_versions(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, card_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let card = card_with_permission(
         &ws.app,
         user_id,
@@ -390,7 +394,7 @@ async fn handle_keep_card_body_version(
     ws: InWorkspace,
     Path((_, card_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let card = card_with_permission(
         &ws.app,
         user_id,
@@ -418,10 +422,10 @@ async fn handle_keep_card_body_version(
     responses((status = 200, description = "The version.", body = BodyVersionContent)),
 )]
 async fn handle_get_card_body_version(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, card_id, version)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let card = card_with_permission(
         &ws.app,
         user_id,
@@ -456,7 +460,7 @@ async fn handle_restore_card_body_version(
     ws: InWorkspace,
     Path((_, card_id, version)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let card = card_with_permission(
         &ws.app,
         user_id,

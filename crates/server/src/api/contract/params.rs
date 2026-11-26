@@ -87,6 +87,7 @@ parameter!(LeaseId: Path "leaseId", String, True, "The lease of the file, as `ho
 parameter!(CategoryId: Path "categoryId", String, True, "The identifier of the category, one of the user's own.");
 parameter!(TeamId: Path "teamId", String, True, "The identifier of a team within this workspace.");
 parameter!(UserId: Path "userId", String, True, "The identifier of the user.");
+parameter!(ApiTokenId: Path "tokenId", String, True, "The identifier of the personal API token.");
 parameter!(InvitationId: Path "invitationId", String, True, "The identifier of the invitation, as making it and the list answer it. It is not the link's token.");
 parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.");
 parameter!(NotificationId: Path "notificationId", String, True, "The identifier of the notification: one of the user of the session.");

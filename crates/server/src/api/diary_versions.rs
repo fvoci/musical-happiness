@@ -73,7 +73,7 @@ async fn handle_keep_diary_entry_body_version(
     InDiary(ws): InDiary,
     Path((_, diary_id, entry_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let entry = entry_with_permission(
         &ws,
         &diary_id,
@@ -131,7 +131,7 @@ async fn handle_restore_diary_entry_body_version(
     InDiary(ws): InDiary,
     Path((_, diary_id, entry_id, version)): Path<(String, String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let entry = entry_with_permission(
         &ws,
         &diary_id,

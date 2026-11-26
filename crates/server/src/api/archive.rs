@@ -52,7 +52,7 @@ pub(super) async fn require_import_access(
     session: Session,
     workspace_id: String,
 ) -> Result<InWorkspace, AppError> {
-    InWorkspace::enter(app, session, workspace_id)
+    InWorkspace::enter_as(app, session.into(), workspace_id)
         .await?
         .require_no_guest()
 }
@@ -103,7 +103,7 @@ async fn handle_export_container(
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     let access = ws
         .app
         .container_access(user_id, &container_id)
@@ -161,9 +161,9 @@ async fn handle_export_workspace(
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(workspace_id): Path<String>,
 ) -> ApiResult {
-    let ws = InWorkspace::enter(&app, session, workspace_id).await?;
+    let ws = InWorkspace::enter_as(&app, session.into(), workspace_id).await?;
     let app = &ws.app.clone().reaching(ContainerKinds::EVERY);
-    let user_id = &ws.session.user_id;
+    let user_id = &ws.caller.user_id;
     let containers = app
         .readable_workspace_containers(user_id, &ws.workspace_id, ws.role)
         .await?;
@@ -240,7 +240,7 @@ async fn handle_export_workspace(
 )]
 async fn handle_import(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    let user_id = ws.session.user_id.clone();
+    let user_id = ws.caller.user_id.clone();
     // Membership is checked before reading the body; the upload belongs to this workspace.
     let ImportRequest { upload_id, format } = decode_object(&body)?;
     let (upload, _) = ws.app.workspace_upload(&upload_id, &user_id).await?;

@@ -544,6 +544,7 @@ const ORDERS: &[(&str, &str)] = &[
         "duplicateContainer",
         "in the order of the source board's, oldest first",
     ),
+    ("getApiTokens", "the newest first"),
     (
         "getBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
@@ -590,6 +591,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("getMyOrganizations", "Oldest first"),
     ("getMyWorkspaces", "the oldest workspace first"),
     ("getNotifications", "the newest first"),
+    ("getOrgApiTokens", "the newest first"),
     ("getOrgAudit", "the newest first"),
     ("getOrgMembers", "the oldest member first"),
     ("getOrgWorkspaces", "the oldest first"),

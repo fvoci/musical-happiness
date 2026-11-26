@@ -99,6 +99,9 @@ impl Store {
             if let Some(allow_copy_out) = patch.allow_copy_out {
                 sql.push_bind(", allow_copy_out = ", allow_copy_out);
             }
+            if let Some(allow_api_tokens) = patch.allow_api_tokens {
+                sql.push_bind(", allow_api_tokens = ", allow_api_tokens);
+            }
             sql.push_bind(" WHERE id = ", scope.org()?);
             scope.execute(sql).await?;
             if let Some(on) = patch.public_links
@@ -547,8 +550,8 @@ impl Store {
 /// The handle's organization as it is stored.
 async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
     let mut sql = scope.sql(
-        "SELECT id, name, public_links, allow_copy_out, default_workspace_id \
-         FROM organizations WHERE id = ",
+        "SELECT id, name, public_links, allow_copy_out, default_workspace_id, \
+         allow_api_tokens FROM organizations WHERE id = ",
     );
     sql.bind(scope.org()?)
         .push(" AND deleted_at IS NULL AND is_system = false");
@@ -561,6 +564,7 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
         name: row.text(1)?,
         public_links: row.bool(2)?,
         allow_copy_out: row.bool(3)?,
+        allow_api_tokens: row.bool(5)?,
         default_workspace_id: row.id(4)?,
     })
 }

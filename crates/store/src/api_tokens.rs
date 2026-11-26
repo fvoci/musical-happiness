@@ -19,6 +19,7 @@ use fvoci_model::{ApiToken, ApiTokenScope, ApiTokenWorkspace};
 use crate::Store;
 use crate::db::{Id, OptId, Row, Scope};
 use crate::error::StoreError;
+use crate::oidc::StoredProvider;
 
 /// The columns of a token as its list shows it, in the order [`listed_from_row`] reads.
 const LISTED_COLUMNS: &str = "t.id, t.user_id, t.name, t.token_prefix, t.scope, \
@@ -430,10 +431,32 @@ pub(crate) async fn revoke_of_user_through_providers(
     Ok(())
 }
 
+/// Takes back the tokens made through the provider `before` that its change to `after`
+/// ends: every one where it is removed (`after` is `None`), and those of another
+/// revision where it signs in otherwise. A token proves what the session that made it
+/// proved, the revision it was made at; a change that replaced the row gave the
+/// provider another identifier, so the tokens are found by the one before.
+pub(crate) async fn follow_provider(
+    scope: &mut Scope<'_>,
+    before: Option<&StoredProvider>,
+    after: Option<&StoredProvider>,
+) -> Result<(), StoreError> {
+    let Some(before) = before else {
+        return Ok(());
+    };
+    match after {
+        None => revoke_of_provider(scope, &before.id, None).await,
+        Some(after) if after.revision != before.revision => {
+            revoke_of_provider(scope, &before.id, Some(after.revision)).await
+        }
+        Some(_) => Ok(()),
+    }
+}
+
 /// Takes back the tokens made by sessions made through `provider_id`, but those of
 /// `keeping_revision` if one is given: with the provider removed, given another issuer,
 /// or given a revision that signs in otherwise.
-pub(crate) async fn revoke_of_provider(
+async fn revoke_of_provider(
     scope: &mut Scope<'_>,
     provider_id: &str,
     keeping_revision: Option<i64>,
