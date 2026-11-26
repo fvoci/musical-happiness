@@ -119,8 +119,13 @@
     auto: m.card_version_cause_auto,
     manual: m.card_version_cause_manual,
     restored: m.card_version_cause_restored,
+    agent: m.card_version_cause_agent,
   };
-  const causeOf = (version: BodyVersion): string => CAUSES[version.cause]();
+  /** How it was kept; an agent's version by the name of its token ("Agent · …"). */
+  const causeOf = (version: BodyVersion): string =>
+    version.cause === 'agent' && version.agentTokenName
+      ? m.agent_badge({ name: version.agentTokenName })
+      : CAUSES[version.cause]();
 
   /** The keys that keep a version, in the dialog: as its button, for who edits. */
   function keyInDialog(event: KeyboardEvent): void {
@@ -281,7 +286,12 @@
                     </span>
                     <span class="text-xs text-muted-foreground">
                       {when} ·
-                      <span data-testid="body-version-cause">{causeOf(version)}</span>
+                      <span
+                        class={version.cause === 'agent'
+                          ? 'rounded-sm bg-muted px-1 font-medium text-foreground'
+                          : undefined}
+                        data-testid="body-version-cause">{causeOf(version)}</span
+                      >
                     </span>
                     {#if version.editors.length > 0}
                       <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">

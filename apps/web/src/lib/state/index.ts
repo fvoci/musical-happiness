@@ -224,6 +224,15 @@ export {
   rereadEmail,
 } from './account.ts';
 export type { EmailChange } from './email-change.ts';
+export type {
+  ApiToken,
+  ApiTokens,
+  ApiTokenScope,
+  ApiTokenWorkspace,
+  IssuedApiToken,
+  NewApiToken,
+  OrgApiTokens,
+} from './api-tokens.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export { OrganizationNames, organizationNames } from './organization-names.svelte.ts';

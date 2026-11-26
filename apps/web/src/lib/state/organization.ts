@@ -21,6 +21,12 @@ export interface Organization {
   publicLinks: boolean;
   /** Whether members may copy containers out of this organization. */
   allowCopyOut: boolean;
+  /**
+   * Whether members may give its workspaces to personal API tokens while it
+   * takes only sessions made through its provider; switched off, such tokens
+   * open nothing of it.
+   */
+  allowApiTokens: boolean;
   /** The workspace whoever joins the organization gets into; it is not deleted. */
   defaultWorkspaceId: string;
 }
@@ -55,6 +61,7 @@ export {
   type AuditRecord,
 } from '../logic/audit.ts';
 import type { AuditRecord } from '../logic/audit.ts';
+import type { OrgApiTokens } from './api-tokens.ts';
 import type { OidcProvider, OidcSettings } from './oidc.ts';
 import type { WorkspaceInfo } from './workspace-types.ts';
 
@@ -62,6 +69,7 @@ export interface OrganizationPatch {
   name?: string;
   publicLinks?: boolean;
   allowCopyOut?: boolean;
+  allowApiTokens?: boolean;
 }
 
 /**
@@ -114,4 +122,6 @@ export interface Organizations {
   records(orgId: string): Promise<AuditRecord[]>;
   /** The audit log of a workspace the reader works in, the newest first. */
   workspaceRecords(workspaceId: string): Promise<AuditRecord[]>;
+  /** The personal API tokens of its members that reach its workspaces. */
+  readonly apiTokens: OrgApiTokens;
 }

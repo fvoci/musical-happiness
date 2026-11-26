@@ -1,7 +1,9 @@
 <!--
   The organization screen (`/org/<organization>`), for its administrators
   only: the workspaces (`OrgWorkspaces.svelte`), the members and their roles,
-  the switch of the public links, and what was done to the organization.
+  the switches of the public links, of copying out and of personal API tokens
+  under single sign-on, the members' tokens that reach it
+  (`OrgApiTokens.svelte`), and what was done to the organization.
   An administrator manages here; what is in a workspace they read by joining
   it. A refused change is told in a line at the top; the lists show what the
   server has.
@@ -24,6 +26,7 @@
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import PersonProfile from '$lib/components/person/PersonProfile.svelte';
 
+  import OrgApiTokens from './OrgApiTokens.svelte';
   import OrgWorkspaces from './OrgWorkspaces.svelte';
   import OrgSso from './OrgSso.svelte';
 
@@ -230,7 +233,32 @@
           />
         {/key}
       </label>
+      <label class="flex items-start gap-3 rounded-md border px-3 py-2">
+        <span class="min-w-0 flex-1">
+          <span class="block">{m.org_api_tokens_allow()}</span>
+          <span class="block text-xs text-muted-foreground">{m.org_api_tokens_allow_hint()}</span>
+        </span>
+        {#key admin.organization}
+          <Switch
+            checked={admin.organization?.allowApiTokens ?? false}
+            disabled={admin.busy}
+            data-testid="org-allow-api-tokens"
+            onCheckedChange={(on: boolean) => void admin.setAllowApiTokens(on)}
+          />
+        {/key}
+      </label>
     </section>
+
+    {#key admin.orgId}
+      <OrgApiTokens
+        read={() => admin.apiTokens()}
+        revoke={(tokenId: string) => admin.revokeApiToken(tokenId)}
+        nameOf={(userId: string) => {
+          const member = admin.members.find((one) => one.userId === userId);
+          return member ? named(member) : m['centerPanel.unknown-user']();
+        }}
+      />
+    {/key}
 
     <section class="flex flex-col gap-3" aria-labelledby="org-records">
       <h2 id="org-records" class="text-base font-semibold">{m.org_records()}</h2>

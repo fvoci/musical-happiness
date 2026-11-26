@@ -15,6 +15,9 @@ import type {
   OrgWorkspace,
 } from '../state/organization.ts';
 
+import type { OrgApiTokens } from '../state/api-tokens.ts';
+
+import { ServerOrgApiTokens } from './api-tokens.ts';
 import { personNameOf, workspaceOf, type Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 import type { OidcProvider, OidcSettings } from '../state/oidc.ts';
@@ -25,9 +28,11 @@ const RECENT_RECORDS = { page: 0, perPage: 200 };
 
 export class ServerOrganizations implements Organizations {
   readonly #http: Http;
+  readonly apiTokens: OrgApiTokens;
 
   constructor(http: Http) {
     this.#http = http;
+    this.apiTokens = new ServerOrgApiTokens(http);
   }
 
   async administered(workspaces: readonly WorkspaceInfo[]): Promise<string | undefined> {

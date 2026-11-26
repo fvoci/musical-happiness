@@ -1,8 +1,8 @@
 <!--
   The part of the settings that is the reader's account, where the features
-  of the account meet: its address, the sign-ins connected to it, leaving an
-  organization, and deleting it. A session that is over is told as everywhere
-  (`signedIn`).
+  of the account meet: its address, the sign-ins connected to it, the
+  personal API tokens it gives agents, leaving an organization, and deleting
+  it. A session that is over is told as everywhere (`signedIn`).
 
   Left, an organization's workspaces are not among the reader's any more: the
   page goes from one of them to the workspace it would start in
@@ -13,14 +13,18 @@
   import { onMount } from 'svelte';
 
   import AccountDeletion from '$lib/features/account/AccountDeletion.svelte';
+  import ApiTokensSection from '$lib/features/account/ApiTokensSection.svelte';
+  import { tokenWorkspaces } from '$lib/features/account/api-tokens.ts';
   import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
   import OrganizationLeaving from '$lib/features/account/OrganizationLeaving.svelte';
   import { leavableOrganizations } from '$lib/features/account/organization-leaving.ts';
   import {
     isBackendError,
+    isOwnSpace,
     leaveOrganization,
     type Account,
     type LinkedIdentity,
+    type NewApiToken,
     type UserOrganization,
     type Workspace,
   } from '$lib/state/index.ts';
@@ -121,6 +125,16 @@
   {onUnlink}
   {justLinked}
   reveal={linkedAsked}
+/>
+<ApiTokensSection
+  read={() => signedIn(() => account.apiTokens.list())}
+  issue={(token: NewApiToken) => signedIn(() => account.apiTokens.issue(token))}
+  revoke={(tokenId: string) => signedIn(() => account.apiTokens.revoke(tokenId))}
+  workspaces={tokenWorkspaces(workspace.workspaces)}
+  currentWorkspaceId={isOwnSpace(workspace.info) ? undefined : workspace.info?.id}
+  hasOwnSpace={workspace.workspaces.some(isOwnSpace)}
+  hasPassword={workspace.me?.hasPassword !== false}
+  origin={location.origin}
 />
 <OrganizationLeaving
   organizations={leavable}

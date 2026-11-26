@@ -14,6 +14,7 @@ import {
   type TrashReads,
   type User,
 } from '../state/backend.ts';
+import type { ApiTokens } from '../state/api-tokens.ts';
 import type { BodyVersions } from '../state/body-versions.ts';
 import type { EmailChange } from '../state/email-change.ts';
 import type { FileVersions } from '../state/file-versions.ts';
@@ -21,6 +22,7 @@ import type { People } from '../state/people-types.ts';
 import type { References } from '../state/references.ts';
 
 import { AccountRequests } from './account-requests.ts';
+import { ServerApiTokens } from './api-tokens.ts';
 import { ServerBodyVersions } from './body-versions.ts';
 import { containerOf, userOf, type Schemas } from './convert.ts';
 import { ServerCourses } from './courses.ts';
@@ -73,6 +75,7 @@ export class ServerRequests extends AccountRequests implements TrashReads {
   /** What bodies name, as the reader may see it. */
   readonly references: References;
   readonly emailChange: EmailChange;
+  readonly apiTokens: ApiTokens;
   /** What the reader was told, of every workspace. */
   readonly notifications: ServerNotifications;
   /** Personal time tracking entries and active timer of the signed-in reader. */
@@ -91,6 +94,7 @@ export class ServerRequests extends AccountRequests implements TrashReads {
     this.#http = http;
     this.people = new ServerPeople(http);
     this.emailChange = new ServerEmailChange(http);
+    this.apiTokens = new ServerApiTokens(http);
     this.notifications = new ServerNotifications(http);
     this.time = new ServerTime(http);
     this.bodyVersions = new ServerBodyVersions((path, params, options) =>
