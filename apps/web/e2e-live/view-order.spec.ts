@@ -181,8 +181,6 @@ test('two concurrent first moves on an unplaced board keep both moves', async ({
     })),
   });
   expect(added.ok(), await added.text()).toBe(true);
-  const timelineId = (await viewsOf()).find((view) => view.title === 'Timeline')?.id ?? '';
-  expect(timelineId).not.toBe('');
 
   const alicePage = await (await browser.newContext({ locale: 'en-US' })).newPage();
   const bobPage = await (await browser.newContext({ locale: 'en-US' })).newPage();
@@ -196,33 +194,32 @@ test('two concurrent first moves on an unplaced board keep both moves', async ({
     await expect(viewsButton(page)).toHaveText('By status');
   }
 
-  // Hold Bob's PATCHes until Alice's first move has landed on the server.
+  // Hold Bob's move until Alice's has landed on the server: a move names the view it goes
+  // after, and the server places it there when it comes.
   let holding = true;
   let releaseBob = (): void => undefined;
   const holdBob = new Promise<void>((resolve) => {
     releaseBob = resolve;
   });
-  let bobTimelineHeld = (): void => undefined;
-  const timelineHeld = new Promise<void>((resolve) => {
-    bobTimelineHeld = resolve;
+  let bobMoveHeld = (): void => undefined;
+  const moveHeld = new Promise<void>((resolve) => {
+    bobMoveHeld = resolve;
   });
-  const patchPattern = `**/api/v1/w/${ws}/boards/${board.boardId}/blocks/*`;
-  await bobPage.route(patchPattern, async (route) => {
-    if (!holding || route.request().method() !== 'PATCH') {
-      await route.continue();
-      return;
+  const movePattern = `**/api/v1/w/${ws}/boards/${board.boardId}/views/*/move`;
+  await bobPage.route(movePattern, async (route) => {
+    if (holding) {
+      bobMoveHeld();
+      await holdBob;
     }
-    if (route.request().url().endsWith(`/${timelineId}`)) bobTimelineHeld();
-    await holdBob;
     await route.continue();
   });
 
-  // Bob starts moving Backlog down; his keep write for Timeline is held.
+  // Bob starts moving Backlog down, after "By status"; his move is held.
   await viewsButton(bobPage).click();
   await expect(listed(bobPage)).toHaveText(['Backlog', 'By status', 'Roadmap', 'Timeline']);
   await listed(bobPage).filter({ hasText: 'Backlog' }).focus();
   await bobPage.keyboard.press('Alt+ArrowDown');
-  await timelineHeld;
+  await moveHeld;
 
   // Alice moves Timeline up; her move lands on the server before Bob's writes arrive.
   await viewsButton(alicePage).click();
@@ -232,7 +229,7 @@ test('two concurrent first moves on an unplaced board keep both moves', async ({
     .poll(async () => inOrder(await viewsOf()))
     .toEqual(['Backlog', 'By status', 'Timeline', 'Roadmap']);
 
-  // Release Bob's held writes; subsequent 409 retries pass straight through.
+  // Release Bob's move: Backlog goes after "By status", before Timeline where Alice put it.
   holding = false;
   releaseBob();
 
@@ -315,7 +312,8 @@ test('a tie raise and a concurrent move of the raised view keep both moves', asy
     await expect(viewsButton(page)).toHaveText('By status');
   }
 
-  // Hold Alice's PATCHes (both Backlog's move and secondTied's tie raise) until Bob's move lands.
+  // Hold Alice's move (Backlog after firstTied, which the server places by raising
+  // secondTied out of the tie) until Bob's move lands.
   let holding = true;
   let releaseRaise = (): void => undefined;
   const holdRaise = new Promise<void>((resolve) => {
@@ -325,18 +323,16 @@ test('a tie raise and a concurrent move of the raised view keep both moves', asy
   const raiseHeld = new Promise<void>((resolve) => {
     raiseHit = resolve;
   });
-  const patchPattern = `**/api/v1/w/${ws}/boards/${board.boardId}/blocks/*`;
-  await alicePage.route(patchPattern, async (route) => {
-    if (!holding || route.request().method() !== 'PATCH') {
-      await route.continue();
-      return;
+  const movePattern = `**/api/v1/w/${ws}/boards/${board.boardId}/views/*/move`;
+  await alicePage.route(movePattern, async (route) => {
+    if (holding) {
+      raiseHit();
+      await holdRaise;
     }
-    if (route.request().url().endsWith(`/${secondTied.id}`)) raiseHit();
-    await holdRaise;
     await route.continue();
   });
 
-  // Alice moves Backlog down into the tie between firstTied and secondTied (raising secondTied).
+  // Alice moves Backlog down into the tie between firstTied and secondTied.
   await viewsButton(alicePage).click();
   await expect(listed(alicePage)).toHaveText(initial);
   await listed(alicePage).filter({ hasText: 'Backlog' }).focus();
@@ -352,11 +348,11 @@ test('a tie raise and a concurrent move of the raised view keep both moves', asy
     .poll(async () => inOrder(await viewsOf()))
     .toEqual(['Backlog', firstTied.title, 'Timeline', secondTied.title, 'Zeta']);
 
-  // Release Alice's held PATCHes; subsequent 409 retries pass straight through.
+  // Release Alice's move: Backlog goes after firstTied, before Timeline now.
   holding = false;
   releaseRaise();
 
-  // Wait for Alice's held write to settle and confirm Bob's move was not overwritten.
+  // Wait for Alice's held move to settle and confirm Bob's move was not overwritten.
   const both = [firstTied.title, 'Backlog', 'Timeline', secondTied.title, 'Zeta'];
   await expect(listed(alicePage)).toHaveText(both);
   await expect(listed(bobPage)).toHaveText(both);

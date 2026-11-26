@@ -128,8 +128,8 @@ test('an account made on its own starts in its own space and starts organization
   await form.getByLabel(/^password$/i).fill(owner.password);
   await form.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  // It starts in its own space, on its own copy of the welcome board.
-  await expect(boardLink(page, 'Getting started with fvoci')).toHaveAttribute(
+  // It starts in its own space, on its own copy of the welcome board of an own space.
+  await expect(boardLink(page, 'Welcome to your personal space')).toHaveAttribute(
     'aria-current',
     'page',
   );

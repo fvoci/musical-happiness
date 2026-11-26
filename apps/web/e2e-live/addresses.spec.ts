@@ -13,6 +13,7 @@ import {
   addWorkspace,
   boardPath,
   joinWorkspace,
+  madeABoard,
   makeBoard,
   person,
   placeOf,
@@ -278,7 +279,11 @@ test('a board made in a workspace that was left meanwhile does not take the read
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route('**/containers-and-blocks', async (route) => {
+  await page.route('**/boards', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
     received();
     await held;
     await route.continue();
@@ -293,11 +298,9 @@ test('a board made in a workspace that was left meanwhile does not take the read
     await expect(page).toHaveURL(new RegExp(`${boardPath(away, away.viewId)}$`));
     await expect(page.getByTestId('board-page')).toBeVisible();
 
-    const answered = page.waitForResponse((response) =>
-      response.url().endsWith('/containers-and-blocks'),
-    );
+    const answered = page.waitForResponse(madeABoard);
     release();
-    expect((await answered).status()).toBe(201);
+    await answered;
     await page.waitForLoadState('networkidle');
     await expect(page).toHaveURL(new RegExp(`${boardPath(away, away.viewId)}$`));
     await expect(boardLink(page, 'Home board')).toHaveCount(0);

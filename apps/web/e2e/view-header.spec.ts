@@ -982,7 +982,10 @@ test.describe('filter', () => {
     await openTool(page, 'filter');
     const changed = await addCondition(page, 'Last changed at', 'is after');
     await changed.locator('[data-slot="filter-date"]').click();
-    await page.getByRole('button', { name: 'Today', exact: true }).click();
+    await page
+      .locator('[data-slot="filter-date-picker"]')
+      .getByRole('button', { name: 'Today', exact: true })
+      .click();
     await expect(changed.locator('[data-slot="filter-date"]')).not.toContainText('Empty');
     await expect(cards(page)).toHaveCount(0);
     await changed.locator('[data-slot="filter-condition"]').click();
