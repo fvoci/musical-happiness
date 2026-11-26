@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
-
   import { startPasswordRecovery } from './backend.ts';
-  import { forgetFragmentToken, takeFragmentToken } from '$lib/fragment-token.ts';
+  import { forgetFragmentToken } from '$lib/fragment-token.ts';
   import RequestPasswordPage from '$lib/features/account/RequestPasswordPage.svelte';
   import ResetPasswordPage from '$lib/features/account/ResetPasswordPage.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
@@ -18,16 +16,12 @@
   const available = $derived(
     isForgot ? recovery.then((client) => client.available()) : Promise.resolve(false),
   );
+  let forgotHash = $state(location.hash);
   async function request(email: string): Promise<void> {
     await (await recovery).request(email, getLocale());
   }
-  let token = $state(
-    untrack(() => (router.route.kind === 'passwordForgot' ? '' : takeFragmentToken(SCOPE))),
-  );
   function onhashchange(): void {
-    if (!isForgot && location.hash.length > 1) {
-      token = takeFragmentToken(SCOPE);
-    }
+    if (isForgot) forgotHash = location.hash;
   }
 
   async function complete(secret: string, password: string): Promise<void> {
@@ -48,11 +42,11 @@
   <RequestPasswordPage
     {available}
     {request}
-    email={emailOfForgotPassword(location.hash)}
+    email={emailOfForgotPassword(forgotHash)}
     homeHref={router.href({})}
   />
 {:else}
-  {#key token}
-    <ResetPasswordPage {token} homeHref={router.href({})} {complete} />
+  {#key router.fragment}
+    <ResetPasswordPage token={router.fragment.token} homeHref={router.href({})} {complete} />
   {/key}
 {/if}

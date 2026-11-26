@@ -128,9 +128,38 @@ describe('reading an address', () => {
 
     history.replaceState(null, '', '/verify-email#verify-secret');
     const verifyRouter = new Router('');
+    const stopVerify = verifyRouter.listen();
+    const seenFragments: string[] = [];
+    const offFragment = verifyRouter.onFragment(({ token }) => {
+      seenFragments.push(token);
+    });
     expect(verifyRouter.route).toEqual({ kind: 'emailVerify' });
+    expect(verifyRouter.fragment).toEqual({ token: 'verify-secret' });
     expect(location.hash).toBe('');
     expect(readFragmentToken('verify-email')).toBe('verify-secret');
+
+    // Same-document fragment navigation fires popstate BEFORE hashchange in HTML5:
+    // Router captures & strips once, updates router.fragment to a fresh object, and notifies once.
+    const firstOpened = verifyRouter.fragment;
+    history.pushState(null, '', '/verify-email#second-secret');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(location.hash).toBe('');
+    expect(verifyRouter.fragment).toEqual({ token: 'second-secret' });
+    expect(verifyRouter.fragment).not.toBe(firstOpened);
+    expect(seenFragments).toEqual(['second-secret']);
+
+    // Re-opening the exact same fragment link again creates a new fragment object so {#key} remounts.
+    const secondOpened = verifyRouter.fragment;
+    history.pushState(null, '', '/verify-email#second-secret');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(verifyRouter.fragment).toEqual({ token: 'second-secret' });
+    expect(verifyRouter.fragment).not.toBe(secondOpened);
+    expect(seenFragments).toEqual(['second-secret', 'second-secret']);
+
+    offFragment();
+    stopVerify();
     forgetFragmentToken('verify-email');
   });
 

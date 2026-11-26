@@ -1,6 +1,6 @@
 <script lang="ts">
   import { startEmailChange } from './backend.ts';
-  import { forgetFragmentToken, takeFragmentToken } from '$lib/fragment-token.ts';
+  import { forgetFragmentToken } from '$lib/fragment-token.ts';
   import ConfirmEmailPage from '$lib/features/account/ConfirmEmailPage.svelte';
   import { isBackendError } from '$lib/state/index.ts';
   import type { Router } from './router.svelte.ts';
@@ -22,15 +22,8 @@
       throw error;
     }
   }
-
-  /** The link as it was opened: each opening is new, also of the same link again. */
-  let opened = $state.raw({ token: takeFragmentToken(SCOPE) });
-  function onhashchange(): void {
-    if (location.hash.length > 1) opened = { token: takeFragmentToken(SCOPE) };
-  }
 </script>
 
-<svelte:window {onhashchange} />
-{#key opened}
-  <ConfirmEmailPage token={opened.token} {confirm} homeHref={router.href({})} />
+{#key router.fragment}
+  <ConfirmEmailPage token={router.fragment.token} {confirm} homeHref={router.href({})} />
 {/key}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { startEmailChange } from './backend.ts';
-  import { forgetFragmentToken, takeFragmentToken } from '$lib/fragment-token.ts';
+  import { forgetFragmentToken } from '$lib/fragment-token.ts';
   import RevertEmailPage from '$lib/features/account/RevertEmailPage.svelte';
   import { isBackendError } from '$lib/state/index.ts';
   import { forgotPasswordHref } from './recovery-links.ts';
@@ -29,15 +29,8 @@
   function resetHref(email: string | undefined): string {
     return forgotPasswordHref(router.href({}), email);
   }
-
-  /** The link as it was opened: each opening is new, also of the same link again. */
-  let opened = $state.raw({ token: takeFragmentToken(SCOPE) });
-  function onhashchange(): void {
-    if (location.hash.length > 1) opened = { token: takeFragmentToken(SCOPE) };
-  }
 </script>
 
-<svelte:window {onhashchange} />
-{#key opened}
-  <RevertEmailPage token={opened.token} {revert} homeHref={router.href({})} {resetHref} />
+{#key router.fragment}
+  <RevertEmailPage token={router.fragment.token} {revert} homeHref={router.href({})} {resetHref} />
 {/key}

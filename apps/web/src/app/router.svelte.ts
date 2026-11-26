@@ -44,11 +44,28 @@ export {
   type RouteTarget,
 };
 
+function fragmentScopeOf(route: Route): string | undefined {
+  if (route.kind === 'passwordReset') return 'reset-password';
+  if (route.kind === 'emailVerify') return 'verify-email';
+  if (route.kind === 'emailConfirm') return 'confirm-email';
+  if (route.kind === 'emailRevert') return 'revert-email';
+  return undefined;
+}
+
 export class Router {
   readonly basePath: string;
   route = $state.raw<Route>(NOWHERE);
   /** Invitation token captured and stripped from `/invite/<token>` once on route settlement. */
   invitation = $state('');
+  /**
+   * One-time `#token` captured and stripped on auth screens (`passwordReset`,
+   * `emailVerify`, `emailConfirm`, `emailRevert`). Wrapped in a fresh object
+   * per link opening so `{#key router.fragment}` remounts even when the same
+   * link is opened a second time in the same tab.
+   */
+  fragment = $state.raw<{ readonly token: string }>({ token: '' });
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- callback list, not rendered
+  readonly #fragmentListeners = new Set<(opened: { readonly token: string }) => void>();
   /** Whether the card on screen was opened from the board in this visit: then "back" closes it. */
   #cardEntered = false;
   /** Addresses that `go` has yet to write to the history, and the last of them. */
@@ -58,7 +75,21 @@ export class Router {
   constructor(basePath: string) {
     this.basePath = basePath;
     const initial = parseRoute(location.pathname, basePath, location.search);
-    this.route = this.#captureTokens(initial);
+    this.route = this.#captureTokens(initial, true);
+  }
+
+  /** Subscribes to new `#token` arrivals on the active auth screen (`popstate` / `hashchange`). */
+  onFragment(listener: (opened: { readonly token: string }) => void): () => void {
+    this.#fragmentListeners.add(listener);
+    return () => {
+      this.#fragmentListeners.delete(listener);
+    };
+  }
+
+  #takeRouteFragment(scope: string): void {
+    const opened = { token: takeFragmentToken(scope) };
+    this.fragment = opened;
+    for (const listener of this.#fragmentListeners) listener(opened);
   }
 
   /**
@@ -66,7 +97,7 @@ export class Router {
    * of the address bar immediately when a route settles, before any lazy chunk
    * renders (`S10`), so components only read reactive state without `$derived` side effects.
    */
-  #captureTokens(route: Route): Route {
+  #captureTokens(route: Route, initial = false): Route {
     if (route.kind === 'invite') {
       this.invitation = takeInviteToken(
         route.invitation,
@@ -74,14 +105,14 @@ export class Router {
       );
       return { kind: 'invite' };
     }
-    if (route.kind === 'passwordReset') takeFragmentToken('reset-password');
-    else if (route.kind === 'emailVerify') takeFragmentToken('verify-email');
-    else if (route.kind === 'emailConfirm') takeFragmentToken('confirm-email');
-    else if (route.kind === 'emailRevert') takeFragmentToken('revert-email');
+    const scope = fragmentScopeOf(route);
+    if (scope !== undefined && (initial || location.hash.length > 1)) {
+      this.#takeRouteFragment(scope);
+    }
     return route;
   }
 
-  /** Starts following the back and forward buttons. Returns the function that stops. */
+  /** Starts following the back, forward, and same-document fragment navigations. */
   listen(): () => void {
     const onPopState = (): void => {
       if (this.#writes > 0) return;
@@ -92,9 +123,17 @@ export class Router {
       if (cardIdOf(next) !== cardIdOf(now)) this.#cardEntered = false;
       this.route = next;
     };
+    const onHashChange = (): void => {
+      const scope = fragmentScopeOf(this.route);
+      if (scope !== undefined && location.hash.length > 1) {
+        this.#takeRouteFragment(scope);
+      }
+    };
     window.addEventListener('popstate', onPopState);
+    window.addEventListener('hashchange', onHashChange);
     return () => {
       window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('hashchange', onHashChange);
     };
   }
 

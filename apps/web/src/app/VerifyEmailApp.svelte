@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount, untrack } from 'svelte';
+
   import { acceptedRoute } from './accepted-route.ts';
   import { startEmailVerification } from './backend.ts';
-  import { forgetFragmentToken, takeFragmentToken } from '$lib/fragment-token.ts';
+  import { forgetFragmentToken } from '$lib/fragment-token.ts';
   import VerifyEmailPage from '$lib/features/account/VerifyEmailPage.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import type { Confirmed } from '$lib/state/email-verification.ts';
@@ -43,21 +45,21 @@
     return confirmed;
   }
 
-  const initialToken = takeFragmentToken(SCOPE);
-  let currentToken = $state(initialToken);
-
   /** Sends the confirmation of the token, if there is one: once for each. */
   function confirmToken(token: string): Promise<Confirmed> | undefined {
     return token ? complete(token) : undefined;
   }
 
+  const initialToken = untrack(() => router.fragment.token);
+  let currentToken = $state(initialToken);
   let confirming = $state.raw(confirmToken(initialToken));
-  function onhashchange(): void {
-    if (location.hash.length > 1) {
-      currentToken = takeFragmentToken(SCOPE);
-      confirming = confirmToken(currentToken);
-    }
-  }
+
+  onMount(() =>
+    router.onFragment(({ token }) => {
+      currentToken = token;
+      confirming = confirmToken(token);
+    }),
+  );
 
   /** Confirms again by the kept token, with the registration's password. */
   function onPassword(password: string): void {
@@ -69,5 +71,4 @@
   }
 </script>
 
-<svelte:window {onhashchange} />
 <VerifyEmailPage {confirming} homeHref={router.href({})} {resend} {onPassword} />
