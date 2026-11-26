@@ -300,7 +300,8 @@ export class CourseStore implements TreeSource<CourseUnit> {
         this.#speculativeUnitId = undefined;
       }
       this.status = 'ready';
-      this.#refreshActiveTab();
+      // Both, not the tab shown alone: a tab of meetings or exams shows once it holds one.
+      void this.events.refreshAll();
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
       this.#speculativeUnitId = undefined;
