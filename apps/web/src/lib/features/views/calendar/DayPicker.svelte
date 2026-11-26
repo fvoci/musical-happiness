@@ -26,6 +26,7 @@
 -->
 <script lang="ts">
   import { parseDate, type DateValue as PickedDay } from '@internationalized/date';
+  import { tick } from 'svelte';
 
   import BottomSheet from '$lib/components/sheet/BottomSheet.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -113,6 +114,8 @@
         : '[data-testid="calendar-undated"]'),
   );
   const weekStartsOn = $derived((placed.regional.weekStart % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
+  const pickedValue = $derived(span ? parseDate(span.first) : undefined);
+  const initialPlaceholder = $derived(parseDate(span?.first ?? selected));
 
   /**
    * A day was picked. The card's own day comes back as none (the calendar
@@ -154,14 +157,23 @@
     onclosed(id !== undefined && placed.span(id) !== undefined);
   }
 
+  function queryDay(day: CalendarDate): HTMLElement | null {
+    return (
+      box?.querySelector<HTMLElement>(`[data-bits-day][data-value="${day}"]`) ??
+      box?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]') ??
+      null
+    );
+  }
+
   /** The focus goes to the card's day, or for a card without one to the calendar's picked day. */
   function focusDay(event: Event): void {
     event.preventDefault();
-    const day = span?.first ?? selected;
-    (
-      box?.querySelector<HTMLElement>(`[data-bits-day][data-value="${day}"]`) ??
-      box?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]')
-    )?.focus();
+    queryDay(span?.first ?? selected)?.focus();
+    void tick().then(() => {
+      if (!open || !box) return;
+      const target = queryDay(span?.first ?? selected);
+      if (target && document.activeElement !== target) target.focus();
+    });
   }
 
   // The calendar marks the device's today; the reader's is marked instead.
@@ -185,8 +197,8 @@
     <p id="{uid}-hint" class="max-w-72 px-2 pt-1 text-xs text-muted-foreground">{hint}</p>
     <Calendar
       type="single"
-      bind:value={() => (span ? parseDate(span.first) : undefined), pick}
-      placeholder={parseDate(span?.first ?? selected)}
+      bind:value={() => pickedValue, pick}
+      placeholder={initialPlaceholder}
       {locale}
       {weekStartsOn}
       fixedWeeks

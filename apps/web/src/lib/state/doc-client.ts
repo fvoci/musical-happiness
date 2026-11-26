@@ -11,6 +11,7 @@
  */
 import * as Y from 'yjs';
 
+import { registerActiveBodySettler } from '../chunk-reload.svelte.ts';
 import { encodeCaretFrame, encodeDocFrame } from '../logic/doc-frame.ts';
 import {
   DocRoom,
@@ -54,6 +55,7 @@ class RoomClient implements BodyDoc {
   #heldTimer: ReturnType<typeof setTimeout> | undefined;
   /** What has the editor read the selection of the page (`BodyDocState.readsFirst`). */
   #read: (() => void) | undefined;
+  readonly #unregisterSettler: () => void;
   #closed = false;
 
   /** How long the room's changes are held after the last stroke (`HELD_IDLE`). */
@@ -62,6 +64,7 @@ class RoomClient implements BodyDoc {
   constructor(line: RoomLine, hears: BodyDocHears, heldIdle: number) {
     this.#hears = hears;
     this.#heldIdle = heldIdle;
+    this.#unregisterSettler = registerActiveBodySettler(() => this.settle());
     this.#port = line({
       up: () => {
         this.#take({ type: 'up' });
@@ -159,6 +162,7 @@ class RoomClient implements BodyDoc {
     // What was gathered goes first: the server takes it in order, before the leaving.
     this.#take({ type: 'settle' });
     this.#closed = true;
+    this.#unregisterSettler();
     this.#port.close();
     for (const timer of this.#timers.values()) clearTimeout(timer);
     this.#timers.clear();

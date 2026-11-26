@@ -77,7 +77,7 @@
     const search: NumberedSearch = {
       find: (ask) => backend.search.find(workspaceId, ask),
       numbered: (boardId, number) => backend.references.numbered(workspaceId, boardId, number),
-      boardShown: () => router.route.boardId,
+      boardShown: () => (router.route.kind === 'board' ? router.route.boardId : undefined),
     };
     session = new SearchSession({
       find: (ask) => findNumbered(search, ask),

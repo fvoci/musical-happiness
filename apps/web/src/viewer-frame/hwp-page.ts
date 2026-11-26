@@ -119,6 +119,7 @@ function copy(from: Element, into: Element, prefix: string): void {
       continue;
     }
     if (!(child instanceof Element) || child.namespaceURI !== SVG) continue;
+    if (child.localName.toLowerCase() === 'meta') continue;
     if (UNWRAPPED.has(child.localName)) {
       copy(child, into, prefix);
       continue;

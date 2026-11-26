@@ -261,11 +261,8 @@ describe("the account's address, in the app", () => {
 
 describe('the page of the link that changes the address', () => {
   it('is a route of its own under the deployment path', () => {
-    expect(parseRoute('/boards/confirm-email', 'boards')).toMatchObject({
-      emailConfirm: true,
-      unknown: false,
-    });
-    expect(parseRoute('/confirm-email/secret', '').unknown).toBe(true);
+    expect(parseRoute('/boards/confirm-email', 'boards')).toEqual({ kind: 'emailConfirm' });
+    expect(parseRoute('/confirm-email/secret', '').kind).toBe('unknown');
   });
 
   it('changes nothing until the button is pressed, then says the address is changed', async () => {

@@ -76,9 +76,9 @@ test('the workspaces are read once, and a wiki is told as visited once, with its
         .then(() => undefined);
   });
 
-  // The organization the reader administers is found: the sidebar leads to it.
+  // The organization the reader administers is found in a single membership read: the sidebar leads to it.
   const administered = page.waitForResponse((response) =>
-    /\/api\/v1\/org\/[^/]+$/.test(new URL(response.url()).pathname),
+    new URL(response.url()).pathname.endsWith('/api/v1/users/me/organizations'),
   );
   await page.goto(boardPath(board, board.viewId));
   await expect(page.getByText('Kick-off')).toBeVisible();

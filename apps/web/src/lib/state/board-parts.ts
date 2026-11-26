@@ -3,7 +3,7 @@
  * workspace shown, a member's effective role, adding a member,
  * the place of a drop, the card a copy is made as.
  */
-import { cardsOfView } from '../logic/card-list.ts';
+import { cardsOfView, filteredCardsOfView, narrowCardsBySearch } from '../logic/card-list.ts';
 import { valuesOfCopy } from '../logic/dependencies.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
@@ -206,6 +206,32 @@ export interface BoardCardsSource {
     readonly locale: string;
     readonly regional: { readonly timeZone: string };
   };
+}
+
+/** Stage 1: cards of a view filtered and sorted, independent of search text (§1.2.4). */
+export function filteredCardsOfBoardView(source: BoardCardsSource, view: BoardView): Card[] {
+  return filteredCardsOfView(
+    source.realCards,
+    source.board?.cardProperties ?? [],
+    viewQuery(view),
+    {
+      usernameOf: (userId) => source.workspace.userName(userId),
+      locale: source.workspace.locale,
+      timeZone: source.workspace.regional.timeZone,
+      cardTitle: (cardId) => source.cardsById.get(cardId)?.title,
+    },
+  );
+}
+
+/** Stage 2: narrows `filtered` cards by `searchText` (§1.2.4). */
+export function narrowBoardCards(
+  source: Pick<BoardCardsSource, 'board'>,
+  filtered: readonly Card[],
+  searchText: string,
+): Card[] {
+  return searchText
+    ? narrowCardsBySearch(filtered, source.board?.cardProperties ?? [], searchText)
+    : (filtered as Card[]);
 }
 
 /** The cards a view shows, in its order, for a search text. */

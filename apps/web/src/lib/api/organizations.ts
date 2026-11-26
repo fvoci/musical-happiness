@@ -3,7 +3,7 @@
  * audit log of a workspace (`/w/{workspaceId}/audit`). The members are read
  * whole, page after page; a record list is its newest {@link RECENT_RECORDS}.
  */
-import { isBackendError, ssoOrgOf } from '../state/backend.ts';
+import { isBackendError } from '../state/backend.ts';
 import { allPages } from '../state/page-reads.ts';
 import type {
   AuditRecord,
@@ -31,20 +31,19 @@ export class ServerOrganizations implements Organizations {
   }
 
   async administered(workspaces: readonly WorkspaceInfo[]): Promise<string | undefined> {
-    // The reader's own space has nobody to administer it: it is not asked for.
-    const shared = workspaces.filter((workspace) => workspace.kind !== 'personal');
-    const orgIds = shared.flatMap((workspace) => (workspace.orgId ? [workspace.orgId] : []));
-    for (const orgId of new Set(orgIds)) {
-      try {
-        await this.organization(orgId);
-        return orgId;
-      } catch (error) {
-        // Not theirs to administer: the organization is not there for them. One that
-        // this session does not open (it takes its single sign-on alone) is passed
-        // over, for the next that it does.
-        const passedOver = isBackendError(error) && error.status === 404;
-        if (!passedOver && ssoOrgOf(error) === undefined) throw error;
-      }
+    // Personal spaces have no org admin screen, and SSO-locked workspaces cannot open in this session.
+    const candidateIds = new Set(
+      workspaces
+        .filter((workspace) => workspace.kind !== 'personal' && !workspace.ssoRequired)
+        .flatMap((workspace) => (workspace.orgId ? [workspace.orgId] : [])),
+    );
+    if (candidateIds.size === 0) return undefined;
+    const listed = await this.#http.request<Schemas['UserOrganization'][]>(
+      '/api/v1/users/me/organizations',
+    );
+    const adminIds = new Set(listed.filter((org) => org.role === 'admin').map((org) => org.id));
+    for (const orgId of candidateIds) {
+      if (adminIds.has(orgId)) return orgId;
     }
     return undefined;
   }

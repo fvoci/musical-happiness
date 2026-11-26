@@ -58,6 +58,7 @@ async function startWorker(): Promise<void> {
 
 async function open(bytes: ArrayBuffer): Promise<PDFDocumentProxy> {
   await startWorker();
+  // Dynamic code evaluation is blocked by the viewer frame's CSP (`script-src` omits `'unsafe-eval'`).
   const task = getDocument({
     data: new Uint8Array(bytes),
     ...BUNDLED_DATA_OPTIONS,

@@ -101,6 +101,8 @@ interface Exported {
 export type Saving =
   | { name: 'idle' }
   | { name: 'exporting' }
+  /** A save asked from inside the sandboxed frame always confirms in the parent UI first. */
+  | { name: 'confirm'; exported: Exported }
   /**
    * The saved file loses something (as rhwp says, or the frame finds), takes a distribution
    * document's protection away, or reads back with other counts of pages or controls than the
@@ -174,6 +176,7 @@ export class EditingSession {
   #frame: HTMLIFrameElement | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #request = 0;
+  #fromFrame = false;
   #closed = false;
 
   constructor(
@@ -221,7 +224,11 @@ export class EditingSession {
     let loads = 0;
     const onLoad = (): void => {
       loads += 1;
-      if (loads > 1) this.#fail('editor');
+      if (loads > 1) {
+        frame.src = 'about:blank';
+        frame.remove();
+        this.#fail('editor');
+      }
     };
     window.addEventListener('message', onMessage);
     frame.addEventListener('load', onLoad);
@@ -279,7 +286,11 @@ export class EditingSession {
         if (this.status.name === 'ready') this.dirty = message.dirty;
         break;
       case 'save-asked':
-        this.save();
+        // A script inside the frame cannot silently trigger a save without active user input,
+        // and frame-originated exports still require parent confirmation (`confirm`).
+        if ('userActivation' in navigator && navigator.userActivation.isActive) {
+          this.#startSave(true);
+        }
         break;
       case 'leave':
         this.#onLeave();
@@ -324,10 +335,15 @@ export class EditingSession {
     });
   }
 
-  /** Asks the editor for the document, to save it. */
+  /** Asks the editor for the document, to save it from the parent UI. */
   save(): void {
+    this.#startSave(false);
+  }
+
+  #startSave(fromFrame: boolean): void {
     if (this.status.name !== 'ready' || this.busy || this.#request >= REQUEST_LIMIT) return;
     this.#request += 1;
+    this.#fromFrame = fromFrame;
     this.saved = undefined;
     this.saving = { name: 'exporting' };
     this.#send({ kind: 'export', request: this.#request });
@@ -359,7 +375,16 @@ export class EditingSession {
       this.saving = { name: 'lossy', count, losses, unprotected, recounts, exported };
       return;
     }
+    if (this.#fromFrame) {
+      this.saving = { name: 'confirm', exported };
+      return;
+    }
     void this.#store(exported, 'version');
+  }
+
+  /** Confirms a save that started inside the editor frame. */
+  confirmSave(): void {
+    if (this.saving.name === 'confirm') void this.#store(this.saving.exported, 'version');
   }
 
   /** The writer saw what the saved file loses, and saves it as a new version all the same. */
@@ -374,14 +399,17 @@ export class EditingSession {
    */
   saveApart(): void {
     const saving = this.saving;
-    if (saving.name === 'lossy') void this.#store(saving.exported, 'apart');
+    if (saving.name === 'lossy' || saving.name === 'confirm')
+      void this.#store(saving.exported, 'apart');
     else if (saving.name === 'stale') void this.#attachApart(saving.request, saving.upload);
   }
 
   /** Leaves a choice unmade, or a failure read: nothing was saved, the document stays changed. */
   dismiss(): void {
     const { name } = this.saving;
-    if (name === 'lossy' || name === 'stale' || name === 'failed') this.saving = { name: 'idle' };
+    if (name === 'confirm' || name === 'lossy' || name === 'stale' || name === 'failed') {
+      this.saving = { name: 'idle' };
+    }
   }
 
   async #store(exported: Exported, as: 'version' | 'apart'): Promise<void> {

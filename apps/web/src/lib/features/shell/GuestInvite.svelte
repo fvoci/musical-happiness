@@ -61,21 +61,33 @@
   /** Counts the readings: only the latest one's answer is shown. */
   let reading = 0;
 
-  async function readLinks(): Promise<void> {
-    const workspaceId = workspace.info?.id;
+  async function readLinks(workspaceId = workspace.info?.id): Promise<void> {
     if (!workspaceId) return;
     const mine = ++reading;
     let read: Invitation[];
     try {
       read = await access.people.invitations(workspaceId);
-    } catch {
+    } catch (error) {
+      if (isBackendError(error)) {
+        if (error.status === 401) workspace.report('load', error);
+        else if (error.status === 404) workspace.evictWorkspace(workspaceId);
+      }
       // Making a link does not need the list: without it, the section is as before.
       read = [];
     }
     if (mine === reading) links = read;
   }
 
-  void readLinks();
+  $effect(() => {
+    const workspaceId = workspace.info?.id;
+    const activeContainer = containerId;
+    made = undefined;
+    problem = undefined;
+    if (workspaceId && activeContainer !== '') void readLinks(workspaceId);
+    return () => {
+      reading += 1;
+    };
+  });
 
   async function revoke(link: Invitation): Promise<void> {
     const workspaceId = workspace.info?.id;
@@ -85,12 +97,17 @@
     try {
       await access.people.revokeInvitation(workspaceId, link.id);
     } catch (error) {
+      if (isBackendError(error)) {
+        if (error.status === 401) workspace.report('save', error);
+        else if (error.status === 403 || error.status === 404)
+          workspace.evictWorkspace(workspaceId);
+      }
       problem =
         isBackendError(error) && error.status === 403
           ? m.people_not_allowed({ workspace: workspaceName })
           : m.people_failed();
     } finally {
-      await readLinks();
+      await readLinks(workspaceId);
       working = false;
     }
   }
@@ -108,12 +125,17 @@
           ? undefined
           : { address: access.inviteLink(link.token), token: link.token };
     } catch (error) {
+      if (isBackendError(error)) {
+        if (error.status === 401) workspace.report('save', error);
+        else if (error.status === 403 || error.status === 404)
+          workspace.evictWorkspace(workspaceId);
+      }
       problem =
         isBackendError(error) && error.status === 403
           ? m.share_guest_off({ workspace: workspaceName })
           : m.people_failed();
     } finally {
-      await readLinks();
+      await readLinks(workspaceId);
       working = false;
     }
   }

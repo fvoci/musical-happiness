@@ -50,10 +50,10 @@ test('the account keeps the language: another device signs in to it, and auto fo
   // Another language chosen here is the account's, and stays over a reload.
   await page.getByTestId('open-settings').click();
   await languageSetting(page).getByRole('button').click();
-  await page.getByRole('combobox', { name: 'Search languages' }).fill('deutsch');
-  await page.getByRole('option', { name: 'Deutsch' }).click();
-  await expect.poll(() => language(api)).toBe('de');
-  await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  await page.getByRole('combobox', { name: 'Search languages' }).fill('ko');
+  await page.getByRole('option', { name: '한국어' }).click();
+  await expect.poll(() => language(api)).toBe('ko');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
   // The page that loaded again for it is up, and reads nothing any more, before it is
   // loaded once more: what a load cuts off on its way (the test's own doing here) is
   // told as errors by Safari's engine.
@@ -61,7 +61,7 @@ test('the account keeps the language: another device signs in to it, and auto fo
   await page.waitForLoadState('networkidle');
   await page.reload();
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
 
   await api.dispose();
   await context.close();

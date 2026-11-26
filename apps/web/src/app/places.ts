@@ -5,7 +5,7 @@
  */
 import { parseCalendarDate } from '$lib/logic/dates.ts';
 
-import type { Route, Router } from './router.svelte.ts';
+import type { RouteFields, Router } from './router.svelte.ts';
 
 /**
  * The view segment of the address of a card on a board not shown: it names
@@ -18,7 +18,6 @@ export const ANY_VIEW = '-';
 export interface Place {
   kind: 'card' | 'page' | 'entry' | 'unit' | 'meeting';
   id: string;
-  /** The board the card is on, the wiki the page is in, the diary the entry is in, or the course the unit/meeting is in. */
   containerId: string;
   workspaceId: string | undefined;
   /** The entry's day (`YYYY-MM-DD`), for a diary entry. */
@@ -26,7 +25,7 @@ export interface Place {
 }
 
 /** The route of a card (over the view shown where its board is shown, else over any), a page, a diary entry, a course unit, or a course meeting. */
-export function routeOfPlace(router: Router, place: Place): Partial<Route> {
+export function routeOfPlace(router: Router, place: Place): RouteFields {
   const { workspaceId, containerId, id } = place;
   if (place.kind === 'meeting') {
     return { workspaceId, courseId: containerId, courseTab: 'meetings', meetingId: id };
@@ -42,9 +41,15 @@ export function routeOfPlace(router: Router, place: Place): Partial<Route> {
     };
   }
   if (place.kind === 'page') return { workspaceId, wikiId: containerId, pageId: id };
-  const { boardId, viewId } = router.route;
-  const here = boardId === containerId && viewId !== undefined && viewId !== ANY_VIEW;
-  return { workspaceId, boardId: containerId, viewId: here ? viewId : ANY_VIEW, cardId: id };
+  const route = router.route;
+  const viewId =
+    route.kind === 'board' &&
+    route.boardId === containerId &&
+    route.viewId !== undefined &&
+    route.viewId !== ANY_VIEW
+      ? route.viewId
+      : ANY_VIEW;
+  return { workspaceId, boardId: containerId, viewId, cardId: id };
 }
 
 /**
@@ -52,15 +57,20 @@ export function routeOfPlace(router: Router, place: Place): Partial<Route> {
  */
 export function goToPlace(router: Router, place: Place): void {
   const route = routeOfPlace(router, place);
-  if (place.kind === 'page' && router.route.wikiId === place.containerId) {
+  const now = router.route;
+  if (place.kind === 'page' && now.kind === 'wiki' && now.wikiId === place.containerId) {
     router.openPage(place.id);
-  } else if (place.kind === 'meeting' && router.route.courseId === place.containerId) {
+  } else if (
+    place.kind === 'meeting' &&
+    now.kind === 'course' &&
+    now.courseId === place.containerId
+  ) {
     router.openCourseTab('meetings', { meetingId: place.id });
-  } else if (place.kind === 'unit' && router.route.courseId === place.containerId) {
+  } else if (place.kind === 'unit' && now.kind === 'course' && now.courseId === place.containerId) {
     router.openUnit(place.id);
   } else if (place.kind === 'card' && route.viewId !== ANY_VIEW) {
     router.openCard(place.id);
-  } else if (place.kind === 'entry' && router.route.diaryId === place.containerId) {
+  } else if (place.kind === 'entry' && now.kind === 'diary' && now.diaryId === place.containerId) {
     router.go(route);
   } else {
     const kind = (
@@ -71,10 +81,6 @@ export function goToPlace(router: Router, place: Place): void {
   }
 }
 
-/**
- * Puts the focus where a card or a page was opened (`goToPlace`): in the card
- * where one is open, else on the page.
- */
 export function focusThePlace(): void {
   const card = document.querySelector<HTMLElement>('[data-card-dialog]');
   (card ?? document.querySelector<HTMLElement>('main'))?.focus();

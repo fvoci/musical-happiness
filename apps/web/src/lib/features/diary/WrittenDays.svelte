@@ -36,6 +36,7 @@
   const uid = $props.id();
 
   let placeholder = $derived<PickedDay>(parseDate(opening));
+  const maxDay = $derived<PickedDay>(parseDate(today));
 
   function pick(picked: PickedDay | undefined): void {
     if (picked) onPick(picked.toString() as CalendarDate);
@@ -71,7 +72,7 @@
     }
     {locale}
     weekStartsOn={(weekStart % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6}
-    maxValue={parseDate(today)}
+    maxValue={maxDay}
     fixedWeeks
     calendarLabel={m.diary_pick_day()}
     class="bg-transparent p-1 [--cell-size:--spacing(9)] roomy:[--cell-size:var(--spacing-touch)]"

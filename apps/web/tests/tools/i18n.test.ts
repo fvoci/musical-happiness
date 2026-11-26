@@ -175,10 +175,9 @@ describe('the message files', () => {
       unknown
     >;
 
-  it('are those of the eighteen locales, English first and Korean among them', () => {
+  it('are those of the two complete locales, English and Korean', () => {
     expect(settings.baseLocale).toBe('en');
-    expect(settings.locales).toHaveLength(18);
-    expect(settings.locales[0]).toBe('en');
+    expect(settings.locales).toEqual(['en', 'ko']);
     for (const locale of COMPLETE_LOCALES) expect(settings.locales).toContain(locale);
     for (const locale of settings.locales)
       expect(messageKeys(messages(locale)).length).toBeGreaterThan(0);
@@ -251,12 +250,10 @@ describe('the message files', () => {
     expect(found).toEqual([]);
   });
 
-  it('leave the rewritten English message untranslated except in Korean', () => {
+  it('keep the rewritten English message translated in Korean', () => {
     const id = 'ShareBoard.searchPlaceholder';
+    expect(messages('en')[id]).toBeDefined();
     expect(messages('ko')[id]).toBeDefined();
-    for (const locale of settings.locales.filter((one) => one !== 'en' && one !== 'ko')) {
-      expect(messages(locale)[id], `${locale} ${id}`).toBeUndefined();
-    }
   });
 
   // A Korean particle depends on how the word before it ends (을/를, 이/가, …),

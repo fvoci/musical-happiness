@@ -21,8 +21,9 @@ export interface BoardGroups {
 export type NoValueLabel = (propertyName: string) => string;
 
 function groupCardsByOptions(
-  cards: readonly Card[],
   optionIds: readonly string[],
+  optionsById: ReadonlyMap<string, PropertyOption>,
+  buckets: ReadonlyMap<string, Card[]>,
   groupBy: PropertyTemplate | undefined,
   noValueLabel: NoValueLabel,
 ): BoardGroup[] {
@@ -30,22 +31,15 @@ function groupCardsByOptions(
   for (const optionId of optionIds) {
     if (optionId) {
       // An identifier without an option is a deleted option and gets no column.
-      const option = groupBy?.options.find((candidate) => candidate.id === optionId);
-      if (option && groupBy) {
-        groups.push({
-          option,
-          cards: cards.filter((card) => cardProperty(card, groupBy.id) === optionId),
-        });
+      const option = optionsById.get(optionId);
+      if (option) {
+        groups.push({ option, cards: [...(buckets.get(optionId) ?? [])] });
       }
       continue;
     }
-    // The empty identifier stands for the cards without a value, or with one that no longer exists.
     groups.push({
       option: { id: '', label: noValueLabel(groupBy?.name ?? ''), color: DEFAULT_PROPERTY_COLOR },
-      cards: cards.filter((card) => {
-        const value = cardProperty(card, groupBy?.id ?? '');
-        return !value || !groupBy?.options.some((option) => option.id === value);
-      }),
+      cards: [...(buckets.get('') ?? [])],
     });
   }
   return groups;
@@ -58,17 +52,32 @@ function getOptionGroups(
   groupBy: PropertyTemplate | undefined,
   noValueLabel: NoValueLabel,
 ): BoardGroups {
+  const optionsById = new Map<string, PropertyOption>(
+    (groupBy?.options ?? []).map((option) => [option.id, option]),
+  );
+  // Single O(N) pass bucketing every card by its option ID (or '' when unset / deleted) (§1.2.4).
+  const buckets = new Map<string, Card[]>();
+  for (const card of cards) {
+    const raw = groupBy ? cardProperty(card, groupBy.id) : undefined;
+    const key = typeof raw === 'string' && raw !== '' && optionsById.has(raw) ? raw : '';
+    const list = buckets.get(key);
+    if (list) list.push(card);
+    else buckets.set(key, [card]);
+  }
+
   // An option the view does not mention yet is shown, after the mentioned ones.
-  const unassigned = (groupBy?.options ?? [])
-    .map((option) => option.id)
-    .filter((id) => !visibleGroups.includes(id) && !hiddenGroups.includes(id));
+  const shownSet = new Set(visibleGroups);
+  const hiddenSet = new Set(hiddenGroups);
+  const unassigned = [...optionsById.keys()].filter(
+    (id) => !shownSet.has(id) && !hiddenSet.has(id),
+  );
   const visible = [...visibleGroups, ...unassigned];
   // Unless the view placed it, the column of cards without a value comes first.
-  if (!visible.includes('') && !hiddenGroups.includes('')) visible.unshift('');
+  if (!shownSet.has('') && !hiddenSet.has('')) visible.unshift('');
 
   return {
-    visible: groupCardsByOptions(cards, visible, groupBy, noValueLabel),
-    hidden: groupCardsByOptions(cards, hiddenGroups, groupBy, noValueLabel),
+    visible: groupCardsByOptions(visible, optionsById, buckets, groupBy, noValueLabel),
+    hidden: groupCardsByOptions(hiddenGroups, optionsById, buckets, groupBy, noValueLabel),
   };
 }
 

@@ -16,6 +16,7 @@ import {
   type CommentVersion,
 } from '../state/backend.ts';
 import type { DeletedItem, Paging } from '../state/trash-reads.ts';
+import { BlockTurns } from '../state/write.ts';
 import type {
   PageDraft,
   PageMove,
@@ -128,13 +129,14 @@ export class ServerWikis implements Wikis {
   readonly #request: WikiRequest;
   /** Keeps the workspace of each wiki read, for the paths under it. */
   readonly #learn: (wikis: readonly Schemas['Container'][]) => void;
+  readonly #turns = new BlockTurns();
 
-  readonly bodyVersions: ServerPageVersions;
+  readonly bodyVersions: ServerPageVersions<WikiPageDetail>;
 
   constructor(request: WikiRequest, learn: (wikis: readonly Schemas['Container'][]) => void) {
     this.#request = request;
     this.#learn = learn;
-    this.bodyVersions = new ServerPageVersions(request);
+    this.bodyVersions = new ServerPageVersions(request, pageDetailOf);
   }
 
   async wikis(workspaceId: string): Promise<Container[]> {
@@ -181,12 +183,14 @@ export class ServerWikis implements Wikis {
     );
   }
 
-  async patchPage(wikiId: string, pageId: string, patch: PagePatch): Promise<WikiPageDetail> {
-    return pageDetailOf(
-      await this.#request<Schemas['Page']>(
-        '/wikis/{wikiId}/pages/{pageId}',
-        { wikiId, pageId },
-        { method: 'PATCH', json: pagePatchOf(patch) },
+  patchPage(wikiId: string, pageId: string, patch: PagePatch): Promise<WikiPageDetail> {
+    return this.#turns.run(pageId, async () =>
+      pageDetailOf(
+        await this.#request<Schemas['Page']>(
+          '/wikis/{wikiId}/pages/{pageId}',
+          { wikiId, pageId },
+          { method: 'PATCH', json: pagePatchOf(patch) },
+        ),
       ),
     );
   }
@@ -258,25 +262,26 @@ export class ServerWikis implements Wikis {
     );
   }
 
-  async patchComment(
+  patchComment(
     wikiId: string,
     pageId: string,
     commentId: string,
     write: BodyWrite,
   ): Promise<Comment> {
     if (!write.body) {
-      // As the server has it: a comment has a text.
-      throw new BackendError(400, { detail: 'a comment has a text' });
+      return Promise.reject(new BackendError(400, { detail: 'a comment has a text' }));
     }
     const request: Schemas['PageCommentPatch'] = {
       body: wireBody(write.body),
       readAt: write.readAt,
     };
-    return commentOf(
-      await this.#request<Schemas['Block']>(
-        '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}',
-        { wikiId, pageId, commentId },
-        { method: 'PATCH', json: request },
+    return this.#turns.run(commentId, async () =>
+      commentOf(
+        await this.#request<Schemas['Block']>(
+          '/wikis/{wikiId}/pages/{pageId}/comments/{commentId}',
+          { wikiId, pageId, commentId },
+          { method: 'PATCH', json: request },
+        ),
       ),
     );
   }

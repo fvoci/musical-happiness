@@ -6,11 +6,7 @@
 import { DEFAULT_OPTION_COLOR } from '$lib/components/option-chip/colors.ts';
 import type { PropertyUser } from '$lib/components/properties/index.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
-import {
-  buildHierarchyIndex,
-  subcardProgress,
-  type SubcardProgress,
-} from '$lib/logic/card-hierarchy.ts';
+import { subcardProgress, type SubcardProgress } from '$lib/logic/card-hierarchy.ts';
 import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import {
@@ -48,7 +44,8 @@ const NO_TEMPLATES: readonly PropertyTemplate[] = [];
 
 export function faceContextOf(board: BoardStore, view: BoardView): FaceContext {
   const templates = board.board?.cardProperties ?? NO_TEMPLATES;
-  const { byId, childrenMap } = buildHierarchyIndex(board.realCards);
+  const { byId, childrenMap } = board.hierarchy;
+  const statusProp = board.statusProperty;
   const untitled = m['KanbanCard.untitled']();
   return {
     templates,
@@ -57,7 +54,7 @@ export function faceContextOf(board: BoardStore, view: BoardView): FaceContext {
     regional: board.workspace.regional,
     users: board.workspace.users,
     hierarchy: {
-      progressOf: (cardId) => subcardProgress(cardId, childrenMap, templates),
+      progressOf: (cardId) => subcardProgress(cardId, childrenMap, templates, statusProp),
       parentOf: (card) => {
         if (card.parentId === '') return undefined;
         const parent = byId.get(card.parentId);

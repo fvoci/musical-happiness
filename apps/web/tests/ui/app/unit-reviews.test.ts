@@ -254,8 +254,7 @@ describe('course unit reviews & notes UI', () => {
 
     await fireEvent.click(link);
     await waitFor(() => {
-      expect(router.route.courseId).toBe(course.id);
-      expect(router.route.unitId).toBe(u1.id);
+      expect(router.route).toMatchObject({ kind: 'course', courseId: course.id, unitId: u1.id });
     });
   });
 

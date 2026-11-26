@@ -1,9 +1,10 @@
 /**
- * What a gallery shows of its cards' bodies: read when a gallery is shown,
- * and only then (`Backend.cardPreviews`), and kept current while it is by
- * the board's change messages, whose cards carry it.
+ * What a gallery shows of its cards' bodies: read when a gallery is first
+ * shown (`Backend.cardPreviews`), reused across view tab switches on the same
+ * open `BoardStore` (§1.3.6), and kept current while the board is active by
+ * change messages, whose cards carry `preview`.
  */
-import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { SvelteMap } from 'svelte/reactivity';
 
 import type { CardPreview } from '../editor/card-preview.ts';
 
@@ -14,9 +15,12 @@ export class CardPreviews {
   readonly #backend: Backend;
   readonly #boardId: string;
   readonly #previews = new SvelteMap<string, CardPreview>();
-  /** Cards told of since the reading began: what the reading says of them is older. */
-  readonly #told = new SvelteSet<string>();
+  /** Cards told of since the reading began: consulted during read, never read by UI (§1.2.5). */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- non-reactive bookkeeping set
+  readonly #told = new Set<string>();
   #reading = 0;
+  #stopWatching: (() => void) | undefined;
+  #loaded = false;
 
   constructor(backend: Backend, boardId: string) {
     this.#backend = backend;
@@ -28,22 +32,51 @@ export class CardPreviews {
     return this.#previews.get(cardId);
   }
 
-  /** Reads the previews and follows the board. Returns the function that stops it. */
+  /**
+   * Starts reading and watching once for the lifetime of an open board visit
+   * (`BoardStore.previews`), reusing already-fetched previews across view tab switches.
+   */
+  retain(): () => void {
+    if (!this.#stopWatching) {
+      this.#stopWatching = this.#watch();
+    }
+    if (!this.#loaded) {
+      this.#loaded = true;
+      void this.#read();
+    }
+    return () => undefined;
+  }
+
+  /** Detaches live watching when the owning `BoardStore` is parked or closed. */
+  dispose(): void {
+    this.#stopWatching?.();
+    this.#stopWatching = undefined;
+    this.#loaded = false;
+    this.#reading += 1;
+  }
+
+  /** Standalone start/stop lifecycle (used directly by unit tests). */
   start(): () => void {
-    const stop = this.#backend.watchContainer(this.#boardId, (change) => {
+    const stop = this.#watch();
+    void this.#read();
+    return () => {
+      stop();
+      this.#reading += 1;
+    };
+  }
+
+  #watch(): () => void {
+    return this.#backend.watchContainer(this.#boardId, (change) => {
       if (change.kind === 'blocks') {
         for (const block of change.blocks) {
           if (!isCardBlock(block) || !block.preview) continue;
           this.#told.add(block.id);
           this.#previews.set(block.id, block.preview);
         }
-      } else if (change.kind === 'resync') void this.#read();
+      } else if (change.kind === 'resync') {
+        void this.#read();
+      }
     });
-    void this.#read();
-    return () => {
-      stop();
-      this.#reading += 1;
-    };
   }
 
   async #read(): Promise<void> {
@@ -57,7 +90,7 @@ export class CardPreviews {
         if (!this.#told.has(cardId)) this.#previews.set(cardId, preview);
       }
     } catch {
-      // The gallery shows its cards without previews; the next reading may bring them.
+      this.#loaded = false;
     }
   }
 }

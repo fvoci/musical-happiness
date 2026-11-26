@@ -182,7 +182,9 @@
       (rowDrag ?? columnDrag)?.mode === 'pointer' && 'cursor-grabbing',
     ]}
     style:--table-columns={table.template}
-    style:--table-title={table.titleWidth === undefined ? undefined : `${table.titleWidth}px`}
+    style:--table-title={table.liveTitleWidth === undefined
+      ? undefined
+      : `${table.liveTitleWidth}px`}
     onkeydown={onKeyDown}
     {@attach keeper.attach}
     {@attach grid.attach}
@@ -208,7 +210,7 @@
             sorted={sortDirection(view.fields.sort, TITLE_COLUMN_ID)}
             canEdit={table.canEdit}
             actions={table.headerActions(TITLE_COLUMN_ID)}
-            width={table.titleWidth}
+            width={table.liveTitleWidth}
             {...table.resize.handlers(TITLE_COLUMN_ID)}
           />
           {#each table.headerColumns as column (column.id)}
@@ -221,7 +223,7 @@
               dragging={columnDrag?.mode === 'pointer' && columnDrag.itemId === column.id}
               carried={columnDrag?.mode === 'keyboard' && columnDrag.itemId === column.id}
               drop={table.columnMarker?.id === column.id ? table.columnMarker.side : undefined}
-              width={column.width}
+              width={table.resize.live?.id === column.id ? table.resize.live.width : column.width}
               {...table.resize.handlers(column.id)}
             />
           {/each}

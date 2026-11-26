@@ -73,6 +73,7 @@ export class ReferenceTitles {
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- nothing that is drawn reads it
   readonly #watched = new Map<string, () => void>();
   #following = false;
+  #stopSelf: (() => void) | undefined;
   #searches = 0;
   #latest: Promise<LinkedBlock[]> = Promise.resolve([]);
   /** The workspace that was entered when something was last asked. */
@@ -90,6 +91,22 @@ export class ReferenceTitles {
 
   constructor(workspace: Workspace) {
     this.#workspace = workspace;
+    workspace.onClose(() => {
+      this.close();
+    });
+  }
+
+  /** Stops all container/self subscriptions and pending retry timers on workspace close/sign-out. */
+  close(): void {
+    this.#stopSelf?.();
+    this.#stopSelf = undefined;
+    this.#following = false;
+    this.#unwatchAll();
+    if (this.#retry !== undefined) {
+      clearTimeout(this.#retry);
+      this.#retry = undefined;
+    }
+    this.#unanswered.clear();
   }
 
   /**
@@ -327,7 +344,7 @@ export class ReferenceTitles {
   #follow(): void {
     if (this.#following) return;
     this.#following = true;
-    this.#workspace.backend.watchSelf((change) => {
+    this.#stopSelf = this.#workspace.backend.watchSelf((change) => {
       if (change.kind === 'resync') void this.#ask(this.#knownHere(() => true));
       else if (change.kind === 'container') void this.#ask(this.#knownHere((linked) => !linked));
       // A board the reader is taken off.
@@ -344,6 +361,7 @@ export class ReferenceTitles {
         if (!this.#held(key) || !isCardBlock(block)) continue;
         const { id, title, containerId } = block;
         const icon = cardIcon(block);
+        const number = block.number ?? this.#known.get(key)?.number;
         this.#changedAt.set(key, this.#tick());
         this.#known.set(key, {
           id,
@@ -352,6 +370,7 @@ export class ReferenceTitles {
           icon,
           containerId,
           containerKind: 'board',
+          ...(number === undefined ? {} : { number }),
         });
       }
     } else if (change.kind === 'pages') {

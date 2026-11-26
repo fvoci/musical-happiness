@@ -75,7 +75,13 @@ export default ts.config(
   {
     // Screens reach data through lib/state. See src/lib/README.md.
     files: ['src/**'],
-    ignores: ['src/lib/state/**', 'src/lib/api/**', 'src/app/backend.ts'],
+    ignores: [
+      'src/lib/state/**',
+      'src/lib/api/**',
+      // Probes live index.html via fetch() on dynamic chunk failure to detect new deployments.
+      'src/lib/chunk-reload.svelte.ts',
+      'src/app/backend.ts',
+    ],
     plugins: { fvoci: layers },
     rules: { 'fvoci/no-direct-server': 'error' },
   },

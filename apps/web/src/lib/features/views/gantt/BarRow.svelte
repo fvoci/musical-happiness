@@ -139,6 +139,7 @@
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
       return;
     event.preventDefault();
+    (event.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
     onopentitle(line.id);
   }
 </script>
@@ -202,6 +203,7 @@
       {href}
       tabindex="-1"
       data-row-title
+      data-card-return={viaTitle ? line.id : undefined}
       class={[
         'flex min-w-0 flex-1 items-center outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset can-hover:hover:bg-muted',
         line.showIndent ? 'ps-1 pe-3' : 'px-3',

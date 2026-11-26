@@ -26,13 +26,11 @@
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import {
-    buildHierarchyIndex,
     canAddSubcard,
     directChildrenOf,
     eligibleSubcardsFor,
     isCardCompleted,
     statusOptionOf,
-    statusPropertyOf,
     subcardProgress,
   } from '$lib/logic/card-hierarchy.ts';
   import type { BoardStore, CardSummary } from '$lib/state/index.ts';
@@ -64,18 +62,20 @@
   const presentation = $derived(overlayPresentation(page.stage));
   const untitled = $derived(m['KanbanCard.untitled']());
   const properties = $derived(board.board?.cardProperties ?? []);
-  const statusProp = $derived(statusPropertyOf(properties));
+  const statusProp = $derived(board.statusProperty);
 
-  const hierarchy = $derived(buildHierarchyIndex(board.realCards));
+  const hierarchy = $derived(board.hierarchy);
   const children = $derived(directChildrenOf(card.id, hierarchy.childrenMap));
-  const progress = $derived(subcardProgress(card.id, hierarchy.childrenMap, properties));
+  const progress = $derived(
+    subcardProgress(card.id, hierarchy.childrenMap, properties, statusProp),
+  );
   const canAdd = $derived(editable && canAddSubcard(card.id, hierarchy.byId));
   const visible = $derived(children.length > 0 || canAdd);
 
   const sortedLinkCandidates = $derived.by(() =>
     linkOpen
       ? sortPickerCandidates(
-          eligibleSubcardsFor(card.id, board.realCards),
+          eligibleSubcardsFor(card.id, board.realCards, hierarchy),
           board.workspace.locale,
           untitled,
         )
@@ -212,9 +212,9 @@
       <ul class="flex flex-col gap-1.5" data-testid="subcards-list">
         {#each children as child (child.id)}
           {@const childTitle = child.title || untitled}
-          {@const done = isCardCompleted(child, properties)}
+          {@const done = isCardCompleted(child, properties, statusProp)}
           {@const statusOpt = statusOptionOf(child, statusProp)}
-          {@const nested = subcardProgress(child.id, hierarchy.childrenMap, properties)}
+          {@const nested = subcardProgress(child.id, hierarchy.childrenMap, properties, statusProp)}
           <li
             data-subcard={child.id}
             data-completed={done ? '' : undefined}

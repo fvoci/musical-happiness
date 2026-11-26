@@ -40,8 +40,6 @@
     isGuest,
     isOwnSpace,
     peopleOf,
-    shownCourse,
-    shownWiki,
     whileHere,
     type Category,
     type Trash,
@@ -140,15 +138,16 @@
    * board the reader can only read. What the reader is on the other boards
    * the sidebar does not know; there the server has the say.
    */
-  const canDeleteOpenContainer = $derived(
-    (workspace.board?.boardId === containerId && workspace.board?.canEdit === true) ||
-      (shownWiki(workspace).current?.wikiId === containerId &&
-        shownWiki(workspace).current?.canManage === true) ||
-      (shownCourse(workspace).current?.courseId === containerId &&
-        shownCourse(workspace).current?.canManage === true) ||
+  const canDeleteOpenContainer = $derived.by(() => {
+    const active = workspace.activeContainer;
+    return (
+      (workspace.board?.boardId === containerId && workspace.board?.canEdit === true) ||
+      (active?.kind === 'wiki' && active.wikiId === containerId && active.canManage) ||
+      (active?.kind === 'course' && active.courseId === containerId && active.canManage) ||
       // A diary is the reader's alone.
-      workspace.containers.some((one) => one.id === containerId && one.kind === 'diary'),
-  );
+      workspace.containers.some((one) => one.id === containerId && one.kind === 'diary')
+    );
+  });
 
   /**
    * The way into a diary where the reader's own space has none yet: the

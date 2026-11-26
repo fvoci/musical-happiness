@@ -67,7 +67,9 @@ describe('a key pressed right after the caret moved', () => {
     press(editor, 'ArrowRight', 39);
     const { selection } = editor.state;
     expect(selection).toBeInstanceOf(NodeSelection);
-    expect((selection as NodeSelection).node.type.name).toBe('file');
+    if (selection instanceof NodeSelection) {
+      expect(selection.node.type.name).toBe('file');
+    }
   });
 
   it('is Enter that breaks the line where the caret is, not where it was', () => {

@@ -9,11 +9,13 @@ import PeoplePanel from '$lib/features/shell/PeoplePanel.svelte';
 import { emptyName } from '$lib/logic/person-names.ts';
 import {
   BackendError,
+  Workspace,
   type Invitation,
   type People,
-  type Workspace,
   type WorkspaceMember,
 } from '$lib/state/index.ts';
+import { MemoryBackend } from '$lib/state/memory/backend.ts';
+import { seedWorld } from '$lib/state/memory/seed.ts';
 
 afterEach(cleanup);
 
@@ -56,18 +58,30 @@ function requests() {
   };
 }
 
+function makeWorkspace(): Workspace {
+  const { world, readerId } = seedWorld([]);
+  const workspace = new Workspace({
+    backend: new MemoryBackend(world, readerId),
+    locale: () => 'en',
+  });
+  workspace.status = 'ready';
+  workspace.me = {
+    id: 'u1',
+    username: 'ada',
+    displayName: 'Ada',
+    email: '',
+    createdAt: 0,
+    updatedAt: 0,
+  };
+  workspace.workspaces = [{ id: 'w1', title: 'Acme', role: 'admin' }];
+  workspace.info = { id: 'w1', title: 'Acme', role: 'admin' };
+  workspace.settings = { ...workspace.settings, timeZone: 'UTC', hourCycle: 'h23' };
+  return workspace;
+}
+
 function mount(overrides: Partial<ReturnType<typeof requests>> = {}) {
   const people = { ...requests(), ...overrides };
-  // What the panel reads of the workspace store, and no more.
-  const workspace = {
-    info: { id: 'w1', title: 'Acme', role: 'admin' },
-    containers: [],
-    me: { id: 'u1' },
-    // Nobody read yet: the rows are the list's.
-    user: () => undefined,
-    locale: 'en',
-    regional: { timeZone: 'UTC', hourCycle: 'h23' },
-  } as unknown as Workspace;
+  const workspace = makeWorkspace();
   render(PeoplePanel, {
     props: { workspace, people, inviteLink: (token: string) => `https://here/invite/${token}` },
   });

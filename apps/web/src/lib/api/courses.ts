@@ -34,6 +34,7 @@ import type {
   WorkspaceLearningToday,
 } from '../state/course-types.ts';
 import type { DeletedItem, Paging } from '../state/trash-reads.ts';
+import { BlockTurns } from '../state/write.ts';
 
 import { ServerUnitVersions } from './body-versions.ts';
 import {
@@ -156,8 +157,9 @@ function unitPatchOf(patch: UnitPatch): Schemas['UnitPatch'] {
 export class ServerCourses implements Courses {
   readonly #request: WikiRequest;
   readonly #learn: (courses: readonly Schemas['Container'][]) => void;
+  readonly #turns = new BlockTurns();
 
-  readonly bodyVersions: ServerUnitVersions;
+  readonly bodyVersions: ServerUnitVersions<CourseUnitDetail>;
   readonly meetings: CourseMeetingsApi;
   readonly exams: CourseExamsApi;
   readonly reviews: ServerUnitReviews;
@@ -165,7 +167,7 @@ export class ServerCourses implements Courses {
   constructor(request: WikiRequest, learn: (courses: readonly Schemas['Container'][]) => void) {
     this.#request = request;
     this.#learn = learn;
-    this.bodyVersions = new ServerUnitVersions(request);
+    this.bodyVersions = new ServerUnitVersions(request, unitDetailOf);
     this.meetings = serverCourseMeetings(request);
     this.exams = serverCourseExams(request);
     this.reviews = new ServerUnitReviews(request);
@@ -223,12 +225,14 @@ export class ServerCourses implements Courses {
     );
   }
 
-  async patchUnit(courseId: string, unitId: string, patch: UnitPatch): Promise<CourseUnitDetail> {
-    return unitDetailOf(
-      await this.#request<Schemas['Unit']>(
-        '/courses/{courseId}/units/{unitId}',
-        { courseId, unitId },
-        { method: 'PATCH', json: unitPatchOf(patch) },
+  patchUnit(courseId: string, unitId: string, patch: UnitPatch): Promise<CourseUnitDetail> {
+    return this.#turns.run(unitId, async () =>
+      unitDetailOf(
+        await this.#request<Schemas['Unit']>(
+          '/courses/{courseId}/units/{unitId}',
+          { courseId, unitId },
+          { method: 'PATCH', json: unitPatchOf(patch) },
+        ),
       ),
     );
   }
@@ -293,24 +297,26 @@ export class ServerCourses implements Courses {
     );
   }
 
-  async patchComment(
+  patchComment(
     courseId: string,
     unitId: string,
     commentId: string,
     write: BodyWrite,
   ): Promise<Comment> {
     if (!write.body) {
-      throw new BackendError(400, { detail: 'a comment has a text' });
+      return Promise.reject(new BackendError(400, { detail: 'a comment has a text' }));
     }
     const request: Schemas['UnitCommentPatch'] = {
       body: wireBody(write.body),
       readAt: write.readAt,
     };
-    return commentOf(
-      await this.#request<Schemas['Block']>(
-        '/courses/{courseId}/units/{unitId}/comments/{commentId}',
-        { courseId, unitId, commentId },
-        { method: 'PATCH', json: request },
+    return this.#turns.run(commentId, async () =>
+      commentOf(
+        await this.#request<Schemas['Block']>(
+          '/courses/{courseId}/units/{unitId}/comments/{commentId}',
+          { courseId, unitId, commentId },
+          { method: 'PATCH', json: request },
+        ),
       ),
     );
   }

@@ -11,9 +11,6 @@
 # The names and keywords of the emoji, as CLDR gives them: steam.
 src/lib/editor/emoji/en.json
 
-# A comment on the course page refers to other members as teammates.
-src/app/CoursePage.svelte | teammates'
-
 # The notices of the HWP renderer's crates name where each crate lives; BLAKE3's
 # project is "BLAKE3-team" on GitHub.
 tools/licenses/rhwp-wasm-crates.txt | BLAKE3-team
