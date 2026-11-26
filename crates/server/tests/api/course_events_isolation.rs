@@ -970,7 +970,10 @@ async fn account_erasure_keeps_attendance_tombstone_and_removes_exam_score_from_
         .get(&format!("{ROOT_WS}/courses/{course_id}/exams"))
         .await
         .ok_json();
-    assert_eq!(after_obs[0].score_count, 2, "observer sees 2 scorers");
+    assert_eq!(
+        after_obs[0].score_count, 0,
+        "learner observer sees bucketed 0 for 2 scorers"
+    );
     assert_eq!(
         after_obs[0].average_score, None,
         "observer sees unpublished None"

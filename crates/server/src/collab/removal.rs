@@ -487,7 +487,7 @@ mod tests {
     #[tokio::test]
     async fn container_gate_and_structure_maps_prune_when_guards_and_cancelled_waiters_drop() {
         let collab = test_collab();
-        let tenant = Tenant::org(&new_id()).expect("tenant");
+        let tenant = Tenant::System;
         let c1 = new_id();
         let c2 = new_id();
 
@@ -540,7 +540,6 @@ mod tests {
     #[should_panic(expected = "non-empty container_id")]
     fn empty_container_id_lock_key_is_rejected() {
         let collab = test_collab();
-        let tenant = Tenant::org(&new_id()).expect("tenant");
-        let _ = collab.gate(tenant, "");
+        let _ = collab.gate(Tenant::System, "");
     }
 }
