@@ -5,7 +5,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ContainerPlace } from '$lib/logic/urls.ts';
   import type { Container } from '$lib/logic/wire.ts';
@@ -21,6 +20,7 @@
   import { devReadout } from './dev.svelte.ts';
   import DevReadout from './DevReadout.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
+  import { shownSpaceName } from './space-names.ts';
   import TemplatePicker from './TemplatePicker.svelte';
   import Transfers from './Transfers.svelte';
 
@@ -71,7 +71,7 @@
   bind:open={picking}
   {workspace}
   alone={isOwnSpace(workspace.info)}
-  workspaceName={nameOfWorkspace(workspace.info, m.shell_workspace_unnamed)}
+  workspaceName={shownSpaceName(workspace, m.shell_workspace_unnamed)}
   {onCreate}
   {onFromTemplate}
   onEditTemplate={onOpenContainer}

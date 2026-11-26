@@ -1,8 +1,9 @@
 <!--
   Personal completion toggle and optional last-position note for one unit.
   Available to every enrolled course member (including viewers and invited
-  guests) and personal-space owners; unjoined open-course readers see a
-  disabled toggle with a join hint. Never mounted on public share links.
+  guests) and personal-space owners; nothing for a reader of an open course who
+  has not joined it (the course's banner joins). Never mounted on public share
+  links.
 -->
 <script lang="ts">
   import { tick } from 'svelte';

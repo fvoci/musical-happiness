@@ -82,6 +82,19 @@
     });
   }
 
+  /** Where the cards of the kinds are: Enter in the title goes on to the first. */
+  let kindsArea = $state<HTMLElement>();
+
+  /**
+   * Enter in the title is done with it: on to the cards of the kinds, one of which makes the
+   * thing (and on a phone the keyboard goes). Not while a word is being composed.
+   */
+  function onTitleKey(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    kindsArea?.querySelector<HTMLElement>('button')?.focus();
+  }
+
   function draft(): ContainerDraft {
     return { title: title.trim(), visibility: alone ? 'private' : visibility };
   }
@@ -96,7 +109,7 @@
       'flex flex-col gap-0 p-0',
       compact
         ? 'top-0 left-0 h-dvh max-w-none translate-x-0 translate-y-0 rounded-none pt-(--safe-top) pr-(--safe-right) pb-(--safe-bottom) pl-(--safe-left) ring-0 sm:max-w-none'
-        : 'max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom)-var(--keyboard))] w-[min(36rem,calc(100%-2rem))] max-w-none sm:max-w-none',
+        : 'top-[calc(50%-var(--keyboard)/2)] max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom)-var(--keyboard))] w-[min(36rem,calc(100%-2rem))] max-w-none sm:max-w-none',
     ]}
   >
     <Dialog.Header class="shrink-0 flex-row items-start gap-2 border-b py-2 pr-2 pl-4">
@@ -117,8 +130,15 @@
       </Dialog.Close>
     </Dialog.Header>
 
+    <!--
+      Full screen, its foot is under the keyboard: the list keeps room for it there. The window
+      takes the keyboard off its height and is centred above it, so its foot is clear of it.
+    -->
     <div
-      class="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain p-4 pb-[calc(1rem+var(--keyboard))]"
+      class={[
+        'grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain p-4',
+        compact && 'pb-[calc(1rem+var(--keyboard))]',
+      ]}
     >
       <div class="grid gap-1.5">
         <label for="{uid}-title" class="text-sm font-medium">{m.new_title_label()}</label>
@@ -129,6 +149,7 @@
           maxlength={255}
           autocomplete="off"
           enterkeyhint="done"
+          onkeydown={onTitleKey}
           data-testid="new-title"
           class="text-base roomy:h-touch"
         />
@@ -136,14 +157,16 @@
       {#if !alone}
         <NewVisibility bind:visibility {workspaceName} />
       {/if}
-      <NewKindCards
-        {kinds}
-        onPick={(kind: NewKind) => {
-          const asked = draft();
-          open = false;
-          onCreate(kind, asked);
-        }}
-      />
+      <div bind:this={kindsArea} class="contents">
+        <NewKindCards
+          {kinds}
+          onPick={(kind: NewKind) => {
+            const asked = draft();
+            open = false;
+            onCreate(kind, asked);
+          }}
+        />
+      </div>
       {#if templates === undefined}
         <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
       {:else}

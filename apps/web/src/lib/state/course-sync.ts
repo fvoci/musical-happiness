@@ -128,6 +128,8 @@ export async function refreshCourse(host: CourseSyncHost): Promise<void> {
     store.progress.take(progress, summary, progressMark);
     store.schedule.take(schedule, scheduleMark);
     host.refreshActiveTab();
+    // The meetings and the exams too, which bring their tabs: the server tells nobody of them.
+    void store.events.refreshAll();
     const shown = store.openUnit;
     const title = (shown && store.unit(shown.unitId)?.title) ?? '';
     const read = writes.admitted(units, mark);

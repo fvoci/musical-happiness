@@ -91,9 +91,17 @@ export class CardStore {
             this.#backend.createComment(this.#boardId, this.cardId, body),
           ),
         patch: (commentId, write) =>
-          this.#backend.patchComment(this.#boardId, commentId, write, this.cardId),
-        remove: (commentId) => this.#backend.deleteComment(this.#boardId, this.cardId, commentId),
-        restore: (commentId) => this.#backend.restoreComment(this.#boardId, this.cardId, commentId),
+          this.board.writeJoined(() =>
+            this.#backend.patchComment(this.#boardId, commentId, write, this.cardId),
+          ),
+        remove: (commentId) =>
+          this.board.writeJoined(() =>
+            this.#backend.deleteComment(this.#boardId, this.cardId, commentId),
+          ),
+        restore: (commentId) =>
+          this.board.writeJoined(() =>
+            this.#backend.restoreComment(this.#boardId, this.cardId, commentId),
+          ),
         versions: (commentId) =>
           this.#backend.commentVersions(this.#boardId, commentId, this.cardId),
       },
@@ -303,11 +311,15 @@ export class CardStore {
       await this.board.workspace.undo.perform(
         async () => {
           this.board.deleting(attachmentId);
-          await this.#backend.deleteBlock(this.#boardId, attachmentId);
+          await this.board.writeJoined(() =>
+            this.#backend.deleteBlock(this.#boardId, attachmentId),
+          );
           this.forget([attachmentId]);
         },
         async () => {
-          await this.#backend.restoreBlock(this.#boardId, attachmentId);
+          await this.board.writeJoined(() =>
+            this.#backend.restoreBlock(this.#boardId, attachmentId),
+          );
           if (child) this.receive(child);
         },
         'deleteAttachment',
@@ -317,8 +329,10 @@ export class CardStore {
     }
   }
 
+  /** Attaches `file` to the card; where it is the reader's first write on an open board, once they have joined it. */
   async attach(file: File): Promise<void> {
-    const { workspace, boardId } = this.board;
+    const board = this.board;
+    const { workspace, boardId } = board;
     const { backend } = workspace;
     const cardId = this.cardId;
     const shown = (attachment: Attachment): void => {
@@ -330,7 +344,7 @@ export class CardStore {
       card: cardId,
       retryable: true,
       async send(options) {
-        const uploaded = await backend.upload(boardId, file, options);
+        const uploaded = await board.writeJoined(() => backend.upload(boardId, file, options));
         options.signal.throwIfAborted();
         const attachment = await backend.createAttachment(boardId, cardId, uploaded);
         if (!options.signal.aborted) {
@@ -350,7 +364,7 @@ export class CardStore {
 
   uploadFile(file: File): Promise<string> {
     return this.#bodyUploads.run(file, (options) =>
-      this.#backend.upload(this.#boardId, file, options),
+      this.board.writeJoined(() => this.#backend.upload(this.#boardId, file, options)),
     );
   }
 

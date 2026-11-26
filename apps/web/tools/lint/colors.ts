@@ -22,6 +22,16 @@ export const COLOR_HOMES: readonly { file: string; reason: string }[] = [
 
 /** A hex colour where a value stands: in quotes, brackets, a list, or after a colon. */
 const HEX = /(?<=['"`[(,]|:\s*)#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![\w-])/gi;
+/**
+ * A hex colour among the other values of a declaration (`1px solid #ccc`, `0 0 0 1px #000`,
+ * `linear-gradient(90deg, #fff, #000)`): after a space that follows another value, past the
+ * colon of a property (one right after the colon is `HEX`'s). Not in a comment, where `#123`
+ * is a card's number.
+ */
+const SPACED_HEX =
+  /(?<=[\w-]\s*:[^;{}\n]*[^\s;{}:]\s+)#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![\w-])/gi;
+/** A line that is a comment, or goes on one. */
+const COMMENT = /^\s*(?:\/\/|\/?\*|<!--)/;
 /** A colour written as a function of CSS. */
 const FUNCTION = /\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch)\(/gi;
 const HUES =
@@ -39,7 +49,10 @@ export function findRawColors(file: string, source: string): string[] {
   if (COLOR_HOMES.some((home) => home.file === file)) return [];
   const found: string[] = [];
   source.split(/\r\n|\r|\n/).forEach((line, index) => {
-    for (const pattern of [HEX, FUNCTION, PALETTE]) {
+    const patterns = COMMENT.test(line)
+      ? [HEX, FUNCTION, PALETTE]
+      : [HEX, SPACED_HEX, FUNCTION, PALETTE];
+    for (const pattern of patterns) {
       for (const match of line.matchAll(pattern)) {
         found.push(
           `${file}:${index + 1}: \`${match[0]}\` is a raw colour; use a token of the theme`,

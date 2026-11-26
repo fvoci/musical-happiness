@@ -9,6 +9,7 @@
 
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 
+  import { spaceName } from '$lib/features/shell/space-names.ts';
   import TodayCards from '$lib/features/today/TodayCards.svelte';
   import TodayDiaries from '$lib/features/today/TodayDiaries.svelte';
   import TodayUnits from '$lib/features/today/TodayUnits.svelte';
@@ -16,6 +17,7 @@
   import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { displayDateTime } from '$lib/logic/format.ts';
   import {
+    organizationNames,
     TodayHubStore,
     type TodayCardItem,
     type TodayDiary,
@@ -64,9 +66,16 @@
       store.diaries.every((diary) => diary.writtenToday),
   );
 
+  const orgNames = $derived(organizationNames(workspace));
+  /** The space of an item, named as the switcher names it; one not listed by the name it came with. */
   function spaceOf(item: { workspace: TodayWorkspaceMeta }): string {
     const meta = item.workspace;
-    return meta.isPersonal ? m.own_space_name() : meta.workspaceName || m.shell_workspace_unnamed();
+    if (meta.isPersonal) return m.own_space_name();
+    const info = workspace.workspaces.find((one) => one.id === meta.workspaceId);
+    if (!info) return meta.workspaceName || m.shell_workspace_unnamed();
+    const orgName = (orgId: string | undefined) =>
+      orgNames.of(orgId) || (orgId === meta.orgId ? meta.orgName : '');
+    return spaceName(info, workspace.workspaces, orgName, m.shell_workspace_unnamed);
   }
 
   function openCard(item: TodayCardItem): void {

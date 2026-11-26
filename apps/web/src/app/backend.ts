@@ -83,6 +83,40 @@ async function keepSettings(backend: Backend): Promise<void> {
   });
 }
 
+/** Where the in-memory backend keeps the state the client keeps with the account between visits. */
+const SCREEN_STATE_KEY = 'fvoci:memory-screen-state';
+
+/**
+ * As the settings (`keepSettings`), the state the client keeps with the
+ * account (whether the time zone follows the device, a notice closed for
+ * good) is still there after a reload, as with a server: it is kept on the
+ * device as the page goes (`current` reads it then), and given back to the
+ * new world.
+ */
+async function keepScreenState(
+  backend: Backend,
+  current: () => Record<string, string> | undefined,
+): Promise<void> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(SCREEN_STATE_KEY) ?? 'null');
+    if (saved !== null && typeof saved === 'object') {
+      const entries = Object.entries(saved).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+      );
+      await backend.patchScreenState(Object.fromEntries(entries));
+    }
+  } catch {
+    // Nothing kept, or something the backend refuses now: none then.
+  }
+  addEventListener('pagehide', () => {
+    try {
+      localStorage.setItem(SCREEN_STATE_KEY, JSON.stringify(current() ?? {}));
+    } catch {
+      // Without storage the state lasts for the visit.
+    }
+  });
+}
+
 async function startServer(): Promise<StartedBackend> {
   const [{ ServerBackend }, { Http }, { ServerOrganizations }] = await Promise.all([
     import('$lib/api/backend.ts'),
@@ -152,6 +186,7 @@ async function startMemory(): Promise<StartedBackend> {
   // Long enough to see that a change shows before it is answered.
   backend.latency = 40;
   await keepSettings(backend);
+  await keepScreenState(backend, () => world.screenState.get(readerId));
   const asSomeoneElse =
     otherId === undefined ? undefined : (index = 0) => backend.as(otherIds[index] ?? otherId);
   // A handle for the browser tests and for trying things by hand in the

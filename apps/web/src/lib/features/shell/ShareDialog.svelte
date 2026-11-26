@@ -30,7 +30,6 @@
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import PersonProfile from '$lib/components/person/PersonProfile.svelte';
-  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
@@ -55,6 +54,7 @@
   import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
   import { shareWords } from './share-words.ts';
   import SharePublicLink from './SharePublicLink.svelte';
+  import { shownSpaceName } from './space-names.ts';
 
   interface Props {
     open: boolean;
@@ -87,7 +87,7 @@
     memberProgress,
   }: Props = $props();
 
-  const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
+  const workspaceName = $derived(shownSpaceName(workspace, m.shell_workspace_unnamed));
   /** The own space: what is in it is shown to others by its public link and nothing else. */
   const linkOnly = $derived(isOwnSpace(workspace.info) && !membersOnly && !readOnly);
   const words = $derived(shareWords(shareable.container?.kind));
@@ -233,7 +233,7 @@
         <section class="grid gap-2" aria-labelledby="{uid}-workspace">
           <h3 id="{uid}-workspace" class="font-medium">
             {m.share_workspace_title({
-              workspace: nameOfWorkspace(workspace.info, m.shell_workspace_unnamed_title),
+              workspace: shownSpaceName(workspace, m.shell_workspace_unnamed_title),
             })}
           </h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">

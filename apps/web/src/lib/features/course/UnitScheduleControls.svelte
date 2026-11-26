@@ -74,6 +74,7 @@
   let sharedDateInput = $state<HTMLInputElement | null>(null);
   let myDateInput = $state<HTMLInputElement | null>(null);
   let summary = $state<HTMLButtonElement | null>(null);
+  let controls = $state<HTMLElement | null>(null);
 
   const editingAmount = $derived(editingAmountFor === unit.id);
   const dateError = $derived(dateErrorFor?.unitId === unit.id ? dateErrorFor.text : '');
@@ -169,12 +170,17 @@
     return on(node, 'keydown', onSettingKeydown);
   };
 
+  /**
+   * Closes the controls, the focus on the summary of what was set; where nothing was (the
+   * summary goes with the controls), on the unit's menu, which opened them.
+   */
   async function closeSetting(): Promise<void> {
+    const menu = controls?.closest('header')?.querySelector<HTMLElement>('[data-unit-menu]');
     editingAmountFor = undefined;
     amountError = '';
     if (openings.schedule === unit.id) openings.schedule = undefined;
     await tick();
-    summary?.focus();
+    (summary ?? menu)?.focus();
   }
 
   function onSettingKeydown(event: KeyboardEvent): void {
@@ -194,6 +200,7 @@
 
 {#if unit.kind === 'unit' && (setting || anySet)}
   <div
+    bind:this={controls}
     class="flex w-full flex-wrap items-center gap-2 text-xs"
     data-testid="unit-schedule-controls"
   >
@@ -221,7 +228,7 @@
               aria-describedby={amountError !== '' ? `${uid}-amount-err` : undefined}
               disabled={busy}
               data-testid="unit-amount-input"
-              class="h-7 w-24 text-xs roomy:h-touch"
+              class="h-7 w-24 roomy:h-touch"
               onkeydown={onAmountKeydown}
             />
             <select
@@ -229,7 +236,7 @@
               aria-label={m.course_amount_unit_label()}
               disabled={busy}
               data-testid="unit-amount-unit-select"
-              class="h-7 rounded-md border border-input-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring roomy:h-touch"
+              class="h-7 rounded-md border border-input-border bg-background px-2 text-base text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring md:text-sm roomy:h-touch"
             >
               {#each AMOUNT_UNITS as option (option)}
                 <option value={option}>{amountUnitLabel(option)}</option>
@@ -329,7 +336,7 @@
               value={sharedDate ?? ''}
               disabled={busy}
               data-testid="unit-shared-date-input"
-              class="h-7 rounded-md border border-input-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring roomy:h-touch"
+              class="h-7 rounded-md border border-input-border bg-background px-2 text-base text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring md:text-sm roomy:h-touch"
               onchange={(event) => void changeSharedDate(event.currentTarget.value)}
             />
             {#if sharedDate}
@@ -367,7 +374,7 @@
               value={myPlannedDate ?? ''}
               disabled={busy}
               data-testid="unit-my-date-input"
-              class="h-7 rounded-md border border-input-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring roomy:h-touch"
+              class="h-7 rounded-md border border-input-border bg-background px-2 text-base text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring md:text-sm roomy:h-touch"
               onchange={(event) => void changeMyDate(event.currentTarget.value)}
             />
             {#if myPlannedDate}

@@ -30,6 +30,7 @@ import {
 import { BoardStore } from './board.svelte.ts';
 import type { CourseStore } from './course.svelte.ts';
 import type { DiaryStore } from './diary.svelte.ts';
+import { readerOf } from './memberships.svelte.ts';
 import { hiddenContainersOf, sidebarOf, type SidebarCategory } from './order.ts';
 import { SidebarWrites } from './sidebar-writes.ts';
 import { Transfers } from './transfers.svelte.ts';
@@ -99,7 +100,7 @@ export class Workspace {
   undoBusy = $state(false);
 
   readonly sidebar = $derived<SidebarCategory[]>(
-    sidebarOf(this.categories, this.containers, this.locale, this.me?.id),
+    sidebarOf(this.categories, this.containers, this.locale, readerOf(this)),
   );
   readonly hiddenContainers = $derived<Container[]>(
     hiddenContainersOf(this.categories, this.containers, this.sidebar, this.locale),

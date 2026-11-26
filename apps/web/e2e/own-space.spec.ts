@@ -89,6 +89,10 @@ test('the own space starts empty, keeps what is made in it, and shows nothing of
   const picker = page.getByTestId('template-picker');
   await expect(picker.getByRole('radio')).toHaveCount(0);
   await picker.getByTestId('new-title').fill('Notes of mine');
+  // Enter is done with the title: on to the kinds, the first of them.
+  await picker.getByTestId('new-title').press('Enter');
+  await expect(picker.getByTestId('empty-board')).toBeFocused();
+  await expect(picker).toBeVisible();
   await picker.getByTestId('new-wiki').click();
   await expect(page).toHaveURL(ON_A_WIKI);
   await showSidebar(page);
