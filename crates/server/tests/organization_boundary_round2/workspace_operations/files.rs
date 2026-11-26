@@ -28,6 +28,13 @@ pub(super) async fn exercise(case: &mut Case, board: &str, card: &str) {
         .await
         .value();
     case.remember(&attached, "id");
+    case.present("listContainerFiles", at, &filename).await;
+    case.present(
+        "listCardFiles",
+        &[("boardId", board), ("cardId", card)],
+        &filename,
+    )
+    .await;
     let file_at = &[("boardId", board), ("fileId", file.as_str())];
     let received = case.run("getFile", file_at, json!({})).await;
     assert_eq!(

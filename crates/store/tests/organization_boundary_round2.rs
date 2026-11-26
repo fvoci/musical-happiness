@@ -692,6 +692,9 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
     assert_eq!(
         without,
         [
+            // Held to its organization by the key to the workspace: (workspace_id,
+            // org_id). A token is the server's; a workspace is of one organization.
+            ("api_token_workspaces", "(token_id, workspace_id)"),
             // Held to its organization by the key to the container: (container_id, org_id).
             ("blocks", "(container_id, id)"),
             // A card's number on its board, held the same way: no organization's card
