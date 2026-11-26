@@ -23,6 +23,7 @@
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { pane } from '$lib/layout/room.svelte.ts';
   import { nameWindow } from '$lib/layout/window-title.svelte.ts';
   import { focusAdrift } from '$lib/focus.ts';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
@@ -201,6 +202,7 @@
     class="relative flex h-full min-h-0 flex-col outline-none"
     tabindex="-1"
     data-testid="board-page"
+    style:--fab-room={board.canEdit && !pane.row ? '5rem' : undefined}
   >
     {#if board.joinable && !board.joinsOnWrite}
       <WikiJoin

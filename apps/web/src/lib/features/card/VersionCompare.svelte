@@ -81,7 +81,7 @@
   <label class="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
     <span class="shrink-0">{m.card_version_compare_with()}</span>
     <select
-      class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 text-sm text-foreground sm:flex-initial roomy:h-touch"
+      class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 text-base text-foreground sm:flex-initial md:text-sm roomy:h-touch"
       value={choice}
       data-testid="body-version-compare"
       onchange={(event) => {

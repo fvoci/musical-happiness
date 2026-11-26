@@ -102,7 +102,7 @@
 <Dialog.Root bind:open>
   <Dialog.Content
     data-testid={testId}
-    class="flex max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom))] flex-col gap-3"
+    class="flex max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom)-var(--keyboard))] flex-col gap-3"
   >
     <Dialog.Header>
       <Dialog.Title>{title}</Dialog.Title>

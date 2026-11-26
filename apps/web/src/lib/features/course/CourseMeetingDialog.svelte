@@ -293,7 +293,7 @@
               bind:value={presenterId}
               disabled={busy}
               data-testid="meeting-presenter-select"
-              class="h-9 rounded-md border border-input-border bg-background px-2.5 text-sm text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none roomy:min-h-touch"
+              class="h-9 rounded-md border border-input-border bg-background px-2.5 text-base text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none md:text-sm roomy:min-h-touch"
             >
               <option value="">{m.course_meetings_field_none()}</option>
               {#if preservedPresenter}
@@ -313,7 +313,7 @@
               bind:value={hostId}
               disabled={busy}
               data-testid="meeting-host-select"
-              class="h-9 rounded-md border border-input-border bg-background px-2.5 text-sm text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none roomy:min-h-touch"
+              class="h-9 rounded-md border border-input-border bg-background px-2.5 text-base text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none md:text-sm roomy:min-h-touch"
             >
               <option value="">{m.course_meetings_field_none()}</option>
               {#if preservedHost}

@@ -63,7 +63,7 @@
     data-slot="relation-kind-select"
     aria-label={m.property_relation_kind_for({ title })}
     value={link.kind}
-    class="h-6 rounded-sm border border-input bg-background px-1 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    class="h-6 rounded-sm border border-input bg-background px-1 text-base font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring md:text-xs"
     onchange={(event) => {
       onUpdate({ kind: event.currentTarget.value as RelationKind });
     }}
@@ -80,7 +80,7 @@
     aria-describedby={lagValid ? undefined : `${uid}-lag-error`}
     title={lagValid ? undefined : rangeHint}
     bind:value={lagText}
-    class="h-6 w-14 rounded-sm border border-input bg-background px-1 text-right text-xs text-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive"
+    class="h-6 w-14 rounded-sm border border-input bg-background px-1 text-right text-base text-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive md:text-xs"
     onchange={commitLag}
     onblur={commitLag}
     onkeydown={(event) => {

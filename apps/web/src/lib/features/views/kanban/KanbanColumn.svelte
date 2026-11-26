@@ -388,7 +388,7 @@
     data-drag-scroll="y"
     data-column-cards={option.id}
     class={[
-      'relative flex min-h-12 flex-col gap-2 overflow-y-auto overscroll-y-contain p-2',
+      'relative flex min-h-12 flex-col gap-2 overflow-y-auto overscroll-y-contain p-2 pb-[max(0.5rem,var(--fab-room,0px))]',
       windowed && '[overflow-anchor:none]',
     ]}
     bind:clientHeight={viewHeight}

@@ -161,7 +161,7 @@
       <label class="grid gap-1">
         <span class="font-medium text-muted-foreground">{m.view_due_date_property()}</span>
         <select
-          class="h-8 rounded-md border border-input-border bg-background px-2 text-xs"
+          class="h-8 rounded-md border border-input-border bg-background px-2 text-base md:text-xs"
           data-testid="board-due-date-property"
           value={board.board.dueDatePropertyId ?? ''}
           onchange={(e) => {
@@ -179,7 +179,7 @@
       <label class="grid gap-1">
         <span class="font-medium text-muted-foreground">{m.view_done_when()}</span>
         <select
-          class="h-8 rounded-md border border-input-border bg-background px-2 text-xs"
+          class="h-8 rounded-md border border-input-border bg-background px-2 text-base md:text-xs"
           data-testid="board-done-when"
           value={selectedDoneValue}
           onchange={(e) => {

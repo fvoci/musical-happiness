@@ -108,7 +108,9 @@
     </p>
   {/if}
 
-  <ul class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
+  <ul
+    class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-[max(0.5rem,var(--fab-room,0px))]"
+  >
     {#each cards as card (card.id)}
       <CardRow {card} {date} {...rows} describedBy={fixed ? `${uid}-fixed` : undefined} />
     {:else}

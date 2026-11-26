@@ -61,9 +61,12 @@ export async function forgetIdentities(api: APIRequestContext): Promise<void> {
 /** Opens the form of the organization's single sign-on, which is one line until it is set up. */
 export async function openSsoForm(section: Locator): Promise<void> {
   const setUp = section.getByTestId('sso-set-up');
-  await expect(section.getByTestId('sso-issuer').or(setUp)).toBeVisible();
-  if (await setUp.isVisible()) await setUp.click();
-  await expect(section.getByTestId('sso-issuer')).toBeFocused();
+  const issuer = section.getByTestId('sso-issuer');
+  await expect(issuer.or(setUp)).toBeVisible();
+  if (!(await setUp.isVisible())) return;
+  await setUp.click();
+  // Setting up takes the reader to the first field of the form.
+  await expect(issuer).toBeFocused();
 }
 
 /**

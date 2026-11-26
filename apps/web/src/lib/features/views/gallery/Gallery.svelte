@@ -83,7 +83,11 @@
 </script>
 
 <!-- The previews are read once per open board visit and reused across view switches (§1.3.6). -->
-<div class="h-full overflow-y-auto" data-testid="gallery" {@attach () => previews.retain()}>
+<div
+  class="h-full overflow-y-auto pb-(--fab-room,0px)"
+  data-testid="gallery"
+  {@attach () => previews.retain()}
+>
   <!-- MIN_CARD is the 14rem below: a card is never narrower, unless the box itself is. -->
   <ul
     aria-label={m.gallery_cards()}
