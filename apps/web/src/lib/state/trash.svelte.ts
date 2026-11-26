@@ -1,8 +1,8 @@
 /**
  * A list of what is in the trash, and bringing one back: the boards of the
  * workspace the reader was an admin of (`containerTrash`), the cards of a board
- * (`cardTrash`, for its editors), or the pages of a wiki (`pageTrash`, for its
- * editors). Nothing is deleted for good here: the
+ * (`cardTrash`, for its editors), the pages of a wiki (`pageTrash`, for its
+ * editors), or the entries of a diary (`entryTrash`). Nothing is deleted for good here: the
  * server empties its trash after a while by itself.
  *
  * The list is read in pages, the last deleted first. Bringing one back takes
@@ -12,6 +12,7 @@
 import { isBackendError, type DeletedItem, type Paging } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
 import type { CourseStore } from './course.svelte.ts';
+import type { DiaryStore } from './diary.svelte.ts';
 import { firstOf } from './page-reads.ts';
 import type { WikiStore } from './wiki.svelte.ts';
 import type { Workspace } from './workspace.svelte.ts';
@@ -145,6 +146,15 @@ export function pageTrash(wiki: WikiStore): Trash {
     wiki.workspace,
     (paging) => wiki.deletedPages(paging),
     (pageId) => wiki.restorePage(pageId),
+  );
+}
+
+/** The entries of a diary in the trash. One that comes back shows on its day. */
+export function entryTrash(diary: DiaryStore): Trash {
+  return new Trash(
+    diary.workspace,
+    async (paging) => diary.workspace.backend.diary?.deletedEntries(diary.diaryId, paging) ?? [],
+    (entryId) => diary.restoreEntry(entryId),
   );
 }
 

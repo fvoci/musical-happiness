@@ -32,7 +32,7 @@
   import type { BoardView } from '$lib/logic/wire.ts';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
 
-  import WatchToggle from '../shell/WatchToggle.svelte';
+  import WatchToggle from './WatchToggle.svelte';
 
   import type { SaveState } from './save-state.ts';
 

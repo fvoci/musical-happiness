@@ -35,9 +35,9 @@
   import CardBody from '$lib/features/card/CardBody.svelte';
   import CardComments from '$lib/features/card/CardComments.svelte';
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
+  import WatchToggle from '$lib/features/card/WatchToggle.svelte';
   import PageMenu from '$lib/features/wiki/PageMenu.svelte';
   import TrashDialog from '$lib/features/shell/TrashDialog.svelte';
-  import WatchToggle from '$lib/features/shell/WatchToggle.svelte';
   import WikiSettingsDialog from '$lib/features/wiki/WikiSettingsDialog.svelte';
   import WikiJoin from '$lib/features/wiki/WikiJoin.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';

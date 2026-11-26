@@ -285,6 +285,7 @@ export {
   cardTrash,
   pageTrash,
   unitTrash,
+  entryTrash,
   Trash,
   type TrashStatus,
 } from './trash.svelte.ts';

@@ -19,6 +19,7 @@ import type { CalendarDate } from '../logic/dates.ts';
 import type { MonthDay } from '../logic/diary-days.ts';
 import type { Container } from '../logic/wire.ts';
 import type { BodyVersions } from './body-versions.ts';
+import type { DeletedItem, Paging } from './trash-reads.ts';
 
 /** How the day was, as its writer marks it. */
 export type Mood = 'great' | 'good' | 'okay' | 'bad' | 'awful';
@@ -126,6 +127,18 @@ export interface Diaries {
    * up in the trash; entries with any content move to the diary's trash.
    */
   deleteEntry(diaryId: string, entryId: string, options?: { keepalive?: boolean }): Promise<void>;
+  /**
+   * The diary's entries in the trash, the last deleted first: a page. Each is
+   * titled with its day (`2026-11-21`) and has its mood.
+   */
+  deletedEntries(diaryId: string, paging?: Paging): Promise<DeletedItem[]>;
+  /**
+   * Brings an entry back to its day with its body. Where the day has an entry
+   * since, 409 with the reason `day_taken` and nothing changes; where the
+   * diary has as many as it may, 400 `too_many_entries`; 404 if the trash has
+   * no such entry.
+   */
+  restoreEntry(diaryId: string, entryId: string): Promise<DiaryEntryDetail>;
 }
 
 /** Where a backend keeps its diaries. One by a public link has none. */

@@ -22,7 +22,7 @@
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
   import { trashDaysLeft } from '$lib/logic/trash-days.ts';
-  import type { Trash, Workspace } from '$lib/state/index.ts';
+  import type { DeletedItem, Trash, Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
@@ -37,6 +37,8 @@
     untitled: string;
     /** Label for the descendant count (defaults to wiki pages). */
     belowLabel?: ((count: number) => string) | undefined;
+    /** What a row is called, where its title is not its name (a diary's entry, titled with its day). */
+    nameItem?: ((item: DeletedItem) => string) | undefined;
     testId: string;
   }
 
@@ -48,6 +50,7 @@
     description,
     untitled,
     belowLabel = (count: number) => m.shell_trash_below({ count }),
+    nameItem,
     testId,
   }: Props = $props();
 
@@ -118,7 +121,7 @@
                 item.kind === 'wiki' || item.kind === 'diary' || item.kind === 'course'
                   ? KINDS[item.kind]
                   : undefined}
-              {@const name = item.title || (kind?.untitled() ?? untitled)}
+              {@const name = nameItem?.(item) || item.title || (kind?.untitled() ?? untitled)}
               <li
                 class="flex min-h-8 items-center gap-2 roomy:min-h-touch"
                 data-trash-item={name}
