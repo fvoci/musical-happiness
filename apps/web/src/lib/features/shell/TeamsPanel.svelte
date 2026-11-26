@@ -38,7 +38,7 @@
   const managing = $derived(administers(workspace));
   const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
   let groups = $state.raw<Team[]>([]);
-  const fold = new Fold(() => !foldable || groups.length > 0);
+  const fold = new Fold(() => !foldable || groups.length > 0 || unread);
   let members = $state.raw<WorkspaceMember[]>([]);
   const restrictedSelf = $derived(
     members.find((member) => member.userId === workspace.me?.id && member.joinedAsOrgAdmin)?.userId,
@@ -175,7 +175,7 @@
           }}
         >
           <input
-            class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
+            class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 text-base md:text-sm"
             aria-label={m.groups_name()}
             placeholder={m.groups_name()}
             aria-invalid={refusedName === CREATING || undefined}

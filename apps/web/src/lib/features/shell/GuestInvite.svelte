@@ -165,7 +165,7 @@
       <p class="text-sm text-muted-foreground">{words.guestHint({ workspace: workspaceName })}</p>
       <div class="flex flex-wrap items-center gap-2">
         <select
-          class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
+          class="h-8 rounded-md border border-input-border bg-background px-2 text-base md:text-sm roomy:h-touch"
           aria-label={m.share_guest_role()}
           bind:value={role}
           disabled={working}

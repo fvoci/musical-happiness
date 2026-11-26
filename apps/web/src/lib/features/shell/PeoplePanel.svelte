@@ -300,7 +300,7 @@
             <!-- Their own role is changed by another admin, as on a board. -->
             {#key version}
               <select
-                class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
+                class="h-8 rounded-md border border-input-border bg-background px-2 text-base md:text-sm roomy:h-touch"
                 aria-label={m.people_role_of({ name })}
                 value={member.role}
                 disabled={working || self || member.role === 'guest'}

@@ -251,7 +251,7 @@
             <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
               <span class="min-w-0 flex-1 text-muted-foreground">{m.share_minimum_role()}</span>
               <select
-                class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
+                class="h-8 rounded-md border border-input-border bg-background px-2 text-base md:text-sm roomy:h-touch"
                 data-testid="share-minimum-role"
                 value={minimumRole}
                 onchange={(event) =>
@@ -332,7 +332,7 @@
                 {:else}
                   <!-- The reader's own role is another admin's to change: no locking oneself out. -->
                   <select
-                    class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+                    class="h-8 rounded-md border border-input-border bg-background px-2 text-base disabled:opacity-60 md:text-sm roomy:h-touch"
                     aria-label={m.share_role_of({ name })}
                     title={mine ? m.share_you_note() : undefined}
                     disabled={mine}

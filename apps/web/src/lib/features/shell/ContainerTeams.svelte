@@ -179,7 +179,7 @@
               {:else}
                 <div class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
                   <select
-                    class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+                    class="h-8 rounded-md border border-input-border bg-background px-2 text-base disabled:opacity-60 md:text-sm roomy:h-touch"
                     aria-label={m.share_role_of({ name: item.team.name })}
                     value={item.role}
                     disabled={busy}
@@ -217,7 +217,7 @@
             }}
           >
             <select
-              class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+              class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 text-base disabled:opacity-60 md:text-sm roomy:h-touch"
               aria-label={m.groups_board_choose()}
               bind:value={selected}
               disabled={busy}
@@ -227,7 +227,7 @@
                 >{/each}
             </select>
             <select
-              class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+              class="h-8 rounded-md border border-input-border bg-background px-2 text-base disabled:opacity-60 md:text-sm roomy:h-touch"
               aria-label={m.share_minimum_role()}
               bind:value={role}
               disabled={busy}
