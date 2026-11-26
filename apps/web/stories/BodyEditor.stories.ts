@@ -12,7 +12,11 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** An empty body: type `@` for people, `:` for emoji, `$x^2$` for a formula, ```` ```mermaid ```` for a diagram. */
+/**
+ * An empty body: type `/` for the kinds of block (`/제목`, `/ㅎㅇ`, `/quote`), `@` for
+ * people, `:` for emoji, `$x^2$` for a formula, ```` ```mermaid ```` for a diagram.
+ * Choose some text for the bubble of marks; on a phone, a bar over the keyboard.
+ */
 export const Empty: Story = { args: { doc: null } };
 /** Every kind of node and mark a body had before formulas. */
 export const Mixed: Story = { args: { doc: MIXED } };
@@ -37,7 +41,8 @@ export const Unreadable: Story = { args: { doc: INVALID } };
 /** References: type `[[` for the cards and pages there are to name; each shows what it names as it is now. */
 export const References: Story = { args: { doc: REFERENCES } };
 /**
- * File blocks: type `/` for the slash menu and choose "파일", or paste or drop a
- * file that is no picture. Select a block with the arrows and Enter saves its file.
+ * File blocks: type `/` for the slash menu and choose "파일·이미지", or paste or drop a
+ * file that is no picture. Select a block with the arrows and Enter saves its file;
+ * select an image and its bubble opens it larger.
  */
 export const Files: Story = { args: { doc: FILES } };

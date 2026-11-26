@@ -75,11 +75,10 @@ async function putFile(page: Page, body: Locator, name: string, bytes: Buffer, t
   await page.keyboard.press('Enter');
   await page.keyboard.type('Above:');
   await page.keyboard.press('Enter');
-  await page.keyboard.type('/');
-  // A file first; a table as well where one may stand (not in a list, which a card's body may end in).
-  await expect(page.locator('[data-suggestions="slash"]').getByRole('option').first()).toHaveText(
-    'File',
-  );
+  await page.keyboard.type('/file');
+  await expect(page.locator('[data-suggestions="slash"]').getByRole('option')).toHaveText([
+    'File or image',
+  ]);
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
     page.keyboard.press('Enter'),

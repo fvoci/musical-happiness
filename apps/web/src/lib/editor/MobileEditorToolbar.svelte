@@ -5,11 +5,14 @@
   text (the marks), with undo and redo at its end, always in reach. Each
   button is as tall and as wide as a finger needs (44px).
 
-  It stands at the bottom of what can be seen of the box that scrolls the
-  body: above the keyboard where the keyboard covers that box (the covered
-  part is measured, since a card's frame is already shrunk by `--keyboard`
-  and a page is not), right under the text where the body ends before. A
-  press keeps the focus, and so the keyboard, in the editor.
+  It is fixed to the bottom of the frame the body is in (the window, or a
+  card's dialog, which is moved and so holds what is fixed in it), lifted
+  by the part of that frame the keyboard covers: measured, since a card's
+  frame is already shrunk by `--keyboard` and a page is not. Fixed, it takes
+  no room: the page does not move when it comes or goes, so a press below
+  the body that takes the focus away lands where it was aimed. The editor
+  keeps the caret clear of it (EditorTools.svelte). A press on it keeps the
+  focus, and so the keyboard, in the editor.
 -->
 <script lang="ts">
   import type { Editor } from '@tiptap/core';
@@ -18,7 +21,6 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
 
   import { keepEditorFocus, moveAlongBar } from './bar-keys.ts';
-  import { scrollingBox } from './bubble-place.ts';
   import {
     HISTORY_ACTIONS,
     MARK_ACTIONS,
@@ -54,13 +56,14 @@
   /** Zoomed in, the part of the page seen is smaller for another reason than a keyboard. */
   const ZOOMED = 1.01;
 
-  /** Lifts the bar by the part of its scrolling box that the keyboard covers. */
+  /** Lifts the bar by the part of its frame that the keyboard covers. */
   function lifted(bar: HTMLElement): (() => void) | undefined {
     const viewport = bar.ownerDocument.defaultView?.visualViewport;
     if (!viewport) return undefined;
     const lift = (): void => {
-      const box = scrollingBox(bar);
-      const bottom = box ? box.getBoundingClientRect().bottom : window.innerHeight;
+      // At the frame's bottom first, to read where that bottom is.
+      bar.style.bottom = '0px';
+      const { bottom } = bar.getBoundingClientRect();
       const seen = viewport.offsetTop + viewport.height;
       const covered = viewport.scale > ZOOMED ? 0 : Math.max(0, Math.round(bottom - seen));
       bar.style.bottom = `${String(covered)}px`;
@@ -121,12 +124,15 @@
 
 <style>
   .doc-keyboard-bar {
-    position: sticky;
+    position: fixed;
+    right: 0;
     bottom: 0;
-    z-index: 30;
+    left: 0;
+    z-index: 40;
     display: flex;
     align-items: stretch;
-    margin-top: 0.5rem;
+    padding-right: var(--safe-right, 0px);
+    padding-left: var(--safe-left, 0px);
     border-top: 1px solid var(--border);
     background: var(--doc-surface, var(--background));
     color: var(--foreground);
@@ -141,9 +147,17 @@
     overflow-x: auto;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
+    /* Its end fades: there is more to scroll to. Only the alpha of the mask counts. */
+    mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
   }
   .doc-keyboard-bar-line::-webkit-scrollbar {
     display: none;
+  }
+  /* Room after the last button, so that it scrolls clear of the fade. */
+  .doc-keyboard-bar-line::after {
+    flex: none;
+    width: 1.5rem;
+    content: '';
   }
   .doc-keyboard-bar-history {
     display: flex;

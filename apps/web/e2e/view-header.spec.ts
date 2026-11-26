@@ -1616,7 +1616,8 @@ test.describe('the file of a view', () => {
       if (!owner || !build) throw new Error('no Owner, or no card "Build"');
       await store.setCardProperty(build.id, owner.id, dev.workspace.me.id);
     });
-    await expect(page.locator('[data-card]', { hasText: 'Build' })).toBeVisible();
+    // The first row that names "Build" is its own; those after it come after it.
+    await expect(cards(page).filter({ hasText: 'Build' }).first()).toBeVisible();
 
     const { name, text } = await saveCsv(page);
     expect(name).toBe('Project schedule - Task table.csv');
@@ -1628,16 +1629,19 @@ test.describe('the file of a view', () => {
     );
     expect(lines).toHaveLength(8);
     const build = lines.find((line) => line.startsWith('"Build"')) ?? '';
-    // The owner by name, never by identifier; the card before it by its title; hours a number.
+    // The owner by name, never by identifier; the card before it by its title; hours a number,
+    // the only cell not quoted.
     expect(build).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
-    expect(build).toContain(',"Design the screens",80,FALSE');
+    expect(build).toContain(',"Design the screens",80,"FALSE"');
     expect(build.split(',')[3]).toMatch(/^"[^"]+"$/);
-    expect(lines.find((line) => line.startsWith('"Launch"'))).toMatch(/,4,TRUE$/);
+    expect(lines.find((line) => line.startsWith('"Launch"'))).toMatch(/,4,"TRUE"$/);
   });
 
   test('the file has the cards the search leaves, in the order of the view', async ({ page }) => {
     await open(page);
     await showView(page, 'Task table');
+    // In the folded row the search takes the row, "…" with it, while it is open.
+    test.skip((await layout(page)) !== 'row', 'the folded row has the search or "…", not both');
     await tool(page, 'search').click();
     await header(page).getByRole('searchbox', { name: 'Search cards' }).fill('the');
     await expect.poll(() => cards(page).count()).toBeLessThan(6);
@@ -1650,5 +1654,55 @@ test.describe('the file of a view', () => {
       .map((line) => line.split('","')[0]?.replace(/^"/, ''));
     expect(titles).toHaveLength(shown);
     for (const title of titles) expect(title?.toLowerCase()).toContain('the');
+  });
+
+  test('a public link offers no file of its view', async ({ page }) => {
+    const boardId = '01930000-0000-7000-8000-00000000bb01';
+    const base = `/api/v1/shared/${boardId}`;
+    const STAMPS = { createdBy: '', modifiedBy: '', createdAt: 1, updatedAt: 1 };
+    await page.route('**/api/v1/**', async (route) => {
+      const { pathname } = new URL(route.request().url());
+      if (pathname === base) {
+        await route.fulfill({
+          json: {
+            ...STAMPS,
+            id: boardId,
+            workspaceId: '',
+            kind: 'board',
+            title: 'Open plan',
+            visibility: 'private',
+            icon: '',
+            description: '',
+            cardProperties: [{ id: 'status', name: 'Status', type: 'select', options: [] }],
+            properties: {},
+          },
+        });
+      } else if (pathname === `${base}/blocks`) {
+        await route.fulfill({
+          json: [
+            {
+              ...STAMPS,
+              id: '01930000-0000-7000-8000-00000000bb02',
+              containerId: boardId,
+              parentId: '',
+              type: 'view',
+              title: 'Table',
+              body: null,
+              fields: { viewType: 'table' },
+            },
+          ],
+        });
+      } else if (pathname === `${base}/cards`) {
+        await route.fulfill({ json: [] });
+      } else {
+        await route.fulfill({ status: 404, json: { detail: 'not found' } });
+      }
+    });
+    await page.goto(`/shared/${boardId}?r=tok`);
+    await expect(header(page)).toBeVisible();
+    await expect(tool(page, 'views')).toHaveText('Table');
+    // A reader of a public link gets no "…" at all: nothing in it is theirs to do.
+    await expect(tool(page, 'more')).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Export to CSV' })).toHaveCount(0);
   });
 });

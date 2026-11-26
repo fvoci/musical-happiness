@@ -183,6 +183,9 @@ describe('an image opened larger', () => {
     document.removeEventListener('keydown', outside);
     expect(outside).not.toHaveBeenCalled();
     expect(lightbox()).toBeNull();
+    // The focus is back in the editor, the image still chosen.
+    expect(document.activeElement).toBe(editor.view.dom);
+    expect(editor.state.selection).toBeInstanceOf(NodeSelection);
 
     shown = await open();
     await fireEvent.click(shown);

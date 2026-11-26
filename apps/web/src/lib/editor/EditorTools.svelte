@@ -40,6 +40,9 @@
   const compact = new MediaQuery('(max-width: 37.5rem)', false);
   const phone = $derived(touch.current && compact.current);
 
+  /** Room below the caret as the editor scrolls it into sight on a phone: the bar's height and more. */
+  const UNDER_THE_BAR = 64;
+
   let focused = $state(false);
   let inBubble = $state(false);
   let inBar = $state(false);
@@ -75,6 +78,15 @@
   }
 
   $effect(() => followed(editor));
+
+  // On a phone the caret is kept clear of the bar over the keyboard, which lies over the body.
+  $effect(() => {
+    // Elsewhere ProseMirror's own: scrolled when the caret is out of sight, 5 pixels clear.
+    editor.view.setProps({
+      scrollThreshold: phone ? { top: 0, right: 0, bottom: UNDER_THE_BAR, left: 0 } : 0,
+      scrollMargin: phone ? { top: 5, right: 5, bottom: UNDER_THE_BAR, left: 5 } : 5,
+    });
+  });
 
   // The editor's own images open on a press while it is read-only (BodyView.svelte does it where a body is only shown).
   $effect(() =>

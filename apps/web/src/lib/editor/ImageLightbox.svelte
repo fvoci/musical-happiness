@@ -22,13 +22,22 @@
 
   let { image, onclose }: Props = $props();
 
-  /** Opens the dialog as it is put in the page, and closes it as it is taken out. */
+  /**
+   * Opens the dialog as it is put in the page, and closes it as it is taken
+   * out. The dialog itself takes the focus, so that a press does not light
+   * the close button up; Tab reaches it.
+   */
   function shown(dialog: HTMLDialogElement): () => void {
+    const before = dialog.ownerDocument.activeElement;
     // A page that has no modal dialogs (a simulated one) shows it in place.
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
+    dialog.focus();
     return () => {
       if (typeof dialog.close === 'function' && dialog.open) dialog.close();
+      // Back where it was: a modal dialog does it itself, a dialog shown in place does not.
+      if (before instanceof HTMLElement && before.isConnected)
+        before.focus({ preventScroll: true });
     };
   }
 
@@ -46,6 +55,7 @@
     class="doc-lightbox"
     aria-label={image.alt === '' ? m.editor_image_dialog() : image.alt}
     data-testid="image-lightbox"
+    tabindex="-1"
     {@attach shown}
     onkeydown={keys}
     oncancel={(event) => {
@@ -81,6 +91,9 @@
     background: color-mix(in oklab, var(--background) 94%, transparent);
     color: var(--foreground);
     cursor: zoom-out;
+  }
+  .doc-lightbox:focus {
+    outline: none;
   }
   .doc-lightbox::backdrop {
     background: transparent;
