@@ -1,8 +1,7 @@
 /**
  * An open board on the real server, opened by somebody of the workspace who is
- * no member of it: its title and description are shown with a way to join,
- * and joining opens it (the user's decision, H5). Nobody is made a member by
- * opening it.
+ * no member of it: it is read as its members read it, nobody is made a member
+ * by opening it, and the first write on it joins it, with no gate to press.
  */
 import { expect, test } from '@playwright/test';
 
@@ -19,7 +18,10 @@ import {
 
 test.use({ locale: 'en-US' });
 
-test('an open board is joined from its page, not by opening it', async ({ page, baseURL }) => {
+test('an open board is joined by the first write on it, not by opening it', async ({
+  page,
+  baseURL,
+}) => {
   const base = baseURL ?? '';
   const owner = person('opener');
   const visitor = person('visitor');
@@ -47,21 +49,19 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
   const errors = watchErrors(page);
   await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, visitor);
-  const join = page.getByTestId('board-join');
-  await expect(join).toBeVisible();
-  await expect(join.getByRole('heading')).toHaveText('Commons');
-  await expect(join).toContainText('For the whole workspace');
-  await expect(page.getByTestId('board-page')).toHaveCount(0);
+  await expect(page.getByTestId('board-page')).toBeVisible();
+  await expect(page.getByText('Water the plants')).toBeVisible();
+  await expect(page.getByTestId('board-join')).toHaveCount(0);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   // Opening it made nobody a member.
   expect(await memberNames()).toEqual([owner.username]);
 
-  await join.getByRole('button', { name: 'Join this board' }).click();
-  await expect(page.getByTestId('board-page')).toBeVisible();
-  // The focus is on the board, where the button was.
-  await expect(page.getByTestId('board-page')).toBeFocused();
-  await expect(page.getByText('Water the plants')).toBeVisible();
-  expect(await memberNames()).toEqual([owner.username, visitor.username].sort());
+  // A card written there joins it first, and is kept.
+  await page.getByRole('button', { name: 'New card in To do' }).click();
+  await page.getByTestId('card-title').fill('Feed the fish');
+  await page.goBack();
+  await expect(page.getByText('Feed the fish')).toBeVisible();
+  await expect.poll(memberNames).toEqual([owner.username, visitor.username].sort());
 
   await page.reload();
   await expect(page.getByTestId('board-page')).toBeVisible();

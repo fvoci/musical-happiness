@@ -104,15 +104,27 @@ export interface SidebarCategory {
 }
 
 /**
+ * Whether a container no category of the reader's files is one they neither
+ * made nor joined: an open one of the workspace, which the server files once
+ * it is joined. It waits at the foot of the sidebar (`openToJoinOf`).
+ */
+function waitsToBeJoined(container: Container, meId: string | undefined): boolean {
+  return container.visibility === 'open' && !container.isTemplate && container.createdBy !== meId;
+}
+
+/**
  * The sidebar: the categories in the reader's order, each with its boards in
- * the reader's order. A board that no category names (it was just made, or
- * shared with the reader) goes to the end of the default category, by title.
- * A category naming a board the reader cannot see simply does not show it.
+ * the reader's order. A board that no category names and that the reader made
+ * (it was just made, and is not filed yet) or was given goes to the end of the
+ * default category, by title; an open one they have not joined is not here
+ * (`openToJoinOf`). A category naming a board the reader cannot see simply
+ * does not show it.
  */
 export function sidebarOf(
   categories: readonly Category[],
   containers: readonly Container[],
   locale: string,
+  meId?: string,
 ): SidebarCategory[] {
   const compare = textOrder(locale);
   const ordered = [...categories].sort(
@@ -133,12 +145,30 @@ export function sidebarOf(
   });
   const hidden = new Set(categories.flatMap((category) => category.hiddenContainerIds));
   const loose = byTitle(
-    containers.filter((board) => !filed.has(board.id) && !hidden.has(board.id)),
+    containers.filter(
+      (board) => !filed.has(board.id) && !hidden.has(board.id) && !waitsToBeJoined(board, meId),
+    ),
     locale,
   );
   const fallback = result.find((entry) => entry.category.type === 'system') ?? result.at(-1);
   fallback?.containers.push(...loose);
   return result;
+}
+
+/** The open containers of the workspace the reader neither made nor joined, by title. */
+export function openToJoinOf(
+  categories: readonly Category[],
+  containers: readonly Container[],
+  locale: string,
+  meId: string | undefined,
+): Container[] {
+  const filed = new Set(
+    categories.flatMap((category) => [...category.containerIds, ...category.hiddenContainerIds]),
+  );
+  return byTitle(
+    containers.filter((board) => !filed.has(board.id) && waitsToBeJoined(board, meId)),
+    locale,
+  );
 }
 
 /** The boards a category hides that the sidebar does not show elsewhere, by title. */

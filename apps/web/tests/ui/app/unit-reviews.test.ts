@@ -110,7 +110,7 @@ describe('course unit reviews & notes UI', () => {
     await otherStore.load();
 
     render(UnitReviewsPanel, { course: otherStore, unitId: u1.id });
-    expect(screen.getByTestId('unit-reviews-join-hint')).toBeVisible();
+    expect(screen.queryByTestId('unit-reviews-join-hint')).toBeNull();
     expect(screen.queryByTestId('unit-review-add-toggle')).toBeNull();
 
     otherStore.close();

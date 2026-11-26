@@ -210,7 +210,6 @@ export async function invitedColleague(
   await sidebar(page)
     .locator(`a[href*="${placeOf(address).boardId}"]`)
     .click();
-  await page.getByTestId('board-join').getByRole('button').click();
   await expect(page.getByText('Second launch draft', { exact: true })).toBeVisible();
   return { page, context, observation, errors };
 }

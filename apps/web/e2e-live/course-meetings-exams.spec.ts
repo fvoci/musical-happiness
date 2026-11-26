@@ -195,7 +195,7 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     await expect(boraExam.getByTestId('exam-average')).toContainText('No scores yet');
     await expect(boraExam.getByTestId('exam-score-count')).toContainText('0 submitted');
 
-    // Unjoined Chloe sees join hints, zero score inputs, and zero aggregate leak (`No scores yet` / `0 submitted`).
+    // Unjoined Chloe sees no prompts of their own, zero score inputs, and zero aggregate leak (`No scores yet` / `0 submitted`).
     const chloeSession = await signedInPage(
       browser,
       coursePath(shared.id, course.id, '?tab=exams'),
@@ -204,7 +204,7 @@ test('creates meetings & attendance, isolates two learners’ personal exam scor
     pages.push(chloeSession.page);
     watched.push(chloeSession.errors);
     const chloePage = chloeSession.page;
-    await expect(chloePage.getByTestId('exams-join-hint')).toBeVisible();
+    await expect(chloePage.getByTestId('exams-join-hint')).toHaveCount(0);
     await expect(chloePage.getByTestId('exam-my-score-panel')).toHaveCount(0);
     await expect(chloePage.getByTestId('exam-average')).toContainText('No scores yet');
     await expect(chloePage.getByTestId('exam-score-count')).toContainText('0 submitted');

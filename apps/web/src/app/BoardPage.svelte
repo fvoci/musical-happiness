@@ -196,7 +196,7 @@
     tabindex="-1"
     data-testid="board-page"
   >
-    {#if board.joinable}
+    {#if board.joinable && !board.joinsOnWrite}
       <WikiJoin
         kind="board"
         joining={board.joining}

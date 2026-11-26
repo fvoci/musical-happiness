@@ -226,8 +226,8 @@ test('isolates unjoined open-course reader and public shared links from reviews 
   }, WORKSPACE);
 
   await openCourseUnit(page, openCourse.courseId, openCourse.unitId);
-  await expect(page.getByTestId('unit-reviews-join-hint')).toBeVisible();
-  await expect(page.getByTestId('unit-notes-join-hint')).toBeVisible();
+  await expect(page.getByTestId('unit-reviews-join-hint')).toHaveCount(0);
+  await expect(page.getByTestId('unit-notes-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('course-screen')).not.toContainText(
     'Secret mistake only for creator',
   );

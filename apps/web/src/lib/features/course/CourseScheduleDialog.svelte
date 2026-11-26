@@ -443,10 +443,6 @@
               </Button>
             </div>
           </div>
-        {:else if course.joinable}
-          <p class="text-xs text-muted-foreground" data-testid="redistribute-join-hint">
-            {m.course_schedule_redistribute_join_hint()}
-          </p>
         {/if}
 
         {#if course.canEdit}

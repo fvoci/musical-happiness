@@ -65,8 +65,13 @@
   import { editorChunk } from './editor-chunk.svelte.ts';
 
   interface Props {
-    /** The board, or the wiki: who may write, and who can be mentioned. */
-    container: Pick<BoardStore, 'workspace' | 'canEdit' | 'orderedMembers'>;
+    /**
+     * The board, or the wiki: who may write, and who can be mentioned. One the reader is to
+     * join by writing (`writeJoined`) is joined as its body is pressed, which lets them write.
+     */
+    container: Pick<BoardStore, 'workspace' | 'canEdit' | 'orderedMembers'> & {
+      writeJoined?: <T>(write: () => Promise<T>) => Promise<T>;
+    };
     /** The card, or the wiki's page: the body and its room. */
     card: Pick<
       CardStore,
@@ -234,6 +239,13 @@
       if (!event.repeat) void keepNow();
     });
 
+  /** Pressed where the reader may write once joined, and the room still reads: joins. */
+  function joinToWrite(): void {
+    if (container.canEdit && room?.status === 'joined' && room.mode === 'read') {
+      void container.writeJoined?.(() => Promise.resolve());
+    }
+  }
+
   $effect(() => {
     if (!late) return;
     const timer = setTimeout(() => {
@@ -248,6 +260,8 @@
 
 <section
   {@attach keysOutside}
+  onpointerdown={joinToWrite}
+  onfocusin={joinToWrite}
   aria-label={words.label()}
   class="flex flex-col gap-3 border-t pt-5"
   data-testid={testId}

@@ -99,7 +99,7 @@ export class Workspace {
   undoBusy = $state(false);
 
   readonly sidebar = $derived<SidebarCategory[]>(
-    sidebarOf(this.categories, this.containers, this.locale),
+    sidebarOf(this.categories, this.containers, this.locale, this.me?.id),
   );
   readonly hiddenContainers = $derived<Container[]>(
     hiddenContainersOf(this.categories, this.containers, this.sidebar, this.locale),

@@ -3,7 +3,7 @@
  * - Toggling unit completion & retaking (incomplete) updates header bar, ARIA attributes,
  *   outline checkmarks (excluding chapters), and members dialog aggregate rates.
  * - Saving, editing, and clearing `lastPosition` preserves completion state.
- * - Unjoined open-course reader sees read-only/join-hint state until joining.
+ * - Unjoined open-course reader is asked by the course's banner alone until joining.
  * - Public shared course (`/shared/...`) renders zero progress UI and makes zero
  *   `/progress` or `/progress/summary` network requests.
  */
@@ -218,14 +218,14 @@ test('keeps unjoined open-course reader read-only until joining, and isolates pu
   await goInside(page, `/w/${WORKSPACE}/courses/${openCourseId}`);
   await expect(page.getByTestId('course-join')).toBeVisible();
 
-  // Unjoined reader: toggle is disabled, join hint visible, no tree checkmarks, no private note.
-  await expect(page.getByTestId('unit-complete-toggle')).toBeDisabled();
-  await expect(page.getByTestId('unit-progress-join-hint')).toBeVisible();
+  // Unjoined reader: asked by the banner alone, no toggle, no tree checkmarks, no private note.
+  await expect(page.getByTestId('unit-complete-toggle')).toHaveCount(0);
+  await expect(page.getByTestId('unit-progress-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('unit-last-position-add')).toHaveCount(0);
   await expect(page.getByTestId('course-screen')).not.toContainText('private-note-99');
 
   await showTree(page);
-  await expect(page.getByTestId('course-progress-join-hint')).toBeVisible();
+  await expect(page.getByTestId('course-progress-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('course-my-progress')).toHaveCount(0);
   await expect(unitTree(page).getByTestId('unit-tree-progress')).toHaveCount(0);
 

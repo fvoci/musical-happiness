@@ -43,8 +43,4 @@
       ></div>
     </div>
   </div>
-{:else if course.joinable}
-  <p class="pt-1 text-xs text-muted-foreground" data-testid="course-progress-join-hint">
-    {m.course_progress_join_hint()}
-  </p>
 {/if}

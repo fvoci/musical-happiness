@@ -283,7 +283,7 @@ test.describe('a wiki looked after', () => {
     expect(await treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
   });
 
-  test('an open wiki somebody else made is read before it is joined, and written once joined', async ({
+  test('an open wiki somebody else made is written as its members do: pressing its body joins it', async ({
     page,
   }) => {
     await openApp(page);
@@ -294,10 +294,13 @@ test.describe('a wiki looked after', () => {
     });
     await goInside(page, wikiPath(made.wikiId));
     await expect(page).toHaveURL(wikiPath(made.wikiId, made.pageId));
-    await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Hello');
-    await expect(page.getByTestId('page-add-icon')).toHaveCount(0);
-    const join = page.getByTestId('wiki-join');
-    await expect(join).toContainText('Join it to write in it');
+    // No gate to press: what its members may do is offered, and the sidebar keeps it apart.
+    await expect(page.getByTestId('page-title')).toHaveValue('Hello');
+    await expect(page.getByTestId('wiki-join')).toHaveCount(0);
+    await showSidebar(page);
+    const waiting = sidebar(page).getByTestId('open-to-join');
+    await expect(waiting.getByRole('link', { name: 'Design notes, wiki' })).toBeVisible();
+    await hideSidebar(page);
     // Its members are there to see, not to change.
     await showTree(page);
     await wikiScreen(page).getByTestId('share-wiki').click();
@@ -305,17 +308,18 @@ test.describe('a wiki looked after', () => {
     await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(1);
     await expect(dialog.getByTestId('share-open')).toHaveCount(0);
     await page.keyboard.press('Escape');
-    await join.getByRole('button').click();
-    await expect(join).toHaveCount(0);
-    await expect(page.getByTestId('page-title')).toHaveValue('Hello');
-    await expect(wikiScreen(page)).toBeFocused();
-    // Its page is now the reader's to write: the body's room let them in to write.
     await hideTree(page);
+    // Pressed, the body joins the wiki, and its room lets the reader in to write.
     const body = pageBody(page);
+    await body.click();
     await expect(body).toHaveAttribute('contenteditable', 'true');
     await body.click();
     await page.keyboard.type('Written after joining');
     await expect(body).toContainText('Written after joining');
+    // A member now: among the reader's own in the sidebar.
+    await showSidebar(page);
+    await expect(sidebar(page).getByTestId('open-to-join')).toHaveCount(0);
+    await expect(sidebar(page).getByRole('link', { name: 'Design notes, wiki' })).toBeVisible();
   });
 
   test('a wiki is shared from its head: closed and opened to the workspace, and a member added', async ({
@@ -592,14 +596,15 @@ test.describe('screens', () => {
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('share-dialog')).toHaveCount(0);
 
-      // An open wiki of somebody else's, read before it is joined.
+      // An open wiki of somebody else's, read before it is joined: written as its members do.
       const made = await wikiBySomebodyElse(page, {
         title: '디자인 노트',
         visibility: 'open',
         page: '색',
       });
       await goInside(page, wikiPath(made.wikiId));
-      await expect(page.getByTestId('wiki-join')).toBeVisible();
+      await expect(page.getByTestId('page-title')).toHaveValue('색');
+      await expect(page.getByTestId('wiki-join')).toHaveCount(0);
       // The sidebar's drawer has slid all the way out.
       if (size === '390') await expect(sidebar(page)).toBeHidden();
       await shot('join');

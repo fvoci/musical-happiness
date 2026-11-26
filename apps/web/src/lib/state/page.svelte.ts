@@ -59,11 +59,13 @@ export class PageStore implements OpenHierarchyNode {
       workspace: wiki.workspace,
       parentId: pageId,
       role: () => this.wiki.role,
+      permissions: () => this.wiki.shownPermissions,
       joinable: () => this.wiki.joinable,
       isSpeculative: () => this.#speculative,
       api: {
         list: () => this.#wikis.comments(this.#wikiId, this.pageId),
-        create: (body) => this.#wikis.createComment(this.#wikiId, this.pageId, body),
+        create: (body) =>
+          this.wiki.writeJoined(() => this.#wikis.createComment(this.#wikiId, this.pageId, body)),
         patch: (commentId, write) =>
           this.#wikis.patchComment(this.#wikiId, this.pageId, commentId, write),
         remove: (commentId) => this.#wikis.deleteComment(this.#wikiId, this.pageId, commentId),

@@ -9,6 +9,7 @@ import {
 } from './backend.ts';
 import { assignedIds, authorIds, memberId } from './user-names.ts';
 import { containerOfWorkspace } from './board-parts.ts';
+import { listOpened } from './join-on-write.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 
 /** Target state of a `BoardStore` when a load or refresh fails. */
@@ -112,6 +113,7 @@ export async function readBoard(workspace: Workspace, boardId: string) {
     const memberIds = members.map(memberId);
     const named = [...authorIds(cards), ...assignedIds(cards, board.cardProperties)];
     void workspace.learnUsers([board.createdBy, ...named, ...memberIds], { members: memberIds });
+    listOpened(workspace, board);
   }
   return [board, views, cards, members, permissions] as const;
 }

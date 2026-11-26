@@ -257,11 +257,11 @@ test('isolates unjoined open-course readers and strips all schedule UI/requests 
     { wsId: WORKSPACE, pastDate: isoDateOffset(-3), futureDate: isoDateOffset(5) },
   );
 
-  // Unjoined reader sees shared date, never sees creator's personal date, gets join hint.
+  // Unjoined reader sees shared date, never sees creator's personal date, and no prompt of its own.
   await goInside(page, `/w/${WORKSPACE}/courses/${openCourseId}`);
   await expect(page.getByTestId('course-join')).toBeVisible();
   await expect(page.getByTestId('unit-shared-date-text')).toContainText(isoDateOffset(-3));
-  await expect(page.getByTestId('unit-my-date-join-hint')).toBeVisible();
+  await expect(page.getByTestId('unit-my-date-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('unit-my-date-input')).toHaveCount(0);
   await expect(page.getByTestId('course-screen')).not.toContainText(isoDateOffset(5));
 

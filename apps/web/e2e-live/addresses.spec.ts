@@ -166,9 +166,9 @@ test('an open board of another workspace that the reader has not joined is not f
   await expect(page.getByTestId('board-join')).toHaveCount(0);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
 
-  // At its own: the way to join it.
+  // At its own: it opens, to be joined by the first write on it.
   await page.goto(boardPath(open));
-  await expect(page.getByTestId('board-join')).toBeVisible();
+  await expect(page.getByTestId('board-page')).toBeVisible();
   expect(errors).toEqual([]);
 });
 

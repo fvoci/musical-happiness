@@ -232,7 +232,7 @@
 {:else}
   {@const store = wiki}
   <div class="flex h-full min-h-0 flex-col">
-    {#if wiki.joinable}
+    {#if wiki.joinable && !wiki.joinsOnWrite}
       <WikiJoin
         joining={wiki.joining}
         role={wiki.wiki?.minimumRole}

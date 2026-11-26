@@ -313,7 +313,6 @@
     {#if store.joinable}
       <CourseJoin
         joining={store.joining}
-        role={store.course?.minimumRole}
         onJoin={() => {
           void store.join().then((done) => {
             joined = done;

@@ -14,6 +14,10 @@
 
   The order of the categories is changed from their menus ("Move up", "Move
   down"), not by dragging.
+
+  At the foot, folded (`SidebarFold`): the boards hidden from it, and the open
+  ones of the workspace the reader has neither made nor joined, which come up
+  into the list once they are joined (by the first write on them).
 -->
 <script lang="ts">
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -27,7 +31,12 @@
   import { Sortable } from '$lib/drag/sortable.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Container } from '$lib/logic/wire.ts';
-  import type { Category, SidebarCategory, Workspace } from '$lib/state/index.ts';
+  import {
+    openToJoinOf,
+    type Category,
+    type SidebarCategory,
+    type Workspace,
+  } from '$lib/state/index.ts';
 
   import { namedAs, shownTitle } from './shown-title.ts';
   import ContainerIcon from './ContainerIcon.svelte';
@@ -46,6 +55,7 @@
     titleHas,
   } from './sidebar-logic.ts';
   import SidebarContainer from './SidebarContainer.svelte';
+  import SidebarFold from './SidebarFold.svelte';
 
   interface Props {
     workspace: Workspace;
@@ -125,6 +135,10 @@
     workspace.categories.some((category) => category.hiddenContainerIds.includes(containerId));
 
   const titleOf = shownTitle;
+  /** The open ones the reader has neither made nor joined: at the foot, folded. */
+  const openToJoin = $derived(
+    openToJoinOf(workspace.categories, workspace.containers, workspace.locale, workspace.me?.id),
+  );
   const listedContainer = (id: string): Container | undefined =>
     workspace.containers.find((container) => container.id === id);
   const categoryName = (id: string): string => {
@@ -169,7 +183,6 @@
   });
 
   /** Whether the list of hidden boards is open. */
-  let hiddenOpen = $state(false);
 
   const drag = $derived(sortable.active);
   const lifted = $derived(drag ? listedContainer(drag.itemId) : undefined);
@@ -362,66 +375,37 @@
   {/if}
 
   {#if !filtering && workspace.hiddenContainers.length > 0}
-    <div class="pt-2" data-testid="hidden-boards">
-      <button
-        type="button"
-        aria-expanded={hiddenOpen}
-        class="flex min-h-8 w-full items-center gap-1 rounded-md py-1 pl-1 text-left text-xs font-medium text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
-        onclick={() => {
-          hiddenOpen = !hiddenOpen;
-        }}
-      >
-        <ChevronRightIcon
-          class={['size-4 shrink-0 transition-transform', hiddenOpen && 'rotate-90']}
-          aria-hidden="true"
-        />
-        <span class="min-w-0 flex-1 truncate">
-          {m.shell_hidden_boards({ count: workspace.hiddenContainers.length })}
-        </span>
-      </button>
-      {#if hiddenOpen}
-        <ul>
-          {#each workspace.hiddenContainers as container (container.id)}
-            <li class="flex items-center gap-1">
-              <a
-                href={containerHref(container)}
-                aria-current={container.id === containerId ? 'page' : undefined}
-                aria-label={namedAs(container.kind, titleOf(container))}
-                class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
-                onclick={(event: MouseEvent) => {
-                  if (
-                    event.button !== 0 ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.shiftKey ||
-                    event.altKey
-                  ) {
-                    return;
-                  }
-                  event.preventDefault();
-                  onOpenContainer(container);
-                }}
-              >
-                <ContainerIcon
-                  icon={container.icon}
-                  kind={container.kind}
-                  title={titleOf(container)}
-                  locale={workspace.locale}
-                />
-                <span class="min-w-0 flex-1 truncate">{titleOf(container)}</span>
-              </a>
-              <IconButton
-                label={m.shell_board_unhide({ name: titleOf(container) })}
-                class="text-muted-foreground"
-                onclick={() => void workspace.unhideContainer(container.id)}
-              >
-                <EyeIcon />
-              </IconButton>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
+    <SidebarFold
+      testId="hidden-boards"
+      label={m.shell_hidden_boards({ count: workspace.hiddenContainers.length })}
+      containers={workspace.hiddenContainers}
+      {containerId}
+      locale={workspace.locale}
+      {containerHref}
+      {onOpenContainer}
+    >
+      {#snippet tool(container: Container)}
+        <IconButton
+          label={m.shell_board_unhide({ name: titleOf(container) })}
+          class="text-muted-foreground"
+          onclick={() => void workspace.unhideContainer(container.id)}
+        >
+          <EyeIcon />
+        </IconButton>
+      {/snippet}
+    </SidebarFold>
+  {/if}
+
+  {#if !filtering && openToJoin.length > 0}
+    <SidebarFold
+      testId="open-to-join"
+      label={m.shell_open_to_join({ count: openToJoin.length })}
+      containers={openToJoin}
+      {containerId}
+      locale={workspace.locale}
+      {containerHref}
+      {onOpenContainer}
+    />
   {/if}
 
   <!-- No category of a workspace that is not shown, as one closed to this session. -->

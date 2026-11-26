@@ -78,7 +78,7 @@ export class CardStore {
       workspace: board.workspace,
       parentId: cardId,
       role: () => this.board.role,
-      permissions: () => this.board.permissions,
+      permissions: () => this.board.effectivePermissions,
       joinable: () => this.board.joinable,
       onDeleting: (commentId) => {
         this.board.deleting(commentId, this.cardId);
@@ -86,7 +86,10 @@ export class CardStore {
       onConflict: () => this.refresh(),
       api: {
         list: () => this.#backend.comments(this.#boardId, this.cardId),
-        create: (body) => this.#backend.createComment(this.#boardId, this.cardId, body),
+        create: (body) =>
+          this.board.writeJoined(() =>
+            this.#backend.createComment(this.#boardId, this.cardId, body),
+          ),
         patch: (commentId, write) =>
           this.#backend.patchComment(this.#boardId, commentId, write, this.cardId),
         remove: (commentId) => this.#backend.deleteComment(this.#boardId, this.cardId, commentId),

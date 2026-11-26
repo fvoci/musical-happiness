@@ -182,10 +182,10 @@ test('somebody starts an organization, and a second person comes in by its link 
   await expect(koreanPage.getByTestId('app-shell')).toBeVisible();
   await look(koreanPage, 'the organization as a newcomer finds it, in Korean');
 
-  // The same board: found, joined and edited.
+  // The same board: found, and joined by the first edit on it.
   await koreanPage.goto(page.url());
-  await koreanPage.getByTestId('board-join').getByRole('button').click();
   await expect(koreanPage.getByTestId('board-page')).toBeVisible();
+  await expect(koreanPage.getByTestId('board-join')).toHaveCount(0);
   await look(koreanPage, 'the board, in Korean');
   await koreanPage.getByText('Book the venue').click();
   await koreanPage.getByTestId('card-title').fill('Book the venue by Friday');

@@ -319,23 +319,30 @@ test('an open wiki is listed to and read by whoever works in the workspace, and 
   const errors = watchErrors(page);
   await page.goto(`/w/${workspaceId}/wikis/${wiki.id}`);
   await signInOnPage(page, colleague);
-  // Listed to them and read as its viewers read it; written once they join.
-  await expect(sidebar(page).getByRole('link', { name: 'Open notes, wiki' })).toBeVisible();
+  // Listed to them at the sidebar's foot, among the open ones, and written as its members do:
+  // the first write joins it.
+  const waiting = sidebar(page).getByTestId('open-to-join');
+  await expect(waiting.getByRole('link', { name: 'Open notes, wiki' })).toBeVisible();
   await expect(page).toHaveURL(`/w/${workspaceId}/wikis/${wiki.id}/${first.id}`);
-  await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Hello');
-  const join = page.getByTestId('wiki-join');
-  await expect(join).toContainText('Join it to write in it');
+  await expect(page.getByTestId('page-title')).toHaveValue('Hello');
+  await expect(page.getByTestId('wiki-join')).toHaveCount(0);
   // What its members write reaches them unjoined.
   await api.patch(`${inWorkspace}/wikis/${wiki.id}/pages/${first.id}`, {
     data: { title: 'Hello all' },
   });
-  await expect(page.locator('h1[data-testid="page-title"]')).toHaveText('Hello all');
-  await koreanShots(browser, page, 'wiki-people', 'read-before-joining', async (seen) => {
-    await expect(seen.getByTestId('wiki-join')).toBeVisible();
-  });
-  await join.getByRole('button').click();
-  await expect(join).toHaveCount(0);
   await expect(page.getByTestId('page-title')).toHaveValue('Hello all');
+  await koreanShots(browser, page, 'wiki-people', 'read-before-joining', async (seen) => {
+    await expect(seen.getByTestId('page-title')).toBeVisible();
+  });
+  const title = page.getByTestId('page-title');
+  await title.fill('Hello, joined');
+  await title.press('Enter');
+  await expect(waiting).toHaveCount(0);
+  await expect(sidebar(page).getByRole('link', { name: 'Open notes, wiki' })).toBeVisible();
+  const read = (await (
+    await api.get(`${inWorkspace}/wikis/${wiki.id}/pages/${first.id}`)
+  ).json()) as Schemas['Page'];
+  expect(read.title).toBe('Hello, joined');
   expect(errors).toEqual([]);
   await page.context().close();
   await api.dispose();

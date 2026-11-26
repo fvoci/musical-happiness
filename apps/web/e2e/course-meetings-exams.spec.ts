@@ -283,14 +283,14 @@ test('isolates unjoined open-course readers and strips all meetings/exams UI & r
     return course.id;
   }, WORKSPACE);
 
-  // Unjoined reader sees meetings read-only + join hint, and exams average without score input or creator's note.
+  // Unjoined reader sees meetings read-only with no prompt of its own, and exams average without score input or creator's note.
   await goInside(page, `/w/${WORKSPACE}/courses/${courseId}?tab=meetings`);
-  await expect(page.getByTestId('meetings-join-hint')).toBeVisible();
+  await expect(page.getByTestId('meetings-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('new-meeting')).toHaveCount(0);
   await expect(page.getByTestId('attendance-btn-present')).toHaveCount(0);
 
   await page.getByTestId('course-tab-exams').click();
-  await expect(page.getByTestId('exams-join-hint')).toBeVisible();
+  await expect(page.getByTestId('exams-join-hint')).toHaveCount(0);
   await expect(page.getByTestId('exam-my-score-panel')).toHaveCount(0);
   await expect(page.getByTestId('exam-average')).toContainText('No scores yet');
   await expect(page.getByTestId('exam-score-count')).toContainText('0 submitted');

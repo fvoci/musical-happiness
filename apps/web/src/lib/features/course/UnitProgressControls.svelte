@@ -151,142 +151,121 @@
   }
 </script>
 
-{#if canTrack || course.joinable}
+{#if canTrack}
   <div class="flex w-full flex-wrap items-center gap-2" data-testid="unit-progress-controls">
-    {#if canTrack}
-      <Button
-        variant={completed ? 'default' : 'outline'}
-        size="sm"
-        class="roomy:min-h-touch"
-        aria-pressed={completed}
-        disabled={busy}
-        data-testid="unit-complete-toggle"
-        onclick={() => void toggleComplete()}
-      >
-        {#if completed}
-          <CircleCheckIcon aria-hidden="true" />
-          {m.course_unit_completed()}
-        {:else}
-          <CircleIcon aria-hidden="true" />
-          {m.course_unit_mark_complete()}
-        {/if}
-      </Button>
-
-      {#if editingPosition}
-        <form
-          class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
-          onsubmit={(event) => void submitPosition(event)}
-          data-testid="unit-last-position-form"
-        >
-          <Input
-            bind:ref={inputRef}
-            type="text"
-            bind:value={draft}
-            aria-label={m.course_last_position_label()}
-            aria-invalid={validationError !== '' ? 'true' : undefined}
-            aria-describedby={validationError !== '' ? `${uid}-error` : undefined}
-            placeholder={m.course_last_position_placeholder()}
-            autocomplete="off"
-            disabled={busy}
-            data-testid="unit-last-position-input"
-            class="h-8 max-w-60 min-w-36 flex-1 text-sm roomy:h-touch"
-            oninput={() => {
-              if (validationError !== '') validationError = validate(draft);
-            }}
-            {onkeydown}
-          />
-          <Button
-            type="submit"
-            size="sm"
-            variant="secondary"
-            class="roomy:min-h-touch"
-            disabled={busy}
-            data-testid="unit-last-position-save"
-          >
-            {m.course_last_position_save()}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            class="roomy:min-h-touch"
-            disabled={busy}
-            data-testid="unit-last-position-cancel"
-            onclick={() => void closeEditor()}
-          >
-            {m.shared_cancel()}
-          </Button>
-          {#if validationError}
-            <p
-              id="{uid}-error"
-              class="w-full text-xs text-destructive"
-              role="alert"
-              data-testid="unit-last-position-error"
-            >
-              {validationError}
-            </p>
-          {/if}
-        </form>
-      {:else if lastPosition}
-        <div
-          class="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/50 py-0.5 pr-1 pl-2 text-xs text-muted-foreground"
-          data-testid="unit-last-position"
-        >
-          <button
-            bind:this={triggerRef}
-            type="button"
-            class="flex min-h-7 min-w-0 items-center gap-1.5 truncate text-left hover:text-foreground roomy:min-h-touch"
-            disabled={busy}
-            data-testid="unit-last-position-edit"
-            onclick={() => void startEditing()}
-          >
-            <BookmarkIcon class="size-3.5 shrink-0" aria-hidden="true" />
-            <span class="sr-only">{m.course_last_position_edit()}: </span>
-            <span class="truncate" data-testid="unit-last-position-value">{lastPosition}</span>
-          </button>
-          <IconButton
-            label={m.course_last_position_clear()}
-            disabled={busy}
-            data-testid="unit-last-position-clear"
-            class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-            onclick={() => void clearPosition()}
-          >
-            <XIcon class="size-3.5" />
-          </IconButton>
-        </div>
+    <Button
+      variant={completed ? 'default' : 'outline'}
+      size="sm"
+      class="roomy:min-h-touch"
+      aria-pressed={completed}
+      disabled={busy}
+      data-testid="unit-complete-toggle"
+      onclick={() => void toggleComplete()}
+    >
+      {#if completed}
+        <CircleCheckIcon aria-hidden="true" />
+        {m.course_unit_completed()}
       {:else}
-        <Button
-          bind:ref={triggerRef}
-          variant="ghost"
-          size="sm"
-          class="text-muted-foreground roomy:min-h-touch"
-          disabled={busy}
-          data-testid="unit-last-position-add"
-          onclick={() => void startEditing()}
-        >
-          <BookmarkIcon aria-hidden="true" />
-          {m.course_last_position_add()}
-        </Button>
-      {/if}
-    {:else}
-      <Button
-        variant="outline"
-        size="sm"
-        class="roomy:min-h-touch"
-        disabled
-        aria-describedby="{uid}-join-hint"
-        data-testid="unit-complete-toggle"
-      >
         <CircleIcon aria-hidden="true" />
         {m.course_unit_mark_complete()}
-      </Button>
-      <span
-        id="{uid}-join-hint"
-        class="text-xs text-muted-foreground"
-        data-testid="unit-progress-join-hint"
+      {/if}
+    </Button>
+
+    {#if editingPosition}
+      <form
+        class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+        onsubmit={(event) => void submitPosition(event)}
+        data-testid="unit-last-position-form"
       >
-        {m.course_progress_join_hint()}
-      </span>
+        <Input
+          bind:ref={inputRef}
+          type="text"
+          bind:value={draft}
+          aria-label={m.course_last_position_label()}
+          aria-invalid={validationError !== '' ? 'true' : undefined}
+          aria-describedby={validationError !== '' ? `${uid}-error` : undefined}
+          placeholder={m.course_last_position_placeholder()}
+          autocomplete="off"
+          disabled={busy}
+          data-testid="unit-last-position-input"
+          class="h-8 max-w-60 min-w-36 flex-1 text-sm roomy:h-touch"
+          oninput={() => {
+            if (validationError !== '') validationError = validate(draft);
+          }}
+          {onkeydown}
+        />
+        <Button
+          type="submit"
+          size="sm"
+          variant="secondary"
+          class="roomy:min-h-touch"
+          disabled={busy}
+          data-testid="unit-last-position-save"
+        >
+          {m.course_last_position_save()}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          class="roomy:min-h-touch"
+          disabled={busy}
+          data-testid="unit-last-position-cancel"
+          onclick={() => void closeEditor()}
+        >
+          {m.shared_cancel()}
+        </Button>
+        {#if validationError}
+          <p
+            id="{uid}-error"
+            class="w-full text-xs text-destructive"
+            role="alert"
+            data-testid="unit-last-position-error"
+          >
+            {validationError}
+          </p>
+        {/if}
+      </form>
+    {:else if lastPosition}
+      <div
+        class="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/50 py-0.5 pr-1 pl-2 text-xs text-muted-foreground"
+        data-testid="unit-last-position"
+      >
+        <button
+          bind:this={triggerRef}
+          type="button"
+          class="flex min-h-7 min-w-0 items-center gap-1.5 truncate text-left hover:text-foreground roomy:min-h-touch"
+          disabled={busy}
+          data-testid="unit-last-position-edit"
+          onclick={() => void startEditing()}
+        >
+          <BookmarkIcon class="size-3.5 shrink-0" aria-hidden="true" />
+          <span class="sr-only">{m.course_last_position_edit()}: </span>
+          <span class="truncate" data-testid="unit-last-position-value">{lastPosition}</span>
+        </button>
+        <IconButton
+          label={m.course_last_position_clear()}
+          disabled={busy}
+          data-testid="unit-last-position-clear"
+          class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+          onclick={() => void clearPosition()}
+        >
+          <XIcon class="size-3.5" />
+        </IconButton>
+      </div>
+    {:else}
+      <Button
+        bind:ref={triggerRef}
+        variant="ghost"
+        size="sm"
+        class="text-muted-foreground roomy:min-h-touch"
+        disabled={busy}
+        data-testid="unit-last-position-add"
+        onclick={() => void startEditing()}
+      >
+        <BookmarkIcon aria-hidden="true" />
+        {m.course_last_position_add()}
+      </Button>
     {/if}
   </div>
   {#if showingSuggestion}

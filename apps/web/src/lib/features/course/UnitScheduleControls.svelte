@@ -345,10 +345,6 @@
           </IconButton>
         {/if}
       </div>
-    {:else if course.joinable}
-      <span class="text-muted-foreground" data-testid="unit-my-date-join-hint">
-        {m.course_unit_my_date_join_hint()}
-      </span>
     {/if}
 
     {#if overdue}

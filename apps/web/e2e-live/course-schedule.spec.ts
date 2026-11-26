@@ -184,14 +184,14 @@ test('saves schedule with auto-assign, preserves overdue units, isolates viewer 
     await expect(adaPage.getByTestId('learning-overdue-item')).toHaveCount(0);
     await expect(adaPage.getByTestId('learning-today-item')).toHaveCount(1);
 
-    // Unjoined Chloe sees empty Today's learning and join hint on the open course.
+    // Unjoined Chloe sees empty Today's learning and the banner alone on the open course.
     const chloeSession = await signedInPage(browser, `/w/${shared.id}/learning/today`, chloe);
     pages.push(chloeSession.page);
     watched.push(chloeSession.errors);
     const chloePage = chloeSession.page;
     await expect(chloePage.getByTestId('learning-today-empty')).toBeVisible();
     await chloePage.goto(unit1Url);
-    await expect(chloePage.getByTestId('unit-my-date-join-hint')).toBeVisible();
+    await expect(chloePage.getByTestId('unit-my-date-join-hint')).toHaveCount(0);
     await expect(chloePage.getByTestId('unit-my-date-input')).toHaveCount(0);
 
     // Public sharing link makes zero /schedule or /learning/today requests and shows no schedule UI.
