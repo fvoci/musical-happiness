@@ -302,6 +302,7 @@ impl Store {
             scope.execute(sql).await?;
             let ended =
                 sessions::end_sessions_of_origin(scope, &provider.org_id, &provider.issuer).await?;
+            crate::api_tokens::revoke_of_provider(scope, &provider.id, None).await?;
             oidc_former::give_way(scope, Some(actor_id)).await?;
             let entry = AuditEntry::new(
                 "",
@@ -673,6 +674,13 @@ pub(crate) async fn write_provider<'c>(
             .push_bind(" WHERE id = ", scope.org()?)
             .push_bind(" AND allow_copy_out = ", true);
         scope.execute(lock_copy).await?;
+    }
+    // A token made through the provider proves what its session proved: the revision
+    // it was made at. Another revision signs in otherwise, and ends it.
+    if let Some(before) = before
+        && before.revision != stored.revision
+    {
+        crate::api_tokens::revoke_of_provider(scope, &stored.id, Some(stored.revision)).await?;
     }
     let ended = if let Some(before) = before
         && before.issuer != stored.issuer

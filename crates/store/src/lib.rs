@@ -9,6 +9,7 @@
 mod account_deletion;
 mod account_erasure;
 mod accounts;
+mod api_tokens;
 mod audit;
 mod block_copies;
 mod block_derived;
@@ -118,6 +119,9 @@ pub use account_erasure::{
     Erasing, ErasureEnd, ErasureStart, HandedOver, LeftFrom, RemovedOrganization,
 };
 pub use accounts::{Founding, FoundingPolicy, OwnSpace, StartedOrganization};
+pub use api_tokens::{
+    GrantedWorkspace, Issuance, LiveApiToken, TokenOrigin, TokenReach, TokenToIssue,
+};
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
     BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,

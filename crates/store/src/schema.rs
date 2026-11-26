@@ -129,8 +129,9 @@ pub(crate) const BEFORE_SERVER_AUTHORITY_VERSION: i64 = 77;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 13] = [
+pub(crate) const GLOBAL_TABLES: [&str; 14] = [
     "_sqlx_migrations",
+    "api_tokens",
     "data_steps",
     "email_changes",
     "email_reverts",
@@ -150,7 +151,8 @@ pub(crate) const GLOBAL_TABLES: [&str; 13] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 50] = [
+pub(crate) const ORG_TABLES: [&str; 51] = [
+    "api_token_workspaces",
     "audit_log",
     "blocks",
     "body_docs",

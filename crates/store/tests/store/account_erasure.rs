@@ -1481,6 +1481,7 @@ async fn the_audit_logs_guard_names_every_column_of_the_table() {
             "action",
             "actor_id",
             "actor_kind",
+            "actor_token_id",
             "created_at",
             "detail",
             "id",
@@ -1490,11 +1491,11 @@ async fn the_audit_logs_guard_names_every_column_of_the_table() {
             "target_id",
             "workspace_id"
         ],
-        "a new column of the audit log is added to the guard of migration 75 as well"
+        "a new column of the audit log is added to the guard as it was last made (79) as well"
     );
     for dialect in ["sqlite", "postgres"] {
         let guard = std::fs::read_to_string(format!(
-            "{}/schema/{dialect}/0075_unified_created_updated_timestamps.sql",
+            "{}/schema/{dialect}/0079_api_tokens.sql",
             env!("CARGO_MANIFEST_DIR")
         ))
         .expect("the migration");

@@ -10,6 +10,7 @@ mod account_deletion;
 mod account_erasure;
 mod account_erasure_organizations;
 mod alone;
+mod api_tokens;
 mod block_reads_and_patches;
 mod blocks;
 mod blocks_and_deletion;

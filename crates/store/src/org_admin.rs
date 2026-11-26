@@ -367,6 +367,7 @@ impl Store {
             if scope.execute(sql).await? == 0 {
                 return Ok(WorkspaceTrashing::NotFound);
             }
+            crate::api_tokens::forget_workspace(scope, workspace_id).await?;
             let entry = AuditEntry::new("", actor_id, AuditAction::WorkspaceDeleted, workspace_id);
             audit::record_entry(scope, &entry).await?;
             Ok(WorkspaceTrashing::Done)
@@ -858,6 +859,7 @@ async fn end_joining(
     if joined.prior.is_none() || joined.prior == Some(WorkspaceRole::Guest) {
         crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id)
             .await?;
+        crate::api_tokens::forget_workspace_of_user(scope, workspace_id, user_id).await?;
     }
     let mut sql = match joined.prior {
         Some(prior) => {
