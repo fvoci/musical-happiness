@@ -20,8 +20,6 @@ impl SubscriptionError {
 }
 
 /// A subscription to the changes of a block.
-// `blockType` is required when decoding; every other member defaults to its empty value.
-// (No extra doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {

@@ -1,4 +1,4 @@
-//! Users, their preferences and their login sessions.
+//! Users, their settings and client state, and their login sessions.
 
 use std::collections::BTreeMap;
 use std::fmt;

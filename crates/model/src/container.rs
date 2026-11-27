@@ -413,8 +413,6 @@ pub enum ContainerError {
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
-// `visibility` is required when decoding; every other member defaults to its empty value.
-// (No doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Container {

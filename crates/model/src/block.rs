@@ -551,8 +551,6 @@ impl BlockError {
 }
 
 /// The basic data unit of a board.
-// `type` is required when decoding; every other member defaults to its empty value.
-// (No extra doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
@@ -628,17 +626,8 @@ pub struct Block {
     /// since the Unix epoch. Absent for a comment never changed and for every other
     /// block. The server sets it, and ignores a client's. What the body said before is
     /// `getCommentVersions`'.
-    #[serde(default, skip_serializing_if = "is_zero")]
+    #[serde(default, skip_serializing_if = "crate::serde_util::is_zero")]
     pub edited_at: i64,
-}
-
-/// Whether a time is none: zero.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's skip_serializing_if passes a reference"
-)]
-fn is_zero(time: &i64) -> bool {
-    *time == 0
 }
 
 /// A card's number as it is read: what is no number a card can have is none, so that

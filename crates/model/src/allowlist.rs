@@ -22,7 +22,7 @@ const MARK_MEMBERS: [&str; 2] = ["type", "attrs"];
 
 /// The nodes that stand as blocks: in the document, a quote, a list entry and a cell
 /// of a table.
-const BLOCKS: &[&str] = &[
+const BLOCKS: [&str; 11] = [
     "paragraph",
     "heading",
     "bulletList",
@@ -39,21 +39,15 @@ const BLOCKS: &[&str] = &[
 /// The nodes that stand in the document itself: the blocks, and a table. A table stands
 /// nowhere else, so that no table is in another: a cell holds blocks, and so does a list
 /// entry in a cell.
-const DOCUMENT_BLOCKS: &[&str] = &[
-    "paragraph",
-    "heading",
-    "bulletList",
-    "orderedList",
-    "taskList",
-    "blockquote",
-    "codeBlock",
-    "horizontalRule",
-    "image",
-    "file",
-    "blockMath",
-    "table",
-];
-
+const DOCUMENT_BLOCKS: [&str; BLOCKS.len() + 1] = {
+    let mut nodes = ["table"; BLOCKS.len() + 1];
+    let mut at = 0;
+    while at < BLOCKS.len() {
+        nodes[at] = BLOCKS[at];
+        at += 1;
+    }
+    nodes
+};
 /// The nodes that stand inside a line.
 const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMath"];
 
@@ -183,14 +177,14 @@ fn node_spec(name: &str) -> Option<NodeSpec> {
         "heading" => node(HEADING, INLINE, 0),
         "bulletList" => node(&[], &["listItem"], 1),
         "orderedList" => node(ORDERED_LIST, &["listItem"], 1),
-        "doc" => node(&[], DOCUMENT_BLOCKS, 1),
-        "listItem" | "blockquote" => node(&[], BLOCKS, 1),
+        "doc" => node(&[], &DOCUMENT_BLOCKS, 1),
+        "listItem" | "blockquote" => node(&[], &BLOCKS, 1),
         "table" => node(&[], &["tableRow"], 1),
         // A row may have no cell of its own where the cells above cover it.
         "tableRow" => node(&[], &["tableHeader", "tableCell"], 0),
-        "tableHeader" | "tableCell" => node(CELL, BLOCKS, 1),
+        "tableHeader" | "tableCell" => node(CELL, &BLOCKS, 1),
         "taskList" => node(&[], &["taskItem"], 1),
-        "taskItem" => node(TASK_ITEM, BLOCKS, 1),
+        "taskItem" => node(TASK_ITEM, &BLOCKS, 1),
         "codeBlock" => node(CODE_BLOCK, &["text"], 0),
         "horizontalRule" | "hardBreak" | "text" => node(&[], LEAF, 0),
         "image" => node(IMAGE, LEAF, 0),
@@ -596,13 +590,6 @@ mod tests {
         }
         assert!(is_allowed_href(&format!("/{}", "a".repeat(HREF_MAX - 1))));
         assert!(!is_allowed_href(&format!("/{}", "a".repeat(HREF_MAX))));
-    }
-
-    #[test]
-    fn the_document_holds_the_blocks_and_a_table() {
-        let mut expected = BLOCKS.to_vec();
-        expected.push("table");
-        assert_eq!(DOCUMENT_BLOCKS, expected.as_slice());
     }
 
     #[test]

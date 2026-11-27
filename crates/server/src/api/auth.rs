@@ -115,6 +115,12 @@ async fn handle_login(
     Ok(with_session_cookie(&app, &token, no_content()))
 }
 
+/// The answer to a request after which the session goes on under a new token: no
+/// content, and the token in the cookie in place of the old one.
+fn renewed_session(app: &App, token: &str) -> Response {
+    with_session_cookie(app, token, no_content())
+}
+
 /// Adds the session cookie with the token to a response.
 pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response) -> Response {
     let cookie = http_credentials::set_cookie_header(app.authenticator().session_cookie(), token);
@@ -310,8 +316,7 @@ async fn handle_change_password(
             address,
         )
         .await?;
-    // The session goes on under a new token, which replaces the old one in the cookie.
-    Ok(with_session_cookie(&app, &token, no_content()))
+    Ok(renewed_session(&app, &token))
 }
 
 /// Set the first password
@@ -425,6 +430,5 @@ async fn handle_confirm_password(
     let token = app
         .confirm_session_password(&session, &request.password, address_of(client))
         .await?;
-    // The session goes on under a new token, which replaces the old one in the cookie.
-    Ok(with_session_cookie(&app, &token, no_content()))
+    Ok(renewed_session(&app, &token))
 }
