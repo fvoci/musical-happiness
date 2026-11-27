@@ -580,7 +580,7 @@ impl Store {
             let wall = crate::directory::open_wall(scope).await?;
             crate::directory::is_the_instances_organization(scope).await?;
             let sql = scope.sql("SELECT current_setting('fvoci.system', true)");
-            let reach: String = scope.first(sql).await?.unwrap_or(String::new());
+            let reach: String = scope.first(sql).await?.unwrap_or_default();
             crate::directory::close_wall(scope, wall).await?;
             Ok(reach)
         })
