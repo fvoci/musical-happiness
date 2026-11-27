@@ -214,6 +214,7 @@ async fn change_role(
     if to == WorkspaceRole::Guest {
         crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id)
             .await?;
+        crate::api_tokens::forget_workspace_of_user(scope, workspace_id, user_id).await?;
         taken_over = hand_over(scope, workspace_id, &containers, user_id, by).await?;
         let mut sql = scope.sql("UPDATE container_members SET role = ");
         sql.bind(ContainerRole::Editor.as_str())
@@ -296,6 +297,7 @@ async fn remove(
     crate::course_exams::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::unit_reviews::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
+    crate::api_tokens::forget_workspace_of_user(scope, workspace_id, user_id).await?;
     let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));

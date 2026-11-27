@@ -22,6 +22,7 @@ use super::{
     ApiResult, accept_language, created, decode_object, json_response, no_content,
     require_container_permission,
 };
+use super::{Delegated, Write};
 use crate::app::App;
 use crate::permissions::ContainerPermission;
 
@@ -56,7 +57,7 @@ async fn handle_duplicate_card(
     Path((_, board_id, card_id)): Path<(String, String, String)>,
     QueryParams(query): QueryParams<AsTemplateQuery>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -92,7 +93,7 @@ async fn handle_move_view_cards(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -128,7 +129,7 @@ async fn handle_batch_delete_cards(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -162,7 +163,7 @@ async fn handle_batch_restore_cards(
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -193,12 +194,12 @@ async fn handle_batch_restore_cards(
     responses((status = 201, description = "The created attachment block.", body = Block)),
 )]
 async fn handle_create_card_attachment(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Write, InWorkspace>,
     Path((_, board_id, card_id)): Path<(String, String, String)>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -232,7 +233,7 @@ async fn handle_create_board_view(
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -266,7 +267,7 @@ async fn handle_move_board_view(
     Path((_, board_id, view_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -302,7 +303,7 @@ async fn handle_duplicate_board_view(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,

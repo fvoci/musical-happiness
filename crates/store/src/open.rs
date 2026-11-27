@@ -116,6 +116,7 @@ impl Store {
         Ok(Self {
             tenant: Tenant::Unset,
             noting: db::Noting::Named,
+            agent: None,
             inner: Arc::new(Inner {
                 pool,
                 sqlite_writers: tokio::sync::Mutex::new(()),

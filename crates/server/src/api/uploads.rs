@@ -22,12 +22,14 @@ use super::contract::params::{
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
-use super::workspace::InContainer;
+use super::workspace::{InContainer, InWorkspace};
 use super::{
     ApiResult, RequiredSession, body::decode_object, created, json_response, no_content,
     require_container_permission,
 };
+use super::{Delegated, Write};
 use crate::app::{App, FileToUpload, PartDigest};
+use crate::auth::api_token;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
@@ -192,11 +194,11 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
     responses((status = 201, description = "The upload is open.", body = UploadOpened)),
 )]
 async fn handle_create_upload(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Write, InContainer>,
     Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -258,7 +260,7 @@ async fn handle_create_import_upload(
     let upload = ws
         .app
         .create_import_upload(
-            &ws.session.user_id,
+            &ws.caller.user_id,
             &ws.workspace_id,
             FileToUpload {
                 name,
@@ -283,13 +285,10 @@ async fn handle_create_import_upload(
     responses((status = 200, description = "The upload.", body = UploadState)),
 )]
 async fn handle_get_upload(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Write, InContainer>,
     Path((_, upload_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let (upload, parts) = ws
-        .app
-        .workspace_upload(&upload_id, &ws.session.user_id)
-        .await?;
+    let (upload, parts) = upload_of(&ws, &upload_id).await?;
     Ok(json_response(&UploadState::new(upload, &parts)))
 }
 
@@ -314,17 +313,14 @@ async fn handle_get_upload(
     responses((status = 204, description = "The part is received.")),
 )]
 async fn handle_put_upload_part(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Write, InContainer>,
     Path((_, upload_id, number)): Path<(String, String, String)>,
     headers: HeaderMap,
     body: Body,
 ) -> ApiResult {
     let mut stream = body.into_data_stream();
     let received = async {
-        let (upload, _) = ws
-            .app
-            .workspace_upload(&upload_id, &ws.session.user_id)
-            .await?;
+        let (upload, _) = upload_of(&ws, &upload_id).await?;
         let number: i64 = number.parse().map_err(|_| {
             AppError::bad_request("the part number is a whole number").with_parameter("partNumber")
         })?;
@@ -362,11 +358,11 @@ async fn handle_put_upload_part(
     responses((status = 201, description = "The file is stored.", body = UploadedFile)),
 )]
 async fn handle_complete_upload(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Write, InContainer>,
     Path((_, upload_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
-    let (upload, _) = ws.app.workspace_upload(&upload_id, user_id).await?;
+    let user_id = ws.caller.user_id.as_str();
+    let (upload, _) = upload_of(&ws, &upload_id).await?;
     if upload.purpose != UploadPurpose::File {
         return Err(AppError::bad_request(
             "the upload is of an archive; import it with importArchive",
@@ -408,15 +404,35 @@ async fn handle_complete_upload(
     responses((status = 204, description = "The upload is gone.")),
 )]
 async fn handle_delete_upload(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Write, InContainer>,
     Path((_, upload_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let (upload, _) = ws
-        .app
-        .workspace_upload(&upload_id, &ws.session.user_id)
-        .await?;
+    let (upload, _) = upload_of(&ws, &upload_id).await?;
     ws.app.abandon_upload(&upload).await?;
     Ok(no_content())
+}
+
+/// The caller's upload `upload_id` of the workspace, with the parts it received. An
+/// upload of an archive is a person's, as its opening and its import are
+/// (`createImportUpload`, `importArchive`): a token that names one is refused, as those
+/// routes refuse it.
+///
+/// # Errors
+///
+/// Returns 403 with the reason `token_forbidden_endpoint` for a token and an upload of
+/// an archive, and the errors of `App::workspace_upload`.
+async fn upload_of(
+    ws: &InWorkspace,
+    upload_id: &str,
+) -> Result<(Upload, Vec<UploadPart>), AppError> {
+    let found = ws
+        .app
+        .workspace_upload(upload_id, &ws.caller.user_id)
+        .await?;
+    if found.0.purpose == UploadPurpose::Import && ws.caller.delegation().is_some() {
+        return Err(api_token::refused_as_session());
+    }
+    Ok(found)
 }
 
 /// The length the request declares for its body.

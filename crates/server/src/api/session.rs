@@ -11,8 +11,11 @@ use axum::middleware::Next;
 use axum::response::Response;
 use fvoci_model::{Leaving, Session};
 
-use crate::app::App;
-use crate::auth::token::Credential;
+use super::delegated::Admits;
+use crate::app::{App, Caller};
+use crate::auth::api_token;
+use crate::auth::token::{Credential, bearer_token};
+use crate::client_address::ClientAddress;
 use crate::error::{AppError, ErrorKind, Reason};
 
 /// The session of a request to a route that needs one. Extraction fails with 401 if the
@@ -152,6 +155,41 @@ pub(crate) async fn session_of(
         renewal.note(token);
     }
     Ok(authenticated.session)
+}
+
+/// Who sends a request to a route that takes what `admits` says: its session, or, where
+/// it takes one, the personal API token in its `Authorization` header. A token in the
+/// session cookie is no token: a page cannot send one by itself.
+///
+/// # Errors
+///
+/// Returns the errors of [`session_of`] (403 with the reason `token_forbidden_endpoint`
+/// for a token where `admits` takes none); for a token, those of
+/// `App::caller_by_token` and 403 with the reason `token_scope_insufficient` for one
+/// that reads only where the route writes.
+pub(crate) async fn caller_of(
+    app: &App,
+    headers: &HeaderMap,
+    extensions: &Extensions,
+    admits: Admits,
+) -> Result<Caller, AppError> {
+    if let Admits::Tokens(needed) = admits
+        && let Some(token) = bearer_token(headers)
+        && api_token::is_api_token(token)
+    {
+        let address = extensions
+            .get::<ClientAddress>()
+            .and_then(|ClientAddress(address)| *address);
+        let caller = app.caller_by_token(token, address).await?;
+        let covered = caller
+            .delegation()
+            .is_some_and(|delegation| delegation.scope.covers(needed));
+        if !covered {
+            return Err(api_token::reads_only());
+        }
+        return Ok(caller);
+    }
+    session_of(app, headers, extensions).await.map(Caller::from)
 }
 
 /// Where a request's handlers note that the session cookie is due for renewal: the

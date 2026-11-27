@@ -815,11 +815,11 @@ async fn info_of_parent(
 
 /// How a block is written, beyond what it is and by whom.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Written {
+pub(crate) struct Written<'a> {
     /// How the files its body names newly are asked for.
     pub(crate) new_files: NewBodyFiles,
     /// What the write is for the versions kept of a card's body.
-    pub(crate) body_write: BodyWrite,
+    pub(crate) body_write: BodyWrite<'a>,
     /// Who is told of whom it newly names.
     pub(crate) telling: Telling,
 }
@@ -834,7 +834,7 @@ pub(crate) async fn insert_block_at(
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
-    how: Written,
+    how: Written<'_>,
 ) -> Result<Vec<NamedCards>, StoreError> {
     insert_block_inner(scope, block, user_id, at, how, None).await
 }
@@ -844,7 +844,7 @@ async fn insert_block_inner(
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
-    how: Written,
+    how: Written<'_>,
     preloaded: Option<(ContainerKind, Block)>,
 ) -> Result<Vec<NamedCards>, StoreError> {
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
@@ -881,6 +881,7 @@ async fn insert_block_inner(
 
     page_places::check(block, kind, parent_type)?;
     comment_places::check(block, parent_type, existing.as_ref())?;
+    comment_places::sign(block, existing.as_ref(), scope.agent());
     // A block that moves must not end up below itself: checked before card hierarchy
     // rules so moving a card onto a block below it always reports `ParentBelowBlock`.
     if let Some(before) = &existing

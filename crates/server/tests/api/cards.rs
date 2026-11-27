@@ -638,7 +638,13 @@ async fn app_patch_card_success_scenario() {
 
     let patched = th
         .app
-        .patch_card(&card_patch, &card.id, &user_id, ChangeNotification::Send)
+        .patch_card(
+            &card_patch,
+            &card.id,
+            &user_id,
+            ChangeNotification::Send,
+            None,
+        )
         .await
         .expect("the card is patched");
 
@@ -662,6 +668,7 @@ async fn app_patch_card_error_scenario() {
                 card_id,
                 &th.stranger().await,
                 ChangeNotification::Send,
+                None,
             )
             .await
             .expect_err("the patch is refused")

@@ -183,6 +183,28 @@ reasons! {
     SsoUnproven => "sso_unproven", "Provider not signed in through";
     /// The organization takes no password, and its provider stays as it is meanwhile.
     SsoEnforced => "sso_enforced", "Provider held while no password is taken";
+    /// A personal API token was sent to a route that is not open to tokens: what is of
+    /// the account, of who is on what, of what is shared, or of an administrator.
+    TokenForbiddenEndpoint => "token_forbidden_endpoint", "Not open to a personal API token";
+    /// A personal API token that reads only was sent to a route that writes.
+    TokenScopeInsufficient => "token_scope_insufficient", "Personal API token reads only";
+    /// The workspace's organization, which takes only sessions made through its
+    /// provider, gives its workspaces to no personal API token.
+    ApiTokensDisallowed => "api_tokens_disallowed", "Organization takes no personal API tokens";
+    /// A personal API token, or the tokens that reach one organization together, sent
+    /// more requests than they may in a minute.
+    TokenRateLimited => "token_rate_limited", "Too many requests of personal API tokens";
+    /// A personal API token reaches a workspace of an organization that takes only
+    /// sessions made through its provider more than 90 days after it was made.
+    TokenExpiredForOrganization => "token_expired_for_organization", "Personal API token too old for the organization";
+    /// The account holds as many personal API tokens in use as one may.
+    TooManyApiTokens => "too_many_api_tokens", "Too many personal API tokens";
+    /// A body is written whole from Markdown over one that has blocks its Markdown does
+    /// not hold as they are (`complexBlocks`): Markdown is added after it instead.
+    ComplexBlocksUseAppend => "complex_blocks_use_append", "Body that Markdown does not hold";
+    /// A personal API token writes a body whole while people edit it: what they typed
+    /// and did not send yet would be lost. Markdown is added after it instead.
+    RoomHasActiveEditors => "room_has_active_editors", "Body edited by people now";
     /// The value of a card relation is neither `null` nor a list of identifiers.
     RelationNotAList => "relation_not_a_list", "Card relation that is no list";
     /// A card relation names the card it is the value of.

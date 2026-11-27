@@ -8,12 +8,14 @@
 
 mod account_deletion;
 mod allowlist;
+mod api_token;
 mod archive;
 mod auth;
 mod block;
 mod block_ids;
 mod board_ops;
 mod body;
+mod body_markdown;
 mod body_version;
 mod card;
 mod card_property;
@@ -69,6 +71,11 @@ pub use account_deletion::{
     DeletionProof, Leaving, LeavingOrganization, OrganizationName,
 };
 pub use allowlist::{body_node_types, is_allowed_href, is_file_id};
+pub use api_token::{
+    API_TOKEN_DEFAULT_DAYS, API_TOKEN_MAX_DAYS, API_TOKEN_MAX_LIVE, API_TOKEN_NAME_MAX_CHARS,
+    API_TOKEN_PREFIX, API_TOKEN_SHOWN_CHARS, ApiToken, ApiTokenScope, ApiTokenWorkspace,
+    IssuedApiToken, MemberApiToken, NewApiToken, ParseApiTokenScopeError,
+};
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, ConfirmPasswordRequest, DISPLAY_NAME_MAX_LENGTH,
@@ -78,8 +85,8 @@ pub use auth::{
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges,
-    stamp_modification_metadata,
+    BlockType, CARD_FIELDS_MAX_CHARS, COMMENT_AGENT_TOKEN_NAME, ParseBlockTypeError,
+    PropertyChanges, stamp_modification_metadata,
 };
 pub use block_ids::{
     UnmatchedRelation, collect_block_references, generate_block_ids, renew_block_ids,
@@ -96,11 +103,14 @@ pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
     BodySummary, TaskCount,
 };
+pub use body_markdown::{ComplexBlock, ComplexBlockReason};
 pub use body_version::{
     BodyVersion, BodyVersionCause, BodyVersionContent, KeptBodyVersion, KeptOutcome,
     ParseBodyVersionCauseError,
 };
-pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, MAX_CARD_DEPTH};
+pub use card::{
+    CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, CompactCard, MAX_CARD_DEPTH,
+};
 pub use card_property::{
     CardPropertyDefinition, CardPropertyError, DATE_PROPERTY_TYPE, ParsePropertyColorError,
     ParsePropertyTypeError, PersonProperties, PropertyColor, PropertyOption, PropertyType,
@@ -165,7 +175,7 @@ pub use diary::{
 };
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
 pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};
-pub use files::{FileKey, FileRecord, is_storage_path};
+pub use files::{FileKey, FileRecord, ListedFile, is_storage_path};
 pub use id::{is_id, new_id};
 pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,

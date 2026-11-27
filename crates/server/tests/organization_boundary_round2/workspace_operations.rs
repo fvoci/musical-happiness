@@ -441,7 +441,13 @@ fn comparable_response(value: &Value, field: &str, founder: &str) -> Value {
             if uuid::Uuid::try_parse(text).is_ok()
                 || matches!(
                     field,
-                    "token" | "fileId" | "uploadId" | "etag" | "authorizationUrl" | "redirectUri"
+                    "token"
+                        | "tokenPrefix"
+                        | "fileId"
+                        | "uploadId"
+                        | "etag"
+                        | "authorizationUrl"
+                        | "redirectUri"
                 ) =>
         {
             json!("<generated>")

@@ -19,6 +19,7 @@ use super::contract::tag;
 use super::wikis::{READ_DENIED, page_with_permission};
 use super::workspace::{InWiki, InWorkspace};
 use super::{ApiResult, json_response};
+use super::{Delegated, Read, Write};
 use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
@@ -110,7 +111,7 @@ pub(crate) struct PageCommentPatch {
     responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
 )]
 async fn handle_get_page_comments(
-    InWiki(ws): InWiki,
+    Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let page = page_with_permission(
@@ -140,7 +141,7 @@ async fn handle_get_page_comments(
     responses((status = 201, description = "The comment as it was stored.", body = Block)),
 )]
 async fn handle_create_page_comment(
-    commenter: CommenterOf<PageCommentParent>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<PageCommentParent>>,
     body: Bytes,
 ) -> ApiResult {
     let comment = create_comment_on::<NewPageComment>(
@@ -172,7 +173,7 @@ async fn handle_create_page_comment(
     responses((status = 200, description = "The comment as it is now.", body = Block)),
 )]
 async fn handle_patch_page_comment(
-    commenter: CommenterOf<PageCommentParent>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<PageCommentParent>>,
     body: Bytes,
 ) -> ApiResult {
     let comment_id = commenter.comment_id()?;
@@ -204,7 +205,9 @@ async fn handle_patch_page_comment(
     params(MemberWorkspaceId, WikiId, PageId, CommentId),
     responses((status = 204, description = "The comment is deleted.")),
 )]
-async fn handle_delete_page_comment(commenter: CommenterOf<PageCommentParent>) -> ApiResult {
+async fn handle_delete_page_comment(
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<PageCommentParent>>,
+) -> ApiResult {
     let comment_id = commenter.comment_id()?;
     let comment = existing_comment_on(&commenter.ws, &commenter.parent, comment_id).await?;
     delete_comment_on(
@@ -250,7 +253,7 @@ async fn handle_restore_page_comment(commenter: CommenterOf<PageCommentParent>) 
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_page_comment_versions(
-    InWiki(ws): InWiki,
+    Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let page = page_with_permission(

@@ -148,6 +148,7 @@ async fn the_link_gives_the_address_back_and_ends_every_session() {
     let smtp = FakeSmtp::start_on(0).await;
     let th = mailing(&smtp).await;
     let elsewhere = th.login(USER1_USERNAME, PASSWORD).await;
+    let agent = crate::api_tokens::agent_reading(&th, &th.client).await;
     let mut socket = Socket::connect_as(&th.client).await;
     let back = moved(&th, &smtp, &th.client, NEW).await;
     let notice = mailed_to(&th, &smtp, OLD).await;
@@ -175,6 +176,7 @@ async fn the_link_gives_the_address_back_and_ends_every_session() {
     for client in [&th.client, &elsewhere] {
         client.get("/users/me").await.check_unauthorized();
     }
+    crate::api_tokens::check_token_ended(&agent).await;
     assert!(closed(&mut socket).await, "the connection is closed");
     th.anonymous()
         .post(

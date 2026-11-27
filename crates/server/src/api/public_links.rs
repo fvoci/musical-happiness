@@ -57,7 +57,7 @@ async fn handle_get_public_link(
     InLinked(ws): InLinked,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
-    require_share_permission(&ws.app, &ws.session.user_id, &container_id).await?;
+    require_share_permission(&ws.app, &ws.caller.user_id, &container_id).await?;
     let link = ws.app.public_link(&container_id).await?;
     tracing::debug!(container_id, enabled = link.enabled, "GET public-link");
     Ok(json_response(&link))
@@ -127,12 +127,12 @@ async fn handle_post_public_link(
     Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    require_share_permission(&ws.app, &ws.session.user_id, &container_id).await?;
+    require_share_permission(&ws.app, &ws.caller.user_id, &container_id).await?;
 
     if !ws.app.config().allow_public_links {
         tracing::warn!(
             container_id,
-            user_id = %ws.session.user_id,
+            user_id = %ws.caller.user_id,
             "Attempt to turn on public link for board via API failed, public links off in configuration."
         );
         return Err(
@@ -144,7 +144,7 @@ async fn handle_post_public_link(
     let change = public_link_change(&body)?;
     let link = ws
         .app
-        .set_public_link(&container_id, change, &ws.session.user_id)
+        .set_public_link(&container_id, change, &ws.caller.user_id)
         .await?;
     tracing::debug!(container_id, enabled = link.enabled, "POST public-link");
     Ok(json_response(&link))

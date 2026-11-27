@@ -2,6 +2,7 @@
 import type { ContainerKind } from '../logic/wire.ts';
 
 import type { EmailChange } from './email-change.ts';
+import type { ApiTokens } from './api-tokens.ts';
 import type { OrgKind } from './workspace-types.ts';
 
 /** What an account is made with. */
@@ -242,4 +243,6 @@ export interface Account {
   cancelDeletion(): Promise<void>;
   /** Changing the account's address, which `Backend.me` then reads anew. */
   readonly emailChange: EmailChange;
+  /** The personal API tokens the reader gives agents. */
+  readonly apiTokens: ApiTokens;
 }

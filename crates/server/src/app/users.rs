@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use fvoci_model::{
-    ClientStatePatch, ContainerKinds, ContainerMember, PersonNameChange, Session, User,
-    UserOrganization, UserSettings, UserSettingsPatch, WorkspaceRole,
+    ClientStatePatch, ContainerMember, PersonNameChange, Session, User, UserOrganization,
+    UserSettings, UserSettingsPatch, WorkspaceRole,
 };
 use fvoci_store::{AdminChange, InstanceRole, Looking, Sight};
 
@@ -28,7 +28,7 @@ impl App {
     ) -> Result<Vec<ContainerMember>, AppError> {
         Ok(self
             .store()
-            .container_memberships_of_user(&session.user_id, session.into(), ContainerKinds::EVERY)
+            .container_memberships_of_user(&session.user_id, session.into(), self.allowed_kinds())
             .await?)
     }
 

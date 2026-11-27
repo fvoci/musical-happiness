@@ -672,12 +672,12 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
 /// file of its body, and is answered as it is stored.
 #[tokio::test]
 async fn a_copy_of_a_body_shows_copies_of_its_files() {
-    copies_of_a_body_show_copies_of_its_files("image").await;
+    Box::pin(copies_of_a_body_show_copies_of_its_files("image")).await;
 }
 
 #[tokio::test]
 async fn a_copy_of_a_body_shows_copies_of_its_file_blocks() {
-    copies_of_a_body_show_copies_of_its_files("file").await;
+    Box::pin(copies_of_a_body_show_copies_of_its_files("file")).await;
 }
 
 #[expect(

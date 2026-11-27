@@ -2,8 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::PROBLEM_MEDIA_TYPE;
-use serde_json::{Value, json};
+use fvoci_model::{ApiTokenScope, PROBLEM_MEDIA_TYPE};
+use serde_json::{Map, Value, json};
 
 use super::{ContractError, METHODS, REFUSAL, object_at};
 
@@ -61,8 +61,9 @@ pub(super) fn finish_operations(document: &mut Value) -> Result<(), ContractErro
             let name = operation
                 .get("operationId")
                 .and_then(Value::as_str)
-                .ok_or_else(|| ContractError(format!("{what} has no operationId")))?;
-            if !names.insert(name.to_owned()) {
+                .ok_or_else(|| ContractError(format!("{what} has no operationId")))?
+                .to_owned();
+            if !names.insert(name.clone()) {
                 return Err(ContractError(format!(
                     "two operations have the operationId {name}"
                 )));
@@ -126,9 +127,40 @@ pub(super) fn finish_operations(document: &mut Value) -> Result<(), ContractErro
                 return Err(ContractError(format!("{what} has no answer of success")));
             }
             responses.insert("default".to_owned(), refusal.clone());
+            say_whether_a_token_is_taken(operation, &name);
         }
     }
     Ok(())
+}
+
+/// Ends the description of an operation that takes a personal API token with which
+/// one it takes, and marks it so (`x-fvoci-api-token`) for the clients that read it.
+fn say_whether_a_token_is_taken(operation: &mut Map<String, Value>, name: &str) {
+    let Some(scope) = crate::api::delegated::token_scope_of(name) else {
+        return;
+    };
+    let said = match scope {
+        ApiTokenScope::Read => {
+            "A personal API token is taken, of either scope (`read` or `write`)."
+        }
+        ApiTokenScope::Write => {
+            "A personal API token is taken that writes (`write`); one that reads only is \
+             answered 403 with the reason `token_scope_insufficient`."
+        }
+    };
+    let description = operation
+        .entry("description")
+        .or_insert_with(|| Value::String(String::new()));
+    if let Value::String(text) = description {
+        if !text.is_empty() {
+            text.push_str("\n\n");
+        }
+        text.push_str(said);
+    }
+    operation.insert(
+        "x-fvoci-api-token".to_owned(),
+        Value::String(scope.to_string()),
+    );
 }
 
 /// The value with the members of every object in the order of their names, whatever

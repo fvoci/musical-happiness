@@ -3,8 +3,8 @@
 //! A card has no storage of its own. It is created, read and patched as its block, so
 //! every change is announced the way block changes are.
 
-use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, CardPreview, new_id};
-use fvoci_store::{BlockFilter, Previews};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, new_id};
+use fvoci_store::{BlockFilter, ByAgent, Previews};
 
 use super::list_page::ListPage;
 
@@ -92,26 +92,13 @@ impl App {
             .await?;
 
         let now = now_millis();
+        // The fields of a card that are not of their kind are left out
+        // (`card_from_stored_block`), so no stored card fails the list; an error here
+        // would be the server's. A list says whether a card has a body; the body is
+        // read with the card.
         blocks
             .iter()
-            .map(|listed| {
-                // The fields of a card that are not of their kind are left out
-                // (`card_from_stored_block`), so no stored card fails the list; an
-                // error here would be the server's.
-                // A list says whether a card has a body; the body is read with the card.
-                card_from_stored_block(&listed.block, now)
-                    .map(|card| Card {
-                        last_comment_at: listed.last_comment_at,
-                        preview: listed.preview.as_ref().map(|preview| {
-                            CardPreview::new(
-                                preview.first_image.clone().unwrap_or_default(),
-                                &preview.text,
-                            )
-                        }),
-                        ..card.listed(listed.summary)
-                    })
-                    .map_err(|error| AppError::from(error).context("Block2Card fail"))
-            })
+            .map(|listed| Self::card_of_listed(listed, now))
             .collect()
     }
 
@@ -125,19 +112,20 @@ impl App {
     ///
     /// Returns a bad request if the patch is not valid (an icon of more than one
     /// grapheme), an internal error if the patched block is no card, and otherwise the
-    /// errors of [`App::patch_block`] with the message prefixed by `cannot patch card
-    /// {id}`.
+    /// errors of [`App::patch_block_as`] with the message prefixed by `cannot patch
+    /// card {id}`; written by `user_id`, or by an agent through a token of theirs.
     pub async fn patch_card(
         &self,
         patch: &CardPatch,
         card_id: &str,
         user_id: &str,
         notification: ChangeNotification,
+        agent: Option<ByAgent<'_>>,
     ) -> Result<Card, AppError> {
         // An invalid icon is a bad request, matching new card validation.
         let block_patch = patch.to_block_patch()?;
         let block = self
-            .patch_block(card_id, &block_patch, user_id, notification)
+            .patch_block_as(card_id, &block_patch, user_id, notification, agent)
             .await
             .map_err(|error| error.context(format_args!("cannot patch card {card_id}")))?;
         self.with_last_comment_at(card_from_stored_block(&block, now_millis())?)
@@ -196,7 +184,7 @@ impl App {
 /// `isTemplate` of another kind, any more, but one stored before, or written straight to
 /// the database, may still hold such a field. Instead of failing the entire card list,
 /// malformed fields are dropped ([`Block::drop_malformed_fields`]) and a warning is logged.
-fn card_from_stored_block(block: &Block, now: i64) -> Result<Card, CardError> {
+pub(super) fn card_from_stored_block(block: &Block, now: i64) -> Result<Card, CardError> {
     let mut readable = block.clone();
     let malformed = readable.drop_malformed_fields();
     if !malformed.is_empty() {

@@ -11,8 +11,8 @@ use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, State};
 use axum::http::request::Parts;
 use fvoci_model::{
-    AuditRecord, Container, ContainerKinds, OrgKind, OrgRole, Session, User, UserWorkspace,
-    Workspace, WorkspaceRole,
+    AuditRecord, Container, ContainerKinds, OrgKind, OrgRole, User, UserWorkspace, Workspace,
+    WorkspaceRole,
 };
 use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
@@ -23,16 +23,18 @@ use super::contract::params::{
     MemberWorkspaceId, Page, PerPage, UserId, UserSearch, WorkerWorkspaceId, WorkspaceId,
 };
 use super::contract::tag;
+use super::delegated::{Admits, Wall, sessions_only};
 use super::query::{PagingQuery, QueryParams};
-use super::session::session_of;
+use super::session::caller_of;
 use super::{ApiResult, MAX_USER_IDS, RequiredSession, decode_json, json_response};
+use super::{Delegated, Read};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 struct WorkspaceUsersQuery {
     search: String,
 }
-use crate::app::App;
+use crate::app::{App, Caller};
 use crate::error::AppError;
 use crate::permissions::{self, Actor};
 
@@ -70,8 +72,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 pub(crate) struct InWorkspace {
     /// The application, reaching the rows of the workspace's organization.
     pub(crate) app: App,
-    /// The session of the request.
-    pub(crate) session: Session,
+    /// Who sends the request: by its session, or, on a route that takes one
+    /// ([`super::Delegated`]), by a personal API token.
+    pub(crate) caller: Caller,
     /// The workspace the path names.
     pub(crate) workspace_id: String,
     /// What the user is in the workspace.
@@ -82,24 +85,23 @@ pub(crate) struct InWorkspace {
     pub(crate) kind: OrgKind,
 }
 
-impl FromRequestParts<App> for InWorkspace {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+impl Wall for InWorkspace {
+    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
         // A path that is no text names no workspace the user could be in.
-        Self::extract(parts, app, workspace_not_found).await
+        Self::extract(parts, app, admits, workspace_not_found).await
     }
 }
 
 impl InWorkspace {
-    /// The workspace of the path for the session's user; `no_text` is the refusal of a
-    /// parameter of the path that is no text.
+    /// The workspace of the path for the caller ([`caller_of`]); `no_text` is the
+    /// refusal of a parameter of the path that is no text.
     async fn extract(
         parts: &mut Parts,
         app: &App,
+        admits: Admits,
         no_text: fn() -> AppError,
     ) -> Result<Self, AppError> {
-        let session = session_of(app, &parts.headers, &parts.extensions).await?;
+        let caller = caller_of(app, &parts.headers, &parts.extensions, admits).await?;
         let params = match RawPathParams::from_request_parts(parts, app).await {
             Ok(params) => params,
             // The workspace that is no text is `no_text`; another parameter that is none
@@ -121,26 +123,26 @@ impl InWorkspace {
             .find(|(name, _)| *name == WORKSPACE_ID)
             .map(|(_, value)| value.to_owned())
             .ok_or_else(|| AppError::internal("the route names no workspace"))?;
-        Self::enter(app, session, workspace_id).await
+        Self::enter_as(app, caller, workspace_id).await
     }
 }
 
 impl InWorkspace {
-    /// The workspace for the session's user, as the extractor finds it: for a route
-    /// that looks at something of the request (its body, its query) before it asks
-    /// whether the workspace is there.
+    /// The workspace for the caller, as the extractor finds it: for a route that looks
+    /// at something of the request (its body, its query) before it asks whether the
+    /// workspace is there.
     ///
     /// # Errors
     ///
-    /// Returns 404 unless the user is a member of the workspace, and the store's error
-    /// if the membership cannot be read.
-    pub(crate) async fn enter(
+    /// Returns 404 unless the user is a member of the workspace (and, for a token, one
+    /// it reaches), and the errors of `App::enter_workspace_as`.
+    pub(crate) async fn enter_as(
         app: &App,
-        session: Session,
+        caller: Caller,
         workspace_id: String,
     ) -> Result<Self, AppError> {
         let entered = app
-            .enter_workspace(&session, &workspace_id)
+            .enter_workspace_as(caller.asker(), &workspace_id)
             .await?
             .ok_or_else(workspace_not_found)?;
         let actor = Actor {
@@ -152,9 +154,9 @@ impl InWorkspace {
             // says otherwise (`InWiki`, `InContainer`).
             app: entered
                 .app
-                .in_workspace_with_actor(&workspace_id, &session.user_id, actor)
+                .in_workspace_with_actor(&workspace_id, &caller.user_id, actor)
                 .reaching(ContainerKinds::BOARDS),
-            session,
+            caller,
             workspace_id,
             role: entered.role,
             org_role: entered.org_role,
@@ -247,11 +249,9 @@ impl InWorkspace {
 #[derive(Debug)]
 pub(crate) struct TextInWorkspace(pub(crate) InWorkspace);
 
-impl FromRequestParts<App> for TextInWorkspace {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        InWorkspace::extract(parts, app, malformed_path)
+impl Wall for TextInWorkspace {
+    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
+        InWorkspace::extract(parts, app, admits, malformed_path)
             .await
             .map(Self)
     }
@@ -262,11 +262,9 @@ impl FromRequestParts<App> for TextInWorkspace {
 #[derive(Debug)]
 pub(crate) struct InWiki(pub(crate) InWorkspace);
 
-impl FromRequestParts<App> for InWiki {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        let ws = InWorkspace::from_request_parts(parts, app).await?;
+impl Wall for InWiki {
+    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
+        let ws = InWorkspace::enter(parts, app, admits).await?;
         Ok(Self(ws.reaching(ContainerKinds::WIKIS)))
     }
 }
@@ -294,11 +292,9 @@ impl FromRequestParts<App> for InDiary {
 #[derive(Debug)]
 pub(crate) struct InCourse(pub(crate) InWorkspace);
 
-impl FromRequestParts<App> for InCourse {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        let ws = InWorkspace::from_request_parts(parts, app).await?;
+impl Wall for InCourse {
+    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
+        let ws = InWorkspace::enter(parts, app, admits).await?;
         Ok(Self(ws.reaching(ContainerKinds::COURSES)))
     }
 }
@@ -323,11 +319,9 @@ impl FromRequestParts<App> for InShared {
 #[derive(Debug)]
 pub(crate) struct InLinked(pub(crate) InWorkspace);
 
-impl FromRequestParts<App> for InLinked {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        let ws = InWorkspace::from_request_parts(parts, app).await?;
+impl Wall for InLinked {
+    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
+        let ws = InWorkspace::enter(parts, app, admits).await?;
         Ok(Self(ws.reaching(ContainerKinds::LINKED)))
     }
 }
@@ -352,11 +346,9 @@ impl FromRequestParts<App> for InCopied {
 #[derive(Debug)]
 pub(crate) struct InContainer(pub(crate) InWorkspace);
 
-impl FromRequestParts<App> for InContainer {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        let ws = InWorkspace::from_request_parts(parts, app).await?;
+impl Wall for InContainer {
+    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
+        let ws = InWorkspace::enter(parts, app, admits).await?;
         Ok(Self(ws.reaching(ContainerKinds::EVERY)))
     }
 }
@@ -365,14 +357,22 @@ impl FromRequestParts<App> for InContainer {
 #[derive(Debug)]
 pub(crate) struct TextInContainer(pub(crate) InWorkspace);
 
-impl FromRequestParts<App> for TextInContainer {
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        let TextInWorkspace(ws) = TextInWorkspace::from_request_parts(parts, app).await?;
+impl Wall for TextInContainer {
+    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
+        let TextInWorkspace(ws) = TextInWorkspace::enter(parts, app, admits).await?;
         Ok(Self(ws.reaching(ContainerKinds::EVERY)))
     }
 }
+
+sessions_only!(
+    InWorkspace,
+    TextInWorkspace,
+    InWiki,
+    InCourse,
+    InLinked,
+    InContainer,
+    TextInContainer,
+);
 
 fn workspace_not_found() -> AppError {
     AppError::not_found("workspace")
@@ -425,14 +425,14 @@ async fn handle_get_my_workspaces(
     get,
     path = "/w/{workspaceId}/boards",
     operation_id = "getWorkspaceBoards",
-    tag = tag::WORKSPACES,
+    tag = tag::CONTAINERS,
     params(MemberWorkspaceId),
     responses((status = 200, description = "The boards.", body = Vec<Container>)),
 )]
-async fn handle_get_workspace_boards(ws: InWorkspace) -> ApiResult {
+async fn handle_get_workspace_boards(Delegated(ws, ..): Delegated<Read, InWorkspace>) -> ApiResult {
     let boards = ws
         .app
-        .workspace_containers(&ws.session.user_id, &ws.workspace_id, ws.role)
+        .workspace_containers(&ws.caller.user_id, &ws.workspace_id, ws.role)
         .await?;
     Ok(json_response(&boards))
 }
@@ -448,7 +448,9 @@ async fn handle_get_workspace_boards(ws: InWorkspace) -> ApiResult {
     params(WorkspaceId),
     responses((status = 200, description = "The workspace.", body = Workspace)),
 )]
-async fn handle_get_workspace(TextInWorkspace(ws): TextInWorkspace) -> ApiResult {
+async fn handle_get_workspace(
+    Delegated(TextInWorkspace(ws), ..): Delegated<Read, TextInWorkspace>,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let workspace = ws.app.workspace(&ws.workspace_id).await?;
     Ok(json_response(&workspace))
@@ -471,17 +473,12 @@ async fn handle_get_workspace(TextInWorkspace(ws): TextInWorkspace) -> ApiResult
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
 async fn handle_get_workspace_users(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     QueryParams(query): QueryParams<WorkspaceUsersQuery>,
 ) -> ApiResult {
     Ok(json_response(
         &ws.app
-            .search_users_in_workspace(
-                &ws.session.user_id,
-                &ws.workspace_id,
-                ws.role,
-                &query.search,
-            )
+            .search_users_in_workspace(&ws.caller.user_id, &ws.workspace_id, ws.role, &query.search)
             .await?,
     ))
 }
@@ -515,7 +512,10 @@ async fn handle_get_workspace_users(
     request_body = UserIds,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
-async fn handle_get_workspace_users_by_id(ws: InWorkspace, body: Bytes) -> ApiResult {
+async fn handle_get_workspace_users_by_id(
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
+    body: Bytes,
+) -> ApiResult {
     let user_ids: Vec<String> = decode_json(&body)?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
@@ -527,7 +527,7 @@ async fn handle_get_workspace_users_by_id(ws: InWorkspace, body: Bytes) -> ApiRe
     }
     let users = ws
         .app
-        .users_in_workspace(&ws.session.user_id, &ws.workspace_id, ws.role, &user_ids)
+        .users_in_workspace(&ws.caller.user_id, &ws.workspace_id, ws.role, &user_ids)
         .await?;
     Ok(json_response(&users))
 }
@@ -545,13 +545,13 @@ async fn handle_get_workspace_users_by_id(ws: InWorkspace, body: Bytes) -> ApiRe
     responses((status = 200, description = "The user.", body = User)),
 )]
 async fn handle_get_workspace_user(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, user_id)): Path<(String, String)>,
 ) -> ApiResult {
     let mut user = ws
         .app
         .users_in_workspace(
-            &ws.session.user_id,
+            &ws.caller.user_id,
             &ws.workspace_id,
             ws.role,
             std::slice::from_ref(&user_id),
@@ -559,7 +559,7 @@ async fn handle_get_workspace_user(
         .await?
         .pop()
         .ok_or_else(|| AppError::not_found("user"))?;
-    if user_id == ws.session.user_id {
+    if user_id == ws.caller.user_id {
         crate::app::sanitize(&mut user);
     } else {
         ws.app.sanitize_profile(&mut user);
@@ -595,7 +595,7 @@ async fn handle_get_workspace_audit(
     let paging = query.into_list_page()?;
     Ok(json_response(
         &ws.app
-            .workspace_audit(&ws.session.user_id, &ws.workspace_id, paging)
+            .workspace_audit(&ws.caller.user_id, &ws.workspace_id, paging)
             .await?,
     ))
 }

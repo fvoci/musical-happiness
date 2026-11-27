@@ -9,6 +9,7 @@
 use fvoci_model::{LoginOrigin, Session};
 
 use crate::Store;
+use crate::api_tokens;
 use crate::db::{Dialect, Id, LockRank, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::oidc::{Identity, StoredProvider};
@@ -369,13 +370,15 @@ fn delete_sessions_where_user(scope: &Scope<'_>, user_id: &str) -> Sql {
     sql
 }
 
-/// Deletes every session of a user.
+/// Deletes every session of a user, and takes back every token of theirs: what ends
+/// their sessions ends what their sessions made.
 pub(crate) async fn delete_sessions_of_user(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<SessionsEnded, StoreError> {
     let sql = delete_sessions_where_user(scope, user_id);
     scope.execute(sql).await?;
+    api_tokens::revoke_of_user(scope, user_id).await?;
     Ok(SessionsEnded::new(EndedSessionScope::User(
         user_id.to_owned(),
     )))
@@ -394,7 +397,8 @@ pub(crate) async fn replace_token_digest(
     Ok(())
 }
 
-/// Deletes every session of a user but one.
+/// Deletes every session of a user but one, and takes back every token of theirs: a
+/// token is not the session that stays.
 pub(crate) async fn delete_other_sessions_of_user(
     scope: &mut Scope<'_>,
     user_id: &str,
@@ -403,6 +407,7 @@ pub(crate) async fn delete_other_sessions_of_user(
     let mut sql = delete_sessions_where_user(scope, user_id);
     sql.push_bind(" AND id <> ", Id(kept_session_id));
     scope.execute(sql).await?;
+    api_tokens::revoke_of_user(scope, user_id).await?;
     Ok(SessionsEnded::new(EndedSessionScope::UserExcept {
         user_id: user_id.to_owned(),
         kept_session_id: kept_session_id.to_owned(),
@@ -442,6 +447,7 @@ pub(crate) async fn end_sessions_of_identity(
         )
         .push(")");
     scope.execute(sql).await?;
+    api_tokens::revoke_of_identity(scope, user_id, identity).await?;
     Ok(SessionsEnded::new(EndedSessionScope::Identity {
         user_id: user_id.to_owned(),
         issuer: identity.issuer.to_owned(),

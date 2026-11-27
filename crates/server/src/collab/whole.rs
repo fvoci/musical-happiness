@@ -11,7 +11,17 @@ use fvoci_store::body_digest;
 use super::place::Held;
 use super::{Collab, DocChange, refusals};
 use crate::app::App;
-use crate::error::{AppError, ErrorKind};
+use crate::error::{AppError, ErrorKind, Reason};
+
+/// What a whole write does to people who edit a body now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverEditors {
+    /// They are sent the body anew: a person writes, who read it as they edited it.
+    Replace,
+    /// The write is refused (409 `room_has_active_editors`): an agent writes, which
+    /// would lose what they typed and have not sent yet.
+    Refuse,
+}
 
 /// Whether writing pending document updates to a card should also keep an automatic
 /// version if the version clock says one is due.
@@ -81,11 +91,35 @@ impl Collab {
         W: FnOnce(App) -> F + Send + 'static,
         F: Future<Output = Result<R, AppError>> + Send + 'static,
     {
+        self.write_whole_over(app, cards, OverEditors::Replace, write)
+            .await
+    }
+
+    /// As [`Collab::write_whole`], and with `over` [`OverEditors::Refuse`] refused
+    /// while anybody may write in the room of one of the cards: that is decided while
+    /// the cards' places are held, so that nobody comes in before the write.
+    ///
+    /// # Errors
+    ///
+    /// As [`Collab::write_whole`], and 409 `room_has_active_editors`.
+    pub async fn write_whole_over<R, W, F>(
+        &self,
+        app: &App,
+        cards: Vec<(String, String)>,
+        over: OverEditors,
+        write: W,
+    ) -> Result<R, AppError>
+    where
+        R: Send + 'static,
+        W: FnOnce(App) -> F + Send + 'static,
+        F: Future<Output = Result<R, AppError>> + Send + 'static,
+    {
         let (collab, app_of_task) = (self.clone(), app.clone());
-        let task =
-            app.spawn_tracked(
-                async move { collab.write_whole_held(&app_of_task, cards, write).await },
-            );
+        let task = app.spawn_tracked(async move {
+            collab
+                .write_whole_held(&app_of_task, cards, over, write)
+                .await
+        });
         task.await.map_err(|error| {
             AppError::internal(format_args!("the write of whole bodies ended: {error}"))
         })?
@@ -95,6 +129,7 @@ impl Collab {
         &self,
         app: &App,
         mut cards: Vec<(String, String)>,
+        over: OverEditors,
         write: W,
     ) -> Result<R, AppError>
     where
@@ -125,14 +160,16 @@ impl Collab {
             let slot = self.slot_in(app, &card_id, &container_id).await;
             held.push((card_id, slot));
         }
-        let mut written_first = Ok(());
-        for (card_id, slot) in &mut held {
-            if let Err(error) = self
-                .write_pending(app, card_id, slot, DueVersion::Keep)
-                .await
-            {
-                written_first = Err(error);
-                break;
+        let mut written_first = self.refused_over(app, &held, over);
+        if written_first.is_ok() {
+            for (card_id, slot) in &mut held {
+                if let Err(error) = self
+                    .write_pending(app, card_id, slot, DueVersion::Keep)
+                    .await
+                {
+                    written_first = Err(error);
+                    break;
+                }
             }
         }
         let written = match written_first {
@@ -154,6 +191,28 @@ impl Collab {
             self.retire(&mut slot);
         }
         written
+    }
+
+    /// Refuses a whole write `over` the editors of one of the held cards, where it
+    /// does not replace what they hold: 409 `room_has_active_editors`.
+    fn refused_over(
+        &self,
+        app: &App,
+        held: &[(String, Held)],
+        over: OverEditors,
+    ) -> Result<(), AppError> {
+        if over == OverEditors::Replace {
+            return Ok(());
+        }
+        for (card_id, _) in held {
+            if self.has_editors(app, card_id) {
+                return Err(AppError::conflict(
+                    "people edit the body now: add Markdown after it instead",
+                )
+                .with_reason(Reason::RoomHasActiveEditors));
+            }
+        }
+        Ok(())
     }
 
     /// Writes to a card what the editors typed and it does not hold yet: from its open

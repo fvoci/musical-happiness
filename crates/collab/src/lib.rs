@@ -29,6 +29,7 @@
 //! the web app's tests state it (`apps/web/spikes/collab`) and write it down as vectors
 //! (`contracts/ydoc-vectors.json`), and this crate's tests read those.
 
+mod append;
 mod block_cache;
 mod build;
 mod doc;
@@ -44,6 +45,7 @@ mod settle;
 mod take;
 mod update;
 
+pub use append::FIRST_APPENDER;
 pub use build::{from_body, from_body_by, new_doc};
 pub use doc::{
     BodyDoc, BodyTakeError, Changed, MadeBody, SettleError, SettledDoc, StateCounts, TakenInPlace,

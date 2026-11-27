@@ -8,6 +8,7 @@ use std::time::Duration;
 use axum::body::{Body, BodyDataStream, HttpBody as _};
 use axum::extract::{Request, State};
 use axum::http::header::{CONTENT_LENGTH, EXPECT};
+use axum::http::{Extensions, HeaderMap};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use bytes::BytesMut;
@@ -15,6 +16,9 @@ use futures_util::StreamExt as _;
 
 use super::session::{claims_session, session_of};
 use crate::app::App;
+use crate::auth::api_token;
+use crate::auth::token::bearer_token;
+use crate::client_address::ClientAddress;
 use crate::error::{AppError, Reason};
 
 /// The largest body of a request to a route that needs no session: the login and the
@@ -55,10 +59,11 @@ pub(crate) struct SessionBodyLimit {
 /// the routes without one is for requests of a session only.
 ///
 /// A request whose body is, or may be, larger than the small limit is asked for its
-/// session before the body is read. A token that is no session's is answered as the
-/// route would answer it (401), with nothing of the body kept: a made-up token does not
-/// buy the larger allowance. Smaller requests are not looked up here; the route does
-/// that.
+/// session before the body is read, or for its personal API token: a token that
+/// writes has the room of a session, one that reads only the small limit. A token that
+/// is no session's (or no token's) is answered as the route would answer it (401), with
+/// nothing of the body kept: a made-up token does not buy the larger allowance.
+/// Smaller requests are not looked up here; the route does that.
 pub(crate) async fn limit_session_request_body(
     State(SessionBodyLimit { app, limit }): State<SessionBodyLimit>,
     request: Request,
@@ -66,18 +71,23 @@ pub(crate) async fn limit_session_request_body(
 ) -> Response {
     let small = UNAUTHENTICATED_BODY_LIMIT.0;
     let largest = declared_length(&request).or_else(|| request.body().size_hint().upper());
-    let wants_the_room =
-        claims_session(&app, request.headers()) && largest.is_none_or(|length| length > small);
-    if wants_the_room
-        && let Err(error) = session_of(&app, request.headers(), request.extensions()).await
-    {
-        let (parts, body) = request.into_parts();
-        if !parts.headers.contains_key(EXPECT) {
-            discard(body.into_data_stream(), 0).await;
+    let claims = claims_session(&app, request.headers());
+    let wants_the_room = claims && largest.is_none_or(|length| length > small);
+    let room = if wants_the_room {
+        match room_of(&app, request.headers(), request.extensions()).await {
+            Ok(room) => room,
+            Err(error) => {
+                let (parts, body) = request.into_parts();
+                if !parts.headers.contains_key(EXPECT) {
+                    discard(body.into_data_stream(), 0).await;
+                }
+                return error.into_response();
+            }
         }
-        return error.into_response();
-    }
-    let limit = if claims_session(&app, request.headers()) {
+    } else {
+        Room::Granted
+    };
+    let limit = if claims && room == Room::Granted {
         limit
     } else {
         // A request that claims no session gets the room of the routes that need none:
@@ -86,6 +96,39 @@ pub(crate) async fn limit_session_request_body(
         BodyLimit(limit.0.min(UNAUTHENTICATED_BODY_LIMIT.0))
     };
     limit_request_body(State(limit), request, next).await
+}
+
+/// Whether whoever sends a request has the room of the routes that take a session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Room {
+    /// A session, or a personal API token that writes.
+    Granted,
+    /// A token that reads only: no more than a request without a session.
+    Small,
+}
+
+/// The room of a request that claims a session: of its personal API token if it sends
+/// one in its `Authorization` header, else of its session.
+///
+/// # Errors
+///
+/// Returns what the route would answer for a credential that stands for nobody.
+async fn room_of(
+    app: &App,
+    headers: &HeaderMap,
+    extensions: &Extensions,
+) -> Result<Room, AppError> {
+    if let Some(token) = bearer_token(headers)
+        && api_token::is_api_token(token)
+    {
+        let address = extensions
+            .get::<ClientAddress>()
+            .and_then(|ClientAddress(address)| *address);
+        let writes = app.token_writes(token, address).await?;
+        return Ok(if writes { Room::Granted } else { Room::Small });
+    }
+    session_of(app, headers, extensions).await?;
+    Ok(Room::Granted)
 }
 
 /// The length a request declares for its body, if it does.

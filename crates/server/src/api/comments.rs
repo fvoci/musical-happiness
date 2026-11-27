@@ -12,6 +12,7 @@ use fvoci_model::{
 };
 use serde::de::DeserializeOwned;
 
+use super::delegated::{Admits, Wall};
 use super::workspace::InWorkspace;
 use super::{
     ApiResult, BlockAction, created, decode_with_document, json_response, no_content,
@@ -67,7 +68,13 @@ impl<K: CommentParentKind> FromRequestParts<App> for CommenterOf<K> {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        let ws = InWorkspace::from_request_parts(parts, app)
+        Self::enter(parts, app, Admits::Sessions).await
+    }
+}
+
+impl<K: CommentParentKind> Wall for CommenterOf<K> {
+    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
+        let ws = InWorkspace::enter(parts, app, admits)
             .await?
             .reaching(K::kinds());
         let params = RawPathParams::from_request_parts(parts, app)
@@ -96,7 +103,7 @@ impl<K: CommentParentKind> FromRequestParts<App> for CommenterOf<K> {
         };
         require_container_permission(
             &ws.app,
-            &ws.session.user_id,
+            &ws.caller.user_id,
             &container_id,
             ContainerPermission::CommentCards,
             denial,
@@ -182,10 +189,11 @@ pub(super) async fn create_comment_on<T: DeserializeOwned>(
     raw_body: &Bytes,
     notification: ChangeNotification,
 ) -> Result<Block, AppError> {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let (_new, document): (T, _) = decode_with_document(raw_body)?;
     let text = text_of(document)?;
     ws.app.check_body_files(container_id, Some(&text)).await?;
+    // Signed by the agent that writes it, if one does, as the store writes it.
     let mut comment = Block {
         id: new_id(),
         container_id: container_id.to_owned(),
@@ -217,7 +225,7 @@ pub(super) async fn patch_comment_on<T: DeserializeOwned>(
     notification: ChangeNotification,
     read_at_of: impl FnOnce(&T) -> Option<i64>,
 ) -> Result<Block, AppError> {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_block_permission(
         &ws.app,
         user_id,
@@ -251,7 +259,7 @@ pub(super) async fn delete_comment_on(
     changes_denied: &str,
     notification: ChangeNotification,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_delete_permission(&ws.app, user_id, comment, changes_denied).await?;
     ws.app
         .delete_block(&comment.id, user_id, notification)
@@ -266,7 +274,7 @@ pub(super) async fn restore_comment_on(
     comment_id: &str,
     changes_denied: &str,
 ) -> Result<Block, AppError> {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let deletion = ws.app.deletion(comment_id).await?;
     let Some((top, below)) = deletion
         .split_first()

@@ -90,6 +90,9 @@ pub struct StoredNotification {
     pub container_id: String,
     /// Who did the latest of it; empty where nobody is known to have.
     pub actor_id: String,
+    /// The name of the token an agent of `actor_id` did the latest of it through, if
+    /// one did.
+    pub actor_token_name: Option<String>,
     /// When it was made: when the first of it happened.
     pub created_at: i64,
     /// When the latest of it happened.
@@ -133,7 +136,7 @@ pub struct ContainerNotificationPlace {
 }
 
 const NOTIFICATION_COLUMNS: &str = "id, org_id, kind, source_id, block_id, container_id, \
-     actor_id, created_at, updated_at, times, doers, read_at";
+     actor_id, created_at, updated_at, times, doers, read_at, actor_token_name";
 
 impl Store {
     /// A page of the notifications of a reader, of every organization their session
@@ -461,6 +464,7 @@ fn notification_from_row(row: &Row) -> Result<StoredNotification, StoreError> {
         times: row.int(9)?,
         people: people_of(&row.text(10)?),
         read_at: row.int(11)?,
+        actor_token_name: row.opt_text(12)?,
     })
 }
 

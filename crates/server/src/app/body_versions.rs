@@ -71,6 +71,7 @@ impl App {
             editors: listed.editors,
             is_current: listed.is_current,
             cause: listed.cause,
+            agent_token_name: listed.agent_token_name,
             body,
         })
     }
@@ -195,5 +196,6 @@ fn described(kept: KeptVersion, current: Option<i64>) -> BodyVersion {
         is_current: current == Some(kept.version),
         editors: kept.editors,
         cause: kept.cause,
+        agent_token_name: kept.agent_token_name,
     }
 }

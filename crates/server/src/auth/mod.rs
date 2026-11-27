@@ -1,5 +1,6 @@
 //! Authentication: session tokens, passwords, and read tokens of shared boards.
 
+pub mod api_token;
 pub mod hash_queue;
 pub mod limiter;
 pub mod oidc;
@@ -8,11 +9,14 @@ pub mod sealed;
 pub mod secret;
 pub mod token;
 
+use std::sync::Arc;
+
 use fvoci_model::{ContainerKind, Leaving, Session};
 use fvoci_store::{SharedContainer, Store};
 
 use crate::config::Configuration;
 use crate::error::AppError;
+use api_token::TokenLimits;
 use token::{Origins, SessionCookie};
 
 /// How long after the last recorded use of a session its next use is recorded: ten
@@ -30,6 +34,8 @@ pub struct Authenticator {
     public_shared_containers: bool,
     cookie: SessionCookie,
     origins: Origins,
+    /// How many requests personal API tokens sent this minute.
+    token_limits: Arc<TokenLimits>,
 }
 
 /// A session a token was found to stand for.
@@ -60,6 +66,9 @@ impl Authenticator {
             public_shared_containers: config.allow_public_links,
             cookie: SessionCookie::new(origins.https(), idle_millis / 1000),
             origins,
+            token_limits: Arc::new(TokenLimits::new(
+                limiter::Limits::from_config(config).address_attempts_per_minute,
+            )),
         })
     }
 
@@ -73,6 +82,11 @@ impl Authenticator {
         &self.origins
     }
 
+    /// How many requests personal API tokens sent this minute.
+    pub fn token_limits(&self) -> &TokenLimits {
+        &self.token_limits
+    }
+
     /// Returns the session a token belongs to, and records that it was used unless that
     /// was recorded in the last ten minutes.
     ///
@@ -83,7 +97,9 @@ impl Authenticator {
     /// # Errors
     ///
     /// Returns an unauthorized error if the token is empty, unknown or of a session that
-    /// has ended, and a server error if the session cannot be looked up.
+    /// has ended, 403 with the reason `token_forbidden_endpoint` for a personal API
+    /// token, which is no session's and is not looked up as one, and a server error if
+    /// the session cannot be looked up.
     pub async fn get_session(&self, token: &str) -> Result<Authenticated, AppError> {
         let now = now_millis();
         let mut session = self.session_at(token, now).await?;
@@ -122,6 +138,9 @@ impl Authenticator {
     async fn session_at(&self, token: &str, now: i64) -> Result<Session, AppError> {
         if token.is_empty() {
             return Err(AppError::unauthorized("no session token"));
+        }
+        if api_token::is_api_token(token) {
+            return Err(api_token::refused_as_session());
         }
         match self
             .store
@@ -165,6 +184,9 @@ impl Authenticator {
         token: &str,
         now: i64,
     ) -> Result<Option<(Session, Leaving)>, AppError> {
+        if api_token::is_api_token(token) {
+            return Ok(None);
+        }
         self.store
             .leaving_session(
                 &secret::token_digest(token),

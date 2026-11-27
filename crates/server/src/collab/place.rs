@@ -8,6 +8,7 @@ use fvoci_store::{DocAsRead, StoreError, Tenant};
 use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit};
 use tokio::time::Instant;
 
+use super::senders::SenderOf;
 use super::versions::Versioned;
 use super::worker::{Blame, CallError};
 use super::{Collab, DocChange, DocEvent, refusals, taken_from};
@@ -463,9 +464,13 @@ impl Collab {
             // a worker are not sent. A try that finds the worker gone gives the turn back
             // and waits for it again.
             let _turn = match asked_for {
-                AskedFor::Sender(user_id) => {
-                    let turn = self.inner.senders.turn(app.store().tenant(), user_id).await;
-                    self.held_back(app, user_id)?;
+                AskedFor::Sender(sender) => {
+                    let turn = self
+                        .inner
+                        .senders
+                        .turn(app.store().tenant(), sender.key)
+                        .await;
+                    self.held_back(app, sender.key)?;
                     Some(turn)
                 }
                 AskedFor::Server => None,
@@ -499,11 +504,11 @@ impl Collab {
                 }
                 Err(CallError::Refused(refused)) => {
                     if refused.rolled_back
-                        && let AskedFor::Sender(user_id) = asked_for
+                        && let AskedFor::Sender(sender) = asked_for
                     {
                         self.inner.senders.rolled_back(
                             app.store().tenant(),
-                            user_id,
+                            sender,
                             Instant::now(),
                         );
                     }
@@ -517,15 +522,15 @@ impl Collab {
                     tracing::warn!(%death, card_id, "a collab worker ended over a card's document");
                     self.lost(slot);
                     died_over(slot);
-                    if let AskedFor::Sender(user_id) = asked_for {
+                    if let AskedFor::Sender(sender) = asked_for {
                         tracing::warn!(
                             card_id,
-                            user_id,
+                            sender = sender.key,
                             "the update ended the worker; its sender is held back"
                         );
                         self.inner.senders.ended_worker(
                             app.store().tenant(),
-                            user_id,
+                            sender,
                             Instant::now(),
                         );
                     }
@@ -714,10 +719,10 @@ pub(super) enum AskedFor<'user> {
     /// The server, for itself or for what an editor reads: the worker
     /// ([`Blame::Worker`]).
     Server,
-    /// The user whose update the request takes ([`Blame::Sender`]): asked in their turn
-    /// ([`super::senders::Senders::turn`]), held back for a death, and refused while held
-    /// back.
-    Sender(&'user str),
+    /// The sender whose update the request takes ([`Blame::Sender`]): asked in their
+    /// turn ([`super::senders::Senders::turn`]), held back for a death, and refused
+    /// while held back.
+    Sender(SenderOf<'user>),
 }
 
 impl AskedFor<'_> {

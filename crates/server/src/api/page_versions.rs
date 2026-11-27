@@ -19,6 +19,7 @@ use super::contract::tag;
 use super::wikis::{READ_DENIED, page_with_permission};
 use super::workspace::InWiki;
 use super::{ApiResult, json_response};
+use super::{Delegated, Read};
 use crate::app::App;
 use crate::permissions::ContainerPermission;
 
@@ -47,7 +48,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     responses((status = 200, description = "The versions, the newest first.", body = Vec<BodyVersion>)),
 )]
 async fn handle_get_page_body_versions(
-    InWiki(ws): InWiki,
+    Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let page = page_with_permission(
@@ -80,7 +81,7 @@ async fn handle_keep_page_body_version(
     InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let page = page_with_permission(
         &ws,
         &wiki_id,
@@ -108,7 +109,7 @@ async fn handle_keep_page_body_version(
     responses((status = 200, description = "The version.", body = BodyVersionContent)),
 )]
 async fn handle_get_page_body_version(
-    InWiki(ws): InWiki,
+    Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id, page_id, version)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let page = page_with_permission(
@@ -143,7 +144,7 @@ async fn handle_restore_page_body_version(
     InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, version)): Path<(String, String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let page = page_with_permission(
         &ws,
         &wiki_id,

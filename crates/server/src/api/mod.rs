@@ -6,6 +6,7 @@
 mod access;
 mod account_deletion;
 mod admin;
+mod api_tokens;
 mod archive;
 mod auth;
 mod blocks;
@@ -13,6 +14,7 @@ mod board_ops;
 mod body;
 mod body_versions;
 mod card_comments;
+mod card_markdown;
 mod cards;
 mod categories;
 mod comments;
@@ -25,6 +27,7 @@ pub mod contract;
 mod course_events;
 mod course_schedules;
 mod courses;
+pub(crate) mod delegated;
 mod diaries;
 mod diary_versions;
 mod email_change;
@@ -35,6 +38,7 @@ mod files;
 mod invitation_mail;
 mod invitations;
 mod limits;
+mod lists;
 mod members;
 mod notifications;
 mod oidc;
@@ -92,6 +96,7 @@ pub(crate) use body::{
     decode_json, decode_object, decode_object_with, decode_with_document, element_pointer,
     json_object, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
 };
+pub(crate) use delegated::{Delegated, Read, Write};
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
 pub(crate) use session::{OptionalSession, RequiredSession};
 
@@ -137,6 +142,7 @@ struct Routes {
 fn routes() -> Routes {
     let json = OpenApiRouter::new()
         .merge(account_deletion::routes())
+        .merge(api_tokens::routes())
         .merge(archive::routes())
         .merge(auth::routes())
         .merge(blocks::routes())
@@ -156,6 +162,8 @@ fn routes() -> Routes {
         .merge(containers_and_blocks::routes())
         .merge(board_ops::routes())
         .merge(card_comments::routes())
+        .merge(card_markdown::routes())
+        .merge(lists::routes())
         .merge(cards::routes())
         .merge(today::routes())
         .merge(trash::routes())

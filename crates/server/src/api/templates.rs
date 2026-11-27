@@ -42,7 +42,7 @@ async fn handle_get_templates(
         .app
         .clone()
         .reaching(ContainerKinds::BOARDS.union(ContainerKinds::COURSES));
-    let (user_id, workspace_id) = (ws.session.user_id.as_str(), &ws.workspace_id);
+    let (user_id, workspace_id) = (ws.caller.user_id.as_str(), &ws.workspace_id);
     let containers = app
         .template_boards(workspace_id, user_id, ws.role, accept_language(&headers))
         .await?;

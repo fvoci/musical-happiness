@@ -132,7 +132,7 @@ async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiR
         )
         .with_field("blockType"));
     }
-    if ws.session.user_id != subscription.user_id {
+    if ws.caller.user_id != subscription.user_id {
         return Err(
             AppError::forbidden("a user subscribes for themselves only").with_field("userId")
         );
@@ -142,7 +142,7 @@ async fn handle_create_subscription(InLinked(ws): InLinked, body: Bytes) -> ApiR
     let block = ws.app.block(&subscription.block_id).await?;
     require_permission_through(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &block.container_id,
         ContainerPermission::View,
         ACCESS_DENIED,
@@ -181,7 +181,7 @@ async fn handle_delete_subscription(
 ) -> ApiResult {
     // The subscriptions of another user are nobody's business: not even that there is
     // one is said.
-    if ws.session.user_id != user_id {
+    if ws.caller.user_id != user_id {
         return Err(AppError::not_found(SUBSCRIPTION));
     }
     ws.app
@@ -215,7 +215,7 @@ async fn handle_get_subscriptions(
     InLinked(ws): InLinked,
     Path((_, user_id)): Path<(String, String)>,
 ) -> ApiResult {
-    if ws.session.user_id != user_id {
+    if ws.caller.user_id != user_id {
         return Err(AppError::not_found("user"));
     }
     let subscriptions = ws.app.subscriptions(&user_id).await?;

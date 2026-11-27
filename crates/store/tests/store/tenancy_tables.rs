@@ -13,7 +13,9 @@ use fvoci_model::{
     ValidatedCourseSchedule, ValidatedMyExamScore, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
-use fvoci_store::{AuditEntry, DbType, SYSTEM_ORG_ID, Store, Tenant};
+use fvoci_store::{
+    AuditEntry, DbType, GrantedWorkspace, Issuance, SYSTEM_ORG_ID, Store, Tenant, TokenToIssue,
+};
 use sqlx::Connection as _;
 
 use crate::common;
@@ -377,6 +379,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         &board_id,
     );
     administer(store, &board.workspace_id, &user_id).await;
+    a_token_reaching(store, &board.workspace_id, &user_id).await;
     store
         .change_member_recorded(&as_viewer, &entry)
         .await
@@ -438,6 +441,53 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     common::sign_in_under_way(store, username).await;
     a_link_for_a_guest(store, &board, &user_id).await;
     (card.id, user_id)
+}
+
+/// A personal API token of the user that reaches the workspace, which they work in.
+async fn a_token_reaching(store: &Store, workspace_id: &str, user_id: &str) {
+    let org_id = store
+        .tenant()
+        .org_id()
+        .expect("a handle of an organization");
+    let (id, digest) = (new_id(), new_id());
+    let session = fvoci_model::Session {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        created_at: 1,
+        last_used_at: 1,
+        expires_at: i64::MAX,
+        ..fvoci_model::Session::default()
+    };
+    assert!(
+        store
+            .create_session(&session, &new_id(), "")
+            .await
+            .expect("a session is stored"),
+        "a new session"
+    );
+    let granted = [GrantedWorkspace {
+        workspace_id,
+        org_id: &org_id,
+    }];
+    let issued = store
+        .issue_api_token(&TokenToIssue {
+            id: &id,
+            user_id,
+            session_id: &session.id,
+            name: "agent",
+            token_prefix: "fvoci_pat_abcdef",
+            token_digest: &digest,
+            scope: fvoci_model::ApiTokenScope::Write,
+            workspaces: &granted,
+            allow_personal_space: false,
+            notify_self: true,
+            origin: None,
+            created_at: 1,
+            expires_at: i64::MAX,
+        })
+        .await
+        .expect("a token is stored");
+    assert!(matches!(issued, Issuance::Issued(_)), "{issued:?}");
 }
 
 /// A link that invites a guest to the board, made by the user.

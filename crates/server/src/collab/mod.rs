@@ -28,6 +28,7 @@
 //! ([`Collab::recover`]).
 
 mod admission;
+mod append;
 mod caret;
 #[cfg(unix)]
 mod child;
@@ -46,13 +47,14 @@ mod versions;
 mod whole;
 pub mod worker;
 
+pub use append::Appender;
 pub use queue::Outgoing;
 pub(crate) use removal::Deletion;
 #[cfg(feature = "test-util")]
 pub use removal::DeletionStage;
 pub(crate) use rooms::{AccessChange, AccessScope, Wall};
 pub use seat::{Outbox, Seat};
-pub use whole::cards_written_whole;
+pub use whole::{OverEditors, cards_written_whole};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};

@@ -76,7 +76,7 @@ async fn create_team(ws: InWorkspace, body: Bytes) -> ApiResult {
     let request: TeamName = decode_object(&body)?;
     Ok(json_response(
         &ws.app
-            .create_team(&ws.workspace_id, &request.name, &ws.session.user_id)
+            .create_team(&ws.workspace_id, &request.name, &ws.caller.user_id)
             .await?,
     ))
 }
@@ -110,7 +110,7 @@ async fn rename_team(ws: InWorkspace, Path(place): Path<TeamPlace>, body: Bytes)
                 &ws.workspace_id,
                 &place.team_id,
                 &request.name,
-                &ws.session.user_id,
+                &ws.caller.user_id,
             )
             .await?,
     ))
@@ -126,7 +126,7 @@ async fn delete_team(ws: InWorkspace, Path(place): Path<TeamPlace>) -> ApiResult
     let ws = managing(ws)?;
     ws.app.team(&ws.workspace_id, &place.team_id).await?;
     ws.app
-        .delete_team(&ws.workspace_id, &place.team_id, &ws.session.user_id)
+        .delete_team(&ws.workspace_id, &place.team_id, &ws.caller.user_id)
         .await?;
     Ok(no_content())
 }
@@ -148,7 +148,7 @@ async fn add_team_member(ws: InWorkspace, Path(place): Path<MemberPlace>) -> Api
             &ws.workspace_id,
             &place.team_id,
             &place.user_id,
-            &ws.session.user_id,
+            &ws.caller.user_id,
         )
         .await?;
     Ok(no_content())
@@ -167,7 +167,7 @@ async fn remove_team_member(ws: InWorkspace, Path(place): Path<MemberPlace>) -> 
             &ws.workspace_id,
             &place.team_id,
             &place.user_id,
-            &ws.session.user_id,
+            &ws.caller.user_id,
         )
         .await?;
     Ok(no_content())

@@ -278,6 +278,7 @@ impl Hub {
         let asker = identity.1.as_ref().map(|making| Asker {
             user_id: &identity.0,
             making: making.making(),
+            delegation: None,
         });
         // Changes made while the lookup runs may not be in what it read: access changes
         // of the rooms, and links taken back (`end_readers_of_container`).

@@ -10,6 +10,7 @@ use super::contract::tag;
 use super::query::{QueryParams, int_param};
 use super::workspace::InContainer;
 use super::{ApiResult, json_response};
+use super::{Delegated, Read};
 use crate::app::App;
 use crate::error::AppError;
 use crate::search::{Asked, AskedError};
@@ -74,7 +75,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     responses((status = 200, description = "What was found.", body = Vec<SearchHit>)),
 )]
 async fn handle_search_content(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     QueryParams(query): QueryParams<ContentSearchQuery>,
 ) -> ApiResult {
     let kind = match query.kind.as_str() {
@@ -94,7 +95,7 @@ async fn handle_search_content(
     })?;
     let found = ws
         .app
-        .search_workspace(&ws.session.user_id, &ws.workspace_id, &asked)
+        .search_workspace(&ws.caller.user_id, &ws.workspace_id, &asked)
         .await?;
     tracing::debug!(found = found.len(), "SearchContent");
     Ok(json_response(&found))

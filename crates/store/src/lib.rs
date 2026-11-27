@@ -9,6 +9,7 @@
 mod account_deletion;
 mod account_erasure;
 mod accounts;
+mod api_tokens;
 mod audit;
 mod block_copies;
 mod block_derived;
@@ -118,6 +119,9 @@ pub use account_erasure::{
     Erasing, ErasureEnd, ErasureStart, HandedOver, LeftFrom, RemovedOrganization,
 };
 pub use accounts::{Founding, FoundingPolicy, OwnSpace, StartedOrganization};
+pub use api_tokens::{
+    GrantedWorkspace, Issuance, LiveApiToken, TokenOrigin, TokenReach, TokenToIssue,
+};
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
     BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
@@ -126,7 +130,8 @@ pub use board_ops::PreparedCardDuplicate;
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
 pub use body_versions::{
-    BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES, KeptVersion,
+    BodyBefore, ByAgent, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES,
+    KeptVersion,
 };
 pub use category_containers::ContainerPlace;
 pub use clock::Clock;
@@ -321,6 +326,8 @@ pub struct Store {
     tenant: Tenant,
     /// Whom what this handle writes notes to be told ([`Store::telling_nobody`], [`Store::quietly`]).
     noting: db::Noting,
+    /// The agent this handle writes for ([`Store::by_agent`]); `None` for a person.
+    agent: Option<Arc<body_versions::AgentOfHandle>>,
 }
 
 #[derive(Debug)]
@@ -444,6 +451,19 @@ impl Store {
             inner: Arc::clone(&self.inner),
             tenant,
             noting: self.noting,
+            agent: self.agent.clone(),
+        }
+    }
+
+    /// A handle to the same database whose writes are an agent's, through a personal
+    /// API token of the user who writes: the updates of a body it logs are the token's
+    /// ([`Store::append_body_updates`]), and whom its writes of blocks name is told of
+    /// them as the agent's doing, its user as well where the token asks for that.
+    #[must_use]
+    pub fn by_agent(&self, agent: ByAgent<'_>) -> Self {
+        Self {
+            agent: Some(Arc::new(body_versions::AgentOfHandle::of(agent))),
+            ..self.clone()
         }
     }
 
@@ -820,6 +840,7 @@ impl Store {
                         .with_clock(&self.inner.clock)
                         .noting_for_search(&self.inner.search_outbox)
                         .noting(self.noting)
+                        .acting(self.agent.clone())
                         .tracking_visibility(visibility),
                 )
                 .await;
@@ -833,6 +854,7 @@ impl Store {
                         .with_clock(&self.inner.clock)
                         .noting_for_search(&self.inner.search_outbox)
                         .noting(self.noting)
+                        .acting(self.agent.clone())
                         .tracking_visibility(visibility),
                 )
                 .await;

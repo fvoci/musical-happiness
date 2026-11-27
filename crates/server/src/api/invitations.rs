@@ -114,7 +114,7 @@ async fn handle_create_invitation(InShared(ws): InShared, body: Bytes) -> ApiRes
     };
     let invitation = ws
         .app
-        .invite(&ws.workspace_id, &ws.session.user_id, inviting)
+        .invite(&ws.workspace_id, &ws.caller.user_id, inviting)
         .await?;
     Ok(created(&invitation))
 }
@@ -141,7 +141,7 @@ async fn guest_of<'r>(
     // A board the user does not see, and one of another workspace, is not there.
     let (access, invites) = ws
         .app
-        .guest_inviter(&ws.session.user_id, &ws.workspace_id, container_id)
+        .guest_inviter(&ws.caller.user_id, &ws.workspace_id, container_id)
         .await?
         .filter(|(access, _)| access.grant.sees())
         .ok_or_else(|| AppError::not_found("board"))?;
@@ -187,7 +187,7 @@ async fn handle_get_invitations(ws: InWorkspace) -> ApiResult {
     let ws = ws.require_people()?;
     let invitations = ws
         .app
-        .invitations(&ws.workspace_id, &ws.session.user_id, ws.actor())
+        .invitations(&ws.workspace_id, &ws.caller.user_id, ws.actor())
         .await?;
     Ok(json_response(&invitations))
 }
@@ -225,7 +225,7 @@ async fn handle_revoke_invitation(
         .revoke_invitation(
             &ws.workspace_id,
             &place.invitation_id,
-            &ws.session.user_id,
+            &ws.caller.user_id,
             ws.actor(),
         )
         .await?;
@@ -260,7 +260,7 @@ async fn handle_set_guest_invitations(ws: InWorkspace, body: Bytes) -> ApiResult
     }
     let workspace = ws
         .app
-        .set_guest_invitations(&ws.workspace_id, change, &ws.session.user_id)
+        .set_guest_invitations(&ws.workspace_id, change, &ws.caller.user_id)
         .await?;
     Ok(json_response(&workspace))
 }

@@ -20,6 +20,7 @@ use super::contract::params::{
 use super::contract::tag;
 use super::query::{AsTemplateQuery, DisableNotifyQuery, QueryParams, non_empty_opt};
 use super::workspace::InWorkspace;
+use super::{Delegated, Read};
 
 use super::{ApiResult, TRUE, created, decode_json, json_response, no_content};
 use super::{
@@ -96,7 +97,7 @@ async fn block_on_container(
 /// board, and for an open or built-in template everyone who works in its workspace
 /// besides.
 async fn require_read_access(ws: &InWorkspace, container: &Container) -> Result<(), AppError> {
-    let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
+    let (app, user_id) = (&ws.app, ws.caller.user_id.as_str());
     require_container_permission(
         app,
         user_id,
@@ -146,7 +147,7 @@ async fn require_source_board_access(
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
 )]
 async fn handle_get_blocks(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<BlocksFilterQuery>,
 ) -> ApiResult {
@@ -193,7 +194,7 @@ async fn check_and_copy_body_files(
     source_board_id: &str,
     blocks: &mut [Block],
 ) -> Result<(), AppError> {
-    let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
+    let (app, user_id) = (&ws.app, ws.caller.user_id.as_str());
     if !source_board_id.is_empty()
         && blocks
             .iter()
@@ -266,7 +267,7 @@ async fn handle_post_blocks(
     QueryParams(query): QueryParams<CreateBlocksQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let notification = if query.source_board_id.is_empty() {
         if query.disable_notify == TRUE {
             ChangeNotification::Suppress
@@ -551,7 +552,7 @@ async fn handle_delete_block(
     Path((_, board_id, block_id)): Path<(String, String, String)>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let notification = query.notification();
     // Nobody below the commenter's role deletes anything, whatever the block is.
     require_container_permission(
@@ -597,7 +598,7 @@ async fn handle_restore_block(
     ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     // Nobody below the commenter's role brings anything back, whatever the block is.
     require_container_permission(
         &ws.app,
@@ -658,10 +659,10 @@ async fn handle_restore_block(
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_comment_versions(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -714,7 +715,7 @@ async fn handle_patch_block(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let notification = query.notification();
     // Who cannot even comment changes nothing, whatever the block.
     let grant = ws.app.container_grant(user_id, &board_id).await?;
@@ -768,7 +769,7 @@ async fn handle_patch_blocks(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let notification = query.notification();
     // Who cannot even comment changes nothing, whatever the blocks.
     let grant = ws.app.container_grant(user_id, &board_id).await?;
@@ -857,7 +858,7 @@ async fn handle_duplicate_block(
     Path((_, board_id, block_id)): Path<(String, String, String)>,
     QueryParams(query): QueryParams<AsTemplateQuery>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let duplicate_as = query.duplicate_as();
 
     require_container_permission(

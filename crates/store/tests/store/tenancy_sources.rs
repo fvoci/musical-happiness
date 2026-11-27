@@ -34,9 +34,10 @@ pub(crate) fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 14] = [
+    const ALLOWED: [&str; 15] = [
         "store/src/lib.rs",
         "store/src/db.rs",
+        "store/src/api_tokens.rs",
         "store/src/notifications.rs",
         "store/src/time_entries.rs",
         "store/src/account_deletion.rs",

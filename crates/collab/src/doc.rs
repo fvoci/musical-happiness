@@ -391,6 +391,11 @@ impl BodyDoc {
         self.doc.transact().state_vector().len()
     }
 
+    /// The state vector of the document: what it has of each client.
+    pub(crate) fn state_vector_of_doc(&self) -> StateVector {
+        self.doc.transact().state_vector()
+    }
+
     /// The state vector of the document, version 1: what it has of each client.
     #[must_use]
     pub fn state_vector(&self) -> Vec<u8> {

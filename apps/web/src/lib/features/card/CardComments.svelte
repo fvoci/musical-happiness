@@ -28,6 +28,7 @@
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
+  import { agentTokenNameOf } from '$lib/logic/wire-blocks.ts';
   import type { BoardStore, CardStore, CommentVersion } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -183,6 +184,7 @@
     {#each card.comments as comment (comment.id)}
       {@const author = workspace.userName(comment.createdBy) ?? m['centerPanel.unknown-user']()}
       {@const text = commentText(comment.body)}
+      {@const agent = agentTokenNameOf(comment)}
       <li
         class="flex gap-3 rounded-md transition-colors data-revealed:bg-accent"
         data-comment={comment.id}
@@ -197,6 +199,11 @@
         <div class="min-w-0 flex-1">
           <p class="flex flex-wrap items-baseline gap-x-2">
             <span class="font-medium">{author}</span>
+            {#if agent}
+              <span class="rounded-sm bg-muted px-1 text-xs font-medium" data-testid="comment-agent"
+                >{m.agent_badge({ name: agent })}</span
+              >
+            {/if}
             <time
               class="text-xs text-muted-foreground"
               datetime={new Date(comment.createdAt).toISOString()}

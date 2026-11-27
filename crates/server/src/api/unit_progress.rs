@@ -14,6 +14,7 @@ use super::contract::params::{CourseId, MemberWorkspaceId, UnitId};
 use super::contract::tag;
 use super::workspace::InCourse;
 use super::{ApiResult, decode_object, json_response, require_granted};
+use super::{Delegated, Read, Write};
 use crate::app::{App, ContainerAccess};
 use crate::error::AppError;
 use crate::permissions::{ContainerPermission, Grant};
@@ -55,10 +56,10 @@ pub(super) async fn course_view_access(
     responses((status = 200, description = "The caller's progress rows for the course.", body = Vec<UnitProgress>)),
 )]
 async fn handle_get_my_course_progress(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -99,11 +100,11 @@ async fn handle_get_my_course_progress(
     responses((status = 200, description = "The updated personal progress row.", body = UnitProgress)),
 )]
 async fn handle_put_unit_progress(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Write, InCourse>,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
@@ -155,7 +156,7 @@ async fn handle_get_course_progress_summary(
 ) -> ApiResult {
     let access = course_view_access(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         "access denied to course progress summary",
     )

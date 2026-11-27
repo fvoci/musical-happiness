@@ -516,6 +516,7 @@ fn subject(told: &StoredNotification, seen: Seen) -> NotificationSubject {
         block_kind: place.block_kind,
         title: place.title,
         comment_id,
+        agent_token_name: told.actor_token_name.clone(),
     }
 }
 
@@ -571,9 +572,11 @@ async fn reads_it(app: &App, event: &NotificationEvent) -> Result<bool, AppError
 }
 
 /// Whether the person of `event`, who reads what it happened in, is told of it:
-/// somebody else did it, and the person did not switch its kind off.
+/// somebody else did it, or an agent of theirs through a token that tells them (only
+/// such a token's rows name them as its doer), and the person did not switch its kind
+/// off.
 async fn tells(app: &App, event: &NotificationEvent) -> Result<bool, AppError> {
-    if event.actor_id == event.recipient_id {
+    if event.actor_id == event.recipient_id && event.actor_token_name.is_none() {
         return Ok(false);
     }
     let settings = app.store().get_user_settings(&event.recipient_id).await?;

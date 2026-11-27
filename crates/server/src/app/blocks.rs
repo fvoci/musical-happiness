@@ -1,10 +1,10 @@
 //! Blocks: reading and changing them, and telling websocket listeners and webhooks.
 
 use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion};
-use fvoci_store::{BlockFilter, DeletedBlock, DuplicateAs};
+use fvoci_store::{BlockFilter, ByAgent, DeletedBlock, DuplicateAs};
 
 use super::App;
-use crate::collab::Deletion;
+use crate::collab::{Deletion, OverEditors};
 use crate::error::AppError;
 
 /// Whether the people a change to a block newly names (those its body mentions, those
@@ -47,12 +47,17 @@ impl ChangeAction {
 
 impl App {
     /// The database for a write of blocks that tells of itself as `notification`
-    /// says: one that is suppressed tells nobody whom it newly names.
+    /// says: one that is suppressed tells nobody whom it newly names. A handle an
+    /// agent writes through ([`App::writing_for`]) tells of the write as the agent's.
     pub(super) fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
+        let store = match &self.agent {
+            Some(delegation) => self.store().by_agent(delegation.by_agent()),
+            None => self.store().clone(),
+        };
         match notification {
-            ChangeNotification::Send => self.store().clone(),
-            ChangeNotification::Suppress => self.store().quietly(),
-            ChangeNotification::Copied => self.store().telling_nobody(),
+            ChangeNotification::Send => store,
+            ChangeNotification::Suppress => store.quietly(),
+            ChangeNotification::Copied => store.telling_nobody(),
         }
     }
 
@@ -320,6 +325,26 @@ impl App {
         modified_by: &str,
         notification: ChangeNotification,
     ) -> Result<Block, AppError> {
+        self.patch_block_as(block_id, patch, modified_by, notification, None)
+            .await
+    }
+
+    /// As [`App::patch_block`], by `modified_by` themselves, or by an agent through a
+    /// personal API token of theirs (`agent`). An agent's body written whole is refused
+    /// while people may write in it, as it would lose what they typed and have not
+    /// sent, and is kept as the agent's version after the body before.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::patch_block`], and 409 `room_has_active_editors` for an agent.
+    pub async fn patch_block_as(
+        &self,
+        block_id: &str,
+        patch: &BlockPatch,
+        modified_by: &str,
+        notification: ChangeNotification,
+        agent: Option<ByAgent<'_>>,
+    ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let container = self.store().get_container(&old_block.container_id).await?;
         // A whole body is written around the document of a body edited together.
@@ -328,20 +353,43 @@ impl App {
         } else {
             vec![(block_id.to_owned(), old_block.container_id.clone())]
         };
+        let over = match agent {
+            Some(_) => OverEditors::Refuse,
+            None => OverEditors::Replace,
+        };
+        let agent = agent.map(|agent| {
+            (
+                agent.token_id.to_owned(),
+                agent.token_name.to_owned(),
+                agent.notify_self,
+            )
+        });
         let (block_id, patch, modified_by) =
             (block_id.to_owned(), patch.clone(), modified_by.to_owned());
-        let mut block = self
-            .write_blocks(
-                vec![old_block.container_id],
-                whole_body_cards,
-                async move |app| {
-                    Ok(app
-                        .store_telling(notification)
-                        .patch_block(&block_id, &patch, &modified_by)
-                        .await?)
-                },
-            )
-            .await?;
+        let write = async move |app: Self| {
+            let store = app.store_telling(notification);
+            Ok(match &agent {
+                Some((token_id, token_name, notify_self)) => {
+                    let agent = ByAgent {
+                        token_id,
+                        token_name,
+                        notify_self: *notify_self,
+                    };
+                    store
+                        .patch_block_by_agent(&block_id, &patch, &modified_by, agent)
+                        .await?
+                }
+                None => store.patch_block(&block_id, &patch, &modified_by).await?,
+            })
+        };
+        let mut block = if whole_body_cards.is_empty() {
+            self.write_blocks(vec![old_block.container_id], whole_body_cards, write)
+                .await?
+        } else {
+            self.collab()
+                .write_whole_over(self, whole_body_cards, over, write)
+                .await?
+        };
         block.hide_inactive_number();
         self.tell_of_update(&container.workspace_id, &block, notification);
         Ok(block)

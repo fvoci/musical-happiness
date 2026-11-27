@@ -20,6 +20,7 @@ use super::contract::tag;
 use super::courses::{READ_DENIED, content_unit_with_permission};
 use super::workspace::InCourse;
 use super::{ApiResult, json_response};
+use super::{Delegated, Read};
 use crate::app::App;
 use crate::permissions::ContainerPermission;
 
@@ -49,7 +50,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     responses((status = 200, description = "The versions, the newest first.", body = Vec<BodyVersion>)),
 )]
 async fn handle_get_unit_body_versions(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let unit = content_unit_with_permission(
@@ -82,7 +83,7 @@ async fn handle_keep_unit_body_version(
     InCourse(ws): InCourse,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let unit = content_unit_with_permission(
         &ws,
         &course_id,
@@ -110,7 +111,7 @@ async fn handle_keep_unit_body_version(
     responses((status = 200, description = "The version.", body = BodyVersionContent)),
 )]
 async fn handle_get_unit_body_version(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id, unit_id, version)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let unit = content_unit_with_permission(
@@ -146,7 +147,7 @@ async fn handle_restore_unit_body_version(
     InCourse(ws): InCourse,
     Path((_, course_id, unit_id, version)): Path<(String, String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let unit = content_unit_with_permission(
         &ws,
         &course_id,

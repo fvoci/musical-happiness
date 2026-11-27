@@ -177,6 +177,12 @@ impl ContainerKinds {
         Self(self.0 | other.0)
     }
 
+    /// The kinds that are in both sets.
+    #[must_use]
+    pub const fn intersection(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
     /// Whether the set holds no kind.
     #[must_use]
     pub const fn is_empty(self) -> bool {

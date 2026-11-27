@@ -44,6 +44,18 @@ impl<P> Making<P> {
         }
     }
 
+    /// The making a personal API token carries: that of the session it was made by,
+    /// through `origin`, its provider. A token is no session: what it opens is asked of
+    /// it as of the session that made it. One that reaches the account's own space was
+    /// made with the account's password ([`Self::having_confirmed_password`]).
+    #[must_use]
+    pub const fn of_api_token(origin: Option<P>) -> Self {
+        Self {
+            through: origin,
+            confirmed_password: false,
+        }
+    }
+
     /// The same making, of a session that has confirmed the account's password since:
     /// for a connection that kept the making of its handshake and whose session the
     /// store recorded as having confirmed it meanwhile

@@ -432,7 +432,7 @@ impl Store {
 ///
 /// `meeting_attendance` and `course_meetings` (`presenter_id`, `host_id`) are intentionally
 /// excluded: shared study meeting history stays under the erased user's tombstone identifier.
-const PERSONAL_DELETES: [&str; 19] = [
+const PERSONAL_DELETES: [&str; 20] = [
     "DELETE FROM notifications WHERE recipient_id = ",
     "DELETE FROM notification_outbox WHERE recipient_id = ",
     "DELETE FROM card_due_notices WHERE user_id = ",
@@ -442,6 +442,7 @@ const PERSONAL_DELETES: [&str; 19] = [
     "DELETE FROM email_changes WHERE user_id = ",
     "DELETE FROM email_reverts WHERE user_id = ",
     "DELETE FROM sessions WHERE user_id = ",
+    "DELETE FROM api_tokens WHERE user_id = ",
     "DELETE FROM user_settings WHERE user_id = ",
     "DELETE FROM user_client_state WHERE user_id = ",
     "DELETE FROM password_resets WHERE user_id = ",
@@ -676,6 +677,7 @@ async fn leave_workspace(
     crate::course_exams::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::unit_reviews::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
+    crate::api_tokens::forget_workspace_of_user(scope, workspace_id, user_id).await?;
     let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
@@ -797,6 +799,7 @@ pub(crate) async fn leave_organization<'c>(
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
     scope.execute(sql).await?;
+    crate::api_tokens::forget_organization_of_user(scope, user_id).await?;
     let mut sql = scope.sql("DELETE FROM organization_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
@@ -851,6 +854,7 @@ async fn remove_organization<'c>(
     let mut sql = scope.sql("DELETE FROM time_entries WHERE org_id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
+    crate::api_tokens::revoke_of_organization_providers(scope).await?;
     let mut sql = scope.sql("SELECT id FROM sessions WHERE login_org_id = ");
     sql.bind(scope.org()?);
     let sessions: Vec<String> = scope

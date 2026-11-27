@@ -5,7 +5,7 @@ use fvoci_model::{
     Block, BlockPatch, BlockType, Body, BodyChange, BodyVersionCause, Container, ContainerKind,
     ContainerVisibility, FileRecord, NewPage, new_id,
 };
-use fvoci_store::{BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DbType, Store};
+use fvoci_store::{BodyBefore, ByAgent, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DbType, Store};
 use serde_json::json;
 
 use crate::boards::new_board;
@@ -761,5 +761,63 @@ async fn a_version_kept_before_the_causes_were_is_the_servers() {
     )
     .await;
     assert_eq!(causes(store, &card_id).await, [(1, BodyVersionCause::Auto)]);
+    test.teardown().await;
+}
+
+/// What an agent typed into a card's document through a token is its version when the
+/// body is kept later, whoever keeps it and whoever else typed in it since: the
+/// agent's version, as if kept as soon as it wrote. A version kept after that, of what
+/// a person alone typed, is theirs.
+#[tokio::test]
+async fn what_an_agent_typed_is_its_version_when_it_is_kept_later() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let author = common::user(store, "creed.bratton").await;
+    let editor = common::user(store, "toby.flenderson").await;
+    let board_id = board_with_files(store, &author, &[]).await;
+    let card_id = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    assert_eq!(keep(store, &card_id).await, Some(1));
+    let token_id = new_id();
+    let agent = ByAgent {
+        token_id: &token_id,
+        token_name: "agent",
+        notify_self: true,
+    };
+
+    type_body(
+        &store.by_agent(agent),
+        &card_id,
+        body_showing("two", &[]),
+        &author,
+    )
+    .await;
+    type_body(store, &card_id, body_showing("three", &[]), &editor).await;
+    assert_eq!(keep(store, &card_id).await, Some(2));
+    type_body(store, &card_id, body_showing("four", &[]), &editor).await;
+    assert_eq!(keep(store, &card_id).await, Some(3));
+
+    let kept: Vec<_> = store
+        .body_versions(&card_id)
+        .await
+        .expect("the versions")
+        .into_iter()
+        .map(|kept| {
+            (
+                kept.version,
+                kept.cause,
+                kept.agent_token_name,
+                kept.editors,
+            )
+        })
+        .collect();
+    let mut both = vec![author.clone(), editor.clone()];
+    both.sort();
+    assert_eq!(
+        kept[..2],
+        [
+            (3, BodyVersionCause::Auto, None, vec![editor.clone()]),
+            (2, BodyVersionCause::Agent, Some("agent".to_owned()), both),
+        ]
+    );
     test.teardown().await;
 }

@@ -30,6 +30,7 @@ mod joining;
 mod pauses;
 mod removal;
 mod sent;
+mod turn_lock;
 mod walls;
 
 pub(crate) use access::AccessScope;
@@ -177,6 +178,7 @@ impl Connection {
         Asker {
             user_id: &self.user_id,
             making: self.making.making(),
+            delegation: None,
         }
     }
 
@@ -237,7 +239,7 @@ pub(super) struct Room {
     workspace_id: String,
     /// The application as the card's organization reaches it.
     app: App,
-    turn: tokio::sync::Mutex<Turn>,
+    turn: turn_lock::TurnLock,
     /// Told when an immediate check answered of members it held.
     checked: tokio::sync::Notify,
     /// Cancelled when the room is closed: its task ends.
@@ -301,6 +303,7 @@ impl Who {
         Asker {
             user_id: &self.user_id,
             making: self.making.as_deref(),
+            delegation: None,
         }
     }
 }
@@ -499,7 +502,7 @@ impl Collab {
             container_id: admitted.container_id.clone(),
             workspace_id: workspace_id.to_owned(),
             app: app.clone(),
-            turn: tokio::sync::Mutex::new(Turn::default()),
+            turn: turn_lock::TurnLock::default(),
             checked: tokio::sync::Notify::new(),
             gone: CancellationToken::new(),
         });
@@ -848,6 +851,15 @@ impl Collab {
         }
         turn.send_anew(&loaded);
         true
+    }
+
+    /// Whether anybody who may write is in the room of the card `card_id` of `app`'s
+    /// organization. The room's turn is not waited for: one who asks this may hold the
+    /// card's slot, which whoever holds the turn may wait for.
+    pub(super) fn has_editors(&self, app: &App, card_id: &str) -> bool {
+        self.rooms_index()
+            .get(app.store().tenant(), card_id)
+            .is_some_and(|room| room.turn.writers() > 0)
     }
 
     /// Closes a held room that nobody is in: its document is closed, which writes its

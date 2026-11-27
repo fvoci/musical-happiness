@@ -25,6 +25,7 @@ use super::{
     ApiResult, created, decode_object, decode_with_document, json_response, no_content,
     require_container_permission,
 };
+use super::{Delegated, Read, Write};
 use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
@@ -84,10 +85,10 @@ pub(crate) struct NewCourse {
     params(MemberWorkspaceId),
     responses((status = 200, description = "The courses.", body = Vec<Container>)),
 )]
-async fn handle_get_courses(InCourse(ws): InCourse) -> ApiResult {
+async fn handle_get_courses(Delegated(InCourse(ws), ..): Delegated<Read, InCourse>) -> ApiResult {
     let courses = ws
         .app
-        .workspace_containers(&ws.session.user_id, &ws.workspace_id, ws.role)
+        .workspace_containers(&ws.caller.user_id, &ws.workspace_id, ws.role)
         .await?;
     Ok(json_response(&courses))
 }
@@ -127,7 +128,7 @@ async fn handle_create_course(InCourse(ws): InCourse, body: Bytes) -> ApiResult 
     };
     let course = ws
         .app
-        .create_container_with_admin(course, &ws.session.user_id)
+        .create_container_with_admin(course, &ws.caller.user_id)
         .await?;
     Ok(created(&course))
 }
@@ -144,7 +145,7 @@ async fn unit_with_permission(
     permission: ContainerPermission,
     denial: &str,
 ) -> Result<Block, AppError> {
-    require_container_permission(&ws.app, &ws.session.user_id, course_id, permission, denial)
+    require_container_permission(&ws.app, &ws.caller.user_id, course_id, permission, denial)
         .await?;
     ws.app.unit_of(course_id, unit_id).await
 }
@@ -158,7 +159,7 @@ pub(super) async fn content_unit_with_permission(
     permission: ContainerPermission,
     denial: &str,
 ) -> Result<Block, AppError> {
-    require_container_permission(&ws.app, &ws.session.user_id, course_id, permission, denial)
+    require_container_permission(&ws.app, &ws.caller.user_id, course_id, permission, denial)
         .await?;
     ws.app.content_unit_of(course_id, unit_id).await
 }
@@ -179,12 +180,12 @@ pub(super) async fn content_unit_with_permission(
     responses((status = 200, description = "The chapters and units.", body = Vec<UnitNode>)),
 )]
 async fn handle_get_unit_tree(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         ContainerPermission::View,
         "access denied to fetch units",
@@ -225,11 +226,11 @@ async fn handle_get_unit_tree(
     responses((status = 201, description = "The unit or chapter that was made.", body = Unit)),
 )]
 async fn handle_create_unit(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Write, InCourse>,
     Path((_, course_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
@@ -258,7 +259,7 @@ async fn handle_create_unit(
     responses((status = 200, description = "The unit or chapter.", body = Unit)),
 )]
 async fn handle_get_unit(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let block = unit_with_permission(
@@ -292,11 +293,11 @@ async fn handle_get_unit(
     responses((status = 200, description = "The unit or chapter as it is now.", body = Unit)),
 )]
 async fn handle_patch_unit(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Write, InCourse>,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let unit = unit_with_permission(
         &ws,
         &course_id,
@@ -317,11 +318,12 @@ async fn handle_patch_unit(
         .await?;
     let patched = ws
         .app
-        .patch_block(
+        .patch_block_as(
             &unit.id,
             &patch.into_block_patch(),
             user_id,
             ChangeNotification::Send,
+            ws.caller.agent(),
         )
         .await?;
     tracing::debug!(course_id, unit_id, user_id, "PatchUnit");
@@ -355,7 +357,7 @@ async fn handle_move_unit(
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let unit = unit_with_permission(
         &ws,
         &course_id,
@@ -387,7 +389,7 @@ async fn handle_delete_unit(
     InCourse(ws): InCourse,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     let unit = unit_with_permission(
         &ws,
         &course_id,
@@ -426,7 +428,7 @@ async fn handle_get_deleted_units(
 ) -> ApiResult {
     require_container_permission(
         &ws.app,
-        &ws.session.user_id,
+        &ws.caller.user_id,
         &course_id,
         ContainerPermission::ManageCards,
         "access denied to the trash of the course",
@@ -462,7 +464,7 @@ async fn handle_restore_unit(
     InCourse(ws): InCourse,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,

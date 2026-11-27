@@ -138,6 +138,11 @@ pub enum StoreError {
     #[error("{0} is taken")]
     Conflict(Taken),
 
+    /// A personal API token was to reach a workspace its maker no longer works in (left
+    /// it, was made its guest, or it went to the trash): nothing of the token is stored.
+    #[error("the maker of the token no longer works in workspace {0}")]
+    NoLongerWorksIn(String),
+
     /// A block of the trash cannot come back where it was: what it was on has since
     /// become a block it may not be on (a comment is on a card, nothing is below one).
     #[error("block {id} cannot come back where it was: {source}")]

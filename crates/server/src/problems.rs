@@ -206,7 +206,13 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::TeamSelfJoining
         | Reason::GuestRoleLimit
         | Reason::GuestCannotJoinTeam
-        | Reason::SharingDisabled => describe_access(reason).unwrap_or_default(),
+        | Reason::SharingDisabled
+        | Reason::TokenForbiddenEndpoint
+        | Reason::TokenScopeInsufficient
+        | Reason::ApiTokensDisallowed
+        | Reason::TokenRateLimited
+        | Reason::TokenExpiredForOrganization
+        | Reason::TooManyApiTokens => describe_access(reason).unwrap_or_default(),
         Reason::SecretKeyRequired
         | Reason::OidcIssuerUnverified
         | Reason::OidcUnavailable
@@ -640,6 +646,19 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              of its database and has not gone down yet), and this one leaves it alone. The \
              document is as it was stored before. Try again later."
         }
+        Reason::ComplexBlocksUseAppend => {
+            "Status 409. A body is written whole from Markdown (`bodyMarkdown`) over one \
+             with blocks its Markdown does not hold as they are (`complexBlocks` of \
+             `getCard` with `format=markdown`): merged cells, cells of more than a line, \
+             formulas Markdown cannot write. Nothing was changed. Add Markdown after the \
+             body (`appendCardMarkdown`), or write it as JSON (`body`)."
+        }
+        Reason::RoomHasActiveEditors => {
+            "Status 409. A personal API token writes a card's body whole while people may \
+             write in it, which would lose what they typed and have not sent yet. Nothing \
+             was changed. Add Markdown after the body (`appendCardMarkdown`), which keeps \
+             what they type, or try again once they have left."
+        }
         other => describe_rooms(other),
     }
 }
@@ -945,6 +964,24 @@ fn describe_access(reason: Reason) -> Option<&'static str> {
         }
         Reason::SharingDisabled => {
             "Status 403. Sharing a board with whoever has its link is turned off in the configuration of this server."
+        }
+        Reason::TokenForbiddenEndpoint => {
+            "Status 403, for a request with a personal API token (`Authorization: Bearer fvoci_pat_...`) to an operation that is not open to one: what is of the account (its password, sessions, tokens, notifications and settings), of who is on what (members, invitations, groups), of what is shared (public links), and of an administrator (`/org/...`). Status 401 for the handshake of the websocket, which a token opens for nothing. A token is sent in the `Authorization` header alone; in the session cookie it opens nothing. Sign in, or do it in the app."
+        }
+        Reason::TokenScopeInsufficient => {
+            "Status 403, for a request with a personal API token that reads only (`scope` `read`) to an operation that writes. Make a token that reads and writes (`createApiToken` with `scope` `write`)."
+        }
+        Reason::ApiTokensDisallowed => {
+            "Status 403, for a request with a personal API token to a workspace whose organization takes only sessions made through its provider and gives its workspaces to no token (`allowApiTokens` of the organization off). An administrator of it switches that on."
+        }
+        Reason::TokenRateLimited => {
+            "Status 429, for a request with a personal API token: the token, or the tokens that reach the workspace's organization together, sent as many requests as they may in a minute. Wait for as many seconds as `Retry-After` says."
+        }
+        Reason::TokenExpiredForOrganization => {
+            "Status 401, for a request with a personal API token to a workspace whose organization takes only sessions made through its provider: the token was made more than 90 days ago, which such an organization lets no token be, also one made to last longer before the organization took only such sessions. Its owner makes another."
+        }
+        Reason::TooManyApiTokens => {
+            "Status 400, for making a personal API token: the account holds as many tokens that open anything (not taken back, not past their end) as one may, which `limit` tells (25). Nothing was made. Taking one back makes room."
         }
         _ => return None,
     })

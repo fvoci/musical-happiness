@@ -13,6 +13,7 @@
 pub(crate) mod bodies;
 mod finish;
 pub(crate) mod params;
+mod tags;
 
 use std::collections::BTreeSet;
 
@@ -27,121 +28,8 @@ use crate::problems::Basis;
 #[cfg(test)]
 use finish::path_parameters;
 use finish::{finish_operations, plain_descriptions, sorted};
-
-/// The names operations are grouped under.
-pub(crate) mod tag {
-    pub(crate) const SYSTEM: &str = "system";
-    pub(crate) const AUTH: &str = "auth";
-    pub(crate) const USERS: &str = "users";
-    pub(crate) const WORKSPACES: &str = "workspaces";
-    pub(crate) const CONTAINERS: &str = "boards";
-    pub(crate) const WIKIS: &str = "wikis";
-    pub(crate) const DIARIES: &str = "diaries";
-    pub(crate) const COURSES: &str = "courses";
-    pub(crate) const MEMBERS: &str = "members";
-    pub(crate) const PUBLIC_LINKS: &str = "public-links";
-    pub(crate) const BLOCKS: &str = "blocks";
-    pub(crate) const CARDS: &str = "cards";
-    pub(crate) const REFERENCES: &str = "references";
-    pub(crate) const SIDEBAR: &str = "sidebar";
-    pub(crate) const FILES: &str = "files";
-    pub(crate) const ARCHIVES: &str = "archives";
-    pub(crate) const SUBSCRIPTIONS: &str = "subscriptions";
-    pub(crate) const NOTIFICATIONS: &str = "notifications";
-    pub(crate) const TIME: &str = "time";
-    pub(crate) const ORGANIZATION: &str = "organization";
-}
-
-/// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 20] = [
-    (
-        tag::SYSTEM,
-        "Whether the server is there, and what a client must know before it signs in.",
-    ),
-    (
-        tag::AUTH,
-        "Signing in and out, registering, and changing the password.",
-    ),
-    (
-        tag::USERS,
-        "The user of the session, their settings, and other users.",
-    ),
-    (
-        tag::WORKSPACES,
-        "The workspaces a user is a member of, what is in a workspace, and its users.",
-    ),
-    (tag::CONTAINERS, "Boards and templates."),
-    (
-        tag::WIKIS,
-        "Wikis and their pages. A wiki is a board of the kind `wiki`: who is on it, its \
-         sharing, its files, its place in the sidebar and in the trash are asked as a \
-         board's are, under `/containers/{containerId}` with the wiki's identifier.",
-    ),
-    (
-        tag::DIARIES,
-        "Diaries and their entries, in the workspace of a user's own space and nowhere \
-         else. A diary is a board of the kind `diary` that holds one entry a day and \
-         nothing else; its owner alone reads it. What it shares with a board is asked \
-         under `/containers/{containerId}` with the diary's identifier: the diary itself \
-         (`getContainer`), its title, description and icon (`patchContainer`), the trash \
-         (`deleteContainer`, `restoreContainer`, `getDeletedContainers`), its files and \
-         their versions and leases, its place in the sidebar, and its archive \
-         (`exportContainer`; the archive of the workspace holds its diaries, and an \
-         archive that is imported makes each diary anew, in the user's own space only). \
-         Its entries are found by `searchWorkspaceContent`, by their writer. What is about \
-         the people of a board answers 404 for a diary, as for an identifier of nothing: \
-         its members, joining and leaving it, its teams, its link (`/public-link`, \
-         `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the \
-         operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no \
-         blocks but its entries, no cards, no views, no pages, no comments and no \
-         templates; and no reference names an entry.",
-    ),
-    (
-        tag::COURSES,
-        "Courses and their chapters and units. A course is a container of the kind \
-         `course`: who is on it, its groups, invitations, public link, files, place in \
-         the sidebar and trash, and export and import work under \
-         `/containers/{containerId}` with the course's identifier. Open courses are read \
-         and searched without joining, as open wikis are.",
-    ),
-    (tag::MEMBERS, "Who is on a board, and with which role."),
-    (
-        tag::PUBLIC_LINKS,
-        "Sharing a board with whoever has its public link.",
-    ),
-    (
-        tag::BLOCKS,
-        "The blocks of a board: cards, views, comments, and what a card is made of.",
-    ),
-    (tag::CARDS, "The blocks of type `card`, as cards."),
-    (
-        tag::REFERENCES,
-        "What the bodies of a workspace name: a body holds the identifier of a card, a \
-         page or a unit (the node `reference`), and what that is called is told here, to \
-         each user what they read.",
-    ),
-    (
-        tag::SIDEBAR,
-        "A user's categories and the boards filed under them.",
-    ),
-    (tag::FILES, "The files of a board."),
-    (tag::ARCHIVES, "Exporting boards and importing them."),
-    (tag::SUBSCRIPTIONS, "Subscriptions to blocks."),
-    (
-        tag::NOTIFICATIONS,
-        "What the user was told inside the application: mentions and cards given to them.",
-    ),
-    (
-        tag::TIME,
-        "Personal time tracking entries and the single active timer of the user of the \
-         session. Every entry is private to its owner across all organizations.",
-    ),
-    (
-        tag::ORGANIZATION,
-        "What an organization's administrators manage: the organization, its members' \
-         roles, its workspaces and their trash, joining a workspace, and the audit logs.",
-    ),
-];
+use tags::TAGS;
+pub(crate) use tags::tag;
 
 /// The name of the security scheme of the session cookie.
 const SESSION_COOKIE: &str = "sessionCookie";
@@ -160,6 +48,27 @@ HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it
 A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` \
 instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its \
 `readToken`, and look at no session that comes along.
+
+## Personal API tokens
+
+A user makes a personal API token (`createApiToken`) for an agent, which sends it as \
+`Authorization: Bearer fvoci_pat_...`, never in a cookie. A token reaches the workspaces it \
+names, of those its owner works in (no guest's), and the owner's own space if it was given \
+that, but never a diary. It reads (`scope` `read`), or reads and writes the content of cards, \
+pages, units, their comments and files (`write`): an operation says in its description \
+whether a token is taken, and which. Every other operation answers a token with 403 and the \
+reason `token_forbidden_endpoint`, the websocket too: what is of the account, of who is \
+on what, of what is shared, and of an administrator is done by a person. A token that reads \
+only is answered 403 with the reason `token_scope_insufficient` where an operation writes. A \
+token sends at most 120 requests a minute, and the tokens that reach one organization 600 \
+together; past that it is answered 429 with `Retry-After` and the reason `token_rate_limited`. \
+It lasts as long as it was made for (90 days unless asked, at most 365, at most 90 where it \
+reaches an organization that takes only sessions made through its provider), and ends with \
+what ends its owner's sessions: a password changed, set or reset, the identity it was made \
+through unlinked, the provider it was made through changed or removed, the account put out \
+of use. An organization that takes only sessions made through its provider holds to its 90 \
+days a token made before it did: older, the token is answered 401 there with the reason \
+`token_expired_for_organization`.
 
 ## Requests that change something
 
@@ -382,13 +291,26 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ContainerTeam", Members::All),
     ("ContainerTeamRole", Members::AsWritten),
     ("ContainersAndBlocks", Members::All),
-    ("BodyVersion", Members::All),
+    ("BodyVersion", Members::AllBut(&["agentTokenName"])),
     ("BodyVersionCause", Members::AsWritten),
-    ("BodyVersionContent", Members::All),
+    ("BodyVersionContent", Members::AllBut(&["agentTokenName"])),
     ("KeptBodyVersion", Members::All),
     ("KeptOutcome", Members::AsWritten),
-    ("Card", Members::AllBut(&["deletedAt", "preview"])),
+    (
+        "Card",
+        Members::AllBut(&[
+            "deletedAt",
+            "preview",
+            "bodyMarkdown",
+            "hasComplexBlocks",
+            "complexBlocks",
+        ]),
+    ),
     ("CardPreview", Members::All),
+    ("CardsOfPage", Members::AsWritten),
+    ("CompactCard", Members::All),
+    ("ComplexBlock", Members::All),
+    ("ComplexBlockReason", Members::AsWritten),
     ("CardPropertyDefinition", Members::All),
     ("PropertyOption", Members::All),
     ("Category", Members::AllBut(&["deletedAt"])),
@@ -398,6 +320,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CommentVersion", Members::All),
     ("DeletedItem", Members::AllBut(&["kind"])),
     ("FileRecord", Members::All),
+    ("ListedFile", Members::All),
     ("FileLease", Members::All),
     ("FileLeaseRequest", Members::AsWritten),
     ("FileVersion", Members::All),
@@ -434,7 +357,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcPendingProvider", Members::All),
     ("Notification", Members::All),
     ("NotificationKind", Members::AsWritten),
-    ("NotificationSubject", Members::All),
+    ("NotificationSubject", Members::AllBut(&["agentTokenName"])),
     ("TimeEntry", Members::All),
     ("TimeEntryKind", Members::AsWritten),
     ("TimeTargetKind", Members::AsWritten),
@@ -465,6 +388,14 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("AuditRecord", Members::All),
     ("AuditRecordActor", Members::AsWritten),
     ("Organization", Members::All),
+    (
+        "ApiToken",
+        Members::AllBut(&["lastUsedAt", "lastUsedAddress"]),
+    ),
+    ("MemberApiToken", Members::AllBut(&["lastUsedAt"])),
+    ("ApiTokenScope", Members::AsWritten),
+    ("ApiTokenWorkspace", Members::All),
+    ("IssuedApiToken", Members::All),
     ("OrgMember", Members::All),
     ("OrgWorkspace", Members::AllBut(&["deletedAt"])),
     ("UploadOpened", Members::All),
@@ -613,6 +544,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewSubscription", Members::AsWritten),
     ("NewUpload", Members::Only(&["name", "size"])),
     ("OrganizationPatch", Members::Only(&[])),
+    ("NewApiToken", Members::Only(&["name", "scope"])),
+    ("MarkdownAppend", Members::Only(&["markdown"])),
     ("OrgRoleChange", Members::AsWritten),
     ("WorkspaceName", Members::AsWritten),
     (

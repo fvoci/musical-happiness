@@ -472,6 +472,10 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "confirmPassword",
     // Recovering a password asks for no session; what it changes is the account's own.
     "completePasswordReset",
+    // The account's personal API tokens are the account's own: a workspace of an
+    // organization the session does not open is given to none
+    // (`api_tokens::an_organization_that_takes_no_password_gives_its_workspaces_to_tokens_while_it_lets`).
+    "createApiToken",
     // Starting an organization is the account's own: the new one is no part of the
     // organization the session does not open, and nothing of that one is read for it.
     "createOrganization",
@@ -490,6 +494,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // and counting their locked workspaces (`lockedWorkspaceCount`).
     "getAccountToday",
     "getActiveTimeEntry",
+    "getApiTokens",
     "getClientState",
     "getLoginOptions",
     "getMe",
@@ -545,6 +550,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // Giving an account the address it had back asks for no session: whoever holds the
     // link mailed to that address uses it (`email_revert`).
     "revertEmailChange",
+    "revokeApiToken",
     // The first password of an account that has none is the account's own, as
     // changing one is.
     "setPassword",

@@ -9,11 +9,12 @@ import type { DocNode } from '../editor/schema.ts';
 
 /**
  * How a version came to be kept: `manual`, asked for by an editor; `restored`,
- * the body a version was gone back to; `auto`, by the server on its own (as
- * its writers leave, by the interval, around a body written whole, and every
- * version kept before versions said how).
+ * the body a version was gone back to; `agent`, the body after an agent wrote
+ * in it through a personal API token (`agentTokenName`); `auto`, by the server
+ * on its own (as its writers leave, by the interval, around a body written
+ * whole, before an agent writes, and every version kept before versions said how).
  */
-export type BodyVersionCause = 'auto' | 'manual' | 'restored';
+export type BodyVersionCause = 'auto' | 'manual' | 'restored' | 'agent';
 
 export interface BodyVersion {
   /** Its place among the card's, counted from 1. */
@@ -28,6 +29,8 @@ export interface BodyVersion {
    */
   isCurrent: boolean;
   cause: BodyVersionCause;
+  /** The name of the token an agent wrote it through, for `agent`. */
+  agentTokenName?: string | undefined;
 }
 
 export interface BodyVersionContent extends BodyVersion {

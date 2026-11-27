@@ -48,7 +48,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 )]
 async fn handle_onboard(TextInWorkspace(ws): TextInWorkspace, headers: HeaderMap) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
+    let (app, user_id, workspace_id) = (&ws.app, ws.caller.user_id.as_str(), &ws.workspace_id);
     let board_id = app
         .create_welcome_board(user_id, workspace_id, accept_language(&headers))
         .await?;

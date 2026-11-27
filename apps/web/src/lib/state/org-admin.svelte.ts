@@ -4,6 +4,7 @@
  * which the server answers for. A refusal is kept to be told (`refusal`); the
  * lists stay as they were.
  */
+import type { MemberApiToken } from './api-tokens.ts';
 import { isBackendError, isSignedOut, ssoOrgOf } from './backend.ts';
 import type { OidcProvider, OidcSettings } from './oidc.ts';
 import type {
@@ -250,5 +251,22 @@ export class OrgAdmin {
 
   setAllowCopyOut(on: boolean): Promise<boolean> {
     return this.#change(() => this.#api.changeOrganization(this.orgId, { allowCopyOut: on }));
+  }
+
+  setAllowApiTokens(on: boolean): Promise<boolean> {
+    return this.#change(() => this.#api.changeOrganization(this.orgId, { allowApiTokens: on }));
+  }
+
+  /** The personal API tokens of its members that reach its workspaces. */
+  apiTokens(): Promise<MemberApiToken[]> {
+    return this.#api.apiTokens.list(this.orgId);
+  }
+
+  /**
+   * Takes a member's token out of the organization at once: it reaches none of its
+   * workspaces any more. What it reaches elsewhere is its owner's to end.
+   */
+  revokeApiToken(tokenId: string): Promise<void> {
+    return this.#api.apiTokens.revoke(this.orgId, tokenId);
   }
 }

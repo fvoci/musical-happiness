@@ -77,6 +77,8 @@ pub(crate) enum ResolvedTarget {
     LocalFile { file_id: String },
     /// An internal link to another imported block (valid `UUIDv7` block ID).
     InternalReference { block_id: String },
+    /// A user, mentioned (`@[name](fvoci-user://id)` in a body fvoci wrote).
+    Mention { user_id: String },
     /// An external URL: NEVER fetched; preserved only as a link if allowed.
     ExternalUrl,
     /// A relative target not present in the bundle (or traversing outside it).

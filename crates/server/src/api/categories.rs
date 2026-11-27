@@ -139,13 +139,13 @@ async fn handle_create_category(TextInContainer(ws): TextInContainer, body: Byte
     // workspace that is not there is not looked at.
     let InWorkspace {
         app,
-        session,
+        caller,
         workspace_id,
         ..
     } = ws;
     let request = CategoryRequest::decode(&body)?;
     let category = &request.category;
-    if category.user_id != session.user_id {
+    if category.user_id != caller.user_id {
         return Err(
             AppError::forbidden("a user makes categories for themselves only").with_field("userId"),
         );
@@ -186,12 +186,12 @@ async fn handle_update_category(
     let ws = ws.require_no_guest()?;
     let InWorkspace {
         app,
-        session,
+        caller,
         workspace_id,
         ..
     } = ws;
     // Before the body is looked at: another user's category does not exist for this one.
-    app.user_category(&workspace_id, &session.user_id, &category_id)
+    app.user_category(&workspace_id, &caller.user_id, &category_id)
         .await?;
     let request = CategoryRequest::decode(&body)?;
     let category = &request.category;
@@ -201,7 +201,7 @@ async fn handle_update_category(
                 .with_field("id"),
         );
     }
-    if category.user_id != session.user_id {
+    if category.user_id != caller.user_id {
         return Err(
             AppError::bad_request("the user of the body is not the session's").with_field("userId"),
         );
@@ -236,7 +236,7 @@ async fn handle_patch_category(
     let patch: CategoryPatch = decode_object(&body)?;
     let updated = ws
         .app
-        .patch_category(&ws.workspace_id, &ws.session.user_id, &category_id, &patch)
+        .patch_category(&ws.workspace_id, &ws.caller.user_id, &category_id, &patch)
         .await?;
     Ok(json_response(&updated))
 }
@@ -260,7 +260,7 @@ async fn handle_delete_category(
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
     ws.app
-        .delete_category(&category_id, &ws.session.user_id, &ws.workspace_id)
+        .delete_category(&category_id, &ws.caller.user_id, &ws.workspace_id)
         .await?;
     Ok(no_content())
 }
@@ -290,7 +290,7 @@ async fn handle_delete_category(
 async fn handle_get_user_category_containers(TextInContainer(ws): TextInContainer) -> ApiResult {
     // A guest too: their sidebar has the boards they are on, filed as they have filed
     // them. The rest of the sidebar's routes are for who works there.
-    let (user_id, workspace_id) = (&ws.session.user_id, &ws.workspace_id);
+    let (user_id, workspace_id) = (&ws.caller.user_id, &ws.workspace_id);
     let category_containers = if ws.role == WorkspaceRole::Guest {
         ws.app
             .category_containers_of_guest(user_id, workspace_id)
@@ -323,16 +323,16 @@ async fn handle_update_category_container(
     let ws = ws.require_no_guest()?;
     let InWorkspace {
         app,
-        session,
+        caller,
         workspace_id,
         ..
     } = ws;
-    app.user_category(&workspace_id, &session.user_id, &category_id)
+    app.user_category(&workspace_id, &caller.user_id, &category_id)
         .await?;
-    require_container_visible(&app, &session.user_id, &container_id).await?;
+    require_container_visible(&app, &caller.user_id, &container_id).await?;
     app.add_update_user_category_container(
         &workspace_id,
-        &session.user_id,
+        &caller.user_id,
         &category_id,
         &[container_id],
     )
@@ -361,17 +361,17 @@ async fn handle_put_category_container(
     let ws = ws.require_no_guest()?;
     let InWorkspace {
         app,
-        session,
+        caller,
         workspace_id,
         ..
     } = ws;
-    app.user_category(&workspace_id, &session.user_id, &category_id)
+    app.user_category(&workspace_id, &caller.user_id, &category_id)
         .await?;
-    require_container_visible(&app, &session.user_id, &container_id).await?;
+    require_container_visible(&app, &caller.user_id, &container_id).await?;
     let update: CategoryContainerUpdate = decode_object(&body)?;
     app.put_category_container(
         &workspace_id,
-        &session.user_id,
+        &caller.user_id,
         &category_id,
         &container_id,
         &update,
@@ -403,7 +403,7 @@ async fn handle_reorder_categories(TextInContainer(ws): TextInContainer, body: B
     let new_order = decode_order(&body)?;
     let order = ws
         .app
-        .reorder_categories(&ws.session.user_id, &ws.workspace_id, new_order)
+        .reorder_categories(&ws.caller.user_id, &ws.workspace_id, new_order)
         .await?;
     Ok(json_response(&order))
 }
@@ -434,15 +434,15 @@ async fn handle_reorder_category_containers(
     let ws = ws.require_no_guest()?;
     let InWorkspace {
         app,
-        session,
+        caller,
         workspace_id,
         ..
     } = ws;
-    app.user_category(&workspace_id, &session.user_id, &category_id)
+    app.user_category(&workspace_id, &caller.user_id, &category_id)
         .await?;
     let new_order = decode_order(&body)?;
     let order = app
-        .reorder_category_containers(&session.user_id, &workspace_id, &category_id, new_order)
+        .reorder_category_containers(&caller.user_id, &workspace_id, &category_id, new_order)
         .await?;
     Ok(json_response(&order))
 }
@@ -495,7 +495,7 @@ async fn set_sidebar_visibility(
     (_, category_id, container_id): &ContainerPlace,
     visibility: SidebarVisibility,
 ) -> ApiResult {
-    let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
+    let (app, user_id, workspace_id) = (&ws.app, ws.caller.user_id.as_str(), &ws.workspace_id);
     app.user_category(workspace_id, user_id, category_id)
         .await?;
     require_container_visible(app, user_id, container_id).await?;

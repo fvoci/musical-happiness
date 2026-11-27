@@ -294,7 +294,7 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     }
     ts.teardown().await;
     assert_eq!(
-        count, 74,
+        count, 77,
         "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));

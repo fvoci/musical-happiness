@@ -1,8 +1,12 @@
 //! Where a comment may be: on a card of its board, a page of its wiki, or a unit of
 //! its course, with nothing below it (contract B1; [`BlockType::takes_comments`]).
-//! Every block that is written is checked here by [`check`].
+//! Every block that is written is checked here by [`check`], and a comment is signed
+//! by the agent that wrote it ([`sign`]).
 
-use fvoci_model::{Block, BlockError, BlockType};
+use fvoci_model::{Block, BlockError, BlockType, COMMENT_AGENT_TOKEN_NAME};
+use serde_json::Value;
+
+use crate::ByAgent;
 
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
@@ -92,5 +96,32 @@ pub(crate) fn restore_refusal(
         Some(BlockError::ParentIsAttachment)
     } else {
         None
+    }
+}
+
+/// Says in a comment that is written which agent wrote its text
+/// (`fields.agentTokenName`): the server's to say, never the writer's. Who writes a new
+/// comment, or the text of one, signs it: an agent by its token's name, a person by
+/// none. Any other write leaves the name as it was stored, whatever the writer sent.
+pub(crate) fn sign(block: &mut Block, existing: Option<&Block>, agent: Option<ByAgent<'_>>) {
+    if block.block_type != BlockType::Comment {
+        return;
+    }
+    let text_written = existing.is_none_or(|existing| {
+        crate::body_digest(existing.body.as_ref()) != crate::body_digest(block.body.as_ref())
+    });
+    let signed = match (existing, text_written) {
+        (Some(existing), false) => existing.fields.get(COMMENT_AGENT_TOKEN_NAME).cloned(),
+        _ => agent.map(|agent| Value::String(agent.token_name.to_owned())),
+    };
+    match signed {
+        Some(name) => {
+            block
+                .fields
+                .insert(COMMENT_AGENT_TOKEN_NAME.to_owned(), name);
+        }
+        None => {
+            block.fields.remove(COMMENT_AGENT_TOKEN_NAME);
+        }
     }
 }

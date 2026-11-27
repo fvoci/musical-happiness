@@ -114,12 +114,14 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
     let before = named(&th.client, &[&user2.id]).await;
     assert_eq!(before[0].username, USER2_USERNAME);
     assert_eq!(before[0].name.title, Some(Title::Prof), "seen by a member");
+    let agent = crate::api_tokens::agent_reading(&th, &th.client2).await;
 
     socket_request(&socket, "POST", &erase("USER2"), "")
         .await
         .check_no_content();
 
     th.client2.get("/users/me").await.check_unauthorized();
+    crate::api_tokens::check_token_ended(&agent).await;
     let mut signing_in = th.anonymous();
     signing_in
         .login(USER2_USERNAME, PASSWORD)

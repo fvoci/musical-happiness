@@ -7,11 +7,15 @@ mod accept_language;
 mod access;
 mod account_deletion;
 mod account_erasure;
+mod api_tokens;
 mod audience;
 mod auth;
 mod blocks;
 mod board_ops;
+mod body_markdown;
 mod body_versions;
+mod caller;
+mod card_filters;
 mod cards;
 mod category;
 mod category_containers;
@@ -98,6 +102,9 @@ mod workspaces;
 pub use access::{ContainerAccess, DeletedContainerAccess, as_managed};
 pub use audience::{Audience, Former, UnsaidByLink};
 pub use blocks::ChangeNotification;
+pub use body_markdown::{MarkdownReader, body_of_markdown};
+pub use caller::{Caller, CallerAuth};
+pub use card_filters::{CardsFilter, CardsOrder, CardsUnder};
 pub use cards::CardPreviews;
 pub use category_containers::DEFAULT_CATEGORY_CONTAINERS;
 pub use course_events::MEETING_REMINDER_WINDOW_MILLIS;
@@ -180,10 +187,18 @@ pub struct App {
     /// The kinds of board this handle reaches ([`App::reaching`]): a board of another
     /// kind is not there for it, nor what is on one.
     kinds: ContainerKinds,
+    /// The most [`App::kinds`] may be, whatever an operation asks to reach
+    /// ([`App::capped_to`]): every kind for a person, and none of a diary for an agent
+    /// by a token. It goes with the handle wherever it is scoped.
+    allowed_kinds: ContainerKinds,
     /// The immutable kind of this handle's organization, populated on entry or read at
     /// most once per handle (`App::tell_webhooks`). Reset whenever [`App::scoped`]
     /// changes the tenant.
     org_kind: Arc<tokio::sync::OnceCell<OrgKind>>,
+    /// The token an agent writes blocks through with this handle ([`App::writing_for`]);
+    /// `None` for a person. Only the writes of blocks are told of as the agent's
+    /// (`App::store_telling`): what the rooms of bodies write later is their editors'.
+    agent: Option<Arc<crate::auth::api_token::Delegation>>,
 }
 
 #[derive(Debug)]
@@ -316,6 +331,8 @@ impl App {
             workspace: None,
             known_actor: None,
             kinds: ContainerKinds::EVERY,
+            allowed_kinds: ContainerKinds::EVERY,
+            agent: None,
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
@@ -441,8 +458,19 @@ impl App {
             workspace: None,
             known_actor: None,
             kinds: self.kinds,
+            allowed_kinds: self.allowed_kinds,
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
+            agent: self.agent.clone(),
         }
+    }
+
+    /// The same handle, whose writes of blocks are those of the agent of `delegation`:
+    /// whom they name is told of them as the agent's, the token's owner as well where
+    /// the token asks for that.
+    #[must_use]
+    pub(crate) fn writing_for(mut self, delegation: &crate::auth::api_token::Delegation) -> Self {
+        self.agent = Some(Arc::new(delegation.clone()));
+        self
     }
 
     /// Records the immutable kind of this handle's organization so later checks
@@ -458,9 +486,12 @@ impl App {
     /// container of the other kind is one that is not there. A handle reaches both kinds
     /// until it is narrowed: what is the same for a board and a wiki (who is on it, its
     /// files, the rooms of its bodies) is asked of both.
+    ///
+    /// What it reaches stays within what it may ([`App::capped_to`]): asked for more, it
+    /// reaches that much.
     #[must_use]
     pub fn reaching(mut self, kinds: ContainerKinds) -> Self {
-        self.kinds = kinds;
+        self.kinds = kinds.intersection(self.allowed_kinds);
         self
     }
 
@@ -468,6 +499,22 @@ impl App {
     #[must_use]
     pub fn kinds(&self) -> ContainerKinds {
         self.kinds
+    }
+
+    /// The same handle, never reaching more than `kinds`, however it is narrowed or
+    /// scoped after: for an agent, which reaches no diary.
+    #[must_use]
+    pub fn capped_to(mut self, kinds: ContainerKinds) -> Self {
+        self.allowed_kinds = self.allowed_kinds.intersection(kinds);
+        self.kinds = self.kinds.intersection(kinds);
+        self
+    }
+
+    /// The most this handle may reach ([`App::capped_to`]): what an operation that is
+    /// about every kind of container reaches.
+    #[must_use]
+    pub fn allowed_kinds(&self) -> ContainerKinds {
+        self.allowed_kinds
     }
 
     /// The same handle, for a request that names the workspace in its path: a board of

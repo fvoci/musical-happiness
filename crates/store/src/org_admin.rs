@@ -66,8 +66,9 @@ impl Store {
     }
 
     /// Changes the name of the handle's organization, and whether its boards may be read
-    /// by a public link, on behalf of `actor_id`; what the patch leaves out stays. A
-    /// change of the public links is recorded.
+    /// by a public link, copied out of it or given to personal API tokens, on behalf of
+    /// `actor_id`; what the patch leaves out stays. A change of any of the three is
+    /// recorded.
     ///
     /// # Errors
     ///
@@ -85,8 +86,11 @@ impl Store {
             let changes_allow_copy_out = patch
                 .allow_copy_out
                 .is_some_and(|on| on != before.allow_copy_out);
+            let changes_allow_api_tokens = patch
+                .allow_api_tokens
+                .is_some_and(|on| on != before.allow_api_tokens);
             let mut sql = scope.sql("UPDATE organizations SET updated_at = ");
-            if !changes_public_links && !changes_allow_copy_out {
+            if !changes_public_links && !changes_allow_copy_out && !changes_allow_api_tokens {
                 sql.changing_no_access();
             }
             sql.bind(scope.now_millis());
@@ -98,6 +102,9 @@ impl Store {
             }
             if let Some(allow_copy_out) = patch.allow_copy_out {
                 sql.push_bind(", allow_copy_out = ", allow_copy_out);
+            }
+            if let Some(allow_api_tokens) = patch.allow_api_tokens {
+                sql.push_bind(", allow_api_tokens = ", allow_api_tokens);
             }
             sql.push_bind(" WHERE id = ", scope.org()?);
             scope.execute(sql).await?;
@@ -119,6 +126,17 @@ impl Store {
                     AuditAction::CopyOutEnabled
                 } else {
                     AuditAction::CopyOutDisabled
+                };
+                let entry = AuditEntry::new("", actor_id, action, &before.id);
+                audit::record_entry(scope, &entry).await?;
+            }
+            if let Some(on) = patch.allow_api_tokens
+                && on != before.allow_api_tokens
+            {
+                let action = if on {
+                    AuditAction::ApiTokensEnabled
+                } else {
+                    AuditAction::ApiTokensDisabled
                 };
                 let entry = AuditEntry::new("", actor_id, action, &before.id);
                 audit::record_entry(scope, &entry).await?;
@@ -367,6 +385,7 @@ impl Store {
             if scope.execute(sql).await? == 0 {
                 return Ok(WorkspaceTrashing::NotFound);
             }
+            crate::api_tokens::forget_workspace(scope, workspace_id).await?;
             let entry = AuditEntry::new("", actor_id, AuditAction::WorkspaceDeleted, workspace_id);
             audit::record_entry(scope, &entry).await?;
             Ok(WorkspaceTrashing::Done)
@@ -546,8 +565,8 @@ impl Store {
 /// The handle's organization as it is stored.
 async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
     let mut sql = scope.sql(
-        "SELECT id, name, public_links, allow_copy_out, default_workspace_id \
-         FROM organizations WHERE id = ",
+        "SELECT id, name, public_links, allow_copy_out, default_workspace_id, \
+         allow_api_tokens FROM organizations WHERE id = ",
     );
     sql.bind(scope.org()?)
         .push(" AND deleted_at IS NULL AND is_system = false");
@@ -560,6 +579,7 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
         name: row.text(1)?,
         public_links: row.bool(2)?,
         allow_copy_out: row.bool(3)?,
+        allow_api_tokens: row.bool(5)?,
         default_workspace_id: row.id(4)?,
     })
 }
@@ -858,6 +878,7 @@ async fn end_joining(
     if joined.prior.is_none() || joined.prior == Some(WorkspaceRole::Guest) {
         crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id)
             .await?;
+        crate::api_tokens::forget_workspace_of_user(scope, workspace_id, user_id).await?;
     }
     let mut sql = match joined.prior {
         Some(prior) => {

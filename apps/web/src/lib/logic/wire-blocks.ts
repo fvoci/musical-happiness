@@ -416,3 +416,16 @@ export function remapBlockReferences(block: Block, idMap: Readonly<Record<string
     );
   }
 }
+
+/**
+ * The member of a comment's `fields` that names the personal API token an
+ * agent wrote it through: the server sets it, and the comment shows its
+ * author's agent by that name.
+ */
+export const COMMENT_AGENT_TOKEN_NAME = 'agentTokenName';
+
+/** The name of the token an agent wrote `comment` through; `undefined` for a person's. */
+export function agentTokenNameOf(comment: Pick<Block, 'fields'>): string | undefined {
+  const name = comment.fields[COMMENT_AGENT_TOKEN_NAME];
+  return typeof name === 'string' && name !== '' ? name : undefined;
+}

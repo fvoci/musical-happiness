@@ -8,6 +8,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::JsonMap;
 use crate::block::{Block, BlockPatch, BlockType, PropertyChanges};
 use crate::body::{Body, BodyChange, BodySummary};
+use crate::body_markdown::ComplexBlock;
 use crate::card_property::{PersonProperties, check_card_property_values};
 use crate::id::new_id;
 use crate::refusal::{RefusalReason, Refusals};
@@ -118,6 +119,65 @@ pub struct Card {
     /// it; what it sends is not stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<CardPreview>,
+    /// The body in Markdown, as `getCard` with `format=markdown` gives it in place of
+    /// `body`, left out otherwise: `bodyMarkdown` of `patchCard` writes it back, and
+    /// `appendCardMarkdown` adds to it. Files of the board are named
+    /// `fvoci-file://{fileId}` (an image `![alt](fvoci-file://…)`, a file
+    /// `[name](fvoci-file://…)`), people `@[name](fvoci-user://{userId})`, cards and
+    /// pages `[[id]]`; a formula is `$…$`, one of its own block `$$…$$`. A `[`, `]`,
+    /// `$` or any other mark Markdown would read is written after a backslash in text.
+    /// An empty paragraph is not written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub body_markdown: Option<String>,
+    /// With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as
+    /// they are (`complexBlocks`), which `bodyMarkdown` may not be written over (409
+    /// `complex_blocks_use_append`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub has_complex_blocks: Option<bool>,
+    /// With `bodyMarkdown`: the blocks it does not hold as they are, in the order of
+    /// the body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub complex_blocks: Option<Vec<ComplexBlock>>,
+}
+
+/// A card in short, as a list gives it with `compact=true` (`getCards`): enough to tell
+/// the cards apart and choose one to read.
+#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactCard {
+    /// The card's identifier.
+    pub id: String,
+    /// The card's number on its board (`Card.number`).
+    #[schema(minimum = 1)]
+    pub number: Option<u32>,
+    /// The identifier of the parent card; empty for a top-level card.
+    pub parent_id: String,
+    /// The display title.
+    pub title: String,
+    /// Property values keyed by property identifier, as `Card.properties`.
+    #[schema(value_type = Object)]
+    pub properties: JsonMap,
+    /// Whether the card has a body.
+    pub has_body: bool,
+    /// Last modification time in milliseconds since the Unix epoch.
+    pub updated_at: i64,
+}
+
+impl From<Card> for CompactCard {
+    fn from(card: Card) -> Self {
+        Self {
+            id: card.id,
+            number: card.number,
+            parent_id: card.parent_id,
+            title: card.title,
+            properties: card.properties,
+            has_body: card.has_body,
+            updated_at: card.updated_at,
+        }
+    }
 }
 
 /// What a gallery shows of a card's body.
@@ -311,6 +371,9 @@ impl Card {
             // A block does not know its comments.
             last_comment_at: 0,
             preview: None,
+            body_markdown: None,
+            has_complex_blocks: None,
+            complex_blocks: None,
         };
         card.populate(now);
         Ok(card)
@@ -382,6 +445,13 @@ pub struct CardPatch {
     /// checked whenever it is sent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_at: Option<i64>,
+    /// The new body in Markdown, as `getCard` with `format=markdown` gives it
+    /// (`Card.bodyMarkdown`), in place of `body`; Markdown that says nothing takes the
+    /// body away. Sent only with `readAt`, never with `body`. Refused with 409
+    /// `complex_blocks_use_append` while the body has blocks its Markdown does not hold
+    /// as they are (`Card.hasComplexBlocks`): `appendCardMarkdown` adds to it instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_markdown: Option<String>,
 }
 
 impl CardPatch {

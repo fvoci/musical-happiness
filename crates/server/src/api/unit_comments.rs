@@ -19,6 +19,7 @@ use super::contract::tag;
 use super::courses::{READ_DENIED, content_unit_with_permission};
 use super::workspace::{InCourse, InWorkspace};
 use super::{ApiResult, json_response};
+use super::{Delegated, Read, Write};
 use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
@@ -108,7 +109,7 @@ pub(crate) struct UnitCommentPatch {
     responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
 )]
 async fn handle_get_unit_comments(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let unit = content_unit_with_permission(
@@ -136,7 +137,7 @@ async fn handle_get_unit_comments(
     responses((status = 201, description = "The comment as it was stored.", body = Block)),
 )]
 async fn handle_create_unit_comment(
-    commenter: CommenterOf<UnitCommentParent>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitCommentParent>>,
     body: Bytes,
 ) -> ApiResult {
     let comment = create_comment_on::<NewUnitComment>(
@@ -165,7 +166,7 @@ async fn handle_create_unit_comment(
     responses((status = 200, description = "The comment as it is now.", body = Block)),
 )]
 async fn handle_patch_unit_comment(
-    commenter: CommenterOf<UnitCommentParent>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitCommentParent>>,
     body: Bytes,
 ) -> ApiResult {
     let comment_id = commenter.comment_id()?;
@@ -195,7 +196,9 @@ async fn handle_patch_unit_comment(
     params(MemberWorkspaceId, CourseId, UnitId, UnitCommentId),
     responses((status = 204, description = "The comment is deleted.")),
 )]
-async fn handle_delete_unit_comment(commenter: CommenterOf<UnitCommentParent>) -> ApiResult {
+async fn handle_delete_unit_comment(
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitCommentParent>>,
+) -> ApiResult {
     let comment_id = commenter.comment_id()?;
     let comment = existing_comment_on(&commenter.ws, &commenter.parent, comment_id).await?;
     delete_comment_on(
@@ -240,7 +243,7 @@ async fn handle_restore_unit_comment(commenter: CommenterOf<UnitCommentParent>) 
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_unit_comment_versions(
-    InCourse(ws): InCourse,
+    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id, unit_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let unit = content_unit_with_permission(

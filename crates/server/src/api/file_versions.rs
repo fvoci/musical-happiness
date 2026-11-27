@@ -21,6 +21,7 @@ use super::contract::tag;
 use super::files::{require_file_reader, serve_stored};
 use super::workspace::InContainer;
 use super::{ApiResult, created, json_response, require_container_permission};
+use super::{Delegated, Read};
 use crate::app::{App, FILE};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
@@ -48,10 +49,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     responses((status = 200, description = "The versions, the newest first.", body = Vec<FileVersion>)),
 )]
 async fn handle_get_file_versions(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     Path((_, container_id, file_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
+    require_file_reader(&ws.app, &ws.caller.user_id, &container_id).await?;
     let versions = ws.app.file_versions(&container_id, &file_id).await?;
     Ok(json_response(&versions))
 }
@@ -77,11 +78,11 @@ async fn handle_get_file_versions(
     ),
 )]
 async fn handle_get_file_version(
-    InContainer(ws): InContainer,
+    Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     Path((_, container_id, file_id, version)): Path<(String, String, String, String)>,
     headers: HeaderMap,
 ) -> ApiResult {
-    require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
+    require_file_reader(&ws.app, &ws.caller.user_id, &container_id).await?;
     let Some(record) = ws.app.file_record(&container_id, &file_id).await? else {
         return Err(AppError::not_found(FILE));
     };
@@ -126,7 +127,7 @@ async fn handle_add_file_version(
     Path((_, container_id, file_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_file_editor(&ws.app, user_id, &container_id).await?;
     let request: NewFileVersion = decode_object(&body)?;
     let version = ws
@@ -174,7 +175,7 @@ async fn handle_restore_file_version(
     Path((_, container_id, file_id, version)): Path<(String, String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_file_editor(&ws.app, user_id, &container_id).await?;
     let request: FileVersionBase = decode_object(&body)?;
     let restored = ws

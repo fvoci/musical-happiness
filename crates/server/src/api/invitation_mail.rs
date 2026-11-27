@@ -46,7 +46,7 @@ async fn send(InShared(ws): InShared, body: Bytes) -> ApiResult {
     let ws = ws.require_people()?;
     let request = decode_object(&body)?;
     ws.app
-        .email_invitation(&ws.workspace_id, &ws.session.user_id, request)
+        .email_invitation(&ws.workspace_id, &ws.caller.user_id, request)
         .await?;
     Ok(no_content())
 }

@@ -194,6 +194,7 @@ pub(super) async fn exercise(
     }
     account(case).await;
     organization(case).await;
+    tokens(case).await;
     notifications(case, server).await;
     exam_publication(case, server).await;
     time_entries(case).await;
@@ -392,6 +393,22 @@ async fn account(case: &mut Case) {
         options["organization"]["id"], case.org,
         "login options name the requested organization"
     );
+}
+
+/// The founder gives an agent a token of the workspace, finds it as its owner and as the
+/// organization's administrator, and takes one back each way.
+async fn tokens(case: &mut Case) {
+    let made = json!({"name": "agent", "scope": "read", "workspaceIds": [case.workspace]});
+    let first = case.run("createApiToken", &[], made.clone()).await.value();
+    let first = case.remember(&first["apiToken"], "id");
+    case.present("getApiTokens", &[], &first).await;
+    case.present("getOrgApiTokens", &[], &first).await;
+    case.run("revokeOrgApiToken", &[("tokenId", &first)], json!({}))
+        .await;
+    let second = case.run("createApiToken", &[], made).await.value();
+    let second = case.remember(&second["apiToken"], "id");
+    case.run("revokeApiToken", &[("tokenId", &second)], json!({}))
+        .await;
 }
 
 async fn organization(case: &mut Case) {

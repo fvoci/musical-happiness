@@ -5,13 +5,26 @@
 use std::collections::HashSet;
 
 use fvoci_model::{
-    Container, ContainerKind, OrgKind, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole,
+    Container, ContainerKind, ContainerKinds, OrgKind, OrgRole, Session, UserWorkspace, Workspace,
+    WorkspaceRole,
 };
-use fvoci_store::{Making, PublicContainers, SessionTaken, Tenant};
+use std::time::Instant;
 
+use fvoci_store::{Making, PublicContainers, SessionTaken, Tenant, WorkspaceAccess};
+
+use super::api_tokens::SSO_TOKEN_MAX_DAYS;
 use super::{App, Asker, as_managed, sso};
+use crate::auth::api_token::{self, Delegation};
+use crate::auth::now_millis;
 use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
+
+/// What an agent reaches of a workspace by a token: the kinds of container named here,
+/// never a diary, which is its owner's alone. A kind that comes later is reached once
+/// it is named.
+pub(crate) const AGENT_KINDS: ContainerKinds = ContainerKinds::BOARDS
+    .union(ContainerKinds::WIKIS)
+    .union(ContainerKinds::COURSES);
 
 /// A workspace as a member of it enters it: the application behind the wall between
 /// organizations, and what the user is in the workspace and in its organization.
@@ -130,11 +143,23 @@ impl App {
 
     /// As [`Self::enter_workspace`], for who is known by their user and the provider
     /// their session was made through: a request by its session, a websocket
-    /// connection by what it kept of the session its handshake came with.
+    /// connection by what it kept of the session its handshake came with, an agent by
+    /// a personal API token ([`Asker::delegation`]).
+    ///
+    /// A token is let in only where its owner works (a member, no guest) and that it
+    /// names: a workspace of an organization it was given, or the owner's own space if
+    /// it was given that. It is asked as the session that made it would be; and of an
+    /// organization that takes only sessions made through its provider, whether that
+    /// organization gives its workspaces to tokens. What it is let into reaches no
+    /// diary ([`App::capped_to`]), and its requests there are counted with those of the
+    /// organization's other tokens.
     ///
     /// # Errors
     ///
-    /// As [`Self::enter_workspace`].
+    /// As [`Self::enter_workspace`]; for a token, 403 with the reason
+    /// `api_tokens_disallowed` where its organization gives its workspaces to none, and
+    /// 429 with the reason `token_rate_limited` where the organization's tokens sent as
+    /// many requests as they may this minute.
     pub async fn enter_workspace_as(
         &self,
         asker: Asker<'_>,
@@ -147,16 +172,100 @@ impl App {
         else {
             return Ok(None);
         };
+        if let Some(delegation) = asker.delegation
+            && !self
+                .delegation_reaches(delegation, workspace_id, &access)
+                .await?
+        {
+            return Ok(None);
+        }
         sso::require_session_opens(asker, &access.org_id, &access.takes)?;
-        let app = self
+        let mut app = self
             .in_organization(&access.org_id)?
             .with_org_kind(access.kind);
+        if let Some(delegation) = asker.delegation {
+            self.authenticator()
+                .token_limits()
+                .admit_organization(&access.org_id, Instant::now())?;
+            app = app.capped_to(AGENT_KINDS).writing_for(delegation);
+        }
         Ok(Some(Entered {
             app,
             role: access.workspace_role,
             org_role: access.org_role,
             kind: access.kind,
         }))
+    }
+
+    /// Whether a token reaches a workspace its owner is a member of, as `access` was
+    /// read: one its owner works in (no guest), and that it names, asked of the
+    /// workspace's organization; or the owner's own space, if it was given that.
+    ///
+    /// # Errors
+    ///
+    /// Returns 403 with the reason `api_tokens_disallowed` for a workspace it names of
+    /// an organization that takes only sessions made through its provider and gives
+    /// its workspaces to no token; 401 with the reason `token_expired_for_organization`
+    /// in such an organization for a token made more than `SSO_TOKEN_MAX_DAYS` before;
+    /// and the store's error.
+    async fn delegation_reaches(
+        &self,
+        delegation: &Delegation,
+        workspace_id: &str,
+        access: &WorkspaceAccess,
+    ) -> Result<bool, AppError> {
+        if !access.works_there() {
+            return Ok(false);
+        }
+        if access.kind == OrgKind::Personal {
+            return Ok(delegation.allow_personal_space);
+        }
+        let reach = self
+            .in_organization(&access.org_id)?
+            .store()
+            .api_token_reach(&delegation.token_id, workspace_id)
+            .await?;
+        let Some(reach) = reach else {
+            return Ok(false);
+        };
+        if matches!(access.takes, SessionTaken::Through(_)) {
+            if !reach.allow_api_tokens {
+                return Err(api_token::disallowed_by_organization());
+            }
+            // The token was made to last longer before the organization took only such
+            // sessions, or reached none of its workspaces then.
+            if delegation.ends_within(SSO_TOKEN_MAX_DAYS) <= now_millis() {
+                return Err(api_token::past_its_days_there());
+            }
+        }
+        Ok(true)
+    }
+
+    /// Refuses to give a token a workspace of `access`'s organization where it takes
+    /// only sessions made through its provider and gives its workspaces to no token
+    /// (`allowApiTokens`); an organization that takes any session gives them whatever.
+    /// Returns whether it takes only such sessions.
+    ///
+    /// # Errors
+    ///
+    /// Returns 403 with the reason `api_tokens_disallowed`, and the store's error.
+    pub(crate) async fn require_tokens_given(
+        &self,
+        access: &WorkspaceAccess,
+    ) -> Result<bool, AppError> {
+        if !matches!(access.takes, SessionTaken::Through(_)) {
+            return Ok(false);
+        }
+        let organization = self
+            .in_organization(&access.org_id)?
+            .store()
+            .organization()
+            .await?;
+        if organization.allow_api_tokens {
+            Ok(true)
+        } else {
+            Err(api_token::disallowed_by_organization())
+        }
     }
 
     /// [`Self::enter_workspace_as`], mapping session-gated refusals (`sso_required` and
@@ -473,5 +582,23 @@ impl App {
             tracing::warn!(%error, user_id = %session.user_id, "the own space was not shut to the session that set its password; its connections are closed");
             self.ws().close_session_unread(&session.id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fvoci_model::ContainerKinds;
+
+    use super::AGENT_KINDS;
+
+    /// An agent reaches every kind but the diary: a kind that comes later is named
+    /// for it, or left out, by a change of this test too.
+    #[test]
+    fn an_agent_reaches_every_kind_of_container_but_a_diary() {
+        assert!(AGENT_KINDS.intersection(ContainerKinds::DIARIES).is_empty());
+        assert_eq!(
+            AGENT_KINDS.union(ContainerKinds::DIARIES),
+            ContainerKinds::EVERY
+        );
     }
 }

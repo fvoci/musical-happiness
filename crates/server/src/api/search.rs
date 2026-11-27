@@ -9,6 +9,7 @@ use utoipa_axum::routes;
 use super::contract::params::{SearchField, SearchTerm, WorkspaceId};
 use super::contract::tag;
 use super::query::QueryParams;
+use super::{Delegated, Read};
 
 use super::workspace::InWorkspace;
 use super::{ApiResult, json_response};
@@ -44,7 +45,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     responses((status = 200, description = "The boards that match.", body = Vec<Container>)),
 )]
 async fn handle_search_boards(
-    ws: InWorkspace,
+    Delegated(ws, ..): Delegated<Read, InWorkspace>,
     QueryParams(query): QueryParams<BoardSearchQuery>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
@@ -59,7 +60,7 @@ async fn handle_search_boards(
     };
     let workspace_id = &ws.workspace_id;
 
-    let mut boards = search_boards(&ws.app, &ws.session.user_id, &term, search_field).await?;
+    let mut boards = search_boards(&ws.app, &ws.caller.user_id, &term, search_field).await?;
     boards.retain(|board| board.workspace_id == *workspace_id);
     tracing::debug!(workspace_id, boards_count = boards.len(), "SearchBoards");
     Ok(json_response(&boards))

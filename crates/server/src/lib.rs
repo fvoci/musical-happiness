@@ -776,9 +776,11 @@ async fn handle_websocket(
 ///
 /// # Errors
 ///
-/// Returns a 403 for a handshake from another origin, a 401 for one without an
-/// `Origin` header that has no valid token in its `Authorization` header, and for any
-/// handshake whose `Authorization` header carries a token that is no session's.
+/// Returns a 403 for a handshake from another origin, and for one that carries a
+/// personal API token (reason `token_forbidden_endpoint`), which follows nothing; a
+/// 401 for one without an `Origin` header that has no valid token in its
+/// `Authorization` header, and for any handshake whose `Authorization` header carries a
+/// token that is no session's.
 async fn websocket_identity(
     app: &App,
     headers: &HeaderMap,
@@ -789,7 +791,16 @@ async fn websocket_identity(
         return Err(api::foreign_origin());
     }
     let from_a_browser = headers.contains_key(ORIGIN);
-    match auth.session_cookie().credential(headers) {
+    let credential = auth.session_cookie().credential(headers);
+    if credential
+        .as_ref()
+        .is_some_and(|credential| auth::api_token::is_api_token(credential.token()))
+    {
+        // A 403, as every route a token does not open answers it: the token may be
+        // good, and the agent is told it is the route, not the token.
+        return Err(auth::api_token::refused_as_session());
+    }
+    match credential {
         // Sent on purpose: it is a session's, or the handshake is refused.
         Some(Credential::Bearer(token)) => {
             let session = auth.find_session(&token).await?;

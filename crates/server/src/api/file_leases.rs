@@ -44,7 +44,7 @@ async fn handle_get_file_lease(
     InContainer(ws): InContainer,
     Path((_, container_id, file_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_file_reader(&ws.app, user_id, &container_id).await?;
     let lease = ws
         .app
@@ -79,7 +79,7 @@ async fn handle_hold_file_lease(
     Path((_, container_id, file_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_file_editor(&ws.app, user_id, &container_id).await?;
     let request: FileLeaseRequest = decode_object(&body)?;
     let held = ws
@@ -106,7 +106,7 @@ async fn handle_release_file_lease(
     InContainer(ws): InContainer,
     Path((_, container_id, file_id, lease_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.session.user_id.as_str();
+    let user_id = ws.caller.user_id.as_str();
     require_file_editor(&ws.app, user_id, &container_id).await?;
     ws.app
         .release_file_lease(&container_id, &file_id, user_id, &lease_id)

@@ -115,6 +115,11 @@ pub struct NotificationSubject {
     /// The comment the latest of it happened in, where that is still there; empty
     /// where it happened in the card or the page itself, or the comment went.
     pub comment_id: String,
+    /// The name of the personal API token through which an agent of `actorId` did the
+    /// latest of it; left out where `actorId` did it themselves. A token that tells its
+    /// owner (`notifySelf`) names them as `actorId` of their own notifications.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_token_name: Option<String>,
 }
 
 /// One thing a person was told.
