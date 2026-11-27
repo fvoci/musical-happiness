@@ -490,8 +490,10 @@ fn words(line: &str) -> impl Iterator<Item = &str> {
         .filter(|word| !word.is_empty())
 }
 
-/// The indexes that PostgreSQL's baseline has and SQLite's does not: they serve the
-/// keys that hold the organization of a row, which SQLite, of one organization, has not.
+/// The indexes that PostgreSQL's baseline has and SQLite's does not: a key of the
+/// members of a workspace with their organization, and the places of the loose objects
+/// by themselves, which SQLite's key of that table is and PostgreSQL's, with the
+/// organization first, is not.
 const POSTGRES_ONLY_INDEXES: [&str; 2] = ["loose_objects_path_idx", "workspace_members_scope_key"];
 
 /// What a baseline makes: each table with the names of its columns, and the names of
@@ -538,8 +540,8 @@ fn shape_of(schema: &str) -> Shape {
 
 /// The two baseline files make the same tables and indexes. Each table of PostgreSQL's
 /// has the columns of SQLite's, and the organization of its rows (`org_id`) where
-/// SQLite, of one organization, has none; PostgreSQL has two indexes more, for the keys
-/// that hold that organization. The column types that only PostgreSQL has are `TEXT`
+/// SQLite, of one organization, has none; PostgreSQL has the two indexes more of
+/// [`POSTGRES_ONLY_INDEXES`]. The column types that only PostgreSQL has are `TEXT`
 /// on SQLite. A table, column or index that one file has and the other lacks fails here.
 #[test]
 fn the_two_baselines_make_the_same_tables_columns_and_indexes() {
