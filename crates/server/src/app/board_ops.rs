@@ -15,11 +15,15 @@ use fvoci_model::{
 use serde_json::{Value, json};
 
 use super::blocks::{ChangeAction, hide_inactive_numbers, log_notification};
+use super::board_parts::{
+    ATTACH_DENIED, CREATE_VIEW_DENIED, DUPLICATE_VIEW_DENIED, MOVE_VIEW_DENIED,
+};
 use super::container_copies::titles_in;
 use super::language::Language;
-use super::{App, ChangeNotification};
+use super::{App, ChangeNotification, Reached};
 use crate::collab::Deletion;
-use crate::error::AppError;
+use crate::error::{AppError, OrMissing};
+use crate::permissions::ContainerPermission;
 
 impl App {
     /// Atomically duplicates `card_id` on `board_id`, pre-copying referenced storage
@@ -222,7 +226,7 @@ impl App {
     }
 
     /// Changes the property values of the cards of `batch` on `board_id` alike, all or
-    /// none in one transaction, each as [`App::patch_card`] changes one: the values and
+    /// none in one transaction, each as `App::patch_card` changes one: the values and
     /// what the board allows of them are checked alike, and whom a card is newly given
     /// to is told as `notification` says. Returns the cards as they are now, in the
     /// order of `batch`; listeners and webhooks are told in the background.
@@ -274,11 +278,11 @@ impl App {
         if !card_ids.iter().all(|card_id| is_id(card_id)) {
             return Err(not_found());
         }
-        let mut blocks = match self.store().get_blocks_by_ids(card_ids).await {
-            Ok(blocks) => blocks,
-            Err(error) if error.is_not_found() => return Err(not_found()),
-            Err(error) => return Err(error.into()),
-        };
+        let mut blocks = self
+            .store()
+            .get_blocks_by_ids(card_ids)
+            .await
+            .or_missing("card")?;
         hide_inactive_numbers(&mut blocks);
         let mut by_id: HashMap<String, Block> = blocks
             .into_iter()
@@ -333,66 +337,72 @@ impl App {
         Ok(RestoredCards { cards })
     }
 
-    /// Creates a fractional-indexed board view on `board_id`.
+    /// Creates a fractional-indexed view on the board `on` reached, for who may change
+    /// its properties.
     ///
     /// # Errors
     ///
-    /// Returns 404 if `board_id` does not exist and 400 if `new` is invalid.
+    /// Returns [`CREATE_VIEW_DENIED`] as [`Reached::require`] does, and 400 if `new` is
+    /// invalid.
     pub async fn create_board_view(
         &self,
-        board_id: &str,
+        on: &Reached,
         new: &NewBoardView,
-        user_id: &str,
     ) -> Result<BoardViewWrite, AppError> {
-        let container = self.container(board_id).await?;
+        let container = on.require(ContainerPermission::ManageProperties, CREATE_VIEW_DENIED)?;
+        let (board_id, user_id) = (on.container_id(), on.user_id());
         let write = {
             let _structure = self.collab().changing_structure(self, board_id).await;
             self.store()
                 .create_board_view(board_id, new, user_id)
                 .await?
         };
-        self.broadcast_view_write(container.workspace_id, &write);
+        self.broadcast_view_write(container.workspace_id.clone(), &write);
         Ok(write)
     }
 
-    /// Moves `view_id` on `board_id` using server-side fractional indexing.
+    /// Moves `view_id` on the board `on` reached using server-side fractional indexing,
+    /// for who may change its properties.
     ///
     /// # Errors
     ///
-    /// Returns 404 if `board_id` or `view_id` does not exist and 400 if `mv.after` is
-    /// invalid.
+    /// Returns [`MOVE_VIEW_DENIED`] as [`Reached::require`] does, 404 if `view_id` does
+    /// not exist and 400 if `mv.after` is invalid.
     pub async fn move_board_view(
         &self,
-        board_id: &str,
+        on: &Reached,
         view_id: &str,
         mv: &BoardViewMove,
-        user_id: &str,
     ) -> Result<BoardViewWrite, AppError> {
-        let container = self.container(board_id).await?;
+        let container = on.require(ContainerPermission::ManageProperties, MOVE_VIEW_DENIED)?;
+        let (board_id, user_id) = (on.container_id(), on.user_id());
         let write = {
             let _structure = self.collab().changing_structure(self, board_id).await;
             self.store()
                 .move_board_view(board_id, view_id, mv, user_id)
                 .await?
         };
-        self.broadcast_view_write(container.workspace_id, &write);
+        self.broadcast_view_write(container.workspace_id.clone(), &write);
         Ok(write)
     }
 
-    /// Duplicates `view_id` on `board_id` using server-side fractional indexing.
+    /// Duplicates `view_id` on the board `on` reached using server-side fractional
+    /// indexing, for who may change its properties.
     ///
     /// # Errors
     ///
-    /// Returns 404 if `board_id` or `view_id` does not exist and 400 if `dup` is invalid.
+    /// Returns [`DUPLICATE_VIEW_DENIED`] as [`Reached::require`] does, 404 if `view_id`
+    /// does not exist and 400 if `dup` is invalid.
     pub async fn duplicate_board_view(
         &self,
-        board_id: &str,
+        on: &Reached,
         view_id: &str,
         dup: &BoardViewDuplicate,
-        user_id: &str,
         accept_language: Option<&str>,
     ) -> Result<BoardViewWrite, AppError> {
-        let container = self.container(board_id).await?;
+        let denial = DUPLICATE_VIEW_DENIED;
+        let container = on.require(ContainerPermission::ManageProperties, denial)?;
+        let (board_id, user_id) = (on.container_id(), on.user_id());
         let language = self.language_for(user_id, accept_language).await?;
         let titles = titles_in(language, ContainerKind::Board);
         let write = {
@@ -401,26 +411,27 @@ impl App {
                 .duplicate_board_view(board_id, view_id, dup, titles.copy_of, user_id)
                 .await?
         };
-        self.broadcast_view_write(container.workspace_id, &write);
+        self.broadcast_view_write(container.workspace_id.clone(), &write);
         Ok(write)
     }
 
-    /// Creates a verified attachment block on `card_id` of `board_id` after locking and
-    /// verifying that `request.file_id` belongs to `board_id`.
+    /// Creates a verified attachment block on `card_id` of the board `on` reached, for
+    /// its editors, after locking and verifying that `request.file_id` belongs to the
+    /// board.
     ///
     /// # Errors
     ///
-    /// Returns 404 if `board_id` or `card_id` is absent and 400 if `request.file_id` does
-    /// not belong to `board_id`.
+    /// Returns [`ATTACH_DENIED`] as [`Reached::require`] does, 404 if `card_id` is absent
+    /// and 400 if `request.file_id` does not belong to the board.
     pub async fn create_card_attachment(
         &self,
-        board_id: &str,
+        on: &Reached,
         card_id: &str,
         request: &NewCardAttachment,
-        user_id: &str,
         notification: ChangeNotification,
     ) -> Result<Block, AppError> {
-        let container = self.container(board_id).await?;
+        let container = on.require(ContainerPermission::ManageCards, ATTACH_DENIED)?;
+        let (board_id, user_id) = (on.container_id(), on.user_id());
         let attachment = {
             let _structure = self.collab().changing_structure(self, board_id).await;
             self.store_telling(notification)
@@ -429,7 +440,7 @@ impl App {
         };
         log_notification(notification, ChangeAction::Add, &attachment.id);
         let app = self.clone();
-        let ws_id = container.workspace_id;
+        let ws_id = container.workspace_id.clone();
         let changed = attachment.clone();
         self.spawn_background(async move {
             app.ws().broadcast_block_change(&ws_id, &changed).await;

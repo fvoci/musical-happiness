@@ -5,7 +5,7 @@ use fvoci_store::{BlockFilter, ByAgent, DeletedBlock};
 
 use super::App;
 use crate::collab::{Deletion, OverEditors};
-use crate::error::AppError;
+use crate::error::{AppError, OrMissing};
 
 /// Whether the people a change to a block newly names (those its body mentions, those
 /// a card is given to) are told of it. A client that writes again what was said before
@@ -112,14 +112,9 @@ impl App {
             .store()
             .get_block_within(block_id, self.workspace.as_deref(), self.kinds)
             .await;
-        match found {
-            Ok(mut block) => {
-                block.hide_inactive_number();
-                Ok(block)
-            }
-            Err(error) if error.is_not_found() => Err(AppError::not_found("block")),
-            Err(error) => Err(error.into()),
-        }
+        let mut block = found.or_missing("block")?;
+        block.hide_inactive_number();
+        Ok(block)
     }
 
     /// Returns the block of the board of this type, as [`App::block`] reaches it: a
@@ -135,13 +130,11 @@ impl App {
         block_id: &str,
         block_type: BlockType,
     ) -> Result<Block, AppError> {
-        match self.block(block_id).await {
-            Ok(block) if block.container_id == board_id && block.block_type == block_type => {
-                Ok(block)
-            }
-            Ok(_) => Err(AppError::not_found(block_type.as_str())),
-            Err(error) if error.is_not_found() => Err(AppError::not_found(block_type.as_str())),
-            Err(error) => Err(error),
+        let block = self.block(block_id).await.or_missing(block_type.as_str())?;
+        if block.container_id == board_id && block.block_type == block_type {
+            Ok(block)
+        } else {
+            Err(AppError::not_found(block_type.as_str()))
         }
     }
 
@@ -549,14 +542,11 @@ impl App {
     ///
     /// Returns the store's error if the trash cannot be read.
     pub async fn deleted_block(&self, block_id: &str) -> Result<Option<DeletedBlock>, AppError> {
-        match self.store().get_deleted_block(block_id).await {
-            Ok(mut deleted) => {
-                deleted.block.hide_inactive_number();
-                Ok(Some(deleted))
-            }
-            Err(error) if error.is_not_found() => Ok(None),
-            Err(error) => Err(error.into()),
+        let mut deleted = self.store().get_deleted_block(block_id).await.found()?;
+        if let Some(deleted) = &mut deleted {
+            deleted.block.hide_inactive_number();
         }
+        Ok(deleted)
     }
 
     /// Returns the blocks of the deletion a block of the trash went with, which restoring
@@ -567,14 +557,14 @@ impl App {
     ///
     /// Returns the store's error if the trash cannot be read.
     pub async fn deletion(&self, block_id: &str) -> Result<Vec<Block>, AppError> {
-        match self.store().get_deletion(block_id).await {
-            Ok(mut blocks) => {
-                hide_inactive_numbers(&mut blocks);
-                Ok(blocks)
-            }
-            Err(error) if error.is_not_found() => Ok(Vec::new()),
-            Err(error) => Err(error.into()),
-        }
+        let mut blocks = self
+            .store()
+            .get_deletion(block_id)
+            .await
+            .found()?
+            .unwrap_or_default();
+        hide_inactive_numbers(&mut blocks);
+        Ok(blocks)
     }
 
     /// Returns who deleted a block of the trash: the user whose deletion put it there,
@@ -584,11 +574,8 @@ impl App {
     ///
     /// Returns the store's error if the trash cannot be read.
     pub async fn deleted_by(&self, block_id: &str) -> Result<String, AppError> {
-        match self.store().get_deleted_block(block_id).await {
-            Ok(deleted) => Ok(deleted.deleted_by),
-            Err(error) if error.is_not_found() => Ok(String::new()),
-            Err(error) => Err(error.into()),
-        }
+        let deleted = self.store().get_deleted_block(block_id).await.found()?;
+        Ok(deleted.map_or_default(|deleted| deleted.deleted_by))
     }
 
     /// Returns the blocks below a block, at any depth: what deleting it takes along.
@@ -637,11 +624,7 @@ impl App {
                 .undelete_block_family(block_id, modified_by)
                 .await
         };
-        let mut restored = match restored {
-            Ok(blocks) => blocks,
-            Err(error) if error.is_not_found() => return Err(AppError::not_found("block")),
-            Err(error) => return Err(error.into()),
-        };
+        let mut restored = restored.or_missing("block")?;
         hide_inactive_numbers(&mut restored);
         let block = restored
             .iter()
