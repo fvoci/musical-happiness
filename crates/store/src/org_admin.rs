@@ -13,7 +13,7 @@ use fvoci_model::{
 };
 
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Dialect, Id, LockRank, OptId, OrganizationHeld, Row, Scope};
+use crate::db::{Id, LockRank, OptId, OrganizationHeld, Row, RowLock, Scope};
 use crate::error::{StoreError, Taken};
 use crate::trash::{self, Purged, Trashed};
 use crate::{Paging, Store, directory, joinings, person_names, users, workspaces};
@@ -447,15 +447,12 @@ impl Store {
             // alone: an organization no longer in use still has its trash emptied.
             let held_org = hold_organization_row(scope).await?;
             // Held against a restoration under way, which then finds nothing to restore.
-            scope.record_lock(LockRank::Workspace, workspace_id);
             let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
             sql.bind(Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NOT NULL")
                 .push_bind(" AND deleted_at < ", deleted_before);
-            if scope.dialect() == Dialect::Postgres {
-                sql.push(" FOR UPDATE");
-            }
+            sql.push(&scope.row_lock(LockRank::Workspace, workspace_id, RowLock::Update));
             if !scope.exists(sql).await? {
                 return Ok(Purged::default());
             }
@@ -662,14 +659,11 @@ pub(crate) async fn hold_organization_row<'c>(
     scope: &mut Scope<'c>,
 ) -> Result<OrganizationHeld<'c>, StoreError> {
     let org_key = scope.org_id().unwrap_or_default();
-    scope.record_lock(LockRank::Organization, &org_key);
     let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
     sql.bind(scope.org()?);
     // Not FOR UPDATE: what refers to the organization (a member, a workspace, a record)
     // is still added meanwhile; only another holder of this lock waits.
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR NO KEY UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Organization, &org_key, RowLock::NoKeyUpdate));
     scope.fetch_optional(sql).await?;
     Ok(OrganizationHeld::new())
 }

@@ -23,7 +23,7 @@ use fvoci_model::{ContainerMember, ContainerRole, WorkspaceMember, WorkspaceRole
 use crate::Store;
 use crate::audit::{self, AuditEntry};
 use crate::containers::{delete_member, find_member, lock_container, save_member};
-use crate::db::{Dialect, FromRow, Id, LockRank, Row, Scope};
+use crate::db::{FromRow, Id, LockRank, Row, RowLock, Scope};
 use crate::error::StoreError;
 use crate::trash::{self, TrashedRoles};
 use crate::{members, org_admin, person_names};
@@ -370,14 +370,11 @@ pub(crate) async fn hold_workspace(
     scope: &mut Scope<'_>,
     workspace_id: &str,
 ) -> Result<bool, StoreError> {
-    scope.record_lock(LockRank::Workspace, workspace_id);
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
         .push(" AND deleted_at IS NULL");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR NO KEY UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Workspace, workspace_id, RowLock::NoKeyUpdate));
     scope.exists(sql).await
 }
 
@@ -438,16 +435,14 @@ pub(crate) async fn held_role(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<Option<WorkspaceRole>, StoreError> {
-    scope.record_lock(
-        LockRank::WorkspaceMembers,
-        &format!("{workspace_id}:{user_id}"),
-    );
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push(&scope.row_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+        RowLock::Update,
+    ));
     match scope.fetch_optional(sql).await? {
         Some(row) => role_from(&row.text(0)?).map(Some),
         None => Ok(None),

@@ -7,7 +7,7 @@
 use fvoci_model::{AuditAction, InstanceRole, Invitation, WorkspaceRole};
 
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Dialect, Id, Scope};
+use crate::db::{Id, LockRank, RowLock, Scope};
 use crate::error::StoreError;
 use crate::invitations::{
     COLUMNS_OF_I, count_uses, hold_live_link, inviter_still, let_in, push_invites, take_use,
@@ -211,10 +211,8 @@ async fn hold_link(
     }
     let mut sql = scope.sql("SELECT i.id FROM invitations AS i WHERE i.id = ");
     sql.bind(Id(invitation_id))
-        .push_bind(" AND i.org_id = ", scope.org()?);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE OF i");
-    }
+        .push_bind(" AND i.org_id = ", scope.org()?)
+        .push(&scope.row_lock(LockRank::Invitation, invitation_id, RowLock::Update.of("i")));
     Ok(scope.fetch_optional(sql).await?.map(|_| link))
 }
 

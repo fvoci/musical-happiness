@@ -1,6 +1,6 @@
 //! Single-use password reset credentials, stored only as digests, outside any organization.
 
-use crate::db::{Dialect, Id, Scope};
+use crate::db::{Id, LockRank, RowLock, Scope};
 use crate::{Store, StoreError};
 use crate::{email_change, sessions, users};
 
@@ -66,10 +66,9 @@ impl Store {
                 return Ok(None);
             };
             let mut hold = scope.sql("SELECT id FROM users WHERE ");
-            hold.push(RESETTABLE).push_bind(" AND id = ", Id(&user_id));
-            if scope.dialect() == Dialect::Postgres {
-                hold.push(" FOR UPDATE");
-            }
+            hold.push(RESETTABLE)
+                .push_bind(" AND id = ", Id(&user_id))
+                .push(&scope.row_lock(LockRank::Users, &user_id, RowLock::Update));
             if !scope.exists(hold).await? {
                 return Ok(None);
             }
@@ -144,8 +143,6 @@ pub(crate) async fn insert_password_reset(
     if let Some(email) = email {
         sql.push_bind(" AND lower(email) = lower(", email).push(")");
     }
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
     Ok(scope.execute(sql).await? == 1)
 }

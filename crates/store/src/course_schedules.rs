@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use crate::Store;
 use crate::containers::{fetch_containers, lock_container_of_kind, select_containers_of_user};
-use crate::db::{Dialect, FromRow, Id, LockRank, OptId, Param, Row, Scope};
+use crate::db::{Dialect, FromRow, Id, LockRank, OptId, Param, Row, RowLock, Scope};
 use crate::error::StoreError;
 use crate::unit_progress::require_live_unit;
 use fvoci_model::PublicContainers;
@@ -360,7 +360,6 @@ async fn lock_live_course_for_learner(
     course_id: &str,
     org: Param,
 ) -> Result<String, StoreError> {
-    scope.record_lock(LockRank::Container, course_id);
     let mut sql = scope.sql(
         "SELECT c.workspace_id \
          FROM containers AS c \
@@ -374,9 +373,7 @@ async fn lock_live_course_for_learner(
         .push(" AND w.deleted_at IS NULL")
         .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("c", "w")]));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE OF c");
-    }
+    sql.push(&scope.row_lock(LockRank::Container, course_id, RowLock::KeyShare.of("c")));
     scope.one(sql, "course").await
 }
 
@@ -389,29 +386,24 @@ async fn lock_active_learner(
     user_id: &str,
     org: Param,
 ) -> Result<(), StoreError> {
-    scope.record_lock(
-        LockRank::WorkspaceMembers,
-        &format!("{workspace_id}:{user_id}"),
-    );
     let mut member = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
     member
         .bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        member.push(" FOR SHARE");
-    }
+    member.push(&scope.row_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+        RowLock::Share,
+    ));
     if !scope.exists(member).await? {
         return Err(StoreError::not_found("course"));
     }
 
-    scope.record_lock(LockRank::Users, user_id);
     let mut user = scope.sql("SELECT 1 FROM users WHERE id = ");
     user.bind(Id(user_id))
         .push(" AND deleted_at IS NULL")
         .push_bind(" AND erased_at = ", 0_i64);
-    if scope.dialect() == Dialect::Postgres {
-        user.push(" FOR KEY SHARE");
-    }
+    user.push(&scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
     if !scope.exists(user).await? {
         return Err(StoreError::not_found("course"));
     }
@@ -706,7 +698,6 @@ async fn fetch_course_nodes_locked(
     scope: &mut Scope<'_>,
     course_id: &str,
 ) -> Result<Vec<UnitNode>, StoreError> {
-    scope.record_lock(LockRank::Block, course_id);
     let mut sql = scope.sql(
         "SELECT id, parent_id, type, title, fields, created_at, updated_at FROM blocks \
          WHERE container_id = ",
@@ -715,9 +706,7 @@ async fn fetch_course_nodes_locked(
         .push(" AND type IN (")
         .bind_list([BlockType::Unit.as_str(), BlockType::Chapter.as_str()])
         .push(") ORDER BY id");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE");
-    }
+    sql.push(&scope.row_lock(LockRank::Block, course_id, RowLock::KeyShare));
     let rows = scope.fetch_all(sql).await?;
     rows.iter()
         .map(|row| Ok(NodeRow::from_row(row)?.node))

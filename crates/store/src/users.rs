@@ -14,7 +14,7 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::audit::AuditActor;
-use crate::db::{Dialect, FromRow, Id, InstanceHeld, LockRank, Param, Row, Scope, Sql};
+use crate::db::{FromRow, Id, InstanceHeld, LockRank, Param, Row, RowLock, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::password_reset;
 use crate::person_names;
@@ -746,12 +746,9 @@ pub(crate) async fn lock_password(
 ///
 /// Returns [`StoreError::UserNotFound`] if there is no such user.
 pub(crate) async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
-    scope.record_lock(LockRank::Users, user_id);
     let mut sql = scope.sql("SELECT id FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR NO KEY UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::NoKeyUpdate));
     match scope.fetch_optional(sql).await? {
         Some(_) => Ok(()),
         None => Err(StoreError::UserNotFound(user_id.to_owned())),
@@ -765,12 +762,11 @@ pub(crate) async fn hold_user_for_cleanup(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    scope.record_lock(LockRank::Users, user_id);
-    if scope.dialect() == Dialect::Postgres {
-        let mut sql = scope.sql("SELECT id FROM users WHERE id = ");
-        sql.bind(Id(user_id)).push(" FOR NO KEY UPDATE");
-        scope.fetch_optional(sql).await?;
-    }
+    let mut sql = scope.sql("SELECT id FROM users WHERE id = ");
+    sql.bind(Id(user_id));
+    scope
+        .hold(LockRank::Users, user_id, sql, RowLock::NoKeyUpdate)
+        .await?;
     Ok(())
 }
 
@@ -778,12 +774,9 @@ pub(crate) async fn hold_user_for_cleanup(
 /// ends, and says whether it is in use: an asking to delete it waits for this, or
 /// this finds it asked.
 pub(crate) async fn hold_in_use(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
-    scope.record_lock(LockRank::Users, user_id);
     let mut sql = scope.sql("SELECT id FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE");
-    }
+    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Share));
     scope.exists(sql).await
 }
 
@@ -804,11 +797,8 @@ pub(crate) async fn has_password(scope: &mut Scope<'_>, user_id: &str) -> Result
 pub(crate) async fn lock_instance<'c>(
     scope: &mut Scope<'c>,
 ) -> Result<InstanceHeld<'c>, StoreError> {
-    scope.record_lock(LockRank::Instance, "1");
     let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Instance, "1", RowLock::Update));
     scope.fetch_optional(sql).await?;
     Ok(InstanceHeld::new())
 }

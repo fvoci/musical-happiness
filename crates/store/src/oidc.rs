@@ -16,7 +16,7 @@ use fvoci_model::{
 use crate::Store;
 use crate::accounts::{self, Which};
 use crate::audit::{self, AuditActor, AuditEntry};
-use crate::db::{Dialect, FromRow, Id, LockRank, OrganizationHeld, Row, Scope};
+use crate::db::{FromRow, Id, LockRank, OrganizationHeld, Row, RowLock, Scope};
 use crate::error::StoreError;
 use crate::oidc_former::{self, Keeping};
 use crate::sessions::{self, ProviderPut, SessionsEnded};
@@ -364,7 +364,6 @@ impl Store {
         self.transaction(async |scope| {
             // Before the account it lets in, as a token made through it and a trial of
             // its pending settings hold it ([`LockRank::Provider`]).
-            scope.record_lock(LockRank::Provider, provider_id);
             let mut sql = scope.sql(
                 "SELECT auto_join, issuer, org_id, revision FROM oidc_providers WHERE org_id = ",
             );
@@ -372,9 +371,7 @@ impl Store {
                 .push_bind(" AND id = ", Id(provider_id))
                 .push_bind(" AND enabled = ", true)
                 .push_bind(" AND revision = ", revision);
-            if scope.dialect() == Dialect::Postgres {
-                sql.push(" FOR SHARE");
-            }
+            sql.push(&scope.row_lock(LockRank::Provider, provider_id, RowLock::Share));
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(Err(OidcRefusal::ProviderGone));
             };
@@ -422,12 +419,11 @@ pub(crate) async fn hold_provider_of_organization<'c>(
     scope: &mut Scope<'c>,
 ) -> Result<OrganizationHeld<'c>, StoreError> {
     let org_key = scope.org_id().unwrap_or_default();
-    scope.record_lock(LockRank::Organization, &org_key);
-    if scope.dialect() == Dialect::Postgres {
-        let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
-        sql.bind(scope.org()?).push(" FOR NO KEY UPDATE");
-        scope.fetch_optional(sql).await?;
-    }
+    let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
+    sql.bind(scope.org()?);
+    scope
+        .hold(LockRank::Organization, &org_key, sql, RowLock::NoKeyUpdate)
+        .await?;
     Ok(OrganizationHeld::new())
 }
 
@@ -441,12 +437,11 @@ pub(crate) async fn hold_provider_row(
     scope: &mut Scope<'_>,
     provider_id: &str,
 ) -> Result<(), StoreError> {
-    scope.record_lock(LockRank::Provider, provider_id);
-    if scope.dialect() == Dialect::Postgres {
-        let mut sql = scope.sql("SELECT 1 FROM oidc_providers WHERE id = ");
-        sql.bind(Id(provider_id)).push(" FOR UPDATE");
-        scope.fetch_optional(sql).await?;
-    }
+    let mut sql = scope.sql("SELECT 1 FROM oidc_providers WHERE id = ");
+    sql.bind(Id(provider_id));
+    scope
+        .hold(LockRank::Provider, provider_id, sql, RowLock::Update)
+        .await?;
     Ok(())
 }
 

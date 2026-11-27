@@ -34,7 +34,7 @@ use fvoci_model::{AuditAction, ContainerMember, ContainerRole, OrgRole, Workspac
 use crate::account_deletion::{self, DeletionStanding, Held};
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::containers::{delete_member, find_member, save_member};
-use crate::db::{DeletedContainersHeld, Dialect, Id, LockRank, OrganizationHeld, Param, Scope};
+use crate::db::{DeletedContainersHeld, Id, LockRank, OrganizationHeld, Param, RowLock, Scope};
 use crate::error::StoreError;
 use crate::sessions::{self, EndedSessionScope, SessionsEnded};
 use crate::trash::{self, Purged, TrashedRoles};
@@ -363,13 +363,10 @@ impl Store {
                 let turn = link_locks::take_turn(scope).await?;
                 let addresses = addresses_of(scope, user_id).await?;
                 hold_organizations_of_links_to(scope, turn, &addresses).await?;
-                scope.record_lock(LockRank::Users, user_id);
                 let mut sql =
                     scope.sql("SELECT erase_started_at, erased_at FROM users WHERE id = ");
                 sql.bind(Id(user_id));
-                if scope.dialect() == Dialect::Postgres {
-                    sql.push(" FOR UPDATE");
-                }
+                sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(ErasureEnd::NotBegun);
                 };
@@ -486,16 +483,19 @@ async fn mark(
 /// comes after waits for this transaction, and finds the provider gone and the link
 /// revoked. SQLite's writers wait for each other already.
 async fn wait_for_who_comes_in(scope: &mut Scope<'_>, org_id: &str) -> Result<(), StoreError> {
-    if scope.dialect() != Dialect::Postgres {
-        return Ok(());
-    }
-    for select in [
-        "SELECT id FROM oidc_providers WHERE org_id = ",
-        "SELECT id FROM invitations WHERE org_id = ",
+    for (rank, select) in [
+        (
+            LockRank::Provider,
+            "SELECT id FROM oidc_providers WHERE org_id = ",
+        ),
+        (
+            LockRank::Invitation,
+            "SELECT id FROM invitations WHERE org_id = ",
+        ),
     ] {
         let mut sql = scope.sql(select);
-        sql.bind(Id(org_id)).push(" ORDER BY id FOR UPDATE");
-        scope.fetch_all(sql).await?;
+        sql.bind(Id(org_id)).push(" ORDER BY id");
+        scope.hold(rank, org_id, sql, RowLock::Update).await?;
     }
     Ok(())
 }
@@ -611,13 +611,10 @@ async fn leave_workspace(
     user_id: &str,
     actor: &AuditActor,
 ) -> Result<Option<LeftWorkspace>, StoreError> {
-    scope.record_lock(LockRank::Workspace, workspace_id);
     let mut sql = scope.sql("SELECT deleted_at FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR NO KEY UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Workspace, workspace_id, RowLock::NoKeyUpdate));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(None);
     };
@@ -818,11 +815,13 @@ async fn remove_organization<'c>(
     let mut sql = scope.sql("UPDATE organizations SET default_workspace_id = NULL WHERE id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
+    // Under the organization's row, which is held: each of them is a pass of its own
+    // after this.
+    let org_id = scope.org_id().unwrap_or_default();
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE org_id = ");
-    sql.bind(scope.org()?).push(" ORDER BY id");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.bind(scope.org()?)
+        .push(" ORDER BY id")
+        .push(&scope.row_lock(LockRank::Organization, &org_id, RowLock::Update));
     let workspaces: Vec<String> = scope.all(sql).await?;
     let mut removed = Purged::default();
     for workspace_id in &workspaces {

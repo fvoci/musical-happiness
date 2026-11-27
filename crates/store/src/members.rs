@@ -8,7 +8,7 @@ use fvoci_model::{
 };
 
 use crate::audit::AuditActor;
-use crate::db::{Dialect, Id, LockRank, Scope, Sql};
+use crate::db::{Id, LockRank, RowLock, Scope, Sql};
 use crate::error::StoreError;
 use crate::{Store, container_kinds, org_admin};
 
@@ -218,16 +218,14 @@ pub(crate) async fn hold_creator(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    scope.record_lock(
-        LockRank::WorkspaceMembers,
-        &format!("{workspace_id}:{user_id}"),
-    );
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE");
-    }
+    sql.push(&scope.row_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+        RowLock::Share,
+    ));
     match scope.fetch_optional(sql).await? {
         Some(row) if row.text(0)? != WorkspaceRole::Guest.as_str() => Ok(()),
         _ => Err(StoreError::not_found("workspace")),
@@ -255,9 +253,10 @@ async fn has_acting_admin(
         sql.push_bind(" AND bm.user_id <> ", Id(user_id));
     }
     sql.push(" LIMIT 1");
-    scope.record_lock(LockRank::WorkspaceMembers, container_id);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE OF wm");
-    }
+    sql.push(&scope.row_lock(
+        LockRank::WorkspaceMembers,
+        container_id,
+        RowLock::Share.of("wm"),
+    ));
     scope.exists(sql).await
 }

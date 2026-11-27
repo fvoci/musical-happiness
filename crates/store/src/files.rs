@@ -7,7 +7,7 @@
 use fvoci_model::FileRecord;
 
 use crate::Store;
-use crate::db::{Dialect, FromRow, Id, OptId, Row, Scope, SqlFragment};
+use crate::db::{Dialect, FromRow, Id, LockRank, OptId, Row, RowLock, Scope, SqlFragment};
 use crate::error::StoreError;
 
 pub(crate) const FILE_COLUMNS: &str =
@@ -311,10 +311,9 @@ pub(crate) async fn files_of_container(
     container_id: &str,
 ) -> Result<Vec<FileRecord>, StoreError> {
     let mut sql = scope.sql(["SELECT ", FILE_COLUMNS, " FROM files WHERE container_id = "]);
-    sql.bind(Id(container_id)).push(" ORDER BY created_at, id");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.bind(Id(container_id))
+        .push(" ORDER BY created_at, id")
+        .push(&scope.row_lock(LockRank::Container, container_id, RowLock::Update));
     scope.all(sql).await
 }
 

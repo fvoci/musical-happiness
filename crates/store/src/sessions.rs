@@ -10,7 +10,7 @@ use fvoci_model::{LoginOrigin, Session};
 
 use crate::Store;
 use crate::api_tokens;
-use crate::db::{Dialect, FromRow, Id, LockRank, OptId, Param, Row, Scope, Sql};
+use crate::db::{FromRow, Id, LockRank, OptId, Param, Row, RowLock, Scope, Sql};
 use crate::error::StoreError;
 use crate::oidc::{Identity, StoredProvider};
 
@@ -496,7 +496,6 @@ async fn hold_account_proved_by(
     seen_password_hash: &str,
     proof: Proof,
 ) -> Result<Option<SignedInto>, StoreError> {
-    scope.record_lock(LockRank::Users, user_id);
     let mut sql = scope.sql([
         "SELECT password_hash, deleted_at, password_locked_at FROM users \
          WHERE (deleted_at IS NULL OR (",
@@ -504,9 +503,7 @@ async fn hold_account_proved_by(
         ")) AND id = ",
     ]);
     sql.bind(Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE");
-    }
+    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Share));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(None);
     };

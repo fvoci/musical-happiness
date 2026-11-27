@@ -11,7 +11,7 @@ use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::db::{Dialect, FromRow, Id, LockRank, Row, Scope};
+use crate::db::{FromRow, Id, LockRank, Row, RowLock, Scope};
 use crate::error::StoreError;
 use crate::oidc::{
     self, Identity, Newcomers, OidcAccount, OidcRefusal, StoredProvider,
@@ -511,10 +511,7 @@ async fn is_made_just_now(
         .push_bind(" AND s.login_org_id = ", Id(&provider.org_id))
         .push_bind(" AND s.login_revision = ", provider.revision)
         .push_bind(" AND s.created_at >= ", binding.made_since);
-    scope.record_lock(LockRank::Users, trier_id);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE OF u");
-    }
+    sql.push(&scope.row_lock(LockRank::Users, trier_id, RowLock::Share.of("u")));
     scope.exists(sql).await
 }
 
@@ -525,10 +522,12 @@ async fn read_pending(scope: &mut Scope<'_>) -> Result<Option<PendingProvider>, 
         PENDING_COLUMNS,
         " FROM oidc_pending_providers WHERE org_id = ",
     ]);
-    sql.bind(scope.org()?);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    let org_key = scope.org_id().unwrap_or_default();
+    sql.bind(scope.org()?).push(&scope.row_lock(
+        LockRank::PendingProvider,
+        &org_key,
+        RowLock::Update,
+    ));
     scope.first(sql).await
 }
 

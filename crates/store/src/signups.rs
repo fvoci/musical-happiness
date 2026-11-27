@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use fvoci_model::{PersonName, User};
 
 use crate::accounts::{self, Founding, FoundingPolicy};
-use crate::db::{Dialect, FromRow, Id, OptId, Param, Row, Scope, Sql};
+use crate::db::{Dialect, FromRow, Id, OptId, Param, Row, RowLock, Scope, Sql};
 use crate::directory::{self, OpenedWall};
 use crate::error::{StoreError, Taken};
 use crate::link_locks::{self, Turn};
@@ -852,7 +852,9 @@ async fn hold_link_of(
         let mut sql = scope.sql("SELECT id FROM invitations WHERE id = ");
         sql.bind(Id(id))
             .push_bind(" AND org_id = ", Id(org_id))
-            .push(" FOR UPDATE");
+            // After the account a sign-in signs in, or under the turn after its
+            // organization taken again: at no rank (`Scope::unranked_row_lock`).
+            .push(&scope.unranked_row_lock(RowLock::Update));
         scope.fetch_optional(sql).await?;
         close_wall(scope, wall).await?;
     }

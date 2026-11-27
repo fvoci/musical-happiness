@@ -19,7 +19,7 @@ use crate::Store;
 use crate::block_derived::Refreshing;
 use crate::body_versions;
 use crate::comment_versions;
-use crate::db::{Dialect, FromRow, Id, Scope, Sql, SqlFragment};
+use crate::db::{Dialect, FromRow, Id, LockRank, RowLock, Scope, Sql, SqlFragment};
 use crate::error::StoreError;
 use crate::files::{FILE_COLUMN_COUNT, FILE_COLUMNS};
 use crate::loose_objects;
@@ -48,10 +48,7 @@ impl Store {
             // an older snapshot while a new reference committed: ask the references
             // again here, in the transaction that would doom the object.
             let org = loose_objects::org_column(scope);
-            let skip_held = match scope.dialect() {
-                Dialect::Postgres => " FOR UPDATE SKIP LOCKED",
-                Dialect::Sqlite => "",
-            };
+            let skip_held = scope.skipping_held(RowLock::Update);
             let same_org = scope.same_organization(&[("r", "files")]);
             let mut sql = scope.sql(
                 "DELETE FROM files WHERE id IN (SELECT id FROM files \
@@ -63,7 +60,9 @@ impl Store {
                        WHERE r.container_id = files.container_id AND r.name = files.name",
                 )
                 .push(&same_org)
-                .push([")", skip_held, ") RETURNING ", FILE_COLUMNS]);
+                .push(")")
+                .push(&skip_held)
+                .push([") RETURNING ", FILE_COLUMNS]);
             if let Some(column) = org {
                 sql.push([", ", column]);
             }
@@ -173,10 +172,8 @@ async fn hold_new_body_files(
     sql.bind(Id(&block.container_id))
         .push(" AND name IN (")
         .bind_list(new.iter().copied())
-        .push(")");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE");
-    }
+        .push(")")
+        .push(&scope.row_lock(LockRank::Container, &block.container_id, RowLock::KeyShare));
     let recorded = scope
         .fetch_all(sql)
         .await?
@@ -231,10 +228,8 @@ pub(crate) async fn show_body_files(
     sql.bind(Id(&container_id))
         .push(" AND name IN (")
         .bind_list(new.iter().map(String::as_str))
-        .push(")");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE");
-    }
+        .push(")")
+        .push(&scope.row_lock(LockRank::Container, &container_id, RowLock::KeyShare));
     let recorded = scope
         .fetch_all(sql)
         .await?
@@ -342,9 +337,15 @@ async fn hold_marks(
         sql.push(changing);
     }
     narrow_marks(&mut sql, only);
-    sql.push(" ORDER BY id FOR NO KEY UPDATE");
-    if only.is_none() {
-        sql.push(" SKIP LOCKED");
-    }
+    sql.push(" ORDER BY id");
+    // The marks of a board's files are held under the board, live or in its trash, and
+    // at no rank: a copy and a board that comes back from the trash take them on either
+    // side of a membership (`Scope::unranked_row_lock`). A sweep of every board's
+    // records waits for no writer: what one holds is marked by the next sweep.
+    let lock = match only {
+        Some(_) => scope.unranked_row_lock(RowLock::NoKeyUpdate),
+        None => scope.skipping_held(RowLock::NoKeyUpdate),
+    };
+    sql.push(&lock);
     scope.all(sql).await
 }

@@ -20,7 +20,7 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::db::{Dialect, FromRow, Id, LockRank, OptId, Row, Scope};
+use crate::db::{Dialect, FromRow, Id, LockRank, OptId, Row, RowLock, Scope};
 use crate::error::StoreError;
 use crate::oidc::{Identity, StoredProvider};
 
@@ -464,10 +464,8 @@ impl Store {
                     .sql("SELECT t.user_id, t.token_prefix FROM api_tokens AS t WHERE t.id = ");
                 sql.bind(Id(token_id))
                     .push(" AND t.revoked_at IS NULL")
-                    .push_bind(" AND t.expires_at > ", now);
-                if scope.dialect() == Dialect::Postgres {
-                    sql.push(" FOR UPDATE");
-                }
+                    .push_bind(" AND t.expires_at > ", now)
+                    .push(&scope.row_lock(LockRank::ApiToken, token_id, RowLock::Update));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(false);
                 };
@@ -511,12 +509,9 @@ async fn admitted(
     };
     // Who changes the account (its password, its erasure) waits for this, and so does
     // another token of it, which counts this one then.
-    scope.record_lock(LockRank::Users, token.user_id);
     let mut sql = scope.sql("SELECT id FROM users WHERE id = ");
     sql.bind(Id(token.user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Users, token.user_id, RowLock::Update));
     if !scope.exists(sql).await? {
         return Ok(Err(Issuance::SessionEnded));
     }
@@ -525,10 +520,8 @@ async fn admitted(
     let mut sql = scope.sql("SELECT id FROM sessions WHERE id = ");
     sql.bind(Id(token.session_id))
         .push_bind(" AND user_id = ", Id(token.user_id))
-        .push_bind(" AND expires_at > ", token.created_at);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE");
-    }
+        .push_bind(" AND expires_at > ", token.created_at)
+        .push(&scope.row_lock(LockRank::Session, token.session_id, RowLock::Share));
     if !scope.exists(sql).await? {
         return Ok(Err(Issuance::SessionEnded));
     }
@@ -583,14 +576,11 @@ async fn provider_of_session(
         subject: row.opt_text(3)?,
         provider_id,
     };
-    scope.record_lock(LockRank::Provider, &origin.provider_id);
     let mut sql = scope.sql("SELECT 1 FROM oidc_providers WHERE id = ");
     sql.bind(Id(&origin.provider_id))
         .push_bind(" AND enabled = ", true)
         .push_bind(" AND revision = ", revision);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE");
-    }
+    sql.push(&scope.row_lock(LockRank::Provider, &origin.provider_id, RowLock::Share));
     if !scope.exists(sql).await? {
         return Ok(Err(Issuance::ProviderChanged));
     }

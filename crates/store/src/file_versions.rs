@@ -23,7 +23,7 @@ use std::sync::atomic::Ordering;
 
 use crate::Store;
 use crate::containers;
-use crate::db::{Dialect, Id, OptId, Row, Scope, SqlFragment};
+use crate::db::{Id, LockRank, OptId, Row, RowLock, Scope, SqlFragment};
 use crate::error::StoreError;
 use crate::files::check_new_path;
 use crate::loose_objects::{self, LooseState};
@@ -347,10 +347,11 @@ async fn hold(
     }
     let names: Vec<&str> = std::iter::once(stored_name).chain(upload).collect();
     let mut sql = Head::select(scope, container_id, &names);
-    sql.push(" ORDER BY id");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push(" ORDER BY id").push(&scope.row_lock(
+        LockRank::Container,
+        container_id,
+        RowLock::Update,
+    ));
     let (mut file, mut source) = (None, None);
     for row in scope.fetch_all(sql).await? {
         let (name, head) = Head::from_row(&row, scope)?;

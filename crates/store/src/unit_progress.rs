@@ -14,7 +14,7 @@ use fvoci_model::{
 use crate::Store;
 use crate::containers::inherited_members_source;
 use crate::course_cleanup::{self, PersonalCourseTable};
-use crate::db::{Dialect, FromRow, Id, LockRank, Param, Row, Scope};
+use crate::db::{Dialect, FromRow, Id, LockRank, Param, Row, RowLock, Scope};
 use crate::error::StoreError;
 
 impl Store {
@@ -147,7 +147,6 @@ pub(crate) async fn require_live_unit(
     user_id: &str,
     org: Param,
 ) -> Result<(), StoreError> {
-    scope.record_lock(LockRank::Block, unit_id);
     let mut sql = scope.sql(
         "SELECT c.workspace_id \
          FROM blocks AS b \
@@ -164,34 +163,27 @@ pub(crate) async fn require_live_unit(
         .push(" AND w.deleted_at IS NULL")
         .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("b", "c"), ("c", "w")]));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE OF b");
-    }
+    sql.push(&scope.row_lock(LockRank::Block, unit_id, RowLock::KeyShare.of("b")));
     let workspace_id: String = scope.one(sql, "unit").await?;
 
-    scope.record_lock(
-        LockRank::WorkspaceMembers,
-        &format!("{workspace_id}:{user_id}"),
-    );
     let mut member = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
     member
         .bind(Id(&workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        member.push(" FOR SHARE");
-    }
+    member.push(&scope.row_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+        RowLock::Share,
+    ));
     if !scope.exists(member).await? {
         return Err(StoreError::not_found("unit"));
     }
 
-    scope.record_lock(LockRank::Users, user_id);
     let mut user = scope.sql("SELECT 1 FROM users WHERE id = ");
     user.bind(Id(user_id))
         .push(" AND deleted_at IS NULL")
         .push_bind(" AND erased_at = ", 0_i64);
-    if scope.dialect() == Dialect::Postgres {
-        user.push(" FOR KEY SHARE");
-    }
+    user.push(&scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
     if !scope.exists(user).await? {
         return Err(StoreError::not_found("unit"));
     }

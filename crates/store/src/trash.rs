@@ -38,7 +38,8 @@ use crate::card_hierarchy;
 use crate::category_containers::{self, ContainerPlace};
 use crate::containers;
 use crate::db::{
-    DeletedContainersHeld, Dialect, Id, LockRank, OptId, Param, Row, Scope, Sql, SqlFragment,
+    DeletedContainersHeld, Dialect, Id, LockRank, OptId, Param, Row, RowLock, Scope, Sql,
+    SqlFragment,
 };
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
@@ -593,13 +594,16 @@ pub(crate) async fn hold_deleted_containers<'c>(
     scope: &mut Scope<'c>,
     workspace_id: &str,
 ) -> Result<DeletedContainersHeld<'c>, StoreError> {
-    scope.record_lock(LockRank::DeletedContainers, workspace_id);
-    if scope.dialect() != Dialect::Postgres {
-        return Ok(DeletedContainersHeld::new());
-    }
     let mut sql = scope.sql("SELECT id FROM deleted_containers WHERE workspace_id = ");
-    sql.bind(Id(workspace_id)).push(" ORDER BY id FOR UPDATE");
-    scope.fetch_all(sql).await?;
+    sql.bind(Id(workspace_id)).push(" ORDER BY id");
+    scope
+        .hold(
+            LockRank::DeletedContainers,
+            workspace_id,
+            sql,
+            RowLock::Update,
+        )
+        .await?;
     Ok(DeletedContainersHeld::new())
 }
 
@@ -857,16 +861,13 @@ pub(crate) async fn undelete_container(
     container_id: &str,
     user_id: &str,
 ) -> Result<Container, StoreError> {
-    scope.record_lock(LockRank::DeletedContainers, container_id);
     let mut sql = scope.sql(
         "SELECT container, members, files, deletion_id, places FROM deleted_containers WHERE id = ",
     );
     sql.bind(Id(container_id));
     // Of two requests that restore the board at once, the second waits here and then
     // finds the trash without it.
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::DeletedContainers, container_id, RowLock::Update));
     let row = scope
         .fetch_optional(sql)
         .await?

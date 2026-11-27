@@ -2,7 +2,7 @@
 //! confirmed, its link stored only as a digest, outside any organization, or one made
 //! at once where the server sends no mail.
 
-use crate::db::{Dialect, Id, Scope};
+use crate::db::{Id, LockRank, RowLock, Scope};
 use crate::signups::{self, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS};
 use crate::{Store, StoreError, Taken, email_revert, password_reset};
 
@@ -311,9 +311,7 @@ async fn hold_account(
         sql.push_bind(" AND password_hash = ", password_hash)
             .push_bind(" AND password_locked_at = ", 0_i64);
     }
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
     scope
         .fetch_optional(sql)
         .await?

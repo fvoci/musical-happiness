@@ -21,7 +21,7 @@ use serde_json::Value;
 use crate::block_derived::{self, Refreshing};
 use crate::blocks::{self, Paging};
 use crate::body_versions::BodyWrite;
-use crate::db::{Dialect, Id, Param, Scope, Sql};
+use crate::db::{Dialect, Id, Param, RowLock, Scope, Sql};
 use crate::notification_noting::Telling;
 use crate::trash::{
     self, block_from_json, block_not_in_trash, from_json, take_blocks_out_of_trash,
@@ -640,17 +640,18 @@ async fn check_space(
     workspace_id: &str,
     coming: u32,
 ) -> Result<(), StoreError> {
-    scope.record_lock(crate::db::LockRank::Workspace, workspace_id);
     let mut sql = scope.sql(
         "SELECT o.kind FROM workspaces AS w JOIN organizations AS o ON o.id = w.org_id \
          WHERE w.id = ",
     );
     sql.bind(Id(workspace_id));
-    if scope.dialect() == Dialect::Postgres {
-        // One diary is put down in a workspace at a time: the count below is of what
-        // is there when this one is.
-        sql.push(" FOR NO KEY UPDATE OF w");
-    }
+    // One diary is put down in a workspace at a time: the count below is of what
+    // is there when this one is.
+    sql.push(&scope.row_lock(
+        crate::db::LockRank::Workspace,
+        workspace_id,
+        RowLock::NoKeyUpdate.of("w"),
+    ));
     let of_own_space = match scope.fetch_optional(sql).await? {
         Some(row) => directory::org_kind(&row, 0)? == OrgKind::Personal,
         None => false,

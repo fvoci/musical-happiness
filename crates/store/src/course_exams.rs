@@ -25,7 +25,7 @@ use crate::course_cleanup::{self, PersonalCourseTable};
 use crate::course_meetings::{
     push_active_course_members_subquery, require_active_course_member, require_live_course,
 };
-use crate::db::{Dialect, FromRow, Id, Param, Row, Scope};
+use crate::db::{FromRow, Id, LockRank, Param, Row, RowLock, Scope};
 use crate::error::StoreError;
 
 /// Minimum active enrolled course members with a recorded score required to publish an
@@ -681,9 +681,7 @@ async fn require_live_exam(
         .push(" AND w.deleted_at IS NULL")
         .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("e", "c"), ("c", "w")]));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE OF e");
-    }
+    sql.push(&scope.row_lock(LockRank::CourseItem, exam_id, RowLock::KeyShare.of("e")));
     scope.one(sql, "exam").await
 }
 
@@ -695,20 +693,20 @@ async fn require_active_workspace_user(
     let mut member = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
     member
         .bind(Id(workspace_id))
-        .push_bind(" AND user_id = ", Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        member.push(" FOR SHARE");
-    }
+        .push_bind(" AND user_id = ", Id(user_id))
+        .push(&scope.row_lock(
+            LockRank::WorkspaceMembers,
+            &format!("{workspace_id}:{user_id}"),
+            RowLock::Share,
+        ));
     if !scope.exists(member).await? {
         return Err(StoreError::not_found("exam"));
     }
     let mut user = scope.sql("SELECT 1 FROM users WHERE id = ");
     user.bind(Id(user_id))
         .push(" AND deleted_at IS NULL")
-        .push_bind(" AND erased_at = ", 0_i64);
-    if scope.dialect() == Dialect::Postgres {
-        user.push(" FOR KEY SHARE");
-    }
+        .push_bind(" AND erased_at = ", 0_i64)
+        .push(&scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
     if !scope.exists(user).await? {
         return Err(StoreError::not_found("exam"));
     }
@@ -728,10 +726,8 @@ async fn fetch_exam_for_update(
     );
     sql.bind(Id(exam_id))
         .push_bind(" AND org_id = ", org.clone())
-        .push_bind(" AND container_id = ", Id(course_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+        .push_bind(" AND container_id = ", Id(course_id))
+        .push(&scope.row_lock(LockRank::CourseItem, exam_id, RowLock::Update));
     scope.one(sql, "exam").await
 }
 

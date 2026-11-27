@@ -3,7 +3,7 @@
 //! the password have moved it. Stored as a digest only, outside any organization. While
 //! it stands its address is the account's to have again, and nobody else takes it.
 
-use crate::db::{Dialect, Id, Scope};
+use crate::db::{Id, LockRank, RowLock, Scope};
 use crate::email_change::{self, EMAIL_CHANGE_LIFETIME_MILLIS};
 use crate::{Store, StoreError, oidc_identities, password_reset, sessions, signups, users};
 
@@ -164,9 +164,7 @@ async fn hold_account(
         ")) AND id = ",
     ]);
     sql.bind(Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
     scope.first(sql).await
 }
 

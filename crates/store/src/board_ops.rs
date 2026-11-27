@@ -15,7 +15,7 @@ use serde_json::Value;
 use crate::blocks::{self, BLOCK_COLUMNS, OLDEST_FIRST, fetch_blocks, insert_blocks, patch_block};
 use crate::body_versions::{self, BodyWrite};
 use crate::comment_versions::EDITED_AT_COLUMN;
-use crate::db::{Dialect, FromRow, Id, Scope};
+use crate::db::{Dialect, FromRow, Id, LockRank, RowLock, Scope};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
 use crate::files::{self, FILE_COLUMNS};
@@ -972,9 +972,7 @@ async fn lock_board_file(
     } else {
         sql.push_bind(" AND name = ", file_id);
     }
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE");
-    }
+    sql.push(&scope.row_lock(LockRank::Container, board_id, RowLock::KeyShare));
     let Some(row) = scope.fetch_optional(sql).await? else {
         let mut refused = Refusals::new();
         refused.refuse(

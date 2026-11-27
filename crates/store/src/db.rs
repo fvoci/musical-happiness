@@ -21,7 +21,7 @@ use crate::clock::Clock;
 use crate::error::StoreError;
 
 mod locks;
-pub(crate) use locks::{DeletedContainersHeld, InstanceHeld, LockRank, OrganizationHeld};
+pub(crate) use locks::{DeletedContainersHeld, InstanceHeld, LockRank, OrganizationHeld, RowLock};
 
 /// The SQL dialect of the connected database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

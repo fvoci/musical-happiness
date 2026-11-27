@@ -19,7 +19,7 @@ use fvoci_model::{
 use crate::accounts::{self, Which};
 use crate::audit::{self, AuditEntry};
 use crate::containers::{find_member, save_member};
-use crate::db::{Dialect, FromRow, Id, OptId, Param, Row, Scope, Sql};
+use crate::db::{FromRow, Id, LockRank, OptId, Param, Row, RowLock, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::link_locks::{self, Turn};
 use crate::trash::{self, TrashedRoles};
@@ -430,9 +430,7 @@ pub(crate) async fn hold_live_link(
     // it is live still, and its workspace still invites guests if it is for one.
     let mut sql = select_live_by_token(scope, token_hash, now, browser)?;
     push_invites(&mut sql);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE OF i");
-    }
+    sql.push(&scope.row_lock(LockRank::Invitation, &link.id, RowLock::Update.of("i")));
     let Some(link) = scope.first::<Invitation>(sql).await? else {
         return Ok(Err(Acceptance::Unavailable));
     };
@@ -576,10 +574,12 @@ pub(crate) async fn inviter_still(
     trash::hold_deleted_containers(scope, &link.workspace_id).await?;
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(&link.workspace_id))
-        .push_bind(" AND user_id = ", Id(&link.created_by));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE");
-    }
+        .push_bind(" AND user_id = ", Id(&link.created_by))
+        .push(&scope.row_lock(
+            LockRank::WorkspaceMembers,
+            &format!("{}:{}", link.workspace_id, link.created_by),
+            RowLock::Share,
+        ));
     let role =
         match scope.fetch_optional(sql).await? {
             Some(row) => Some(row.text(0)?.parse::<WorkspaceRole>().map_err(|error| {

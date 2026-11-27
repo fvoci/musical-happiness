@@ -34,7 +34,7 @@
 use fvoci_model::Invitation;
 
 use crate::NewLink;
-use crate::db::{Dialect, Id, LockRank, OrganizationHeld, Scope};
+use crate::db::{Dialect, Id, LockRank, OrganizationHeld, RowLock, Scope};
 use crate::error::StoreError;
 use crate::{containers, org_admin};
 
@@ -79,12 +79,11 @@ pub(crate) async fn hold_organization<'c>(
     scope: &mut Scope<'c>,
     org_id: &str,
 ) -> Result<OrganizationHeld<'c>, StoreError> {
-    scope.record_lock(LockRank::Organization, org_id);
-    if scope.dialect() == Dialect::Postgres {
-        let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
-        sql.bind(Id(org_id)).push(" FOR NO KEY UPDATE");
-        scope.fetch_optional(sql).await?;
-    }
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
+    sql.bind(Id(org_id));
+    scope
+        .hold(LockRank::Organization, org_id, sql, RowLock::NoKeyUpdate)
+        .await?;
     Ok(OrganizationHeld::new())
 }
 
@@ -108,33 +107,24 @@ pub(crate) async fn hold_for_new_link(
     scope: &mut Scope<'_>,
     link: &NewLink<'_>,
 ) -> Result<(), StoreError> {
-    let postgres = scope.dialect() == Dialect::Postgres;
-    if link.guest_of.is_some() {
-        scope.record_lock(LockRank::Workspace, link.workspace_id);
-    }
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(link.workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
         .push(" AND deleted_at IS NULL");
     if link.guest_of.is_some() {
-        sql.push_bind(" AND guest_invitations = ", true);
-        if postgres {
-            sql.push(" FOR SHARE");
-        }
+        sql.push_bind(" AND guest_invitations = ", true)
+            .push(&scope.row_lock(LockRank::Workspace, link.workspace_id, RowLock::Share));
     }
     if !scope.exists(sql).await? {
         return Err(StoreError::not_found("workspace"));
     }
     if let Some((container_id, _)) = link.guest_of {
-        scope.record_lock(LockRank::Container, container_id);
         let mut sql = scope.sql("SELECT id FROM containers WHERE id = ");
         sql.bind(Id(container_id))
             .push_bind(" AND workspace_id = ", Id(link.workspace_id))
             .push_bind(" AND is_template = ", false);
         // What the new link's reference takes anyway: only a deletion waits for it.
-        if postgres {
-            sql.push(" FOR KEY SHARE");
-        }
+        sql.push(&scope.row_lock(LockRank::Container, container_id, RowLock::KeyShare));
         if !scope.exists(sql).await? {
             return Err(StoreError::not_found("board"));
         }
@@ -150,10 +140,8 @@ pub(crate) async fn hold_for_new_link(
             None => sql.push(" AND container_id IS NULL"),
         };
         sql.push_bind(" AND revoked_at = ", 0_i64)
-            .push_bind(" AND expires_at > ", link.now);
-        if postgres {
-            sql.push(" FOR SHARE");
-        }
+            .push_bind(" AND expires_at > ", link.now)
+            .push(&scope.row_lock(LockRank::Invitation, mailed.parent_id, RowLock::Share));
         if !scope.exists(sql).await? {
             return Err(StoreError::not_found("invitation"));
         }
@@ -182,13 +170,10 @@ pub(crate) async fn hold_for_letting_in(
     if let Some(container_id) = &link.container_id {
         return containers::lock_container(scope, container_id).await;
     }
-    scope.record_lock(LockRank::Workspace, &link.workspace_id);
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(&link.workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
         .push(" AND deleted_at IS NULL");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE");
-    }
+    sql.push(&scope.row_lock(LockRank::Workspace, &link.workspace_id, RowLock::KeyShare));
     scope.exists(sql).await
 }

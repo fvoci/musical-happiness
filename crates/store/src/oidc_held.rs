@@ -16,7 +16,7 @@ use fvoci_model::{AuditAction, LoginOrigin, Session};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::db::{Dialect, FromRow, Id, Row, Scope};
+use crate::db::{FromRow, Id, LockRank, Row, RowLock, Scope};
 use crate::error::StoreError;
 use crate::oidc::{self, Identity, hold_provider_of_organization, read_provider};
 use crate::oidc_former::read_former;
@@ -323,10 +323,10 @@ async fn hold_account_of(
     );
     sql.bind(identity.issuer)
         .push_bind(" AND i.subject = ", identity.subject);
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR SHARE OF u");
-    }
-    let Some(user_id) = scope.first::<String>(sql).await? else {
+    let Some(user_id) = scope
+        .first_held::<String>(LockRank::Users, sql, RowLock::Share.of("u"))
+        .await?
+    else {
         return Ok(None);
     };
     // Read again now that the account is held: unlinked meanwhile, it is nobody's.
