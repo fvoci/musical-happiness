@@ -76,7 +76,7 @@ pub(crate) use server_lock::HeldLock;
 pub(crate) use server_lock::take_server_lock;
 use slots::Busy;
 pub use slots::Slot;
-pub use startup::migrate_database;
+pub use startup::{check_database, migrate_database};
 pub(crate) use startup::{open_store, prepare_store};
 pub(crate) use template_stock::start_restock as start_template_restock;
 mod public_links;

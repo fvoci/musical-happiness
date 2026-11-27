@@ -1,4 +1,4 @@
-//! Uploads in parts (`docs/s6-design.md` 5.6): the sessions and the parts received.
+//! Uploads in parts: the sessions and the parts received.
 //!
 //! A session is the user's who opened it: every lookup names the user, and another
 //! user's session is not found, like one that does not exist.

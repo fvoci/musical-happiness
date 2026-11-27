@@ -1,7 +1,18 @@
 //! The record of the migrations that a database holds when the last server before the
 //! baseline brought it up to date: each version with the SHA-384 of its file, for SQLite
 //! and for PostgreSQL. The schema such a database has is the baseline's, so it is opened
-//! as one, without its migrations being run again.
+//! as one, without its migrations being run again: its record is replaced by the
+//! baseline's ([`super::re_anchor`]).
+
+use crate::db::Dialect;
+
+/// The record of a database of `dialect`, oldest first.
+pub(super) fn record(dialect: Dialect) -> &'static [(i64, &'static str)] {
+    match dialect {
+        Dialect::Sqlite => &SQLITE,
+        Dialect::Postgres => &POSTGRES,
+    }
+}
 
 /// The record of a SQLite database, oldest first.
 pub(super) const SQLITE: [(i64, &str); 76] = [

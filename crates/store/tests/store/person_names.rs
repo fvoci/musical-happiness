@@ -4,7 +4,7 @@
 use fvoci_model::{
     Credential, NameShown, PersonName, PersonNameChange, Title, User, WorkspaceRole, new_id,
 };
-use fvoci_store::{Looking, Reach, Sight, Store};
+use fvoci_store::{Looking, Reach, Sight};
 
 use crate::common;
 
@@ -163,109 +163,4 @@ async fn people_are_found_by_every_part_of_their_name() {
     let found = store.search_users_in_sight(sight, "lee").await.unwrap();
     assert!(found.is_empty(), "{found:?}");
     test.teardown().await;
-}
-
-/// Migrations 0045 and 0046: an account is shown by the name it had, which becomes the
-/// name it wrote; one without is shown by its login name still, and by the parts of a
-/// name it gives later, as a new account is.
-#[tokio::test]
-async fn the_migration_keeps_the_name_every_account_is_shown_by() {
-    let database = common::empty_database().await;
-    let connection = common::raw_connection(&database);
-    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 44)
-        .await;
-    let (named, unnamed) = (new_id(), new_id());
-    let insert = |id: &str, username: &str, shown: &str| {
-        format!(
-            "INSERT INTO users (id, username, email, password_hash, {}, {}, \
-             display_name) VALUES ('{id}', '{username}', '{username}@example.com', '', 1, 1, \
-             '{shown}');",
-            common::PRE0075_CREATE_COL,
-            common::PRE0075_UPDATE_COL,
-        )
-    };
-    common::execute_raw(
-        &connection,
-        &[
-            insert(&named, "named", "Hana Kim"),
-            insert(&unnamed, "unnamed", ""),
-        ]
-        .concat(),
-    )
-    .await;
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migrated");
-    let named = store.get_user_by_id(&named).await.unwrap();
-    let unnamed = store.get_user_by_id(&unnamed).await.unwrap();
-    store.close().await;
-    database.remove().await;
-
-    assert_eq!(named.display_name, "Hana Kim");
-    assert_eq!(named.name.custom_name, "Hana Kim");
-    assert_eq!(named.name.name_shown, NameShown::CustomName);
-    assert_eq!(
-        named.name.shown(),
-        "Hana Kim",
-        "the rule makes the same name"
-    );
-    assert_eq!(unnamed.display_name, "");
-    assert_eq!(unnamed.name.shown(), "");
-    assert_eq!(
-        unnamed.name,
-        PersonName::default(),
-        "as a new account, and as an erased one"
-    );
-}
-
-/// Migration 0046 on an account that gave a part of its name while still shown by the
-/// name it wrote, which was none: it keeps its choice, so that the name it is shown by is
-/// still the one the rule makes, as stored.
-#[tokio::test]
-async fn the_nameless_are_shown_by_name_but_not_those_that_gave_a_part() {
-    let database = common::empty_database().await;
-    let connection = common::raw_connection(&database);
-    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 45)
-        .await;
-    let (nameless, part_given) = (new_id(), new_id());
-    let insert = |id: &str, username: &str, first_name: &str| {
-        format!(
-            "INSERT INTO users (id, username, email, password_hash, {}, {}, \
-             display_name, first_name, last_name, name_shown) VALUES ('{id}', '{username}', \
-             '{username}@example.com', '', 1, 1, '', '{first_name}', '김', 'custom_name');",
-            common::PRE0075_CREATE_COL,
-            common::PRE0075_UPDATE_COL,
-        )
-    };
-    common::execute_raw(
-        &connection,
-        &[
-            insert(&nameless, "nameless", "").replace("'김'", "''"),
-            insert(&part_given, "given", "영환"),
-        ]
-        .concat(),
-    )
-    .await;
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migrated");
-    let nameless = store.get_user_by_id(&nameless).await.unwrap();
-    let part_given = store.get_user_by_id(&part_given).await.unwrap();
-    store.close().await;
-    database.remove().await;
-
-    assert_eq!(nameless.name, PersonName::default(), "as a new account");
-    assert_eq!(
-        part_given.name.name_shown,
-        NameShown::CustomName,
-        "its choice kept"
-    );
-    assert_eq!(
-        (
-            part_given.display_name.as_str(),
-            part_given.name.shown().as_str()
-        ),
-        ("", ""),
-        "shown as stored"
-    );
 }

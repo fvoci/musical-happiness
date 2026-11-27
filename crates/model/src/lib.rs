@@ -163,7 +163,7 @@ pub use course_schedule::{
 };
 pub use date_value::{
     DateValueError, add_days, check_date_value, date_property_ids, day_at, days_between,
-    is_calendar_date, move_dates, rewrite_previous_date_values, utc_date,
+    is_calendar_date, move_dates, utc_date,
 };
 pub use deleted_item::DeletedItem;
 pub use diary::{

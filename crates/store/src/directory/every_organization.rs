@@ -164,8 +164,8 @@ pub(super) async fn organizations_of_user(
 
 /// Appends the condition that `kind`, the column of an organization's kind, says one
 /// that people work in together. Written into the statement and not bound: the index
-/// of those organizations by age (0051) holds no account's own space, and a database
-/// reads it only for a statement that says the kind itself. For the reads that look
+/// of those organizations by age (`organizations_of_people_idx`) holds no account's own
+/// space, and a database reads it only for a statement that says the kind itself. For the reads that look
 /// for the oldest of them among however many spaces the accounts have.
 pub(crate) fn of_people(sql: &mut Sql, kind: &'static str) {
     sql.push(" AND ")

@@ -183,43 +183,6 @@ async fn a_welcome_board_taken_back_takes_its_record_along() {
     test.teardown().await;
 }
 
-/// Migration 0048: the accounts that were there are past their welcome, and one made
-/// after is not.
-#[tokio::test]
-async fn the_migration_records_the_accounts_that_were_there_as_welcomed() {
-    let database = common::empty_database().await;
-    let connection = common::raw_connection(&database);
-    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 47)
-        .await;
-    let before = new_id();
-    common::execute_raw(
-        &connection,
-        &format!(
-            "INSERT INTO users (id, username, email, password_hash, {}, {}) \
-             VALUES ('{before}', 'before', 'before@example.com', '', 1, 1);",
-            common::PRE0075_CREATE_COL,
-            common::PRE0075_UPDATE_COL,
-        ),
-    )
-    .await;
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migrated");
-    let after = common::user(&store, "after").await;
-    let welcomed = (
-        recorded(&store, &before).await,
-        recorded(&store, &after).await,
-    );
-    store.close().await;
-    database.remove().await;
-
-    assert_eq!(
-        welcomed,
-        (vec!["1".to_owned()], Vec::new()),
-        "as of when it was made"
-    );
-}
-
 /// Concurrent `change_instance_role` (when the instance's organization follows) and
 /// `take_back_welcome_board` acquire `organizations` before `users`, preventing
 /// PostgreSQL deadlocks.

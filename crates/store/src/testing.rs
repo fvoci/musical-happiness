@@ -406,11 +406,6 @@ async fn role_is_past_the_wall(connection: &mut PgConnection) -> bool {
         .unwrap_or_else(|error| panic!("reading the role of the test connection: {error}"))
 }
 
-/// The version of the newest migration of this build.
-pub fn latest_migration() -> i64 {
-    crate::schema::latest_version()
-}
-
 /// Another writer of an SQLite file, as another process with the file open would be:
 /// it holds the file for writing, with a change not yet committed, until it lets go.
 #[derive(Debug)]
@@ -449,23 +444,6 @@ impl OtherWriter {
     }
 }
 
-/// Brings the schema that `database_connection` connects to up to the migrations up to
-/// `version`, and none of the changes of the data that follow the migrations: a database
-/// as an older server left it.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_up_to(db_type: DbType, database_connection: &str, version: i64) {
-    let store = Store::open(db_type, database_connection)
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(version))
-        .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
-    store.close().await;
-}
-
 /// Removes the record of migration `version` from the schema `database_connection`
 /// connects to, as its owner: the schema then reads as behind this build while its
 /// tables are unchanged, for the tests of a migration asked for while a server serves it.
@@ -496,326 +474,45 @@ pub const GLOBAL_TABLES: [&str; 14] = crate::schema::GLOBAL_TABLES;
 /// behind the wall on PostgreSQL.
 pub const ORG_TABLES: [&str; 51] = crate::schema::ORG_TABLES;
 
-async fn migrate_database(database: &TestDatabase, version: i64) {
-    let store = Store::open(database.db_type(), database.database_connection())
+/// Replaces the record of the migrations of the schema `database_connection` connects
+/// to, as its owner, with the record the last server before the baseline wrote, every
+/// migration of its chain applied: the database as that server left it, whose schema is
+/// the baseline's.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or the record cannot be written.
+pub async fn write_the_record_before_the_baseline(db_type: DbType, database_connection: &str) {
+    let store = Store::open(db_type, database_connection)
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    crate::schema::migrate(&store, Some(version))
+    let record = crate::schema::record_before_the_baseline(store.dialect());
+    store
+        .with_write_conn(async |scope| {
+            scope
+                .execute(scope.sql("DELETE FROM _sqlx_migrations"))
+                .await?;
+            for (version, checksum) in record {
+                let bytes = (0..checksum.len())
+                    .step_by(2)
+                    .map(|at| u8::from_str_radix(&checksum[at..at + 2], 16))
+                    .collect::<Result<Vec<u8>, _>>()
+                    .unwrap_or_else(|error| panic!("the checksum of {version}: {error}"));
+                let mut sql = scope.sql(
+                    "INSERT INTO _sqlx_migrations \
+                     (version, description, success, checksum, execution_time) VALUES (",
+                );
+                sql.bind(*version)
+                    .push(", 'before the baseline', TRUE, ")
+                    .bind(crate::db::Param::Bytes(bytes))
+                    .push(", 0)");
+                scope.execute(sql).await?;
+            }
+            Ok(())
+        })
         .await
-        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+        .unwrap_or_else(|error| panic!("writing the record before the baseline: {error}"));
     store.close().await;
-}
-
-/// Brings a test database to the schema as a server left it that knew nothing of
-/// organizations: every migration before theirs, and none of the changes of the data
-/// that follow the migrations.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_organizations(database: &TestDatabase) {
-    migrate_database(database, crate::schema::ORGANIZATIONS_VERSION - 1).await;
-}
-
-/// Brings a test database to the schema as the server of the organizations left it,
-/// before the keys that name the organization (migration 15): every migration up to
-/// the organizations', and none of the changes of the data that follow the migrations.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_the_organizations(database: &TestDatabase) {
-    migrate_database(database, crate::schema::ORGANIZATIONS_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before the workspaces were
-/// named so (migration 17): every migration before that one, and none of the changes of
-/// the data that follow the migrations.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_workspaces(database: &TestDatabase) {
-    migrate_database(database, crate::schema::WORKSPACES_VERSION - 1).await;
-}
-
-/// Brings a test database to the schema of the migration that named the workspaces so
-/// (migration 17), and none after it.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_the_workspaces(database: &TestDatabase) {
-    migrate_database(database, crate::schema::WORKSPACES_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before the containers were
-/// named so (migration 41): every migration before that one, and none of the changes of
-/// the data that follow the migrations.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_containers(database: &TestDatabase) {
-    migrate_database(database, crate::schema::CONTAINERS_VERSION - 1).await;
-}
-
-/// Brings a test database to the schema of the migration that named the containers so
-/// (migration 41), and none after it.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_the_containers(database: &TestDatabase) {
-    migrate_database(database, crate::schema::CONTAINERS_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before the diaries
-/// (migration 55): every migration before that one.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_diaries(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_DIARIES_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before the courses
-/// (migration 61): every migration before that one.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_courses(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_COURSES_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before unit progress
-/// (migration 63): every migration up to 62.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_unit_progress(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_UNIT_PROGRESS_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before time entries
-/// (migration 64): every migration before that one.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_time_entries(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_TIME_ENTRIES_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before migration 65
-/// (`org_member_removed` in `audit_log`): every migration before that one.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_audit_org_member_removed(database: &TestDatabase) {
-    migrate_database(
-        database,
-        crate::schema::BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION,
-    )
-    .await;
-}
-
-/// Brings a test database to the schema as a server left it before course schedules
-/// (migration 66): every migration up to 65.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_course_schedules(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_COURSE_SCHEDULES_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before unit reviews and notes
-/// (migration 67): every migration up to 66.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_unit_reviews(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_UNIT_REVIEWS_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before course meetings and
-/// exams (migration 68): every migration up to 67.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_course_events(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_COURSE_EVENTS_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before subscriptions
-/// `user_id` cleanup (migration 69): every migration up to 68.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_subscriptions_user_id(database: &TestDatabase) {
-    migrate_database(
-        database,
-        crate::schema::BEFORE_SUBSCRIPTIONS_USER_ID_VERSION,
-    )
-    .await;
-}
-
-/// Brings a test database to the schema as a server left it before container
-/// visibility, `public_links`, and `files` (migration 70): every migration up to 69.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_container_visibility(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_CONTAINER_VISIBILITY_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before native view
-/// `fields` keys (migration 71): every migration up to 70.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_native_view_field_keys(database: &TestDatabase) {
-    migrate_database(
-        database,
-        crate::schema::BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION,
-    )
-    .await;
-}
-
-/// Brings a test database to the schema as a server left it before nullable
-/// `deleted_at` (migration 72): every migration up to 71.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_nullable_deleted_at(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_NULLABLE_DELETED_AT_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before the single `role`
-/// enum on `container_members` (migration 73): every migration up to 72.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_container_member_role_enum(database: &TestDatabase) {
-    migrate_database(
-        database,
-        crate::schema::BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION,
-    )
-    .await;
-}
-
-/// Brings a test database to the schema as a server left it before native property
-/// definitions and lowercase colors (migration 74): every migration up to 73.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_native_property_definitions(database: &TestDatabase) {
-    migrate_database(
-        database,
-        crate::schema::BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION,
-    )
-    .await;
-}
-
-/// Brings a test database to the schema as a server left it before unified `created_at`
-/// and `updated_at` timestamps (migration 75): every migration up to 74.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_unified_timestamps(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_UNIFIED_TIMESTAMPS_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before dedicated
-/// `user_settings` and `user_client_state` tables, `blocks."schema"` removal, and
-/// `organizations.kind` `'shared'` (migration 76): every migration up to 75.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_user_settings_and_block_cleanup(database: &TestDatabase) {
-    migrate_database(
-        database,
-        crate::schema::BEFORE_USER_SETTINGS_AND_BLOCK_CLEANUP_VERSION,
-    )
-    .await;
-}
-
-/// Brings a test database to the schema right before migration `0077`: every migration
-/// up to `0076`.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_server_indexes_and_derived_columns(database: &TestDatabase) {
-    migrate_database(
-        database,
-        crate::schema::BEFORE_SERVER_INDEXES_AND_DERIVED_COLUMNS_VERSION,
-    )
-    .await;
-}
-
-/// Brings a test database to the schema right before migration `0078`: every migration
-/// up to `0077`.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_server_authority(database: &TestDatabase) {
-    migrate_database(database, crate::schema::BEFORE_SERVER_AUTHORITY_VERSION).await;
-}
-
-/// Brings a test database to the schema as a server left it before the organization's
-/// management (migration 23): every migration before that one, and none of the changes
-/// of the data that follow the migrations.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_org_management(database: &TestDatabase) {
-    migrate_database(database, crate::schema::ORG_MANAGEMENT_VERSION - 1).await;
-}
-
-/// Migrates a test database to the last schema before operator audit attribution.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_audit_actors(database: &TestDatabase) {
-    migrate_database(database, 26).await;
-}
-
-/// Migrates a test database to the last schema before sessions kept their origin.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_session_origin(database: &TestDatabase) {
-    migrate_database(database, 27).await;
-}
-
-/// Migrates a test database to the last schema before the registrations whose address
-/// is to be confirmed (0039), which makes `audit_log` again on SQLite.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or migrated.
-pub async fn migrate_to_before_signups(database: &TestDatabase) {
-    migrate_database(database, 35).await;
 }
 
 impl Store {

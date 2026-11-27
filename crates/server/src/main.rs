@@ -37,12 +37,43 @@ struct Cli {
     /// check of a container, whose image has no HTTP client. Nothing is opened or served.
     #[arg(long)]
     check_ready: bool,
+    #[command(flatten)]
+    migration: Migration,
+}
+
+/// The migration of the database's schema, done instead of serving.
+#[derive(Debug, clap::Args)]
+struct Migration {
     /// Bring the database's schema up to date and exit, holding the lock of the server
     /// meanwhile: for the role that owns the tables (the configuration's
     /// `database_connection`), when the server connects as one that does not. Nothing
     /// is served.
     #[arg(long, conflicts_with = "check_ready")]
     migrate: bool,
+    /// With `--migrate`: say what the migration would do and change nothing, failing if
+    /// it would be refused. It takes no lock: it runs while a server serves the database.
+    #[arg(long, requires = "migrate")]
+    check: bool,
+}
+
+/// What `--migrate` asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Migrating {
+    /// The schema brought up to date.
+    Apply,
+    /// What the migration would do, said, and nothing changed (`--check`).
+    Check,
+}
+
+impl Migration {
+    /// What is asked for; `None` without `--migrate`.
+    fn asked(&self) -> Option<Migrating> {
+        match (self.migrate, self.check) {
+            (false, _) => None,
+            (true, false) => Some(Migrating::Apply),
+            (true, true) => Some(Migrating::Check),
+        }
+    }
 }
 
 /// How long the check of readiness waits for the answer: the server answers `ready`
@@ -142,13 +173,16 @@ async fn serve() -> anyhow::Result<()> {
 
     let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
     // A server that starts says it with the other warnings of its configuration.
-    if (cli.migrate || cli.check_ready)
+    let migrating = cli.migration.asked();
+    if (migrating.is_some() || cli.check_ready)
         && let Some(warning) = config.unread_keys_warning()
     {
         tracing::warn!("{warning}");
     }
-    if cli.migrate {
-        return fvoci_server::app::migrate_database(&config).await;
+    match migrating {
+        Some(Migrating::Check) => return fvoci_server::app::check_database(&config).await,
+        Some(Migrating::Apply) => return fvoci_server::app::migrate_database(&config).await,
+        None => {}
     }
     if cli.check_ready {
         return check_ready(&config, checked_base_path(&base_path)?).await;

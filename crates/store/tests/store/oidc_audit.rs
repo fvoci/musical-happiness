@@ -1,7 +1,7 @@
 //! Durable provider changes, operator attribution, and immutable records on both databases.
 use std::time::Duration;
 
-use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL};
+use crate::common::{self};
 use fvoci_model::{AuditAction, AuditRecordActor, new_id};
 use fvoci_store::{AuditPlace, Paging, StoredProvider};
 
@@ -122,52 +122,6 @@ async fn a_missing_actor_rolls_back_the_provider_change() {
     );
     assert_eq!(test.oidc_provider().await.expect("read"), Some(before));
     test.teardown().await;
-}
-
-#[tokio::test]
-async fn migration_keeps_existing_people_subjects_and_times() {
-    let database = common::empty_database().await;
-    fvoci_store::testing::migrate_to_before_audit_actors(&database).await;
-    let (org, record, actor, subject) = (new_id(), new_id(), new_id(), new_id());
-    common::execute_raw(
-        &common::raw_connection(&database),
-        &format!(
-            "INSERT INTO organizations (id, name, settings, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-         VALUES ('{org}', 'Org', '{{}}', 1, 1); \
-         INSERT INTO audit_log (id, org_id, actor_id, action, target_id, subject_id, {PRE0075_CREATE_COL}) \
-         VALUES ('{record}', '{org}', '{actor}', 'org_admin_granted', '{org}', '{subject}', 42);"
-        ),
-    )
-    .await;
-    let store = fvoci_store::Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migrated");
-    let records = store
-        .for_org(&org)
-        .expect("organization")
-        .audit_records(
-            AuditPlace::Organization,
-            Paging {
-                page: 0,
-                per_page: 100,
-            },
-        )
-        .await
-        .expect("records");
-    assert_eq!(records.len(), 1);
-    let after = &records[0];
-    assert_eq!(after.id, record);
-    assert!(
-        matches!(&after.actor, AuditRecordActor::Person(person) if person.id == actor),
-        "{:?}",
-        after.actor
-    );
-    assert_eq!(after.subject.as_ref().expect("subject").id, subject);
-    assert_eq!(after.action, AuditAction::OrgAdminGranted);
-    assert_eq!(after.target_id, org);
-    assert_eq!(after.created_at, 42);
-    store.close().await;
-    database.remove().await;
 }
 
 #[tokio::test]

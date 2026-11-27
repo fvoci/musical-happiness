@@ -418,62 +418,6 @@ async fn the_purge_forgets_a_row_whose_block_is_only_another_orgs() {
     );
 }
 
-/// 0014 gave the versions of a comment in the trash the one organization, and the
-/// comment in the trash the organization of its board: the system's, for a comment on
-/// a built-in template. 0015 gives the versions their comment's organization, so the
-/// purge, which matches them to their block in their own organization, keeps them.
-#[tokio::test]
-async fn the_versions_of_a_template_comment_in_the_trash_follow_it_into_its_organization() {
-    if common::db_type() != DbType::Postgres {
-        return;
-    }
-    let directory = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
-    let database = fvoci_store::testing::TestDatabase::create(&directory).await;
-    fvoci_store::testing::migrate_to_the_organizations(&database).await;
-    let (template, comment, one_org) = (new_id(), new_id(), new_id());
-    let mut conn = common::connect_past_the_store(database.database_connection()).await;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO deleted_boards (id, team_id, deleted_at, deletion_id, board, members, \
-         files, org_id) VALUES ('{template}', '{SYSTEM_WORKSPACE_ID}', {now}, '{deletion}', \
-         '{{}}', '[]', '[]', '{SYSTEM_ORG_ID}'); \
-         INSERT INTO deleted_blocks (id, board_id, deleted_at, deletion_id, block, org_id) \
-         VALUES ('{comment}', '{template}', {now}, '{deletion}', '{{\"type\": \"comment\"}}', \
-         '{SYSTEM_ORG_ID}'); \
-         INSERT INTO comment_versions (block_id, version, body, files, written_at, org_id) \
-         VALUES ('{comment}', 1, NULL, '[]', 0, '{one_org}')",
-        now = i64::MAX / 2,
-        deletion = new_id(),
-    )))
-    .execute(&mut conn)
-    .await
-    .expect("the trash as 0014 left it");
-    drop(conn);
-
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("the store migrates the database");
-    store
-        .system()
-        .purge_trash(0)
-        .await
-        .expect("the trash is purged");
-    let mut conn = common::connect_past_the_store(database.database_connection()).await;
-    let kept: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT org_id::text FROM comment_versions WHERE block_id = '{comment}'"
-    )))
-    .fetch_all(&mut conn)
-    .await
-    .expect("the versions are read");
-    drop(conn);
-    store.close().await;
-    database.remove().await;
-    assert_eq!(
-        kept,
-        [SYSTEM_ORG_ID],
-        "the version is the system's, as its comment is"
-    );
-}
-
 /// An upload goes to a board of its organization, or an import to a workspace of it
 /// (`uploads.container_id` names either, and has no key: the board may go to the trash and
 /// for good while the upload's row stays for its clean-up). The schema checks it when
@@ -620,15 +564,15 @@ async fn a_category_takes_a_board_of_its_organization_or_a_template() {
 /// The keys of the organizations' tables, from the catalog: each that does not name the
 const NO_KEY_TRIGGERS: &[(&str, &str)] = &[
     // No key: what keeps a record of the audit log from being changed, or
-    // removed but with its workspace (0023).
+    // removed but with its workspace.
     ("audit_log", "audit_log_kept"),
     (
         "category_containers",
         "category_containers_container_of_its_organization",
     ),
-    // No key says a diary is in its owner's own space alone (0055).
+    // No key says a diary is in its owner's own space alone.
     ("containers", "diaries_of_a_space"),
-    // Course child records outlive trashing in `deleted_containers` until purge (0077).
+    // Course child records outlive trashing in `deleted_containers` until purge.
     ("course_exams", "course_exams_course_of_its_organization"),
     (
         "course_meetings",
@@ -636,13 +580,13 @@ const NO_KEY_TRIGGERS: &[(&str, &str)] = &[
     ),
     ("exam_scores", "exam_scores_course_of_its_organization"),
     // No key says who may be in a space: its owner alone, and no link leads
-    // into one (0051).
+    // into one.
     ("invitations", "invitations_of_a_space"),
     ("organization_members", "organization_members_of_a_space"),
     // No key says a row stays what it was: an organization keeps its kind and
-    // the account whose space it is (0050).
+    // the account whose space it is.
     ("organizations", "organizations_keep_their_kind"),
-    // Nor that no link leads into a diary (0055).
+    // Nor that no link leads into a diary.
     ("public_links", "public_links_of_no_diary"),
     ("unit_notes", "unit_notes_course_of_its_organization"),
     ("unit_progress", "unit_progress_course_of_its_organization"),

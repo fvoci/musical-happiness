@@ -1,10 +1,11 @@
 #!/bin/sh
-# Restores a folder that backup.sh made into an installation of docker/compose.yaml
-# that has no fvoci container and whose database and files' volume are empty (new
-# volumes): refuses otherwise, changing nothing. Starts PostgreSQL alone, restores the
-# database in one transaction and the files, then starts everything (`up`, which
-# migrates a backup of an older version), makes the search index anew and compares the
-# files with the records. compose.yaml's header says more.
+# Restores a folder that backup.sh made into an installation of docker/compose.yaml that
+# has no fvoci container and whose database and files' volume are empty (new volumes):
+# refuses otherwise, changing nothing. Starts PostgreSQL alone, restores the database in
+# one transaction and the files, then starts everything (`up`, which migrates a backup
+# of an older version; one of a server before the baseline that was not the last of them
+# is refused, and goes through that server first), makes the search index anew and
+# compares the files with the records. compose.yaml's header says more.
 #
 # <backup folder> is trusted input: pg_restore runs SQL as PostgreSQL's superuser,
 # and tar extracts members from files.tar.

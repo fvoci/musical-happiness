@@ -1,6 +1,6 @@
 //! The checks of the card property values and view filter/dependency rules a write gives
 //! a block, beyond their shape ([`fvoci_model::Block::validate`]): what fits the kinds
-//! of the board's properties (`docs/s6-design.md` 5.7), what a card relation names, and
+//! of the board's properties, what a card relation names, and
 //! whether an active Gantt dependency relation stays acyclic.
 //!
 //! A relation value names cards of the block's board, in the trash or out of it. Which

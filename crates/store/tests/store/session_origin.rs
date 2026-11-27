@@ -1,13 +1,12 @@
 //! Where a session made through a provider came from, and the endings that follow it:
-//! the provider removed, its issuer changed, the identity unlinked; and the sessions
-//! of before migration 0028.
+//! the provider removed, its issuer changed, the identity unlinked.
 
 use std::time::Duration;
 
 use fvoci_model::{LoginOrigin, Session, User, new_id};
 use fvoci_store::{Identity, OidcAccount, OidcRefusal, Removal, Store, StoredProvider, Unlinked};
 
-use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL};
+use crate::common::{self};
 
 /// The time the sessions are made at, in milliseconds.
 const T0: i64 = 1_800_000_000_000;
@@ -239,7 +238,7 @@ async fn unlinking_ends_the_users_sessions_of_that_issuer() {
 }
 
 /// Unlinking one identity of an issuer ends the user's sessions made for it, and those
-/// of the issuer that know no subject (made before migration 0029), but not those made
+/// of the issuer that know no subject (an older server made them), but not those made
 /// for another identity of the same issuer.
 #[tokio::test]
 async fn unlinking_ends_the_sessions_of_that_identity_only() {
@@ -301,69 +300,6 @@ async fn unlinking_ends_the_sessions_of_that_identity_only() {
         "the first identity's, and the one that knows no subject, end"
     );
     assert_eq!(read.login, Some(made_for(Some("second"))));
-}
-
-/// Migration 0028: a session made through a provider that is still there takes its
-/// organization and issuer; one whose provider is gone has no origin to answer for,
-/// and ends; a password's stays as it was.
-#[tokio::test]
-async fn the_migration_fills_the_origin_or_ends_the_session() {
-    let database = common::empty_database().await;
-    fvoci_store::testing::migrate_to_before_session_origin(&database).await;
-    let (org, user, provider) = (new_id(), new_id(), new_id());
-    let [present, gone, password] = [new_id(), new_id(), new_id()];
-    let session = |id: &str, digest: &str, provider_id: &str| {
-        format!(
-            "INSERT INTO sessions (id, token_hash, user_id, created_at, last_used_at, \
-             expires_at, user_agent, login_provider_id) \
-             VALUES ('{id}', '{digest}', '{user}', {T0}, {T0}, {}, 'a browser', {provider_id});",
-            T0 + 1000
-        )
-    };
-    common::execute_raw(
-        &common::raw_connection(&database),
-        &[
-            format!(
-                "INSERT INTO organizations (id, name, settings, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-                 VALUES ('{org}', 'Org', '{{}}', 1, 1);"
-            ),
-            format!(
-                "INSERT INTO users (id, username, email, password_hash, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-                 VALUES ('{user}', 'someone', 'someone@example.com', '', 1, 1);"
-            ),
-            format!(
-                "INSERT INTO oidc_providers (id, org_id, issuer, client_id, client_secret, \
-                 {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-                 VALUES ('{provider}', '{org}', 'https://one.example', 'client', '', 1, 1);"
-            ),
-            session(&present, "digest-present", &format!("'{provider}'")),
-            session(&gone, "digest-gone", &format!("'{}'", new_id())),
-            session(&password, "digest-password", "NULL"),
-        ]
-        .concat(),
-    )
-    .await;
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migrated");
-    let present = store.get_session("digest-present", T0, 0).await;
-    let gone = store.get_session("digest-gone", T0, 0).await;
-    let password = store.get_session("digest-password", T0, 0).await;
-    store.close().await;
-    database.remove().await;
-
-    assert_eq!(
-        present.expect("kept").login,
-        Some(LoginOrigin {
-            provider_id: provider,
-            org_id: org,
-            issuer: "https://one.example".to_owned(),
-            subject: None,
-            revision: None,
-        })
-    );
-    assert!(gone.is_err(), "its provider is gone: ended");
-    assert_eq!(password.expect("kept").login, None);
 }
 
 /// A sign-in through the provider that ends after the identity was unlinked makes no

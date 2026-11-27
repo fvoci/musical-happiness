@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
-use fvoci_store::{DbType, Store, StoreError};
+use fvoci_store::{DbType, SchemaCheck, Store, StoreError};
 
 use crate::config::Configuration;
 
@@ -44,9 +44,10 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
 /// Brings the database's schema up to date and ends: `fvoci-server --migrate`, run as
 /// the role that owns the tables when the server connects as one that does not. A
 /// schema that is up to date already is left as it is at once, while a server serves
-/// it. Otherwise it holds the lock of the server meanwhile, so that no server serves
-/// the database while its tables change: it waits for a server that serves it to stop.
-/// It does not look at the wall: the owner that migrates may be a superuser.
+/// it, and so is the schema of a database before the baseline, whose record alone is
+/// replaced. Otherwise it holds the lock of the server meanwhile, so that no server
+/// serves the database while its tables change: it waits for a server that serves it to
+/// stop. It does not look at the wall: the owner that migrates may be a superuser.
 ///
 /// # Errors
 ///
@@ -66,6 +67,35 @@ pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Says what [`migrate_database`] would do to the database's schema, and changes
+/// nothing: `fvoci-server --migrate --check`, which an update runs with the new image
+/// while the old one still serves the database, so that a database the new server would
+/// refuse is found before anything stops.
+///
+/// # Errors
+///
+/// Returns an error if the database cannot be reached, or the migration would be
+/// refused: why, as the migration would say it.
+pub async fn check_database(config: &Configuration) -> anyhow::Result<()> {
+    let store = connect(config).await?;
+    let checked = store.check_schema().await;
+    let whereabouts = store.role_and_schema().await;
+    store.close().await;
+    let change = checked.context("the database's schema cannot be brought up to date")?;
+    let (role, schema) =
+        whereabouts.context("reading the role and the schema of the connection")?;
+    let would = match change {
+        SchemaCheck::Current => "leave it: the schema is up to date",
+        SchemaCheck::Behind => "apply this server's migrations, holding the lock of the server",
+        SchemaCheck::BeforeBaseline => {
+            "replace the record of the migrations before the baseline with the baseline's, \
+             leaving the schema as it is"
+        }
+    };
+    tracing::info!(role, schema, "the migration would {would}");
+    Ok(())
+}
+
 /// What a migration did, for its log line.
 struct Migrated {
     role: String,
@@ -82,23 +112,33 @@ async fn migrate_under_the_lock(store: &Store, config: &Configuration) -> anyhow
         .role_and_schema()
         .await
         .context("reading the role and the schema of the connection")?;
-    let current = store
-        .schema_is_current()
+    let change = store
+        .check_schema()
         .await
         .context("reading the record of the database's migrations")?;
-    if current {
-        return Ok(Migrated {
-            role,
-            schema,
-            changed: false,
-        });
+    match change {
+        SchemaCheck::Current => {
+            return Ok(Migrated {
+                role,
+                schema,
+                changed: false,
+            });
+        }
+        // Only the record changes: a server that serves the database goes on.
+        SchemaCheck::BeforeBaseline => store
+            .migrate()
+            .await
+            .context("replacing the record of the migrations before the baseline")?,
+        SchemaCheck::Behind => {
+            let lock = super::take_server_lock(store, config).await.context(
+                "the schema is to be changed while a server serves the database: stop it, \
+                 then migrate",
+            )?;
+            let migrated = store.migrate().await;
+            lock.release().await;
+            migrated.context("bringing the database's schema up to date")?;
+        }
     }
-    let lock = super::take_server_lock(store, config).await.context(
-        "the schema is to be changed while a server serves the database: stop it, then migrate",
-    )?;
-    let migrated = store.migrate().await;
-    lock.release().await;
-    migrated.context("bringing the database's schema up to date")?;
     Ok(Migrated {
         role,
         schema,

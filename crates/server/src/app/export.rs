@@ -3,13 +3,12 @@
 //! An archive is a ZIP holding `version.json` and, per container, a directory with a
 //! `container.jsonl` and the container's files. Each line of `container.jsonl` is a
 //! container, a block, a member, or a course schedule as the contract has them
-//! (`contracts/openapi.json`), bodies included; the
-//! files are those the blocks show, those of the images and file blocks of bodies among them
-//! (`docs/s6-design.md` 3.10). A container's line also carries `fileNames`: the name each of
-//! its files was uploaded with, by its stored name, which a file block shows; and
-//! `missingFiles`: the stored names of the files the blocks show that were not there to
-//! be written, which have no entry. An import gives the files it stores those names, and
-//! stores none of the missing ones.
+//! (`contracts/openapi.json`), bodies included; the files are those the blocks show, those
+//! of the images and file blocks of bodies among them. A container's line also carries
+//! `fileNames`: the name each of its files was uploaded with, by its stored name, which a
+//! file block shows; and `missingFiles`: the stored names of the files the blocks show that
+//! were not there to be written, which have no entry. An import gives the files it stores
+//! those names, and stores none of the missing ones.
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufWriter, Write as _};
@@ -29,7 +28,10 @@ use crate::auth::secret::new_secret;
 use crate::error::AppError;
 use crate::metrics::ContainerWork;
 
-/// The archive format version this server writes.
+/// The archive format version this server writes. An archive's lines carry when each
+/// container and block was made, and an import does not read it back: what it brings is
+/// made at the import, as the store makes every new row. An import that kept those times
+/// would read archives otherwise than this version promises, and takes a new version.
 pub(super) const ARCHIVE_VERSION: i64 = 1;
 
 /// A container's line of an archive: the container, and the name each of its files was
@@ -97,7 +99,7 @@ impl ExportedArchive {
 
 impl App {
     /// Builds an archive of the given boards in a temporary file
-    /// (`docs/s6-design.md` 4.3) and returns it open.
+    /// and returns it open.
     ///
     /// Each board is written with its blocks and members; a file a block shows is added
     /// if it exists, and named in the board's `missingFiles` if it does not.

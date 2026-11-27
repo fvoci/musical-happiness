@@ -1,4 +1,4 @@
-//! Store tests for course study meetings, attendance, migration 0068, course purge,
+//! Store tests for course study meetings, attendance, course purge,
 //! account erasure tombstones, and upcoming-meeting notifications.
 
 use fvoci_model::{
@@ -44,52 +44,6 @@ fn new_meeting(title: &str, starts_at: i64) -> fvoci_model::ValidatedNewMeeting 
     }
     .check_request()
     .expect("valid meeting")
-}
-
-/// Upgrading from pre-0068 to 0068 preserves existing data and enables meetings,
-/// attendance, exams, scores, and `meeting_upcoming` notifications.
-#[tokio::test]
-async fn migration_0068_from_previous_version_creates_tables_and_widens_notifications() {
-    let database = common::empty_database().await;
-    fvoci_store::testing::migrate_to_before_course_events(&database).await;
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migrates cleanly to 0068");
-    let (org_id, ws_id) = common::organization(&store, "migrated").await;
-    let scoped = store.for_org(&org_id).expect("org scope");
-    let alice = common::user(&scoped, "alice").await;
-    common::works_in(&scoped, &ws_id, &alice).await;
-    let course_id = create_course(&scoped, &ws_id, &alice).await;
-
-    let meeting = scoped
-        .create_course_meeting(&course_id, &new_meeting("Kickoff", T0 + 3_600_000))
-        .await
-        .expect("meeting created after migration");
-    scoped
-        .upsert_meeting_attendance(&course_id, &meeting.id, &alice, AttendanceStatus::Present)
-        .await
-        .expect("attendance recorded");
-
-    let sent = store
-        .system()
-        .notify_upcoming_meetings(T0, 24 * 60 * 60 * 1000)
-        .await
-        .expect("upcoming meeting notification inserted");
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].recipient_id, alice);
-    assert_eq!(sent[0].org_id, org_id);
-
-    // Invalid attendance status is rejected by CHECK constraint.
-    let bad = scoped
-        .execute_unchecked(&format!(
-            "UPDATE meeting_attendance SET status = 'skipping' WHERE meeting_id = '{}'",
-            meeting.id
-        ))
-        .await;
-    assert!(bad.is_err(), "CHECK rejects invalid attendance status");
-
-    store.close().await;
-    database.remove().await;
 }
 
 /// Full meeting CRUD, chronological ordering, attendance upsert, non-member 404,

@@ -43,7 +43,6 @@ mod course_exams;
 mod course_meetings;
 mod course_schedules;
 mod courses;
-mod data_steps;
 mod db;
 mod diaries;
 mod directory;
@@ -187,6 +186,7 @@ pub use page_copies::PageCopies;
 pub use page_trash::PageRestore;
 pub use pages::PageWrite;
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
+pub use schema::SchemaCheck;
 pub use person_names::ChangedName;
 pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
@@ -596,17 +596,6 @@ impl Store {
             scope.fetch_optional(sql).await.map(|_| ())
         })
         .await
-    }
-
-    /// Whether the database's schema is this build's already: every migration recorded
-    /// as applied, with this build's text, and no other. Reads only.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Schema`] if the role may not read the record of the
-    /// migrations, and [`StoreError::Database`] if it cannot be read.
-    pub async fn schema_is_current(&self) -> Result<bool, StoreError> {
-        Ok(schema::state(self).await? == schema::SchemaState::Current)
     }
 
     /// The role the store connects as and the schema it works in, for what a server

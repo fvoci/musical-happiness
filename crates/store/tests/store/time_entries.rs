@@ -1,8 +1,7 @@
-//! Store-level tests for `time_entries` (migration 0064), single active timer atomic
+//! Store-level tests for `time_entries`: single active timer atomic
 //! transitions (same-org, cross-org, and PostgreSQL Gate concurrency), closed-organization
 //! filtering, and cleanup on organization departure and account erasure.
 
-use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use fvoci_model::{
@@ -15,20 +14,6 @@ use fvoci_store::{
 
 use crate::common::{self, TestStore, db_type};
 use crate::lock_gate::{Gate, ended};
-use crate::workspace_rename::{Dump, dump};
-
-fn by_column(dump: &Dump) -> BTreeMap<String, Vec<BTreeMap<String, Option<String>>>> {
-    dump.iter()
-        .map(|(table, (columns, rows))| {
-            let mut rows: Vec<BTreeMap<String, Option<String>>> = rows
-                .iter()
-                .map(|row| columns.iter().cloned().zip(row.iter().cloned()).collect())
-                .collect();
-            rows.sort();
-            (table.clone(), rows)
-        })
-        .collect()
-}
 
 fn password_reader(user_id: &str) -> TimeReader<'_> {
     TimeReader {
@@ -74,102 +59,6 @@ async fn count_all_for_user(store: &Store, user_id: &str) -> usize {
         .await
         .expect("read user rows")
         .len()
-}
-
-/// Migration 0064 upgrades cleanly from pre-0064 databases without touching existing tables,
-/// and enforces CHECK constraints and the single-active-timer partial unique index.
-#[tokio::test]
-async fn migration_0064_preserves_existing_rows_and_enforces_constraints() {
-    let database = common::empty_database().await;
-    fvoci_store::testing::migrate_to_before_time_entries(&database).await;
-    common::execute_raw(&common::raw_connection(&database), "DELETE FROM data_steps").await;
-    let pre_store = Store::open(database.db_type(), database.database_connection())
-        .await
-        .expect("open pre-0064 database");
-    let (org_id, ws_id) = common::pre0075_organization(&pre_store, "pre64").await;
-    let scoped = pre_store.for_org(&org_id).expect("org handle");
-    let user_id = common::pre0072_user(&scoped, &org_id, &ws_id, "migrated_user").await;
-    pre_store.close().await;
-
-    let before = by_column(&dump(&database).await);
-    assert!(
-        !before.contains_key("time_entries"),
-        "pre-0064 schema has no time_entries table"
-    );
-
-    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 64)
-        .await;
-    let after = by_column(&dump(&database).await);
-    assert!(
-        after.contains_key("time_entries"),
-        "post-0064 schema has time_entries table"
-    );
-    for (table, rows) in &before {
-        assert_eq!(&after[table], rows, "existing table {table} preserved");
-    }
-
-    let store = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migrations up to latest apply cleanly");
-    assert_db_constraints(&store, &org_id, &user_id).await;
-
-    store.close().await;
-    database.remove().await;
-}
-
-async fn assert_db_constraints(store: &Store, org_id: &str, user_id: &str) {
-    let org_store = store.for_org(org_id).expect("org handle");
-    let bad_kind = org_store
-        .execute_unchecked(&format!(
-            "INSERT INTO time_entries (id, org_id, user_id, kind, started_at, ended_at, note, \
-             created_at, updated_at) VALUES ('{}', '{org_id}', '{user_id}', 'invalid', 100, 200, \
-             '', 100, 200)",
-            new_id()
-        ))
-        .await;
-    assert!(bad_kind.is_err(), "CHECK must reject invalid kind");
-
-    let bad_range = org_store
-        .execute_unchecked(&format!(
-            "INSERT INTO time_entries (id, org_id, user_id, kind, started_at, ended_at, note, \
-             created_at, updated_at) VALUES ('{}', '{org_id}', '{user_id}', 'study', 500, 400, \
-             '', 500, 500)",
-            new_id()
-        ))
-        .await;
-    assert!(
-        bad_range.is_err(),
-        "CHECK must reject ended_at < started_at"
-    );
-
-    let own_org = store
-        .system()
-        .texts_unchecked(&format!(
-            "SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id = '{user_id}'"
-        ))
-        .await
-        .expect("own org");
-    let own_store = store.for_org(&own_org[0]).expect("own handle");
-    org_store
-        .execute_unchecked(&format!(
-            "INSERT INTO time_entries (id, org_id, user_id, kind, started_at, ended_at, note, \
-             created_at, updated_at) VALUES ('{}', '{org_id}', '{user_id}', 'work', 100, NULL, \
-             '', 100, 100)",
-            new_id()
-        ))
-        .await
-        .expect("first active row succeeds");
-    let duplicate_active = own_store
-        .execute_unchecked(&format!(
-            "INSERT INTO time_entries (id, user_id, kind, started_at, ended_at, note, \
-             created_at, updated_at) VALUES ('{}', '{user_id}', 'study', 200, NULL, '', 200, 200)",
-            new_id()
-        ))
-        .await;
-    assert!(
-        duplicate_active.is_err(),
-        "partial unique index must reject second active timer across organizations"
-    );
 }
 
 /// Starting a timer in one organization while another is running in the user's personal

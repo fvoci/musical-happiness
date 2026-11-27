@@ -1,16 +1,16 @@
-//! Store tests for migration 0066 (`course_schedules`), shared schedule CRUD and
+//! Store tests for `course_schedules`: shared schedule CRUD and
 //! auto-assignment, trash/restore/purge lifecycle, personal planned-date overrides,
 //! personal redistribution, workspace today/overdue aggregation, and tenant isolation.
 
 use fvoci_model::{
     AmountUnit, Block, CompletionChange, Container, ContainerKind, ContainerMember, ContainerRole,
     ContainerVisibility, CourseLimits, DiaryDate, LastPositionChange, NewUnit,
-    RedistributeScheduleRequest, STUDY_DAYS_ALL, STUDY_DAYS_WEEKDAYS, StudyDays, UnitKind,
-    UnitProgressChange, ValidatedCourseSchedule, new_id,
+    RedistributeScheduleRequest, STUDY_DAYS_ALL, StudyDays, UnitKind, UnitProgressChange,
+    ValidatedCourseSchedule, new_id,
 };
-use fvoci_store::{DbType, Store};
+use fvoci_store::Store;
 
-use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL, db_type};
+use crate::common::{self};
 
 fn day(text: &str) -> DiaryDate {
     text.parse().expect("valid date")
@@ -86,130 +86,6 @@ async fn save_role(store: &Store, course_id: &str, user_id: &str, role: Option<C
                 .expect("member removed");
         }
     }
-}
-
-async fn seed_pre0066_course(
-    database: &fvoci_store::testing::TestDatabase,
-) -> (String, String, Container, Block) {
-    let pre = Store::open(database.db_type(), database.database_connection())
-        .await
-        .expect("open before 0066");
-    let (org_id, workspace_id) = common::pre0075_organization(&pre, "academy").await;
-    let scoped = pre.for_org(&org_id).expect("org handle");
-    let owner = common::pre0072_user(&scoped, &org_id, &workspace_id, "teacher").await;
-    let course_id = new_id();
-    scoped
-        .execute_unchecked(&format!(
-            "INSERT INTO containers \
-             (id, workspace_id, created_by, modified_by, type, kind, title, description, icon, \
-              show_description, is_template, properties, card_properties, \
-              {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-             VALUES ('{course_id}', '{workspace_id}', '{owner}', '{owner}', 'P', 'course', \
-              'Math', '', '', false, false, '{{}}', '[]', 1, 1)"
-        ))
-        .await
-        .expect("pre-0066 course stored");
-    scoped
-        .execute_unchecked(&format!(
-            "INSERT INTO container_members \
-             (container_id, user_id, {}, {}, {}, {}) \
-             VALUES ('{course_id}', '{owner}', true, true, false, false)",
-            concat!("scheme", "_admin"),
-            concat!("scheme", "_editor"),
-            concat!("scheme", "_commenter"),
-            concat!("scheme", "_viewer"),
-        ))
-        .await
-        .expect("pre-0066 course admin stored");
-    let course = Container {
-        id: course_id,
-        ..Container::default()
-    };
-    let mut unit = Block {
-        id: new_id(),
-        container_id: course.id.clone(),
-        block_type: UnitKind::Unit.block_type(),
-        title: "Lesson 1".to_owned(),
-        fields: NewUnit {
-            kind: UnitKind::Unit,
-            title: "Lesson 1".to_owned(),
-            amount: Some(30),
-            amount_unit: Some(AmountUnit::Minutes),
-            ..NewUnit::default()
-        }
-        .to_fields(),
-        ..Block::default()
-    };
-    unit.fields
-        .insert("order".to_owned(), serde_json::json!("V"));
-    common::pre0075_insert_block(&scoped, &mut unit, &owner).await;
-    pre.close().await;
-    (org_id, owner, course, unit)
-}
-
-/// Upgrading a database seeded before migration 0066 applies 0066 cleanly without
-/// altering existing course rows, creates `course_schedules` behind PostgreSQL forced
-/// RLS (`org_wall`), and supports saving/reading schedules immediately.
-#[tokio::test]
-async fn migration_before_0066_to_0066_creates_course_schedules_behind_rls() {
-    let database = common::empty_database().await;
-    fvoci_store::testing::migrate_to_before_course_schedules(&database).await;
-    common::execute_raw(&common::raw_connection(&database), "DELETE FROM data_steps").await;
-    let (org_id, owner, course, unit) = seed_pre0066_course(&database).await;
-
-    let migrated = Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migration 0066 applies cleanly");
-    let scoped = migrated.for_org(&org_id).expect("org handle");
-    assert_eq!(
-        scoped.get_container(&course.id).await.expect("course").kind,
-        ContainerKind::Course
-    );
-    let schedule = ValidatedCourseSchedule {
-        start_date: day("2026-11-02"),
-        target_date: day("2026-11-27"),
-        study_days: StudyDays::try_new(STUDY_DAYS_WEEKDAYS).expect("weekdays"),
-        auto_assign: true,
-    };
-    let (saved, updated) = scoped
-        .upsert_course_schedule(&course.id, &schedule, &owner)
-        .await
-        .expect("schedule stored");
-    assert_eq!(saved.start_date, "2026-11-02");
-    assert_eq!(saved.target_date, "2026-11-27");
-    assert_eq!(saved.study_days, STUDY_DAYS_WEEKDAYS);
-    assert_eq!(updated, vec![unit.id.clone()]);
-    assert_eq!(
-        scoped
-            .get_course_schedule(&course.id)
-            .await
-            .expect("schedule read"),
-        Some(saved)
-    );
-
-    if db_type() == DbType::Postgres {
-        let mut conn = common::connect_past_the_store(database.database_connection()).await;
-        let (enabled, forced): (bool, bool) = sqlx::query_as(
-            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class \
-             WHERE oid = to_regclass('course_schedules')",
-        )
-        .fetch_one(&mut conn)
-        .await
-        .expect("pg_class entry");
-        assert!(enabled && forced, "course_schedules has forced RLS");
-        let policy_count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_policies \
-             WHERE schemaname = current_schema() \
-               AND tablename = 'course_schedules' AND policyname = 'org_wall'",
-        )
-        .fetch_one(&mut conn)
-        .await
-        .expect("pg_policies entry");
-        assert_eq!(policy_count, 1);
-    }
-
-    migrated.close().await;
-    database.remove().await;
 }
 
 /// Schedule rows survive soft deletion to the trash, come back on restore, and are

@@ -205,9 +205,6 @@ struct ArchiveCourseSchedule {
     start_date: String,
     target_date: String,
     study_days: i32,
-    #[serde(default)]
-    #[expect(dead_code, reason = "optional wire timestamp ignored on import")]
-    updated_at: Option<i64>,
 }
 
 /// Output of Pass 1 for a single `container.jsonl` entry, holding only structural metadata.
