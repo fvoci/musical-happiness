@@ -5,7 +5,7 @@
 //! as they change (`reactionsChanged`). A public link's reader is given none.
 
 use axum::extract::Path;
-use fvoci_model::{Block, BlockType, ContainerKinds, Emoji};
+use fvoci_model::{Block, ContainerKinds, Emoji};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -14,8 +14,8 @@ use super::contract::params::{
 };
 use super::contract::tag;
 use super::workspace::{InContainer, InWorkspace};
-use super::{ApiResult, Delegated, Write, no_content, require_container_permission};
-use crate::app::App;
+use super::{ApiResult, Delegated, Write, no_content};
+use crate::app::{App, Reached};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
@@ -24,14 +24,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 }
 
 const DENIED: &str = "access denied to react in the container";
-
-/// The types of the blocks that are answered with reactions.
-const REACTED_TO: [BlockType; 4] = [
-    BlockType::Comment,
-    BlockType::Card,
-    BlockType::Page,
-    BlockType::Unit,
-];
 
 /// React to a comment, a card, a page or a unit
 ///
@@ -57,10 +49,8 @@ async fn handle_add_reaction(
     Delegated(InContainer(ws), ..): Delegated<Write, InContainer>,
     Path((_, container_id, block_id, emoji)): Path<(String, String, String, String)>,
 ) -> ApiResult {
-    let (ws, block, emoji) = reacted(ws, &container_id, &block_id, &emoji).await?;
-    ws.app
-        .add_reaction(&ws.workspace_id, &block, &ws.caller.user_id, &emoji)
-        .await?;
+    let (app, on, block, emoji) = reacted(ws, &container_id, &block_id, &emoji).await?;
+    app.add_reaction(&on, &block, &emoji, DENIED).await?;
     Ok(no_content())
 }
 
@@ -82,46 +72,36 @@ async fn handle_remove_reaction(
     Delegated(InContainer(ws), ..): Delegated<Write, InContainer>,
     Path((_, container_id, block_id, emoji)): Path<(String, String, String, String)>,
 ) -> ApiResult {
-    let (ws, block, emoji) = reacted(ws, &container_id, &block_id, &emoji).await?;
-    ws.app
-        .remove_reaction(&ws.workspace_id, &block, &ws.caller.user_id, &emoji)
-        .await?;
+    let (app, on, block, emoji) = reacted(ws, &container_id, &block_id, &emoji).await?;
+    app.remove_reaction(&on, &block, &emoji, DENIED).await?;
     Ok(no_content())
 }
 
-/// The workspace as one who reacts reaches it, the block of the path, and the emoji:
-/// one who may comment in the container of the path, which is no diary, on a block of
-/// it that is answered with reactions.
+/// The workspace's handle reaching no diary, the container of the path as the caller
+/// reached it, the block of the path, and the emoji. Whether the caller may react there
+/// to the block, [`App::add_reaction`] checks.
 ///
 /// # Errors
 ///
-/// Returns 400 for an emoji that is none, what `require_container_permission`
-/// refuses with, and 404 for a block that is not there.
+/// Returns 400 for an emoji that is none; what [`Reached::require`] refuses one with
+/// who may not comment in the container, before the block is looked for; and 404 for
+/// a block that is not there.
 async fn reacted(
     ws: InWorkspace,
     container_id: &str,
     block_id: &str,
     emoji: &str,
-) -> Result<(InWorkspace, Block, Emoji), AppError> {
+) -> Result<(App, Reached, Block, Emoji), AppError> {
     let emoji: Emoji = emoji
         .parse()
         .map_err(|error| AppError::bad_request(error).with_parameter("emoji"))?;
-    let ws = ws.reaching(ContainerKinds::SHARED);
-    require_container_permission(
-        &ws.app,
-        &ws.caller.user_id,
-        container_id,
-        ContainerPermission::CommentCards,
-        DENIED,
-    )
-    .await?;
-    let block = match ws.app.block(block_id).await {
+    let app = ws.app.reaching(ContainerKinds::SHARED);
+    let on = app.reach(&ws.caller.user_id, container_id).await?;
+    on.require(ContainerPermission::CommentCards, DENIED)?;
+    let block = match app.block(block_id).await {
         Ok(block) => block,
         Err(error) if error.is_not_found() => return Err(AppError::not_found("block")),
         Err(error) => return Err(error),
     };
-    if block.container_id != container_id || !REACTED_TO.contains(&block.block_type) {
-        return Err(AppError::not_found("block"));
-    }
-    Ok((ws, block, emoji))
+    Ok((app, on, block, emoji))
 }

@@ -4,55 +4,73 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{Block, Emoji, REACTION_KINDS_PER_BLOCK, Reaction};
+use fvoci_model::{Block, BlockType, Container, Emoji, REACTION_KINDS_PER_BLOCK, Reaction};
 use fvoci_store::Reacted;
 
-use super::App;
+use super::{App, Reached};
 use crate::error::{AppError, Reason};
+use crate::permissions::ContainerPermission;
+
+/// The types of the blocks that are answered with reactions.
+const REACTED_TO: [BlockType; 4] = [
+    BlockType::Comment,
+    BlockType::Card,
+    BlockType::Page,
+    BlockType::Unit,
+];
 
 impl App {
-    /// Adds the reaction `emoji` of `user_id` to `block`, of the workspace
-    /// `workspace_id`, and tells the container's members if it was not there.
+    /// Adds the reaction `emoji` of the one who reached the container `on` to `block`,
+    /// and tells the container's members if it was not there.
     ///
     /// # Errors
     ///
-    /// Returns 400 with the reason `too_many_reactions` if the block has as many other
-    /// emoji as a block may, 404 if the block is gone or the user is no longer in its
-    /// workspace, and the store's error.
+    /// Returns what [`Reached::require`] refuses one with who may not comment there
+    /// (`denial`); 404 for a block that is not of the container or is not answered with
+    /// reactions, and for one that is gone or a user no longer in its workspace; 400
+    /// with the reason `too_many_reactions` if the block has as many other emoji as a
+    /// block may; and the store's error.
     pub(crate) async fn add_reaction(
         &self,
-        workspace_id: &str,
+        on: &Reached,
         block: &Block,
-        user_id: &str,
         emoji: &Emoji,
+        denial: &str,
     ) -> Result<(), AppError> {
-        match self.store().add_reaction(&block.id, user_id, emoji).await? {
-            Reacted::Added => self.announce_reactions(workspace_id, block),
+        let container = reacted_on(on, block, denial)?;
+        match self
+            .store()
+            .add_reaction(&block.id, on.user_id(), emoji)
+            .await?
+        {
+            Reacted::Added => self.announce_reactions(container, block),
             Reacted::AlreadyThere => {}
             Reacted::TooManyKinds => return Err(too_many_reactions()),
         }
         Ok(())
     }
 
-    /// Takes the reaction `emoji` of `user_id` off `block`, of the workspace
-    /// `workspace_id`, and tells the container's members if it was there.
+    /// Takes the reaction `emoji` of the one who reached the container `on` off
+    /// `block`, and tells the container's members if it was there.
     ///
     /// # Errors
     ///
-    /// Returns the store's error.
+    /// Returns what [`App::add_reaction`] refuses one with who may not react to the
+    /// block, and the store's error.
     pub(crate) async fn remove_reaction(
         &self,
-        workspace_id: &str,
+        on: &Reached,
         block: &Block,
-        user_id: &str,
         emoji: &Emoji,
+        denial: &str,
     ) -> Result<(), AppError> {
+        let container = reacted_on(on, block, denial)?;
         if self
             .store()
-            .remove_reaction(&block.id, user_id, emoji)
+            .remove_reaction(&block.id, on.user_id(), emoji)
             .await?
         {
-            self.announce_reactions(workspace_id, block);
+            self.announce_reactions(container, block);
         }
         Ok(())
     }
@@ -80,13 +98,13 @@ impl App {
         Ok(reactions.remove(block_id).unwrap_or_default())
     }
 
-    /// Tells the members of the block's container its reactions in the background, as
-    /// they are when they are told: what was read last is told last, so two changes
+    /// Tells the members of `container`, the block's, its reactions in the background,
+    /// as they are when they are told: what was read last is told last, so two changes
     /// made one after the other leave every listener with the second.
-    fn announce_reactions(&self, workspace_id: &str, block: &Block) {
+    fn announce_reactions(&self, container: &Container, block: &Block) {
         let app = self.clone();
-        let workspace_id = workspace_id.to_owned();
-        let (container_id, block_id) = (block.container_id.clone(), block.id.clone());
+        let workspace_id = container.workspace_id.clone();
+        let (container_id, block_id) = (container.id.clone(), block.id.clone());
         self.spawn_background(async move {
             let _turn = app.inner.telling_reactions.lock().await;
             let reactions = match app.reactions_to(&block_id).await {
@@ -100,6 +118,25 @@ impl App {
                 .broadcast_reactions_change(&workspace_id, &container_id, &block_id, &reactions)
                 .await;
         });
+    }
+}
+
+/// The container reached, if its caller may react there to `block`: one who may comment
+/// in it, on a comment, a card, a page or a unit of it.
+///
+/// # Errors
+///
+/// Returns what [`Reached::require`] refuses with, and 404 for any other block.
+fn reacted_on<'on>(
+    on: &'on Reached,
+    block: &Block,
+    denial: &str,
+) -> Result<&'on Container, AppError> {
+    let container = on.require(ContainerPermission::CommentCards, denial)?;
+    if on.holds(block) && REACTED_TO.contains(&block.block_type) {
+        Ok(container)
+    } else {
+        Err(AppError::not_found("block"))
     }
 }
 
