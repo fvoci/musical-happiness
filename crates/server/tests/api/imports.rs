@@ -26,18 +26,16 @@ fn uploads_dir(ts: &TestServer) -> PathBuf {
 
 /// What is in a directory, by name; nothing if it is not there.
 fn entries(directory: &std::path::Path) -> Vec<String> {
-    std::fs::read_dir(directory)
-        .map(|read| {
-            read.map(|entry| {
-                entry
-                    .expect("an entry")
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect()
+    std::fs::read_dir(directory).map_or_default(|read| {
+        read.map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
         })
-        .unwrap_or_default()
+        .collect()
+    })
 }
 
 /// Opens an upload of an archive of `size` bytes into `workspace_id`.

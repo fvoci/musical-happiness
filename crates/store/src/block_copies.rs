@@ -119,8 +119,7 @@ impl Store {
             // while keeping live external cards on the board.
             let definitions = containers::find_container(scope, container_id)
                 .await?
-                .map(|container| container.card_properties)
-                .unwrap_or_default();
+                .map_or_default(|container| container.card_properties);
             card_values::clear_copied_values(&mut copies, &definitions);
             card_values::keep_cards_of_board(scope, &mut copies, container_id, &definitions)
                 .await?;

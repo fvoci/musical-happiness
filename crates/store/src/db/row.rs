@@ -57,7 +57,7 @@ impl Row {
             }
             Self::Postgres(row) => {
                 let value: Option<Uuid> = row.try_get(index)?;
-                Ok(value.map(sqlite_id).unwrap_or_default())
+                Ok(value.map_or_default(sqlite_id))
             }
         }
     }

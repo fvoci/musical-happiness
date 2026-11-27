@@ -880,8 +880,7 @@ fn require_members(name: &str, schema: &mut Value, members: Members) -> Result<(
     let names: Vec<String> = own
         .get("properties")
         .and_then(Value::as_object)
-        .map(|properties| properties.keys().cloned().collect())
-        .unwrap_or_default();
+        .map_or_default(|properties| properties.keys().cloned().collect());
     let unknown = |listed: &[&str]| {
         listed
             .iter()

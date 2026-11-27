@@ -86,8 +86,7 @@ fn body_refused(error: BodyError) -> AppError {
 /// the one block (`list` is `None`), else the element of the list at the pointer
 /// `list`, which is empty if the body is the list itself.
 pub(crate) fn element_pointer(list: Option<&str>, index: usize) -> String {
-    list.map(|list| format!("{list}/{index}"))
-        .unwrap_or_default()
+    list.map_or_default(|list| format!("{list}/{index}"))
 }
 
 /// Takes the member `body` out of each block of a request before the blocks are decoded

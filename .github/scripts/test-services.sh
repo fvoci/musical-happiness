@@ -12,11 +12,11 @@ set -euo pipefail
 
 POSTGRES=fvoci-test-postgres
 POSTGRES_PORT=15434
-POSTGRES_IMAGE='postgres:18@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a'
+POSTGRES_IMAGE='postgres:18@sha256:64c8b0d31e4ab6ea665e8426ea406a94bf52de3c05b3a4a8bf713704eefa9328'
 S3=fvoci-test-s3
 S3_PORT=18333
 S3_BUCKET=fvoci-test
-S3_IMAGE='chrislusf/seaweedfs:latest@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15'
+S3_IMAGE='chrislusf/seaweedfs:4.55@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9'
 
 # Tries a command every half second until it succeeds, for 90 seconds by the clock.
 wait_for() {

@@ -108,7 +108,7 @@ pub(super) fn to_json(value: &impl Serialize) -> Result<Value, AppError> {
 
 /// Text of an optional argument as a query takes it: empty for none.
 fn text(value: Option<impl ToString>) -> String {
-    value.map(|value| value.to_string()).unwrap_or_default()
+    value.map_or_default(|value| value.to_string())
 }
 
 pub(super) async fn list_workspaces(app: &App, caller: &Caller) -> Result<Value, ToolError> {
@@ -354,7 +354,7 @@ async fn files_of_body(
     body: Option<&Body>,
 ) -> Result<Vec<ListedFile>, AppError> {
     let mut files = Vec::new();
-    for file_id in body.map(Body::file_ids).unwrap_or_default() {
+    for file_id in body.map_or_default(Body::file_ids) {
         if let Some(record) = app.file_record(container_id, file_id).await? {
             files.push(ListedFile::from(record));
         }

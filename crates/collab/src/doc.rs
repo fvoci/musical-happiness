@@ -438,8 +438,7 @@ impl BodyDoc {
         to_body(&self.doc)
             .ok()
             .flatten()
-            .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
-            .unwrap_or_default()
+            .map_or_default(|body| body.file_ids().into_iter().map(str::to_owned).collect())
     }
 }
 

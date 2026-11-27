@@ -148,8 +148,7 @@ impl Store {
             }
             let definitions = containers::find_container(scope, board_id)
                 .await?
-                .map(|b| b.card_properties)
-                .unwrap_or_default();
+                .map_or_default(|b| b.card_properties);
             card_values::keep_cards_of_board(scope, &mut blocks, board_id, &definitions).await?;
             for file in staged_files {
                 if !loose_objects::record_written(scope, file).await? {

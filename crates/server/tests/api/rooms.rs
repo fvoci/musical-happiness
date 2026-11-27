@@ -495,13 +495,12 @@ impl Peer {
 /// The texts of the paragraphs of a body.
 pub(crate) fn lines_of(body: Option<&Value>) -> Vec<String> {
     body.and_then(|body| body["content"].as_array())
-        .map(|content| {
+        .map_or_default(|content| {
             content
                 .iter()
                 .map(|node| node["content"][0]["text"].as_str().unwrap_or("").to_owned())
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// A board for the invited only in the test workspace, made by the first client's

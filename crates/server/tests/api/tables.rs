@@ -406,12 +406,11 @@ async fn a_table_at_its_limit_is_mended_and_a_column_past_it_is_refused() {
 /// How many cells each row of the first table of a body has.
 fn widths(body: Option<&Value>) -> Vec<usize> {
     body.and_then(|body| body["content"][0]["content"].as_array())
-        .map(|rows| {
+        .map_or_default(|rows| {
             rows.iter()
                 .map(|row| row["content"].as_array().map_or(0, Vec::len))
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// A table the server mended as it took two edits is the same table after a server

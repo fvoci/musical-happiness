@@ -642,7 +642,7 @@ async fn keep(scope: &mut Scope<'_>, body: &BodyToKeep<'_>) -> Result<Kept, Stor
     let body_bytes = body_json
         .as_deref()
         .map_or(0_i64, |json| i64::try_from(json.len()).unwrap_or(i64::MAX));
-    let files: Vec<&str> = block.body.as_ref().map(Body::file_ids).unwrap_or_default();
+    let files: Vec<&str> = block.body.as_ref().map_or_default(Body::file_ids);
     let mut sql = scope.sql(
         "INSERT INTO body_versions (block_id, version, body, body_bytes, body_digest, \
          files, kept_at, cause, actor_token_id, actor_token_name) VALUES (",
