@@ -167,16 +167,17 @@ pub(super) async fn unit_reached(
 
 /// Returns the unit (not a chapter) of the course for a handler that applies only to units
 /// with bodies (comments, body versions), if the user has the permission on the course.
-pub(super) async fn content_unit_with_permission(
+pub(super) async fn content_unit_reached(
     ws: &InWorkspace,
     course_id: &str,
     unit_id: &str,
     permission: ContainerPermission,
     denial: &str,
-) -> Result<Block, AppError> {
+) -> Result<(Reached, Block), AppError> {
     let on = ws.app.reach(&ws.caller.user_id, course_id).await?;
     on.require(permission, denial)?;
-    ws.app.content_unit_of(course_id, unit_id).await
+    let unit = ws.app.content_unit_of(course_id, unit_id).await?;
+    Ok((on, unit))
 }
 
 /// The outline of a course

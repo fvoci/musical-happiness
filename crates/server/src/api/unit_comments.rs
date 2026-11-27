@@ -2,27 +2,22 @@
 //! restoring them, and what one said before.
 
 use axum::body::Bytes;
-use axum::extract::Path;
-use fvoci_model::{Block, Body, BodyChange, CommentVersion, ContainerKinds};
+use fvoci_model::{Block, Body, BodyChange, CommentVersion};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::comments::{
-    CommentParentKind, CommenterOf, comments_on, create_comment_on, created_comment,
-    delete_comment_on, existing_comment_on, find_live_comment_on, get_comment_versions_on,
-    patch_comment_on,
+    CommenterOf, comment_versions_of, create_comment_of, delete_comment_of, list_comments_of,
+    patch_comment_of, restore_comment_of,
 };
 use super::contract::params::{CourseId, MemberWorkspaceId, UnitCommentId, UnitId};
 use super::contract::tag;
-use super::courses::{READ_DENIED, content_unit_with_permission};
-use super::workspace::{InCourse, InWorkspace};
-use super::{ApiResult, json_response};
-use super::{Delegated, Read, Write};
+use super::items::{ItemOf, UnitItem};
+
+use super::{ApiResult, Delegated, Read, Write};
 use crate::app::{App, ChangeNotification};
-use crate::error::AppError;
-use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -36,30 +31,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         ))
         .routes(routes!(handle_get_unit_comment_versions))
         .routes(routes!(handle_restore_unit_comment))
-}
-
-const CREATE_DENIED: &str = "access denied to comment on the unit";
-const CHANGES_DENIED: &str = "access denied to change the comments of the unit";
-
-pub(super) struct UnitCommentParent;
-
-impl CommentParentKind for UnitCommentParent {
-    const CONTAINER_PARAM: &'static str = "courseId";
-    const PARENT_PARAM: &'static str = "unitId";
-    const CREATE_DENIED: &'static str = CREATE_DENIED;
-    const CHANGES_DENIED: &'static str = CHANGES_DENIED;
-
-    fn kinds() -> ContainerKinds {
-        ContainerKinds::COURSES
-    }
-
-    async fn load_parent(
-        ws: &InWorkspace,
-        course_id: &str,
-        unit_id: &str,
-    ) -> Result<Block, AppError> {
-        ws.app.content_unit_of(course_id, unit_id).await
-    }
 }
 
 /// A comment to write on a unit.
@@ -109,34 +80,9 @@ pub(crate) struct UnitCommentPatch {
     responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
 )]
 async fn handle_get_unit_comments(
-    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
-    Path((_, course_id, unit_id)): Path<(String, String, String)>,
+    Delegated(unit, ..): Delegated<Read, ItemOf<UnitItem>>,
 ) -> ApiResult {
-    Ok(json_response(
-        &unit_comments(&ws, &course_id, &unit_id).await?,
-    ))
-}
-
-/// The comments on the unit `unit_id` of the course `course_id`, as `getUnitComments`
-/// lists them.
-///
-/// # Errors
-///
-/// As `getUnitComments` answers.
-pub(super) async fn unit_comments(
-    ws: &InWorkspace,
-    course_id: &str,
-    unit_id: &str,
-) -> Result<Vec<Block>, AppError> {
-    let unit = content_unit_with_permission(
-        ws,
-        course_id,
-        unit_id,
-        ContainerPermission::View,
-        READ_DENIED,
-    )
-    .await?;
-    comments_on(ws, course_id, &unit.id).await
+    list_comments_of(unit).await
 }
 
 /// Write a comment on a unit
@@ -153,13 +99,10 @@ pub(super) async fn unit_comments(
     responses((status = 201, description = "The comment as it was stored.", body = Block)),
 )]
 async fn handle_create_unit_comment(
-    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitCommentParent>>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitItem>>,
     body: Bytes,
 ) -> ApiResult {
-    let comment =
-        create_comment_on::<_, NewUnitComment>(&commenter, "unit", &body, ChangeNotification::Send)
-            .await?;
-    Ok(created_comment(&comment))
+    create_comment_of::<_, NewUnitComment>(commenter, &body, ChangeNotification::Send).await
 }
 
 /// Change a comment on a unit
@@ -176,22 +119,13 @@ async fn handle_create_unit_comment(
     responses((status = 200, description = "The comment as it is now.", body = Block)),
 )]
 async fn handle_patch_unit_comment(
-    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitCommentParent>>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitItem>>,
     body: Bytes,
 ) -> ApiResult {
-    let comment_id = commenter.comment_id()?;
-    let comment = existing_comment_on(&commenter.ws, &commenter.parent, comment_id).await?;
-    let patched = patch_comment_on::<UnitCommentPatch>(
-        &commenter.ws,
-        &commenter.on,
-        &comment,
-        CHANGES_DENIED,
-        &body,
-        ChangeNotification::Send,
-        |patch| patch.read_at,
-    )
-    .await?;
-    Ok(json_response(&patched))
+    patch_comment_of::<_, UnitCommentPatch>(commenter, &body, ChangeNotification::Send, |patch| {
+        patch.read_at
+    })
+    .await
 }
 
 /// Delete a comment on a unit
@@ -207,18 +141,9 @@ async fn handle_patch_unit_comment(
     responses((status = 204, description = "The comment is deleted.")),
 )]
 async fn handle_delete_unit_comment(
-    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitCommentParent>>,
+    Delegated(commenter, ..): Delegated<Write, CommenterOf<UnitItem>>,
 ) -> ApiResult {
-    let comment_id = commenter.comment_id()?;
-    let comment = existing_comment_on(&commenter.ws, &commenter.parent, comment_id).await?;
-    delete_comment_on(
-        &commenter.ws,
-        &commenter.on,
-        &comment,
-        CHANGES_DENIED,
-        ChangeNotification::Send,
-    )
-    .await
+    delete_comment_of(commenter, ChangeNotification::Send).await
 }
 
 /// Bring a deleted comment on a unit back
@@ -234,14 +159,8 @@ async fn handle_delete_unit_comment(
     params(MemberWorkspaceId, CourseId, UnitId, UnitCommentId),
     responses((status = 200, description = "The comment as it is again.", body = Block)),
 )]
-async fn handle_restore_unit_comment(commenter: CommenterOf<UnitCommentParent>) -> ApiResult {
-    let comment_id = commenter.comment_id()?;
-    let comment = commenter
-        .ws
-        .app
-        .restore_comment(&commenter.on, &commenter.parent, comment_id, CHANGES_DENIED)
-        .await?;
-    Ok(json_response(&comment))
+async fn handle_restore_unit_comment(commenter: CommenterOf<UnitItem>) -> ApiResult {
+    restore_comment_of(commenter).await
 }
 
 /// What a comment on a unit said before
@@ -257,17 +176,7 @@ async fn handle_restore_unit_comment(commenter: CommenterOf<UnitCommentParent>) 
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_unit_comment_versions(
-    Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
-    Path((_, course_id, unit_id, comment_id)): Path<(String, String, String, String)>,
+    Delegated(unit, ..): Delegated<Read, ItemOf<UnitItem>>,
 ) -> ApiResult {
-    let unit = content_unit_with_permission(
-        &ws,
-        &course_id,
-        &unit_id,
-        ContainerPermission::View,
-        READ_DENIED,
-    )
-    .await?;
-    let live = find_live_comment_on(&ws, &unit, &comment_id).await?;
-    get_comment_versions_on(&ws, &unit, live, &comment_id).await
+    comment_versions_of(unit).await
 }

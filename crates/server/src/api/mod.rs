@@ -36,6 +36,7 @@ mod file_versions;
 mod files;
 mod invitation_mail;
 mod invitations;
+mod items;
 mod limits;
 mod lists;
 mod mcp;

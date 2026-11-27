@@ -263,6 +263,12 @@ macro_rules! delegable_wall {
         }
 
         sessions_only!($name);
+
+        impl From<$name> for InWorkspace {
+            fn from(wall: $name) -> Self {
+                wall.0
+            }
+        }
     };
 }
 
@@ -288,6 +294,12 @@ macro_rules! session_wall {
                     return Err(workspace_not_found());
                 })?
                 Ok(Self(ws.reaching(ContainerKinds::$kinds)))
+            }
+        }
+
+        impl From<$name> for InWorkspace {
+            fn from(wall: $name) -> Self {
+                wall.0
             }
         }
     };
