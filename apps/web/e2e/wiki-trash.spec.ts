@@ -67,6 +67,8 @@ test.describe('the trash of a wiki’s pages', () => {
     const item = trash.getByTestId('trash-items').locator('li', { hasText: 'Welcome' });
     await expect(item.getByTestId('trash-below')).toHaveText('Pages below: 1');
     await expect(item).toContainText('Deleted by');
+    await expect(trash).toContainText('permanently deleted after 30 days');
+    await expect(item.getByTestId('trash-days-left')).toHaveText('30 days left');
     await item.getByRole('button', { name: 'Restore Welcome' }).click();
     await expect(trash.getByTestId('trash-empty')).toBeVisible();
     await trash.getByRole('button', { name: 'Close' }).last().click();

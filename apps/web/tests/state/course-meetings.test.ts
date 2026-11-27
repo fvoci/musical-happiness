@@ -3,7 +3,7 @@
  * exam scores, aggregate averages, erased-user tombstones, and `meeting_upcoming`
  * notification tests.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createCourseExam,
@@ -26,7 +26,7 @@ import {
   splitInstantToInputs,
 } from '$lib/features/course/course-meeting-labels.ts';
 import { isGone } from '$lib/logic/users.ts';
-import { BackendError, CourseStore, Workspace } from '$lib/state/index.ts';
+import { BackendError, CourseStore, READ_ONLY_PERMISSIONS, Workspace } from '$lib/state/index.ts';
 import { noteUpcomingMeeting } from '$lib/state/memory/notifications.ts';
 import { eraseUser } from '$lib/state/memory/users.ts';
 
@@ -104,6 +104,8 @@ describe('course meetings & exams API client', () => {
       myScore: null,
       averageScore: null,
       scoreCount: 0,
+      resultsPublishedAt: null,
+      publishedScoreBucket: null,
     };
     const request: WikiRequest = <T>(
       path: string,
@@ -357,6 +359,17 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
     expect(adminExams[0]?.scoreCount).toBe(3);
     expect(viewerExams[0]?.averageScore).toBe(90);
     expect(viewerExams[0]?.scoreCount).toBe(3);
+    expect(adminExams[0]?.resultsPublishedAt).toBeNull();
+
+    // A snapshot of the results is published by an admin of the course alone, of five scores or more.
+    const notAdmin = await rejection(
+      made.other.course.exams.setResultsPublished(course.id, midterm.id, true),
+    );
+    expect(notAdmin.status).toBe(403);
+    const tooFew = await rejection(
+      made.backend.course.exams.setResultsPublished(course.id, midterm.id, true),
+    );
+    expect(tooFew.status).toBe(409);
 
     // CourseStore + CourseMeetingsState refreshes aggregates immediately after save/delete.
     const store = new CourseStore(made.workspace, course.id);
@@ -409,6 +422,37 @@ describe('in-memory course meetings, attendance, exams, privacy & tombstones', (
     const adminWs = new Workspace({ backend: made.backend, locale: () => 'en' });
     await adminWs.load();
     adminWs.close();
+    store.close();
+  });
+
+  it('lets whoever manages the course’s roles publish results, as the server and the button ask, editor or not', async () => {
+    const made = setup();
+    await made.workspace.load();
+    const course = await made.backend.course.createCourse(made.world.workspace.id, {
+      title: 'Databases',
+      visibility: 'open',
+      minimumRole: 'viewer',
+    });
+    const exam = await made.backend.course.exams.create(course.id, {
+      title: 'Midterm',
+      maxScore: 100,
+    });
+    const store = new CourseStore(made.workspace, course.id);
+    await store.load();
+    await store.events.refreshAll();
+    const published = { ...exam, resultsPublishedAt: 1 };
+    const sent = vi
+      .spyOn(made.backend.course.exams, 'setResultsPublished')
+      .mockResolvedValue(published);
+
+    store.permissions = { ...READ_ONLY_PERMISSIONS, canEdit: true };
+    expect(await store.events.setResultsPublished(exam.id, true)).toBe('failed');
+    expect(sent).not.toHaveBeenCalled();
+
+    store.permissions = { ...READ_ONLY_PERMISSIONS, canManageRoles: true };
+    expect(await store.events.setResultsPublished(exam.id, true)).toBe('done');
+    expect(sent).toHaveBeenCalledOnce();
+    expect(store.events.exams[0]?.resultsPublishedAt).toBe(1);
     store.close();
   });
 });

@@ -87,6 +87,7 @@ import { copy, LIMITS, memberOf, scramble } from './shapes.ts';
 import * as spaces from './spaces.ts';
 import { MemoryTime } from './time.ts';
 import { deletedCardsOf, deletedContainersOf, mayManageCards } from './trash.ts';
+import { MemoryWatches } from './unit-watch.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
 import { MemoryWikis } from './wikis.ts';
 import type { World } from './world.ts';
@@ -107,6 +108,7 @@ export class MemoryBackend implements Backend {
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
   readonly notifications = new MemoryNotifications(this, () => this.#enter('notifications'));
+  readonly watches = new MemoryWatches(this, () => this.#enter('watches'));
   readonly time = new MemoryTime(this, () => this.#enter('time'));
   readonly #categories = new MemoryCategories(this, (method, workspaceId) =>
     this.#enterWorkspace(method, workspaceId),

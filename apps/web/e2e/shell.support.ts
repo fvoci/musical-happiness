@@ -100,6 +100,14 @@ export async function categories(page: Page): Promise<string[]> {
     .evaluateAll((buttons) => buttons.map((button) => button.textContent.trim()));
 }
 
+/** Unfolds a part of a panel that folds (`FoldHeading`) by its button, unless it shows already. */
+export async function unfold(toggle: Locator): Promise<void> {
+  await expect(async () => {
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
+  }).toPass();
+}
+
 /** Opens the "…" menu of a board or a category and presses one of its lines. */
 export async function chooseFromMenu(page: Page, menu: Locator, action: string): Promise<void> {
   await menu.click();

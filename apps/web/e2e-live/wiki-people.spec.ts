@@ -10,7 +10,7 @@
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
-import { sidebar } from '../e2e/shell.support.ts';
+import { sidebar, unfold } from '../e2e/shell.support.ts';
 import { showTree, wikiScreen } from '../e2e/wiki.support.ts';
 
 import {
@@ -182,6 +182,7 @@ test('a guest comes in by a link to one wiki, and writes in it with nothing else
   await showTree(page);
   await wikiScreen(page).getByTestId('share-wiki').click();
   const share = page.getByTestId('share-dialog');
+  await unfold(share.getByTestId('share-guest-toggle'));
   await expect(share).toContainText('A guest sees this wiki and nothing else');
   await share.getByTestId('share-guest-make').click();
   const field = share.getByTestId('share-guest-link');

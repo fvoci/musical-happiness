@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { screensDir } from '../e2e/screens.ts';
-import { boardLink } from '../e2e/shell.support.ts';
+import { boardLink, unfold } from '../e2e/shell.support.ts';
 import {
   ADMIN,
   boardPath,
@@ -33,6 +33,7 @@ test('an administrator creates a team, changes its name and people, and deletes 
   await signInOnPage(page, ADMIN);
   await page.getByTestId('open-people').click();
   const panel = page.getByTestId('teams-panel');
+  await unfold(panel.getByTestId('teams-toggle'));
   const name = uniqueName('Design');
   await panel.getByRole('textbox', { name: 'Group name' }).fill(name);
   await panel.getByRole('button', { name: 'Create group' }).click();
@@ -107,6 +108,7 @@ test('a team editor opens and edits a board, then loses it when removed from the
   await signInOnPage(page, ADMIN);
   await page.getByTestId('open-people').click();
   const panel = page.getByTestId('teams-panel');
+  await unfold(panel.getByTestId('teams-toggle'));
   const name = uniqueName('Editors');
   await panel.getByRole('textbox', { name: 'Group name' }).fill(name);
   await panel.getByRole('button', { name: 'Create group' }).click();
@@ -124,6 +126,7 @@ test('a team editor opens and edits a board, then loses it when removed from the
   await page.goto(boardPath(board, board.viewId));
   await page.getByTestId('share-board').click();
   const groups = page.getByTestId('board-teams');
+  await unfold(groups.getByTestId('board-teams-toggle'));
   await groups.getByLabel('Choose a group').selectOption({ label: name });
   await groups.getByRole('button', { name: 'Add a group' }).click();
   const assigned = groups.locator(`[data-board-team="${name}"]`);
@@ -161,6 +164,7 @@ test('a team editor opens and edits a board, then loses it when removed from the
     .toBe('Edited through the team');
   await page.keyboard.press('Escape');
   await page.getByTestId('open-people').click();
+  await unfold(panel.getByTestId('teams-toggle'));
   await row.locator('summary').click();
   await row.getByRole('button', { name: `Remove ${colleague.username} from group` }).click();
   await expect(row.locator(`[data-team-member="${member.id}"]`)).toHaveCount(0);

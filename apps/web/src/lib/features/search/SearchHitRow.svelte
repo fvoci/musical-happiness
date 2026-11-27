@@ -1,7 +1,8 @@
 <!--
   One thing the search found, as an option of the list: what it is (its
-  icon), a card's number, its title, the board or wiki it is in, and the piece of its body
-  around what matched, the matched stretches marked.
+  icon), a card's number, its title (of a diary entry, its day), the board,
+  wiki, diary or course it is in, and the piece of its body around what
+  matched, the matched stretches marked.
 
   Everything is drawn as text: the snippet is the reader's own writing, and a
   `<script>` in it is the letters of one. It is a link, so that a middle click
@@ -12,10 +13,13 @@
 <script lang="ts">
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import GraduationCapIcon from '@lucide/svelte/icons/graduation-cap';
+  import NotebookPenIcon from '@lucide/svelte/icons/notebook-pen';
   import StickyNoteIcon from '@lucide/svelte/icons/sticky-note';
 
   import CardNumber from '$lib/components/card-number/CardNumber.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { parseCalendarDate } from '$lib/logic/dates.ts';
+  import { displayDayWithYear } from '$lib/logic/format.ts';
   import type { SearchHit } from '$lib/state/content-search.ts';
 
   interface Props {
@@ -24,15 +28,20 @@
     href: string;
     /** The name of the board or wiki it is in; empty where it is not known. */
     container: string;
+    /** The reader's language, for the day an entry is of. */
+    locale: string;
     active: boolean;
     onGo: () => void;
     onPoint: () => void;
   }
 
-  let { hit, id, href, container, active, onGo, onPoint }: Props = $props();
+  let { hit, id, href, container, locale, active, onGo, onPoint }: Props = $props();
 
+  /** An entry's title is its day (`2026-11-21`), written as the reader reads a day. */
+  const day = $derived(hit.kind === 'entry' ? parseCalendarDate(hit.title) : undefined);
   const title = $derived(
-    hit.title ||
+    (day && displayDayWithYear(day, locale)) ||
+      hit.title ||
       (hit.kind === 'page'
         ? m.search_untitled_page()
         : hit.kind === 'unit'
@@ -73,6 +82,8 @@
 >
   {#if hit.kind === 'page'}
     <FileTextIcon class="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+  {:else if hit.kind === 'entry'}
+    <NotebookPenIcon class="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
   {:else if hit.kind === 'unit'}
     <GraduationCapIcon class="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
   {:else}
@@ -85,7 +96,9 @@
           ? m.search_hit_page()
           : hit.kind === 'unit'
             ? m.search_hit_unit()
-            : m.search_hit_card()}</span
+            : hit.kind === 'entry'
+              ? m.search_hit_entry()
+              : m.search_hit_card()}</span
       >
       <CardNumber number={hit.number} class="self-center text-xs" />
       <span class="min-w-0 truncate font-medium" data-hit-title>{title}</span>

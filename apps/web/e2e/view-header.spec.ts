@@ -789,9 +789,23 @@ test.describe('views', () => {
     await expect(lines.last()).toHaveText('Month calendar');
     // At the end, down is no way: the focus goes to up, which is.
     await expect(down).toBeDisabled();
-    await expect(
-      sheet(page).getByRole('menuitem', { name: 'Move Month calendar up' }),
-    ).toBeFocused();
+    const up = sheet(page).getByRole('menuitem', { name: 'Move Month calendar up' });
+    await expect(up).toBeFocused();
+    // Pressed twice before the first is answered: the word of the first, coming
+    // after the second is shown, does not put the list back, nor take the focus.
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await expect(lines).toHaveText([
+      'Gantt',
+      'Milestones',
+      'Month calendar',
+      'Status board',
+      'Task table',
+    ]);
+    await expect(sheet(page).getByText('Month calendar is now 3 of 5')).toBeAttached();
+    await expect(up).toBeFocused();
+    await expect.poll(() => storedOrder(page)).toEqual(SEED_VIEWS);
+    await expect(up).toBeFocused();
     // And Alt and an arrow on a line, as in the dropdown.
     const first = lines.filter({ hasText: 'Gantt' });
     await first.focus();
@@ -800,7 +814,7 @@ test.describe('views', () => {
     await expect(first).toBeFocused();
     await expect
       .poll(() => storedOrder(page))
-      .toEqual(['Milestones', 'Gantt', 'Status board', 'Task table', 'Month calendar']);
+      .toEqual(['Milestones', 'Gantt', 'Month calendar', 'Status board', 'Task table']);
   });
 
   test('the last view of a board cannot be deleted', async ({ page }) => {

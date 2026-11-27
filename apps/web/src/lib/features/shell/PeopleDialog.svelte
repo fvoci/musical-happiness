@@ -39,7 +39,7 @@
 
 <Dialog.Root bind:open>
   <Dialog.Content
-    class="flex max-h-[min(90dvh,44rem)] flex-col gap-0 p-0 sm:max-w-lg"
+    class="flex max-h-[min(calc(90dvh-var(--keyboard)),44rem)] flex-col gap-0 p-0 sm:max-w-lg"
     showCloseButton={false}
     data-testid="people-dialog"
   >

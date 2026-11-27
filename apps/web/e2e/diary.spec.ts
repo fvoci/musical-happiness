@@ -5,13 +5,14 @@
  * before it folded; an entry is made by what is written first, not before;
  * a year nobody wrote on is written on afterwards; the days step through
  * `02-29`; midnight moves today and leaves what is being written where it
- * is; and all of it goes by the keyboard alone and fits a phone.
+ * is; `[[` puts a reference to a page of the own space; and all of it goes
+ * by the keyboard alone and fits a phone.
  *
  * The world in memory starts anew on a load: going about inside the page is
  * done as the app's links do (`goInside`). The same diary over a load and
  * from two devices is tested against the server (`e2e-live/diary.spec.ts`).
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import {
   ON_A_DAY,
@@ -28,7 +29,7 @@ import {
 import { primaryKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 import { openApp, showSidebar, sidebar } from './shell.support.ts';
-import { goInside } from './wiki.support.ts';
+import { ON_A_WIKI, goInside } from './wiki.support.ts';
 
 test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
 
@@ -337,4 +338,128 @@ test('keeps a manual body version with ⌘S/Ctrl+S and restores from the version
   await page.getByTestId('confirm-dialog').getByRole('button', { name: 'Restore' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(editorOf(today)).toHaveText('First entry draft.');
+});
+
+test('`[[` in an entry puts a reference to a page of the own space, which leads there', async ({
+  page,
+}) => {
+  await openDiary(page);
+  // A wiki of the own space, with a page.
+  await showSidebar(page);
+  await sidebar(page).getByTestId('add-board').click();
+  const picker = page.getByTestId('template-picker');
+  await picker.getByTestId('new-title').fill('Trips');
+  await picker.getByTestId('new-title').press('Enter');
+  await picker.getByTestId('new-wiki').click();
+  await expect(page).toHaveURL(ON_A_WIKI);
+  const wikiId = ON_A_WIKI.exec(page.url())?.[1] ?? '';
+  const pageId = await page.evaluate(async (id) => {
+    const dev = (
+      window as unknown as {
+        fvociDev: {
+          backend: {
+            wiki: { createPage(id: string, draft: object): Promise<{ id: string }> };
+          };
+        };
+      }
+    ).fvociDev;
+    return (await dev.backend.wiki.createPage(id, { title: 'Packing list' })).id;
+  }, wikiId);
+
+  // Back to the day, as the browser's back button goes.
+  await page.goBack();
+  await expect(page).toHaveURL(ON_A_DAY);
+  const today = year(page, '2026-11-21');
+  await editorOf(today).click();
+  await page.keyboard.type('Packed by [[Packing');
+  const option = page
+    .locator('[data-suggestions="reference"]')
+    .getByRole('option', { name: 'Packing list · Page' });
+  await expect(option).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  const chip = today.locator(`[data-reference][data-block-id="${pageId}"]`);
+  await expect(chip).toHaveAttribute('data-state', 'shown');
+  await expect(chip).toHaveText('Packing list');
+  await chip.getByRole('link').click();
+  await expect(page).toHaveURL(new RegExp(`/wikis/${wikiId}/${pageId}$`, 'u'));
+});
+
+/** The mood of the entry of `monthDay` of the diary shown, as the backend has it. */
+async function moodOn(page: Page, monthDay: string): Promise<unknown> {
+  return page.evaluate(
+    async ([diaryId, day]) => {
+      const { diary } = (
+        window as unknown as {
+          fvociDev: {
+            backend: {
+              diary: { entriesOn(id: string, day: string): Promise<{ mood: unknown }[]> };
+            };
+          };
+        }
+      ).fvociDev.backend;
+      return (await diary.entriesOn(diaryId, day))[0]?.mood;
+    },
+    [dayOf(page).diaryId, monthDay] as const,
+  );
+}
+
+/** Deletes the entry of `monthDay` of the diary shown, as another device of the reader would. */
+async function deletedElsewhere(page: Page, monthDay: string): Promise<void> {
+  await page.evaluate(
+    async ([diaryId, day]) => {
+      const { diary } = (
+        window as unknown as {
+          fvociDev: {
+            backend: {
+              diary: {
+                entriesOn(id: string, day: string): Promise<{ id: string }[]>;
+                deleteEntry(id: string, entryId: string): Promise<void>;
+              };
+            };
+          };
+        }
+      ).fvociDev.backend;
+      const [entry] = await diary.entriesOn(diaryId, day);
+      if (entry) await diary.deleteEntry(diaryId, entry.id);
+    },
+    [dayOf(page).diaryId, monthDay] as const,
+  );
+}
+
+test('the menu brings a deleted entry back to its day, unless the day has one since', async ({
+  page,
+}) => {
+  await openDiary(page);
+  const today = year(page, '2026-11-21');
+  // A day with a mood is no empty one, which a deletion would not keep.
+  const notes = today.getByTestId('entry-notes');
+  await notes.getByRole('button', { name: 'Good', exact: true }).click();
+  await expect(today).toHaveAttribute('data-written', '');
+  await expect.poll(() => moodOn(page, '11-21')).toBe('good');
+  await deletedElsewhere(page, '11-21');
+  await expect(today).not.toHaveAttribute('data-written');
+
+  await page.getByTestId('diary-menu').click();
+  await page.locator('[data-action="trash"]').click();
+  const trash = page.getByTestId('entry-trash');
+  const row = trash.locator('[data-trash-item="Saturday, November 21, 2026 · Good"]');
+  await expect(row).toBeVisible();
+  await expect(row.getByTestId('trash-days-left')).toHaveText('30 days left');
+  await row.getByRole('button', { name: /Restore/u }).click();
+  await expect(trash.getByTestId('trash-empty')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(today).toHaveAttribute('data-written', '');
+  await expect(notes.getByRole('button', { name: 'Good' })).toHaveAttribute('aria-pressed', 'true');
+
+  // Deleted again, and the day written anew: the one in the trash finds it taken.
+  await deletedElsewhere(page, '11-21');
+  await expect(today).not.toHaveAttribute('data-written');
+  await editorOf(today).click();
+  await page.keyboard.type('Sun after all.');
+  await expect(today).toHaveAttribute('data-written', '');
+  await page.getByTestId('diary-menu').click();
+  await page.locator('[data-action="trash"]').click();
+  await trash.getByRole('button', { name: /Restore/u }).click();
+  await expect(page.getByTestId('problems')).toContainText('that day has an entry written since');
+  await expect(today).toContainText('Sun after all.');
 });

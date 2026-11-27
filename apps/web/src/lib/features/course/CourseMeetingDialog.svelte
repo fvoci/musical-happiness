@@ -205,7 +205,7 @@
     data-testid="course-meeting-dialog"
     class={compact
       ? 'top-0 left-0 flex h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none p-0 pt-(--safe-top) pr-(--safe-right) pb-(--safe-bottom) pl-(--safe-left) ring-0 sm:max-w-none'
-      : 'flex max-h-[min(44rem,calc(100dvh-2rem))] flex-col gap-0 p-0 sm:max-w-lg'}
+      : 'flex max-h-[min(44rem,calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom)-var(--keyboard)))] flex-col gap-0 p-0 sm:max-w-lg'}
   >
     <Dialog.Header class="shrink-0 flex-row items-center gap-2 border-b px-4 py-3">
       <CalendarPlusIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -293,7 +293,7 @@
               bind:value={presenterId}
               disabled={busy}
               data-testid="meeting-presenter-select"
-              class="h-9 rounded-md border border-input-border bg-background px-2.5 text-sm text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none roomy:min-h-touch"
+              class="h-9 rounded-md border border-input-border bg-background px-2.5 text-base text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none md:text-sm roomy:min-h-touch"
             >
               <option value="">{m.course_meetings_field_none()}</option>
               {#if preservedPresenter}
@@ -313,7 +313,7 @@
               bind:value={hostId}
               disabled={busy}
               data-testid="meeting-host-select"
-              class="h-9 rounded-md border border-input-border bg-background px-2.5 text-sm text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none roomy:min-h-touch"
+              class="h-9 rounded-md border border-input-border bg-background px-2.5 text-base text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none md:text-sm roomy:min-h-touch"
             >
               <option value="">{m.course_meetings_field_none()}</option>
               {#if preservedHost}

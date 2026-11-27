@@ -145,6 +145,28 @@ test.describe('the search of cards and pages', () => {
     await expect(open).toBeFocused();
   });
 
+  test('offers the boards to go to at once, then those whose title holds what is typed', async ({
+    page,
+  }) => {
+    await openWithSearch(page);
+    const open = topBar(page).getByTestId('open-search');
+    await open.click();
+    const jumps = dialog(page).getByTestId('search-jumps').locator('[data-search-jump]');
+    await expect(jumps.first()).toBeVisible();
+    await search(page, 'STUDY');
+    await expect(jumps).toHaveCount(1);
+    await expect(jumps).toContainText('Study notes');
+    // They are links beside the list of what was found, not options of it.
+    await expect(hits(page).filter({ hasText: 'Study notes' })).toHaveCount(0);
+    await jumps.click();
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page).toHaveURL(ON_A_VIEW);
+    await expect(topBar(page)).toContainText('Study notes');
+    // Gone elsewhere: the focus is the new page's, not back on the button that opened the search.
+    await expect(page.locator('main')).toBeFocused();
+    await expect(open).not.toBeFocused();
+  });
+
   test('finds a card by a word of its body and opens it, by the keyboard alone', async ({
     page,
   }) => {
@@ -194,6 +216,8 @@ test.describe('the search of cards and pages', () => {
     await page.keyboard.press(await primaryKey(page, 'k'));
     await search(page, 'platypus');
     await expect(hits(page)).toHaveCount(1);
+    // Diaries are the own space's: their entries are no kind to find here.
+    await expect(dialog(page).getByRole('radio', { name: 'Diary' })).toHaveCount(0);
     await dialog(page).getByRole('radio', { name: 'Pages' }).click();
     await expect(dialog(page)).toHaveAttribute('data-status', 'none');
     await expect(page.getByTestId('search-said')).toHaveText('Nothing found.');

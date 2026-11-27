@@ -43,10 +43,18 @@
     yearOf,
   } from '$lib/logic/diary-days.ts';
   import { displayDay, displayYear } from '$lib/logic/format.ts';
-  import { DiaryStore, whileHere, type EntryStore, type Workspace } from '$lib/state/index.ts';
+  import {
+    DiaryStore,
+    entryTrash,
+    whileHere,
+    type EntryStore,
+    type Trash,
+    type Workspace,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import NotFound from './NotFound.svelte';
+  import DiaryTrash from './DiaryTrash.svelte';
   import type { Route, Router } from './router.svelte.ts';
   import { takeWriteToday } from './write-today.ts';
 
@@ -185,6 +193,8 @@
   }
 
   let renaming = $state(false);
+  let trash = $state.raw<Trash | undefined>(undefined);
+  let trashOpen = $state(false);
   let deleting = $state(false);
   const openEntryId = $derived(
     open ? diary?.entries.find((one) => one.date === open)?.id : undefined,
@@ -266,6 +276,11 @@
         onRename={() => {
           renaming = true;
         }}
+        onTrash={() => {
+          trash = entryTrash(store);
+          void trash.read();
+          trashOpen = true;
+        }}
         onDelete={() => {
           deleting = true;
         }}
@@ -340,6 +355,7 @@
       of="entry"
     />
   {/if}
+  <DiaryTrash bind:open={trashOpen} {trash} {workspace} />
   <DiaryNameDialog
     bind:open={renaming}
     initial={store.diary?.title ?? ''}

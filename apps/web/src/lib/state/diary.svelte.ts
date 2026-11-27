@@ -110,6 +110,19 @@ export class DiaryStore implements EntryHost {
     this.entries = this.entries.filter((one) => one.id !== entryId);
   }
 
+  /**
+   * Brings an entry back from the diary's trash to its day, shown there at
+   * once; refused (`day_taken`: the day has an entry since), it throws.
+   */
+  async restoreEntry(entryId: string): Promise<void> {
+    const diaries = this.workspace.backend.diary;
+    if (!diaries) return;
+    const entry = await diaries.restoreEntry(this.diaryId, entryId);
+    this.#goneAt.delete(entryId);
+    this.received(entry);
+    this.#days.get(entry.date)?.adopt(entry);
+  }
+
   catchUpEntry(entryId: string): void {
     this.#fetchEntry(entryId);
   }

@@ -1,8 +1,10 @@
 <!--
   The organization screen (`/org/<organization>`), for its administrators
-  only: the workspaces (`OrgWorkspaces.svelte`), the members and their roles,
-  the switches of the public links, of copying out and of personal API tokens
-  under single sign-on, the members' tokens that reach it
+  only: the workspaces (`OrgWorkspaces.svelte`), its single sign-on
+  (`OrgSso.svelte`, one line until it is set up), the members and their roles,
+  its policies (`OrgPolicy.svelte`: its name, and the switches of the public
+  links, of copying out and, while it takes its single sign-on alone, of
+  personal API tokens), the members' tokens that reach it
   (`OrgApiTokens.svelte`), and what was done to the organization.
   An administrator manages here; what is in a workspace they read by joining
   it. A refused change is told in a line at the top; the lists show what the
@@ -22,11 +24,11 @@
   import type { OidcSettings } from '$lib/state/oidc.ts';
   import type { OrgMember } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
-  import { Switch } from '$lib/ui/switch/index.js';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import PersonProfile from '$lib/components/person/PersonProfile.svelte';
 
   import OrgApiTokens from './OrgApiTokens.svelte';
+  import OrgPolicy from './OrgPolicy.svelte';
   import OrgWorkspaces from './OrgWorkspaces.svelte';
   import OrgSso from './OrgSso.svelte';
 
@@ -202,52 +204,7 @@
       </ul>
     </section>
 
-    <section class="flex flex-col gap-3" aria-labelledby="org-settings">
-      <h2 id="org-settings" class="text-base font-semibold">{m.org_settings()}</h2>
-      <label class="flex items-start gap-3 rounded-md border px-3 py-2">
-        <span class="min-w-0 flex-1">
-          <span class="block">{m.org_public_links()}</span>
-          <span class="block text-xs text-muted-foreground">{m.org_public_links_hint()}</span>
-        </span>
-        <!-- Drawn anew with what the server has after each change: a refused one flips back. -->
-        {#key admin.organization}
-          <Switch
-            checked={admin.organization?.publicLinks ?? true}
-            disabled={admin.busy}
-            data-testid="org-public-links"
-            onCheckedChange={(on: boolean) => void admin.setPublicLinks(on)}
-          />
-        {/key}
-      </label>
-      <label class="flex items-start gap-3 rounded-md border px-3 py-2">
-        <span class="min-w-0 flex-1">
-          <span class="block">{m.org_allow_copy_out()}</span>
-          <span class="block text-xs text-muted-foreground">{m.org_allow_copy_out_hint()}</span>
-        </span>
-        {#key admin.organization}
-          <Switch
-            checked={admin.organization?.allowCopyOut ?? true}
-            disabled={admin.busy}
-            data-testid="org-allow-copy-out"
-            onCheckedChange={(on: boolean) => void admin.setAllowCopyOut(on)}
-          />
-        {/key}
-      </label>
-      <label class="flex items-start gap-3 rounded-md border px-3 py-2">
-        <span class="min-w-0 flex-1">
-          <span class="block">{m.org_api_tokens_allow()}</span>
-          <span class="block text-xs text-muted-foreground">{m.org_api_tokens_allow_hint()}</span>
-        </span>
-        {#key admin.organization}
-          <Switch
-            checked={admin.organization?.allowApiTokens ?? false}
-            disabled={admin.busy}
-            data-testid="org-allow-api-tokens"
-            onCheckedChange={(on: boolean) => void admin.setAllowApiTokens(on)}
-          />
-        {/key}
-      </label>
-    </section>
+    <OrgPolicy {admin} />
 
     {#key admin.orgId}
       <OrgApiTokens

@@ -3,7 +3,8 @@
   the day of the year shown (`November 21`), the way to the day before and
   the day after, back to today, and to any day picked from the diary's
   calendar of written days (`WrittenDays`; its year shown too, below this
-  year's), and the diary's menu (renaming it, deleting it).
+  year's), and the diary's menu (renaming it, its deleted entries to bring
+  back, deleting it).
 
   "Today" is the reader's: it says it is the day shown (`aria-current`) and
   takes them back there from any other, also after midnight came while the
@@ -17,6 +18,7 @@
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import FlameIcon from '@lucide/svelte/icons/flame';
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -47,6 +49,8 @@
     /** A day was picked, of any year up to today. */
     onPick: (date: CalendarDate) => void;
     onRename: () => void;
+    /** Opens the diary's trash. */
+    onTrash: () => void;
     onDelete: () => void;
   }
 
@@ -61,6 +65,7 @@
     onToday,
     onPick,
     onRename,
+    onTrash,
     onDelete,
   }: Props = $props();
 
@@ -100,6 +105,7 @@
 
   const actions = $derived([
     { id: 'rename', label: m.diary_rename(), icon: PencilIcon, run: onRename },
+    { id: 'trash', label: m.diary_restore_deleted(), icon: RotateCcwIcon, run: onTrash },
     {
       id: 'delete',
       label: m.shell_delete_diary(),

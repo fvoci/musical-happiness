@@ -93,7 +93,7 @@
             },
   );
 
-  const references = $derived(of === 'entry' ? undefined : bodyReferences(container));
+  const references = $derived(bodyReferences(container));
 
   /** How many faces a version shows of those who wrote it. */
   const FACES = 3;

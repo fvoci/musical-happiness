@@ -51,7 +51,11 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content data-testid="course-settings" {@attach opened}>
+  <Dialog.Content
+    class="max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom)-var(--keyboard))] overflow-y-auto"
+    data-testid="course-settings"
+    {@attach opened}
+  >
     <form class="grid gap-4" onsubmit={submit}>
       <Dialog.Header>
         <Dialog.Title>{m.course_settings_title()}</Dialog.Title>

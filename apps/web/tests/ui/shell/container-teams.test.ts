@@ -106,3 +106,24 @@ it('leaves out an empty list of teams for a reader who changes nothing', async (
   });
   expect(screen.queryByTestId('board-teams')).toBeNull();
 });
+
+it('stays open when the last team is taken off the board, with the way to add one', async () => {
+  let onBoard = [{ team: DESIGN, role: 'editor' as const }];
+  const teams = makeTeams({
+    onContainer: vi.fn<Teams['onContainer']>(() => Promise.resolve(onBoard)),
+    unassign: vi.fn<Teams['unassign']>(() => {
+      onBoard = [];
+      return Promise.resolve();
+    }),
+  });
+  const { workspace, board } = makeHarness();
+  render(ContainerTeams, { workspace, shareable: board, teams, foldable: true });
+  const remove = await screen.findByRole('button', { name: 'Remove Design from board' });
+  expect(screen.getByTestId('board-teams-toggle')).toHaveAttribute('aria-expanded', 'true');
+  await fireEvent.click(remove);
+  await waitFor(() => {
+    expect(screen.queryByRole('button', { name: 'Remove Design from board' })).toBeNull();
+  });
+  expect(screen.getByTestId('board-teams-toggle')).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getAllByRole('combobox').length).toBeGreaterThan(0);
+});

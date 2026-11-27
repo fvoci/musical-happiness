@@ -61,7 +61,7 @@
             }}
           >
             <input
-              class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
+              class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 text-base md:text-sm"
               aria-label={m.groups_new_name({ name: team.name })}
               aria-invalid={nameProblem !== undefined || undefined}
               aria-describedby={nameProblem}
@@ -132,7 +132,7 @@
           }}
         >
           <select
-            class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
+            class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 text-base md:text-sm"
             aria-label={m.groups_choose_member()}
             bind:value={selected}
             disabled={working}

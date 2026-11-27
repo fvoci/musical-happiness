@@ -241,6 +241,15 @@ export type {
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export { OrganizationNames, organizationNames } from './organization-names.svelte.ts';
+export { BlockWatch } from './block-watch.svelte.ts';
+export type { WatchedKind, Watches } from './watch-types.ts';
+export {
+  copyOutPlace,
+  copyPlaces,
+  forgetCopyRefusal,
+  keepsCopiesIn,
+  noteCopyOut,
+} from './copy-out.svelte.ts';
 export type {
   GuestContainerRole,
   Invitation,
@@ -283,6 +292,7 @@ export {
   cardTrash,
   pageTrash,
   unitTrash,
+  entryTrash,
   Trash,
   type TrashStatus,
 } from './trash.svelte.ts';

@@ -8,7 +8,8 @@
  * mood, weather and place; a diary has one entry a day (making a day's entry
  * again answers the one there) and at most `ENTRIES_PER_DIARY`. A day is a
  * day of the calendar no more than two days past the world's own (UTC).
- * Deleting an entry puts it in the trash, where it holds no day.
+ * Deleting an entry puts it in the trash, where it holds no day; it comes
+ * back to its day unless the day has an entry since (409 `day_taken`).
  */
 import type { DocNode } from '../../editor/schema.ts';
 import {
@@ -32,6 +33,7 @@ import {
 } from '../diary-types.ts';
 
 import type { BackendError } from '../problems.ts';
+import type { DeletedItem, Paging } from '../trash-reads.ts';
 
 import { checkedBody, checkedWhole } from './bodies.ts';
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
@@ -40,6 +42,7 @@ import { pause } from './pause.ts';
 import { fail } from './refuse.ts';
 import { changeOf, copy, entryOf, memberOf } from './shapes.ts';
 import { checkWorkspace, ownSpaceOf } from './spaces.ts';
+import { pageOf } from './paging.ts';
 import { deletion } from './trash.ts';
 import type { StoredBlock, StoredCard, World } from './world.ts';
 
@@ -357,6 +360,47 @@ export class MemoryDiaries implements Diaries {
       containerId: diaryId,
       blockIds: [entryId],
     });
+  }
+
+  async deletedEntries(diaryId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enter('deletedEntries');
+    this.#diary(diaryId);
+    const items: DeletedItem[] = [];
+    for (const [id, deleted] of this.#world.deletedBlocks) {
+      const [block] = deleted.blocks;
+      if (deleted.containerId !== diaryId || block?.type !== 'entry') continue;
+      const { mood } = entryOf(block);
+      const { deletedAt, deletedBy } = deleted;
+      items.push({ id, title: block.title, deletedAt, deletedBy, mood });
+    }
+    return pageOf(
+      items.sort((one, other) => other.deletedAt - one.deletedAt),
+      paging,
+    );
+  }
+
+  async restoreEntry(diaryId: string, entryId: string): Promise<DiaryEntryDetail> {
+    await this.#enter('restoreEntry');
+    this.#diary(diaryId);
+    const deleted = this.#world.deletedBlocks.get(entryId);
+    const [block] = deleted?.blocks ?? [];
+    if (deleted?.containerId !== diaryId || block?.type !== 'entry') {
+      fail(404, 'no such entry in the trash');
+    }
+    const entries = this.#entriesOf(diaryId);
+    if (entries.some((each) => each.title === block.title)) {
+      fail(409, 'the day has an entry since', { reason: 'day_taken' });
+    }
+    if (entries.length >= ENTRIES_PER_DIARY) {
+      fail(400, 'the diary has as many entries as it may', {
+        reason: 'too_many_entries',
+        limit: ENTRIES_PER_DIARY,
+      });
+    }
+    this.#world.deletedBlocks.delete(entryId);
+    this.#world.blocks.set(entryId, block);
+    this.#world.tellContainer(diaryId, changeOf(diaryId, block));
+    return detailOf(block);
   }
 }
 

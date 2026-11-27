@@ -1,7 +1,9 @@
 <!--
   Global top-bar pill for the single running personal timer.
   Clicking the pill navigates to the tracked card/unit (or My time when targetless);
-  the stop button stops the timer immediately.
+  the stop button stops the timer immediately. On a phone's narrow pane it is
+  the dot, the clock and the stop button alone: the target is in the link's
+  name, and shows from a pane of `medium` on.
 -->
 <script lang="ts">
   import SquareIcon from '@lucide/svelte/icons/square';
@@ -62,7 +64,10 @@
     >
       {kindLabel(entry.kind)}
     </span>
-    <span class="min-w-0 truncate font-medium" data-testid="active-timer-title">
+    <span
+      class="hidden min-w-0 truncate font-medium @medium/pane:block"
+      data-testid="active-timer-title"
+    >
       {label}
     </span>
     <span

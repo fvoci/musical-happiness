@@ -15,6 +15,10 @@
   A day the reader opened by pressing it (`focus`) has the caret put at the
   end of what it holds, once, by whichever editor comes first, and at once:
   what is typed right after the press goes into it.
+
+  Both editors put and draw references (`[[`) to the cards, pages and units
+  of the reader's own space, as the bodies of its boards and wikis do
+  (`bodyReferences`).
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
@@ -24,6 +28,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { EntryStore } from '$lib/state/index.ts';
 
+  import { bodyReferences } from './body-references.ts';
   import CardBody from './CardBody.svelte';
   import { entryVersions, keepVersion, type KeepOutcome } from './body-versions.svelte.ts';
   import { editorChunk } from './editor-chunk.svelte.ts';
@@ -40,6 +45,7 @@
 
   /** Who may write, for the body: the reader alone, in their own diary. */
   const host = $derived({ workspace: entry.host.workspace, canEdit: true, orderedMembers: [] });
+  const references = $derived(bodyReferences({ workspace: entry.host.workspace }));
   const Draft = $derived(editorChunk.component);
   $effect(() => {
     editorChunk.load();
@@ -163,6 +169,7 @@
         composing = now;
       }}
       {onSave}
+      {references}
       onEditor={watchDraft}
       uploadFile={(file: File) => entry.uploadFile(file)}
     />
@@ -177,6 +184,7 @@
   keep={keepEntry}
   waiting={entry.entry && !entry.drafting ? undefined : draft}
   holding={composing || entry.flushing || (entry.drafting && !entry.room?.writable)}
+  {references}
   onEditor={adopt}
 />
 {#if entry.unsaved}

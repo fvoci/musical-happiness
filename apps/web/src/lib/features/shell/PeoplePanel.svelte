@@ -1,9 +1,11 @@
 <!--
-  The people of the workspace, for who administers it: a link that lets members
-  in (made here, shown once), the links that are out, for members and for the
-  guests of boards, each to be revoked; whether the admins of boards may
-  invite guests; and everybody who is in the workspace, with what they are in it
-  and a way to take them out. What `PeopleDialog.svelte` shows while it is open.
+  The people of the workspace, for who administers it, in the order they are
+  wanted: a link that lets members in (made here, shown once) and the member
+  links that are out; everybody who is in the workspace, with what they are
+  in it and a way to take them out; then, folded until they hold something,
+  the guests (whether the admins of boards may invite them, and their links
+  that are out) and the groups (`TeamsPanel`). Each link is to be revoked.
+  What `PeopleDialog.svelte` shows while it is open.
 
   Everything is read when the panel is made, which is each time the dialog
   opens, and again after every request: what the lists showed may be what was
@@ -26,6 +28,9 @@
   } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
+
+  import FoldHeading from '$lib/components/fold/FoldHeading.svelte';
+  import { Fold } from '$lib/components/fold/fold.svelte.ts';
 
   import InviteLink from './InviteLink.svelte';
   import TeamsPanel from './TeamsPanel.svelte';
@@ -89,6 +94,8 @@
 
   const memberLinks = $derived(links.filter((link) => link.role === 'member'));
   const guestLinks = $derived(links.filter((link) => link.role === 'guest'));
+  /** Folded until there is a guest link out: what most workspaces never use stays out of the way. */
+  const guestsFold = new Fold(() => guestLinks.length > 0);
 
   const containerTitle = (containerId: string | undefined): string =>
     workspace.containers.find((container) => container.id === containerId)?.title ||
@@ -217,10 +224,6 @@
       </p>
     {/if}
 
-    {#if people.teams}
-      <TeamsPanel {workspace} {people} teams={people.teams} membersChanged={version} />
-    {/if}
-
     <section class="grid gap-2" aria-labelledby="{uid}-invite">
       <h3 id="{uid}-invite" class="font-medium">{m.people_invite_title()}</h3>
       {#if made}
@@ -271,42 +274,6 @@
       {/if}
     </section>
 
-    <section class="grid gap-2" aria-labelledby="{uid}-guests">
-      <h3 id="{uid}-guests" class="font-medium">{m.people_guests_title()}</h3>
-      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
-        <span class="min-w-0 flex-1 text-sm text-muted-foreground">
-          {m.people_guests_switch()}
-        </span>
-        {#key version}
-          <Switch
-            checked={guestsInvited}
-            disabled={working}
-            data-testid="people-guests"
-            onCheckedChange={(checked: boolean) => void inviteGuests(checked)}
-          />
-        {/key}
-      </label>
-      {#if guestLinks.length > 0}
-        <ul class="grid gap-1" data-testid="people-guest-links">
-          {#each guestLinks as link (link.id)}
-            {@render linkRow(
-              link,
-              link.recipient
-                ? m.people_guest_link_row_to({
-                    recipient: link.recipient,
-                    board: containerTitle(link.containerId),
-                    ends: displayDate(link.expiresAt, context),
-                  })
-                : m.people_guest_link_row({
-                    board: containerTitle(link.containerId),
-                    ends: displayDate(link.expiresAt, context),
-                  }),
-            )}
-          {/each}
-        </ul>
-      {/if}
-    </section>
-
     <section class="grid gap-2" aria-labelledby="{uid}-members">
       <h3 id="{uid}-members" class="font-medium">
         {m.people_members_title({ workspace: workspaceName })}
@@ -333,7 +300,7 @@
             <!-- Their own role is changed by another admin, as on a board. -->
             {#key version}
               <select
-                class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
+                class="h-8 rounded-md border border-input-border bg-background px-2 text-base md:text-sm roomy:h-touch"
                 aria-label={m.people_role_of({ name })}
                 value={member.role}
                 disabled={working || self || member.role === 'guest'}
@@ -363,6 +330,56 @@
         {/each}
       </ul>
     </section>
+    <section class="grid gap-2" aria-labelledby="{uid}-guests" data-testid="people-guests-part">
+      <FoldHeading
+        id="{uid}-guests"
+        fold={guestsFold}
+        controls="{uid}-guests-body"
+        title={m.people_guests_title()}
+        count={guestLinks.length}
+        testId="people-guests-toggle"
+      />
+      {#if guestsFold.open}
+        <div id="{uid}-guests-body" class="grid gap-2">
+          <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
+            <span class="min-w-0 flex-1 text-sm text-muted-foreground">
+              {m.people_guests_switch()}
+            </span>
+            {#key version}
+              <Switch
+                checked={guestsInvited}
+                disabled={working}
+                data-testid="people-guests"
+                onCheckedChange={(checked: boolean) => void inviteGuests(checked)}
+              />
+            {/key}
+          </label>
+          {#if guestLinks.length > 0}
+            <ul class="grid gap-1" data-testid="people-guest-links">
+              {#each guestLinks as link (link.id)}
+                {@render linkRow(
+                  link,
+                  link.recipient
+                    ? m.people_guest_link_row_to({
+                        recipient: link.recipient,
+                        board: containerTitle(link.containerId),
+                        ends: displayDate(link.expiresAt, context),
+                      })
+                    : m.people_guest_link_row({
+                        board: containerTitle(link.containerId),
+                        ends: displayDate(link.expiresAt, context),
+                      }),
+                )}
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
+    </section>
+
+    {#if people.teams}
+      <TeamsPanel {workspace} {people} teams={people.teams} membersChanged={version} foldable />
+    {/if}
   {/if}
 </div>
 

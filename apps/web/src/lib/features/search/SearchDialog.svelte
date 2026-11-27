@@ -1,7 +1,8 @@
 <!--
   The search of what cards and pages say: a field, the kind to find (all,
-  cards, pages), and the list of what was found. In the middle of the page;
-  on a compact page it fills the screen.
+  cards, pages, units, and in the reader's own space diary entries), what to
+  go to at once (`jumps`, drawn by who opens it), and the list of what was
+  found. In the middle of the page; on a compact page it fills the screen.
 
   The field is a combobox and keeps the focus: the arrow keys choose a row
   of the list, Enter goes to it, ⌘/Ctrl+Enter opens it in a new tab, and
@@ -12,6 +13,7 @@
 -->
 <script lang="ts">
   import RotateCwIcon from '@lucide/svelte/icons/rotate-cw';
+  import type { Snippet } from 'svelte';
   import SearchIcon from '@lucide/svelte/icons/search';
   import XIcon from '@lucide/svelte/icons/x';
 
@@ -37,9 +39,25 @@
     onGo: (hit: SearchHit) => void;
     /** Where the focus goes back to when the dialog closes without going anywhere. */
     returnTo: () => HTMLElement | undefined;
+    /** The entries of diaries are a kind to find: in the reader's own space, where diaries are. */
+    withEntries?: boolean;
+    /** The reader's language, for the day an entry is of. */
+    locale: string;
+    /** What to go to at once for what is typed, above what was found. */
+    jumps?: Snippet<[string]> | undefined;
   }
 
-  let { open = $bindable(), session, containerOf, hrefOf, onGo, returnTo }: Props = $props();
+  let {
+    open = $bindable(),
+    session,
+    containerOf,
+    hrefOf,
+    onGo,
+    returnTo,
+    withEntries = false,
+    locale,
+    jumps,
+  }: Props = $props();
 
   const uid = $props.id();
   const listId = `${uid}-list`;
@@ -66,12 +84,13 @@
   );
   const compact = $derived(page.stage === 'compact');
 
-  const KINDS: { kind: SearchKind | undefined; label: () => string }[] = [
+  const KINDS = $derived<{ kind: SearchKind | undefined; label: () => string }[]>([
     { kind: undefined, label: () => m.search_kind_all() },
     { kind: 'card', label: () => m.search_kind_cards() },
     { kind: 'page', label: () => m.search_kind_pages() },
     { kind: 'unit', label: () => m.search_kind_units() },
-  ];
+    ...(withEntries ? [{ kind: 'entry' as const, label: () => m.search_kind_entries() }] : []),
+  ]);
 
   /** What is read out of the state of the search. */
   const said = $derived.by(() => {
@@ -110,8 +129,16 @@
   }
 
   function go(hit: SearchHit): void {
-    went = true;
+    leaving();
     onGo(hit);
+  }
+
+  /**
+   * The dialog is to close because the reader goes elsewhere, by what was
+   * found or by a jump to a place (`jumps`): the focus is then the new page's.
+   */
+  export function leaving(): void {
+    went = true;
   }
 
   /** Puts the focus in the field, what it holds chosen: ⌘K again while the dialog is open. */
@@ -224,7 +251,7 @@
     <div
       role="radiogroup"
       aria-label={m.search_kinds()}
-      class="flex gap-1"
+      class="flex flex-wrap gap-1"
       data-testid="search-kinds"
       {@attach arrowChoice()}
     >
@@ -247,6 +274,7 @@
     <p class="sr-only" aria-live="polite" data-testid="search-said">{said}</p>
 
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      {@render jumps?.(session.query)}
       <div
         bind:this={list}
         id={listId}
@@ -262,6 +290,7 @@
             id={optionId(index)}
             href={hrefOf(hit)}
             container={containerOf(hit)}
+            {locale}
             active={listed && index === activeIndex}
             onGo={() => {
               go(hit);

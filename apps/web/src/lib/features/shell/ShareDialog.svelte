@@ -20,6 +20,7 @@
   works and there are no guests and no teams, its admin has the public link
   alone (`linkOnly`). Opened at the members (`at`, from the number
   of members at the head of the board), the dialog begins at that section.
+  Guests and groups are folded while the board or the wiki has none.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -209,7 +210,7 @@
       'flex flex-col gap-0 p-0',
       compact
         ? 'top-0 left-0 h-dvh max-w-none translate-x-0 translate-y-0 rounded-none pt-(--safe-top) pr-(--safe-right) pb-(--safe-bottom) pl-(--safe-left) ring-0 sm:max-w-none'
-        : 'max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom))] w-[min(32rem,calc(100%-2rem))] max-w-none sm:max-w-none',
+        : 'max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom)-var(--keyboard))] w-[min(32rem,calc(100%-2rem))] max-w-none sm:max-w-none',
     ]}
   >
     <Dialog.Header class="shrink-0 flex-row items-center gap-2 border-b py-2 pr-2 pl-4">
@@ -250,7 +251,7 @@
             <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
               <span class="min-w-0 flex-1 text-muted-foreground">{m.share_minimum_role()}</span>
               <select
-                class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
+                class="h-8 rounded-md border border-input-border bg-background px-2 text-base md:text-sm roomy:h-touch"
                 data-testid="share-minimum-role"
                 value={minimumRole}
                 onchange={(event) =>
@@ -271,6 +272,7 @@
           {access}
           containerId={shareable.containerId}
           kind={shareable.container?.kind}
+          foldable
         />
       {/if}
 
@@ -330,7 +332,7 @@
                 {:else}
                   <!-- The reader's own role is another admin's to change: no locking oneself out. -->
                   <select
-                    class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+                    class="h-8 rounded-md border border-input-border bg-background px-2 text-base disabled:opacity-60 md:text-sm roomy:h-touch"
                     aria-label={m.share_role_of({ name })}
                     title={mine ? m.share_you_note() : undefined}
                     disabled={mine}
@@ -408,6 +410,7 @@
           teams={access.people.teams}
           {readOnly}
           {memberProgress}
+          foldable
         />
       {/if}
 

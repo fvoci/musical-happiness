@@ -113,3 +113,12 @@ it('says why a new name of a team is refused, and keeps the rename box with what
   expect(box).not.toHaveAttribute('aria-invalid');
   expect(box).not.toHaveAccessibleDescription(/already exists here/);
 });
+
+it('opens the folded groups to say they could not be read', async () => {
+  const teams = makeTeams({
+    list: vi.fn<Teams['list']>(() => Promise.reject(new BackendError(500, { detail: 'down' }))),
+  });
+  render(TeamsPanel, { workspace: makeWorkspace(), people: makePeople(), teams, foldable: true });
+  expect(await screen.findByRole('alert')).toHaveTextContent(/could not/i);
+  expect(screen.getByTestId('teams-toggle')).toHaveAttribute('aria-expanded', 'true');
+});

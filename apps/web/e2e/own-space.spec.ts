@@ -23,6 +23,7 @@ import {
   pressInBar,
   showSidebar,
   sidebar,
+  topBar,
 } from './shell.support.ts';
 import { ON_A_WIKI } from './wiki.support.ts';
 
@@ -111,6 +112,14 @@ test('the own space starts empty, keeps what is made in it, and shows nothing of
   await showSidebar(page);
   await expect(sidebar(page).getByRole('link')).toHaveCount(2);
   await expect(sidebar(page).getByText('Notes of mine')).toBeVisible();
+
+  // Its diaries' entries are a kind to find, as nowhere else.
+  await hideSidebar(page);
+  await topBar(page).getByTestId('open-search').click();
+  await expect(
+    page.getByTestId('search-kinds').getByRole('radio', { name: 'Diary', exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
 });
 
 test('a board of the own space is shared by its public link alone, with nobody to count', async ({

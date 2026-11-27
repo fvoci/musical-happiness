@@ -20,6 +20,7 @@ import {
   type EntryPatch,
   type Mood,
 } from '../state/diary-types.ts';
+import type { DeletedItem, Paging } from '../state/trash-reads.ts';
 
 import { ServerEntryVersions } from './body-versions.ts';
 import { bodyOf, containerOf, wireBody, type Schemas } from './convert.ts';
@@ -190,6 +191,31 @@ export class ServerDiaries implements Diaries {
       '/diaries/{diaryId}/entries/{entryId}',
       { diaryId, entryId },
       { method: 'DELETE', keepalive: options.keepalive },
+    );
+  }
+
+  async deletedEntries(diaryId: string, paging?: Paging): Promise<DeletedItem[]> {
+    const entries = await this.#request<Schemas['DeletedDiaryEntry'][]>(
+      '/diaries/{diaryId}/trash/entries',
+      { diaryId },
+      { query: { ...paging } },
+    );
+    return entries.map(({ id, date, deletedAt, deletedBy, mood }) => ({
+      id,
+      title: date,
+      deletedAt,
+      deletedBy,
+      mood: mood && MOODS.includes(mood) ? mood : null,
+    }));
+  }
+
+  async restoreEntry(diaryId: string, entryId: string): Promise<DiaryEntryDetail> {
+    return entryDetailOf(
+      await this.#request<Schemas['DiaryEntry']>(
+        '/diaries/{diaryId}/entries/{entryId}/restore',
+        { diaryId, entryId },
+        { method: 'POST' },
+      ),
     );
   }
 }

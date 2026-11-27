@@ -53,7 +53,10 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content data-testid="audit-dialog" class="max-h-[85dvh] overflow-y-auto">
+  <Dialog.Content
+    data-testid="audit-dialog"
+    class="max-h-[calc(85dvh-var(--keyboard))] overflow-y-auto"
+  >
     <Dialog.Header>
       <Dialog.Title>{m.audit_title()}</Dialog.Title>
       <Dialog.Description>{m.audit_description()}</Dialog.Description>

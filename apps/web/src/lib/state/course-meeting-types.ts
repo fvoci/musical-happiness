@@ -107,10 +107,18 @@ export interface CourseExam {
   updatedAt: number;
   /** Caller's own score row, or `null` if none / unjoined (never another member's score). */
   myScore: MyExamScore | null;
-  /** Mean score across active enrolled members who recorded a score; `null` when `scoreCount === 0`. */
+  /**
+   * The published snapshot's mean score, rounded to 0.1; `null` while the
+   * results are not published (a backend without publication may tell it
+   * all the same), or for an unjoined reader.
+   */
   averageScore: number | null;
-  /** Number of active enrolled members who recorded a score. */
+  /** Number of active enrolled members who recorded a score: exact for its managers, counted down to fives for the rest. */
   scoreCount: number;
+  /** When a manager of the course published the results; `null` while they are not. */
+  resultsPublishedAt: number | null;
+  /** How many had scored when the results were published, counted down to fives; `null` while they are not. */
+  publishedScoreBucket: number | null;
 }
 
 /** Request payload for creating a course exam. */
@@ -176,6 +184,13 @@ export interface CourseExamsApi {
     workspaceId?: string,
   ): Promise<MyExamScore>;
   deleteMyScore(courseId: string, examId: string, workspaceId?: string): Promise<void>;
+  /** Publishes the snapshot of the results, or takes it back; the exam as it then is. */
+  setResultsPublished(
+    courseId: string,
+    examId: string,
+    published: boolean,
+    workspaceId?: string,
+  ): Promise<CourseExam>;
 }
 
 export function isAttendanceStatus(value: unknown): value is AttendanceStatus {

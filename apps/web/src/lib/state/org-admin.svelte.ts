@@ -6,6 +6,7 @@
  */
 import type { MemberApiToken } from './api-tokens.ts';
 import { isBackendError, isSignedOut, ssoOrgOf } from './backend.ts';
+import { noteCopyOut } from './copy-out.svelte.ts';
 import type { OidcProvider, OidcSettings } from './oidc.ts';
 import type {
   AuditRecord,
@@ -22,12 +23,17 @@ import type {
  */
 export type OrgStatus = 'loading' | 'ready' | 'missing' | 'sso' | 'failed';
 
-/** What the page around the screen is told: the workspace's `report` and cache eviction. */
+/**
+ * What the page around the screen is told: the workspace's `report` and cache
+ * eviction, and the name the organization was given here, for the names the
+ * rest of the app shows (`OrganizationNames`).
+ */
 interface Shell {
   report(action: 'load', error: unknown): void;
   evictWorkspace?(workspaceId: string): void;
   evictOrg?(orgId: string): void;
   reloadWorkspaces?(): Promise<void> | void;
+  renamedOrganization?(orgId: string, name: string): void;
 }
 
 /** Why a change was refused, as the screen tells it. */
@@ -77,6 +83,13 @@ export class OrgAdmin {
   refusal = $state<OrgRefusal | undefined>(undefined);
   /** A change is under way. */
   busy = $state(false);
+  /**
+   * The organization takes its single sign-on alone (`ssoRequired`), as its
+   * provider was last read or saved here; false until then. Only then do
+   * personal API tokens wait for its leave (`allowApiTokens`): elsewhere they
+   * open it as any session does.
+   */
+  ssoRequired = $state(false);
 
   readonly #shell: Shell | undefined;
 
@@ -107,6 +120,7 @@ export class OrgAdmin {
         this.#api.records(this.orgId),
       ]);
       this.organization = organization;
+      noteCopyOut(organization.id, organization.allowCopyOut);
       this.workspaces = workspaces;
       this.members = members;
       this.records = records;
@@ -149,13 +163,16 @@ export class OrgAdmin {
     });
   }
 
-  oidcProvider(): Promise<OidcProvider | undefined> {
-    return this.#api.oidcProvider(this.orgId);
+  async oidcProvider(): Promise<OidcProvider | undefined> {
+    const provider = await this.#api.oidcProvider(this.orgId);
+    this.ssoRequired = provider?.ssoRequired === true;
+    return provider;
   }
 
   async saveOidcProvider(settings: OidcSettings): Promise<OidcProvider> {
     try {
       const saved = await this.#api.saveOidcProvider(this.orgId, settings);
+      this.ssoRequired = saved.ssoRequired;
       this.#shell?.evictOrg?.(this.orgId);
       return saved;
     } finally {
@@ -166,6 +183,7 @@ export class OrgAdmin {
   async deleteOidcProvider(): Promise<void> {
     try {
       await this.#api.deleteOidcProvider(this.orgId);
+      this.ssoRequired = false;
       this.#shell?.evictOrg?.(this.orgId);
     } finally {
       await this.load();
@@ -243,6 +261,16 @@ export class OrgAdmin {
       await this.#api.removeMember(this.orgId, userId);
       this.#shell?.evictOrg?.(this.orgId);
     });
+  }
+
+  /** Gives the organization another name; empty leaves it unnamed. */
+  async rename(name: string): Promise<boolean> {
+    const done = await this.#change(() =>
+      this.#api.changeOrganization(this.orgId, { name: name.trim() }),
+    );
+    const named = this.organization?.name;
+    if (done && named !== undefined) this.#shell?.renamedOrganization?.(this.orgId, named);
+    return done;
   }
 
   setPublicLinks(on: boolean): Promise<boolean> {

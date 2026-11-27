@@ -1,4 +1,7 @@
-<!-- Teams of this workspace. Members read them; administrators manage them. -->
+<!--
+  The groups of this workspace. Members read them; administrators manage them.
+  Among the other parts of the people (`foldable`), it is folded until it has a group.
+-->
 <script lang="ts">
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
@@ -12,6 +15,9 @@
   } from '$lib/state/index.ts';
   import type { Team, Teams } from '$lib/state/team-types.ts';
   import { Button } from '$lib/ui/button/index.js';
+  import FoldHeading from '$lib/components/fold/FoldHeading.svelte';
+  import { Fold } from '$lib/components/fold/fold.svelte.ts';
+
   import TeamRow from './TeamRow.svelte';
 
   let {
@@ -19,12 +25,20 @@
     people,
     teams,
     membersChanged = 0,
-  }: { workspace: Workspace; people: People; teams: Teams; membersChanged?: number } = $props();
+    foldable = false,
+  }: {
+    workspace: Workspace;
+    people: People;
+    teams: Teams;
+    membersChanged?: number;
+    foldable?: boolean;
+  } = $props();
   const id = $props.id();
   const workspaceId = $derived(workspace.info?.id);
   const managing = $derived(administers(workspace));
   const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
   let groups = $state.raw<Team[]>([]);
+  const fold = new Fold(() => !foldable || groups.length > 0 || unread);
   let members = $state.raw<WorkspaceMember[]>([]);
   const restrictedSelf = $derived(
     members.find((member) => member.userId === workspace.me?.id && member.joinedAsOrgAdmin)?.userId,
@@ -128,68 +142,84 @@
 </script>
 
 <section class="grid gap-3" aria-labelledby="{id}-title" data-testid="teams-panel">
-  <div>
+  {#if foldable}
+    <FoldHeading
+      id="{id}-title"
+      {fold}
+      controls="{id}-body"
+      title={m.groups_title()}
+      count={groups.length}
+      testId="teams-toggle"
+    />
+  {:else}
     <h3 id="{id}-title" class="font-medium">{m.groups_title()}</h3>
-    <p class="text-sm text-muted-foreground">
-      {m.groups_description({ workspace: workspaceName })}
-    </p>
-  </div>
-  {#if problem || unread}<p id={problemId} role="alert" class="text-sm text-destructive">
-      {problem || m.groups_load_failed()}
-    </p>{/if}
-  {#if managing}
-    <form
-      class="flex flex-wrap gap-2"
-      onsubmit={(event) => {
-        event.preventDefault();
-        if (name.trim())
-          void act(async (place) => {
-            await teams.create(place, name);
-            name = '';
-          }, CREATING);
-      }}
-    >
-      <input
-        class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
-        aria-label={m.groups_name()}
-        placeholder={m.groups_name()}
-        aria-invalid={refusedName === CREATING || undefined}
-        aria-describedby={refusedName === CREATING ? problemId : undefined}
-        bind:value={name}
-        oninput={() => {
-          if (refusedName === CREATING) refusedName = undefined;
-        }}
-        disabled={working}
-      />
-      <Button type="submit" size="sm" disabled={working || !name.trim()}>{m.groups_create()}</Button
-      >
-    </form>
   {/if}
-  {#if loaded && groups.length === 0}<p class="text-sm text-muted-foreground">
-      {m.groups_empty()}
-    </p>{/if}
-  <ul class="grid gap-2">
-    {#each groups as team (team.id)}
-      <TeamRow
-        {team}
-        {members}
-        {managing}
-        {working}
-        {restrictedSelf}
-        nameProblem={refusedName === team.id ? problemId : undefined}
-        onNameEdit={() => {
-          if (refusedName === team.id) refusedName = undefined;
-        }}
-        onRename={(value: string) => act((place) => teams.rename(place, team.id, value), team.id)}
-        onAdd={(userId: string) => act((place) => teams.addMember(place, team.id, userId))}
-        onRemove={(userId: string) => act((place) => teams.removeMember(place, team.id, userId))}
-        onDelete={() => {
-          deleting = team;
-          askOpen = true;
-        }}
-      />
-    {/each}
-  </ul>
+  {#if fold.open}
+    <div id="{id}-body" class="grid gap-3">
+      <p class="text-sm text-muted-foreground">
+        {m.groups_description({ workspace: workspaceName })}
+      </p>
+      {#if problem || unread}<p id={problemId} role="alert" class="text-sm text-destructive">
+          {problem || m.groups_load_failed()}
+        </p>{/if}
+      {#if managing}
+        <form
+          class="flex flex-wrap gap-2"
+          onsubmit={(event) => {
+            event.preventDefault();
+            if (name.trim())
+              void act(async (place) => {
+                await teams.create(place, name);
+                name = '';
+              }, CREATING);
+          }}
+        >
+          <input
+            class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 text-base md:text-sm"
+            aria-label={m.groups_name()}
+            placeholder={m.groups_name()}
+            aria-invalid={refusedName === CREATING || undefined}
+            aria-describedby={refusedName === CREATING ? problemId : undefined}
+            bind:value={name}
+            oninput={() => {
+              if (refusedName === CREATING) refusedName = undefined;
+            }}
+            disabled={working}
+          />
+          <Button type="submit" size="sm" disabled={working || !name.trim()}
+            >{m.groups_create()}</Button
+          >
+        </form>
+      {/if}
+      {#if loaded && groups.length === 0}<p class="text-sm text-muted-foreground">
+          {m.groups_empty()}
+        </p>{/if}
+      <ul class="grid gap-2">
+        {#each groups as team (team.id)}
+          <TeamRow
+            {team}
+            {members}
+            {managing}
+            {working}
+            {restrictedSelf}
+            nameProblem={refusedName === team.id ? problemId : undefined}
+            onNameEdit={() => {
+              if (refusedName === team.id) refusedName = undefined;
+            }}
+            onRename={(value: string) =>
+              act((place) => teams.rename(place, team.id, value), team.id)}
+            onAdd={(userId: string) => act((place) => teams.addMember(place, team.id, userId))}
+            onRemove={(userId: string) =>
+              act((place) => teams.removeMember(place, team.id, userId))}
+            onDelete={() => {
+              deleting = team;
+              askOpen = true;
+            }}
+          />
+        {/each}
+      </ul>
+    </div>
+  {/if}
 </section>
 
 <ConfirmDialog

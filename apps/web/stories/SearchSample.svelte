@@ -73,4 +73,5 @@
   hrefOf={(hit: SearchHit) => `#${hit.kind}-${hit.id}`}
   onGo={() => undefined}
   returnTo={() => undefined}
+  locale="en"
 />

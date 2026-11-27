@@ -142,7 +142,11 @@ export class CourseStore implements TreeSource<CourseUnit> {
         this.#syncUnitDates(units);
       },
     });
-    this.events = new CourseMeetingsState({ ...base, canEdit: () => this.canEdit });
+    this.events = new CourseMeetingsState({
+      ...base,
+      canEdit: () => this.canEdit,
+      canManageRoles: () => this.permissions.canManageRoles,
+    });
     this.#writes = new HierarchyWriteQueue({
       workspace,
       nodes: () => this.units,

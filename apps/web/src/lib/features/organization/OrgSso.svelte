@@ -1,6 +1,10 @@
-<!-- One provider per organization; the server proves which session may require it. -->
+<!--
+  One provider per organization; the server proves which session may require it.
+  Until one is set up, it is one line ("통합 로그인(SSO): 꺼짐 · 설정") whose
+  button opens the form.
+-->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { OidcProvider, OidcSettings } from '$lib/state/oidc.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -39,6 +43,9 @@
   let problem = $state('');
   let notice = $state('');
   let confirmRemove = $state(false);
+  /** The form was asked for while there is no provider. */
+  let settingUp = $state(false);
+  const folded = $derived(loaded && provider === undefined && !settingUp);
   const enforced = $derived(provider?.ssoRequired ?? false);
   /** Another issuer or client than the stored one: the server asks for its secret anew. */
   const changed = $derived(
@@ -126,12 +133,19 @@
     try {
       await remove();
       accept(undefined);
+      settingUp = false;
       notice = m.org_sso_removed();
     } catch (error) {
       problem = oidcProblem(error);
     } finally {
       busy = false;
     }
+  }
+
+  async function setUp(): Promise<void> {
+    settingUp = true;
+    await tick();
+    document.getElementById(`${uid}-issuer`)?.focus();
   }
 
   async function throwAway(): Promise<void> {
@@ -210,8 +224,22 @@
 />
 
 <section class="grid min-w-0 gap-3" aria-labelledby="{uid}-title" data-testid="org-sso">
-  <h2 id="{uid}-title" class="text-base font-semibold">{m.org_sso_title()}</h2>
-  <p class="text-sm text-muted-foreground">{m.org_sso_intro()}</p>
+  {#if folded}
+    <div class="flex flex-wrap items-center gap-x-2" data-testid="sso-off">
+      <h2 id="{uid}-title" class="text-base font-semibold">{m.org_sso_title()}:</h2>
+      <span class="text-muted-foreground">{m.org_sso_off()}</span>
+      <span class="text-muted-foreground" aria-hidden="true">·</span>
+      <Button
+        variant="link"
+        class="h-auto px-0 roomy:min-h-touch"
+        data-testid="sso-set-up"
+        onclick={() => void setUp()}>{m.org_sso_set_up()}</Button
+      >
+    </div>
+  {:else}
+    <h2 id="{uid}-title" class="text-base font-semibold">{m.org_sso_title()}</h2>
+    <p class="text-sm text-muted-foreground">{m.org_sso_intro()}</p>
+  {/if}
   <p role="alert" class="text-sm text-destructive empty:hidden">{problem}</p>
   <p role="status" class="text-sm text-muted-foreground empty:hidden">{notice}</p>
   {#if !loaded}
@@ -220,7 +248,7 @@
     {:else}
       <Button variant="outline" onclick={() => void load()}>{m.app_retry()}</Button>
     {/if}
-  {:else}
+  {:else if !folded}
     <form class="grid min-w-0 gap-4 rounded-md border p-4" onsubmit={(event) => void submit(event)}>
       <div class="grid gap-1.5">
         <Label for="{uid}-issuer">{m.org_sso_issuer()}</Label>
