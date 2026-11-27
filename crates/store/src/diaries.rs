@@ -582,10 +582,7 @@ async fn entry_of_day(
 ) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql("SELECT entry_id FROM diary_days WHERE container_id = ");
     sql.bind(Id(diary_id)).push_bind(" AND day = ", day);
-    match scope.fetch_optional(sql).await? {
-        Some(row) => Ok(Some(row.id(0)?)),
-        None => Ok(None),
-    }
+    scope.first(sql).await
 }
 
 /// Checks that the diary of `entry`, which is held, has room for one more entry.
@@ -593,10 +590,7 @@ async fn check_room(scope: &mut Scope<'_>, entry: &Block, limit: u32) -> Result<
     let mut sql =
         scope.sql("SELECT CAST(COUNT(*) AS BIGINT) FROM diary_days WHERE container_id = ");
     sql.bind(Id(&entry.container_id));
-    let entries = match scope.fetch_optional(sql).await? {
-        Some(row) => row.int(0)?,
-        None => 0,
-    };
+    let entries: i64 = scope.first(sql).await?.unwrap_or(0);
     if entries >= i64::from(limit) {
         return Err(StoreError::InvalidBlock {
             id: entry.id.clone(),
@@ -668,10 +662,7 @@ async fn check_space(
         scope.sql("SELECT CAST(COUNT(*) AS BIGINT) FROM containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND kind = ", ContainerKind::Diary.as_str());
-    let diaries = match scope.fetch_optional(sql).await? {
-        Some(row) => row.int(0)?,
-        None => 0,
-    };
+    let diaries: i64 = scope.first(sql).await?.unwrap_or(0);
     if diaries.saturating_add(i64::from(coming)) > i64::from(DIARIES_PER_SPACE) {
         return Err(ContainerError::TooManyDiaries {
             limit: DIARIES_PER_SPACE,

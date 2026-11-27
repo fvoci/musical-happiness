@@ -952,8 +952,9 @@ fn is_sql_ident(name: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
+mod reads;
 mod row;
-pub(crate) use row::Row;
+pub(crate) use row::{FromRow, Row};
 
 #[cfg(test)]
 mod tests;

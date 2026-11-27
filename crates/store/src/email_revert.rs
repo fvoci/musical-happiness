@@ -167,11 +167,7 @@ async fn hold_account(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
-    scope
-        .fetch_optional(sql)
-        .await?
-        .map(|row| Ok((row.text(0)?, row.text(1)?)))
-        .transpose()
+    scope.first(sql).await
 }
 
 /// A timestamp strictly after every revert link of `user_id` currently in `email_reverts`
@@ -233,7 +229,7 @@ pub(crate) async fn holds(
     if let Some(but) = but {
         sql.push_bind(" AND user_id <> ", Id(but));
     }
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// Ends the links of the account: its erasing began.

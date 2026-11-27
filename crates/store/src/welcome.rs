@@ -115,10 +115,7 @@ impl Store {
             sql.bind(Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NULL");
-            match scope.fetch_optional(sql).await? {
-                Some(row) => row.bool(0),
-                None => Ok(true),
-            }
+            Ok(scope.first(sql).await?.unwrap_or(true))
         })
         .await
     }

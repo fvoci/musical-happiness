@@ -11,7 +11,7 @@ use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::db::{Dialect, Id, LockRank, Row, Scope};
+use crate::db::{Dialect, FromRow, Id, LockRank, Row, Scope};
 use crate::error::StoreError;
 use crate::oidc::{
     self, Identity, Newcomers, OidcAccount, OidcRefusal, StoredProvider,
@@ -23,7 +23,7 @@ use crate::oidc_identities::LinkingSession;
 use crate::org_admin;
 use crate::sessions::{self, SessionsEnded};
 
-/// The columns of pending settings, in the order [`pending_from_row`] reads them.
+/// The columns of pending settings, in the order [`PendingProvider::from_row`] reads them.
 const PENDING_COLUMNS: &str = "provider_id, issuer, client_id, client_secret, created_at";
 
 /// The pending settings of the provider of an organization, as they are stored.
@@ -199,7 +199,7 @@ impl Store {
                 )
                 .push([" RETURNING ", PENDING_COLUMNS]);
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
-            let stored = pending_from_row(&row)?;
+            let stored = PendingProvider::from_row(&row)?;
             let entry = AuditEntry::new(
                 "",
                 actor_id,
@@ -515,7 +515,7 @@ async fn is_made_just_now(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR SHARE OF u");
     }
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// The pending settings of the transaction's organization's provider, if there are.
@@ -529,22 +529,19 @@ async fn read_pending(scope: &mut Scope<'_>) -> Result<Option<PendingProvider>, 
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
-    scope
-        .fetch_optional(sql)
-        .await?
-        .as_ref()
-        .map(pending_from_row)
-        .transpose()
+    scope.first(sql).await
 }
 
-fn pending_from_row(row: &Row) -> Result<PendingProvider, StoreError> {
-    Ok(PendingProvider {
-        provider_id: row.id(0)?,
-        issuer: row.text(1)?,
-        client_id: row.text(2)?,
-        sealed_client_secret: row.text(3)?,
-        created_at: row.int(4)?,
-    })
+impl FromRow for PendingProvider {
+    fn from_row(row: &Row) -> Result<Self, StoreError> {
+        Ok(PendingProvider {
+            provider_id: row.id(0)?,
+            issuer: row.text(1)?,
+            client_id: row.text(2)?,
+            sealed_client_secret: row.text(3)?,
+            created_at: row.int(4)?,
+        })
+    }
 }
 
 /// Whether the account a trial ended in is the trier's own, in use: it is held in use

@@ -122,7 +122,7 @@ pub(crate) async fn hold_for_new_link(
             sql.push(" FOR SHARE");
         }
     }
-    if scope.fetch_optional(sql).await?.is_none() {
+    if !scope.exists(sql).await? {
         return Err(StoreError::not_found("workspace"));
     }
     if let Some((container_id, _)) = link.guest_of {
@@ -135,7 +135,7 @@ pub(crate) async fn hold_for_new_link(
         if postgres {
             sql.push(" FOR KEY SHARE");
         }
-        if scope.fetch_optional(sql).await?.is_none() {
+        if !scope.exists(sql).await? {
             return Err(StoreError::not_found("board"));
         }
     }
@@ -154,7 +154,7 @@ pub(crate) async fn hold_for_new_link(
         if postgres {
             sql.push(" FOR SHARE");
         }
-        if scope.fetch_optional(sql).await?.is_none() {
+        if !scope.exists(sql).await? {
             return Err(StoreError::not_found("invitation"));
         }
     }
@@ -190,5 +190,5 @@ pub(crate) async fn hold_for_letting_in(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR KEY SHARE");
     }
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }

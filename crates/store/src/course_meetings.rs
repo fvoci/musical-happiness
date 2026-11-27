@@ -14,7 +14,7 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::containers::inherited_members_source;
-use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, SqlFragment};
+use crate::db::{Dialect, FromRow, Id, OptId, Param, Row, Scope, Sql, SqlFragment};
 use crate::error::StoreError;
 use crate::notification_outbox;
 
@@ -81,7 +81,7 @@ impl Store {
             let rows = scope.fetch_all(sql).await?;
             let mut meetings = Vec::with_capacity(rows.len());
             for row in &rows {
-                meetings.push(meeting_from_row(row)?);
+                meetings.push(CourseMeeting::from_row(row)?);
             }
             if meetings.is_empty() {
                 return Ok(meetings);
@@ -324,7 +324,7 @@ impl Store {
             if scope.dialect() == Dialect::Postgres {
                 exists.push(" FOR KEY SHARE");
             }
-            if scope.fetch_optional(exists).await?.is_none() {
+            if !scope.exists(exists).await? {
                 return Err(StoreError::not_found("meeting"));
             }
             require_active_course_member(scope, course_id, user_id, org.clone()).await?;
@@ -494,10 +494,7 @@ pub(crate) async fn require_live_course(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR KEY SHARE OF c");
     }
-    let Some(row) = scope.fetch_optional(sql).await? else {
-        return Err(StoreError::not_found("course"));
-    };
-    row.id(0)
+    scope.one(sql, "course").await
 }
 
 /// Appends the SQL subquery producing active enrolled `user_id` rows for live course
@@ -558,7 +555,7 @@ pub(crate) async fn require_active_course_member(
     let mut sql = scope.sql("SELECT 1 FROM ");
     push_active_course_members_subquery(scope, &mut sql, course_id, org);
     sql.push_bind(" AS am WHERE am.user_id = ", Id(user_id));
-    if scope.fetch_optional(sql).await?.is_none() {
+    if !scope.exists(sql).await? {
         return Err(StoreError::not_found("member"));
     }
     Ok(())
@@ -576,12 +573,7 @@ async fn active_course_member_ids(
     let mut sql = scope.sql("SELECT am.user_id FROM ");
     push_active_course_members_subquery(scope, &mut sql, course_id, org);
     sql.push(" AS am ORDER BY am.user_id");
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect()
+    scope.all(sql).await
 }
 
 async fn insert_meeting_notification(
@@ -632,10 +624,7 @@ async fn fetch_meeting_for_update(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
-    let Some(row) = scope.fetch_optional(sql).await? else {
-        return Err(StoreError::not_found("meeting"));
-    };
-    meeting_from_row(&row)
+    scope.one(sql, "meeting").await
 }
 
 async fn fetch_attendance_map(
@@ -674,30 +663,32 @@ async fn fetch_attendance_map(
     Ok(map)
 }
 
-fn meeting_from_row(row: &Row) -> Result<CourseMeeting, StoreError> {
-    let unit_ids_text = row.text(5)?;
-    let unit_ids: Vec<String> =
-        serde_json::from_str(&unit_ids_text).map_err(|error| StoreError::Corrupt {
-            column: "unit_ids",
-            reason: error.to_string(),
-        })?;
-    let presenter_id = non_empty(row.id(6)?);
-    let host_id = non_empty(row.id(7)?);
-    Ok(CourseMeeting {
-        id: row.id(0)?,
-        container_id: row.id(1)?,
-        title: row.text(2)?,
-        starts_at: row.int(3)?,
-        location: row.text(4)?,
-        unit_ids,
-        presenter_id,
-        host_id,
-        notes: row.text(8)?,
-        notified_at: row.opt_int(9)?,
-        created_at: row.int(10)?,
-        updated_at: row.int(11)?,
-        attendance: Vec::new(),
-    })
+impl FromRow for CourseMeeting {
+    fn from_row(row: &Row) -> Result<Self, StoreError> {
+        let unit_ids_text = row.text(5)?;
+        let unit_ids: Vec<String> =
+            serde_json::from_str(&unit_ids_text).map_err(|error| StoreError::Corrupt {
+                column: "unit_ids",
+                reason: error.to_string(),
+            })?;
+        let presenter_id = non_empty(row.id(6)?);
+        let host_id = non_empty(row.id(7)?);
+        Ok(CourseMeeting {
+            id: row.id(0)?,
+            container_id: row.id(1)?,
+            title: row.text(2)?,
+            starts_at: row.int(3)?,
+            location: row.text(4)?,
+            unit_ids,
+            presenter_id,
+            host_id,
+            notes: row.text(8)?,
+            notified_at: row.opt_int(9)?,
+            created_at: row.int(10)?,
+            updated_at: row.int(11)?,
+            attendance: Vec::new(),
+        })
+    }
 }
 
 fn non_empty(value: String) -> Option<String> {

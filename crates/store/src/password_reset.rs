@@ -62,16 +62,15 @@ impl Store {
         self.transaction(async |scope| {
             let mut find = scope.sql("SELECT user_id FROM password_resets WHERE token_hash = ");
             find.bind(digest).push_bind(" AND expires_at > ", now);
-            let Some(row) = scope.fetch_optional(find).await? else {
+            let Some(user_id) = scope.first::<String>(find).await? else {
                 return Ok(None);
             };
-            let user_id = row.id(0)?;
             let mut hold = scope.sql("SELECT id FROM users WHERE ");
             hold.push(RESETTABLE).push_bind(" AND id = ", Id(&user_id));
             if scope.dialect() == Dialect::Postgres {
                 hold.push(" FOR UPDATE");
             }
-            if scope.fetch_optional(hold).await?.is_none() {
+            if !scope.exists(hold).await? {
                 return Ok(None);
             }
             let now =

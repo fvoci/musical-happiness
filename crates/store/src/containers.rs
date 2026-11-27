@@ -16,7 +16,7 @@ use serde_json::Value;
 use crate::Store;
 // Re-exported through `containers` so newer modules avoid naming the legacy table module.
 pub(crate) use crate::container_team_access::inherited_members_source;
-use crate::db::{Dialect, Id, LockRank, OptId, Param, Row, Scope, Sql};
+use crate::db::{Dialect, FromRow, Id, LockRank, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::{block_derived, container_kinds, members, subscriptions};
 
@@ -402,16 +402,13 @@ pub(crate) async fn fetch_containers(
     scope: &mut Scope<'_>,
     sql: Sql,
 ) -> Result<Vec<Container>, StoreError> {
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(container_from_row)
-        .collect()
+    scope.all(sql).await
 }
 
-fn container_from_row(row: &Row) -> Result<Container, StoreError> {
-    container_from_row_at(row, 0)
+impl FromRow for Container {
+    fn from_row(row: &Row) -> Result<Self, StoreError> {
+        container_from_row_at(row, 0)
+    }
 }
 
 pub(crate) fn container_from_row_at(row: &Row, base: usize) -> Result<Container, StoreError> {
@@ -863,7 +860,7 @@ pub(crate) async fn lock_container_for_deletion(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
-    let found = scope.fetch_optional(sql).await?.is_some();
+    let found = scope.exists(sql).await?;
     if found {
         scope.record_lock(LockRank::Container, container_id);
     }

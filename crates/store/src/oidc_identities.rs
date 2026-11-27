@@ -72,7 +72,7 @@ impl Store {
             if scope.dialect() == Dialect::Postgres {
                 sql.push(" FOR SHARE");
             }
-            if scope.fetch_optional(sql).await?.is_none() {
+            if !scope.exists(sql).await? {
                 return Ok(Err(LinkRefusal::ProviderGone));
             }
             let mut sql = scope.sql(
@@ -213,12 +213,7 @@ impl Store {
             let mut sql = scope.sql("SELECT email FROM user_identities WHERE user_id = ");
             sql.bind(Id(user_id))
                 .push(" ORDER BY created_at, issuer, subject");
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(|row| row.text(0))
-                .collect()
+            scope.all(sql).await
         })
         .await
     }

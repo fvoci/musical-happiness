@@ -580,10 +580,7 @@ impl Store {
             let wall = crate::directory::open_wall(scope).await?;
             crate::directory::is_the_instances_organization(scope).await?;
             let sql = scope.sql("SELECT current_setting('fvoci.system', true)");
-            let reach = match scope.fetch_optional(sql).await? {
-                Some(row) => row.text(0)?,
-                None => String::new(),
-            };
+            let reach: String = scope.first(sql).await?.unwrap_or(String::new());
             crate::directory::close_wall(scope, wall).await?;
             Ok(reach)
         })
@@ -613,10 +610,7 @@ impl Store {
     pub async fn count_rows(&self, table: &str) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
             let sql = scope.sql_unchecked(&format!("SELECT count(*) FROM {table}"));
-            match scope.fetch_optional(sql).await? {
-                Some(row) => row.int(0),
-                None => Ok(0),
-            }
+            Ok(scope.first(sql).await?.unwrap_or(0))
         })
         .await
     }
@@ -631,12 +625,7 @@ impl Store {
     pub async fn texts_unchecked(&self, query: &str) -> Result<Vec<String>, StoreError> {
         self.with_conn(async |scope| {
             let sql = scope.sql_unchecked(query);
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(|row| row.text(0))
-                .collect()
+            scope.all(sql).await
         })
         .await
     }

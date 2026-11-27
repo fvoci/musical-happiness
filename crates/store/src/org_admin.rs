@@ -456,7 +456,7 @@ impl Store {
             if scope.dialect() == Dialect::Postgres {
                 sql.push(" FOR UPDATE");
             }
-            if scope.fetch_optional(sql).await?.is_none() {
+            if !scope.exists(sql).await? {
                 return Ok(Purged::default());
             }
             remove_workspace(scope, held_org, workspace_id).await
@@ -488,7 +488,7 @@ impl Store {
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NULL")
                 .push_bind(" AND is_system = ", false);
-            if scope.fetch_optional(sql).await?.is_none() {
+            if !scope.exists(sql).await? {
                 return Ok(Joining::NotFound);
             }
             let membership = membership(scope, workspace_id, user_id).await?;
@@ -625,12 +625,7 @@ pub(crate) async fn remove_workspace<'c>(
 ) -> Result<Purged, StoreError> {
     let mut sql = scope.sql("SELECT id FROM containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id)).push(" ORDER BY id");
-    let containers: Vec<String> = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect::<Result<_, _>>()?;
+    let containers: Vec<String> = scope.all(sql).await?;
     for container_id in &containers {
         trash::delete_container(scope, container_id, "").await?;
     }
@@ -744,7 +739,7 @@ async fn another_admin(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, Sto
         .push_bind(" AND om.role = ", OrgRole::Admin.as_str())
         .push_bind(" AND om.user_id <> ", Id(user_id))
         .push(" LIMIT 1");
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// How a user who joined a workspace as the organization's administrator was in it

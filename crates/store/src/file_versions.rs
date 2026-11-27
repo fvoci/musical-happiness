@@ -378,7 +378,7 @@ async fn unusable(
     sql.bind(Id(container_id))
         .push_bind(" AND name = ", upload)
         .push(" LIMIT 1");
-    if scope.fetch_optional(sql).await?.is_some() {
+    if scope.exists(sql).await? {
         return Ok(Some(UnusableUpload::Shown));
     }
     if source.version != 1 || has_row(scope, &source.id, None).await? {
@@ -399,7 +399,7 @@ async fn has_row(
         sql.push_bind(" AND version = ", version);
     }
     sql.push(" LIMIT 1");
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// The versions kept of a file, the newest first: its rows, or its record alone while

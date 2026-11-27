@@ -567,10 +567,7 @@ impl Store {
                 Dialect::Postgres => "SELECT current_setting('server_version')",
             };
             let sql = scope.sql(query);
-            match scope.fetch_optional(sql).await? {
-                Some(row) => row.text(0),
-                None => Ok(String::new()),
-            }
+            Ok(scope.first(sql).await?.unwrap_or(String::new()))
         })
         .await
     }
@@ -629,10 +626,7 @@ impl Store {
                 "SELECT rolname::text FROM pg_roles \
                  WHERE rolname = current_user AND (rolsuper OR rolbypassrls)",
             );
-            match scope.fetch_optional(sql).await? {
-                Some(row) => row.text(0).map(Some),
-                None => Ok(None),
-            }
+            scope.first(sql).await
         })
         .await
     }

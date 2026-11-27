@@ -81,12 +81,7 @@ impl Store {
             sql.bind(Id(workspace_id))
                 .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str())
                 .push(" ORDER BY user_id");
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(|row| row.id(0))
-                .collect()
+            scope.all(sql).await
         })
         .await
     }
@@ -204,7 +199,7 @@ pub(crate) async fn works_in(
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id))
         .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str());
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// Holds the membership of a board's creator in its workspace before they are made its
@@ -264,5 +259,5 @@ async fn has_acting_admin(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR SHARE OF wm");
     }
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }

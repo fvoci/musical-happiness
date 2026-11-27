@@ -19,9 +19,9 @@ use crate::Store;
 use crate::block_derived::Refreshing;
 use crate::body_versions;
 use crate::comment_versions;
-use crate::db::{Dialect, Id, Scope, Sql, SqlFragment};
+use crate::db::{Dialect, FromRow, Id, Scope, Sql, SqlFragment};
 use crate::error::StoreError;
-use crate::files::{FILE_COLUMN_COUNT, FILE_COLUMNS, file_from_row};
+use crate::files::{FILE_COLUMN_COUNT, FILE_COLUMNS};
 use crate::loose_objects;
 
 /// Bounded parameters even when a purge visits every stored file.
@@ -71,7 +71,7 @@ impl Store {
             let mut files = Vec::with_capacity(rows.len());
             let mut doomed = Vec::with_capacity(rows.len());
             for row in &rows {
-                let file = file_from_row(row)?;
+                let file = FileRecord::from_row(row)?;
                 let org_id = org.map(|_| row.id(FILE_COLUMN_COUNT)).transpose()?;
                 doomed.push((file.path.clone(), org_id));
                 files.push(file);
@@ -114,12 +114,7 @@ pub(crate) async fn refresh(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM file_refs WHERE block_id = ");
     sql.bind(Id(&block.id)).push(" RETURNING name");
-    let mut names = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.text(0))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut names: Vec<String> = scope.all(sql).await?;
     if new_files == NewBodyFiles::Recorded {
         hold_new_body_files(scope, block, &names).await?;
     }
@@ -230,10 +225,8 @@ pub(crate) async fn show_body_files(
     let mut sql = scope.sql("SELECT container_id FROM blocks WHERE id = ");
     sql.bind(Id(block_id));
     let container_id = scope
-        .fetch_optional(sql)
-        .await?
-        .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))?
-        .id(0)?;
+        .one::<String>(sql, format!("block ID={block_id}"))
+        .await?;
     let mut sql = scope.sql("SELECT name FROM files WHERE container_id = ");
     sql.bind(Id(&container_id))
         .push(" AND name IN (")
@@ -353,10 +346,5 @@ async fn hold_marks(
     if only.is_none() {
         sql.push(" SKIP LOCKED");
     }
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect()
+    scope.all(sql).await
 }

@@ -259,7 +259,7 @@ async fn is_shared_and_in_use(scope: &mut Scope<'_>) -> Result<bool, StoreError>
     sql.bind(scope.org()?)
         .push_bind(" AND kind = ", OrgKind::Shared.as_str())
         .push(" AND deleted_at IS NULL AND is_system = false");
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// What of the instance or the organization stands in the way of `user_id` (in `role`)

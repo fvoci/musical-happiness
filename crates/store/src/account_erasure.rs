@@ -139,12 +139,7 @@ impl Store {
                  AND (erase_started_at > 0 OR (delete_after > 0 AND delete_after <= ",
             );
             sql.bind(now).push(")) ORDER BY delete_after, id");
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(|row| row.id(0))
-                .collect()
+            scope.all(sql).await
         })
         .await
     }
@@ -266,12 +261,7 @@ impl Store {
                         Id(user_id),
                     )
                     .push(" ORDER BY 1");
-                scope
-                    .fetch_all(sql)
-                    .await?
-                    .iter()
-                    .map(|row| row.id(0))
-                    .collect()
+                scope.all(sql).await
             })
             .await
     }
@@ -541,7 +531,7 @@ async fn is_being_erased(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, S
     let mut sql =
         scope.sql("SELECT 1 FROM users WHERE erase_started_at > 0 AND erased_at = 0 AND id = ");
     sql.bind(Id(user_id));
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// Whether the scope's organization is the user's own space.
@@ -549,14 +539,14 @@ async fn is_own_space_of(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, S
     let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
     sql.bind(scope.org()?)
         .push_bind(" AND owner_id = ", Id(user_id));
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// Whether the scope's organization is out of use.
 async fn is_out_of_use(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organizations WHERE deleted_at IS NOT NULL AND id = ");
     sql.bind(scope.org()?);
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// Whether the user is an administrator of the scope's organization: an organization
@@ -570,7 +560,7 @@ async fn administers_organization(
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?)
         .push_bind(" AND role = ", OrgRole::Admin.as_str());
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// Takes the user out of each workspace of the scope's organization they are in, in use
@@ -606,12 +596,7 @@ async fn workspaces_of(scope: &mut Scope<'_>, user_id: &str) -> Result<Vec<Strin
     sql.bind(Id(user_id))
         .push_bind(" AND w.org_id = ", scope.org()?)
         .push(" ORDER BY wm.workspace_id");
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect()
+    scope.all(sql).await
 }
 
 /// Takes the user out of a workspace of the scope's organization, in use or in the
@@ -746,11 +731,7 @@ async fn heir_in(
         .push_bind(" AND wm.role = ", WorkspaceRole::Admin.as_str())
         .push_bind(" AND wm.via_org_admin = ", false)
         .push(" ORDER BY wm.created_at, wm.user_id LIMIT 1");
-    scope
-        .fetch_optional(sql)
-        .await?
-        .map(|row| row.id(0))
-        .transpose()
+    scope.first(sql).await
 }
 
 /// Removes what the user still has in the scope's organization once they are out of
@@ -842,12 +823,7 @@ async fn remove_organization<'c>(
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
-    let workspaces: Vec<String> = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect::<Result<_, _>>()?;
+    let workspaces: Vec<String> = scope.all(sql).await?;
     let mut removed = Purged::default();
     for workspace_id in &workspaces {
         scope.record_lock(LockRank::Workspace, workspace_id);
@@ -861,12 +837,7 @@ async fn remove_organization<'c>(
     crate::api_tokens::revoke_of_organization_providers(scope).await?;
     let mut sql = scope.sql("SELECT id FROM sessions WHERE login_org_id = ");
     sql.bind(scope.org()?);
-    let sessions: Vec<String> = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect::<Result<_, _>>()?;
+    let sessions: Vec<String> = scope.all(sql).await?;
     let mut sql = scope.sql("DELETE FROM sessions WHERE login_org_id = ");
     sql.bind(scope.org()?);
     scope.execute(sql).await?;
@@ -892,7 +863,7 @@ async fn has_a_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, Store
     ] {
         let mut sql = scope.sql(select);
         sql.bind(Id(user_id)).push(" LIMIT 1");
-        if scope.fetch_optional(sql).await?.is_some() {
+        if scope.exists(sql).await? {
             return Ok(true);
         }
     }
@@ -937,12 +908,7 @@ async fn hold_organizations_of_links_to(
             .push(")");
     }
     sql.push(" ORDER BY org_id");
-    let organizations: Vec<String> = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect::<Result<_, _>>()?;
+    let organizations: Vec<String> = scope.all(sql).await?;
     for org_id in &organizations {
         link_locks::hold_organization(scope, org_id).await?;
     }
