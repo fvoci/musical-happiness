@@ -3,7 +3,7 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{Block, Body, BodyChange, CommentVersion, ContainerKinds};
+use fvoci_model::{Block, Body, BodyChange, CommentVersion, CommentWithReactions, ContainerKinds};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -12,7 +12,7 @@ use utoipa_axum::routes;
 use super::comments::{
     CommentParentKind, CommenterOf, comments_on, create_comment_on, created_comment,
     delete_comment_on, existing_comment_on, find_live_comment_on, get_comment_versions_on,
-    patch_comment_on, restore_comment_on,
+    patch_comment_on, restore_comment_on, with_their_reactions,
 };
 use super::contract::params::{CommentId, MemberWorkspaceId, PageId, WikiId};
 use super::contract::tag;
@@ -98,8 +98,9 @@ pub(crate) struct PageCommentPatch {
 /// The comments on a page
 ///
 /// Every comment on the page, oldest first, as blocks of the `type` `comment` whose
-/// parent is the page; each says who wrote it (`createdBy`), and one whose text was
-/// changed when that last happened (`editedAt`). For who reads the wiki: its members,
+/// parent is the page; each says who wrote it (`createdBy`), one whose text was
+/// changed when that last happened (`editedAt`), and one that has `reactions` who
+/// answered it with which emoji. For who reads the wiki: its members,
 /// and of an open wiki whoever works in the workspace. A page in the trash is not
 /// there (404).
 #[utoipa::path(
@@ -108,15 +109,18 @@ pub(crate) struct PageCommentPatch {
     operation_id = "getPageComments",
     tag = tag::WIKIS,
     params(MemberWorkspaceId, WikiId, PageId),
-    responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
+    responses((
+        status = 200,
+        description = "The comments, oldest first.",
+        body = Vec<CommentWithReactions>,
+    )),
 )]
 async fn handle_get_page_comments(
     Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    Ok(json_response(
-        &page_comments(&ws, &wiki_id, &page_id).await?,
-    ))
+    let comments = page_comments(&ws, &wiki_id, &page_id).await?;
+    Ok(json_response(&with_their_reactions(&ws, comments).await?))
 }
 
 /// The comments on the page `page_id` of the wiki `wiki_id`, as `getPageComments`

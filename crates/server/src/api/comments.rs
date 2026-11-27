@@ -8,7 +8,8 @@ use axum::body::Bytes;
 use axum::extract::{FromRequestParts, RawPathParams};
 use axum::http::request::Parts;
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Body, BodyChange, ContainerKinds, RefusalReason, Refusals, new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, CommentWithReactions, ContainerKinds,
+    RefusalReason, Refusals, new_id,
 };
 use serde::de::DeserializeOwned;
 
@@ -202,6 +203,30 @@ pub(super) async fn comments_on(
         .await?;
     comments.sort_by(|one, other| (one.created_at, &one.id).cmp(&(other.created_at, &other.id)));
     Ok(comments)
+}
+
+/// The comments, each with the reactions to it, as the members' lists of comments give
+/// them (`getCardComments` and the others; the MCP tools and a public link's reader
+/// read none).
+///
+/// # Errors
+///
+/// Returns the store's error.
+pub(super) async fn with_their_reactions(
+    ws: &InWorkspace,
+    comments: Vec<Block>,
+) -> Result<Vec<CommentWithReactions>, AppError> {
+    let mut reactions = {
+        let ids: Vec<&str> = comments.iter().map(|comment| comment.id.as_str()).collect();
+        ws.app.reactions_of(&ids).await?
+    };
+    Ok(comments
+        .into_iter()
+        .map(|comment| CommentWithReactions {
+            reactions: reactions.remove(&comment.id).unwrap_or_default(),
+            comment,
+        })
+        .collect())
 }
 
 /// Creates a comment on an already-authorized `parent` block from a decoded payload `T`.

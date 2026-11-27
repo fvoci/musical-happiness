@@ -3,7 +3,7 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{Block, Body, BodyChange, CommentVersion, ContainerKinds};
+use fvoci_model::{Block, Body, BodyChange, CommentVersion, CommentWithReactions, ContainerKinds};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -12,7 +12,7 @@ use utoipa_axum::routes;
 use super::comments::{
     CommentParentKind, CommenterOf, comments_on, create_comment_on, created_comment,
     delete_comment_on, existing_comment_on, find_live_comment_on, get_comment_versions_on,
-    patch_comment_on, restore_comment_on,
+    patch_comment_on, restore_comment_on, with_their_reactions,
 };
 use super::contract::params::{CourseId, MemberWorkspaceId, UnitCommentId, UnitId};
 use super::contract::tag;
@@ -98,7 +98,8 @@ pub(crate) struct UnitCommentPatch {
 /// The comments on a unit
 ///
 /// Every comment on the unit, oldest first, as blocks of the `type` `comment` whose
-/// parent is the unit. For who reads the course: its members, and of an open course
+/// parent is the unit, each with its `reactions` where it has any. For who reads the
+/// course: its members, and of an open course
 /// whoever works in the workspace. A chapter or a unit in the trash is not there (404).
 #[utoipa::path(
     get,
@@ -106,15 +107,18 @@ pub(crate) struct UnitCommentPatch {
     operation_id = "getUnitComments",
     tag = tag::COURSES,
     params(MemberWorkspaceId, CourseId, UnitId),
-    responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
+    responses((
+        status = 200,
+        description = "The comments, oldest first.",
+        body = Vec<CommentWithReactions>,
+    )),
 )]
 async fn handle_get_unit_comments(
     Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    Ok(json_response(
-        &unit_comments(&ws, &course_id, &unit_id).await?,
-    ))
+    let comments = unit_comments(&ws, &course_id, &unit_id).await?;
+    Ok(json_response(&with_their_reactions(&ws, comments).await?))
 }
 
 /// The comments on the unit `unit_id` of the course `course_id`, as `getUnitComments`

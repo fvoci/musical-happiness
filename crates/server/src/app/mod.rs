@@ -58,6 +58,7 @@ mod overview;
 mod pages;
 mod password_reset;
 mod presence;
+mod reactions;
 mod readiness;
 mod reconcile;
 mod references;
@@ -229,6 +230,9 @@ struct Inner {
     /// Held while the list of whom to tell is worked off (`notifications::tend`): one
     /// run at a time.
     telling: tokio::sync::Mutex<()>,
+    /// Held while the reactions to a block are read and told (`reactions.rs`): what is
+    /// read last is told last.
+    telling_reactions: tokio::sync::Mutex<()>,
     /// The uploads' turns (`uploads::UploadTurns`).
     upload_turns: uploads::UploadTurns,
     /// Active `(upload_id, part_number)` receivers and per-user concurrency caps.
@@ -349,6 +353,7 @@ impl App {
                 default_category: tokio::sync::Mutex::new(()),
                 opening_upload: tokio::sync::Mutex::new(()),
                 telling: tokio::sync::Mutex::new(()),
+                telling_reactions: tokio::sync::Mutex::new(()),
                 upload_turns: uploads::UploadTurns::default(),
                 receiving_parts: uploads::ReceivingParts::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),

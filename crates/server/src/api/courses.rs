@@ -9,7 +9,7 @@ use axum::body::Bytes;
 use axum::extract::Path;
 use fvoci_model::{
     Block, BlockError, Container, ContainerKind, ContainerVisibility, DeletedUnit, MinimumRole,
-    NewUnit, Unit, UnitKind, UnitMove, UnitNode, UnitPatch,
+    NewUnit, Unit, UnitKind, UnitMove, UnitNode, UnitPatch, UnitWithReactions,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -276,14 +276,14 @@ pub(super) async fn create_unit_from(
 /// A unit or chapter
 ///
 /// The unit with its body, or the chapter (`body` is `null`), for whoever reads its
-/// course.
+/// course; a unit with its `reactions` where it has any.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}",
     operation_id = "getUnit",
     tag = tag::COURSES,
     params(MemberWorkspaceId, CourseId, UnitId),
-    responses((status = 200, description = "The unit or chapter.", body = Unit)),
+    responses((status = 200, description = "The unit or chapter.", body = UnitWithReactions)),
 )]
 async fn handle_get_unit(
     Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
@@ -297,7 +297,9 @@ async fn handle_get_unit(
         READ_DENIED,
     )
     .await?;
-    Ok(json_response(&Unit::from(block)))
+    let reactions = ws.app.reactions_to(&block.id).await?;
+    let unit = Unit::from(block);
+    Ok(json_response(&UnitWithReactions { unit, reactions }))
 }
 
 /// Change a unit or chapter

@@ -8,7 +8,7 @@ use axum::body::Bytes;
 use axum::extract::Path;
 use fvoci_model::{
     Block, Container, ContainerKind, ContainerVisibility, DeletedPage, MinimumRole, NewPage, Page,
-    PageDuplicate, PageMove, PageNode, PagePatch,
+    PageDuplicate, PageMove, PageNode, PagePatch, PageWithReactions,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -251,14 +251,15 @@ pub(super) async fn create_page_from(
 
 /// A page
 ///
-/// The page with its body, for the members of its wiki.
+/// The page with its body, and its `reactions` where it has any, for the members of its
+/// wiki.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}",
     operation_id = "getPage",
     tag = tag::WIKIS,
     params(MemberWorkspaceId, WikiId, PageId),
-    responses((status = 200, description = "The page.", body = Page)),
+    responses((status = 200, description = "The page.", body = PageWithReactions)),
 )]
 async fn handle_get_page(
     Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
@@ -272,7 +273,9 @@ async fn handle_get_page(
         READ_DENIED,
     )
     .await?;
-    Ok(json_response(&Page::from(block)))
+    let reactions = ws.app.reactions_to(&block.id).await?;
+    let page = Page::from(block);
+    Ok(json_response(&PageWithReactions { page, reactions }))
 }
 
 /// Change a page

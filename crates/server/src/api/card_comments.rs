@@ -3,7 +3,9 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{Block, BlockType, Body, BodyChange, CommentVersion, ContainerKinds};
+use fvoci_model::{
+    Block, BlockType, Body, BodyChange, CommentVersion, CommentWithReactions, ContainerKinds,
+};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -12,7 +14,7 @@ use utoipa_axum::routes;
 use super::comments::{
     CommentParentKind, CommenterOf, comments_on, create_comment_on, created_comment,
     delete_comment_on, existing_comment_on, find_live_comment_on, get_comment_versions_on,
-    patch_comment_on, restore_comment_on,
+    patch_comment_on, restore_comment_on, with_their_reactions,
 };
 use super::contract::params::{BoardId, CardCommentId, CardId, DisableNotify, MemberWorkspaceId};
 use super::contract::tag;
@@ -122,23 +124,27 @@ pub(crate) struct CardCommentPatch {
 /// The comments on a card
 ///
 /// Every comment on the card, oldest first, as blocks of the `type` `comment` whose
-/// parent is the card. For who reads the board: its members, and of an open board
-/// whoever works in the workspace. A card in the trash is not there (404).
+/// parent is the card, each with its `reactions` where it has any. For who reads the
+/// board: its members, and of an open board whoever works in the workspace. A card in
+/// the trash is not there (404).
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments",
     operation_id = "getCardComments",
     tag = tag::CARDS,
     params(MemberWorkspaceId, BoardId, CardId),
-    responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
+    responses((
+        status = 200,
+        description = "The comments, oldest first.",
+        body = Vec<CommentWithReactions>,
+    )),
 )]
 async fn handle_get_card_comments(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, card_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    Ok(json_response(
-        &card_comments(&ws, &board_id, &card_id).await?,
-    ))
+    let comments = card_comments(&ws, &board_id, &card_id).await?;
+    Ok(json_response(&with_their_reactions(&ws, comments).await?))
 }
 
 /// The comments on the card `card_id` of the board `board_id`, as `getCardComments`
