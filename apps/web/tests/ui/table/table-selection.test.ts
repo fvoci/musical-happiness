@@ -157,6 +157,24 @@ describe('selecting rows', () => {
     expect(bar()).toBeNull();
   });
 
+  it('keeps the selection when Escape only ends the editing of a cell', async () => {
+    await mount();
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    await fireEvent.click(titleOf('Beta'), { ctrlKey: true });
+    const cell = cellOf('Gamma', 'note');
+    cell.focus();
+    await fireEvent.keyDown(cell, { key: 'Enter' });
+    const field = await waitFor(() => one(cellOf('Gamma', 'note'), 'input'));
+    await fireEvent.keyDown(field, { key: 'Escape' });
+    await waitFor(() => {
+      expect(grid().querySelector('[data-editing]')).toBeNull();
+    });
+    expect(selected()).toEqual(['Beta', 'Alpha']);
+    // The next Escape, on the cell, is the selection's.
+    await fireEvent.keyDown(cellOf('Gamma', 'note'), { key: 'Escape' });
+    expect(selected()).toEqual([]);
+  });
+
   it('by the box of a row, and by "Select" in its menu, after which a plain press selects', async () => {
     await mount();
     const box = one(rowOf('Gamma'), '[data-select-row]');

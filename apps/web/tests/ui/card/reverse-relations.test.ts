@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { referrersOf } from '$lib/components/properties/kinds/referrers.ts';
 import ReverseRelations from '$lib/components/properties/kinds/ReverseRelations.svelte';
 import CardProperties from '$lib/features/card/CardProperties.svelte';
+import { relationLink } from '$lib/logic/relations.ts';
 import { createCard, type Card, type PropertyValue } from '$lib/logic/wire.ts';
 import type { SeedTemplate } from '$lib/state/memory/seed.ts';
 
@@ -30,10 +31,10 @@ afterEach(() => {
 
 describe('the cards that name a card', () => {
   const target = cardOf('t', 'Target');
-  const plain = cardOf('a', 'A', { blocks: [{ card: 't' }] });
+  const plain = cardOf('a', 'A', { blocks: [relationLink('t')] });
   const linked = cardOf('b', 'B', { blocks: [{ card: 't', kind: 'fs', lagDays: 2 }] });
-  const other = cardOf('c', 'C', { blocks: [{ card: 'a' }], parentOf: [{ card: 't' }] });
-  const self = cardOf('t2', 'Self', { blocks: [{ card: 't2' }] });
+  const other = cardOf('c', 'C', { blocks: [relationLink('a')], parentOf: [relationLink('t')] });
+  const self = cardOf('t2', 'Self', { blocks: [relationLink('t2')] });
 
   it('are those whose value of the property names it, in the order of the board', () => {
     const cards = [other, linked, target, plain, self];
@@ -103,7 +104,7 @@ const SEED: SeedTemplate = {
     {
       id: 'c2',
       title: 'Build',
-      fields: { icon: '', isTemplate: false, properties: { blocks: [{ card: 'c1' }] } },
+      fields: { icon: '', isTemplate: false, properties: { blocks: [relationLink('c1')] } },
       body: null,
     },
   ],

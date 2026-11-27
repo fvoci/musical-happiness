@@ -63,6 +63,8 @@
   }: Props = $props();
 
   const type = $derived(template.type);
+  /** The heading of the picker: it says where the values differ, which the button may only hint at. */
+  const name = $derived(shared.mixed ? m.bulk_value_mixed({ name: template.name }) : template.name);
   const plain = $derived(plainPropertyValue(shared.value));
   const text = $derived(Array.isArray(plain) ? plain.join(',') : (plain ?? ''));
   const one = $derived(typeof plain === 'string' && plain !== '' ? [plain] : []);
@@ -80,7 +82,7 @@
 
 {#if type === 'select' || type === 'multiSelect'}
   <SelectProperty
-    name={template.name}
+    {name}
     options={template.options}
     ids={type === 'select' ? one : many}
     multiple={type === 'multiSelect'}
@@ -94,7 +96,7 @@
   />
 {:else if type === 'person' || type === 'multiPerson'}
   <PersonProperty
-    name={template.name}
+    {name}
     ids={type === 'person' ? one : many}
     multiple={type === 'multiPerson'}
     {users}
@@ -109,7 +111,7 @@
   />
 {:else if type === 'date'}
   <DateProperty
-    name={template.name}
+    {name}
     value={shared.value}
     editable
     placeholder=""
@@ -122,7 +124,7 @@
     {onChange}
   />
 {:else}
-  <PickerSurface bind:open {presentation} title={template.name} trigger={opener}>
+  <PickerSurface bind:open {presentation} title={name} trigger={opener}>
     <div class="flex min-w-56 flex-col gap-1 p-1" data-slot="bulk-field">
       {#if type === 'checkbox'}
         <div class="flex items-center gap-1">
@@ -131,7 +133,7 @@
         </div>
       {:else if type === 'url'}
         <UrlProperty
-          name={template.name}
+          {name}
           value={text}
           editable
           placeholder={shared.mixed ? m.bulk_mixed() : m['PropertyValueElement.empty']()}
@@ -141,7 +143,7 @@
       {:else if type === 'text' || type === 'number' || type === 'email' || type === 'phone'}
         <TextProperty
           kind={type}
-          name={template.name}
+          {name}
           value={text}
           editable
           placeholder={shared.mixed ? m.bulk_mixed() : m['PropertyValueElement.empty']()}

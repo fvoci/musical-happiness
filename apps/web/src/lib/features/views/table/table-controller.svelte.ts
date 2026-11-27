@@ -475,7 +475,10 @@ export class TableController {
     rowActions: (card) => rowActionsOf(table.#rowActions, card),
     pick: (cardId, event) => {
       const how = activationOf(event);
-      return table.canEdit && how !== undefined && table.selection.press(cardId, how);
+      if (!table.canEdit || how === undefined || !table.selection.press(cardId, how)) return false;
+      // Shift and a press also select the text between; the rows are what was meant.
+      if (how === 'range') document.getSelection()?.removeAllRanges();
+      return true;
     },
     toggleSelected: (cardId, range) => {
       table.selection.press(cardId, range ? 'range' : 'toggle');

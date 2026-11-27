@@ -90,6 +90,8 @@
     const how = activationOf(event);
     if (how === undefined) return;
     if (!board.canEdit || !selection.press(cardId, how)) onOpenCard(cardId);
+    // Shift and a press also select the text between; the cards are what was meant.
+    else if (how === 'range') document.getSelection()?.removeAllRanges();
   }
 
   function onClick(event: MouseEvent, cardId: string): void {

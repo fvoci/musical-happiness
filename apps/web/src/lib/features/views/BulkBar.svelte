@@ -137,6 +137,7 @@
         type="button"
         title={label}
         data-bulk-property={template.id}
+        data-mixed={shared.mixed ? '' : undefined}
         class={cn(textButton, !wide && 'sr-only')}
       >
         {#if Icon}<Icon class="size-4" />{/if}
@@ -152,9 +153,18 @@
         aria-label={label}
         title={label}
         data-bulk-property={template.id}
-        class={iconButton}
+        data-mixed={shared.mixed ? '' : undefined}
+        class={cn(iconButton, 'relative')}
       >
         <Icon class="size-4" />
+        {#if shared.mixed}
+          <!-- The values differ: the picker says so in its heading. -->
+          <span
+            aria-hidden="true"
+            data-slot="bulk-mixed"
+            class="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary ring-2 ring-popover roomy:top-2.5 roomy:right-2.5"
+          ></span>
+        {/if}
       </button>
     {/if}
   {/snippet}
@@ -174,8 +184,13 @@
   />
 {/snippet}
 
+<!--
+  Above the keyboard or the home indicator, whichever is higher. Where the
+  add button is there (`--fab-room`), above it: that button counts both, so
+  the smaller of the two is added back (the `min`, which is 0 without it).
+-->
 <div
-  class="pointer-events-none absolute inset-x-0 bottom-[calc(max(var(--safe-bottom),var(--keyboard,0px))+var(--fab-room,0px)+0.5rem)] z-30 flex flex-col items-center gap-1 px-2"
+  class="pointer-events-none absolute inset-x-0 bottom-[calc(max(var(--safe-bottom),var(--keyboard,0px))+min(var(--safe-bottom),var(--keyboard,0px),var(--fab-room,0px))+var(--fab-room,0px)+0.5rem)] z-30 flex flex-col items-center gap-1 px-2"
 >
   {#if selection.full}
     <p

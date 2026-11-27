@@ -12,6 +12,8 @@
  * the board's batch routes takes. A press that would take in more takes in
  * what fits, and `full` says so until the selection changes again.
  */
+import { on } from 'svelte/events';
+
 import { primaryModifier } from '$lib/keys.ts';
 import { CARD_BATCH_LIMIT } from '$lib/state/index.ts';
 
@@ -117,15 +119,15 @@ export class Selection {
     this.#anchor = undefined;
   }
 
-  /** Escape in the view lets the selection go, unless something else (a drag, a menu) took the key. */
-  readonly attachEscape = (root: HTMLElement): (() => void) => {
-    const onKeyDown = (event: KeyboardEvent): void => {
+  /**
+   * Escape in the view lets the selection go, unless something else (a drag,
+   * a menu, the end of editing a cell) took the key. With `on`, which runs
+   * after the handlers the view declares (`onkeydown`): those are delegated,
+   * and a listener of the element's own would hear the key before them.
+   */
+  readonly attachEscape = (root: HTMLElement): (() => void) =>
+    on(root, 'keydown', (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented || this.ids.length === 0) return;
       this.clear();
-    };
-    root.addEventListener('keydown', onKeyDown);
-    return () => {
-      root.removeEventListener('keydown', onKeyDown);
-    };
-  };
+    });
 }
