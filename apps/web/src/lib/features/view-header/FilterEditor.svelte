@@ -49,6 +49,8 @@
   const doneWhen = $derived(board.board?.doneWhen);
   const filter = $derived(view.fields.filter);
   const entries = $derived(filterEntries(filter));
+  /** The groups of the filter in their order, which numbers them. */
+  const groups = $derived(entries.filter((entry) => entry.kind === 'group'));
   const people = $derived(board.people);
 
   let root = $state<HTMLElement | null>(null);
@@ -130,6 +132,7 @@
         {:else if entry.kind === 'group'}
           <FilterGroupBox
             {entry}
+            number={groups.indexOf(entry) + 1}
             {row}
             onOperation={(operation: FilterGroupOperation) => {
               edit(entry, (group, path) => setOperation(group, path, operation));

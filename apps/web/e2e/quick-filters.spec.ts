@@ -141,6 +141,23 @@ function propertyId(page: Page, name: string): Promise<string> {
   }, name);
 }
 
+/** The chips kept in this browser's storage, by their keys. */
+function keptChips(page: Page): Promise<Record<string, string>> {
+  return page.evaluate(() =>
+    Object.fromEntries(
+      Object.entries(localStorage).filter(([key]) => key.startsWith('fvoci:quick-filters:')),
+    ),
+  );
+}
+
+/** The key the reader's chips of the open board are kept under. */
+function keyOfChips(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const { workspace } = (window as unknown as { fvociDev: Dev }).fvociDev;
+    return `fvoci:quick-filters:${workspace.me.id}:${workspace.board.boardId}`;
+  });
+}
+
 /** Makes the reader the owner of one card and of no other, through the board store. */
 async function ownOnly(page: Page, title: string): Promise<void> {
   await page.evaluate(async (wanted) => {
@@ -169,7 +186,7 @@ async function undo(page: Page): Promise<void> {
   });
 }
 
-/** Adds a condition to the group `scope` is (the editor itself, or a group's box). */
+/** Gives a line of the filter its property, and its condition when one is given. */
 async function setRow(
   page: Page,
   row: Locator,
@@ -226,7 +243,9 @@ test.describe('quick filters', () => {
     await chip(page, 'Overdue').click();
     await expect(chip(page, 'Overdue')).toHaveAttribute('aria-pressed', 'false');
     await expect.poll(() => shown(page)).toEqual(['Write the help pages']);
-    await expect(clearChips(page)).toHaveAccessibleName('Clear the 1 quick filters that are on');
+    await expect(clearChips(page)).toHaveAccessibleName('Clear quick filters (1 on)');
+    // Kept in this browser under the reader and the board: their names, nothing else.
+    expect(await keptChips(page)).toEqual({ [await keyOfChips(page)]: '["dueThisWeek"]' });
     await chip(page, 'Not done').click();
     await expect.poll(() => shown(page)).toEqual(['Write the help pages']);
     await expect(clearChips(page)).toContainText('2');
@@ -250,9 +269,9 @@ test.describe('quick filters', () => {
     await clearChips(page).click();
     await expect(cards(page)).toHaveCount(6);
     await expect(clearChips(page)).toHaveCount(0);
-    expect(await page.evaluate(() => Object.keys(localStorage))).not.toContainEqual(
-      expect.stringMatching(/^fvoci\.quick-filters\./),
-    );
+    // The focus is on the first chip: the button pressed is gone.
+    await expect(chip(page, 'Mine')).toBeFocused();
+    expect(await keptChips(page)).toEqual({});
   });
 
   test('"Mine" leaves the reader’s cards, and a card made while chips are on stays', async ({
@@ -328,10 +347,18 @@ test.describe('quick filters', () => {
   });
 });
 
-test('a public link offers the chips but "Mine", and keeps them for the visit', async ({
+test('a public link offers the chips but "Mine", and keeps them for the visit alone', async ({
   page,
 }) => {
   const boardId = '01930000-0000-7000-8000-00000000bb01';
+  // Chips this browser keeps for the board, of a member, and under an empty reader.
+  const KEPT = {
+    [`fvoci:quick-filters:someone:${boardId}`]: '["incomplete"]',
+    [`fvoci:quick-filters::${boardId}`]: '["overdue"]',
+  };
+  await page.addInitScript((kept) => {
+    for (const [key, value] of Object.entries(kept)) localStorage.setItem(key, value);
+  }, KEPT);
   const base = `/api/v1/shared/${boardId}`;
   const STAMPS = { createdBy: '', modifiedBy: '', createdAt: 1, updatedAt: 1 };
   await page.route('**/api/v1/**', async (route) => {
@@ -385,11 +412,14 @@ test('a public link offers the chips but "Mine", and keeps them for the visit', 
     'Overdue',
     'Due this week',
   ]);
-  await chip(page, 'Overdue').click();
-  await expect(chip(page, 'Overdue')).toHaveAttribute('aria-pressed', 'true');
-  expect(await page.evaluate(() => Object.keys(localStorage))).not.toContainEqual(
-    expect.stringMatching(/^fvoci\.quick-filters\./),
-  );
+  // None of them is read: the reader of the link is nobody this browser knows.
+  for (const each of await quick(page).locator('[data-quick-filter]').all()) {
+    await expect(each).toHaveAttribute('aria-pressed', 'false');
+  }
+  await chip(page, 'Due this week').click();
+  await expect(chip(page, 'Due this week')).toHaveAttribute('aria-pressed', 'true');
+  // Nor is anything written.
+  expect(await keptChips(page)).toEqual(KEPT);
 });
 
 test.describe('the filter of a view', () => {
@@ -459,7 +489,7 @@ test.describe('the filter of a view', () => {
     await text.press('Enter');
     // The group asks any of its conditions; the filter, all of its parts.
     await expect(
-      box.getByRole('radiogroup', { name: 'What a card has to meet in the group' }),
+      box.getByRole('radiogroup', { name: 'What a card has to meet in group 1' }),
     ).toBeVisible();
     await expect.poll(() => shown(page)).toEqual(['Build', 'Write the help pages', 'Test']);
     await expect(tool(page, 'filter').locator('[data-count]')).toHaveText('3');

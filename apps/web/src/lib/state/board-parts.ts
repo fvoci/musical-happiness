@@ -22,7 +22,8 @@ import {
 } from '../logic/wire.ts';
 
 import type { Backend, CardSummary } from './backend.ts';
-import { madeOnVisit, quickFilters } from './board-quick.svelte.ts';
+import { quickFilters } from './board-quick.svelte.ts';
+import { DeviceToday } from './device-today.svelte.ts';
 import { BackendError } from './problems.ts';
 
 /**
@@ -150,8 +151,6 @@ export function groupsOfView(
 /** What a board view needs from a board store to filter and order its cards. */
 export interface BoardCardsSource {
   readonly boardId: string;
-  /** Whether the board is loaded; a source without one always is. */
-  readonly status?: string;
   /** Counts the visits to the board (board-quick.svelte.ts). */
   readonly visit?: number;
   readonly realCards: readonly CardSummary[];
@@ -165,11 +164,26 @@ export interface BoardCardsSource {
   };
 }
 
+type Reader = BoardCardsSource['workspace'];
+
+/** Today on the device of each reader, read again at their midnight. */
+const todays = new WeakMap<Reader, DeviceToday>();
+
+function todayOf(workspace: Reader): DeviceToday {
+  let today = todays.get(workspace);
+  if (!today) {
+    today = new DeviceToday(() => workspace.regional.timeZone);
+    todays.set(workspace, today);
+  }
+  return today;
+}
+
 /**
  * Stage 1: cards of a view filtered by the view's filter and sorted, then
  * narrowed by the reader's quick filters (lib/logic/quick-filter.ts),
- * independent of search text (§1.2.4). A card the reader made on this
- * visit stays whatever the chips are.
+ * independent of search text (§1.2.4). A card the reader made while the
+ * chips are on stays whatever they are (board-quick.svelte.ts). Today is the
+ * device's, so that the periods and "Overdue" move on at midnight.
  */
 export function filteredCardsOfBoardView(source: BoardCardsSource, view: BoardView): Card[] {
   const { workspace, board } = source;
@@ -179,6 +193,7 @@ export function filteredCardsOfBoardView(source: BoardCardsSource, view: BoardVi
     locale: workspace.locale,
     timeZone: workspace.regional.timeZone,
     weekStart: workspace.regional.weekStart,
+    today: todayOf(workspace).date,
     meId,
     doneWhen: board?.doneWhen,
     cardTitle: (cardId: string) => source.cardsById.get(cardId)?.title,
@@ -190,10 +205,14 @@ export function filteredCardsOfBoardView(source: BoardCardsSource, view: BoardVi
     context,
   );
   // A public link's reader has an empty identifier: nobody is signed in to own a card or make one.
-  const reader = { ...context, meId: meId || undefined };
-  // Asked every time, so that the visit starts when the cards are first read.
-  const made = madeOnVisit(source, reader.meId);
-  return applyQuickFilters(filtered, quickFilters.chosen(source.boardId), board, reader, made);
+  const reader = meId || undefined;
+  return applyQuickFilters(
+    filtered,
+    quickFilters.chosen(source.boardId, reader),
+    board,
+    { ...context, meId: reader },
+    quickFilters.made(source, reader),
+  );
 }
 
 /** Stage 2: narrows `filtered` cards by `searchText` (§1.2.4). */

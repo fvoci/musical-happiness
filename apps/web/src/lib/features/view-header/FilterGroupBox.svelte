@@ -9,7 +9,8 @@
   and kept as it is whatever else is edited (filter-edit.ts).
 
   The lines of its conditions are the editor's (`row`): they change the
-  filter as the lines outside a group do.
+  filter as the lines outside a group do. Groups are numbered in their order
+  (`number`), so that each is told from the others by its name alone.
 -->
 <script lang="ts">
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
@@ -28,6 +29,8 @@
 
   interface Props {
     entry: GroupEntry;
+    /** Which group of the filter it is, from 1. */
+    number: number;
     /** Draws the line of one of its conditions. */
     row: Snippet<[ClauseEntry]>;
     onOperation: (operation: FilterGroupOperation) => void;
@@ -36,7 +39,7 @@
     onRemove: () => void;
   }
 
-  let { entry, row, onOperation, onAdd, onUngroup, onRemove }: Props = $props();
+  let { entry, number, row, onOperation, onAdd, onUngroup, onRemove }: Props = $props();
 
   const clauses = $derived(entry.entries.filter((child) => child.kind === 'clause'));
   const kept = $derived(entry.entries.filter((child) => child.kind === 'kept').length);
@@ -60,24 +63,31 @@
     {#if entry.group.filters.length > 1}
       <FilterOperation
         operation={entry.group.operation}
-        label={m.viewheader_filter_group_match()}
+        label={m.viewheader_filter_group_match({ number })}
         onChange={onOperation}
       />
     {:else}
       <span class="min-w-0 truncate px-1 text-sm text-muted-foreground">
-        {m.viewheader_filter_group()}
+        {m.viewheader_filter_group({ number })}
       </span>
     {/if}
-    <ActionMenu title={m.viewheader_filter_group_menu()} {actions} align="end">
+    <ActionMenu title={m.viewheader_filter_group_menu({ number })} {actions} align="end">
       {#snippet trigger(props: Record<string, unknown>)}
-        <IconButton {...props} label={m.viewheader_filter_group_menu()} data-slot="group-menu">
+        <IconButton
+          {...props}
+          label={m.viewheader_filter_group_menu({ number })}
+          data-slot="group-menu"
+        >
           <EllipsisIcon />
         </IconButton>
       {/snippet}
     </ActionMenu>
   </div>
 
-  <ul class="m-0 flex list-none flex-col gap-3 p-0" aria-label={m.viewheader_filter_group()}>
+  <ul
+    class="m-0 flex list-none flex-col gap-3 p-0"
+    aria-label={m.viewheader_filter_group({ number })}
+  >
     {#each clauses as clause (pathKey(clause.path))}
       {@render row(clause)}
     {/each}
@@ -97,6 +107,6 @@
     onclick={onAdd}
   >
     <PlusIcon data-icon="inline-start" />
-    {m.viewheader_filter_group_add()}
+    {m.viewheader_filter_group_add({ number })}
   </Button>
 </li>

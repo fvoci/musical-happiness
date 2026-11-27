@@ -6,7 +6,7 @@
  * Only the identifier is kept. Whether it is still theirs is the backend's
  * say (`Workspace.load` enters it only when it is among their workspaces).
  */
-import { QUICK_FILTERS_KEY } from '$lib/state/board-quick.svelte.ts';
+import { QUICK_FILTERS_KEY, quickFilters } from '$lib/state/board-quick.svelte.ts';
 
 const KEY = 'fvoci:last-workspace:';
 
@@ -55,8 +55,12 @@ export function rememberPlace(userId: string, workspaceId: string, boardId: stri
   }
 }
 
-/** Clears unscoped UI state in `localStorage` on sign-out while preserving per-user workspace memory. */
+/**
+ * Clears unscoped UI state in `localStorage` on sign-out while preserving per-user workspace memory.
+ * The quick filters go too, from storage and from the page: they narrow what the next reader sees.
+ */
 export function forgetUnscoped(): void {
+  quickFilters.forget();
   try {
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('fvoci.calendar.scale.') || key.startsWith(QUICK_FILTERS_KEY)) {
@@ -78,8 +82,8 @@ export function forgetUser(userId: string): void {
         key.startsWith(`${PLACE_KEY}${userId}:`) ||
         key.startsWith(`fvoci:wiki-open:${userId}:`) ||
         key.startsWith(`fvoci:course-open:${userId}:`) ||
-        key.startsWith('fvoci.calendar.scale.') ||
-        key.startsWith(QUICK_FILTERS_KEY)
+        key.startsWith(`${QUICK_FILTERS_KEY}${userId}:`) ||
+        key.startsWith('fvoci.calendar.scale.')
       ) {
         localStorage.removeItem(key);
       }

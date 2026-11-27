@@ -13,7 +13,13 @@ import {
   type QuickFilterBoard,
   type QuickFilterContext,
 } from '$lib/logic/quick-filter.ts';
-import { createCard, setCardProperty, type Card, type PropertyValue } from '$lib/logic/wire.ts';
+import {
+  createCard,
+  setCardProperty,
+  type Card,
+  type PropertyTemplate,
+  type PropertyValue,
+} from '$lib/logic/wire.ts';
 
 import { at } from '../support/zones.ts';
 
@@ -67,24 +73,45 @@ describe('the chips a board offers', () => {
     expect(offeredQuickFilters(noPeople, 'me')).not.toContain('mine');
   });
 
-  it('leave out "Not done" without a rule of done, and the due ones without a due date', () => {
+  it('leave out "Not done" without a rule of done, and the due ones without a date property', () => {
     expect(offeredQuickFilters({ ...BOARD, doneWhen: null }, 'me')).toEqual([
       'mine',
       'overdue',
       'dueThisWeek',
     ]);
-    expect(offeredQuickFilters({ ...BOARD, dueDatePropertyId: null }, 'me')).toEqual([
-      'mine',
-      'incomplete',
-    ]);
-    // A rule or a due date on a property the board lost since, or one that holds no dates.
-    const lost = {
+    const undated = {
       ...BOARD,
+      cardProperties: BOARD.cardProperties.filter((property) => property.type !== 'date'),
+    };
+    expect(offeredQuickFilters(undated, 'me')).toEqual(['mine', 'incomplete']);
+    // A rule on a property the board lost since; a due date it names that holds no dates.
+    const lost = {
+      ...undated,
       doneWhen: { kind: 'checkbox', propertyId: 'gone' },
       dueDatePropertyId: 'owner',
     } as const;
     expect(offeredQuickFilters(lost, 'me')).toEqual(['mine']);
     expect(offeredQuickFilters(undefined, 'me')).toEqual([]);
+  });
+
+  it('take the first date property for the due date when the board names none ("automatic")', () => {
+    const later: PropertyTemplate = { id: 'later', name: 'Later', type: 'date', options: [] };
+    const automatic = {
+      ...BOARD,
+      cardProperties: [...BOARD.cardProperties, later],
+      dueDatePropertyId: null,
+    };
+    expect(offeredQuickFilters(automatic, 'me')).toEqual([...QUICK_FILTERS]);
+    // The first date property of the board is "Due", not "Later".
+    const card = cardWith('a', { due: { from: '2026-11-26' }, later: { from: '2026-12-26' } });
+    expect(isQuickFilterMet('overdue', automatic, card, READER)).toBe(true);
+    // A due date it names that is no date property is as none named.
+    expect(
+      isQuickFilterMet('overdue', { ...automatic, dueDatePropertyId: 'owner' }, card, READER),
+    ).toBe(true);
+    expect(
+      isQuickFilterMet('overdue', { ...automatic, dueDatePropertyId: 'later' }, card, READER),
+    ).toBe(false);
   });
 });
 
@@ -183,9 +210,11 @@ describe('the chips together', () => {
   it('leave out a chip the board does not offer: "Mine" on a public link lets every card through', () => {
     const publicLink = { ...READER, meId: undefined };
     expect(ids(applyQuickFilters(cards, ['mine'], BOARD, publicLink))).toEqual(ids(cards));
-    expect(
-      ids(applyQuickFilters(cards, ['overdue'], { ...BOARD, dueDatePropertyId: null }, READER)),
-    ).toEqual(ids(cards));
+    const undated = {
+      ...BOARD,
+      cardProperties: BOARD.cardProperties.filter((property) => property.type !== 'date'),
+    };
+    expect(ids(applyQuickFilters(cards, ['overdue'], undated, READER))).toEqual(ids(cards));
   });
 
   it('let a card kept through whatever they are, without giving it values', () => {

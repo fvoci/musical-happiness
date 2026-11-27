@@ -9,15 +9,17 @@
  * - `overdue`: the card is due before the reader's today and not done.
  * - `dueThisWeek`: the card is due in the reader's week (`regional.weekStart`).
  *
- * A card is due on the last day of its due date (the board's
- * `dueDatePropertyId`): a range is due when it ends. Chips that are on all
- * have to hold.
+ * A card is due on the last day of its due date: a range is due when it
+ * ends. The due date is the board's `dueDatePropertyId` when that is a date
+ * property, else ("automatic") the board's first date property, as the
+ * server and the Today hub have it (`effective_due_date_property_id`).
+ * Chips that are on all have to hold.
  */
 import { weekOf } from './calendar.ts';
 import { dateOfInstant, daysOf, type CalendarDate } from './dates.ts';
 import { doneRuleOf, isCardDone } from './filter-done.ts';
 import type { Weekday } from './regional.ts';
-import { cardProperty, parseDateValue, type Card, type Container } from './wire.ts';
+import { cardProperty, parseDateValue, type Card, type Container, type DoneRule } from './wire.ts';
 
 export const QUICK_FILTERS = ['mine', 'incomplete', 'overdue', 'dueThisWeek'] as const;
 
@@ -38,6 +40,8 @@ export interface QuickFilterContext {
   weekStart: Weekday;
   /** The current moment in milliseconds; the clock's when not given. */
   now?: number | undefined;
+  /** The reader's today, when the caller knows it already; else worked out from `now`. */
+  today?: CalendarDate | undefined;
 }
 
 /** The person properties of a board: those a card names its people in. */
@@ -47,12 +51,10 @@ function personPropertyIds(board: QuickFilterBoard): string[] {
     .map((template) => template.id);
 }
 
-/** The board's due date property, when it has one that holds dates. */
+/** The board's due date property: the one it names, else its first date property. */
 function duePropertyId(board: QuickFilterBoard): string | undefined {
-  const id = board.dueDatePropertyId;
-  return board.cardProperties.some((template) => template.id === id && template.type === 'date')
-    ? (id ?? undefined)
-    : undefined;
+  const dates = board.cardProperties.filter((template) => template.type === 'date');
+  return (dates.find((template) => template.id === board.dueDatePropertyId) ?? dates[0])?.id;
 }
 
 /**
@@ -76,16 +78,60 @@ export function offeredQuickFilters(
   return QUICK_FILTERS.filter((id) => offered[id]);
 }
 
-/** The day a card is due for the reader: the last day of its due date. */
-function dueDayOf(board: QuickFilterBoard, card: Card, timeZone: string): CalendarDate | undefined {
-  const id = duePropertyId(board);
-  if (id === undefined) return undefined;
-  return daysOf(parseDateValue(cardProperty(card, id)), timeZone)?.last;
+/** What the chips read of the board and the day, worked out once for all the cards. */
+interface Prepared {
+  readonly meId: string | undefined;
+  readonly people: readonly string[];
+  readonly rule: DoneRule | undefined;
+  readonly dueId: string | undefined;
+  readonly timeZone: string;
+  readonly today: CalendarDate;
+  /** The first and the last day of the reader's week. */
+  readonly week: readonly [CalendarDate, CalendarDate];
+}
+
+function prepare(board: QuickFilterBoard, context: QuickFilterContext): Prepared {
+  const today = context.today ?? dateOfInstant(context.now ?? Date.now(), context.timeZone);
+  const week = weekOf(today, context.weekStart);
+  return {
+    meId: context.meId,
+    people: personPropertyIds(board),
+    rule: doneRuleOf(board.doneWhen, board.cardProperties),
+    dueId: duePropertyId(board),
+    timeZone: context.timeZone,
+    today,
+    week: [week[0] ?? today, week[6] ?? today],
+  };
 }
 
 /** Whether a property value names `userId`: a person, or one of several. */
 function names(value: unknown, userId: string): boolean {
   return Array.isArray(value) ? value.includes(userId) : value === userId;
+}
+
+function meets(id: QuickFilterId, prepared: Prepared, card: Card): boolean {
+  const { meId, rule, dueId } = prepared;
+  const done = (): boolean => rule !== undefined && isCardDone(rule, card);
+  // The day a card is due: the last day of its due date.
+  const due = (): CalendarDate | undefined =>
+    dueId === undefined
+      ? undefined
+      : daysOf(parseDateValue(cardProperty(card, dueId)), prepared.timeZone)?.last;
+  switch (id) {
+    case 'mine':
+      if (meId === undefined) return true;
+      return prepared.people.some((propertyId) => names(cardProperty(card, propertyId), meId));
+    case 'incomplete':
+      return !done();
+    case 'overdue': {
+      const day = due();
+      return day !== undefined && day < prepared.today && !done();
+    }
+    case 'dueThisWeek': {
+      const day = due();
+      return day !== undefined && prepared.week[0] <= day && day <= prepared.week[1];
+    }
+  }
 }
 
 /** Whether `card` meets the chip `id`. A chip the board cannot evaluate lets every card through. */
@@ -95,30 +141,7 @@ export function isQuickFilterMet(
   card: Card,
   context: QuickFilterContext,
 ): boolean {
-  const rule = doneRuleOf(board.doneWhen, board.cardProperties);
-  const done = rule !== undefined && isCardDone(rule, card);
-  const today = (): CalendarDate => dateOfInstant(context.now ?? Date.now(), context.timeZone);
-  switch (id) {
-    case 'mine': {
-      const { meId } = context;
-      if (meId === undefined) return true;
-      return personPropertyIds(board).some((propertyId) =>
-        names(cardProperty(card, propertyId), meId),
-      );
-    }
-    case 'incomplete':
-      return !done;
-    case 'overdue': {
-      const due = dueDayOf(board, card, context.timeZone);
-      return due !== undefined && due < today() && !done;
-    }
-    case 'dueThisWeek': {
-      const due = dueDayOf(board, card, context.timeZone);
-      if (due === undefined) return false;
-      const week = weekOf(today(), context.weekStart);
-      return (week[0] ?? due) <= due && due <= (week[6] ?? due);
-    }
-  }
+  return meets(id, prepare(board, context), card);
 }
 
 /**
@@ -139,7 +162,6 @@ export function applyQuickFilters(
   const offered = offeredQuickFilters(board, context.meId);
   const applied = chosen.filter((id) => offered.includes(id));
   if (applied.length === 0) return [...cards];
-  return cards.filter(
-    (card) => kept(card) || applied.every((id) => isQuickFilterMet(id, board, card, context)),
-  );
+  const prepared = prepare(board, context);
+  return cards.filter((card) => kept(card) || applied.every((id) => meets(id, prepared, card)));
 }

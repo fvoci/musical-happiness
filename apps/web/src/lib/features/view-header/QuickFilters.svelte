@@ -9,15 +9,20 @@
   what for: "Mine" to a reader who is signed in, "Not done" where it has a
   rule of done, and the two of the due date where it has one. While chips
   are on, the row ends in a button that turns them all off and says how many
-  there are. In a narrow pane the row is one line that scrolls sideways.
+  there are; the focus then goes to the first chip. In a narrow pane the row
+  is one line that scrolls sideways.
+
+  As the row is shown on a visit to the board, the cards there are noted: a
+  card the reader makes after that stays shown whatever the chips are.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
+  import { tick, untrack } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { pane } from '$lib/layout/room.svelte.ts';
   import { offeredQuickFilters } from '$lib/logic/quick-filter.ts';
-  import { quickFilters, type QuickFilterKeeping } from '$lib/state/board-quick.svelte.ts';
+  import { quickFilters } from '$lib/state/board-quick.svelte.ts';
   import type { BoardStore } from '$lib/state/index.ts';
 
   import { QUICK_FILTER_NAMES } from './texts.ts';
@@ -28,9 +33,16 @@
   const meId = $derived(board.workspace.me?.id || undefined);
   const offered = $derived(offeredQuickFilters(board.board, meId));
   /** The chips that are on, of those offered: one that is not shown does not narrow. */
-  const on = $derived(quickFilters.chosen(board.boardId).filter((id) => offered.includes(id)));
-  /** A reader without an account keeps them for the visit. */
-  const keeping = $derived<QuickFilterKeeping>(meId === undefined ? 'visit' : 'browser');
+  const on = $derived(
+    quickFilters.chosen(board.boardId, meId).filter((id) => offered.includes(id)),
+  );
+
+  /** Turns every chip off, and gives the focus to the first: the button pressed is gone. */
+  async function clearAll(row: HTMLElement | null): Promise<void> {
+    quickFilters.clear(board, meId);
+    await tick();
+    row?.querySelector<HTMLElement>('[data-quick-filter]')?.focus();
+  }
 </script>
 
 {#if offered.length > 0}
@@ -38,6 +50,12 @@
     role="group"
     aria-label={m.viewheader_quick_filters()}
     data-testid="quick-filters"
+    {@attach () => {
+      const shown = board;
+      untrack(() => {
+        quickFilters.opened(shown);
+      });
+    }}
     class={[
       'flex shrink-0 [scrollbar-width:none] items-center gap-1.5 overflow-x-auto overscroll-x-contain border-b py-1.5',
       pane.row ? 'px-4' : 'px-1.5',
@@ -50,7 +68,7 @@
         data-quick-filter={id}
         class="h-7 shrink-0 rounded-full border border-input-border px-3 text-sm whitespace-nowrap text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground roomy:h-touch roomy:px-4 roomy:text-base"
         onclick={() => {
-          quickFilters.toggle(board.boardId, id, keeping);
+          quickFilters.toggle(board, id, meId);
         }}
       >
         {QUICK_FILTER_NAMES[id]()}
@@ -62,8 +80,8 @@
         data-quick-clear
         aria-label={m.viewheader_quick_clear_label({ count: on.length })}
         class="flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-sm whitespace-nowrap text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:h-touch roomy:px-3 roomy:text-base"
-        onclick={() => {
-          quickFilters.clear(board.boardId, keeping);
+        onclick={(event) => {
+          void clearAll(event.currentTarget.parentElement);
         }}
       >
         <XIcon class="size-4" aria-hidden="true" />

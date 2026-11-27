@@ -2,22 +2,21 @@
  * The quick filters under the header of a view, over the real stores and
  * the in-memory backend: the chips a board offers, what pressing one does
  * to the cards of the view and to nothing else, the button that turns them
- * off, and a card the reader makes while they are on.
+ * off, another tab that changes them, and a card the reader makes while they
+ * are on.
  */
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { QUICK_FILTERS_KEY, quickFilters } from '$lib/state/board-quick.svelte.ts';
+import { quickFilters, quickFiltersKey } from '$lib/state/board-quick.svelte.ts';
 import type { BoardStore } from '$lib/state/index.ts';
 
 import { openFirstBoard, OWNER, setup, STATUS } from '../../state/support.ts';
 
 import Harness from './Harness.svelte';
 
-let shown: BoardStore | undefined;
 afterEach(() => {
-  if (shown) quickFilters.clear(shown.boardId, 'browser');
-  shown = undefined;
+  quickFilters.forget();
   localStorage.clear();
   cleanup();
 });
@@ -36,7 +35,6 @@ async function mount(): Promise<BoardStore> {
     doneWhen: { kind: 'option', propertyId: STATUS, optionIds: ['done'] },
     dueDatePropertyId: 'due',
   };
-  shown = board;
   // The seed gives its views identifiers of its own: the view of the small board is "Board".
   viewId = board.views.find((view) => view.title === 'Board')?.id ?? '';
   render(Harness, { props: { board, viewId } });
@@ -46,6 +44,9 @@ let viewId = '';
 
 const row = (): HTMLElement => screen.getByTestId('quick-filters');
 const chip = (name: string): HTMLElement => within(row()).getByRole('button', { name });
+/** Where the reader's chips of the board are kept. */
+const keyOf = (board: BoardStore): string =>
+  quickFiltersKey(board.workspace.me?.id ?? '', board.boardId);
 const titles = (board: BoardStore): string[] => {
   const view = board.view(viewId);
   return view ? board.filteredCardsOf(view).map((card) => card.title) : [];
@@ -82,20 +83,23 @@ describe('the quick filters', () => {
     expect(chip('Not done')).toHaveAttribute('aria-pressed', 'true');
     expect(titles(board)).toEqual(['Alpha', 'Beta']);
     expect(board.view(viewId)).toBe(before);
-    expect(localStorage.getItem(QUICK_FILTERS_KEY + board.boardId)).toBe('["incomplete"]');
+    expect(localStorage.getItem(keyOf(board))).toBe('["incomplete"]');
 
     await fireEvent.click(chip('Overdue'));
     expect(titles(board)).toEqual([]);
-    const clear = within(row()).getByRole('button', {
-      name: 'Clear the 2 quick filters that are on',
-    });
+    const clear = within(row()).getByRole('button', { name: 'Clear quick filters (2 on)' });
     expect(clear).toHaveTextContent('2');
 
+    clear.focus();
     await fireEvent.click(clear);
     expect(chip('Not done')).toHaveAttribute('aria-pressed', 'false');
     expect(titles(board)).toEqual(['Alpha', 'Beta', 'Gamma']);
     expect(within(row()).queryByRole('button', { name: /^Clear/ })).toBeNull();
-    expect(localStorage.getItem(QUICK_FILTERS_KEY + board.boardId)).toBeNull();
+    expect(localStorage.getItem(keyOf(board))).toBeNull();
+    // The button pressed is gone: the focus is on the first chip, not lost.
+    await waitFor(() => {
+      expect(chip('Mine')).toHaveFocus();
+    });
   });
 
   it('let a card the reader makes while they are on stay, without values given to meet them', async () => {
@@ -108,12 +112,50 @@ describe('the quick filters', () => {
     expect(titles(board)).toEqual([...mine, 'Fresh']);
   });
 
-  it('are offered without "Not done" and the due ones on a board that has no rule and no due date', async () => {
+  it('follow another tab that turns them on or off', async () => {
+    const board = await mount();
+    // Another tab of the same reader writes the chips of the board, and says so.
+    localStorage.setItem(keyOf(board), '["incomplete"]');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: keyOf(board), storageArea: localStorage }),
+    );
+    await waitFor(() => {
+      expect(chip('Not done')).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(within(row()).getByRole('button', { name: 'Clear quick filters (1 on)' })).toBeVisible();
+    // One this tab turned on before goes as the other tab turns them off.
+    await fireEvent.click(chip('Overdue'));
+    localStorage.removeItem(keyOf(board));
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: keyOf(board), storageArea: localStorage }),
+    );
+    await waitFor(() => {
+      expect(chip('Overdue')).toHaveAttribute('aria-pressed', 'false');
+    });
+    expect(chip('Not done')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('take the first date property for the due date of a board that names none', async () => {
+    const board = await mount();
+    const definition = board.board;
+    if (!definition) throw new Error('no board');
+    // "Automatic": the server's due date is then the board's first date property.
+    board.board = { ...definition, dueDatePropertyId: null };
+    await Promise.resolve();
+    expect(within(row()).queryByRole('button', { name: 'Overdue' })).not.toBeNull();
+  });
+
+  it('are offered without "Not done" and the due ones on a board that has no rule and no date', async () => {
     const board = await mount();
     const definition = board.board;
     if (!definition) throw new Error('no board');
     await fireEvent.click(chip('Overdue'));
-    board.board = { ...definition, doneWhen: null, dueDatePropertyId: null };
+    board.board = {
+      ...definition,
+      cardProperties: definition.cardProperties.filter((property) => property.type !== 'date'),
+      doneWhen: null,
+      dueDatePropertyId: null,
+    };
     await Promise.resolve();
     expect(
       within(row())
