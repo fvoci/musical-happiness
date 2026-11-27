@@ -1,13 +1,13 @@
 //! Personal API tokens: stored by their digest, opening the workspaces they name while
 //! their owner works in them, and ended with what ends the owner's sessions.
 
-use fvoci_model::{ApiTokenScope, OrgRole, Session, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{ApiTokenScope, LoginOrigin, OrgRole, Session, Workspace, WorkspaceRole, new_id};
 use fvoci_store::{
-    DbType, GrantedWorkspace, Identity, Issuance, Store, TokenOrigin, TokenToIssue, Unlinked,
-    WorkspaceTrashing,
+    DbType, GrantedWorkspace, Identity, Issuance, Store, TokenToIssue, Unlinked, WorkspaceTrashing,
 };
 
 use crate::common::{self, TestStore};
+use crate::provider_tokens::{provider, put, session};
 
 /// A time in milliseconds the tests count from, before any token ends.
 const T0: i64 = 1_800_000_000_000;
@@ -37,15 +37,9 @@ async fn session_of(store: &Store, user_id: &str) -> String {
 
 /// Stores a write token of `user_id` under `digest` that reaches `workspaces` of the
 /// handle's organization, made by a new session of theirs.
-async fn issue(
-    store: &Store,
-    user_id: &str,
-    digest: &str,
-    workspaces: &[&str],
-    origin: Option<TokenOrigin<'_>>,
-) -> Issuance {
+async fn issue(store: &Store, user_id: &str, digest: &str, workspaces: &[&str]) -> Issuance {
     let session_id = session_of(store, user_id).await;
-    issue_by(store, user_id, &session_id, digest, workspaces, origin).await
+    issue_by(store, user_id, &session_id, digest, workspaces).await
 }
 
 /// As [`issue`], made by the session `session_id`.
@@ -55,7 +49,6 @@ async fn issue_by(
     session_id: &str,
     digest: &str,
     workspaces: &[&str],
-    origin: Option<TokenOrigin<'_>>,
 ) -> Issuance {
     let org_id = store
         .tenant()
@@ -81,7 +74,6 @@ async fn issue_by(
             workspaces: &granted,
             allow_personal_space: false,
             notify_self: true,
-            origin,
             created_at: T0,
             expires_at: ENDS,
         })
@@ -91,7 +83,7 @@ async fn issue_by(
 
 /// The identifier of a token stored as [`issue`] stores it.
 async fn issued(store: &Store, user_id: &str, digest: &str, workspaces: &[&str]) -> String {
-    match issue(store, user_id, digest, workspaces, None).await {
+    match issue(store, user_id, digest, workspaces).await {
         Issuance::Issued(token) => token.id,
         refused => panic!("{refused:?}"),
     }
@@ -222,7 +214,7 @@ async fn a_token_is_given_no_workspace_its_maker_does_not_work_in() {
         .expect("a guest of it");
 
     for (refused, digest) in [(&not_theirs, "digest-none"), (&as_guest, "digest-guest")] {
-        let issuance = issue(store, &alice, digest, &[&theirs, refused], None).await;
+        let issuance = issue(store, &alice, digest, &[&theirs, refused]).await;
         assert_eq!(issuance, Issuance::NoLongerWorksIn(refused.clone()));
         assert!(!is_live(store, digest).await, "nothing of the token stays");
     }
@@ -348,33 +340,37 @@ async fn a_token_made_through_a_provider_ends_with_an_identity_unlinked() {
     let store = &test.store;
     let alice = common::user(store, "alice").await;
     let workspace = common::workspace_of(store, &[&alice]).await;
-    let provider_id = new_id();
-    let through = |issuer| TokenOrigin {
-        provider_id: &provider_id,
-        revision: 3,
-        issuer,
-        subject: Some("alice"),
+    let of_two = put(store, &provider("https://two.example.com"), None, &alice).await;
+    let login = LoginOrigin {
+        provider_id: of_two.id.clone(),
+        org_id: of_two.org_id.clone(),
+        issuer: of_two.issuer.clone(),
+        subject: Some("alice".to_owned()),
+        revision: Some(of_two.revision),
     };
-    for (digest, issuer) in [
-        ("digest-sso", "https://two.example.com"),
-        ("digest-other", "https://one.example.com"),
-    ] {
-        let Issuance::Issued(_) =
-            issue(store, &alice, digest, &[&workspace], Some(through(issuer))).await
+    let through = session(store, &alice, Some(login)).await;
+    for digest in ["digest-sso", "digest-other"] {
+        let Issuance::Issued(_) = issue_by(store, &alice, &through, digest, &[&workspace]).await
         else {
             panic!("the token is stored");
         };
     }
+    // As if made through the identity of another issuer, as the provider of another
+    // organization of the account's would make one (SQLite holds one organization).
+    store
+        .execute_unchecked(
+            "UPDATE api_tokens SET origin_issuer = 'https://one.example.com' \
+             WHERE token_hash = 'digest-other'",
+        )
+        .await
+        .expect("written");
     issued(store, &alice, "digest-plain", &[&workspace]).await;
     let live = store
         .live_api_token("digest-sso", T0 + 1)
         .await
         .expect("looked up")
         .expect("live");
-    assert_eq!(
-        live.origin_provider_id.as_deref(),
-        Some(provider_id.as_str())
-    );
+    assert_eq!(live.origin_provider_id.as_deref(), Some(of_two.id.as_str()));
 
     let (kept, unlinked) = (
         Identity {
@@ -538,7 +534,7 @@ async fn a_token_is_made_by_a_session_in_use_and_an_account_holds_so_many() {
         .await
         .expect("the session ends");
     assert_eq!(
-        issue_by(store, &alice, &ended, "digest-ended", &[&workspace], None).await,
+        issue_by(store, &alice, &ended, "digest-ended", &[&workspace]).await,
         Issuance::SessionEnded,
         "a session that ended makes no token"
     );
@@ -548,22 +544,14 @@ async fn a_token_is_made_by_a_session_in_use_and_an_account_holds_so_many() {
     for made in 0..fvoci_model::API_TOKEN_MAX_LIVE {
         let digest = format!("digest-{made}");
         let Issuance::Issued(token) =
-            issue_by(store, &alice, &session_id, &digest, &[&workspace], None).await
+            issue_by(store, &alice, &session_id, &digest, &[&workspace]).await
         else {
             panic!("token {made} is made");
         };
         first.get_or_insert(token.id);
     }
     assert_eq!(
-        issue_by(
-            store,
-            &alice,
-            &session_id,
-            "digest-more",
-            &[&workspace],
-            None
-        )
-        .await,
+        issue_by(store, &alice, &session_id, "digest-more", &[&workspace]).await,
         Issuance::TooMany
     );
     let first = first.expect("a token was made");
@@ -575,15 +563,7 @@ async fn a_token_is_made_by_a_session_in_use_and_an_account_holds_so_many() {
     );
     assert!(
         matches!(
-            issue_by(
-                store,
-                &alice,
-                &session_id,
-                "digest-more",
-                &[&workspace],
-                None
-            )
-            .await,
+            issue_by(store, &alice, &session_id, "digest-more", &[&workspace]).await,
             Issuance::Issued(_)
         ),
         "one taken back makes room"

@@ -1,17 +1,20 @@
 //! The pending settings of a provider in the store: saved only while the organization
 //! takes no password and the provider is as read; a trial that ends well makes them
 //! the provider's, at a new revision, in its own transaction, and one of settings
-//! that were saved anew, thrown away or replaced makes nothing.
+//! that were saved anew, thrown away or replaced makes nothing. A trial holds the
+//! provider before the account, as a token made through the provider does.
 
 use std::time::Duration;
 
-use fvoci_model::{AuditAction, OrgRole, Session, User, new_id};
+use fvoci_model::{AuditAction, LoginOrigin, OrgRole, Session, User, new_id};
 use fvoci_store::{
-    AuditPlace, Identity, OidcRefusal, Paging, PendingProvider, PendingSettings, Store,
-    StoredProvider, Trial, Tried,
+    AuditPlace, DbType, Identity, Issuance, OidcRefusal, Paging, PendingProvider, PendingSettings,
+    ProviderPut, Store, StoredProvider, Trial, Tried,
 };
 
 use crate::common;
+use crate::lock_gate::{Gate, ended};
+use crate::provider_tokens;
 
 const ISSUER: &str = "https://issuer.example.test";
 
@@ -371,4 +374,84 @@ async fn a_trial_does_not_end_in_an_account_that_waits_to_be_deleted() {
     assert_eq!(left, Some(pending), "still aside");
     assert_eq!(read, Some(enforced), "the provider as it was");
     assert!(back.is_ok(), "{back:?}");
+}
+
+/// A trial stopped once it holds its administrator's account, and a token made
+/// meanwhile by a session of the same account made through the provider: the token
+/// waits for the provider, which the trial holds before the account, and is refused
+/// once the trial has made the settings the provider's. Held the other way round, each
+/// would wait for the other until PostgreSQL ended one. PostgreSQL only: on SQLite
+/// writers take turns.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_token_made_during_a_trial_waits_for_the_provider() {
+    let test = common::setup().await;
+    if common::db_type() != DbType::Postgres {
+        test.teardown().await;
+        return;
+    }
+    let user = person(&test).await;
+    let workspace = common::workspace_of(&test, &[&user]).await;
+    let ProviderPut {
+        provider: enforced, ..
+    } = test
+        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user, Duration::ZERO)
+        .await
+        .expect("stored")
+        .expect("new");
+    let pending = set_aside(&test, "next", &enforced, &user)
+        .await
+        .expect("set aside");
+    let login = LoginOrigin {
+        provider_id: enforced.id.clone(),
+        org_id: enforced.org_id.clone(),
+        issuer: enforced.issuer.clone(),
+        subject: Some(identity().subject.to_owned()),
+        revision: Some(enforced.revision),
+    };
+    let through = Session {
+        id: new_id(),
+        user_id: user.clone(),
+        created_at: 1,
+        last_used_at: 1,
+        expires_at: i64::MAX,
+        login: Some(login),
+        ..Session::default()
+    };
+    assert!(
+        test.create_session(&through, &new_id(), HASH)
+            .await
+            .expect("asked"),
+        "the session is stored"
+    );
+    let session_id = through.id;
+
+    let mut gate = Gate::before(&test, "DELETE", "oidc_pending_providers", "true").await;
+    let second = gate.second_store(&test).await;
+    let trying = {
+        let store = test.store.clone();
+        let (provider_id, user) = (enforced.id.clone(), user.clone());
+        tokio::spawn(async move {
+            trial(&store, &provider_id, pending.created_at, &user, "tried").await
+        })
+    };
+    let holder = gate.stopped(&trying).await;
+    let making = {
+        let (user, workspace) = (user.clone(), workspace.clone());
+        tokio::spawn(async move {
+            provider_tokens::issue(&second, &user, &session_id, "during", &workspace).await
+        })
+    };
+    gate.waits_for(holder, &making).await;
+    gate.open().await;
+    let tried = ended(trying).await;
+    let made = ended(making).await;
+
+    let applied = tried.expect("the trial applies the settings");
+    assert_eq!(applied.provider.revision, enforced.revision + 1);
+    assert_eq!(
+        made,
+        Issuance::ProviderChanged,
+        "the session proves the provider as it was before the trial"
+    );
+    test.teardown().await;
 }

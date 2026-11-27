@@ -481,7 +481,6 @@ async fn a_token_reaching(store: &Store, workspace_id: &str, user_id: &str) {
             workspaces: &granted,
             allow_personal_space: false,
             notify_self: true,
-            origin: None,
             created_at: 1,
             expires_at: i64::MAX,
         })

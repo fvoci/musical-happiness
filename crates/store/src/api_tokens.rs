@@ -38,18 +38,19 @@ pub struct GrantedWorkspace<'a> {
     pub org_id: &'a str,
 }
 
-/// The provider the session that makes a token was made through, at its revision then.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TokenOrigin<'a> {
+/// The provider the session that makes a token was made through, at its revision then,
+/// as the session's row keeps it: what the token is stored with.
+#[derive(Debug)]
+struct TokenOrigin {
     /// Which of the organization's providers it is.
-    pub provider_id: &'a str,
+    provider_id: String,
     /// Its revision when the session was made.
-    pub revision: i64,
+    revision: i64,
     /// The identity the session was made for: the provider's issuer then.
-    pub issuer: &'a str,
+    issuer: String,
     /// The subject of that identity; `None` for a session that kept none, which is of
     /// every identity of its issuer.
-    pub subject: Option<&'a str>,
+    subject: Option<String>,
 }
 
 /// A token to be stored ([`Store::issue_api_token`]).
@@ -73,10 +74,9 @@ pub struct TokenToIssue<'a> {
     pub workspaces: &'a [GrantedWorkspace<'a>],
     /// Whether it reaches the owner's own space.
     pub allow_personal_space: bool,
-    /// Whether the owner is told of what it does.
+    /// Whether the owner is told of what it does. The provider it was made through, if
+    /// any, is the store's to read from the session.
     pub notify_self: bool,
-    /// The provider of the session that makes it, if it was made through one.
-    pub origin: Option<TokenOrigin<'a>>,
     /// When it is made.
     pub created_at: i64,
     /// When it ends.
@@ -163,9 +163,10 @@ impl Store {
     pub async fn issue_api_token(&self, token: &TokenToIssue<'_>) -> Result<Issuance, StoreError> {
         self.system()
             .transaction(async |scope| {
-                if let Some(refused) = refused_issuance(scope, token).await? {
-                    return Ok(refused);
-                }
+                let origin = match admitted(scope, token).await? {
+                    Ok(origin) => origin,
+                    Err(refused) => return Ok(refused),
+                };
                 let mut sql = scope.sql(
                     "INSERT INTO api_tokens (id, user_id, name, token_prefix, token_hash, \
                      scope, allow_personal_space, notify_self, origin_provider_id, \
@@ -180,23 +181,21 @@ impl Store {
                     .push_bind(", ", token.scope.as_str())
                     .push_bind(", ", token.allow_personal_space)
                     .push_bind(", ", token.notify_self)
-                    .push_bind(", ", OptId(token.origin.map_or("", |origin| origin.provider_id)))
                     .push_bind(
                         ", ",
-                        crate::db::Param::OptInt(token.origin.map(|origin| origin.revision)),
+                        OptId(origin.as_ref().map_or("", |origin| &origin.provider_id)),
                     )
                     .push_bind(
                         ", ",
-                        crate::db::Param::OptText(token.origin.map(|origin| origin.issuer.to_owned())),
+                        crate::db::Param::OptInt(origin.as_ref().map(|origin| origin.revision)),
                     )
                     .push_bind(
                         ", ",
-                        crate::db::Param::OptText(
-                            token
-                                .origin
-                                .and_then(|origin| origin.subject)
-                                .map(str::to_owned),
-                        ),
+                        crate::db::Param::OptText(origin.as_ref().map(|origin| origin.issuer.clone())),
+                    )
+                    .push_bind(
+                        ", ",
+                        crate::db::Param::OptText(origin.and_then(|origin| origin.subject)),
                     )
                     .push_bind(", ", token.created_at)
                     .push_bind(", ", token.expires_at)
@@ -496,14 +495,16 @@ impl Store {
 }
 
 /// Holds the provider, the account and the session that make `token`
-/// ([`Store::issue_api_token`]), and says why the token is not stored, if it is not.
-async fn refused_issuance(
+/// ([`Store::issue_api_token`]): the provider the session was made through, which the
+/// token is stored with, or why the token is not stored.
+async fn admitted(
     scope: &mut Scope<'_>,
     token: &TokenToIssue<'_>,
-) -> Result<Option<Issuance>, StoreError> {
-    if let Some(refused) = refused_by_provider(scope, token).await? {
-        return Ok(Some(refused));
-    }
+) -> Result<Result<Option<TokenOrigin>, Issuance>, StoreError> {
+    let origin = match provider_of_session(scope, token).await? {
+        Ok(origin) => origin,
+        Err(refused) => return Ok(Err(refused)),
+    };
     // Who changes the account (its password, its erasure) waits for this, and so does
     // another token of it, which counts this one then.
     scope.record_lock(LockRank::Users, token.user_id);
@@ -513,7 +514,7 @@ async fn refused_issuance(
         sql.push(" FOR UPDATE");
     }
     if scope.fetch_optional(sql).await?.is_none() {
-        return Ok(Some(Issuance::SessionEnded));
+        return Ok(Err(Issuance::SessionEnded));
     }
     // What ends the session without changing the account (a provider changed or
     // removed, an identity unlinked) waits for this as well, and the token with it.
@@ -525,7 +526,7 @@ async fn refused_issuance(
         sql.push(" FOR SHARE");
     }
     if scope.fetch_optional(sql).await?.is_none() {
-        return Ok(Some(Issuance::SessionEnded));
+        return Ok(Err(Issuance::SessionEnded));
     }
     let mut sql = scope.sql("SELECT COUNT(*) FROM api_tokens WHERE user_id = ");
     sql.bind(Id(token.user_id))
@@ -536,51 +537,63 @@ async fn refused_issuance(
         None => 0,
     };
     if usize::try_from(live).unwrap_or(usize::MAX) >= API_TOKEN_MAX_LIVE {
-        return Ok(Some(Issuance::TooMany));
+        return Ok(Err(Issuance::TooMany));
     }
-    Ok(None)
+    Ok(Ok(origin))
 }
 
-/// Holds the provider the session that makes `token` was made through, if it was, as
+/// The provider the session that makes `token` was made through, if it was, held as
 /// signing in through it took when the session was made: there, switched on, and at
 /// the session's revision (as `app/sso.rs` asks of a session that proves a provider).
 /// Says why the token is not stored if the session is gone, or the provider is not so.
 ///
 /// A change or removal of the provider rewrites or deletes its row, so it waits for
 /// this token and then takes it back with the others; or it went first, and the row is
-/// read as it left it. The provider is held before the account, as a sign-in through
-/// it holds it before the account it lets in (`oidc::finish_oidc_sign_in`).
-async fn refused_by_provider(
+/// read as it left it. The provider is held before the account ([`LockRank::Provider`]),
+/// as a sign-in through it holds it before the account it lets in
+/// (`oidc::finish_oidc_sign_in`), and a trial of pending settings before the account
+/// that tried them (`oidc_pending::finish_oidc_trial`).
+async fn provider_of_session(
     scope: &mut Scope<'_>,
     token: &TokenToIssue<'_>,
-) -> Result<Option<Issuance>, StoreError> {
+) -> Result<Result<Option<TokenOrigin>, Issuance>, StoreError> {
     // How a session was made does not change; that it is still there is asked again
     // under the account's lock.
-    let mut sql = scope.sql("SELECT login_provider_id, login_revision FROM sessions WHERE id = ");
+    let mut sql = scope.sql(
+        "SELECT login_provider_id, login_revision, login_issuer, login_subject \
+         FROM sessions WHERE id = ",
+    );
     sql.bind(Id(token.session_id))
         .push_bind(" AND user_id = ", Id(token.user_id));
     let Some(row) = scope.fetch_optional(sql).await? else {
-        return Ok(Some(Issuance::SessionEnded));
+        return Ok(Err(Issuance::SessionEnded));
     };
     let provider_id = row.id(0)?;
     if provider_id.is_empty() {
-        return Ok(None);
+        return Ok(Ok(None));
     }
     // A session made before the revisions were kept proves none of them.
     let Some(revision) = row.opt_int(1)? else {
-        return Ok(Some(Issuance::ProviderChanged));
+        return Ok(Err(Issuance::ProviderChanged));
     };
+    let origin = TokenOrigin {
+        revision,
+        issuer: row.text(2)?,
+        subject: row.opt_text(3)?,
+        provider_id,
+    };
+    scope.record_lock(LockRank::Provider, &origin.provider_id);
     let mut sql = scope.sql("SELECT 1 FROM oidc_providers WHERE id = ");
-    sql.bind(Id(&provider_id))
+    sql.bind(Id(&origin.provider_id))
         .push_bind(" AND enabled = ", true)
         .push_bind(" AND revision = ", revision);
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR SHARE");
     }
     if scope.fetch_optional(sql).await?.is_none() {
-        return Ok(Some(Issuance::ProviderChanged));
+        return Ok(Err(Issuance::ProviderChanged));
     }
-    Ok(None)
+    Ok(Ok(Some(origin)))
 }
 
 /// Takes back every token of an account: with its sessions, in their transaction.

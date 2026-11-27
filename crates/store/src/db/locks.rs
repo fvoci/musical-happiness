@@ -8,6 +8,9 @@ pub(crate) enum LockRank {
     Instance,
     LinkTurn,
     Organization,
+    /// The row of an organization's provider, held before the account that signs in,
+    /// tries settings or makes a token through it.
+    Provider,
     Workspace,
     Container,
     DeletedContainers,

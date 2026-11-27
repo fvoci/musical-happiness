@@ -6,9 +6,7 @@
 use std::time::Duration;
 
 use fvoci_model::{ApiTokenScope, LoginOrigin, Session, new_id};
-use fvoci_store::{
-    DbType, Issuance, ProviderPut, Store, StoredProvider, TokenOrigin, TokenToIssue,
-};
+use fvoci_store::{DbType, Issuance, ProviderPut, Store, StoredProvider, TokenToIssue};
 
 use crate::common;
 use crate::lock_gate::{Gate, ended};
@@ -19,7 +17,7 @@ const T0: i64 = 1_800_000_000_000;
 /// When the sessions and the tokens end.
 const ENDS: i64 = T0 + 24 * 60 * 60 * 1000;
 
-fn provider(issuer: &str) -> StoredProvider {
+pub(crate) fn provider(issuer: &str) -> StoredProvider {
     StoredProvider {
         id: String::new(),
         org_id: String::new(),
@@ -36,7 +34,7 @@ fn provider(issuer: &str) -> StoredProvider {
 }
 
 /// Stores `next` in place of `before` (or as the first provider) on `store`.
-async fn put(
+pub(crate) async fn put(
     store: &Store,
     next: &StoredProvider,
     before: Option<&StoredProvider>,
@@ -84,13 +82,12 @@ pub(crate) async fn session(store: &Store, user_id: &str, login: Option<LoginOri
 }
 
 /// Stores a token of `user_id` under `digest`, reaching `workspace_id` of the handle's
-/// organization, made by the session `session_id` as the server makes it: with the
-/// session's origin.
-async fn issue(
+/// organization, made by the session `session_id`: with the provider the store reads
+/// the session was made through.
+pub(crate) async fn issue(
     store: &Store,
     user_id: &str,
     session_id: &str,
-    login: Option<&LoginOrigin>,
     digest: &str,
     workspace_id: &str,
 ) -> Issuance {
@@ -115,12 +112,6 @@ async fn issue(
             workspaces: &granted,
             allow_personal_space: false,
             notify_self: true,
-            origin: login.map(|login| TokenOrigin {
-                provider_id: &login.provider_id,
-                revision: login.revision.unwrap_or(0),
-                issuer: &login.issuer,
-                subject: login.subject.as_deref(),
-            }),
             created_at: T0,
             expires_at: ENDS,
         })
@@ -147,31 +138,29 @@ async fn a_session_makes_a_token_only_while_its_provider_is_as_it_was() {
     let workspace = common::workspace_of(&test, &[&alice]).await;
     let first = put(&test, &provider("https://one.example"), None, &alice).await;
     let at_first = origin(&first, Some(first.revision));
-    let of_first = session(&test, &alice, Some(at_first.clone())).await;
+    let of_first = session(&test, &alice, Some(at_first)).await;
     let unrevised = origin(&first, None);
-    let knows_no_revision = session(&test, &alice, Some(unrevised.clone())).await;
+    let knows_no_revision = session(&test, &alice, Some(unrevised)).await;
     let password = session(&test, &alice, None).await;
 
-    let made = issue(
-        &test,
-        &alice,
-        &of_first,
-        Some(&at_first),
-        "first",
-        &workspace,
-    )
-    .await;
+    let made = issue(&test, &alice, &of_first, "first", &workspace).await;
     assert!(matches!(made, Issuance::Issued(_)), "{made:?}");
     assert_eq!(
-        issue(
-            &test,
-            &alice,
-            &knows_no_revision,
-            Some(&unrevised),
-            "unrevised",
-            &workspace
+        test.texts_unchecked(
+            "SELECT CAST(origin_provider_id AS TEXT) || ' ' || CAST(origin_provider_revision \
+             AS TEXT) || ' ' || origin_issuer || ' ' || origin_subject FROM api_tokens \
+             WHERE token_hash = 'first'"
         )
-        .await,
+        .await
+        .expect("read"),
+        [format!(
+            "{} {} https://one.example subject",
+            first.id, first.revision
+        )],
+        "stored with the provider the session was made through, as the session keeps it"
+    );
+    assert_eq!(
+        issue(&test, &alice, &knows_no_revision, "unrevised", &workspace).await,
         Issuance::ProviderChanged,
         "a session that knows no revision proves none"
     );
@@ -188,48 +177,24 @@ async fn a_session_makes_a_token_only_while_its_provider_is_as_it_was() {
         "the token of the revision before ends"
     );
     assert_eq!(
-        issue(
-            &test,
-            &alice,
-            &of_first,
-            Some(&at_first),
-            "stale",
-            &workspace
-        )
-        .await,
+        issue(&test, &alice, &of_first, "stale", &workspace).await,
         Issuance::ProviderChanged,
         "the session stays, and proves the revision before"
     );
     let at_second = origin(&second, Some(second.revision));
-    let of_second = session(&test, &alice, Some(at_second.clone())).await;
-    let made = issue(
-        &test,
-        &alice,
-        &of_second,
-        Some(&at_second),
-        "second",
-        &workspace,
-    )
-    .await;
+    let of_second = session(&test, &alice, Some(at_second)).await;
+    let made = issue(&test, &alice, &of_second, "second", &workspace).await;
     assert!(matches!(made, Issuance::Issued(_)), "{made:?}");
 
     next.enabled = false;
     let off = put(&test, &next, Some(&second), &alice).await;
     assert!(!off.enabled, "switched off");
     assert_eq!(
-        issue(
-            &test,
-            &alice,
-            &of_second,
-            Some(&at_second),
-            "off",
-            &workspace
-        )
-        .await,
+        issue(&test, &alice, &of_second, "off", &workspace).await,
         Issuance::ProviderChanged,
         "a provider switched off proves nothing"
     );
-    let made = issue(&test, &alice, &password, None, "password", &workspace).await;
+    let made = issue(&test, &alice, &password, "password", &workspace).await;
     assert!(matches!(made, Issuance::Issued(_)), "{made:?}");
     for digest in ["unrevised", "stale", "off"] {
         assert!(!is_live(&test, digest).await, "{digest}: not stored");
@@ -259,7 +224,7 @@ async fn a_change_of_the_provider_takes_back_the_token_under_way(change: Change)
     let workspace = common::workspace_of(&test, &[&alice]).await;
     let first = put(&test, &provider("https://one.example"), None, &alice).await;
     let login = origin(&first, Some(first.revision));
-    let session_id = session(&test, &alice, Some(login.clone())).await;
+    let session_id = session(&test, &alice, Some(login)).await;
     let mut next = first.clone();
     match change {
         Change::Secret => "another sealed secret".clone_into(&mut next.sealed_client_secret),
@@ -277,17 +242,9 @@ async fn a_change_of_the_provider_takes_back_the_token_under_way(change: Change)
     let making = {
         let store = test.store.clone();
         let (alice, workspace) = (alice.clone(), workspace.clone());
-        tokio::spawn(async move {
-            issue(
-                &store,
-                &alice,
-                &session_id,
-                Some(&login),
-                "under-way",
-                &workspace,
-            )
-            .await
-        })
+        tokio::spawn(
+            async move { issue(&store, &alice, &session_id, "under-way", &workspace).await },
+        )
     };
     let holder = gate.stopped(&making).await;
     let changing = {

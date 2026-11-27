@@ -54,7 +54,6 @@ async fn token_of(store: &Store, user_id: &str, workspace_id: &str, name: &str) 
             workspaces: &granted,
             allow_personal_space: false,
             notify_self: true,
-            origin: None,
             created_at: T0,
             expires_at: T0 + 1000,
         })
@@ -232,7 +231,13 @@ async fn comments_by_agents(
         Some(&json!(LEAVERS_TOKEN)),
         "a change of no text keeps who wrote it"
     );
-    comment(store, on_card, founder, Some(through(founders, FOUNDERS_TOKEN))).await;
+    comment(
+        store,
+        on_card,
+        founder,
+        Some(through(founders, FOUNDERS_TOKEN)),
+    )
+    .await;
 }
 
 #[tokio::test]
