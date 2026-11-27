@@ -2,7 +2,7 @@
  * Live change application, background re-reading, and undo-wrapped mutations
  * for `BoardStore` (`board.svelte.ts`), extracted to keep `BoardStore` concise.
  */
-import { descendantsOf } from '../logic/card-hierarchy.ts';
+import { ancestorsOf, descendantsOf } from '../logic/card-hierarchy.ts';
 import type { BlockPatch, BoardView, Container } from '../logic/wire.ts';
 
 import {
@@ -209,11 +209,22 @@ async function goneAlready(deleting: Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * Deletes cards, with what is under them, as one step of the history. A card
+ * under another one of them goes with that one and is not sent itself: so
+ * the server keeps one family, which undo brings back as it was, whichever
+ * order the cards came in (one sent first would come back without its parent,
+ * at the top).
+ */
 export async function deleteBoardCards(
   store: BoardStore,
   cardIds: readonly string[],
 ): Promise<void> {
-  const uniqueIds = [...new Set(cardIds)];
+  const chosen = new Set(cardIds);
+  const { byId } = store.hierarchy;
+  const uniqueIds = [...chosen].filter(
+    (cardId) => !ancestorsOf(cardId, byId).some((above) => chosen.has(above.id)),
+  );
   if (uniqueIds.length === 0) return;
   await performBoardAction(
     store,
