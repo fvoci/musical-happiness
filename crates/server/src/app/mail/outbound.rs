@@ -10,32 +10,50 @@ use std::time::Duration;
 
 use crate::app::language::Language;
 
-/// An address a message comes from or goes to, as SMTP takes one (`local@domain`).
+/// An address a message comes from or goes to: one that the model takes for an
+/// address ([`fvoci_model::is_email_valid`]), as an account's and an invitation's are.
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct Mailbox(lettre::Address);
+pub(crate) struct Mailbox {
+    address: String,
+    /// Where its `@` is.
+    at: usize,
+}
+
+/// A text that is no address a message comes from or goes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NoMailbox;
+
+impl fmt::Display for NoMailbox {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("no email address")
+    }
+}
+
+impl std::error::Error for NoMailbox {}
 
 impl FromStr for Mailbox {
-    type Err = lettre::address::AddressError;
+    type Err = NoMailbox;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        text.parse().map(Self)
+        match text.find('@') {
+            Some(at) if fvoci_model::is_email_valid(text) => Ok(Self {
+                address: text.to_owned(),
+                at,
+            }),
+            _ => Err(NoMailbox),
+        }
     }
 }
 
 impl Mailbox {
     /// The address, as it is written.
     pub(crate) fn as_str(&self) -> &str {
-        self.0.as_ref()
+        &self.address
     }
 
     /// The domain of the address, after its `@`.
     pub(crate) fn domain(&self) -> &str {
-        self.0.domain()
-    }
-
-    /// The address, as the SMTP envelope takes it.
-    pub(crate) fn address(&self) -> &lettre::Address {
-        &self.0
+        &self.address[self.at + 1..]
     }
 }
 
@@ -102,4 +120,50 @@ pub(crate) trait Outbound: Send + Sync + 'static {
         &'a self,
         message: &'a Outgoing,
     ) -> Pin<Box<dyn Future<Output = Outcome> + Send + 'a>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Mailbox;
+
+    /// Every way of sending takes the addresses of a message as a `Mailbox`: an address
+    /// that the model takes for one (`fvoci_model::is_email_valid`), and that an account
+    /// or an invitation may have, is a mailbox too, with its domain after its `@`; what
+    /// the model refuses is none.
+    #[test]
+    fn every_address_the_model_takes_is_a_mailbox() {
+        let label63 = "a".repeat(63);
+        let longest = format!("{}@{label63}.{label63}.{label63}.com", "a".repeat(58));
+        for address in [
+            "a@b".to_owned(),
+            "test@mail.com".to_owned(),
+            "first.last+tag@sub.example.co".to_owned(),
+            "!#$%&'*+/=?^_`{|}~-@example.com".to_owned(),
+            "user@a-b.example".to_owned(),
+            "user@1.2".to_owned(),
+            ".dot@example.com".to_owned(),
+            "dot.@example.com".to_owned(),
+            "two..dots@example.com".to_owned(),
+            format!("user@{label63}.com"),
+            longest,
+        ] {
+            assert!(fvoci_model::is_email_valid(&address), "{address}");
+            let mailbox: Mailbox = address.parse().expect("a mailbox");
+            assert_eq!(mailbox.as_str(), address);
+            assert_eq!(
+                Some(mailbox.domain()),
+                address.split_once('@').map(|(_, domain)| domain)
+            );
+        }
+        for none in [
+            "",
+            "a@",
+            "@b",
+            "a@b@c",
+            "a b@example.com",
+            "user@example.com\n",
+        ] {
+            assert!(none.parse::<Mailbox>().is_err(), "{none:?}");
+        }
+    }
 }

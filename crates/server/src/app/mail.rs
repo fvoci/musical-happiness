@@ -542,7 +542,7 @@ impl Queued {
                         after: None,
                         code: None,
                     }),
-                // A recipient's address that SMTP does not take: every way refuses it.
+                // A recipient's address that is none: every way refuses it.
                 None => Outcome::Refused { code: None },
             };
             drop(sending);
@@ -767,7 +767,7 @@ struct Sender {
 
 impl Sender {
     /// The message of `letter`, from this sender; `None` if its recipient's address is
-    /// no address SMTP takes.
+    /// none.
     fn outgoing(&self, letter: Letter) -> Option<Outgoing> {
         Some(Outgoing {
             from: self.from.clone(),

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use lettre::address::Envelope;
 use lettre::transport::smtp::authentication::Credentials;
-use lettre::{AsyncSmtpTransport, AsyncTransport as _, Tokio1Executor};
+use lettre::{Address, AsyncSmtpTransport, AsyncTransport as _, Tokio1Executor};
 
 use super::mime;
 use super::outbound::{Outbound, Outcome, Outgoing};
@@ -47,7 +47,8 @@ impl Smtp {
 
     async fn deliver(&self, message: &Outgoing) -> Outcome {
         let Ok((envelope, bytes)) = build(message) else {
-            // What the builder refuses of a message would be refused by every server.
+            // An address the model takes and SMTP does not (a dot at an end of its
+            // local part, or two dots together) would be refused by every relay.
             return Outcome::Refused { code: None };
         };
         match self.transport.send_raw(&envelope, &bytes).await {
@@ -115,10 +116,8 @@ fn outcome_of(reply: Option<u16>) -> Outcome {
 
 /// The envelope and the MIME text of `message`.
 fn build(message: &Outgoing) -> anyhow::Result<(Envelope, Vec<u8>)> {
-    let envelope = Envelope::new(
-        Some(message.from.address().clone()),
-        vec![message.to.address().clone()],
-    )?;
+    let from: Address = message.from.as_str().parse()?;
+    let envelope = Envelope::new(Some(from), vec![message.to.as_str().parse()?])?;
     Ok((envelope, mime::message(message)?))
 }
 
