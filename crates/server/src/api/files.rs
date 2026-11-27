@@ -489,8 +489,8 @@ async fn drain_form(multipart: &mut Multipart) {
     let _ = tokio::time::timeout(FORM_DISCARD_TIMEOUT, draining).await;
 }
 
-/// Serves a file's contents with the download headers and the range and conditional
-/// handling of `http.ServeContent`.
+/// Serves a file's contents with the download headers, answering a range request and a
+/// conditional one (RFC 9110 §14 and §13).
 async fn serve_content(
     app: &App,
     name: DownloadName<'_>,
@@ -503,7 +503,7 @@ async fn serve_content(
     let content_type = content_type_for(mime_type);
     let mut headers = base_headers(name, &content_type, modtime);
 
-    // Preconditions, in the order of Go's checkPreconditions.
+    // Preconditions, in the order RFC 9110 §13.2.2 evaluates them.
     if let Some(since) = http_date(request_headers, &IF_UNMODIFIED_SINCE)
         && modtime_after(modtime, since)
     {

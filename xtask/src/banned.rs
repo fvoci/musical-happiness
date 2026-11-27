@@ -68,12 +68,14 @@ const BANNED: [(usize, &str); 10] = [
     ),
 ];
 
-/// Narrow porting phrases refused in tracked project files (matched case-insensitively).
+/// Narrow porting phrases refused in tracked project files (matched case-insensitively),
+/// and the names of another language's standard library given as the reason for code:
+/// the code says what it does, or names the standard it follows.
 ///
 /// Kept narrow so ordinary phrases such as `"original file"`, `"original card"`,
 /// `"원본 이미지"`, or `"원본 파일"` are not flagged. Every entry must be lowercase; built
 /// with `concat!` so this file stays free of literal matches.
-const BANNED_PHRASES: [&str; 8] = [
+const BANNED_PHRASES: [&str; 11] = [
     concat!("ports ", "server/"),
     concat!("the ", "original's"),
     concat!("the ", "original server"),
@@ -82,6 +84,9 @@ const BANNED_PHRASES: [&str; 8] = [
     concat!("원본", "과 "),
     concat!("원본", "과의"),
     concat!("원본", "에서 옮"),
+    concat!("http.serve", "content"),
+    concat!("check", "preconditions"),
+    concat!("bytes.trim", "space"),
 ];
 
 /// Retired pre-launch identifiers refused in tracked project files: in any case, inside

@@ -404,17 +404,6 @@ fn check_version(bytes: &[u8]) -> Result<(), AppError> {
     }
 }
 
-/// Trims ASCII whitespace from both ends of a line, as `bytes.TrimSpace` does.
-fn trim(line: &[u8]) -> &[u8] {
-    let start = line.iter().position(|byte| !byte.is_ascii_whitespace());
-    let Some(start) = start else { return &[] };
-    let end = line
-        .iter()
-        .rposition(|byte| !byte.is_ascii_whitespace())
-        .unwrap_or(start);
-    &line[start..=end]
-}
-
 /// Clears the card values that do not fit the kind of their property, and of relation
 /// values what a write refuses, as a copy of stored cards does.
 fn clear_values_of_another_kind(containers_and_blocks: &mut ContainersAndBlocks) {

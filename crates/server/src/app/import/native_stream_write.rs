@@ -23,7 +23,6 @@ use super::native_stream::{
 };
 use super::pointing::{came_with_more, pointed};
 use super::summary::ImportCounts;
-use super::trim;
 use crate::auth::now_millis;
 use crate::error::AppError;
 
@@ -260,7 +259,7 @@ impl<'a> BoardStreamer<'a> {
             if pass == StreamPass::Revisit && !self.revisit_lines.contains_key(&line_number) {
                 continue;
             }
-            let line = trim(&line_buf);
+            let line = line_buf.trim_ascii();
             if line.is_empty() {
                 continue;
             }

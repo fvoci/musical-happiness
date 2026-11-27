@@ -25,7 +25,7 @@ use serde_json::value::RawValue;
 
 use super::archive::{Archive, entry_name};
 use super::places::{self, BlockPlace};
-use super::{ArchiveFiles, ImportOptions, MAX_JSONL_BYTES, file_names_of, missing_files_of, trim};
+use super::{ArchiveFiles, ImportOptions, MAX_JSONL_BYTES, file_names_of, missing_files_of};
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 use fvoci_store::StoreError;
@@ -364,7 +364,7 @@ fn scan_native_board_blocking(
         &entry_label,
     )? {
         line_number += 1;
-        let line = trim(&line_buf);
+        let line = line_buf.trim_ascii();
         if !line.is_empty() {
             state.take_line(line, line_number, workspace_id, modified_by)?;
         }
