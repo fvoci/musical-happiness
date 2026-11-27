@@ -193,10 +193,11 @@ jobs:
           PART: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: cargo xtask test --database postgres --part "$PART"
 
-  # The store's tests, which hold every test the major of PostgreSQL could change (the
-  # catalog of the schema, the plans, the locks, the roles), on the majors the server
-  # supports beside the 18 that `rust-postgres` runs: 17 and 19 (docs/configuration.md).
-  # One runner and one build for both, one after the other.
+  # The store's integration tests (crates/store/tests/store: the catalog of the schema,
+  # the plans, the locks, the roles) on the majors the server supports beside 18: 17
+  # and 19 (docs/configuration.md). The other tests on PostgreSQL (the wall between the
+  # organizations, the server's) run on 18 only, in `rust-postgres`. One runner and one
+  # build for both majors, one after the other.
   rust-postgres-versions:
     name: cargo xtask test (PostgreSQL 17 and 19, store)
     needs: plan
@@ -223,8 +224,8 @@ jobs:
       - name: Remove PostgreSQL 17 and the times of its run
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: |
-          docker rm --force --volumes fvoci-test-postgres-17
           rm -f target/xtask-times.jsonl
+          docker rm --force --volumes fvoci-test-postgres-17
       # Its addresses are written over 17's.
       - id: postgres19
         name: Start PostgreSQL 19

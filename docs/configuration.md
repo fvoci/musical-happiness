@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-28 03:05 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-28 03:40 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 키를 더하거나 바꾸면 같은 커밋에서 이 문서를 고친다. 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -48,7 +48,7 @@
 
 스키마는 기준선 하나(`crates/store/schema/<종류>/0001_baseline.sql`)에서 시작한다. 기준선 전의 서버들이 이주 1~79로 만든 데이터베이스는, 기준선 전의 마지막 서버가 그 끝(79와 그 뒤의 데이터 단계)까지 올려 둔 것이면 `_sqlx_migrations`의 기록만 기준선의 한 줄로 바뀐다: 표와 행은 그대로이고, 서버 잠금 없이 한 트랜잭션으로(PostgreSQL은 그 표를 잠그고) 바꾸므로 그 데이터베이스를 쓰는 서버가 돌고 있어도 된다. 그 끝까지 오지 않은 것(밀린 이주, 다른 체크섬, 실패한 이주, 남은 데이터 단계)은 무엇이 다른지 말하며 거절한다: 기준선 전의 마지막 서버로 먼저 연다. 기록이 바뀐 데이터베이스는 기준선 전의 서버가 열지 않으므로, 그 서버로 되돌리는 길은 바꾸기 전의 백업을 되살리는 것뿐이다.
 
-PostgreSQL은 17, 18, 19를 지원한다: 변경마다 CI가 시험을 도는 판이다(18에서는 시험 전부를, 17과 19에서는 판에 따라 달라질 수 있는 스토어의 시험 `crates/store/tests/store`를). `docker/compose.yaml`은 `postgres:18`로 뜬다. 주판마다 데이터 디렉터리의 형식이 달라, 이미지의 주판을 올리면 새 컨테이너는 옛 판이 만든 볼륨에서 기동을 거절한다(데이터는 그대로 남는다). 주판을 올릴 때는 `docker/backup.sh`로 뜬 백업을 새 볼륨에 `docker/restore.sh`로 되살리거나 `pg_upgrade`를 거친다.
+PostgreSQL은 17, 18, 19를 지원한다: 웹앱만 고친 것이 아니면 변경마다 CI가 시험을 도는 판이다(18에서는 시험 전부를, 17과 19에서는 스토어의 통합 시험 `crates/store/tests/store`를). `docker/compose.yaml`은 `postgres:18`로 뜬다. 주판(17, 18, 19처럼 주 버전의 수)마다 데이터 디렉터리의 형식이 달라, 이미지의 주판을 올리면 새 컨테이너는 옛 판이 만든 볼륨에서 시작을 거절한다(데이터는 그대로 남는다). 주판을 올릴 때는 `docker/backup.sh`로 뜬 백업을 새 볼륨에 `docker/restore.sh`로 되살리거나 `pg_upgrade`를 거친다.
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
@@ -103,7 +103,7 @@ services:
 
 이 절이 말하는 기본값은 `postgres:18`의 것이다. `postgres:19`는 `jit=off`와 `default_toast_compression=lz4`가 이미 이미지의 기본값이고, `postgres:17`은 데이터 체크섬이 꺼진 채(`data_checksums=off`) 만들어지며 `effective_io_concurrency=1`, `maintenance_io_concurrency=10`이 기본값이다. 위 `override.yaml`의 값 15개는 17, 18, 19 어디서나 그대로 걸린다(19에서 두 줄은 기본값과 같을 뿐이다).
 
-`postgres:17`로 내려 쓰려면 `override.yaml`의 `postgres`에 `image: postgres:17`과 함께 `environment: { PGDATA: /var/lib/postgresql/17/docker }`를 준다. 17 이미지는 `VOLUME /var/lib/postgresql/data`를 선언하므로, `docker/compose.yaml`의 마운트(`postgres-data:/var/lib/postgresql`)만 두면 데이터가 이름 붙은 볼륨이 아니라 그 안에 따로 걸리는 익명 볼륨에 들어간다: `down` 뒤의 `up`처럼 컨테이너를 새로 만들거나 볼륨을 다른 기기로 옮기면 빈 클러스터가 뜨고 표가 없다(`down -v`가 아니었으면 옛 데이터는 떨어져 나간 익명 볼륨에 남는다). `PGDATA`를 주면 데이터가 18, 19와 같은 자리(볼륨의 `<주판>/docker`)에 들어가 새 컨테이너에서도 남는다. 마운트를 `/var/lib/postgresql/data`로 바꾸는 길은 쓰지 않는다: compose는 뒤 파일의 `volumes`를 앞 파일의 것과 합치므로 기본 마운트도 남고, 같은 마운트로 18이나 19에 올리면 그 이미지가 기동을 거절한다. `roles`는 `postgres:18` 그대로 둔다(18의 `psql`이 17 서버에 역할을 만든다).
+새 설치를 `postgres:17`로 띄우거나 백업을 17에 되살릴 때는 `override.yaml`의 `postgres`에 `image: postgres:17`과 함께 `environment: { PGDATA: /var/lib/postgresql/17/docker }`를 준다. 17 이미지는 `VOLUME /var/lib/postgresql/data`를 선언하므로, `docker/compose.yaml`의 마운트(`postgres-data:/var/lib/postgresql`)만 두면 데이터가 이름 붙은 볼륨이 아니라 그 안에 따로 걸리는 익명 볼륨에 들어간다: `down`이나 `rm`으로 컨테이너를 지운 뒤 다시 `up`하거나 볼륨을 다른 기기로 옮기면 빈 클러스터가 뜨고 표가 없다(지운 컨테이너의 데이터는 `down -v`가 아니었으면 떨어져 나간 익명 볼륨에 남는다). 값을 바꾼 뒤의 `up`처럼 컨테이너를 지우지 않고 새로 만들 때는 compose가 익명 볼륨을 새 컨테이너에 이어 붙여 데이터가 남는다. `PGDATA`를 주면 데이터가 18, 19와 같은 자리(볼륨의 `<주판>/docker`)에 들어가 새 컨테이너에서도 남는다. 마운트를 `/var/lib/postgresql/data`로 바꾸는 길은 쓰지 않는다: compose는 뒤 파일의 `volumes`를 앞 파일의 것과 합치므로 기본 마운트도 남고, 같은 마운트로 18이나 19에 올리면 그 이미지가 시작을 거절한다. `roles`는 `postgres:18` 그대로 둔다(18의 `psql`이 17 서버에 역할을 만든다).
 
 ## 키: 파일 저장소
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Starts the containers of the tests for a job that does not run `cargo xtask test`,
-# which starts them itself, and writes their addresses to the job's environment.
+# Starts the containers of the tests where `cargo xtask test` does not start them (it
+# makes PostgreSQL 18 and S3 only when no address is given), and writes their addresses
+# to the job's environment, where xtask and the other tests take them.
 #
 #   test-services.sh postgres [s3]
 #   test-services.sh postgres-17 | postgres-19
