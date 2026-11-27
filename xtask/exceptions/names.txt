@@ -277,3 +277,7 @@ crates/store/schema/*/0050_personal_organizations.sql
 crates/store/schema/*/0051_organizations_made_by.sql | kind = 'team'
 crates/store/schema/*/0076_user_settings_client_state_and_block_cleanup.sql | 'team'
 crates/store/schema/postgres/0076_user_settings_client_state_and_block_cleanup.sql | '%team%'
+
+# The catalogs of databases before the baseline, as they were read: their tables of the
+# teams of a workspace (people grouped in it) are named so.
+crates/store/tests/store/before_baseline/catalog-*.txt

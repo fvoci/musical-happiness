@@ -22,6 +22,8 @@
 //! name the organization, is PostgreSQL's alone: SQLite's file says why it is empty.
 
 mod inspect;
+#[cfg(test)]
+mod pre_baseline;
 mod steps;
 
 use sqlx::SqlSafeStr as _;
@@ -394,6 +396,37 @@ mod tests {
             )),
             "the first statement, not a later one"
         );
+    }
+
+    /// The record that the baseline takes the place of is the one this chain of
+    /// migrations writes: every version, with the checksum of its file, of each kind.
+    #[test]
+    fn the_record_before_the_baseline_is_the_one_of_the_chain() {
+        for (dialect, record) in [
+            (Dialect::Sqlite, &pre_baseline::SQLITE),
+            (Dialect::Postgres, &pre_baseline::POSTGRES),
+        ] {
+            let chain: Vec<(i64, String)> = migrator(dialect, None)
+                .iter()
+                .map(|migration| {
+                    let checksum =
+                        migration
+                            .checksum
+                            .iter()
+                            .fold(String::new(), |mut hexadecimal, byte| {
+                                use std::fmt::Write as _;
+                                write!(hexadecimal, "{byte:02x}").expect("a string takes it");
+                                hexadecimal
+                            });
+                    (migration.version, checksum)
+                })
+                .collect();
+            let listed: Vec<(i64, String)> = record
+                .iter()
+                .map(|(version, checksum)| (*version, (*checksum).to_owned()))
+                .collect();
+            assert_eq!(listed, chain, "{dialect:?}");
+        }
     }
 
     /// No table is both an organization's and nobody's.
