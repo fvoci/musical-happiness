@@ -29,9 +29,9 @@ pub struct PageRestore {
 
 impl Store {
     /// The pages of the wiki in the trash at the top of what was deleted with them, the
-    /// last deleted first and then by identifier: one page of them if `paging` says so
-    /// (a page size of zero is every one). A page that went with the page it was below
-    /// comes back with that page, and is not listed.
+    /// last deleted first and then by identifier: the page of them `paging` names, or
+    /// every one without it. A page that went with the page it was below comes back with
+    /// that page, and is not listed.
     ///
     /// # Errors
     ///

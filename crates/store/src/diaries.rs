@@ -236,8 +236,7 @@ impl Store {
     }
 
     /// The entries of the diary in the trash, the last deleted first and then by
-    /// identifier: one page of them if `paging` says so (a page size of zero is every
-    /// one).
+    /// identifier: the page `paging` names, or every one without it.
     ///
     /// # Errors
     ///

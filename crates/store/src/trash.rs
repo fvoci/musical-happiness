@@ -175,9 +175,9 @@ impl Store {
     }
 
     /// Returns the cards of a board that are in the trash at the top of what was deleted
-    /// with them, the last deleted first and then by identifier: one page of them if
-    /// `paging` says so (a page size of zero is every card). A card that went with the
-    /// block it was on (a card, a view) comes back with that block and is not listed.
+    /// with them, the last deleted first and then by identifier: the page `paging` names,
+    /// or every one without it. A card that went with the block it was on (a card, a
+    /// view) comes back with that block and is not listed.
     ///
     /// # Errors
     ///
@@ -311,8 +311,8 @@ impl Store {
     /// Returns the boards of `kinds` of a workspace that are in the trash and, with an
     /// `admin_id`, that the user was an admin of when they were deleted (`role` `admin` of
     /// the membership they had); without one, every such board of the workspace in the
-    /// trash. With their memberships, the last deleted first and then by identifier: one
-    /// page of them if `paging` says so (a page size of zero is every board).
+    /// trash. With their memberships, the last deleted first and then by identifier: the
+    /// page `paging` names, or every one without it.
     ///
     /// # Errors
     ///

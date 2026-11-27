@@ -413,7 +413,6 @@ impl Store {
         Ok(store)
     }
 
-    /// Brings the schema of the database up to date, as [`Store::connect`] does: for a
     /// Returns the store's shared monotonic [`Clock`].
     #[must_use]
     pub fn clock(&self) -> &clock::Clock {

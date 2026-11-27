@@ -7321,7 +7321,7 @@ export interface components {
             /** @description The created, moved, or duplicated view block. */
             view: components["schemas"]["Block"];
         };
-        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 5, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100000 nodes. */
+        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 5, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
         Body: {
             [key: string]: unknown;
         };

@@ -584,7 +584,7 @@ fn file_ids_document_order_and_empty_document_transitions_match_full_projection(
 /// the case where deleting an invalid block brings a document back under `BODY_MAX_NODES`.
 #[test]
 fn limit_boundaries_and_invalid_root_values_match_full_projection() {
-    // Document at BODY_MAX_NODES - 1 nodes (1 doc + 49,998 horizontalRules = 49,999).
+    // Document at BODY_MAX_NODES - 1 nodes (1 doc + 99,998 horizontalRules = 99,999).
     let near_full = json!({
         "type": "doc",
         "content": vec![json!({"type": "horizontalRule"}); BODY_MAX_NODES - 2],
@@ -594,7 +594,7 @@ fn limit_boundaries_and_invalid_root_values_match_full_projection() {
     let mut changes = state_counts(&state).expect("counts").changes;
     let mut held = BodyDoc::from_state(&state, &ROOMY).expect("open").doc;
 
-    // Adding 2 valid horizontalRules exceeds BODY_MAX_NODES (50,001 > 50,000) -> TooManyNodes.
+    // Adding 2 valid horizontalRules exceeds BODY_MAX_NODES (100,001 > 100,000) -> TooManyNodes.
     let over_nodes = peer_edit(&state, 10, |txn, root| {
         root.push_back(txn, XmlElementPrelim::empty("horizontalRule"));
         root.push_back(txn, XmlElementPrelim::empty("horizontalRule"));
