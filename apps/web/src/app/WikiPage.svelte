@@ -34,6 +34,7 @@
   import CardBacklinks from '$lib/features/card/CardBacklinks.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
   import CardComments from '$lib/features/card/CardComments.svelte';
+  import CommentReactions from '$lib/features/card/CommentReactions.svelte';
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
   import WatchToggle from '$lib/features/card/WatchToggle.svelte';
   import PageMenu from '$lib/features/wiki/PageMenu.svelte';
@@ -299,6 +300,9 @@
               keep={() => keepVersion(pageVersions(page))}
             />
           </div>
+          {#if page.status === 'ready'}
+            <CommentReactions reactions={page.comments} blockId={page.pageId} />
+          {/if}
           <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
           <CardBacklinks {workspace} blockId={page.pageId} of="page" heading="h2" />
           {@const comments = page.comments}
@@ -306,6 +310,7 @@
             <CardComments
               board={comments}
               card={comments}
+              reactions={comments}
               readVersions={(commentId: string) => comments.commentVersions(commentId)}
               heading="h2"
             />

@@ -22,6 +22,7 @@ import type {
 import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
 import type { StoredNotification } from './notifications.ts';
+import type { Reaction } from '../reaction-types.ts';
 import type { ContainerPlace } from './trash.ts';
 import type {
   CourseMeeting,
@@ -167,6 +168,8 @@ export class World {
   readonly fileLeases = new Map<string, FileLeaseHeld>();
   /** What each user was told, by user (`notifications.ts`). */
   readonly notifications = new Map<string, StoredNotification[]>();
+  /** The reactions to each block that has any, by block (`reactions.ts`). */
+  readonly reactions = new Map<string, Reaction[]>();
   /** Explicit unit watch overrides per user (`userId -> Map<unitId, boolean>`). */
   readonly unitWatchers = new Map<string, Map<string, boolean>>();
   /** Personal unit progress rows per user (`userId -> Map<unitId, UnitProgress>`). */
@@ -284,6 +287,20 @@ export class World {
       kind: 'containerDeleted',
       containerId,
     });
+  }
+
+  /**
+   * Tells who reads the container as a user, as `tellContainer` does, and not
+   * a reader by its public link: what names users (`reactionsChanged`).
+   */
+  tellReaders(containerId: string, change: Change): void {
+    this.#tell(
+      (watcher) =>
+        watcher.containerId === containerId &&
+        watcher.userId !== '' &&
+        reads(this, watcher.userId, containerId),
+      change,
+    );
   }
 
   /** Tells the given users, wherever they are. */

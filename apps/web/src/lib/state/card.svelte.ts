@@ -20,7 +20,8 @@ import { BodyUploads } from './body-uploads.svelte.ts';
 import type { BoardStore } from './board.svelte.ts';
 import type { CommentEdit } from './card-parts.ts';
 import { CollaborativeBodyState, SAVING_SHOWN } from './collab-body.svelte.ts';
-import { CommentThreadStore } from './comment-thread.svelte.ts';
+import { CommentThreadStore, type ThreadReactions } from './comment-thread.svelte.ts';
+import type { Reaction } from './reaction-types.ts';
 import { byCreation } from './order.ts';
 import { UploadKept, type Transfer } from './transfers.svelte.ts';
 import { authorIds } from './user-names.ts';
@@ -77,6 +78,8 @@ export class CardStore {
     this.#commentThread = new CommentThreadStore({
       workspace: board.workspace,
       parentId: cardId,
+      containerId: board.boardId,
+      joined: (write) => this.board.writeJoined(write),
       role: () => this.board.role,
       permissions: () => this.board.effectivePermissions,
       joinable: () => this.board.joinable,
@@ -140,17 +143,24 @@ export class CardStore {
     return this.#commentThread.comments;
   }
 
+  /** The reactions to the card and to its comments. */
+  get reactions(): ThreadReactions {
+    return this.#commentThread;
+  }
+
   async load(): Promise<void> {
     this.status = 'loading';
     this.openBody();
     try {
-      const [detail, comments, attachments] = await Promise.all([
+      const [read, comments, attachments] = await Promise.all([
         this.#backend.card(this.#boardId, this.cardId),
         this.#backend.comments(this.#boardId, this.cardId),
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
       if (this.#closed) return;
+      const { reactions, ...detail } = read;
       this.#takeDetail(detail);
+      this.#commentThread.takeReactions(reactions);
       void this.board.workspace.learnUsers(authorIds([detail, ...comments]));
       this.#commentThread.setInitial(comments);
       this.#attachments = attachments;
@@ -281,6 +291,11 @@ export class CardStore {
 
   #isClosed(): boolean {
     return this.#closed;
+  }
+
+  /** `reactionsChanged` of the card or one of its comments. */
+  receiveReactions(blockId: string, reactions: readonly Reaction[]): void {
+    this.#commentThread.receiveReactions(blockId, reactions);
   }
 
   forget(blockIds: readonly string[]): void {

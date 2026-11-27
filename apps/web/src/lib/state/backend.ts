@@ -23,6 +23,7 @@ import type { DocRooms } from './body-doc.ts';
 import type { VersionsOfFiles } from './file-versions.ts';
 import type { OfBodies } from './references.ts';
 import type { TrashReads } from './trash-reads.ts';
+import type { ReactionsOfBackend, WithReactions } from './reaction-types.ts';
 import type { WatchesOfBackend } from './watch-types.ts';
 import type { ChangeListener } from './changes.ts';
 import type { ContentSearchOfBackend } from './content-search.ts';
@@ -263,6 +264,7 @@ export interface Backend
     ContentSearchOfBackend,
     NotificationsOfBackend,
     WatchesOfBackend,
+    ReactionsOfBackend,
     TimeOfBackend,
     VersionsOfFiles,
     ServerAuthorityOfBackend {
@@ -414,7 +416,7 @@ export interface Backend
    * gallery that is shown.
    */
   cardPreviews(boardId: string): Promise<Map<string, CardPreview>>;
-  card(boardId: string, cardId: string): Promise<CardDetail>;
+  card(boardId: string, cardId: string): Promise<WithReactions<CardDetail>>;
   createCard(boardId: string, draft: CardDraft): Promise<CardSummary>;
   patchCard(
     boardId: string,
@@ -424,7 +426,7 @@ export interface Backend
   ): Promise<CardSummary>;
 
   // Comments and attachments of a card.
-  comments(boardId: string, cardId: string): Promise<Comment[]>;
+  comments(boardId: string, cardId: string): Promise<WithReactions<Comment>[]>;
   createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment>;
   /**
    * Replaces the text of a comment. Rejects with 409 when the comment changed

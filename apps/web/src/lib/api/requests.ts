@@ -34,6 +34,7 @@ import { ServerNotifications } from './notifications.ts';
 import { ServerPeople } from './people.ts';
 import { ServerReferences } from './references.ts';
 import { ServerTime } from './time.ts';
+import { ServerReactions } from './reactions.ts';
 import { ServerWatches } from './watches.ts';
 import { ServerWikis } from './wikis.ts';
 
@@ -81,6 +82,8 @@ export class ServerRequests extends AccountRequests implements TrashReads {
   readonly notifications: ServerNotifications;
   /** What the reader watches, the cards, pages and units they are told of. */
   readonly watches: ServerWatches;
+  /** The emoji the reader answers comments, cards, pages and units with. */
+  readonly reactions: ServerReactions;
   /** Personal time tracking entries and active timer of the signed-in reader. */
   readonly time: ServerTime;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
@@ -111,6 +114,9 @@ export class ServerRequests extends AccountRequests implements TrashReads {
       this.inWorkspace(path, params, options, workspaceId),
     );
     this.watches = new ServerWatches((path, params, options, workspaceId) =>
+      this.inWorkspace(path, params, options, workspaceId),
+    );
+    this.reactions = new ServerReactions((path, params, options, workspaceId) =>
       this.inWorkspace(path, params, options, workspaceId),
     );
     const request = this.#inContainer.bind(this);
