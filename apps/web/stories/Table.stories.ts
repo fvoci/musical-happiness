@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 import { expect, waitFor } from 'storybook/test';
 import ViewSample from './ViewSample.svelte';
-import { clickStory, storyElement } from './interactions.ts';
+import { clickStory, selectTwo, storyElement } from './interactions.ts';
 
 const meta = {
   title: 'Views/Table',
@@ -34,4 +34,18 @@ export const OpenCard: Story = {
       ),
     );
   },
+};
+
+export const Selected: Story = {
+  play: async ({ canvasElement }) => {
+    await selectTwo(canvasElement, {
+      first: '[data-row="example-card-1"] [data-kind="title"]',
+      menu: '[data-more="example-card-1"]',
+      second: '[data-row="example-card-2"] [data-kind="title"]',
+    });
+  },
+};
+export const SelectedNarrow: Story = {
+  args: { narrow: true },
+  play: Selected.play,
 };

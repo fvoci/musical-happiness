@@ -4,6 +4,10 @@
   each a button that opens it. Nothing is drawn where there are none. The
   list is read from the cards of the board (referrers.ts); it is changed
   from the cards that hold the link, not here.
+
+  The cards stand in one line that scrolls sideways: the list is as high at
+  every width, so the card's text below it stays where it is when the frame
+  of the card changes.
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -25,12 +29,15 @@
 
 {#if referrers.length > 0}
   <div data-slot="relation-referrers" class="flex min-w-0 flex-col gap-1 px-2 pt-0.5 pb-1.5">
-    <span id="{uid}-label" class="text-xs text-muted-foreground">
+    <span id="{uid}-label" class="truncate text-xs text-muted-foreground">
       {m.property_relation_referrers()}
     </span>
-    <ul aria-labelledby="{uid}-label" class="m-0 flex list-none flex-wrap gap-1 p-0">
+    <ul
+      aria-labelledby="{uid}-label"
+      class="m-0 flex [scrollbar-width:thin] list-none gap-1 overflow-x-auto overscroll-x-contain p-0"
+    >
       {#each referrers as card (card.id)}
-        <li class="max-w-full min-w-0">
+        <li class="max-w-56 min-w-0 shrink-0">
           {#if onOpenCard}
             <button
               type="button"

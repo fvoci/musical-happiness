@@ -15,7 +15,8 @@
   For someone who may edit, a box at the start of the title cell selects the
   row; it shows under a pointer that rests on the row, and on every row once
   one is selected. A press with Ctrl or ⌘ or Shift anywhere on the row
-  selects too (`host.pick`), as does any press while selecting.
+  selects too (`host.pick`), as does any press while selecting. Tab does not
+  stop at the box: X on a cell does what it does (Table.svelte).
 -->
 <script lang="ts">
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
@@ -195,7 +196,6 @@
         role="checkbox"
         aria-checked={selected}
         aria-label={m.bulk_select_card({ title })}
-        data-inner
         data-select-row={card.id}
         tabindex="-1"
         class={[
