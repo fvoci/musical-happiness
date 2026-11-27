@@ -6,7 +6,9 @@
 //! locks in. A locking clause written anywhere else would take a lock that it does not
 //! see. The step refuses one ([`holds_locking_clause`]) in the string literals of every
 //! source of [`STORE_SOURCES`], their tests included, but the database layer itself
-//! ([`is_the_database_layer`]). Comments and documentation say what they like.
+//! ([`is_the_database_layer`]). Comments and documentation say what they like. A debug
+//! build of the store looks for the same words, past SQL comments, in each statement it
+//! runs, however its text was put together (`check_clause`, beside `Sql::push_lock`).
 
 use std::path::Path;
 

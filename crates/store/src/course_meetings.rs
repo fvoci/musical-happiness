@@ -321,7 +321,7 @@ impl Store {
                 .bind(Id(meeting_id))
                 .push_bind(" AND org_id = ", org.clone())
                 .push_bind(" AND container_id = ", Id(course_id))
-                .push(&scope.row_lock(LockRank::CourseItem, meeting_id, RowLock::KeyShare));
+                .push_lock(scope.row_lock(LockRank::CourseItem, meeting_id, RowLock::KeyShare));
             if !scope.exists(exists).await? {
                 return Err(StoreError::not_found("meeting"));
             }
@@ -489,7 +489,7 @@ pub(crate) async fn require_live_course(
         .push(" AND w.deleted_at IS NULL")
         .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("c", "w")]));
-    sql.push(&scope.row_lock(LockRank::Container, course_id, RowLock::KeyShare.of("c")));
+    sql.push_lock(scope.row_lock(LockRank::Container, course_id, RowLock::KeyShare.of("c")));
     scope.one(sql, "course").await
 }
 
@@ -617,7 +617,7 @@ async fn fetch_meeting_for_update(
     sql.bind(Id(meeting_id))
         .push_bind(" AND org_id = ", org.clone())
         .push_bind(" AND container_id = ", Id(course_id))
-        .push(&scope.row_lock(LockRank::CourseItem, meeting_id, RowLock::Update));
+        .push_lock(scope.row_lock(LockRank::CourseItem, meeting_id, RowLock::Update));
     scope.one(sql, "meeting").await
 }
 

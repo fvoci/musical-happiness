@@ -113,7 +113,7 @@ pub(crate) async fn hold_for_new_link(
         .push(" AND deleted_at IS NULL");
     if link.guest_of.is_some() {
         sql.push_bind(" AND guest_invitations = ", true)
-            .push(&scope.row_lock(LockRank::Workspace, link.workspace_id, RowLock::Share));
+            .push_lock(scope.row_lock(LockRank::Workspace, link.workspace_id, RowLock::Share));
     }
     if !scope.exists(sql).await? {
         return Err(StoreError::not_found("workspace"));
@@ -124,7 +124,7 @@ pub(crate) async fn hold_for_new_link(
             .push_bind(" AND workspace_id = ", Id(link.workspace_id))
             .push_bind(" AND is_template = ", false);
         // What the new link's reference takes anyway: only a deletion waits for it.
-        sql.push(&scope.row_lock(LockRank::Container, container_id, RowLock::KeyShare));
+        sql.push_lock(scope.row_lock(LockRank::Container, container_id, RowLock::KeyShare));
         if !scope.exists(sql).await? {
             return Err(StoreError::not_found("board"));
         }
@@ -141,7 +141,7 @@ pub(crate) async fn hold_for_new_link(
         };
         sql.push_bind(" AND revoked_at = ", 0_i64)
             .push_bind(" AND expires_at > ", link.now)
-            .push(&scope.row_lock(LockRank::Invitation, mailed.parent_id, RowLock::Share));
+            .push_lock(scope.row_lock(LockRank::Invitation, mailed.parent_id, RowLock::Share));
         if !scope.exists(sql).await? {
             return Err(StoreError::not_found("invitation"));
         }
@@ -174,6 +174,6 @@ pub(crate) async fn hold_for_letting_in(
     sql.bind(Id(&link.workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
         .push(" AND deleted_at IS NULL");
-    sql.push(&scope.row_lock(LockRank::Workspace, &link.workspace_id, RowLock::KeyShare));
+    sql.push_lock(scope.row_lock(LockRank::Workspace, &link.workspace_id, RowLock::KeyShare));
     scope.exists(sql).await
 }

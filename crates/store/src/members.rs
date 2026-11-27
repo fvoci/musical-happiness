@@ -221,7 +221,7 @@ pub(crate) async fn hold_creator(
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    sql.push(&scope.row_lock(
+    sql.push_lock(scope.row_lock(
         LockRank::WorkspaceMembers,
         &format!("{workspace_id}:{user_id}"),
         RowLock::Share,
@@ -253,7 +253,7 @@ async fn has_acting_admin(
         sql.push_bind(" AND bm.user_id <> ", Id(user_id));
     }
     sql.push(" LIMIT 1");
-    sql.push(&scope.row_lock(
+    sql.push_lock(scope.row_lock(
         LockRank::WorkspaceMembers,
         container_id,
         RowLock::Share.of("wm"),

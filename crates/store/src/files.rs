@@ -313,7 +313,7 @@ pub(crate) async fn files_of_container(
     let mut sql = scope.sql(["SELECT ", FILE_COLUMNS, " FROM files WHERE container_id = "]);
     sql.bind(Id(container_id))
         .push(" ORDER BY created_at, id")
-        .push(&scope.row_lock(LockRank::Container, container_id, RowLock::Update));
+        .push_lock(scope.row_lock(LockRank::Container, container_id, RowLock::Update));
     scope.all(sql).await
 }
 

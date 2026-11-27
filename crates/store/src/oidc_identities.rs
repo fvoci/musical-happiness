@@ -69,7 +69,7 @@ impl Store {
             sql.bind(scope.org()?)
                 .push_bind(" AND id = ", Id(provider_id))
                 .push_bind(" AND enabled = ", true)
-                .push(&scope.row_lock(LockRank::Provider, provider_id, RowLock::Share));
+                .push_lock(scope.row_lock(LockRank::Provider, provider_id, RowLock::Share));
             if !scope.exists(sql).await? {
                 return Ok(Err(LinkRefusal::ProviderGone));
             }
@@ -157,7 +157,7 @@ impl Store {
                 "SELECT password_hash, password_locked_at FROM users WHERE deleted_at IS NULL AND id = ",
             );
             sql.bind(Id(user_id))
-                .push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
+                .push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::Update));
             let (password_hash, locked) = match scope.fetch_optional(sql).await? {
                 Some(row) => (row.text(0)?, row.int(1)? != 0),
                 None => return Ok(Unlinked::AccountChanged),

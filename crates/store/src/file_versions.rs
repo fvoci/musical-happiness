@@ -347,7 +347,7 @@ async fn hold(
     }
     let names: Vec<&str> = std::iter::once(stored_name).chain(upload).collect();
     let mut sql = Head::select(scope, container_id, &names);
-    sql.push(" ORDER BY id").push(&scope.row_lock(
+    sql.push(" ORDER BY id").push_lock(scope.row_lock(
         LockRank::Container,
         container_id,
         RowLock::Update,

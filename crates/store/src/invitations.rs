@@ -430,7 +430,7 @@ pub(crate) async fn hold_live_link(
     // it is live still, and its workspace still invites guests if it is for one.
     let mut sql = select_live_by_token(scope, token_hash, now, browser)?;
     push_invites(&mut sql);
-    sql.push(&scope.row_lock(LockRank::Invitation, &link.id, RowLock::Update.of("i")));
+    sql.push_lock(scope.row_lock(LockRank::Invitation, &link.id, RowLock::Update.of("i")));
     let Some(link) = scope.first::<Invitation>(sql).await? else {
         return Ok(Err(Acceptance::Unavailable));
     };
@@ -575,7 +575,7 @@ pub(crate) async fn inviter_still(
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(&link.workspace_id))
         .push_bind(" AND user_id = ", Id(&link.created_by))
-        .push(&scope.row_lock(
+        .push_lock(scope.row_lock(
             LockRank::WorkspaceMembers,
             &format!("{}:{}", link.workspace_id, link.created_by),
             RowLock::Share,

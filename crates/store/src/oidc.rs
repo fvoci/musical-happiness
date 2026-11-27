@@ -371,7 +371,7 @@ impl Store {
                 .push_bind(" AND id = ", Id(provider_id))
                 .push_bind(" AND enabled = ", true)
                 .push_bind(" AND revision = ", revision);
-            sql.push(&scope.row_lock(LockRank::Provider, provider_id, RowLock::Share));
+            sql.push_lock(scope.row_lock(LockRank::Provider, provider_id, RowLock::Share));
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(Err(OidcRefusal::ProviderGone));
             };

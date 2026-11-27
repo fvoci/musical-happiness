@@ -465,7 +465,7 @@ impl Store {
                 sql.bind(Id(token_id))
                     .push(" AND t.revoked_at IS NULL")
                     .push_bind(" AND t.expires_at > ", now)
-                    .push(&scope.row_lock(LockRank::ApiToken, token_id, RowLock::Update));
+                    .push_lock(scope.row_lock(LockRank::ApiToken, token_id, RowLock::Update));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(false);
                 };
@@ -511,7 +511,7 @@ async fn admitted(
     // another token of it, which counts this one then.
     let mut sql = scope.sql("SELECT id FROM users WHERE id = ");
     sql.bind(Id(token.user_id));
-    sql.push(&scope.row_lock(LockRank::Users, token.user_id, RowLock::Update));
+    sql.push_lock(scope.row_lock(LockRank::Users, token.user_id, RowLock::Update));
     if !scope.exists(sql).await? {
         return Ok(Err(Issuance::SessionEnded));
     }
@@ -521,7 +521,7 @@ async fn admitted(
     sql.bind(Id(token.session_id))
         .push_bind(" AND user_id = ", Id(token.user_id))
         .push_bind(" AND expires_at > ", token.created_at)
-        .push(&scope.row_lock(LockRank::Session, token.session_id, RowLock::Share));
+        .push_lock(scope.row_lock(LockRank::Session, token.session_id, RowLock::Share));
     if !scope.exists(sql).await? {
         return Ok(Err(Issuance::SessionEnded));
     }
@@ -580,7 +580,7 @@ async fn provider_of_session(
     sql.bind(Id(&origin.provider_id))
         .push_bind(" AND enabled = ", true)
         .push_bind(" AND revision = ", revision);
-    sql.push(&scope.row_lock(LockRank::Provider, &origin.provider_id, RowLock::Share));
+    sql.push_lock(scope.row_lock(LockRank::Provider, &origin.provider_id, RowLock::Share));
     if !scope.exists(sql).await? {
         return Ok(Err(Issuance::ProviderChanged));
     }

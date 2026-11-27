@@ -972,7 +972,7 @@ async fn lock_board_file(
     } else {
         sql.push_bind(" AND name = ", file_id);
     }
-    sql.push(&scope.row_lock(LockRank::Container, board_id, RowLock::KeyShare));
+    sql.push_lock(scope.row_lock(LockRank::Container, board_id, RowLock::KeyShare));
     let Some(row) = scope.fetch_optional(sql).await? else {
         let mut refused = Refusals::new();
         refused.refuse(

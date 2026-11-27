@@ -19,7 +19,7 @@ use crate::Store;
 use crate::block_derived::Refreshing;
 use crate::body_versions;
 use crate::comment_versions;
-use crate::db::{Dialect, FromRow, Id, LockRank, RowLock, Scope, Sql, SqlFragment};
+use crate::db::{Dialect, FromRow, Id, LockRank, RowLock, Scope, Sql, SqlFragment, Unranked};
 use crate::error::StoreError;
 use crate::files::{FILE_COLUMN_COUNT, FILE_COLUMNS};
 use crate::loose_objects;
@@ -61,7 +61,7 @@ impl Store {
                 )
                 .push(&same_org)
                 .push(")")
-                .push(&skip_held)
+                .push_lock(skip_held)
                 .push([") RETURNING ", FILE_COLUMNS]);
             if let Some(column) = org {
                 sql.push([", ", column]);
@@ -173,7 +173,7 @@ async fn hold_new_body_files(
         .push(" AND name IN (")
         .bind_list(new.iter().copied())
         .push(")")
-        .push(&scope.row_lock(LockRank::Container, &block.container_id, RowLock::KeyShare));
+        .push_lock(scope.row_lock(LockRank::Container, &block.container_id, RowLock::KeyShare));
     let recorded = scope
         .fetch_all(sql)
         .await?
@@ -229,7 +229,7 @@ pub(crate) async fn show_body_files(
         .push(" AND name IN (")
         .bind_list(new.iter().map(String::as_str))
         .push(")")
-        .push(&scope.row_lock(LockRank::Container, &container_id, RowLock::KeyShare));
+        .push_lock(scope.row_lock(LockRank::Container, &container_id, RowLock::KeyShare));
     let recorded = scope
         .fetch_all(sql)
         .await?
@@ -343,9 +343,9 @@ async fn hold_marks(
     // side of a membership (`Scope::unranked_row_lock`). A sweep of every board's
     // records waits for no writer: what one holds is marked by the next sweep.
     let lock = match only {
-        Some(_) => scope.unranked_row_lock(RowLock::NoKeyUpdate),
+        Some(_) => scope.unranked_row_lock(Unranked::MarksOfBoardFiles, RowLock::NoKeyUpdate),
         None => scope.skipping_held(RowLock::NoKeyUpdate),
     };
-    sql.push(&lock);
+    sql.push_lock(lock);
     scope.all(sql).await
 }

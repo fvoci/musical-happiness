@@ -511,7 +511,7 @@ async fn is_made_just_now(
         .push_bind(" AND s.login_org_id = ", Id(&provider.org_id))
         .push_bind(" AND s.login_revision = ", provider.revision)
         .push_bind(" AND s.created_at >= ", binding.made_since);
-    sql.push(&scope.row_lock(LockRank::Users, trier_id, RowLock::Share.of("u")));
+    sql.push_lock(scope.row_lock(LockRank::Users, trier_id, RowLock::Share.of("u")));
     scope.exists(sql).await
 }
 
@@ -523,7 +523,7 @@ async fn read_pending(scope: &mut Scope<'_>) -> Result<Option<PendingProvider>, 
         " FROM oidc_pending_providers WHERE org_id = ",
     ]);
     let org_key = scope.org_id().unwrap_or_default();
-    sql.bind(scope.org()?).push(&scope.row_lock(
+    sql.bind(scope.org()?).push_lock(scope.row_lock(
         LockRank::PendingProvider,
         &org_key,
         RowLock::Update,

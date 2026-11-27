@@ -373,7 +373,7 @@ async fn lock_live_course_for_learner(
         .push(" AND w.deleted_at IS NULL")
         .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("c", "w")]));
-    sql.push(&scope.row_lock(LockRank::Container, course_id, RowLock::KeyShare.of("c")));
+    sql.push_lock(scope.row_lock(LockRank::Container, course_id, RowLock::KeyShare.of("c")));
     scope.one(sql, "course").await
 }
 
@@ -390,7 +390,7 @@ async fn lock_active_learner(
     member
         .bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    member.push(&scope.row_lock(
+    member.push_lock(scope.row_lock(
         LockRank::WorkspaceMembers,
         &format!("{workspace_id}:{user_id}"),
         RowLock::Share,
@@ -403,7 +403,7 @@ async fn lock_active_learner(
     user.bind(Id(user_id))
         .push(" AND deleted_at IS NULL")
         .push_bind(" AND erased_at = ", 0_i64);
-    user.push(&scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
+    user.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
     if !scope.exists(user).await? {
         return Err(StoreError::not_found("course"));
     }
@@ -706,7 +706,7 @@ async fn fetch_course_nodes_locked(
         .push(" AND type IN (")
         .bind_list([BlockType::Unit.as_str(), BlockType::Chapter.as_str()])
         .push(") ORDER BY id");
-    sql.push(&scope.row_lock(LockRank::Block, course_id, RowLock::KeyShare));
+    sql.push_lock(scope.row_lock(LockRank::Block, course_id, RowLock::KeyShare));
     let rows = scope.fetch_all(sql).await?;
     rows.iter()
         .map(|row| Ok(NodeRow::from_row(row)?.node))

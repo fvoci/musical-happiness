@@ -163,14 +163,14 @@ pub(crate) async fn require_live_unit(
         .push(" AND w.deleted_at IS NULL")
         .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("b", "c"), ("c", "w")]));
-    sql.push(&scope.row_lock(LockRank::Block, unit_id, RowLock::KeyShare.of("b")));
+    sql.push_lock(scope.row_lock(LockRank::Block, unit_id, RowLock::KeyShare.of("b")));
     let workspace_id: String = scope.one(sql, "unit").await?;
 
     let mut member = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
     member
         .bind(Id(&workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    member.push(&scope.row_lock(
+    member.push_lock(scope.row_lock(
         LockRank::WorkspaceMembers,
         &format!("{workspace_id}:{user_id}"),
         RowLock::Share,
@@ -183,7 +183,7 @@ pub(crate) async fn require_live_unit(
     user.bind(Id(user_id))
         .push(" AND deleted_at IS NULL")
         .push_bind(" AND erased_at = ", 0_i64);
-    user.push(&scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
+    user.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
     if !scope.exists(user).await? {
         return Err(StoreError::not_found("unit"));
     }

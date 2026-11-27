@@ -369,7 +369,7 @@ impl Store {
                 let mut sql =
                     scope.sql("SELECT erase_started_at, erased_at FROM users WHERE id = ");
                 sql.bind(Id(user_id));
-                sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
+                sql.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::Update));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(ErasureEnd::NotBegun);
                 };
@@ -626,7 +626,7 @@ async fn leave_workspace(
     let mut sql = scope.sql("SELECT deleted_at FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?);
-    sql.push(&scope.row_lock(LockRank::Workspace, workspace_id, RowLock::NoKeyUpdate));
+    sql.push_lock(scope.row_lock(LockRank::Workspace, workspace_id, RowLock::NoKeyUpdate));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(None);
     };
@@ -833,7 +833,7 @@ async fn remove_organization<'c>(
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE org_id = ");
     sql.bind(scope.org()?)
         .push(" ORDER BY id")
-        .push(&scope.row_lock(LockRank::Organization, &org_id, RowLock::Update));
+        .push_lock(scope.row_lock(LockRank::Organization, &org_id, RowLock::Update));
     let workspaces: Vec<String> = scope.all(sql).await?;
     let mut removed = Purged::default();
     for workspace_id in &workspaces {

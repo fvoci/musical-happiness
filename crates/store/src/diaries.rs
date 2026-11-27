@@ -647,7 +647,7 @@ async fn check_space(
     sql.bind(Id(workspace_id));
     // One diary is put down in a workspace at a time: the count below is of what
     // is there when this one is.
-    sql.push(&scope.row_lock(
+    sql.push_lock(scope.row_lock(
         crate::db::LockRank::Workspace,
         workspace_id,
         RowLock::NoKeyUpdate.of("w"),
