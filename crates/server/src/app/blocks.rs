@@ -206,14 +206,28 @@ impl App {
     /// websocket broadcast and configured webhooks), skipping any block deleted
     /// concurrently before the announcement runs.
     pub(crate) fn announce_blocks(&self, workspace_id: &str, block_ids: Vec<String>) {
+        self.announce_changed_blocks(workspace_id, block_ids, None);
+    }
+
+    /// [`App::announce_blocks`] of blocks that were `before` when they were changed:
+    /// the cards the change made after the cards it completed are announced after them
+    /// ([`cards_made_after`]).
+    fn announce_changed_blocks(
+        &self,
+        workspace_id: &str,
+        mut block_ids: Vec<String>,
+        before: Option<Vec<Block>>,
+    ) {
         if block_ids.is_empty() {
             return;
         }
         let app = self.clone();
         let workspace_id = workspace_id.to_owned();
         self.spawn_background(async move {
-            for block_id in &block_ids {
-                let mut block = match app.store().get_block(block_id).await {
+            let mut index = 0;
+            while let Some(block_id) = block_ids.get(index).cloned() {
+                index += 1;
+                let mut block = match app.store().get_block(&block_id).await {
                     Ok(block) => block,
                     Err(error) if error.is_not_found() => continue,
                     Err(error) => {
@@ -228,6 +242,9 @@ impl App {
                 block.hide_inactive_number();
                 app.ws().broadcast_block_change(&workspace_id, &block).await;
                 app.tell_webhooks(&block);
+                if let Some(before) = &before {
+                    block_ids.extend(cards_made_after(before, std::slice::from_ref(&block)));
+                }
             }
         });
     }
@@ -414,8 +431,12 @@ impl App {
             })
         };
         let mut block = if whole_body_cards.is_empty() {
-            self.write_blocks(vec![old_block.container_id], whole_body_cards, write)
-                .await?
+            self.write_blocks(
+                vec![old_block.container_id.clone()],
+                whole_body_cards,
+                write,
+            )
+            .await?
         } else {
             self.collab()
                 .write_whole_over(self, whole_body_cards, over, write)
@@ -423,6 +444,11 @@ impl App {
         };
         block.hide_inactive_number();
         self.tell_of_update(&container.workspace_id, &block, notification);
+        let made = cards_made_after(
+            std::slice::from_ref(&old_block),
+            std::slice::from_ref(&block),
+        );
+        self.announce_blocks(&container.workspace_id, made);
         Ok(block)
     }
 
@@ -484,7 +510,7 @@ impl App {
         for block_id in &batch.block_ids {
             log_notification(notification, ChangeAction::Update, block_id);
         }
-        self.announce_blocks(workspace_id, batch.block_ids.clone());
+        self.announce_changed_blocks(workspace_id, batch.block_ids.clone(), Some(blocks));
         Ok(())
     }
 
@@ -694,4 +720,27 @@ pub(super) fn log_notification(
     if notification == ChangeNotification::Send {
         tracing::debug!(action = action.as_str(), block_id, "Block change event");
     }
+}
+
+/// The cards that changes made after the cards they completed: of each card of `after`,
+/// the next card it names (`recurredTo`) where it named another, or none, `before`.
+pub(super) fn cards_made_after(before: &[Block], after: &[Block]) -> Vec<String> {
+    let next_of = |block: &Block| {
+        block
+            .fields
+            .get(fvoci_model::RECURRED_TO_FIELD)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    after
+        .iter()
+        .filter_map(|card| {
+            let next = next_of(card)?;
+            let was = before
+                .iter()
+                .find(|old| old.id == card.id)
+                .and_then(next_of);
+            (was.as_deref() != Some(next.as_str())).then_some(next)
+        })
+        .collect()
 }

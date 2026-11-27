@@ -141,7 +141,10 @@ async fn the_owner_migrates_while_no_server_serves(owner: TableOwner) {
         .await
         .expect("the owner connects");
     assert_eq!(
-        owner_store.check_schema().await.expect("the record is read"),
+        owner_store
+            .check_schema()
+            .await
+            .expect("the record is read"),
         SchemaCheck::Behind,
         "{owner:?}: the record was replaced, the migrations after it are left"
     );

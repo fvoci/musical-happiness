@@ -137,6 +137,15 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<CardMovesResult, AppError> {
         let container = self.container(board_id).await?;
+        // Moved to the column of done, a card that repeats makes its next one.
+        let completes = container.done_when.as_ref().is_some_and(|rule| {
+            request.group_property_id.as_deref() == Some(rule.property_id.as_str())
+        });
+        let before = if completes {
+            self.store().get_blocks_by_ids(&request.card_ids).await?
+        } else {
+            Vec::new()
+        };
         let (mut view, mut updated_blocks) = {
             let _structure = self.collab().changing_structure(self, board_id).await;
             self.store_telling(notification)
@@ -162,6 +171,10 @@ impl App {
                 app.ws().broadcast_block_change(&ws_id, card_block).await;
                 app.tell_webhooks(card_block);
             }
+            app.announce_blocks(
+                &ws_id,
+                super::blocks::cards_made_after(&before, &updated_blocks),
+            );
         });
         Ok(CardMovesResult { view, cards })
     }

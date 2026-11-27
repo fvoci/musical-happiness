@@ -439,7 +439,11 @@ fn this_servers_record() -> Vec<Recorded> {
             success: true,
         })
         .collect();
-    assert_eq!(record.first(), Some(&baseline_record()), "the baseline first");
+    assert_eq!(
+        record.first(),
+        Some(&baseline_record()),
+        "the baseline first"
+    );
     record
 }
 

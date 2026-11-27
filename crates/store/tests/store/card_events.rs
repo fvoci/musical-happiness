@@ -9,8 +9,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, CardEvent, CardEventKind, CardPropertyDefinition, Container,
-    ContainerVisibility, DuplicateAs, PropertyType, new_id,
+    Block, BlockPatch, BlockType, CardEvent, CardEventKind, CardMovesRequest,
+    CardPropertyDefinition, Container, ContainerPatch, ContainerVisibility, DuplicateAs,
+    NewBoardView, PropertyColor, PropertyOption, PropertyType, ViewType, new_id,
 };
 use fvoci_store::{ByAgent, Erasing, Paging, Store};
 use serde_json::{Value, json};
@@ -139,9 +140,10 @@ async fn a_card_lists_its_making_and_each_change_the_newest_first() {
         parent_id: Some(parent.id.clone()),
         ..BlockPatch::default()
     };
-    moved
-        .updated_fields
-        .insert("properties".to_owned(), json!({"due": {"from": "2026-03-05"}}));
+    moved.updated_fields.insert(
+        "properties".to_owned(),
+        json!({"due": {"from": "2026-03-05"}}),
+    );
     patch(&test, &card, &moved, &maker).await;
     hands.forward(MINUTE);
     // Its body and icon are no line: the versions of the body say what it was.
@@ -222,9 +224,16 @@ async fn one_persons_changes_of_one_thing_within_five_minutes_are_one_line() {
     patch(&test, &card, &note("abc"), &typist).await;
     let one = property_lines().await;
     assert_eq!(one.len(), 1, "joined within five minutes of the last");
-    assert_eq!((&one[0].before, &one[0].after), (&Value::Null, &json!("abc")));
+    assert_eq!(
+        (&one[0].before, &one[0].after),
+        (&Value::Null, &json!("abc"))
+    );
     assert_eq!(one[0].created_at, T0 + MINUTE, "when it began");
-    assert_eq!(one[0].updated_at, T0 + 6 * MINUTE, "when it was last changed");
+    assert_eq!(
+        one[0].updated_at,
+        T0 + 6 * MINUTE,
+        "when it was last changed"
+    );
 
     // Another person's change is a line of its own, and the first person's next one
     // does not join a line from before it.
@@ -239,12 +248,19 @@ async fn one_persons_changes_of_one_thing_within_five_minutes_are_one_line() {
     patch(&test, &card, &note("later"), &typist).await;
     let later = property_lines().await;
     assert_eq!(later.len(), 4);
-    assert_eq!((&later[0].before, &later[0].after), (&json!("mine again"), &json!("later")));
+    assert_eq!(
+        (&later[0].before, &later[0].after),
+        (&json!("mine again"), &json!("later"))
+    );
 
     // Taken back to what it was within five minutes: the line goes.
     hands.forward(MINUTE);
     patch(&test, &card, &note("mine again"), &typist).await;
-    assert_eq!(property_lines().await.len(), 3, "a change taken back is none");
+    assert_eq!(
+        property_lines().await.len(),
+        3,
+        "a change taken back is none"
+    );
 
     // A title is a thing apart from the property.
     patch(&test, &card, &title("renamed"), &typist).await;
@@ -279,7 +295,11 @@ async fn an_agents_change_names_its_token_and_is_not_its_persons_own() {
     patch(&agent, &card, &note("by the agent"), &owner).await;
     patch(&test, &card, &note("by hand"), &owner).await;
     let lines = lines(&test, &card).await;
-    assert_eq!(lines.len(), 3, "the agent's line is joined by no change of the person");
+    assert_eq!(
+        lines.len(),
+        3,
+        "the agent's line is joined by no change of the person"
+    );
     assert_eq!(lines[1].actor_token_name.as_deref(), Some("laptop agent"));
     assert_eq!(lines[1].actor_id.as_deref(), Some(owner.as_str()));
     assert_eq!(lines[0].actor_token_name, None);
@@ -303,7 +323,11 @@ async fn a_copy_is_made_and_says_nothing_of_the_changes_of_its_source() {
         copy_lines.iter().map(|line| line.kind).collect::<Vec<_>>(),
         [CardEventKind::Created]
     );
-    assert_eq!(lines(&test, &card).await.len(), 2, "the source's lines are its own");
+    assert_eq!(
+        lines(&test, &card).await.len(),
+        2,
+        "the source's lines are its own"
+    );
 
     // What tells nobody (a write of what was said before) is no line.
     let quiet = test.telling_nobody();
@@ -417,7 +441,92 @@ async fn the_lines_of_an_erased_account_stay_without_who_did_them() {
     let lines = lines(&test, &card).await;
     assert_eq!(lines.len(), 2, "the lines stay");
     assert_eq!(lines[0].kind, CardEventKind::Title);
-    assert_eq!((lines[0].actor_id.as_deref(), lines[0].actor_token_name.as_deref()), (None, None));
-    assert_eq!(lines[1].actor_id.as_deref(), Some(founder.as_str()), "another's stays");
+    assert_eq!(
+        (
+            lines[0].actor_id.as_deref(),
+            lines[0].actor_token_name.as_deref()
+        ),
+        (None, None)
+    );
+    assert_eq!(
+        lines[1].actor_id.as_deref(),
+        Some(founder.as_str()),
+        "another's stays"
+    );
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn a_card_moved_to_another_column_has_one_line_of_its_property() {
+    let test = common::setup().await;
+    let _hands = Hands::on(&test);
+    let mover = common::user(&test, "mover").await;
+    let board_id = board(&test, &[&mover]).await;
+    let (todo, done) = (new_id(), new_id());
+    test.patch_container(
+        &board_id,
+        &ContainerPatch {
+            updated_card_properties: vec![CardPropertyDefinition {
+                id: "status".to_owned(),
+                name: "Status".to_owned(),
+                property_type: PropertyType::Select,
+                options: vec![
+                    PropertyOption::new(todo.clone(), "Todo", PropertyColor::Gray),
+                    PropertyOption::new(done.clone(), "Done", PropertyColor::Green),
+                ],
+            }],
+            ..ContainerPatch::default()
+        },
+        &mover,
+    )
+    .await
+    .expect("the board has a status");
+    let view = test
+        .create_board_view(
+            &board_id,
+            &NewBoardView {
+                title: "Board".to_owned(),
+                view_type: ViewType::Board,
+                after: None,
+                fields: None,
+            },
+            &mover,
+        )
+        .await
+        .expect("the view is made")
+        .view;
+    let card = new_card(&test, &board_id, "card", &mover).await;
+    let mut first_move = BlockPatch::default();
+    first_move
+        .updated_fields
+        .insert("properties".to_owned(), json!({"status": todo}));
+    patch(&test, &card, &first_move, &mover).await;
+    test.move_cards_in_view(
+        &board_id,
+        &view.id,
+        &CardMovesRequest {
+            card_ids: vec![card.id.clone()],
+            group_property_id: Some("status".to_owned()),
+            group_value: Some(json!(done)),
+            after_card_id: None,
+        },
+        &mover,
+    )
+    .await
+    .expect("the card moves");
+    let lines = lines(&test, &card).await;
+    assert_eq!(
+        said(&lines),
+        [
+            (
+                CardEventKind::Property,
+                Some("status"),
+                &Value::Null,
+                &json!(done)
+            ),
+            (CardEventKind::Created, None, &Value::Null, &Value::Null),
+        ],
+        "the move joins the line of the same person's change a moment before"
+    );
     test.teardown().await;
 }

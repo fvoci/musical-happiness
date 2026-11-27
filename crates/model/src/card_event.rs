@@ -249,8 +249,15 @@ mod tests {
         assert_eq!(changes[0].before, json!("Plan"));
         assert_eq!(changes[1].before, Value::Null, "the top of the board");
         assert_eq!(changes[1].after, json!("parent"));
-        assert_eq!((&changes[2].before, &changes[2].after), (&json!(false), &json!(true)));
-        assert_eq!(changes[3].after, json!(["u1", "u2"]), "the identifiers as held");
+        assert_eq!(
+            (&changes[2].before, &changes[2].after),
+            (&json!(false), &json!(true))
+        );
+        assert_eq!(
+            changes[3].after,
+            json!(["u1", "u2"]),
+            "the identifiers as held"
+        );
         assert_eq!(changes[4].after, Value::Null, "a value taken away");
         assert_eq!(changes[5].before, Value::Null, "a value given");
     }

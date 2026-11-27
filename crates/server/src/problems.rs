@@ -325,6 +325,11 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
              is depth 3): when a card is made, moved, or imported. `errors` names `/parentId`. \
              Nothing was changed."
         }
+        Reason::RecurrenceNeedsBoardRules => {
+            "Status 400. The card is to repeat (`recurrence`) on a board that has no rule of \
+             done (`doneWhen`) or no due date property: the board's settings give it both. \
+             `errors` names `/recurrence`. Nothing was changed."
+        }
         Reason::TooManyPages => {
             "Status 400. The wiki would have more pages than the organization's limit, which \
              `limit` tells (`wiki_pages`, 5000 unless configured; pages in the trash are not \

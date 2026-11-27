@@ -427,6 +427,9 @@ pub enum BlockError {
     /// A card that has sub-cards is turned into a template card.
     #[error("a card with sub-cards cannot become a template")]
     TemplateCardHasChildren,
+    /// A card is to repeat on a board without a rule of done or a due date property.
+    #[error("a card repeats on a board with a rule of done and a due date property")]
+    RecurrenceNeedsBoardRules,
     /// A card, or a sub-card below it, would be deeper on its board than the limit.
     #[error("the card would be deeper on its board than {limit}")]
     CardTooDeep {
@@ -520,9 +523,19 @@ type FieldKind = (&'static str, &'static str, fn(&Value) -> bool);
 /// The fields of a card whose value has one kind. Anything else breaks the reading of
 /// the card ([`crate::Card::from_block`]). `null` is taken as absent and is of every
 /// kind.
-const CARD_FIELD_KINDS: [FieldKind; 2] = [
+const CARD_FIELD_KINDS: [FieldKind; 4] = [
     ("icon", "a string", Value::is_string),
     ("isTemplate", "a boolean", Value::is_boolean),
+    (
+        "recurrence",
+        "a recurrence",
+        crate::recurrence::is_recurrence_value,
+    ),
+    (
+        "recurredTo",
+        "a card identifier",
+        crate::recurrence::is_recurred_to_value,
+    ),
 ];
 
 /// Whether `value` may be the value of the card field `field` ([`CARD_FIELD_KINDS`]).

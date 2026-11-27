@@ -51,6 +51,7 @@ mod person_name;
 mod problem;
 mod public_containers;
 mod public_link;
+mod recurrence;
 mod refusal;
 mod relation;
 mod search;
@@ -115,9 +116,7 @@ pub use body_version::{
 pub use card::{
     CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, CompactCard, MAX_CARD_DEPTH,
 };
-pub use card_event::{
-    CardChange, CardEvent, CardEventKind, ParseCardEventKindError, card_changes,
-};
+pub use card_event::{CardChange, CardEvent, CardEventKind, ParseCardEventKindError, card_changes};
 pub use card_property::{
     CardPropertyDefinition, CardPropertyError, DATE_PROPERTY_TYPE, ParsePropertyColorError,
     ParsePropertyTypeError, PersonProperties, PropertyColor, PropertyOption, PropertyType,
@@ -222,6 +221,10 @@ pub use person_name::{
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use public_containers::PublicContainers;
 pub use public_link::{PublicLink, PublicLinkChange};
+pub use recurrence::{
+    MOST_PERIODS, RECURRED_TO_FIELD, RECURRENCE_FIELD, Recurrence, RecurrenceAnchor,
+    RecurrenceOutOfRange, RecurrenceUnit, not_done_value, with_tasks_unchecked,
+};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
     ParseRelationKindError, RELATION_LAG_MAX, RELATION_LAG_MIN, RELATION_LIMIT, RelationError,

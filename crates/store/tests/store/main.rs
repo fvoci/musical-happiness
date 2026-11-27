@@ -29,6 +29,7 @@ mod builtin_templates;
 mod card_events;
 mod card_hierarchy;
 mod card_numbers;
+mod card_recurrence;
 mod categories;
 mod category_boards;
 mod common;

@@ -35,6 +35,7 @@ mod card_attachments;
 mod card_hierarchy;
 mod card_numbers;
 mod card_previews;
+mod card_recurrence;
 mod cards;
 mod cards_batch_patch;
 mod collab;

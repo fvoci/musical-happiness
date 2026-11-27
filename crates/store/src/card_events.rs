@@ -24,11 +24,11 @@
 use fvoci_model::{Block, BlockType, CardChange, CardEvent, CardEventKind, card_changes, new_id};
 use serde_json::Value;
 
+use crate::Store;
 use crate::blocks::Paging;
 use crate::db::{Id, OptId, Param, Row, Scope, SqlFragment};
 use crate::error::StoreError;
 use crate::notification_noting::Telling;
-use crate::Store;
 
 /// How long after a line its person's next change of the same thing joins it, in
 /// milliseconds: five minutes, the time a field edited on is saved over and over in.
@@ -139,8 +139,8 @@ async fn note_change(
     sql.push(" ORDER BY updated_at DESC, id DESC LIMIT 1");
     if let Some(last) = scope.fetch_optional(sql).await? {
         let (id, actor_id, token_name) = (last.id(0)?, last.id(1)?, last.opt_text(2)?);
-        let same_actor = actor.id.as_deref().unwrap_or_default() == actor_id
-            && actor.token_name == token_name;
+        let same_actor =
+            actor.id.as_deref().unwrap_or_default() == actor_id && actor.token_name == token_name;
         if same_actor && now.saturating_sub(last.int(4)?) <= MERGE_WITHIN_MILLIS {
             let back = last.json(3, "before_value")? == change.after;
             let mut sql = if back {
@@ -257,8 +257,8 @@ pub(crate) async fn forget_gone_cards(scope: &mut Scope<'_>) -> Result<(), Store
 /// who did them: the identifier and the name of the token go, the lines stay. For the
 /// last step of the erasure of the account, whose row stays as an identifier alone.
 pub(crate) async fn forget_actor(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
-    let mut sql =
-        scope.sql("UPDATE card_events SET actor_id = NULL, actor_token_name = NULL WHERE actor_id = ");
+    let mut sql = scope
+        .sql("UPDATE card_events SET actor_id = NULL, actor_token_name = NULL WHERE actor_id = ");
     sql.changing_no_access().bind(Id(user_id));
     scope.execute(sql).await?;
     Ok(())

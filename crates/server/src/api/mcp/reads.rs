@@ -11,10 +11,11 @@ use serde_json::{Value, json};
 
 use super::arguments::{
     CardOrder, ContentKind, FindPeopleArguments, GetItemArguments, GetOutlineArguments, ItemKind,
-    ListCardsArguments, ListCommentsArguments, ListFilesArguments, SearchArguments,
-    WorkspaceArguments,
+    ListActivityArguments, ListCardsArguments, ListCommentsArguments, ListFilesArguments,
+    SearchArguments, WorkspaceArguments,
 };
 use super::tools::{ToolError, enter};
+use crate::api::card_activity::card_activity_of;
 use crate::api::card_comments::card_comments;
 use crate::api::cards::{
     BodyFormatValue, CardsListQuery, card_by_number_read, card_read, cards_of_board,
@@ -24,6 +25,7 @@ use crate::api::courses::{READ_DENIED as UNIT_READ_DENIED, unit_tree_read, unit_
 use crate::api::lists::{files_of_card, files_of_container};
 use crate::api::overview::overview_of;
 use crate::api::page_comments::page_comments;
+use crate::api::query::PagingQuery;
 use crate::api::unit_comments::unit_comments;
 use crate::api::unit_progress::my_progress_in;
 use crate::api::wikis::{READ_DENIED as PAGE_READ_DENIED, page_tree_read, page_with_permission};
@@ -109,6 +111,15 @@ pub(super) fn to_json(value: &impl Serialize) -> Result<Value, AppError> {
 /// Text of an optional argument as a query takes it: empty for none.
 fn text(value: Option<impl ToString>) -> String {
     value.map_or_default(|value| value.to_string())
+}
+
+/// The page a route counts from 0 of one a tool counts from 1, as people do.
+fn from_one(page: Option<u32>) -> Result<Option<u32>, ToolError> {
+    page.map(|page| {
+        page.checked_sub(1)
+            .ok_or_else(|| ToolError::arguments("page counts from 1"))
+    })
+    .transpose()
 }
 
 pub(super) async fn list_workspaces(app: &App, caller: &Caller) -> Result<Value, ToolError> {
@@ -201,16 +212,8 @@ pub(super) async fn list_cards(
         ContainerKinds::BOARDS,
     )
     .await?;
-    // The tool counts pages from 1, as people do; the route from 0.
-    let page = match arguments.page {
-        None => None,
-        Some(page) => Some(
-            page.checked_sub(1)
-                .ok_or_else(|| ToolError::arguments("page counts from 1"))?,
-        ),
-    };
     let query = CardsListQuery {
-        page: text(page),
+        page: text(from_one(arguments.page)?),
         per_page: text(arguments.per_page),
         q: text(arguments.q),
         parent_id: text(arguments.parent_id),
@@ -548,6 +551,27 @@ pub(super) async fn list_comments(
         listed.push(listed_comment(&ws, container_id, comment).await?);
     }
     Ok(json!({ "comments": listed }))
+}
+
+pub(super) async fn list_activity(
+    app: &App,
+    caller: &Caller,
+    arguments: ListActivityArguments,
+) -> Result<Value, ToolError> {
+    let ws = enter(
+        app,
+        caller,
+        &arguments.workspace_id,
+        ApiTokenScope::Read,
+        ContainerKinds::BOARDS,
+    )
+    .await?;
+    let query = PagingQuery {
+        page: text(from_one(arguments.page)?),
+        per_page: text(arguments.per_page),
+    };
+    let lines = card_activity_of(&ws, &arguments.card_id, query).await?;
+    Ok(json!({ "lines": to_json(&lines)? }))
 }
 
 /// `comment`, of the container `container_id`, as `list_comments` lists it.

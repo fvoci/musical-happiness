@@ -29,6 +29,7 @@ mod body_versions;
 mod card_events;
 mod card_hierarchy;
 mod card_numbers;
+mod card_recurrence;
 mod card_values;
 mod categories;
 mod category_containers;

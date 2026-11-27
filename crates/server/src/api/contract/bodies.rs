@@ -137,6 +137,10 @@ pub(crate) struct NewCard {
     /// The card's body in Markdown, as `Card.bodyMarkdown` says, in place of `body`.
     #[schema(nullable = false)]
     body_markdown: Option<String>,
+    /// How the card repeats, as `Card.recurrence` says; left out for a card that does
+    /// not.
+    #[schema(nullable = false)]
+    recurrence: Option<fvoci_model::Recurrence>,
 }
 
 /// A sidebar category to make.

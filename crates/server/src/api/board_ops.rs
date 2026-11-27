@@ -21,7 +21,7 @@ use super::{
     require_container_permission,
 };
 use super::{Delegated, Write};
-use crate::app::App;
+use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
@@ -129,16 +129,32 @@ async fn handle_batch_patch_cards(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
+    let cards = batch_patch_cards_from(&ws, &board_id, &body, query.notification()).await?;
+    Ok(json_response(&cards))
+}
+
+/// What `batchPatchCards` does with `body` on the board `board_id`: the cards as they
+/// are after it, in the order of `cardIds`. The MCP server's `save_cards` does it too.
+///
+/// # Errors
+///
+/// As `batchPatchCards` answers.
+pub(super) async fn batch_patch_cards_from(
+    ws: &InWorkspace,
+    board_id: &str,
+    body: &Bytes,
+    notification: ChangeNotification,
+) -> Result<Vec<Card>, AppError> {
     let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
-        &board_id,
+        board_id,
         ContainerPermission::ManageCards,
         "access denied to patch cards",
     )
     .await?;
-    let batch: CardBatchPatch = decode_object(&body)?;
+    let batch: CardBatchPatch = decode_object(body)?;
     if batch.card_ids.len() > MAX_CARD_BATCH {
         return Err(AppError::bad_request(format_args!(
             "at most {MAX_CARD_BATCH} cards are patched at once"
@@ -149,12 +165,10 @@ async fn handle_batch_patch_cards(
     batch.check_request()?;
     // The store names what it refuses as a block has it; the batch has it under another
     // name, as `patchCard` does.
-    let cards = ws
-        .app
-        .patch_cards(&board_id, &batch, user_id, query.notification())
+    ws.app
+        .patch_cards(board_id, &batch, user_id, notification)
         .await
-        .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))?;
-    Ok(json_response(&cards))
+        .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))
 }
 
 /// Delete multiple cards atomically

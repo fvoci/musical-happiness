@@ -11,9 +11,10 @@ use super::cards::card_with_permission;
 use super::contract::params::{CardId, MemberWorkspaceId, Page, PerPage};
 use super::contract::tag;
 use super::query::{PagingQuery, QueryParams};
-use super::{ApiResult, Delegated, Read, json_response};
 use super::workspace::InWorkspace;
+use super::{ApiResult, Delegated, Read, json_response};
 use crate::app::App;
+use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -57,14 +58,30 @@ async fn handle_get_card_activity(
     Path((_, card_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
+    Ok(json_response(
+        &card_activity_of(&ws, &card_id, query).await?,
+    ))
+}
+
+/// What `getCardActivity` answers of the card `card_id` for the page `query` names. The
+/// MCP server's `list_activity` answers it too.
+///
+/// # Errors
+///
+/// As `getCardActivity` answers.
+pub(super) async fn card_activity_of(
+    ws: &InWorkspace,
+    card_id: &str,
+    query: PagingQuery,
+) -> Result<Vec<CardEvent>, AppError> {
     let page = query.into_list_page()?;
     let card = card_with_permission(
         &ws.app,
         &ws.caller.user_id,
-        &card_id,
+        card_id,
         ContainerPermission::View,
         "access denied to fetch the activity of the card",
     )
     .await?;
-    Ok(json_response(&ws.app.card_activity(&card.id, page).await?))
+    ws.app.card_activity(&card.id, page).await
 }

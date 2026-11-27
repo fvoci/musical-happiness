@@ -2644,6 +2644,10 @@ export interface paths {
          *     have a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`
          *     (depth > 3 with reason `card_too_deep` and `limit: 3`).
          *
+         *     `recurrence` makes the card repeat, only on a board with a `doneWhen` and a due date
+         *     property: elsewhere 400 at `/recurrence` with reason `recurrence_needs_board_rules`.
+         *     A template keeps its recurrence and makes no next card.
+         *
          *     The value of a card relation property (of the `type` `relation`) is `null` or a list
          *     of relation link objects (`{"card": "<cardId>", "kind": "fs" | "ss" | "ff" | "sf",
          *     "lagDays": -3650..=3650}`), naming other cards of the board, in the trash or not,
@@ -3220,6 +3224,10 @@ export interface paths {
          *     `parentId` reparents the card within the same board (empty or `null` moves it to the
          *     top level; left out keeps its current parent), checked for cycles and maximum depth 3
          *     including any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).
+         *
+         *     `recurrence` is checked as `createCard` says (`null` makes the card stop repeating). The
+         *     change that makes a card that repeats done makes its next card in the same write, once:
+         *     the card names it in `recurredTo` and hands it the recurrence.
          *
          *     `bodyMarkdown` writes the body whole from Markdown, as `getCard` with
          *     `format=markdown` reads it: refused with 409 `complex_blocks_use_append` while the body
@@ -7473,6 +7481,19 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
+             * @description Of a card that repeated when it was completed, the identifier of the card the
+             *     server made after it, which repeats in its place; left out otherwise. The server
+             *     writes it: what a request sends here is ignored.
+             */
+            recurredTo?: string;
+            /**
+             * @description How the card repeats: when it is completed, the server makes the next card
+             *     (`recurredTo`). Only on a board with a rule of done (`doneWhen`) and a due date
+             *     property, else 400 `recurrence_needs_board_rules`; a template does not repeat.
+             *     Left out for a card that does not repeat.
+             */
+            recurrence?: components["schemas"]["Recurrence"];
+            /**
              * Format: int32
              * @description How many task items of the body are checked.
              */
@@ -7637,6 +7658,7 @@ export interface components {
              *     checked whenever it is sent.
              */
             readAt?: number | null;
+            recurrence?: components["schemas"]["Recurrence"] | null;
             /** @description The new title. */
             title?: string | null;
             /**
@@ -9373,6 +9395,11 @@ export interface components {
             properties?: {
                 [key: string]: unknown;
             };
+            /**
+             * @description How the card repeats, as `Card.recurrence` says; left out for a card that does
+             *     not.
+             */
+            recurrence?: components["schemas"]["Recurrence"];
             /** @description The display title. */
             title?: string;
         };
@@ -10331,6 +10358,31 @@ export interface components {
              */
             size: number;
         };
+        /**
+         * @description How a card repeats: every `every` days, weeks, months or years, counted from its due
+         *     date or from the day it was completed.
+         */
+        Recurrence: {
+            /** @description What the next due date is counted from. */
+            anchor: components["schemas"]["RecurrenceAnchor"];
+            /**
+             * Format: int32
+             * @description How many units apart: from 1 to 365.
+             */
+            every: number;
+            /** @description The unit. */
+            unit: components["schemas"]["RecurrenceUnit"];
+        };
+        /**
+         * @description What the next due date of a card that repeats is counted from.
+         * @enum {string}
+         */
+        RecurrenceAnchor: "due" | "done";
+        /**
+         * @description The unit a card repeats by.
+         * @enum {string}
+         */
+        RecurrenceUnit: "day" | "week" | "month" | "year";
         /**
          * @description Request body for manually redistributing a course's shared schedule or the caller's
          *     personal schedule.
