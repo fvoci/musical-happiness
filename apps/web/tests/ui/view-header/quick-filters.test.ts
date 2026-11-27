@@ -21,8 +21,11 @@ afterEach(() => {
   cleanup();
 });
 
-/** The small board, given a rule of done (the option "Done") and a due date. */
-async function mount(): Promise<BoardStore> {
+/**
+ * The small board, given a rule of done (the option "Done") and a due date.
+ * `before` is done to it before it is shown.
+ */
+async function mount(before?: (board: BoardStore) => void): Promise<BoardStore> {
   const { board } = await openFirstBoard(setup());
   const definition = board.board;
   if (!definition) throw new Error('no board');
@@ -37,6 +40,7 @@ async function mount(): Promise<BoardStore> {
   };
   // The seed gives its views identifiers of its own: the view of the small board is "Board".
   viewId = board.views.find((view) => view.title === 'Board')?.id ?? '';
+  before?.(board);
   render(Harness, { props: { board, viewId } });
   return board;
 }
@@ -110,6 +114,16 @@ describe('the quick filters', () => {
     const made = await board.createCard({ title: 'Fresh' });
     expect(made?.fields.properties[OWNER]).toBeUndefined();
     expect(titles(board)).toEqual([...mine, 'Fresh']);
+  });
+
+  it('kept on from before let a card the reader makes stay, with no chip pressed first', async () => {
+    const board = await mount((shown) => {
+      localStorage.setItem(keyOf(shown), '["overdue"]');
+    });
+    expect(chip('Overdue')).toHaveAttribute('aria-pressed', 'true');
+    expect(titles(board)).toEqual([]);
+    await board.createCard({ title: 'Fresh' });
+    expect(titles(board)).toEqual(['Fresh']);
   });
 
   it('follow another tab that turns them on or off', async () => {

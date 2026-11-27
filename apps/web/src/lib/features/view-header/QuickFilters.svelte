@@ -12,8 +12,9 @@
   there are; the focus then goes to the first chip. In a narrow pane the row
   is one line that scrolls sideways.
 
-  As the row is shown on a visit to the board, the cards there are noted: a
-  card the reader makes after that stays shown whatever the chips are.
+  Once the row is shown on a visit to the board and its cards are in (not
+  while they are loaded or read again), the cards there are noted: a card
+  the reader makes after that stays shown whatever the chips are.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
@@ -52,6 +53,7 @@
     data-testid="quick-filters"
     {@attach () => {
       const shown = board;
+      if (shown.status !== 'ready' || shown.revalidating) return;
       untrack(() => {
         quickFilters.opened(shown);
       });
