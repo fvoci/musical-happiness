@@ -256,7 +256,7 @@ async fn a_link_made_while_its_board_is_deleted_waits_and_is_not_made() {
 enum Made {
     /// Like the other, for one recipient of its mail.
     Mailed,
-    /// Of its own.
+    /// Like the other, but for no recipient of mail (`mailed` is none).
     OfItsOwn,
 }
 

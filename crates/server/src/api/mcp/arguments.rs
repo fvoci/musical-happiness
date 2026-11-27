@@ -6,12 +6,12 @@ use fvoci_model::JsonMap;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-/// No arguments.
+/// The arguments of a tool that takes none: an empty object.
 #[derive(Debug, Default, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NoArguments {}
 
-/// A workspace.
+/// A workspace whose overview or day to read.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct WorkspaceArguments {
@@ -23,7 +23,7 @@ pub(super) struct WorkspaceArguments {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct FindPeopleArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     /// Text their login name or name holds, in any case; left out, the ten oldest
     /// accounts.
@@ -58,7 +58,7 @@ impl ContentKind {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct SearchArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     /// The words, every one of which a hit's title and body hold together; `#12` finds
     /// the cards numbered 12. At most 200 characters.
@@ -103,9 +103,9 @@ impl CardOrder {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ListCardsArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
-    /// The board.
+    /// The board, as `get_workspace_overview` names it.
     pub(super) board_id: String,
     /// Text a card's title holds.
     #[serde(default)]
@@ -158,7 +158,7 @@ pub(super) enum ItemKind {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct GetItemArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     // Described by its type: a field's own description would wrap the enum in an
     // `allOf` with an object, which no value is.
@@ -181,7 +181,7 @@ pub(super) struct GetItemArguments {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct GetOutlineArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     /// The wiki or the course.
     pub(super) container_id: String,
@@ -191,7 +191,7 @@ pub(super) struct GetOutlineArguments {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ListCommentsArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     // Described by its type: a field's own description would wrap the enum in an
     // `allOf` with an object, which no value is.
@@ -207,7 +207,7 @@ pub(super) struct ListCommentsArguments {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ListFilesArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     /// The board or wiki.
     pub(super) container_id: String,
@@ -221,7 +221,7 @@ pub(super) struct ListFilesArguments {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct SaveCardArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     /// The board to make the card on; left out when `cardId` names one to change.
     #[serde(default)]
@@ -229,7 +229,7 @@ pub(super) struct SaveCardArguments {
     /// The card to change; left out, a card is made.
     #[serde(default)]
     pub(super) card_id: Option<String>,
-    /// The title.
+    /// The title to give it; left out, a card that is changed keeps its own.
     #[serde(default)]
     pub(super) title: Option<String>,
     /// The icon: one emoji, or empty for none.
@@ -313,7 +313,7 @@ pub(super) struct ProgressArguments {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct SavePageOrUnitArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     // Described by its type: a field's own description would wrap the enum in an
     // `allOf` with an object, which no value is.
@@ -367,7 +367,7 @@ pub(super) struct SavePageOrUnitArguments {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct PostCommentArguments {
-    /// The workspace.
+    /// The workspace, as `list_workspaces` names it.
     pub(super) workspace_id: String,
     // Described by its type: a field's own description would wrap the enum in an
     // `allOf` with an object, which no value is.

@@ -282,7 +282,7 @@ impl Content {
         self.nodes.len()
     }
 
-    /// The nodes.
+    /// The nodes, the texts of the same marks next to each other joined.
     pub(crate) fn into_nodes(self) -> Vec<Value> {
         self.nodes
     }

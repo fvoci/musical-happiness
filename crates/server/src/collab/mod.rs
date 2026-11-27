@@ -211,7 +211,7 @@ pub struct DocEvent {
     /// The organization of the card: the same identifier in another organization is
     /// another card.
     pub tenant: Tenant,
-    /// The card.
+    /// The card whose document it is, in that organization.
     pub card_id: String,
     /// What happened.
     pub change: DocChange,

@@ -22,7 +22,7 @@ const OTHER_ERROR: &str = "other";
 pub(crate) struct LooseObjects {
     /// Being written.
     pub(crate) writing: i64,
-    /// Doomed.
+    /// Doomed: their records went, and they are to be removed.
     pub(crate) doomed: i64,
     /// The doomed ones whose removal failed again when it was tried again, by the kind
     /// of the error of the last failure.

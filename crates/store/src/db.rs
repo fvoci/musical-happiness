@@ -26,7 +26,7 @@ pub(crate) use locks::{DeletedContainersHeld, InstanceHeld, LockRank, Organizati
 /// The SQL dialect of the connected database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dialect {
-    /// SQLite.
+    /// SQLite: the database of a server of one organization.
     Sqlite,
     /// PostgreSQL.
     Postgres,

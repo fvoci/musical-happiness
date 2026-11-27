@@ -5,7 +5,7 @@ use super::*;
 // ---------------------------------------------------------------------------------------
 // Category route validation and exact HTTP responses
 
-/// The category routes need a session.
+/// Each route of the categories refuses a request without a session token (401).
 #[tokio::test]
 async fn category_routes_need_a_session() {
     let th = Setup::native().start().await.init_basic().await;

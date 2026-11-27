@@ -48,7 +48,7 @@ const QUEUE: usize = 256;
 /// How a worker process is started: a program and its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerCommand {
-    /// The program.
+    /// The executable to start: the server's own, or the tests' worker.
     pub program: PathBuf,
     /// Its arguments.
     pub args: Vec<OsString>,

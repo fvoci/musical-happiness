@@ -145,7 +145,7 @@ impl Acceptance {
 pub struct Accepted {
     /// The account that was let in.
     pub user_id: String,
-    /// The workspace.
+    /// The workspace the link let them into.
     pub workspace_id: String,
     /// For a guest's link: the board.
     pub container_id: Option<String>,

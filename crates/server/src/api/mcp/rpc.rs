@@ -49,7 +49,7 @@ pub(super) enum Incoming {
     Request {
         /// The identifier to answer with: a string or a number.
         id: Value,
-        /// The method.
+        /// The method it calls, such as `tools/call`.
         method: String,
         /// Its parameters; an empty object if it sent none.
         params: Map<String, Value>,

@@ -51,7 +51,7 @@
             ]
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace the link let them into.",
             "type": "string"
           }
         },
@@ -410,7 +410,7 @@
             "type": "string"
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The identifier of the workspace, as its routes take it.",
             "type": "string"
           }
         },
@@ -4182,14 +4182,14 @@
         "type": "object"
       },
       "LoginRequest": {
-        "description": "A login request.",
+        "description": "What a sign-in sends: a user name or an email address, and a password.",
         "properties": {
           "email": {
             "description": "The email address to log in with, used when no user has the given name.",
             "type": "string"
           },
           "password": {
-            "description": "The password.",
+            "description": "The password of the account that `username` or `email` names.",
             "type": "string"
           },
           "username": {
@@ -4454,7 +4454,7 @@
             "type": "string"
           },
           "password": {
-            "description": "The password.",
+            "description": "The password the account is to have: at least 8 characters, and at most 1024\nbytes in UTF-8.",
             "type": "string"
           },
           "username": {
@@ -5434,7 +5434,7 @@
             "type": "boolean"
           },
           "issuer": {
-            "description": "The issuer.",
+            "description": "The issuer's URL, as the provider's ID tokens name it (`iss`).",
             "type": "string"
           }
         },
@@ -5658,7 +5658,7 @@
         "properties": {
           "role": {
             "$ref": "#/components/schemas/OrgRole",
-            "description": "The role."
+            "description": "The role the member is to have from now on."
           }
         },
         "required": [
@@ -7121,7 +7121,7 @@
             "type": "string"
           },
           "password": {
-            "description": "The password.",
+            "description": "The password the account is to have: at least 8 characters, and at most 1024\nbytes in UTF-8.",
             "type": "string"
           },
           "username": {
@@ -7979,7 +7979,7 @@
         "description": "An incomplete card assigned to the caller that is overdue, due today, or due soon.",
         "properties": {
           "boardIcon": {
-            "description": "Board icon.",
+            "description": "The icon of the board the card is on; empty if it has none.",
             "type": "string"
           },
           "boardId": {
@@ -7987,7 +7987,7 @@
             "type": "string"
           },
           "boardTitle": {
-            "description": "Board title.",
+            "description": "The title of the board the card is on.",
             "type": "string"
           },
           "cardId": {
@@ -8330,7 +8330,7 @@
             ]
           },
           "title": {
-            "description": "The title.",
+            "description": "The title of the unit or chapter, as its outline shows it.",
             "type": "string"
           },
           "updatedAt": {
@@ -9273,7 +9273,7 @@
           },
           "workspace": {
             "$ref": "#/components/schemas/OverviewWorkspace",
-            "description": "The workspace."
+            "description": "The workspace, with its organization and what the reader is in it."
           }
         },
         "required": [

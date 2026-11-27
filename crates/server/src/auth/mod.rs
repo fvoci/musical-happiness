@@ -41,7 +41,7 @@ pub struct Authenticator {
 /// A session a token was found to stand for.
 #[derive(Debug, Clone)]
 pub struct Authenticated {
-    /// The session.
+    /// The session, as the store holds it.
     pub session: Session,
     /// Whether this lookup wrote down that the session was used, which it does when the
     /// last record is old enough. Then is also when a browser's cookie is renewed.

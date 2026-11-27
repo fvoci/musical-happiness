@@ -810,7 +810,7 @@ pub fn build_course_schedule_view(
 pub struct CourseOutlineNodes {
     /// Course container identifier.
     pub course_id: String,
-    /// Course title.
+    /// The title of the course, as its container has it.
     pub course_title: String,
     /// Outline units and chapters belonging to the course.
     pub nodes: Vec<UnitNode>,

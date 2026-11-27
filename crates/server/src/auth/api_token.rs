@@ -142,7 +142,7 @@ pub fn disallowed_by_organization() -> AppError {
 /// workspaces it names, reading or writing as its scope says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Delegation {
-    /// The token.
+    /// The token that gives it, which what the agent writes is put down to.
     pub token_id: String,
     /// Its name, which what it writes is told and versioned under.
     pub name: String,

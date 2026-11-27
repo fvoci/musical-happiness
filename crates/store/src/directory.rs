@@ -118,7 +118,7 @@ pub enum Sight<'a> {
     InWorkspace {
         /// The user who looks.
         seer_id: &'a str,
-        /// The workspace.
+        /// The workspace the seer looks in.
         workspace_id: &'a str,
         /// How far the seer sees in it.
         reach: Reach,

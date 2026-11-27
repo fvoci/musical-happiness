@@ -22,7 +22,7 @@ pub enum Credential {
 }
 
 impl Credential {
-    /// The token.
+    /// The token, wherever the request carried it.
     pub fn token(&self) -> &str {
         match self {
             Self::Bearer(token) | Self::Cookie(token) => token,

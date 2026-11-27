@@ -96,7 +96,7 @@ impl FromStr for ApiTokenScope {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiTokenWorkspace {
-    /// The workspace.
+    /// The identifier of the workspace, as its routes take it.
     pub workspace_id: String,
     /// Its organization.
     pub org_id: String,

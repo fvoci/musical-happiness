@@ -40,9 +40,9 @@ pub struct TodayCardItem {
     pub icon: String,
     /// Board container identifier.
     pub board_id: String,
-    /// Board title.
+    /// The title of the board the card is on.
     pub board_title: String,
-    /// Board icon.
+    /// The icon of the board the card is on; empty if it has none.
     pub board_icon: String,
     /// Effective due calendar day (`YYYY-MM-DD`) in the caller's time zone.
     pub due_date: String,

@@ -112,7 +112,7 @@ impl Body {
         Self { document }
     }
 
-    /// The document.
+    /// The body as its JSON, which is stored as it is.
     #[must_use]
     pub fn document(&self) -> &Value {
         &self.document

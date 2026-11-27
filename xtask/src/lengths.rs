@@ -41,7 +41,7 @@ pub(crate) const DIRECTORIES: &[&str] = &["crates", "xtask"];
 pub(crate) enum Subject {
     /// A file, by its path from the workspace root.
     File(String),
-    /// A function.
+    /// A function, by its file and its name.
     Function {
         /// Its file, by the path from the workspace root.
         file: String,

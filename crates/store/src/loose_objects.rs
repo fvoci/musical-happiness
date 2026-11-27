@@ -71,7 +71,7 @@ pub struct LooseObject {
 pub struct LooseCounts {
     /// Being written.
     pub writing: i64,
-    /// Doomed.
+    /// Doomed: their records went, and they are to be removed.
     pub doomed: i64,
     /// The doomed ones whose removal failed again when it was tried again (twice or
     /// more), by the kind of the error of the last failure, in the order of the kinds.

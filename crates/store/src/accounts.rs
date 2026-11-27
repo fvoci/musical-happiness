@@ -21,8 +21,8 @@ use crate::{directory, signups, workspaces};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Founding {
     /// The first organization, created with the first account. If the database already
-    /// holds an organization of people with no account ([`OrgPlace::Existing`]), the
-    /// first user takes it.
+    /// holds an organization of people with no account (one from before organizations
+    /// had accounts, in a database re-anchored at the baseline), the first user takes it.
     First,
     /// A new organization, under an identifier the store gives it, whatever
     /// organization the handle names.
@@ -48,7 +48,7 @@ pub enum FoundingPolicy {
 pub struct OwnSpace {
     /// The organization, of the kind `personal`.
     pub org_id: String,
-    /// Its workspace.
+    /// The one workspace of that organization.
     pub workspace_id: String,
 }
 

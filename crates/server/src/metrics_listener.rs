@@ -153,7 +153,7 @@ pub(crate) async fn bind(
 /// Whether the server listens on the loopback only (`listen_loopback_only`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Reach {
-    /// The loopback only.
+    /// On the loopback only: `listen_loopback_only` is on.
     LoopbackOnly,
     /// Wherever its addresses say.
     Any,

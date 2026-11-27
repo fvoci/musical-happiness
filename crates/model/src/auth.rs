@@ -144,7 +144,7 @@ impl From<AuthParamError> for Refusal {
     }
 }
 
-/// A login request.
+/// What a sign-in sends: a user name or an email address, and a password.
 #[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct LoginRequest {
@@ -152,7 +152,7 @@ pub struct LoginRequest {
     pub username: String,
     /// The email address to log in with, used when no user has the given name.
     pub email: String,
-    /// The password.
+    /// The password of the account that `username` or `email` names.
     pub password: String,
 }
 
@@ -174,7 +174,8 @@ pub struct RegisterRequest {
     pub username: String,
     /// The email address.
     pub email: String,
-    /// The password.
+    /// The password the account is to have: at least 8 characters, and at most 1024
+    /// bytes in UTF-8.
     pub password: String,
     /// The name to be shown by; may be left out or empty for none, not `null`. Checked
     /// as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
@@ -357,7 +358,8 @@ pub struct NewAccount {
     pub username: String,
     /// The email address.
     pub email: String,
-    /// The password.
+    /// The password the account is to have: at least 8 characters, and at most 1024
+    /// bytes in UTF-8.
     pub password: String,
     /// The name to be shown by; may be left out or empty for none, not `null`. Checked
     /// as `patchMe` checks it: at most 64 UTF-16 code units without control characters.

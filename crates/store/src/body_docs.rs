@@ -53,12 +53,12 @@ pub struct StoredDoc {
 pub enum Projection {
     /// The block holds the body of the document already: it is not patched.
     Held,
-    /// The block takes `body` (`None` clears it), if it was not changed since it was
-    /// read: `read_at` is its `updated_at` then. (A restore from the trash in the same
-    /// millisecond as the read, and the import's own writing of bodies, which keeps
-    /// `updated_at`, are not seen; neither writes a block whose document is open.)
+    /// The block takes `body`, if it was not changed since it was read: `read_at` is
+    /// its `updated_at` then. (A restore from the trash in the same millisecond as the
+    /// read, and the import's own writing of bodies, which keeps `updated_at`, are not
+    /// seen; neither writes a block whose document is open.)
     Written {
-        /// The body.
+        /// The body the block takes; `None` clears it.
         body: Option<Body>,
         /// The block's `updated_at` as it was read.
         read_at: i64,

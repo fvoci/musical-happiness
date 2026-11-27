@@ -53,7 +53,7 @@ use crate::permissions::ContainerScope;
 /// that session was found under.
 #[derive(Clone)]
 pub struct Identity {
-    /// The session.
+    /// The session the handshake came with.
     pub session: Session,
     /// The session token of the handshake.
     pub token: String,

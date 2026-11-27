@@ -37,7 +37,7 @@ pub(super) fn check_token_is_text(keys: &Map<String, Value>) -> anyhow::Result<(
 /// read, `host:port` with an IPv6 address in brackets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricsAddress {
-    /// The host.
+    /// The host: an IP address, or a name the system resolves.
     pub host: MetricsHost,
     /// The port; zero for any free one.
     pub port: u16,

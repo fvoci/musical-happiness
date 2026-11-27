@@ -50,7 +50,7 @@ pub const COMMENT_AGENT_TOKEN_NAME: &str = "agentTokenName";
 )]
 #[serde(rename_all = "lowercase")]
 pub enum BlockType {
-    /// A card.
+    /// A card of a board, with the values of its properties and a body.
     #[default]
     Card,
     /// A board view.
@@ -297,7 +297,7 @@ pub enum BlockError {
     /// boolean (or either `null`).
     #[error("the field {field} of a card must be {expected}")]
     InvalidCardField {
-        /// The field.
+        /// The field, by its name in the JSON: `icon` or `isTemplate`.
         field: &'static str,
         /// What its value must be.
         expected: &'static str,
@@ -306,7 +306,7 @@ pub enum BlockError {
     /// order ([`crate::order_between`]), or either `null`.
     #[error("the field {field} of a page must be {expected}")]
     InvalidPageField {
-        /// The field.
+        /// The field, by its name in the JSON: `icon` or `order`.
         field: &'static str,
         /// What its value must be.
         expected: &'static str,
@@ -351,7 +351,8 @@ pub enum BlockError {
     /// short texts, and the title the day as `date` has it.
     #[error("the field {field} of an entry must be {expected}")]
     InvalidEntryField {
-        /// The field.
+        /// The field, by its name in the JSON: `date`, `mood`, `weather`, `place` or
+        /// `title`.
         field: &'static str,
         /// What its value must be.
         expected: &'static str,
@@ -389,7 +390,7 @@ pub enum BlockError {
     /// order ([`crate::order_between`]) or `null`.
     #[error("the field {field} of a unit must be {expected}")]
     InvalidUnitField {
-        /// The field.
+        /// The field, by its name in the JSON: `order`.
         field: &'static str,
         /// What its value must be.
         expected: &'static str,

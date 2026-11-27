@@ -55,7 +55,7 @@ const LONGEST_PATH_WAIT: Duration = Duration::from_mins(15);
 pub struct UnsentMail {
     /// Password resets and confirmations of a registration, which share a queue.
     pub recovery: usize,
-    /// Invitations.
+    /// Invitations, which have a queue of their own.
     pub invitations: usize,
 }
 

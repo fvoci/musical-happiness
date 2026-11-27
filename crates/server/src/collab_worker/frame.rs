@@ -17,7 +17,7 @@ pub enum FrameError {
     /// The length is past the largest frame.
     #[error("a frame of {length} bytes is larger than the {limit} allowed")]
     TooLarge {
-        /// The length.
+        /// How many bytes the frame holds, as its head says or as it would be written.
         length: u64,
         /// The largest frame.
         limit: u64,

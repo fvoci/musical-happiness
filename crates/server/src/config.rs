@@ -84,7 +84,7 @@ impl<'de> serde::de::Visitor<'de> for UnreadKeysVisitor {
 pub struct S3Config {
     /// The access key; empty to use the environment's credentials.
     pub access_key_id: String,
-    /// The secret key.
+    /// The secret of the access key; empty with an empty access key.
     pub secret_access_key: String,
     /// The bucket files are stored in.
     pub bucket: String,

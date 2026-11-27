@@ -36,7 +36,7 @@ impl Doomed {
         }
     }
 
-    /// The path.
+    /// Where the file or the directory to be removed is.
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }

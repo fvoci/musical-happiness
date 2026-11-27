@@ -238,7 +238,7 @@ pub async fn keys(fetcher: &Fetcher, discovery: &Discovery) -> Result<Keys, Prov
 /// What the server takes from an ID token that holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdClaims {
-    /// The issuer.
+    /// The issuer the token names (`iss`), which is the provider's.
     pub issuer: String,
     /// The subject: who the person is at the issuer.
     pub subject: String,

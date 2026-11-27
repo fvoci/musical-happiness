@@ -15,7 +15,7 @@ use crate::error::AppError;
 /// What the reader of an overview is in its workspace, as the workspace was entered.
 #[derive(Debug, Clone, Copy)]
 pub struct OverviewReader<'a> {
-    /// The user.
+    /// The account of the reader.
     pub user_id: &'a str,
     /// What they are in the workspace.
     pub role: WorkspaceRole,
