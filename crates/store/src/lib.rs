@@ -26,6 +26,7 @@ mod body_digest;
 mod body_docs;
 mod body_links;
 mod body_versions;
+mod card_events;
 mod card_hierarchy;
 mod card_numbers;
 mod card_values;

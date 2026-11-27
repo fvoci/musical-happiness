@@ -27,6 +27,8 @@ use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
 pub(crate) use self::inspect::{
     SchemaState, may_change, refuse_unrecorded_schemas, state, ungranted_tables, whereabouts,
 };
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) use self::steps::UNDONE_AFTER_THE_BASELINE;
 pub(crate) use self::steps::{STEPS, Step};
 use crate::db::{Dialect, Param};
 use crate::error::StoreError;
@@ -71,7 +73,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 14] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 51] = [
+pub(crate) const ORG_TABLES: [&str; 52] = [
     "api_token_workspaces",
     "audit_log",
     "blocks",
@@ -82,6 +84,7 @@ pub(crate) const ORG_TABLES: [&str; 51] = [
     "body_versions",
     "card_assignees",
     "card_due_notices",
+    "card_events",
     "categories",
     "category_containers",
     "comment_versions",
@@ -248,6 +251,16 @@ const RE_ANCHOR_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '10s'";
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) fn record_before_the_baseline(dialect: Dialect) -> &'static [(i64, &'static str)] {
     pre_baseline::record(dialect)
+}
+
+/// The record this server writes of its migrations, oldest first: each version with the
+/// SHA-384 of its file, in lowercase hexadecimal.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) fn record_of_this_server(dialect: Dialect) -> Vec<(i64, String)> {
+    migrator(dialect, &STEPS)
+        .iter()
+        .map(|migration| (migration.version, inspect::hexadecimal(&migration.checksum)))
+        .collect()
 }
 
 /// The migrator of the migrations `steps`.
@@ -421,23 +434,47 @@ mod tests {
         }
     }
 
-    /// The baseline, and a migration after it as a later server has one.
-    fn baseline_and_one_more() -> [Step; 2] {
-        let [baseline] = &STEPS;
-        [
-            Step {
-                version: baseline.version,
-                description: baseline.description,
-                sqlite: baseline.sqlite,
-                postgres: baseline.postgres,
-            },
-            Step {
-                version: 2,
-                description: "after the baseline",
-                sqlite: "CREATE TABLE after_the_baseline (id INTEGER PRIMARY KEY);",
-                postgres: "CREATE TABLE after_the_baseline (id BIGINT PRIMARY KEY);",
-            },
-        ]
+    /// Every migration after the baseline can be taken away by the tests that make a
+    /// database as the last server before the baseline left it, the newest first.
+    #[test]
+    fn every_migration_after_the_baseline_is_undone_for_the_tests() {
+        let mut after: Vec<i64> = STEPS.iter().skip(1).map(|step| step.version).collect();
+        after.reverse();
+        let undone: Vec<i64> = UNDONE_AFTER_THE_BASELINE
+            .iter()
+            .map(|(version, _)| *version)
+            .collect();
+        assert_eq!(undone, after);
+    }
+
+    /// The version of a migration of a later server: the one after this server's last.
+    fn the_version_after_this_servers() -> i64 {
+        STEPS.last().map_or(1, |step| step.version + 1)
+    }
+
+    /// This server's migrations, and one after them as a later server has one.
+    fn this_servers_and_one_more() -> Vec<Step> {
+        let mut steps: Vec<Step> = STEPS
+            .iter()
+            .map(|step| Step {
+                version: step.version,
+                description: step.description,
+                sqlite: step.sqlite,
+                postgres: step.postgres,
+            })
+            .collect();
+        steps.push(Step {
+            version: the_version_after_this_servers(),
+            description: "after this server's",
+            sqlite: "CREATE TABLE after_the_baseline (id INTEGER PRIMARY KEY);",
+            postgres: "CREATE TABLE after_the_baseline (id BIGINT PRIMARY KEY);",
+        });
+        steps
+    }
+
+    /// The versions of this server's migrations, oldest first.
+    fn this_servers_versions() -> Vec<i64> {
+        STEPS.iter().map(|step| step.version).collect()
     }
 
     /// The bytes of lowercase hexadecimal, as the record before the baseline has them.
@@ -454,7 +491,10 @@ mod tests {
         let store = Store::open(crate::DbType::Sqlite, ":memory:")
             .await
             .expect("the database opens");
-        store.migrate().await.expect("the baseline is applied");
+        store
+            .migrate_with(&STEPS[..1])
+            .await
+            .expect("the baseline is applied");
         store
             .system()
             .transaction(async |scope| {
@@ -496,14 +536,16 @@ mod tests {
     /// server's start nor `--migrate` leaves it behind until the next.
     #[tokio::test]
     async fn a_database_before_the_baseline_takes_the_migrations_after_it_at_once() {
-        let steps = baseline_and_one_more();
+        let steps = this_servers_and_one_more();
         let store = before_the_baseline().await;
         assert_eq!(
             store.check_schema().await.expect("the record is read"),
             SchemaCheck::BeforeBaseline
         );
         store.migrate_with(&steps).await.expect("migrated");
-        assert_eq!(recorded_versions(&store).await, [1, 2]);
+        let mut all = this_servers_versions();
+        all.push(the_version_after_this_servers());
+        assert_eq!(recorded_versions(&store).await, all);
         assert_eq!(
             state(&store, &steps).await.expect("the record is read"),
             SchemaState::Current
@@ -525,7 +567,7 @@ mod tests {
     /// it says: those change tables, and are applied under the server's lock.
     #[tokio::test]
     async fn the_record_replaced_alone_leaves_the_migrations_after_the_baseline() {
-        let steps = baseline_and_one_more();
+        let steps = this_servers_and_one_more();
         let store = before_the_baseline().await;
         assert_eq!(
             store.re_anchor_with(&steps).await.expect("replaced"),
@@ -533,9 +575,9 @@ mod tests {
         );
         assert_eq!(recorded_versions(&store).await, [1]);
         assert_eq!(
-            store.re_anchor_with(&STEPS).await.expect("read again"),
+            store.re_anchor_with(&STEPS[..1]).await.expect("read again"),
             SchemaCheck::Current,
-            "this server's: nothing is left"
+            "the baseline's: nothing is left of it"
         );
         store.close().await;
     }

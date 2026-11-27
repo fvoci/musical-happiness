@@ -50,6 +50,7 @@ pub(super) async fn update_existing_block_row(
     // by its version.
     body_versions::record_change(scope, existing, block, user_id, how.body_write).await?;
     block_derived::refresh(scope, block, Before::Stored(existing), how.new_files).await?;
+    crate::card_events::note_changes(scope, existing, block, user_id, how.telling).await?;
     notification_noting::note_named(scope, block, Some(existing), user_id, how.telling).await
 }
 

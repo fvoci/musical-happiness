@@ -18,6 +18,7 @@ mod body;
 mod body_markdown;
 mod body_version;
 mod card;
+mod card_event;
 mod card_property;
 mod category;
 mod client_config;
@@ -113,6 +114,9 @@ pub use body_version::{
 };
 pub use card::{
     CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, CompactCard, MAX_CARD_DEPTH,
+};
+pub use card_event::{
+    CardChange, CardEvent, CardEventKind, ParseCardEventKindError, card_changes,
 };
 pub use card_property::{
     CardPropertyDefinition, CardPropertyError, DATE_PROPERTY_TYPE, ParsePropertyColorError,

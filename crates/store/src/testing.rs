@@ -444,40 +444,46 @@ impl OtherWriter {
     }
 }
 
-/// Removes the record of migration `version` from the schema `database_connection`
-/// connects to, as its owner: the schema then reads as behind this build while its
-/// tables are unchanged, for the tests of a migration asked for while a server serves it.
-///
-/// # Panics
-///
-/// Panics if the database cannot be reached or the record cannot be removed.
-pub async fn forget_migration(db_type: DbType, database_connection: &str, version: i64) {
-    let store = Store::open(db_type, database_connection)
-        .await
-        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
-    store
-        .with_write_conn(async |scope| {
-            let mut sql = scope.sql("DELETE FROM _sqlx_migrations WHERE version = ");
-            sql.bind(version);
-            scope.execute(sql).await
-        })
-        .await
-        .unwrap_or_else(|error| panic!("removing the record of migration {version}: {error}"));
-    store.close().await;
-}
-
 /// The tables that are no organization's; every other table of the schema is behind
 /// the wall between organizations.
 pub const GLOBAL_TABLES: [&str; 14] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 51] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 52] = crate::schema::ORG_TABLES;
+
+/// Brings the empty schema `database_connection` connects to, as its owner, to the
+/// baseline and no further: the schema a database that the last server before the
+/// baseline brought up to date has, with the baseline's record.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or the baseline cannot be applied.
+pub async fn bring_to_the_baseline(db_type: DbType, database_connection: &str) {
+    let store = Store::open(db_type, database_connection)
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    store
+        .migrate_with(&crate::schema::STEPS[..1])
+        .await
+        .unwrap_or_else(|error| panic!("applying the baseline: {error}"));
+    store.close().await;
+}
+
+/// The record this server writes of its migrations, oldest first: each version with the
+/// SHA-384 of its file of the kind, in lowercase hexadecimal.
+pub fn record_of_this_server(db_type: DbType) -> Vec<(i64, String)> {
+    let dialect = match db_type {
+        DbType::Sqlite => crate::db::Dialect::Sqlite,
+        DbType::Postgres => crate::db::Dialect::Postgres,
+    };
+    crate::schema::record_of_this_server(dialect)
+}
 
 /// Replaces the record of the migrations of the schema `database_connection` connects
 /// to, as its owner, with the record the last server before the baseline wrote, every
-/// migration of its chain applied: the database as that server left it, whose schema is
-/// the baseline's.
+/// migration of its chain applied, and takes away what the migrations after the
+/// baseline made: the database as that server left it, whose schema is the baseline's.
 ///
 /// # Panics
 ///
@@ -489,6 +495,14 @@ pub async fn write_the_record_before_the_baseline(db_type: DbType, database_conn
     let record = crate::schema::record_before_the_baseline(store.dialect());
     store
         .with_write_conn(async |scope| {
+            let mut recorded = scope.sql("SELECT version FROM _sqlx_migrations");
+            recorded.push(" ORDER BY version");
+            let recorded: Vec<i64> = scope.all(recorded).await?;
+            for (version, undo) in crate::schema::UNDONE_AFTER_THE_BASELINE {
+                if recorded.contains(&version) {
+                    scope.execute(scope.sql_unchecked(undo)).await?;
+                }
+            }
             scope
                 .execute(scope.sql("DELETE FROM _sqlx_migrations"))
                 .await?;

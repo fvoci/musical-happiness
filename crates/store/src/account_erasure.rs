@@ -396,6 +396,7 @@ impl Store {
                     .push(")");
                 scope.execute(sql).await?;
                 crate::api_tokens::forget_names_of_tokens_of(scope, user_id).await?;
+                crate::card_events::forget_actor(scope, user_id).await?;
                 for delete in PERSONAL_DELETES {
                     let mut sql = scope.sql(delete);
                     sql.bind(Id(user_id));
