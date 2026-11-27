@@ -207,12 +207,14 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
             problem: "more separate parts of the document fail than a repair deletes",
         });
     }
-    if !mends.is_empty() {
-        mend::check_mends(doc, writer, &mends)?;
-    }
+    let checked = if mends.is_empty() {
+        None
+    } else {
+        Some(mend::check_mends(doc, writer, &mends)?)
+    };
     let deleted = cuts.iter().map(|cuts| cuts.indexes.len()).sum();
     let mended = mends.iter().map(Mend::cells).sum();
-    if mends.is_empty() {
+    let Some(checked) = checked else {
         let mut txn = doc.transact_mut();
         for cuts in &cuts {
             cuts.make(&mut txn);
@@ -226,15 +228,8 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
             update,
             body,
         });
-    }
-    let mut del_set = {
-        let mut txn = doc.transact_mut();
-        for cuts in &cuts {
-            cuts.make(&mut txn);
-        }
-        txn.delete_set().clone()
     };
-    let update = mend::apply_mends(doc, writer, &mends, &mut del_set)?;
+    let update = checked.apply_after(doc, &cuts)?;
     let body = {
         let txn = doc.transact();
         project(&txn, &root)?
@@ -306,12 +301,14 @@ fn deleting_with_cache(
             problem: "more separate parts of the document fail than a repair deletes",
         });
     }
-    if !mends.is_empty() {
-        mend::check_mends(doc, writer, &mends)?;
-    }
+    let checked = if mends.is_empty() {
+        None
+    } else {
+        Some(mend::check_mends(doc, writer, &mends)?)
+    };
     let deleted = cuts.iter().map(|cuts| cuts.indexes.len()).sum();
     let mended = mends.iter().map(Mend::cells).sum();
-    if mends.is_empty() {
+    let Some(checked) = checked else {
         let mut txn = doc.transact_mut();
         for cuts in &cuts {
             cuts.make(&mut txn);
@@ -337,15 +334,8 @@ fn deleting_with_cache(
             },
             repair_ds,
         ));
-    }
-    let mut del_set = {
-        let mut txn = doc.transact_mut();
-        for cuts in &cuts {
-            cuts.make(&mut txn);
-        }
-        txn.delete_set().clone()
     };
-    let update = mend::apply_mends(doc, writer, &mends, &mut del_set)?;
+    let update = checked.apply_after(doc, &cuts)?;
     {
         let txn = doc.transact();
         refresh_cache_after_repair(
@@ -433,7 +423,7 @@ const MAX_STRETCHES: usize = 1000;
 
 /// The children of one parent to delete: their indexes, in order.
 #[derive(Debug)]
-struct Cuts {
+pub(crate) struct Cuts {
     parent: ArrayRef,
     indexes: Vec<u32>,
 }
@@ -453,7 +443,7 @@ impl Cuts {
 
     /// Deletes the children, each stretch of neighbours at once, from the last to the
     /// first, so that no deletion moves the place of another.
-    fn make(&self, txn: &mut TransactionMut<'_>) {
+    pub(crate) fn make(&self, txn: &mut TransactionMut<'_>) {
         let stretches: Vec<(u32, u32)> = self.each_stretch().collect();
         for (start, length) in stretches.into_iter().rev() {
             // The indexes were read from this parent, so the stretch is there;
