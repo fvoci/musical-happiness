@@ -671,7 +671,8 @@ pub(crate) async fn forget_names_of_tokens_of(
 }
 
 /// How a comment that says which agent wrote it (`fields.agentTokenName`,
-/// [`crate::comment_places::sign`]) is found and unsigned, live and in the trash.
+/// [`crate::comment_places::sign`]) is found and unsigned, live and in the trash: by the
+/// name, whatever the block is now, since a comment made a card for a while keeps it.
 struct SignedComments {
     /// The statement up to the names it takes away: those of the user's tokens.
     unsign: [&'static str; 2],
@@ -688,9 +689,9 @@ const SIGNED_COMMENTS: [SignedComments; 2] = [
     SignedComments {
         unsign: [
             "UPDATE blocks SET fields = (fields::jsonb - 'agentTokenName')::json \
-             WHERE type = 'comment' AND fields->>'agentTokenName' IN ",
+             WHERE fields->>'agentTokenName' IN ",
             "UPDATE blocks SET fields = json_remove(fields, '$.agentTokenName') \
-             WHERE type = 'comment' AND json_extract(fields, '$.agentTokenName') IN ",
+             WHERE json_extract(fields, '$.agentTokenName') IN ",
         ],
         made_by: [") AND (created_by = "; 2],
         changed_by: [" OR modified_by = "; 2],
@@ -699,9 +700,9 @@ const SIGNED_COMMENTS: [SignedComments; 2] = [
     SignedComments {
         unsign: [
             "UPDATE deleted_blocks SET block = (block::jsonb #- '{fields,agentTokenName}')::json \
-             WHERE block_type = 'comment' AND block->'fields'->>'agentTokenName' IN ",
+             WHERE block->'fields'->>'agentTokenName' IN ",
             "UPDATE deleted_blocks SET block = json_remove(block, '$.fields.agentTokenName') \
-             WHERE block_type = 'comment' AND json_extract(block, '$.fields.agentTokenName') IN ",
+             WHERE json_extract(block, '$.fields.agentTokenName') IN ",
         ],
         made_by: [
             ") AND (block->>'createdBy' = ",

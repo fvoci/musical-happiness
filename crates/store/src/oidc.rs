@@ -363,7 +363,8 @@ impl Store {
         token_digest: &str,
     ) -> Result<Result<bool, OidcRefusal>, StoreError> {
         self.transaction(async |scope| {
-            // Before the account it lets in, as everything that holds both does.
+            // Before the account it lets in, as a token made through it and a trial of
+            // its pending settings hold it ([`LockRank::Provider`]).
             scope.record_lock(LockRank::Provider, provider_id);
             let mut sql = scope.sql(
                 "SELECT auto_join, issuer, org_id, revision FROM oidc_providers WHERE org_id = ",
@@ -433,10 +434,10 @@ pub(crate) async fn hold_provider_of_organization<'c>(
 
 /// Holds the row of the provider `provider_id` against its sign-ins and tokens, which
 /// hold it for share, and its other writers, until the transaction ends
-/// ([`LockRank::Provider`]). A transaction that is to write the provider and to hold an
-/// account holds the provider first, as a sign-in and a token through it do: the other
-/// way round, each would wait for the other. On SQLite a transaction that writes holds
-/// the database.
+/// ([`LockRank::Provider`]). A trial of pending settings, which writes the provider and
+/// holds the account of its trier, holds the provider first, as a sign-in and a token
+/// through it hold it before their account: the other way round, a trial and a token
+/// would wait for each other. On SQLite a transaction that writes holds the database.
 pub(crate) async fn hold_provider_row(
     scope: &mut Scope<'_>,
     provider_id: &str,
