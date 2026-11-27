@@ -74,7 +74,7 @@ describe('utils', () => {
       expect(buildUrl('/test', undefined)).toBe('/test');
     });
 
-    // Changed from the original (Q8): the address starts at the root of the site.
+    // Q8: the address starts at the root of the site.
     test('buildURL, base no slash', () => {
       expect(buildUrl('test', 'base', origin)).toBe('http://localhost/base/test');
       expect(buildUrl('/test', 'base', origin)).toBe('http://localhost/base/test');
@@ -83,7 +83,7 @@ describe('utils', () => {
       expect(buildUrl('/test', 'base')).toBe('/base/test');
     });
 
-    // Changed from the original (Q8), as above.
+    // Q8, as above.
     test('buildUrl, base with slash', () => {
       expect(buildUrl('test', '/base/', origin)).toBe('http://localhost/base/test');
       expect(buildUrl('/test', '/base/', origin)).toBe('http://localhost/base/test');
@@ -93,8 +93,8 @@ describe('utils', () => {
     });
   });
 
-  // The original built these dates in the time zone of the machine. Here the
-  // reader is in Seoul, wherever the tests run.
+  // The reader is in Seoul, wherever the tests run: no date here depends on
+  // the time zone of the machine.
   const timeZone = 'Asia/Seoul';
   const currentYear = Number(dateOfInstant(Date.now(), timeZone).slice(0, 4));
   const previousYear = currentYear - 1;

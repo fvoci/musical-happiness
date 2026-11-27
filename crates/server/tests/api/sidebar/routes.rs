@@ -320,8 +320,7 @@ async fn create_category_refuses_invalid_requests() {
     }
 
     // The server makes the identifier. A request that names one is refused whether or
-    // not somebody has a category of that identifier: the answer must not tell. (The
-    // original stores the client's identifier, and answers 500 for one that is taken.)
+    // not somebody has a category of that identifier: the answer must not tell.
     let others = create_category(
         &th.client2,
         &category(ROOT_WORKSPACE_ID, &other.id, "Theirs"),
@@ -573,8 +572,8 @@ async fn reorder_categories_over_the_api() {
     let path = &format!("{ROOT_WS}/category-order");
 
     // With no categories, the empty order is accepted and answered with the empty
-    // list. The user has none before the first listing creates the default one. (The
-    // original answers `null`, also to a `null` body.)
+    // list, never `null`. The user has none before the first listing creates the
+    // default one.
     let response = th.client.send_raw_body(Method::PUT, path, "[]").await;
     response.check_ok();
     assert_eq!(response.value(), json!([]), "the answer to the empty order");
@@ -718,8 +717,7 @@ async fn reorder_category_containers_over_the_api() {
     }
     assert_eq!(order().await, new_order, "a refused order changes nothing");
 
-    // The empty order of an empty category is answered with the empty list. (The
-    // original answers `null`.)
+    // The empty order of an empty category is answered with the empty list, not `null`.
     let response = th
         .client
         .send_raw_body(
@@ -835,9 +833,9 @@ async fn update_category_container_over_the_api() {
     th.teardown().await;
 }
 
-/// Hiding and showing need a category of the user's and a board the user can see. (The
-/// original checks nothing and answers every such request as a success.) A board that
-/// is not filed in the category is answered as a success and changes nothing.
+/// Hiding and showing need a category of the user's and a board the user can see. A
+/// board that is not filed in the category is answered as a success and changes
+/// nothing.
 #[tokio::test]
 async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     let th = Setup::native().start().await.init_basic().await;

@@ -2438,5 +2438,6 @@
   "audit_api_tokens_enabled": "{actor} 님이 SSO 조직에서 API 토큰을 허용했습니다",
   "audit_api_tokens_disabled": "{actor} 님이 SSO 조직에서 API 토큰을 막았습니다",
   "audit_api_token_revoked": "{actor} 님이 {subject} 님의 API 토큰 {prefix}…을 조직에서 뺐습니다",
-  "account_api_tokens_too_many": "살아 있는 토큰이 너무 많습니다. 쓰지 않는 토큰을 끝낸 뒤에 만드세요."
+  "account_api_tokens_too_many": "살아 있는 토큰이 너무 많습니다. 쓰지 않는 토큰을 끝낸 뒤에 만드세요.",
+  "account_api_tokens_provider_changed": "공급자로 로그인한 뒤에 조직의 공급자가 바뀌었습니다. 공급자로 다시 로그인한 뒤에 토큰을 만드세요."
 }

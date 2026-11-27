@@ -811,8 +811,8 @@ async fn delete_category_trying_to_delete_already_deleted_category() {
         .await
         .expect("the owner deletes the category");
 
-    // A deleted category is gone: there is nothing to delete a second time. (The
-    // original answers the deleted category again.)
+    // A deleted category is gone: there is nothing to delete a second time, and the
+    // answer does not give the category again.
     let error = th
         .app
         .delete_category(&created.id, &user_id, TEST_WORKSPACE_ID)

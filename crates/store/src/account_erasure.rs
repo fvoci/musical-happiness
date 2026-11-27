@@ -22,8 +22,9 @@
 //!    trash, as a member taken out of one does, and the organization, and the links it
 //!    made there that nobody used go.
 //! 3. [`Store::finish_account_erasure`] removes what is the person's of no organization
-//!    (their identities, sessions, settings and credentials), takes who they are out of
-//!    the audit log, and leaves of the row its identifier.
+//!    (their identities, sessions, settings and credentials, and the names of their
+//!    tokens wherever they were copied), takes who they are out of the audit log, and
+//!    leaves of the row its identifier.
 //!
 //! Steps 1 and 3 reach every organization: a person's memberships, and the records
 //! about them, are of several.
@@ -347,7 +348,9 @@ impl Store {
     }
 
     /// Ends the erasing of an account at `now`: removes its identities, its sessions,
-    /// its settings and credentials, the links mailed to its own
+    /// its settings and credentials, the names of its tokens from what they were
+    /// copied into (the versions and documents an agent wrote, and what others were
+    /// told the account did through one), the links mailed to its own
     /// address that nobody used (and the address from those that were), and who it is
     /// from the records of the audit log about it, in every organization; and leaves of
     /// its row the identifier, with no name, address or password. Not while the account
@@ -402,6 +405,7 @@ impl Store {
                     .push_bind(" OR subject_id = ", Id(user_id))
                     .push(")");
                 scope.execute(sql).await?;
+                crate::api_tokens::forget_names_of_tokens_of(scope, user_id).await?;
                 for delete in PERSONAL_DELETES {
                     let mut sql = scope.sql(delete);
                     sql.bind(Id(user_id));

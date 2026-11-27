@@ -410,8 +410,7 @@ async fn create_boards_and_blocks_refusals() {
         assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
-    // Every board needs an identifier for the blocks to name, the first one too. (The
-    // original does not check the first board at all.)
+    // Every board needs an identifier for the blocks to name, the first one too.
     for boards in [
         json!([{"workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "no id"}]),
         json!([board, {"workspaceId": TEST_WORKSPACE_ID, "visibility": "private"}]),
@@ -905,8 +904,8 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
     th.teardown().await;
 }
 
-/// A body of `PATCH /containers-and-blocks` that cannot be decoded is a bad request. (The
-/// original answers 500.)
+/// A body of `PATCH /containers-and-blocks` that cannot be decoded is a bad request, not
+/// a server error.
 #[tokio::test]
 async fn patch_boards_and_blocks_undecodable_bodies_are_bad_requests() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1078,8 +1077,8 @@ async fn delete_boards_and_blocks_no_boards() {
 
     let response = delete(&th.client, &request).await;
 
-    // That the request lists no board is found before anything is looked up. (The
-    // original checks the block against the listed boards first.)
+    // That the request lists no board is found before anything is looked up, the block
+    // against the listed boards included.
     expect_bad_request(&response, "at least one board is required");
     expect_bad_request(
         &delete(&th.client, &json!({})).await,

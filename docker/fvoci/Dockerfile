@@ -108,14 +108,14 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --start-interval=2s 
     CMD ["/opt/fvoci/fvoci-server", "--config", "/opt/fvoci/config.json", "--check-ready"]
 ENTRYPOINT ["/opt/fvoci/entrypoint.sh"]
 
-# Labels last, so that a new commit or date does not rebuild the layers above. GHCR
-# ties a package to the repository `source` names, which makes it as private as that.
+# Labels last, so that a new commit or date does not rebuild the layers above.
+# `source` names the public repository the image is built from.
 ARG FVOCI_BUILD_HASH=
 ARG FVOCI_CREATED=
 ARG FVOCI_VERSION=
 LABEL org.opencontainers.image.title="fvoci-server" \
       org.opencontainers.image.description="The fvoci server and its web app" \
-      org.opencontainers.image.source="https://github.com/fvoci/musical-happiness" \
+      org.opencontainers.image.source="https://github.com/AISFlow/fvoci" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.revision="${FVOCI_BUILD_HASH}" \
       org.opencontainers.image.created="${FVOCI_CREATED}" \

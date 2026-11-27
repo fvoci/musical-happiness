@@ -199,6 +199,9 @@ reasons! {
     TokenExpiredForOrganization => "token_expired_for_organization", "Personal API token too old for the organization";
     /// The account holds as many personal API tokens in use as one may.
     TooManyApiTokens => "too_many_api_tokens", "Too many personal API tokens";
+    /// The session was made through the organization's provider, which has been removed,
+    /// switched off or changed since; the session stays good for the rest.
+    ProviderChanged => "provider_changed", "Provider changed since the session was made";
     /// A body is written whole from Markdown over one that has blocks its Markdown does
     /// not hold as they are (`complexBlocks`): Markdown is added after it instead.
     ComplexBlocksUseAppend => "complex_blocks_use_append", "Body that Markdown does not hold";

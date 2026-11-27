@@ -8,9 +8,9 @@
   back. While the reader types, a title arriving from somebody else waits.
 
   The icon is one emoji. A card without one offers "Add icon", which gives it
-  one at random, as the original did; the icon's menu draws another or takes
-  it away. Choosing a particular emoji needs the picker that is being built
-  elsewhere (see icons.ts).
+  one at random; the icon's menu draws another or takes it away. Choosing a
+  particular emoji needs the picker that is being built elsewhere (see
+  icons.ts).
 -->
 <script lang="ts">
   import ShuffleIcon from '@lucide/svelte/icons/shuffle';

@@ -55,8 +55,8 @@ describe('an email property', () => {
   });
 
   it('can be set starting from nothing', async () => {
-    // The original checked the stored value instead of the typed one, so an
-    // empty email property could never be given a value.
+    // What is checked is the typed value, not the stored one: an empty email
+    // property can be given a value.
     const { onChange } = mount('email', '');
     await type(field(), 'first@example.org');
     await leave(field());

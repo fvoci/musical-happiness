@@ -1,7 +1,6 @@
 /**
- * The cases of the original `undoManager.test.ts`, one to one and under the
- * same names. The original shares one manager between its cases and clears
- * it at the end of each; here every case has its own.
+ * Undo and redo: single steps, steps that depend on what an action answered,
+ * and groups undone as one. Every case has a manager of its own.
  */
 import { expect, test } from 'vitest';
 

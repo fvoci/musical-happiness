@@ -110,8 +110,8 @@ export function titleProperty(name: string): PropertyTemplate {
 }
 
 /**
- * The calculation a column has: what the view stores for it, or, like the
- * original, the count for the title column and none for the others. A stored
+ * The calculation a column has: what the view stores for it, or, where it
+ * stores none, the count for the title column and none for the others. A stored
  * name this app does not know, or one the kind of the column cannot have, is
  * none.
  */
@@ -124,8 +124,8 @@ export function calculationOf(
 }
 
 /**
- * What the summary row of the original offered on top of what the kind
- * itself lists: the ticks of a checkbox column and the ends of a date column.
+ * What the summary row of a table offers on top of what the kind itself
+ * lists: the ticks of a checkbox column and the ends of a date column.
  */
 const TABLE_EXTRAS: Partial<Record<PropertyTemplate['type'], readonly CalculationOption[]>> = {
   checkbox: ['countChecked', 'countUnchecked', 'percentChecked', 'percentUnchecked'],

@@ -53,7 +53,7 @@ describe('the calculations a column can have', () => {
     );
   });
 
-  it('add the ticks for a checkbox and the ends for a date, as the table of the original did', () => {
+  it('add the ticks for a checkbox and the ends for a date', () => {
     expect(calculationOptions(property('checkbox')).slice(-4)).toEqual([
       'countChecked',
       'countUnchecked',
@@ -104,13 +104,13 @@ describe('the names', () => {
     }
   });
 
-  it('are those of the original where it had them', () => {
+  it('are the names people know them by', () => {
     expect(calculationLabel('countUniqueValue')).toBe('Count unique values');
     expect(calculationShortName('countUniqueValue')).toBe('Unique');
     expect(calculationShortName('none')).toBe('Calculate');
   });
 
-  it('are this app’s own for the four the original left in English only', () => {
+  it('are written out for the counts of empty and not empty', () => {
     expect(calculationLabel('countEmpty')).toBe('Count empty');
     expect(calculationShortName('percentNotEmpty')).toBe('Not empty');
   });

@@ -2,8 +2,8 @@
  * The icons of a card detail: an emoji to give a card that has none, and the
  * small picture that goes with each kind of property.
  *
- * "Add icon" gives the card one emoji at random, as the original did, from a
- * short list a page of a wiki draws from too (`logic/random-emoji.ts`): a
+ * "Add icon" gives the card one emoji at random, from a short list a page of
+ * a wiki draws from too (`logic/random-emoji.ts`): a
  * picker over the full emoji list is being built elsewhere, and when it is
  * there the card opens it instead (CardTitle.svelte is the one place that asks
  * for an emoji).

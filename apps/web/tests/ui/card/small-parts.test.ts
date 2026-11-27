@@ -41,7 +41,7 @@ describe('the kinds of property', () => {
       expect(propertyTypeIcon(type)).toBeTypeOf('function');
   });
 
-  it('are named as the original named them', () => {
+  it('are named in words, as people call them', () => {
     expect(propertyTypeName('multiSelect')).toBe('Multi select');
     expect(propertyTypeName('updatedBy')).toBe('Last updated by');
     expect(propertyTypeName('url')).toBe('URL');

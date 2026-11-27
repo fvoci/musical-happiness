@@ -21,9 +21,8 @@
  * | card relation        | anything else        | removed (it names cards, nothing else does) |
  * | anything             | anything else        | removed                                     |
  *
- * The original carried over less (a select turned into text lost its values)
- * and left values the new kind could not read on the cards, hidden. Here
- * they are removed, so that what the confirmation says is what happens; the
+ * A value the new kind cannot read is removed from the cards rather than
+ * left there hidden, so that what the confirmation says is what happens; the
  * change can be undone as one step.
  */
 import { propertyBehavior } from '$lib/logic/properties.ts';
@@ -72,7 +71,7 @@ const shapeOf = (type: PropertyType): Shape =>
 /** The colour a new option starts with. */
 export const NEW_OPTION_COLOR: PropertyColor = DEFAULT_PROPERTY_COLOR;
 
-/** A new option of a select property. Its identifier is made here, as the original made it. */
+/** A new option of a select property, with an identifier made here, in the browser. */
 export function newOption(name: string): PropertyOption {
   return { id: createId('none'), label: name, color: NEW_OPTION_COLOR };
 }

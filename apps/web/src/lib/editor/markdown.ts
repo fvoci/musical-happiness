@@ -4,8 +4,8 @@
  * Bodies are stored as documents, not as Markdown, so nothing is ever
  * converted back and forth. Markdown comes in at three places: text written
  * by an older version (the built-in templates), text pasted as Markdown, and
- * imports. This reads it the way the original app displayed it (GitHub
- * flavour, a single line break is a line break) and keeps a tally of
+ * imports. This reads it as GitHub flavoured Markdown in which a single line
+ * break is a line break, and keeps a tally of
  * everything the document cannot say, so that a conversion can be judged by
  * numbers.
  */
@@ -25,8 +25,8 @@ export interface Conversion {
 /**
  * The kinds of note, and what each means for the reader of the result:
  *
- * - `html-as-text`: HTML in the text is shown as the characters it is. The
- *   original showed it the same way, so nothing changes for the reader.
+ * - `html-as-text`: HTML in the text is shown as the characters it is, never
+ *   run or drawn.
  * - `heading-level-clamped`: a heading of level 4 to 6 became level 3.
  * - `table`: a table past 200 rows or 20 columns, or one in a quote or a
  *   list entry (a table stands only in the document itself), became one

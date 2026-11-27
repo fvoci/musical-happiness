@@ -439,7 +439,7 @@ async fn assert_post_publish_freeze_and_unpublish(
     assert_eq!(
         a.bob.post(pub_path, &json!({})).await.status,
         StatusCode::CONFLICT,
-        "republish requires >= 3 net scorer delta"
+        "republish requires at least 3 more scorers"
     );
 
     // Unpublishing hides the snapshot, and immediately re-publishing with 6 scorers

@@ -8,7 +8,7 @@ use fvoci_model::{
     ApiToken, IssuedApiToken, MemberApiToken, NewApiToken, OrgKind, RefusalReason, Refusals,
     Session, new_id,
 };
-use fvoci_store::{GrantedWorkspace, Issuance, TokenOrigin, TokenToIssue};
+use fvoci_store::{GrantedWorkspace, Issuance, TokenToIssue};
 
 use super::auth::WrongPassword;
 use super::{App, sso};
@@ -112,14 +112,8 @@ impl App {
                 org_id: &granted.org_id,
             })
             .collect();
-        // A session made before the provider's revisions were kept knows none: its
-        // token is ended by the next one, as no token proves a revision it never had.
-        let origin = session.login.as_ref().map(|login| TokenOrigin {
-            provider_id: &login.provider_id,
-            revision: login.revision.unwrap_or(0),
-            issuer: &login.issuer,
-            subject: login.subject.as_deref(),
-        });
+        // The store reads the provider the session was made through from the session,
+        // and stores the token with it, or refuses it (`Issuance::ProviderChanged`).
         let issuance = self
             .store()
             .issue_api_token(&TokenToIssue {
@@ -133,7 +127,6 @@ impl App {
                 workspaces: &workspaces,
                 allow_personal_space: new.allow_personal_space,
                 notify_self: new.notify_self,
-                origin,
                 created_at: now,
                 expires_at: now.saturating_add(i64::from(days) * DAY_MILLIS),
             })
@@ -146,6 +139,7 @@ impl App {
             Issuance::SessionEnded => {
                 return Err(AppError::unauthorized("the session has ended"));
             }
+            Issuance::ProviderChanged => return Err(AppError::provider_changed()),
             Issuance::TooMany => return Err(AppError::too_many_api_tokens(API_TOKEN_MAX_LIVE)),
         };
         tracing::info!(

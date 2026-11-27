@@ -1,8 +1,7 @@
 /**
- * The cases of the original `blocks/block.test.ts`, `blocks/board.test.ts`,
- * `blocks/filterClause.test.ts` and `blocks/boardView.test.ts`, one to one
- * and under the same names. The originals compare with stored snapshots; the
- * values of those snapshots are written out here.
+ * The patches made from two blocks or two boards, filter clauses compared,
+ * and views sorted by name. What is expected is written out in full, not kept
+ * as stored snapshots.
  *
  * This file tests wire.ts and is, with the fixtures, the only test file that
  * may reach into the `fields` of a block.

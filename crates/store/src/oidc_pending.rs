@@ -294,6 +294,9 @@ impl Store {
             {
                 return Ok(Err(OidcRefusal::ProviderGone));
             }
+            // The provider that is written below, before the account of the trier: a token
+            // made through it holds it before the account too.
+            oidc::hold_provider_row(scope, &before.id).await?;
             if org_admin::org_role_of(scope, trier_id).await? != Some(OrgRole::Admin) {
                 return Ok(Err(OidcRefusal::NotTheTrier));
             }

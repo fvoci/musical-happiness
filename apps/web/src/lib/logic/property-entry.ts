@@ -5,9 +5,8 @@
  */
 
 /**
- * A number property takes a text that starts with a whole number, as the
- * original did (`12`, `-3`, `12.5`, and also `12 kg`); `abc` and `.5` are
- * refused. The calculations read the stored text the same lenient way.
+ * A number property takes a text that starts with a whole number (`12`,
+ * `-3`, `12.5`, and also `12 kg`); `abc` and `.5` are refused. The calculations read the stored text the same lenient way.
  */
 export function isNumberEntry(text: string): boolean {
   return text === '' || !Number.isNaN(Number.parseInt(text, 10));

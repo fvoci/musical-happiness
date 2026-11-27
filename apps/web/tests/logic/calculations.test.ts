@@ -9,7 +9,7 @@ import { setCardProperty, type PropertyTemplate } from '$lib/logic/wire.ts';
 
 import { createTestBoard, createTestCard } from './support/factory.ts';
 
-describe('components/calculations/calculation logic', () => {
+describe('the calculations of a column', () => {
   const board = createTestBoard();
 
   const card1 = createTestCard(board);
@@ -275,7 +275,7 @@ describe('components/calculations/calculation logic', () => {
     expect(result).toBe('2');
   });
 
-  // Changed from the original (Q9): card2 holds `false`, which is not a tick.
+  // Q9: card2 holds `false`, which is not a tick.
   test('countChecked for cards', () => {
     const result = CALCULATIONS.countChecked(cards, properties.checkbox, intl);
     expect(result).toBe('2');
@@ -286,7 +286,7 @@ describe('components/calculations/calculation logic', () => {
     expect(result).toBe('1');
   });
 
-  // Changed from the original (Q9): card2 holds `false`, which is not a tick.
+  // Q9: card2 holds `false`, which is not a tick.
   test('countUnchecked for cards', () => {
     const result = CALCULATIONS.countUnchecked(cards, properties.checkbox, intl);
     expect(result).toBe('2');
@@ -307,13 +307,13 @@ describe('components/calculations/calculation logic', () => {
     expect(result).toBe('2');
   });
 
-  // Changed from the original (Q9): card2 holds `false`, which is not a tick.
+  // Q9: card2 holds `false`, which is not a tick.
   test('percentChecked for cards', () => {
     const result = CALCULATIONS.percentChecked(cards, properties.checkbox, intl);
     expect(result).toBe('50%');
   });
 
-  // Changed from the original (Q9): card2 holds `false`, which is not a tick.
+  // Q9: card2 holds `false`, which is not a tick.
   test('percentUnchecked for cards', () => {
     const result = CALCULATIONS.percentUnchecked(cards, properties.checkbox, intl);
     expect(result).toBe('50%');

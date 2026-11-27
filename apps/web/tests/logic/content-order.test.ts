@@ -1,12 +1,12 @@
 /**
- * The cases of the original `cardDetailContentsUtility.test.ts`, one to one
- * and under the same names.
+ * Rearranging the contents of a card by dragging: an item moved within its
+ * row, to another row, or to a row of its own.
  */
 import { describe, expect, test } from 'vitest';
 
 import { dragAndDropRearrange, type DropPosition } from '$lib/logic/content-order.ts';
 
-describe('components/cardDetail/cardDetailContentsUtility', () => {
+describe('dragAndDropRearrange', () => {
   test('Testing moving first item in the row to the end', () => {
     const data = {
       contentOrder: [['1', '2', '3']],

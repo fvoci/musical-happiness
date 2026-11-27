@@ -45,8 +45,9 @@ const BASE_URL_PLACEHOLDER: &str = "{{.BaseURL}}";
 /// own, so that it never runs with the app's origin.
 const STATIC_DOCUMENT_POLICY: &str = "sandbox allow-scripts";
 
-/// Clickjacking and injection fallback policy for `index.html` when `csp.json` is absent.
-const INDEX_DOCUMENT_POLICY: &str = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
+/// The policy of `index.html` if even the strict policy without hashes could not be made
+/// a header (it always can): nothing loads, so the page fails where it is seen.
+const INDEX_DOCUMENT_POLICY: &str = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
 
 /// Baseline browser capability lockdown sent on every response.
 const PERMISSIONS_POLICY_VALUE: &str =
@@ -79,7 +80,7 @@ pub struct WebRoot {
     base_url: String,
     https_origin: Option<String>,
     security_txt: Option<SecurityTxt>,
-    warned_missing_csp: Arc<AtomicBool>,
+    logged_missing_csp: Arc<AtomicBool>,
 }
 
 impl WebRoot {
@@ -90,7 +91,7 @@ impl WebRoot {
             base_url: base_url(server_url),
             https_origin: https_origin_of(server_url),
             security_txt: None,
-            warned_missing_csp: Arc::new(AtomicBool::new(false)),
+            logged_missing_csp: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -223,27 +224,27 @@ impl WebRoot {
                     .ok()
                     .and_then(|manifest| strict_index_csp(&manifest.script_src))
                 {
-                    self.warned_missing_csp.store(false, Ordering::Relaxed);
+                    self.logged_missing_csp.store(false, Ordering::Relaxed);
                     policy
                 } else {
-                    if !self.warned_missing_csp.swap(true, Ordering::Relaxed) {
-                        tracing::warn!(
+                    if !self.logged_missing_csp.swap(true, Ordering::Relaxed) {
+                        tracing::error!(
                             path = %csp_path.display(),
-                            "csp.json is malformed; falling back to baseline index CSP"
+                            "csp.json is malformed; the index is served with no inline script allowed"
                         );
                     }
-                    HeaderValue::from_static(INDEX_DOCUMENT_POLICY)
+                    index_csp_without_hashes()
                 }
             }
             Err(error) => {
-                if !self.warned_missing_csp.swap(true, Ordering::Relaxed) {
-                    tracing::warn!(
+                if !self.logged_missing_csp.swap(true, Ordering::Relaxed) {
+                    tracing::error!(
                         %error,
                         path = %csp_path.display(),
-                        "csp.json could not be read; falling back to baseline index CSP"
+                        "csp.json could not be read; the index is served with no inline script allowed"
                     );
                 }
-                HeaderValue::from_static(INDEX_DOCUMENT_POLICY)
+                index_csp_without_hashes()
             }
         }
     }
@@ -272,6 +273,14 @@ fn is_valid_csp_hash_source(token: &str) -> bool {
         && digest.bytes().all(|byte| {
             byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=' | b'-' | b'_')
         })
+}
+
+/// The policy of `index.html` when `csp.json` is not there or not as the build writes
+/// it: the strict policy with no hash, closed rather than open. The inline start script
+/// is refused and the app does not start, which is seen at once, where a policy without
+/// `script-src` would let any injected script run unnoticed.
+fn index_csp_without_hashes() -> HeaderValue {
+    strict_index_csp(&[]).unwrap_or_else(|| HeaderValue::from_static(INDEX_DOCUMENT_POLICY))
 }
 
 /// Builds the strict production Content-Security-Policy matching the E2E/preview server.

@@ -24,10 +24,10 @@ import { at } from '../support/zones.ts';
 
 import { createTestBoard, createTestCard } from './support/factory.ts';
 
-// The person reading the board. The original tests ran in the time zone of the machine.
+// The person reading the board, in a time zone of their own wherever the tests run.
 const reader = { timeZone: 'Asia/Seoul' };
 
-describe('src/cardFilter', () => {
+describe('the filter of cards', () => {
   const report = vi.spyOn(diagnostics, 'report').mockImplementation(() => undefined);
   beforeEach(() => {
     report.mockClear();

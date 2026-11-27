@@ -1,7 +1,7 @@
 /**
  * Boards, views, cards and content blocks with fixed, recognisable content
- * for the tests of the logic. The same fixtures the tests of the original
- * web app build on, so that the ported cases mean what they meant there.
+ * for the tests of the logic: every test builds on the same few, so that what
+ * a case expects can be read against them.
  */
 import type { DateValue } from '$lib/logic/dates.ts';
 import {

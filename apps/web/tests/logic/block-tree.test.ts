@@ -1,6 +1,6 @@
 /**
- * The cases of the original `octoUtils.test.ts`, one to one and under the
- * same names.
+ * Copying a tree of blocks (a copy takes new identifiers, keeps its order and
+ * drops what marks a block deleted), and the default of a filter condition.
  */
 import { expect, test } from 'vitest';
 

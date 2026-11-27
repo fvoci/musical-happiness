@@ -5,6 +5,13 @@
 //! databases.
 //!
 //! The schema is this server's own: a list of migrations applied by sqlx's migrator.
+//!
+//! No `unsafe` here: what reaches the database as SQL text is held to `&'static str` by
+//! the types of `db.rs`, and `clippy.toml` refuses the `leak`s that would make one of a
+//! string at run time. One door stays open to safe code: a string borrowed from a
+//! `static` filled at run time (`LazyLock`, `OnceLock`) is `&'static` too, and no lint
+//! refuses it; none is here, and review keeps it so.
+#![forbid(unsafe_code)]
 
 mod account_deletion;
 mod account_erasure;
@@ -120,9 +127,7 @@ pub use account_erasure::{
     Erasing, ErasureEnd, ErasureStart, HandedOver, LeftFrom, RemovedOrganization,
 };
 pub use accounts::{Founding, FoundingPolicy, OwnSpace, StartedOrganization};
-pub use api_tokens::{
-    GrantedWorkspace, Issuance, LiveApiToken, TokenOrigin, TokenReach, TokenToIssue,
-};
+pub use api_tokens::{GrantedWorkspace, Issuance, LiveApiToken, TokenReach, TokenToIssue};
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
     BlockFilter, BodyPreview, CopyChanges, CopyTitles, ListedBlock, Paging, Previews,

@@ -1,7 +1,7 @@
 /**
- * The parts of wire.ts the ported tests do not reach: reading stored date
- * values, filling in blocks, identifiers. Written for the port. Like
- * wire.test.ts, this file may look inside the `fields` of a block.
+ * The parts of wire.ts that wire.test.ts does not reach: reading stored date
+ * values, filling in blocks, identifiers. Like wire.test.ts, this file may
+ * look inside the `fields` of a block.
  */
 import { describe, expect, it } from 'vitest';
 

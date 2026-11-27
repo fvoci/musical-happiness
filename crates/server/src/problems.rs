@@ -212,7 +212,8 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::ApiTokensDisallowed
         | Reason::TokenRateLimited
         | Reason::TokenExpiredForOrganization
-        | Reason::TooManyApiTokens => describe_access(reason).unwrap_or_default(),
+        | Reason::TooManyApiTokens
+        | Reason::ProviderChanged => describe_access(reason).unwrap_or_default(),
         Reason::SecretKeyRequired
         | Reason::OidcIssuerUnverified
         | Reason::OidcUnavailable
@@ -982,6 +983,9 @@ fn describe_access(reason: Reason) -> Option<&'static str> {
         }
         Reason::TooManyApiTokens => {
             "Status 400, for making a personal API token: the account holds as many tokens that open anything (not taken back, not past their end) as one may, which `limit` tells (25). Nothing was made. Taking one back makes room."
+        }
+        Reason::ProviderChanged => {
+            "Status 409, for making a personal API token from a session made through the organization's provider: the provider has been removed, switched off or changed since the session was made. Nothing was made, and the session stays signed in for the rest. Sign in through the provider again (`startOidcLogin`) and make the token from the session that comes of it."
         }
         _ => return None,
     })

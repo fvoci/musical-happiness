@@ -4,7 +4,7 @@
  * configuration), whose rules for where markup ends are its own, not XML's:
  * a quote opens a value anywhere in a tag, end tags hold quotes too, a
  * DOCTYPE holds them in places, and the attributes rhwp takes are the ones
- * quick-xml's iterator gives without an error. They are ported here as far
+ * quick-xml's iterator gives without an error. They are followed here as far
  * as they decide what is an element and what its attributes are, so that
  * what is counted is what rhwp reads (hwpx-package.ts).
  *

@@ -239,7 +239,7 @@ describe('property behaviour', () => {
     expect(PROPERTY_BEHAVIORS.number.calculationOptions).toContain('median');
     expect(PROPERTY_BEHAVIORS.text.calculationOptions).not.toContain('sum');
     expect(PROPERTY_BEHAVIORS.createdTime.calculationOptions).toContain('dateRange');
-    // The date property itself does not offer earliest and latest in the original.
+    // The date property itself offers no earliest and latest: the table adds them.
     expect(PROPERTY_BEHAVIORS.date.calculationOptions).not.toContain('earliest');
   });
 

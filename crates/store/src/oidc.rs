@@ -363,6 +363,9 @@ impl Store {
         token_digest: &str,
     ) -> Result<Result<bool, OidcRefusal>, StoreError> {
         self.transaction(async |scope| {
+            // Before the account it lets in, as a token made through it and a trial of
+            // its pending settings hold it ([`LockRank::Provider`]).
+            scope.record_lock(LockRank::Provider, provider_id);
             let mut sql = scope.sql(
                 "SELECT auto_join, issuer, org_id, revision FROM oidc_providers WHERE org_id = ",
             );
@@ -427,6 +430,25 @@ pub(crate) async fn hold_provider_of_organization<'c>(
         scope.fetch_optional(sql).await?;
     }
     Ok(OrganizationHeld::new())
+}
+
+/// Holds the row of the provider `provider_id` against its sign-ins and tokens, which
+/// hold it for share, and its other writers, until the transaction ends
+/// ([`LockRank::Provider`]). A trial of pending settings, which writes the provider and
+/// holds the account of its trier, holds the provider first, as a sign-in and a token
+/// through it hold it before their account: the other way round, a trial and a token
+/// would wait for each other. On SQLite a transaction that writes holds the database.
+pub(crate) async fn hold_provider_row(
+    scope: &mut Scope<'_>,
+    provider_id: &str,
+) -> Result<(), StoreError> {
+    scope.record_lock(LockRank::Provider, provider_id);
+    if scope.dialect() == Dialect::Postgres {
+        let mut sql = scope.sql("SELECT 1 FROM oidc_providers WHERE id = ");
+        sql.bind(Id(provider_id)).push(" FOR UPDATE");
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(())
 }
 
 /// The provider of the transaction's organization, as it is stored, if it has one.
@@ -532,7 +554,6 @@ pub(crate) async fn write_provider<'c>(
             .push_bind(" AND allow_copy_out = ", true);
         scope.execute(lock_copy).await?;
     }
-    crate::api_tokens::follow_provider(scope, before, Some(&stored)).await?;
     let ended = if let Some(before) = before
         && before.issuer != stored.issuer
     {
@@ -542,6 +563,9 @@ pub(crate) async fn write_provider<'c>(
     } else {
         SessionsEnded::none()
     };
+    // After the sessions, as where the provider is removed: a token that one of them
+    // was making is stored by now (ending them waited for it), and goes with the rest.
+    crate::api_tokens::follow_provider(scope, before, Some(&stored)).await?;
     Ok(Written {
         provider: stored,
         dropped_pending,

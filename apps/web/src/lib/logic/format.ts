@@ -155,9 +155,8 @@ const DAY = 24 * HOUR;
  * it: 50 minutes is "an hour", 25 hours is "a day". Under 45 seconds the
  * count is 0 seconds.
  *
- * Each unit is rounded first and the rounded number decides, with the limits
- * of the library the original used: up to 44 seconds, 44 minutes, 21 hours,
- * 25 days and 10 months stay in their unit.
+ * Each unit is rounded first and the rounded number decides: up to 44
+ * seconds, 44 minutes, 21 hours, 25 days and 10 months stay in their unit.
  */
 function coarse(milliseconds: number): [number, CoarseUnit] {
   const length = Math.abs(milliseconds);

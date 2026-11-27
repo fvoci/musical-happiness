@@ -75,7 +75,7 @@ describe('undo manager', () => {
     expect(manager.canRedo).toBe(false);
   });
 
-  it('keeps working after an undo failed (unlike the original, which stops for good)', async () => {
+  it('keeps working after an undo failed', async () => {
     const manager = new UndoManager();
     let fail = true;
     await manager.perform(nothing, async () => {
@@ -138,7 +138,7 @@ describe('undo manager', () => {
     expect(manager.canUndo).toBe(true);
   });
 
-  it('records changes again after a failure (the original stopped recording for good)', async () => {
+  it('records changes again after a failure', async () => {
     const manager = new UndoManager();
     await manager.perform(nothing, async () => {
       throw new Error('server said no');

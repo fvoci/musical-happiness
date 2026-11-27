@@ -36,8 +36,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// made through its provider is given only if the organization lets it (403,
 /// `api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as
 /// `expiresInDays` asks, 90 unless it asks, at most 365. An account holds at most 25
-/// tokens that still open something (400, `too_many_api_tokens`), and a session that
-/// has ended makes none (401).
+/// tokens that still open something (400, `too_many_api_tokens`). A session that has
+/// ended makes none (401), nor one made through a provider that has been removed,
+/// switched off or changed since (409, `provider_changed`: the session stays signed in,
+/// and one made through the provider again makes the token).
 #[utoipa::path(
     post,
     path = "/users/me/api-tokens",

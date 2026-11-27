@@ -1729,8 +1729,10 @@ export interface paths {
          *     made through its provider is given only if the organization lets it (403,
          *     `api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as
          *     `expiresInDays` asks, 90 unless it asks, at most 365. An account holds at most 25
-         *     tokens that still open something (400, `too_many_api_tokens`), and a session that
-         *     has ended makes none (401).
+         *     tokens that still open something (400, `too_many_api_tokens`). A session that has
+         *     ended makes none (401), nor one made through a provider that has been removed,
+         *     switched off or changed since (409, `provider_changed`: the session stays signed in,
+         *     and one made through the provider again makes the token).
          */
         post: operations["createApiToken"];
         delete?: never;
@@ -4445,9 +4447,9 @@ export interface paths {
          * @description Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and
          *     `publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course
          *     role management (`ManageRoles`) and at least 5 active enrolled scorers. When a previous
-         *     snapshot exists, recomputing requires a net scorer count change of at least 3 (`409`
-         *     if already published; restores the frozen snapshot without recomputing if currently
-         *     unpublished).
+         *     snapshot exists, recomputing requires at least 3 more scorers than it counted, so a
+         *     smaller or shrunken count never yields a new snapshot (`409` if already published;
+         *     restores the frozen snapshot without recomputing if currently unpublished).
          */
         post: operations["publishCourseExamResults"];
         /**

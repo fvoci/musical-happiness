@@ -64,7 +64,7 @@ describe('a number property', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith('7');
   });
 
-  it('takes a number followed by other text, as the original did', async () => {
+  it('takes a number followed by other text', async () => {
     const { onChange } = mount('number', '');
     await type(field(), '12 kg');
     await press(field(), 'Enter');

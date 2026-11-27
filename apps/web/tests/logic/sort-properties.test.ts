@@ -239,8 +239,8 @@ describe('the order by sort options is an ordering', () => {
 });
 
 describe('the check itself', () => {
-  /** The manual order of the original: a card without a position is "after" whichever way round it is asked. */
-  const originalManualOrder =
+  /** A manual order that breaks Q1: a card without a position is "after" whichever way round it is asked. */
+  const brokenManualOrder =
     (order: readonly string[]) =>
     (first: Card, second: Card): number => {
       const a = order.indexOf(first.id);
@@ -251,10 +251,10 @@ describe('the check itself', () => {
       return a - b;
     };
 
-  it('rejects the comparator of the original', () => {
+  it('rejects a comparator that answers "after" both ways round', () => {
     const result = fc.check(
       fc.property(cards, cardOrder, (list, order) => {
-        expectOrdering(originalManualOrder(order), list);
+        expectOrdering(brokenManualOrder(order), list);
       }),
       { numRuns: 300, seed: 1 },
     );
