@@ -16,9 +16,14 @@
  * (no value at all is one of them); each is a value set, not a change, and
  * may be sent again. Undo and redo leave out the cards that are gone by then.
  *
+ * A batch made over another one under way on the same cards waits for its
+ * answer before it is sent; where that one was refused, what the later one
+ * gives back is what was stored, not the value refused (`overRefused`).
+ *
  * These writes do not go through the store's writes of single cards: a
  * version of a card that arrives while one is under way is shown, and the
- * answer, newer, then takes its place.
+ * answer, newer, then takes its place. A single card's write made over a
+ * batch under way is not waited for.
  */
 import type { PropertyValue } from '../logic/wire.ts';
 
@@ -37,6 +42,15 @@ interface CardWrite {
   restore: CardPropertiesPatch;
 }
 
+/** A call of `writeCards` under way: its writes, and the cards it could not store once it answered. */
+interface Writing {
+  readonly writes: readonly CardWrite[];
+  readonly refused: Promise<ReadonlySet<string>>;
+}
+
+/** The batches under way on each store's cards, in the order they were made. */
+const underWay = new WeakMap<BoardStore, Set<Writing>>();
+
 /** The values a patch sets on a card, by property; a cleared one is undefined. */
 function valuesOf(patch: CardPropertiesPatch): Map<string, PropertyValue | undefined> {
   const values = new Map<string, PropertyValue | undefined>(
@@ -44,6 +58,34 @@ function valuesOf(patch: CardPropertiesPatch): Map<string, PropertyValue | undef
   );
   for (const id of patch.deletedProperties ?? []) values.set(id, undefined);
   return values;
+}
+
+/** The patch that sets `values`: a value undefined is cleared. */
+function patchOf(values: ReadonlyMap<string, PropertyValue | undefined>): CardPropertiesPatch {
+  const patch: CardPropertiesPatch = {};
+  for (const [id, value] of values) {
+    if (value === undefined) (patch.deletedProperties ??= []).push(id);
+    else (patch.updatedProperties ??= {})[id] = value;
+  }
+  return patch;
+}
+
+/**
+ * `write` was made over `earlier`, on the same card, and `earlier` was
+ * refused: where `write` would give back what `earlier` showed, it gives
+ * back what `earlier` would have, which is what was stored.
+ */
+function overRefused(write: CardWrite, earlier: CardWrite): void {
+  const shown = valuesOf(earlier.patch);
+  const stored = valuesOf(earlier.restore);
+  const restore = valuesOf(write.restore);
+  let changed = false;
+  for (const [id, value] of restore) {
+    if (!shown.has(id) || !sameValue(shown.get(id), value)) continue;
+    restore.set(id, stored.get(id));
+    changed = true;
+  }
+  if (changed) write.restore = patchOf(restore);
 }
 
 /** Puts the changed cards on screen in one assignment. */
@@ -112,10 +154,46 @@ function batchesOf(writes: readonly CardWrite[]): CardWrite[][] {
   return batches;
 }
 
+/** Waits for the batches under way on the cards of `writes`, and gives back what they did not store. */
+async function after(earlier: readonly Writing[], writes: readonly CardWrite[]): Promise<void> {
+  for (const one of earlier) {
+    const refused = await one.refused;
+    for (const write of writes) {
+      if (!refused.has(write.cardId)) continue;
+      for (const before of one.writes)
+        if (before.cardId === write.cardId) overRefused(write, before);
+    }
+  }
+}
+
+/** Sends the batches of `writes`: what is answered is shown, what is refused taken back. Says which cards were refused. */
+async function sendAll(
+  store: BoardStore,
+  writes: readonly CardWrite[],
+  quiet: boolean,
+): Promise<{ refused: Set<string>; error?: Error }> {
+  const batches = batchesOf(writes);
+  const answers = await Promise.allSettled(batches.map((batch) => send(store, batch, quiet)));
+  const refused = new Set<string>();
+  let error: Error | undefined;
+  answers.forEach((answer, at) => {
+    if (answer.status === 'fulfilled') {
+      for (const card of answer.value) store.receiveCard(card);
+      return;
+    }
+    const batch = batches[at] ?? [];
+    takeBack(store, batch);
+    for (const write of batch) refused.add(write.cardId);
+    // What a backend throws is a `BackendError`, or the error of a failed reading.
+    error ??= answer.reason as Error;
+  });
+  return { refused, error };
+}
+
 /**
- * Shows the writes at once and sends them, a batch for each patch; a batch
- * refused is taken back on its cards, and its error is thrown once all
- * have answered.
+ * Shows the writes at once and sends them, a batch for each patch, once the
+ * batches under way on the same cards have answered; a batch refused is
+ * taken back on its cards, and its error is thrown once all have answered.
  */
 async function writeCards(
   store: BoardStore,
@@ -129,18 +207,29 @@ async function writeCards(
     if (card) shown.set(card.id, applyCardPatch(card, write.patch));
   }
   show(store, shown);
-  const batches = batchesOf(present);
-  const answers = await Promise.allSettled(batches.map((batch) => send(store, batch, quiet)));
-  answers.forEach((answer, at) => {
-    if (answer.status === 'fulfilled') {
-      for (const card of answer.value) store.receiveCard(card);
-    } else {
-      takeBack(store, batches[at] ?? []);
-    }
-  });
-  const refused = answers.find((answer) => answer.status === 'rejected');
-  // What a backend throws is a `BackendError`, or the error of a failed reading.
-  if (refused) throw refused.reason as Error;
+
+  const cards = new Set(present.map((write) => write.cardId));
+  const all = underWay.get(store) ?? new Set<Writing>();
+  underWay.set(store, all);
+  const earlier = [...all].filter((one) => one.writes.some((write) => cards.has(write.cardId)));
+  let answered: (refused: ReadonlySet<string>) => void = () => undefined;
+  const mine: Writing = {
+    writes: present,
+    refused: new Promise((resolve) => {
+      answered = resolve;
+    }),
+  };
+  all.add(mine);
+  let refused: ReadonlySet<string> = new Set();
+  try {
+    await after(earlier, present);
+    const sent = await sendAll(store, present, quiet);
+    refused = sent.refused;
+    if (sent.error) throw sent.error;
+  } finally {
+    answered(refused);
+    all.delete(mine);
+  }
 }
 
 /**
@@ -164,11 +253,9 @@ export async function setCardsProperty(
     if (!isEmptyCardPatch(patch)) forward.push({ cardId, patch, restore });
   }
   if (forward.length === 0) return;
-  const backward = forward.map(({ cardId, patch, restore }) => ({
-    cardId,
-    patch: restore,
-    restore: patch,
-  }));
+  // Read when undone: a batch refused under this one may have corrected what it gives back.
+  const backward = (): CardWrite[] =>
+    forward.map(({ cardId, patch, restore }) => ({ cardId, patch: restore, restore: patch }));
   let said = false;
   await performBoardAction(
     store,
@@ -176,7 +263,7 @@ export async function setCardsProperty(
       await writeCards(store, forward, said);
       said = true;
     },
-    () => writeCards(store, backward, true),
+    () => writeCards(store, backward(), true),
     'changeProperty',
   );
 }

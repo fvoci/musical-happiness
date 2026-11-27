@@ -100,6 +100,60 @@ describe('setting one value on many cards', () => {
     expect(statusOf(board, c2)).toBe('doing');
   });
 
+  it('undoes a change made over one that was refused to what was stored, not to the refused value', async () => {
+    const { board, api, backend, workspace, c1 } = await opened();
+    const gate = held();
+    const batch = api.batchPatchCards.bind(api);
+    let calls = 0;
+    vi.spyOn(api, 'batchPatchCards').mockImplementation(async (...args) => {
+      calls += 1;
+      if (calls > 1) return batch(...args);
+      await gate.promise;
+      throw new BackendError(500);
+    });
+    vi.spyOn(workspace, 'report').mockImplementation(() => undefined);
+    const stored = async (): Promise<unknown> =>
+      (await backend.card(board.boardId, c1)).fields.properties[STATUS];
+    // To doing, which waits and is refused; meanwhile to done, over it.
+    const first = setCardsProperty(board, [c1], STATUS, 'doing');
+    const second = setCardsProperty(board, [c1], STATUS, 'done');
+    gate.release();
+    await Promise.all([first, second]);
+    expect([statusOf(board, c1), await stored()]).toEqual(['done', 'done']);
+
+    // Doing was never stored: undo gives back what was, to do.
+    await workspace.undoLast();
+    expect([statusOf(board, c1), await stored()]).toEqual(['todo', 'todo']);
+  });
+
+  it('undoes a change made over one that was stored to that one, and is sent after it', async () => {
+    const { board, api, backend, workspace, c1 } = await opened();
+    const gate = held();
+    const batch = api.batchPatchCards.bind(api);
+    const order: unknown[] = [];
+    vi.spyOn(api, 'batchPatchCards').mockImplementation(async (...args) => {
+      const [, , patch] = args;
+      if (order.length === 0) {
+        order.push(patch.updatedProperties?.[STATUS]);
+        await gate.promise;
+      } else {
+        order.push(patch.updatedProperties?.[STATUS]);
+      }
+      return batch(...args);
+    });
+    const first = setCardsProperty(board, [c1], STATUS, 'doing');
+    const second = setCardsProperty(board, [c1], STATUS, 'done');
+    await settle();
+    // The second waits for the first, which holds the same card.
+    expect(order).toEqual(['doing']);
+    gate.release();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['doing', 'done']);
+    await workspace.undoLast();
+    expect((await backend.card(board.boardId, c1)).fields.properties[STATUS]).toBe('doing');
+    expect(statusOf(board, c1)).toBe('doing');
+  });
+
   it('is undone in one step: each card gets its own value back, and is done again', async () => {
     const { board, backend, api, workspace, c1, c2, c3 } = await opened();
     await board.setCardProperty(c2, OWNER, backend.userId);
