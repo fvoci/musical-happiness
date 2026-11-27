@@ -312,13 +312,13 @@ export class CardStore {
         async () => {
           this.board.deleting(attachmentId);
           await this.board.writeJoined(() =>
-            this.#backend.deleteBlock(this.#boardId, attachmentId),
+            this.#backend.deleteAttachment(this.#boardId, this.cardId, attachmentId),
           );
           this.forget([attachmentId]);
         },
         async () => {
           await this.board.writeJoined(() =>
-            this.#backend.restoreBlock(this.#boardId, attachmentId),
+            this.#backend.restoreAttachment(this.#boardId, this.cardId, attachmentId),
           );
           if (child) this.receive(child);
         },
@@ -352,7 +352,7 @@ export class CardStore {
           return;
         }
         try {
-          await backend.deleteBlock(boardId, attachment.id);
+          await backend.deleteAttachment(boardId, cardId, attachment.id);
         } catch (error) {
           if (isBackendError(error) && error.status === 404) return;
           shown(attachment);

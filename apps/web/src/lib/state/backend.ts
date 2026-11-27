@@ -402,6 +402,9 @@ export interface Backend
   views(boardId: string): Promise<BoardView[]>;
   createView(boardId: string, draft: ViewDraft): Promise<BoardView>;
   patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView>;
+  /** Moves the view to the trash; `restoreView` takes it back out. */
+  deleteView(boardId: string, viewId: string): Promise<void>;
+  restoreView(boardId: string, viewId: string): Promise<void>;
 
   // Cards.
   cards(boardId: string): Promise<CardSummary[]>;
@@ -431,21 +434,18 @@ export interface Backend
     boardId: string,
     commentId: string,
     write: BodyWrite,
-    cardId?: string,
+    cardId: string,
   ): Promise<Comment>;
   /**
    * What a comment said before each change, the first text first; empty for
    * one never changed. For the board's members (a reader by its link has none).
    */
-  commentVersions(boardId: string, commentId: string, cardId?: string): Promise<CommentVersion[]>;
+  commentVersions(boardId: string, commentId: string, cardId: string): Promise<CommentVersion[]>;
   attachments(boardId: string, cardId: string): Promise<Attachment[]>;
   createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment>;
-
-  // Any block of a board: a view, a card, a comment, an attachment.
-  /** Moves the block and everything under it to the trash. */
-  deleteBlock(boardId: string, blockId: string): Promise<void>;
-  /** Takes the block and what was deleted with it back out of the trash. */
-  restoreBlock(boardId: string, blockId: string): Promise<void>;
+  /** Moves the attachment to the trash, its file kept; `restoreAttachment` takes it back. */
+  deleteAttachment(boardId: string, cardId: string, attachmentId: string): Promise<void>;
+  restoreAttachment(boardId: string, cardId: string, attachmentId: string): Promise<void>;
 
   // Files.
   /**

@@ -2,8 +2,8 @@
  * Server-authority operations for `MemoryBackend` (`state/memory/backend.ts`):
  * fractional-indexed view writes (`writeMemoryView`, `moveMemoryView`,
  * `duplicateMemoryView`), atomic `duplicateMemoryCard`, `moveMemoryViewCards`,
- * `batchDeleteMemoryCards` / `batchRestoreMemoryCards`, and formal card comment
- * delete/restore.
+ * `batchDeleteMemoryCards` / `batchRestoreMemoryCards`, formal card comment
+ * delete/restore, and the trash of views and attachments.
  */
 import { valuesOfCopy } from '../../logic/dependencies.ts';
 import { isPlace, movedTo, placeAtEnd } from '../../logic/list-places.ts';
@@ -367,16 +367,18 @@ export function deleteMemoryComment(
   if (role === '' || role === 'viewer') fail(403, 'access denied');
   const block = blockInBoard(ctx.world, boardId, commentId, 'comment');
   if (block.parentId !== cardId) fail(404, 'no such comment');
-  const entry = { containerId: boardId, blocks: [block], ...deletion(ctx) };
+  // What is below it goes with it, and is the deleter's to delete too.
+  const gone = subtreeOf(ctx.world, block);
+  const entry = { containerId: boardId, blocks: gone, ...deletion(ctx) };
   if (!mayRemoveComments(role, ctx.userId, entry)) {
     fail(403, "access denied to delete other users' comments");
   }
-  ctx.world.blocks.delete(commentId);
+  for (const each of gone) ctx.world.blocks.delete(each.id);
   ctx.world.deletedBlocks.set(commentId, entry);
   ctx.world.tellContainer(boardId, {
     kind: 'blocksDeleted',
     containerId: boardId,
-    blockIds: [commentId],
+    blockIds: gone.map((each) => each.id),
   });
 }
 
@@ -398,4 +400,63 @@ export function restoreMemoryComment(
   if (!comment) fail(404, 'no such comment');
   tellBlocks(ctx.world, boardId, restored);
   return commentOf(comment);
+}
+
+/**
+ * Moves a view of the board, or an attachment of the card `cardId`, to the
+ * trash with what is below it, as `deleteBoardView` and `deleteCardAttachment`
+ * do: a block of another type, board or card is not there.
+ */
+export function deleteMemoryBlockOf(
+  ctx: MemoryContainerContext,
+  boardId: string,
+  blockId: string,
+  type: 'view' | 'attachment',
+  cardId?: string,
+): void {
+  requireBoardEditor(ctx, boardId);
+  if (cardId !== undefined) blockInBoard(ctx.world, boardId, cardId, 'card');
+  const block = blockInBoard(ctx.world, boardId, blockId, type);
+  if (cardId !== undefined && block.parentId !== cardId) fail(404, `no such ${type}`);
+  const gone = subtreeOf(ctx.world, block);
+  for (const each of gone) ctx.world.blocks.delete(each.id);
+  ctx.world.deletedBlocks.set(blockId, { containerId: boardId, blocks: gone, ...deletion(ctx) });
+  ctx.world.tellContainer(boardId, {
+    kind: 'blocksDeleted',
+    containerId: boardId,
+    blockIds: gone.map((each) => each.id),
+  });
+}
+
+/**
+ * Takes a view of the board, or an attachment of the card `cardId`, back out
+ * of the trash where it went on its own, as `restoreBoardView` and
+ * `restoreCardAttachment` do: an attachment gone with its card is not there.
+ */
+export function restoreMemoryBlockOf(
+  ctx: MemoryContainerContext,
+  boardId: string,
+  blockId: string,
+  type: 'view' | 'attachment',
+  cardId?: string,
+): void {
+  requireBoardEditor(ctx, boardId);
+  if (cardId !== undefined) blockInBoard(ctx.world, boardId, cardId, 'card');
+  const top = ctx.world.deletedBlocks.get(blockId)?.blocks[0];
+  if (
+    top?.id !== blockId ||
+    top.type !== type ||
+    (cardId !== undefined && top.parentId !== cardId)
+  ) {
+    fail(404, `no such ${type}`);
+  }
+  const restored = takeBlockBack(
+    ctx.world,
+    ctx.userId,
+    boardId,
+    blockId,
+    () => memberRole(ctx.world, ctx.userId, boardId),
+    () => containerInWorld(ctx.world, boardId),
+  );
+  tellBlocks(ctx.world, boardId, restored);
 }

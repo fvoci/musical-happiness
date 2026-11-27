@@ -188,10 +188,22 @@ export async function performBoardAction<T>(
   }
 }
 
-export async function deleteBlockForUndo(store: BoardStore, blockId: string): Promise<void> {
-  store.deleting(blockId);
+/** Takes back a card the user made, with what is below it; one gone already is gone. */
+export async function deleteCardForUndo(store: BoardStore, cardId: string): Promise<void> {
+  store.deleting(cardId);
+  await goneAlready(store.workspace.backend.batchDeleteCards(store.boardId, [cardId]));
+}
+
+/** Takes back a view the user made; one gone already is gone. */
+export async function deleteViewForUndo(store: BoardStore, viewId: string): Promise<void> {
+  store.deleting(viewId);
+  await goneAlready(store.workspace.backend.deleteView(store.boardId, viewId));
+}
+
+/** Waits for a deletion, of which a 404 says that it is done already. */
+async function goneAlready(deleting: Promise<void>): Promise<void> {
   try {
-    await store.workspace.backend.deleteBlock(store.boardId, blockId);
+    await deleting;
   } catch (error) {
     if (!isBackendError(error) || error.status !== 404) throw error;
   }
