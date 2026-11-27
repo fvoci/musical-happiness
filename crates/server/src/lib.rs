@@ -51,7 +51,6 @@ use crate::app::App;
 use crate::auth::token::Credential;
 use crate::client_address::ClientAddress;
 use crate::config::Configuration;
-use crate::config::TrustedProxies;
 use crate::connection::{BreakableListener, Connection};
 use crate::error::{AppError, ErrorKind};
 use crate::error_response::ReportedError;
@@ -111,24 +110,28 @@ impl Server {
     /// the server of the database for longer than `server_lock_wait_seconds`, or the
     /// metrics listener cannot listen at `metrics_address`.
     pub async fn new(config: Configuration, base_path: &str) -> anyhow::Result<Self> {
-        for warning in config.check()? {
+        let (settings, warnings) = config.check()?;
+        for warning in warnings {
             tracing::warn!("{warning}");
         }
+        // Held across the waits below as the pointer alone: the future stays small.
+        let settings = Box::new(settings);
+        let config = settings.config();
         let base_path = checked_base_path(base_path)?;
-        let store = app::open_store(&config).await?;
+        let store = app::open_store(&settings).await?;
         // Before anything is changed or cleaned up: what is left over is nobody's only
         // if no other process serves the database.
-        let server_lock = app::take_server_lock(&store, &config).await?;
+        let server_lock = app::take_server_lock(&store, config).await?;
         let store = app::prepare_store(store).await?;
         let files =
-            FileBackend::from_config(&config).context("unable to initialize the files storage")?;
+            FileBackend::from_config(config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
         // Held across the waits below as the pointer alone: the future stays small.
         let web = Arc::new(
             WebRoot::new(&config.web_app_path, &config.server_url)
                 .with_security_contact(config.security_contact()?),
         );
-        let app = App::new(config, store, files)?;
+        let app = App::new(*settings, store, files)?;
         // Before the slow work below: an address that is taken is reported at once.
         let metrics_listener = match app.config().metrics_listen_address()? {
             Some(address) => {
@@ -292,8 +295,7 @@ impl Server {
     /// security headers, then the containment of handler panics, so that even a
     /// contained 500 carries baseline security headers and is logged.
     fn with_request_layers(&self, router: Router, base_path: &str) -> Router {
-        // The configuration was checked when the application was put together.
-        let proxies = TrustedProxies::parse(&self.app.config().trusted_proxies).unwrap_or_default();
+        let proxies = self.app.settings().trusted_proxies().clone();
         let transport = self.web.transport_security();
         router
             .layer(middleware::from_fn(request_log::contain_panics))

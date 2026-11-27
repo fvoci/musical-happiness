@@ -183,6 +183,7 @@ async fn sqlite_refuses_open_org_creation_and_rejects_second_verified_signup() {
         ..fvoci_server::config::Configuration::default()
     };
     let refused = config
+        .clone()
         .check()
         .expect_err("SQLite refuses open org_creation");
     assert!(

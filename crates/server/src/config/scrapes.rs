@@ -357,11 +357,11 @@ mod tests {
         ];
         for config in accepted {
             let config = config.expect("read");
-            config.check().expect("32 characters are enough");
+            config.clone().check().expect("32 characters are enough");
             assert!(config.metrics_scrape_token().is_some());
         }
         let empty = Configuration::parse(&file(""), |_| None).expect("read");
-        empty.check().expect("no token");
+        empty.clone().check().expect("no token");
         assert!(
             empty.metrics_scrape_token().is_none(),
             "no token, no authentication"
@@ -426,7 +426,7 @@ mod tests {
             metrics_token: TOKEN.to_owned(),
             ..Configuration::default()
         };
-        let warnings = config.check().expect("valid");
+        let (_, warnings) = config.check().expect("valid");
         assert!(
             warnings
                 .iter()

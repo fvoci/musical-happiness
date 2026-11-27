@@ -43,7 +43,7 @@ fn empty_object_gives_the_defaults() {
         config.compress_responses,
         "API answers are compressed by default"
     );
-    let warnings = config.check().expect("the defaults are supported");
+    let (_, warnings) = config.check().expect("the defaults are supported");
     assert_eq!(
         warnings,
         Vec::<String>::new(),
@@ -98,7 +98,7 @@ fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
             "file_storage_s3.accesskeyid",
         ]
     );
-    let warnings = config.check().expect("unread keys are no error");
+    let (_, warnings) = config.clone().check().expect("unread keys are no error");
     assert_eq!(warnings.len(), 1, "one line: {warnings:?}");
     assert_eq!(
         warnings[0],
@@ -169,7 +169,7 @@ fn the_ping_period_is_one_to_fifty_nine_seconds() {
     }
     for accepted in [1, 30, 59] {
         assert_eq!(
-            check(accepted).expect("in the range"),
+            check(accepted).expect("in the range").1,
             Vec::<String>::new(),
             "{accepted}"
         );
@@ -505,6 +505,7 @@ fn https_behind_a_proxy_nobody_named_is_warned_about() {
             .expect("valid JSON")
             .check()
             .expect("accepted")
+            .1
     };
     let behind = warnings(r#"{"server_url": "https://boards.example.com"}"#);
     assert_eq!(behind.len(), 1, "{behind:?}");
@@ -760,7 +761,7 @@ fn the_example_configuration_files_are_read() {
     for path in examples {
         let config = Configuration::parse(&repository_file(path), no_env)
             .unwrap_or_else(|error| panic!("{path} is read: {error:#}"));
-        let warnings = config
+        let (_, warnings) = config
             .check()
             .unwrap_or_else(|error| panic!("{path} is accepted: {error:#}"));
         assert!(warnings.is_empty(), "{path} gives no warning: {warnings:?}");
@@ -891,7 +892,7 @@ fn http_server_url_with_https_allowed_origin_warns_about_insecure_cookies() {
         no_env,
     )
     .expect("parsed");
-    let warnings = mixed.check().expect("valid configuration");
+    let (_, warnings) = mixed.check().expect("valid configuration");
     assert!(
         warnings
             .iter()
@@ -908,7 +909,7 @@ fn http_server_url_with_https_allowed_origin_warns_about_insecure_cookies() {
     )
     .expect("parsed");
     assert_eq!(
-        all_http.check().expect("valid"),
+        all_http.check().expect("valid").1,
         Vec::<String>::new(),
         "all-HTTP dev setup emits no warning"
     );
@@ -923,7 +924,7 @@ fn http_server_url_with_https_allowed_origin_warns_about_insecure_cookies() {
     )
     .expect("parsed");
     assert_eq!(
-        all_https.check().expect("valid"),
+        all_https.check().expect("valid").1,
         Vec::<String>::new(),
         "HTTPS server_url with trusted proxy emits no cookie warning"
     );

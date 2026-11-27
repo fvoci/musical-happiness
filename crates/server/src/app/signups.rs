@@ -457,7 +457,7 @@ impl App {
         now: i64,
     ) -> Result<Option<Confirmed>, AppError> {
         let store = self.store();
-        let one_organization = !self.config().takes_several_organizations();
+        let one_organization = !self.settings().takes_several_organizations();
         let policy = if one_organization {
             fvoci_store::FoundingPolicy::FirstOnly
         } else {
@@ -504,7 +504,7 @@ impl App {
         now: i64,
     ) -> Result<Option<Confirmed>, AppError> {
         let store = self.store();
-        if !self.config().takes_several_organizations() {
+        if !self.settings().takes_several_organizations() {
             if !store.discard_signup(proof, now).await? {
                 return Ok(None);
             }

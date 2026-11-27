@@ -287,7 +287,8 @@ impl App {
             UploadPurpose::File => self.limits().largest_file,
             UploadPurpose::Import => self.limits().largest_import,
         };
-        if new.size > limit {
+        // Checked above: the size is no less than zero.
+        if new.size.unsigned_abs() > limit.get() {
             return Err(file_to_upload::too_large(purpose, limit));
         }
 

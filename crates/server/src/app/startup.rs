@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{Context as _, bail};
 use fvoci_store::{DbType, SchemaCheck, Store, StoreError};
 
-use crate::config::Configuration;
+use crate::config::{Configuration, Settings};
 
 /// Opens the database of the configuration, and looks at the role the server connects
 /// as before anything is made as it: a start that is refused leaves the database as it
@@ -17,9 +17,9 @@ use crate::config::Configuration;
 /// Returns an error if the database cannot be reached, and if the role the server
 /// connects as is one the wall between organizations does not hold while the
 /// configuration takes in several organizations.
-pub(crate) async fn open_store(config: &Configuration) -> anyhow::Result<Store> {
-    let store = connect(config).await?;
-    check_the_wall_holds(&store, config).await?;
+pub(crate) async fn open_store(settings: &Settings) -> anyhow::Result<Store> {
+    let store = connect(settings.database_kind(), settings.config()).await?;
+    check_the_wall_holds(&store, settings).await?;
     Ok(store)
 }
 
@@ -54,7 +54,7 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
 /// Returns an error if the database cannot be reached, another process serves it for
 /// longer than `server_lock_wait_seconds`, or the schema cannot be brought up to date.
 pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
-    let store = connect(config).await?;
+    let store = connect(config.database_kind.parse()?, config).await?;
     let migrated = migrate_under_the_lock(&store, config).await;
     store.close().await;
     let done = migrated?;
@@ -77,7 +77,7 @@ pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
 /// Returns an error if the database cannot be reached, or the migration would be
 /// refused: why, as the migration would say it.
 pub async fn check_database(config: &Configuration) -> anyhow::Result<()> {
-    let store = connect(config).await?;
+    let store = connect(config.database_kind.parse()?, config).await?;
     let checked = store.check_schema().await;
     let whereabouts = store.role_and_schema().await;
     store.close().await;
@@ -146,10 +146,10 @@ async fn migrate_under_the_lock(store: &Store, config: &Configuration) -> anyhow
     })
 }
 
-/// Connects to the database, trying up to `database_connect_attempts` times a second apart, so that
-/// a server started together with its database waits for it.
-async fn connect(config: &Configuration) -> anyhow::Result<Store> {
-    let db_type: DbType = config.database_kind.parse()?;
+/// Connects to the database of kind `db_type`, trying up to `database_connect_attempts`
+/// times a second apart, so that a server started together with its database waits for
+/// it.
+async fn connect(db_type: DbType, config: &Configuration) -> anyhow::Result<Store> {
     let attempts = config.database_connect_attempts.max(1);
     let mut attempt = 1;
     loop {
@@ -181,7 +181,7 @@ async fn connect(config: &Configuration) -> anyhow::Result<Store> {
 /// organizations does not start without the net. With the one organization of
 /// `first_user_only` it starts, and says so (the default user of a database container
 /// is a superuser, and a server set up that way goes on working).
-async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::Result<()> {
+async fn check_the_wall_holds(store: &Store, settings: &Settings) -> anyhow::Result<()> {
     let Some(role) = store
         .role_past_the_wall()
         .await
@@ -189,7 +189,7 @@ async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::
     else {
         return Ok(());
     };
-    if config.takes_several_organizations() {
+    if settings.takes_several_organizations() {
         bail!(
             "the database role {role:?} is a superuser or has BYPASSRLS, so the row-level \
              security policies that keep organizations apart do not hold it; with \

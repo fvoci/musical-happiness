@@ -128,7 +128,7 @@ async fn with_s3_a_completion_cannot_record_an_object_another_cleaner_removed() 
     .await
     .expect("an independent pool");
     let second = App::new(
-        ts.app.config().clone(),
+        ts.app.settings().clone(),
         independent.clone(),
         ts.app.files().clone(),
     )

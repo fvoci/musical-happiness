@@ -14,7 +14,7 @@ use std::sync::Arc;
 use fvoci_model::{ContainerKind, Leaving, Session};
 use fvoci_store::{SharedContainer, Store};
 
-use crate::config::Configuration;
+use crate::config::Settings;
 use crate::error::AppError;
 use api_token::TokenLimits;
 use token::{Origins, SessionCookie};
@@ -51,16 +51,11 @@ pub struct Authenticated {
 impl Authenticator {
     /// Creates an authenticator with the session lifetime, the sharing switch and the
     /// origins of the configuration.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `server_url` or one of `allowed_origins` is no `http` or
-    /// `https` URL.
-    pub fn new(store: Store, config: &Configuration) -> anyhow::Result<Self> {
-        let origins = Origins::new(&config.server_url, &config.allowed_origins)
-            .map_err(anyhow::Error::msg)?;
+    pub fn new(store: Store, settings: &Settings) -> Self {
+        let config = settings.config();
+        let origins = settings.origins().clone();
         let idle_millis = config.session_idle_millis();
-        Ok(Self {
+        Self {
             store,
             session_idle_millis: idle_millis,
             public_shared_containers: config.allow_public_links,
@@ -69,7 +64,7 @@ impl Authenticator {
             token_limits: Arc::new(TokenLimits::new(
                 limiter::Limits::from_config(config).address_attempts_per_minute,
             )),
-        })
+        }
     }
 
     /// The session cookie of this server.

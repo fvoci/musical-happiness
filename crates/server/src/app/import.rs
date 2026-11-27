@@ -76,7 +76,7 @@ impl App {
         workspace_id: &str,
         modified_by: &str,
     ) -> Result<ImportSummary, AppError> {
-        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
+        let largest_file = self.limits().largest_file.get();
         let limits = BundleLimits::for_largest_file(largest_file);
         self.import_external_archive_with_limits(path, format, workspace_id, modified_by, limits)
             .await
@@ -99,7 +99,7 @@ impl App {
     ) -> Result<ImportSummary, AppError> {
         self.require_import_workspace(workspace_id, modified_by)
             .await?;
-        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
+        let largest_file = self.limits().largest_file.get();
         let limits = BundleLimits {
             max_file_bytes: limits.max_file_bytes.min(largest_file),
             ..limits
@@ -159,7 +159,7 @@ impl App {
         if u64::try_from(zip.len()).map_or(true, |entries| entries > MAX_ENTRIES) {
             return Err(too_many_entries());
         }
-        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
+        let largest_file = self.limits().largest_file.get();
 
         verify_native_header(&zip).await?;
 

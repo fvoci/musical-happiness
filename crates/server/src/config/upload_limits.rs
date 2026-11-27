@@ -1,11 +1,20 @@
 //! Validation of upload, archive and document resource settings.
 
+use std::num::NonZeroU64;
+
 use super::{Configuration, MAX_UPLOAD_PART_BYTES, MIN_UPLOAD_PART_BYTES};
 use anyhow::bail;
 
+/// The largest file and the largest archive an upload takes, in bytes.
+pub(super) struct Largest {
+    pub(super) file: NonZeroU64,
+    pub(super) import: NonZeroU64,
+}
+
 impl Configuration {
     /// Checks the limits on uploads: none turns a limit off, and they fit together.
-    pub(super) fn check_upload_limits(&self) -> anyhow::Result<()> {
+    /// Returns the largest file and archive an upload takes.
+    pub(super) fn check_upload_limits(&self) -> anyhow::Result<Largest> {
         // An S3 multipart upload takes no smaller part but the last, and none larger.
         if !(MIN_UPLOAD_PART_BYTES..=MAX_UPLOAD_PART_BYTES).contains(&self.upload_part_bytes) {
             bail!(
@@ -13,21 +22,23 @@ impl Configuration {
                  {MAX_UPLOAD_PART_BYTES} (5 GiB)"
             );
         }
-        // Zero once meant "no limit"; a server without one is not something to end up
-        // with by leaving a number at what it was.
+        // A file comes in parts, and none is larger than the parts hold.
         let largest = self
             .upload_part_bytes
-            .saturating_mul(u64::try_from(fvoci_model::MAX_UPLOAD_PARTS).unwrap_or(0));
-        if u64::try_from(self.max_file_bytes).map_or(true, |size| size == 0 || size > largest) {
+            .saturating_mul(fvoci_model::MAX_UPLOAD_PARTS.unsigned_abs());
+        let Some(file) = u64::try_from(self.max_file_bytes)
+            .ok()
+            .and_then(NonZeroU64::new)
+            .filter(|size| size.get() <= largest)
+        else {
             bail!(
                 "max_file_bytes must be 1 to {largest} bytes (upload_part_bytes times 10,000 \
                  parts), not {}",
                 self.max_file_bytes
             );
-        }
+        };
         // Less would refuse the largest file with 429 every time, as if it might fit later.
-        // Positive, as checked above.
-        let max_file_bytes = u64::try_from(self.max_file_bytes).unwrap_or(0);
+        let max_file_bytes = file.get();
         if self.max_pending_upload_bytes < max_file_bytes {
             bail!(
                 "max_pending_upload_bytes must be at least max_file_bytes ({max_file_bytes}), \
@@ -43,13 +54,15 @@ impl Configuration {
             );
         }
         // An archive comes as an upload in parts too.
-        if self.max_import_bytes == 0 || self.max_import_bytes > largest {
+        let Some(import) =
+            NonZeroU64::new(self.max_import_bytes).filter(|size| size.get() <= largest)
+        else {
             bail!(
                 "max_import_bytes must be 1 to {largest} bytes (upload_part_bytes times \
                  10,000 parts), not {}",
                 self.max_import_bytes
             );
-        }
+        };
         if self.max_pending_upload_bytes < self.max_import_bytes {
             bail!(
                 "max_pending_upload_bytes must be at least max_import_bytes ({}), not {}",
@@ -83,6 +96,7 @@ impl Configuration {
         if self.export_stall_seconds == 0 {
             bail!("export_stall_seconds must be at least 1");
         }
-        self.collab.check()
+        self.collab.check()?;
+        Ok(Largest { file, import })
     }
 }

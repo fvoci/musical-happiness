@@ -123,7 +123,7 @@ impl App {
     /// shares itself: one on SQLite, which holds one; on PostgreSQL, one when one only is
     /// in use, whatever `org_creation` says now (it may have been `open` before).
     async fn organizations(&self) -> Result<Organizations, AppError> {
-        if self.config().database_kind == "sqlite" {
+        if self.settings().database_kind() == fvoci_store::DbType::Sqlite {
             return Ok(Organizations::One);
         }
         // What a login page shows without a name: the only organization in use, if

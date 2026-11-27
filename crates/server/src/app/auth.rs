@@ -321,7 +321,10 @@ impl App {
     ///
     /// Returns the store's error if the instance cannot be read.
     pub async fn takes_registrations(&self) -> Result<bool, AppError> {
-        Ok(self.config().takes_several_organizations() || !self.store().is_bootstrapped().await?)
+        Ok(
+            self.settings().takes_several_organizations()
+                || !self.store().is_bootstrapped().await?,
+        )
     }
 
     /// Whether the server has had its first user: until then a registration names the
@@ -397,7 +400,7 @@ impl App {
                 .await;
         };
         let mut user = self.new_account(&request.account(), None).await?;
-        let policy = if self.config().takes_several_organizations() {
+        let policy = if self.settings().takes_several_organizations() {
             fvoci_store::FoundingPolicy::FirstOrNew
         } else {
             fvoci_store::FoundingPolicy::FirstOnly
@@ -452,7 +455,7 @@ impl App {
         attempt: crate::auth::limiter::Attempt,
     ) -> Result<User, AppError> {
         self.require_organization_of_first(request).await?;
-        if !self.config().takes_several_organizations() {
+        if !self.settings().takes_several_organizations() {
             return Err(AppError::invitation_required());
         }
         let mut user = self.new_account(&request.account(), None).await?;

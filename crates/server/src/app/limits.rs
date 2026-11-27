@@ -8,6 +8,7 @@
 //! size of a request, of one part of an upload, the bytes all open uploads hold back)
 //! is no organization's, and stays the configuration's.
 
+use std::num::NonZeroU64;
 use std::time::Duration;
 
 use fvoci_model::PageLimits;
@@ -17,13 +18,12 @@ use super::App;
 /// How much an organization may use of the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OrgLimits {
-    /// The largest file an upload takes, in bytes: `max_file_bytes`, which the
-    /// configuration keeps positive and within what `fvoci_model::MAX_UPLOAD_PARTS`
-    /// parts hold.
-    pub largest_file: i64,
-    /// The largest archive an import takes, in bytes: `max_import_bytes`, kept
-    /// positive and within what the parts hold as well.
-    pub largest_import: i64,
+    /// The largest file an upload takes, in bytes: `max_file_bytes`, within what
+    /// `fvoci_model::MAX_UPLOAD_PARTS` parts hold.
+    pub largest_file: NonZeroU64,
+    /// The largest archive an import takes, in bytes: `max_import_bytes`, within what
+    /// the parts hold as well.
+    pub largest_import: NonZeroU64,
     /// The most cumulative file bytes stored across the organization:
     /// `max_org_storage_bytes`, kept positive.
     pub max_storage_bytes: i64,
@@ -41,10 +41,16 @@ pub struct OrgLimits {
 
 impl OrgLimits {
     /// The most bytes the open uploads of one user may hold back: twice the largest
-    /// thing a user sends, a file or an archive.
+    /// thing a user sends, a file or an archive. In the bytes of the sizes of uploads,
+    /// which cannot count past `i64::MAX`.
     #[must_use]
     pub fn open_upload_bytes_of_a_user(self) -> i64 {
-        self.largest_file.max(self.largest_import).saturating_mul(2)
+        let twice = self
+            .largest_file
+            .max(self.largest_import)
+            .get()
+            .saturating_mul(2);
+        i64::try_from(twice).unwrap_or(i64::MAX)
     }
 }
 
@@ -80,8 +86,8 @@ impl App {
     pub fn limits(&self) -> OrgLimits {
         let config = self.config();
         OrgLimits {
-            largest_file: config.max_file_bytes,
-            largest_import: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
+            largest_file: self.settings().largest_file(),
+            largest_import: self.settings().largest_import(),
             max_storage_bytes: i64::try_from(config.max_org_storage_bytes).unwrap_or(i64::MAX),
             invitation_mail_per_hour: config.smtp.invitation_mail_per_org_hour,
             former_provider_kept: config.oidc_former_provider_kept(),
@@ -92,6 +98,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
     use std::time::Duration;
 
     use fvoci_model::PageLimits;
@@ -100,9 +107,10 @@ mod tests {
 
     #[test]
     fn a_user_holds_back_twice_the_largest_thing_they_send() {
+        let bytes = |count| NonZeroU64::new(count).expect("a positive count");
         let limits = |largest_file, largest_import| OrgLimits {
-            largest_file,
-            largest_import,
+            largest_file: bytes(largest_file),
+            largest_import: bytes(largest_import),
             max_storage_bytes: i64::MAX,
             invitation_mail_per_hour: 1,
             former_provider_kept: Duration::ZERO,
@@ -110,6 +118,6 @@ mod tests {
         };
         assert_eq!(limits(10, 3).open_upload_bytes_of_a_user(), 20);
         assert_eq!(limits(3, 10).open_upload_bytes_of_a_user(), 20);
-        assert_eq!(limits(i64::MAX, 1).open_upload_bytes_of_a_user(), i64::MAX);
+        assert_eq!(limits(u64::MAX, 1).open_upload_bytes_of_a_user(), i64::MAX);
     }
 }
