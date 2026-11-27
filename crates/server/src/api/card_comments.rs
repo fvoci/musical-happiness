@@ -14,7 +14,7 @@ use utoipa_axum::routes;
 use super::comments::{
     CommentParentKind, CommenterOf, comments_on, create_comment_on, created_comment,
     delete_comment_on, existing_comment_on, find_live_comment_on, get_comment_versions_on,
-    patch_comment_on, restore_comment_on, with_their_reactions,
+    patch_comment_on, with_their_reactions,
 };
 use super::contract::params::{BoardId, CardCommentId, CardId, DisableNotify, MemberWorkspaceId};
 use super::contract::tag;
@@ -192,15 +192,9 @@ async fn handle_create_card_comment(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let comment = create_comment_on::<NewCardComment>(
-        &commenter.ws,
-        &commenter.container_id,
-        commenter.parent,
-        "card",
-        &body,
-        query.notification(),
-    )
-    .await?;
+    let comment =
+        create_comment_on::<_, NewCardComment>(&commenter, "card", &body, query.notification())
+            .await?;
     Ok(created_comment(&comment))
 }
 
@@ -226,7 +220,7 @@ async fn handle_patch_card_comment(
     let comment = existing_comment_on(&commenter.ws, &commenter.parent, comment_id).await?;
     let patched = patch_comment_on::<CardCommentPatch>(
         &commenter.ws,
-        &commenter.container_id,
+        &commenter.on,
         &comment,
         CHANGES_DENIED,
         &body,
@@ -257,6 +251,7 @@ async fn handle_delete_card_comment(
     let comment = existing_comment_on(&commenter.ws, &commenter.parent, comment_id).await?;
     delete_comment_on(
         &commenter.ws,
+        &commenter.on,
         &comment,
         CHANGES_DENIED,
         query.notification(),
@@ -279,8 +274,11 @@ async fn handle_delete_card_comment(
 )]
 async fn handle_restore_card_comment(commenter: CommenterOf<CardCommentParent>) -> ApiResult {
     let comment_id = commenter.comment_id()?;
-    let comment =
-        restore_comment_on(&commenter.ws, &commenter.parent, comment_id, CHANGES_DENIED).await?;
+    let comment = commenter
+        .ws
+        .app
+        .restore_comment(&commenter.on, &commenter.parent, comment_id, CHANGES_DENIED)
+        .await?;
     Ok(json_response(&comment))
 }
 

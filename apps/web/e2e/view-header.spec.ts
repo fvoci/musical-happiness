@@ -1066,7 +1066,7 @@ test.describe('filter', () => {
     expect(owner.values).toHaveLength(1);
   });
 
-  test('a group of conditions inside the filter is said to be there, and survives every edit', async ({
+  test('a group deeper than the editor goes is said to be there, and survives every edit', async ({
     page,
   }) => {
     const all = await properties(page);
@@ -1077,11 +1077,14 @@ test.describe('filter', () => {
         { propertyId: 'title', condition: 'contains', values: ['help'] },
       ],
     };
-    await patchView(page, { filter: { operation: 'and', filters: [nested] } });
+    // A group in the filter, and in it the group the editor does not open.
+    const wrapper = { operation: 'and', filters: [nested] };
+    await patchView(page, { filter: { operation: 'and', filters: [wrapper] } });
     await expect(cards(page)).toHaveCount(2);
     await expect(tool(page, 'filter').locator('[data-count]')).toHaveText('2');
 
     await openTool(page, 'filter');
+    await expect(filterEditor(page).locator('[data-filter-group]')).toHaveCount(1);
     await expect(page.getByTestId('filter-nested')).toContainText('Nested groups of conditions: 1');
     await expect(filterRows(page)).toHaveCount(0);
 
@@ -1094,7 +1097,7 @@ test.describe('filter', () => {
     expect((await storedView(page)).fields.filter).toEqual({
       operation: 'and',
       filters: [
-        nested,
+        wrapper,
         {
           propertyId: all.Phase?.id,
           condition: 'includes',
@@ -1102,11 +1105,14 @@ test.describe('filter', () => {
         },
       ],
     });
-    await filterEditor(page).getByRole('radio', { name: 'Any condition' }).click();
+    await filterEditor(page)
+      .getByRole('radiogroup', { name: 'Which conditions a card has to meet' })
+      .getByRole('radio', { name: 'Any condition' })
+      .click();
     await expect(cards(page)).toHaveCount(4);
     await phase.locator('[data-remove]').click();
     await expect(filterRows(page)).toHaveCount(0);
-    expect((await storedView(page)).fields.filter).toEqual({ operation: 'or', filters: [nested] });
+    expect((await storedView(page)).fields.filter).toEqual({ operation: 'or', filters: [wrapper] });
     await expect(cards(page)).toHaveCount(2);
   });
 });

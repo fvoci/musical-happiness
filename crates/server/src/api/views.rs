@@ -20,7 +20,7 @@ use super::{
     ApiResult, BLOCK_FIELDS, Delegated, Read, accept_language, created, decode_object,
     json_response, no_content, require_container_permission,
 };
-use crate::app::App;
+use crate::app::{App, CREATE_VIEW_DENIED, DUPLICATE_VIEW_DENIED, MOVE_VIEW_DENIED, VIEWS_DENIED};
 use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -35,9 +35,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_move_board_view))
         .routes(routes!(handle_duplicate_board_view))
 }
-
-/// The refusal to change the views of a board.
-const VIEWS_DENIED: &str = "access denied to change board views";
 
 /// The JSON Pointer to the member of a view patch that changes the view's fields.
 const PATCH_FIELDS: &str = "/updatedFields";
@@ -126,16 +123,11 @@ async fn handle_patch_board_view(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageCards,
-        VIEWS_DENIED,
-    )
-    .await?;
-    ws.app
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
+    // Asked before the body is read, as every route asks, and so is the view.
+    on.require(ContainerPermission::ManageCards, VIEWS_DENIED)?;
+    let view = ws
+        .app
         .block_of_board(&board_id, &view_id, BlockType::View)
         .await?;
     let patch: BoardViewPatch = decode_object(&body)?;
@@ -143,12 +135,7 @@ async fn handle_patch_board_view(
     // name.
     let view = ws
         .app
-        .patch_block(
-            &view_id,
-            &BlockPatch::from(patch),
-            user_id,
-            query.notification(),
-        )
+        .patch_view(&on, &view, &BlockPatch::from(patch), query.notification())
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, PATCH_FIELDS))?;
     Ok(json_response(&view))
@@ -171,20 +158,9 @@ async fn handle_delete_board_view(
     Path((_, board_id, view_id)): Path<(String, String, String)>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageCards,
-        VIEWS_DENIED,
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
     ws.app
-        .block_of_board(&board_id, &view_id, BlockType::View)
-        .await?;
-    ws.app
-        .delete_block(&view_id, user_id, query.notification())
+        .delete_view(&on, &view_id, query.notification())
         .await?;
     Ok(no_content())
 }
@@ -206,19 +182,8 @@ async fn handle_restore_board_view(
     ws: InWorkspace,
     Path((_, board_id, view_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageCards,
-        VIEWS_DENIED,
-    )
-    .await?;
-    let view = ws
-        .app
-        .undelete_block_of_board(&board_id, &view_id, BlockType::View, None, user_id)
-        .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
+    let view = ws.app.restore_view(&on, &view_id).await?;
     Ok(json_response(&view))
 }
 
@@ -239,20 +204,11 @@ async fn handle_create_board_view(
     Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageProperties,
-        "access denied to create board view",
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
+    // Asked before the body is read, as every route asks.
+    on.require(ContainerPermission::ManageProperties, CREATE_VIEW_DENIED)?;
     let request: NewBoardView = decode_object(&body)?;
-    let write = ws
-        .app
-        .create_board_view(&board_id, &request, user_id)
-        .await?;
+    let write = ws.app.create_board_view(&on, &request).await?;
     Ok(created(&write))
 }
 
@@ -273,20 +229,11 @@ async fn handle_move_board_view(
     Path((_, board_id, view_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageProperties,
-        "access denied to move board view",
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
+    // Asked before the body is read, as every route asks.
+    on.require(ContainerPermission::ManageProperties, MOVE_VIEW_DENIED)?;
     let request: BoardViewMove = decode_object(&body)?;
-    let write = ws
-        .app
-        .move_board_view(&board_id, &view_id, &request, user_id)
-        .await?;
+    let write = ws.app.move_board_view(&on, &view_id, &request).await?;
     Ok(json_response(&write))
 }
 
@@ -309,25 +256,13 @@ async fn handle_duplicate_board_view(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageProperties,
-        "access denied to duplicate board view",
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
+    // Asked before the body is read, as every route asks.
+    on.require(ContainerPermission::ManageProperties, DUPLICATE_VIEW_DENIED)?;
     let request: BoardViewDuplicate = decode_object(&body)?;
     let write = ws
         .app
-        .duplicate_board_view(
-            &board_id,
-            &view_id,
-            &request,
-            user_id,
-            accept_language(&headers),
-        )
+        .duplicate_board_view(&on, &view_id, &request, accept_language(&headers))
         .await?;
     Ok(created(&write))
 }

@@ -89,8 +89,7 @@ use serde::Serialize;
 use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
-    BlockAction, refusal, require_admin, require_block_permission, require_container_permission,
-    require_container_visible, require_delete_permission, require_deletion_permission,
+    BlockAction, refusal, require_admin, require_container_permission, require_container_visible,
     require_granted, require_permission_through, require_workspace_access,
 };
 pub(crate) use body::{
