@@ -4,8 +4,6 @@ mod checkpoint;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-#[cfg(feature = "test-util")]
-use std::time::Duration;
 
 use fvoci_collab::{
     BodyDoc, BodyTakeError, MAX_CLIENT_CHANGES, MAX_CLIENTS, MAX_TOTAL_CHANGES, PLACING_STEPS,
@@ -35,10 +33,6 @@ const MAX_SINCE_ENTRIES: usize = 2048;
 /// How many entries in `Held::since` cause the worker to ask the server for a fold
 /// (`Answer::Taken::fold`), well before [`MAX_SINCE_ENTRIES`] is reached.
 const FOLD_SINCE_ENTRIES: usize = 400;
-
-/// The longest stall a request may ask for.
-#[cfg(feature = "test-util")]
-const LONGEST_STALL: Duration = Duration::from_mins(10);
 
 /// Answers the requests of `input` on `output`, in order, until `input` ends.
 ///
@@ -159,11 +153,6 @@ impl Worker {
                 if let Some(held) = self.docs.remove(&doc) {
                     self.held_bytes = self.held_bytes.saturating_sub(held.accounted_bytes());
                 }
-                Ok(Ok(Answer::Done))
-            }
-            #[cfg(feature = "test-util")]
-            Request::Stall(millis) => {
-                std::thread::sleep(Duration::from_millis(millis).min(LONGEST_STALL));
                 Ok(Ok(Answer::Done))
             }
             #[cfg(feature = "test-util")]

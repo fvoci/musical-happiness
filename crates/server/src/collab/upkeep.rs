@@ -64,7 +64,7 @@ impl Collab {
         let request = |doc| {
             #[cfg(feature = "test-util")]
             if let Some(millis) = stall {
-                return Request::Stall(millis);
+                self.stop_at_document(doc, millis);
             }
             Request::Take {
                 doc,

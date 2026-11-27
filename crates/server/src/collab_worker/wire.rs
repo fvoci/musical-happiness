@@ -125,10 +125,6 @@ pub enum Request {
     Body(DocNumber),
     /// Forgets a document.
     Close(DocNumber),
-    /// Answers after the given milliseconds, for the tests of a worker that takes too
-    /// long. Built with the feature `test-util` only.
-    #[cfg(feature = "test-util")]
-    Stall(u64),
     /// Forces the next `Request::State` settle check for `doc` to fail and return
     /// [`Answer::Remake`], for tests of lossless settle-failure recovery. Built with the
     /// feature `test-util` only.
@@ -314,10 +310,6 @@ impl Request {
                 out.tag(8).number(*doc);
             }
             #[cfg(feature = "test-util")]
-            Self::Stall(millis) => {
-                out.tag(9).number(*millis);
-            }
-            #[cfg(feature = "test-util")]
             Self::FailNextSettle(doc) => {
                 out.tag(11).number(*doc);
             }
@@ -374,8 +366,6 @@ impl Request {
             6 => Self::State(input.number()?),
             7 => Self::Body(input.number()?),
             8 => Self::Close(input.number()?),
-            #[cfg(feature = "test-util")]
-            9 => Self::Stall(input.number()?),
             #[cfg(feature = "test-util")]
             11 => Self::FailNextSettle(input.number()?),
             _ => return Err(input.malformed()),

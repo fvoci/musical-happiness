@@ -156,9 +156,9 @@ struct Inner {
     rooms: rooms::Rooms,
     /// Who sent updates that ended a worker, and is held back for it.
     senders: senders::Senders,
-    /// The cards whose next updates have the worker stall for so many milliseconds
-    /// instead of taking them, by their key in the place: for the tests of an update
-    /// that ends its worker.
+    /// The cards whose next updates find the worker's process stopped for so many
+    /// milliseconds ([`worker::Worker::stop_at`]), by their key in the place: for the
+    /// tests of an update that ends its worker.
     #[cfg(feature = "test-util")]
     stalled_updates: Mutex<HashMap<String, u64>>,
     /// No body is written because it is due ([`Collab::leave_due_writes`]).
@@ -531,9 +531,9 @@ impl Collab {
         .await?
     }
 
-    /// Has the worker stall for `millis` milliseconds instead of taking the next
-    /// updates of a card of `app`'s organization, until [`Collab::take_updates`]: for
-    /// the tests of an update that ends its worker.
+    /// Has the worker's process stopped for `millis` milliseconds as it is sent each
+    /// next update of a card of `app`'s organization, until [`Collab::take_updates`]:
+    /// for the tests of an update that ends its worker.
     #[cfg(feature = "test-util")]
     #[doc(hidden)]
     pub fn stall_updates(&self, app: &App, card_id: &str, millis: u64) {
@@ -551,7 +551,7 @@ impl Collab {
         stalled.remove(&key);
     }
 
-    /// How long the worker is to stall instead of taking an update of a card
+    /// How long the worker's process is to be stopped as it is sent an update of a card
     /// ([`Collab::stall_updates`]).
     #[cfg(feature = "test-util")]
     fn stall_for(&self, app: &App, card_id: &str) -> Option<u64> {
@@ -831,13 +831,23 @@ impl Collab {
     #[doc(hidden)]
     pub async fn stall_worker(&self, millis: u64) -> Result<(), worker::CallError> {
         self.inner.workers[0]
-            .call(None, &Request::Stall(millis))
+            .stall(Duration::from_millis(millis), worker::Blame::Worker)
             .await
             .map(|_| ())
     }
 
+    /// Has the process of whichever worker is sent the next request about the document
+    /// `doc` stopped for `millis` milliseconds first ([`worker::Worker::stop_at`]).
+    #[cfg(feature = "test-util")]
+    fn stop_at_document(&self, doc: crate::collab_worker::wire::DocNumber, millis: u64) {
+        for worker in &self.inner.workers {
+            worker.stop_at(worker::StopAt::Document(doc), Duration::from_millis(millis));
+        }
+    }
+
     /// Has the worker that holds a card's document take `millis` milliseconds over a
-    /// request about it, opening the document first: for the tests of a document whose
+    /// request about it, opening the document first: its process is stopped as it is
+    /// sent a request for the document's body. For the tests of a document whose
     /// requests end its worker.
     ///
     /// # Errors
@@ -857,7 +867,10 @@ impl Collab {
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 collab
-                    .ask(app, card_id, slot, |_| Request::Stall(millis))
+                    .ask(app, card_id, slot, |doc| {
+                        collab.stop_at_document(doc, millis);
+                        Request::Body(doc)
+                    })
                     .await
                     .map(|_| ())
             },

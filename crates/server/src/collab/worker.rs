@@ -28,6 +28,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::collab_worker::WORKER_ARGUMENT;
 use crate::collab_worker::frame::{HEADER_BYTES, header, length_of};
+#[cfg(feature = "test-util")]
+use crate::collab_worker::wire::DocNumber;
 use crate::collab_worker::wire::{
     Answer, Limits, Refusal, Refused, Request, Response, decode_response,
 };
@@ -149,6 +151,44 @@ pub struct Ended {
     pub in_a_row: u32,
 }
 
+/// Which request a test has the process of a worker stopped at ([`Worker::stop_at`]).
+#[cfg(feature = "test-util")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopAt {
+    /// The next request, whatever it is about.
+    NextRequest,
+    /// The next request about the document of this number.
+    Document(DocNumber),
+}
+
+#[cfg(feature = "test-util")]
+impl StopAt {
+    fn names(self, request: &Request) -> bool {
+        match self {
+            Self::NextRequest => true,
+            Self::Document(doc) => document_of(request) == Some(doc),
+        }
+    }
+}
+
+/// The document a request is about, if it is about one.
+#[cfg(feature = "test-util")]
+fn document_of(request: &Request) -> Option<DocNumber> {
+    match request {
+        Request::Open { doc, .. }
+        | Request::Take { doc, .. }
+        | Request::Retake { doc, .. }
+        | Request::Append { doc, .. }
+        | Request::Diff { doc, .. }
+        | Request::StateVector(doc)
+        | Request::State(doc)
+        | Request::Body(doc)
+        | Request::Close(doc)
+        | Request::FailNextSettle(doc) => Some(*doc),
+        Request::Configure(_) => None,
+    }
+}
+
 /// A worker process and the task that holds it. Dropping it ends the task, and with it
 /// the process.
 #[derive(Debug)]
@@ -157,6 +197,9 @@ pub struct Worker {
     queue: OnceLock<mpsc::Sender<Job>>,
     /// Cancelled when the worker is to end now, whatever request it is on.
     stopped: CancellationToken,
+    /// Where the process is to be stopped, and for how long ([`Worker::stop_at`]).
+    #[cfg(feature = "test-util")]
+    stops: std::sync::Mutex<Vec<(StopAt, Duration)>>,
 }
 
 /// What the task of a worker is asked.
@@ -166,6 +209,9 @@ enum Job {
         generation: Option<u64>,
         frame: Vec<u8>,
         blame: Blame,
+        /// How long the process is stopped as it is sent the request.
+        #[cfg(feature = "test-util")]
+        stop: Option<Duration>,
         answer: oneshot::Sender<Result<(u64, Answer), CallError>>,
     },
     Pid(oneshot::Sender<Option<u32>>),
@@ -182,6 +228,8 @@ impl Worker {
             settings: Arc::new(settings),
             queue: OnceLock::new(),
             stopped: CancellationToken::new(),
+            #[cfg(feature = "test-util")]
+            stops: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -245,10 +293,14 @@ impl Worker {
                 rolled_back: false,
             }));
         }
+        #[cfg(feature = "test-util")]
+        let stop = self.stop_for(request);
         self.ask(|answer| Job::Call {
             generation,
             frame,
             blame,
+            #[cfg(feature = "test-util")]
+            stop,
             answer,
         })
         .await
@@ -264,6 +316,49 @@ impl Worker {
     #[cfg(feature = "test-util")]
     pub async fn ended(&self) -> Option<Ended> {
         self.ask(Job::Ended).await
+    }
+
+    /// Has the process stopped (`SIGSTOP`) as it is sent the request `at` names, and
+    /// go on `stop` later: for the tests of a worker that does not answer in time. The
+    /// request is sent all the same, and the process reads it as it goes on, unless the
+    /// time limit kills it first ([`Death::TimedOut`]). The request is the server's
+    /// own and the process the worker's, whatever it was built with. Unix only.
+    ///
+    /// # Panics
+    ///
+    /// If a thread panicked while it held the stops.
+    #[cfg(feature = "test-util")]
+    pub fn stop_at(&self, at: StopAt, stop: Duration) {
+        let mut stops = self.stops.lock().expect("not poisoned");
+        stops.push((at, stop));
+    }
+
+    /// Has the worker take `stop` over a request about no document: its process is
+    /// stopped as it is sent one ([`Worker::stop_at`]). Gives what the request gave.
+    ///
+    /// # Errors
+    ///
+    /// As [`Worker::call`]: [`CallError::Died`] with [`Death::TimedOut`] if `stop` is
+    /// past the time limit.
+    ///
+    /// # Panics
+    ///
+    /// If a thread panicked while it held the stops.
+    #[cfg(feature = "test-util")]
+    pub async fn stall(&self, stop: Duration, blame: Blame) -> Result<(u64, Answer), CallError> {
+        self.stop_at(StopAt::NextRequest, stop);
+        // No document is open under the largest number: closing it answers `Done`.
+        self.call_blaming(None, &Request::Close(DocNumber::MAX), blame)
+            .await
+    }
+
+    /// How long the process is to be stopped as it is sent `request`: the first stop
+    /// that names it, which is then used up.
+    #[cfg(feature = "test-util")]
+    fn stop_for(&self, request: &Request) -> Option<Duration> {
+        let mut stops = self.stops.lock().expect("not poisoned");
+        let at = stops.iter().position(|(at, _)| at.names(request))?;
+        Some(stops.remove(at).1)
     }
 
     /// Ends the worker: closes its input, which ends it, and kills it if it does not
@@ -338,9 +433,19 @@ async fn hold(
                 generation,
                 frame,
                 blame,
+                #[cfg(feature = "test-util")]
+                stop,
                 answer,
             } => {
-                let answered = state.call(generation, &frame, blame).await;
+                let answered = state
+                    .call(
+                        generation,
+                        &frame,
+                        blame,
+                        #[cfg(feature = "test-util")]
+                        stop,
+                    )
+                    .await;
                 let _ = answer.send(answered);
             }
             Job::Pid(answer) => {
@@ -372,6 +477,7 @@ impl State {
         generation: Option<u64>,
         frame: &[u8],
         blame: Blame,
+        #[cfg(feature = "test-util")] stop: Option<Duration>,
     ) -> Result<(u64, Answer), CallError> {
         // A worker that ended while the job waited took its documents with it: the
         // request is not sent to it, and is not counted against them.
@@ -393,8 +499,13 @@ impl State {
         }
         let limit = self.settings.limits.frame_bytes();
         let running = self.running.as_mut().expect("a worker runs");
+        #[cfg(feature = "test-util")]
+        let pid = running.child.id();
+        let exchange = running.exchange(frame, limit);
+        #[cfg(feature = "test-util")]
+        let exchange = stopped_over(pid, stop, exchange);
         let answered = tokio::select! {
-            answered = timeout(self.settings.timeout, running.exchange(frame, limit)) => answered,
+            answered = timeout(self.settings.timeout, exchange) => answered,
             () = self.stopped.cancelled() => Ok(Err("the worker was ended under it".to_owned())),
         };
         let death = match answered {
@@ -480,6 +591,32 @@ impl State {
         self.deaths = self.deaths.saturating_add(1);
         self.next_start = Instant::now() + restart_wait(self.deaths);
     }
+}
+
+/// Runs `exchange` with the process `pid` stopped for `stop` first, if there is a stop:
+/// the process goes on when it is up, unless the time limit drops `exchange` before
+/// then, and the process is killed stopped.
+#[cfg(feature = "test-util")]
+async fn stopped_over<T>(
+    pid: Option<u32>,
+    stop: Option<Duration>,
+    exchange: impl Future<Output = T>,
+) -> T {
+    let (Some(pid), Some(stop)) = (pid, stop) else {
+        return exchange.await;
+    };
+    #[cfg(unix)]
+    super::child::signal(pid, super::child::Signal::Stop);
+    #[cfg(not(unix))]
+    let _ = pid;
+    let mut exchange = std::pin::pin!(exchange);
+    tokio::select! {
+        exchanged = &mut exchange => return exchanged,
+        () = tokio::time::sleep(stop) => {}
+    }
+    #[cfg(unix)]
+    super::child::signal(pid, super::child::Signal::Continue);
+    exchange.await
 }
 
 fn spawn(settings: &WorkerSettings) -> std::io::Result<Running> {

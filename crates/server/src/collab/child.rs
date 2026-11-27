@@ -84,3 +84,28 @@ fn die_with(parent: libc::pid_t) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+/// A signal a test sends a worker ([`super::worker::Worker::stop_at`]).
+#[cfg(feature = "test-util")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Signal {
+    /// `SIGSTOP`: the process stops where it is, and reads nothing more.
+    Stop,
+    /// `SIGCONT`: it goes on.
+    Continue,
+}
+
+/// Sends `signal` to the worker of `pid`, which its task has started and not reaped.
+#[cfg(feature = "test-util")]
+pub(super) fn signal(pid: u32, signal: Signal) {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return;
+    };
+    let number = match signal {
+        Signal::Stop => libc::SIGSTOP,
+        Signal::Continue => libc::SIGCONT,
+    };
+    // SAFETY: `kill` takes a process identifier and a signal number and reads no memory
+    // of this process.
+    let _ = unsafe { libc::kill(pid, number) };
+}
