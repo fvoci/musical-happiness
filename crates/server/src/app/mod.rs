@@ -12,13 +12,16 @@ mod audience;
 mod auth;
 mod blocks;
 mod board_ops;
+mod board_parts;
 mod body_markdown;
 mod body_versions;
 mod caller;
 mod card_filters;
+mod card_writes;
 mod cards;
 mod category;
 mod category_containers;
+mod comments;
 mod container_copies;
 mod container_members;
 mod containers;
@@ -50,6 +53,7 @@ mod oidc_account;
 mod oidc_carry;
 mod oidc_link;
 mod oidc_pending;
+mod oidc_purpose;
 mod oidc_settings;
 mod onboarding;
 mod org_admin;
@@ -58,6 +62,7 @@ mod overview;
 mod pages;
 mod password_reset;
 mod presence;
+mod reached;
 mod readiness;
 mod reconcile;
 mod references;
@@ -67,6 +72,12 @@ mod slots;
 mod snapshots;
 
 pub use board_ops::BoardStart;
+pub use board_parts::{
+    ATTACH_DENIED, ATTACHMENTS_DENIED, CREATE_VIEW_DENIED, DUPLICATE_VIEW_DENIED, MOVE_VIEW_DENIED,
+    VIEWS_DENIED,
+};
+pub use card_writes::{CREATE_CARD_DENIED, NewCardRequest, PATCH_CARD_DENIED};
+pub use comments::is_comment_on;
 pub(crate) use download::download;
 pub use mail::UnsentMail;
 pub(crate) use notifications::start_upkeep as start_notification_upkeep;
@@ -111,7 +122,14 @@ pub use cards::CardPreviews;
 pub use category_containers::DEFAULT_CATEGORY_CONTAINERS;
 pub use course_events::MEETING_REMINDER_WINDOW_MILLIS;
 pub use course_schedules::CourseEnrollment;
-pub use diaries::EntryAnswer;
+pub use courses::{
+    CREATE_UNIT_DENIED, DELETE_UNIT_DENIED, MOVE_UNIT_DENIED, PATCH_UNIT_DENIED,
+    UNDELETE_UNIT_DENIED, UNIT_TRASH_DENIED,
+};
+pub use diaries::{
+    CREATE_ENTRY_DENIED, DELETE_ENTRY_DENIED, ENTRY_TRASH_DENIED, EntryAnswer, PATCH_ENTRY_DENIED,
+    UNDELETE_ENTRY_DENIED,
+};
 pub use export::ExportedArchive;
 pub(crate) use file_name::check_file_name;
 pub(crate) use files::FILE;
@@ -131,6 +149,12 @@ pub use oidc::{
 pub use oidc_carry::HELD_SIGN_IN_LIFETIME_MILLIS;
 pub use oidc_settings::secret_context;
 pub use overview::OverviewReader;
+pub use pages::{
+    CREATE_PAGE_DENIED, DELETE_PAGE_DENIED, DUPLICATE_PAGE_DENIED, MOVE_PAGE_DENIED,
+    PAGE_TRASH_DENIED, PATCH_PAGE_DENIED, UNDELETE_PAGE_DENIED,
+};
+pub use reached::{BlockAction, Reached};
+pub(crate) use reached::{refusal, require_granted};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use references::MAX_REFERENCE_IDS;
@@ -138,6 +162,7 @@ pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads
 pub use signups::{ConfirmedSignup, Registrant, SignupMarker};
 pub use sso::{Asker, SessionKept, SessionMade};
 pub use time_entries::TimeEntryQuery;
+pub use unit_progress::{PROGRESS_DENIED, require_progress_recorder};
 pub(crate) use uploads::PART_IDLE_TIMEOUT;
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,

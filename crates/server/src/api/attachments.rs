@@ -16,8 +16,7 @@ use super::{
     ApiResult, Delegated, Read, Write, created, decode_object, json_response, no_content,
     require_container_permission,
 };
-use crate::app::App;
-use crate::error::AppError;
+use crate::app::{ATTACH_DENIED, App};
 use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -29,9 +28,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_delete_card_attachment))
         .routes(routes!(handle_restore_card_attachment))
 }
-
-/// The refusal to change the attachments of a card.
-const ATTACHMENTS_DENIED: &str = "access denied to change card attachments";
 
 /// The attachments of a card
 ///
@@ -87,19 +83,13 @@ async fn handle_create_card_attachment(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageCards,
-        "access denied to attach file to card",
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
+    // Asked before the body is read, as every route asks.
+    on.require(ContainerPermission::ManageCards, ATTACH_DENIED)?;
     let request: NewCardAttachment = decode_object(&body)?;
     let attachment = ws
         .app
-        .create_card_attachment(&board_id, &card_id, &request, user_id, query.notification())
+        .create_card_attachment(&on, &card_id, &request, query.notification())
         .await?;
     Ok(created(&attachment))
 }
@@ -122,27 +112,9 @@ async fn handle_delete_card_attachment(
     Path((_, board_id, card_id, attachment_id)): Path<(String, String, String, String)>,
     QueryParams(query): QueryParams<DisableNotifyQuery>,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageCards,
-        ATTACHMENTS_DENIED,
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
     ws.app
-        .block_of_board(&board_id, &card_id, BlockType::Card)
-        .await?;
-    let attachment = ws
-        .app
-        .block_of_board(&board_id, &attachment_id, BlockType::Attachment)
-        .await?;
-    if attachment.parent_id != card_id {
-        return Err(AppError::not_found(BlockType::Attachment.as_str()));
-    }
-    ws.app
-        .delete_block(&attachment_id, user_id, query.notification())
+        .delete_card_attachment(&on, &card_id, &attachment_id, query.notification())
         .await?;
     Ok(no_content())
 }
@@ -165,27 +137,10 @@ async fn handle_restore_card_attachment(
     ws: InWorkspace,
     Path((_, board_id, card_id, attachment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &board_id,
-        ContainerPermission::ManageCards,
-        ATTACHMENTS_DENIED,
-    )
-    .await?;
-    ws.app
-        .block_of_board(&board_id, &card_id, BlockType::Card)
-        .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &board_id).await?;
     let attachment = ws
         .app
-        .undelete_block_of_board(
-            &board_id,
-            &attachment_id,
-            BlockType::Attachment,
-            Some(&card_id),
-            user_id,
-        )
+        .restore_card_attachment(&on, &card_id, &attachment_id)
         .await?;
     Ok(json_response(&attachment))
 }
