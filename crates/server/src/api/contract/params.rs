@@ -75,6 +75,7 @@ parameter!(EntryVersionNumber: Path "version", i64, True, "The number of the ver
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
 parameter!(ViewId: Path "viewId", String, True, "The identifier of the board view.");
+parameter!(AttachmentId: Path "attachmentId", String, True, "The identifier of the attachment: an attachment of the card of the path. 404 for an attachment of another card, and for a block that is no attachment.");
 parameter!(CardCommentId: Path "commentId", String, True, "The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment.");
 parameter!(WikiId: Path "wikiId", String, True, "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.");
 parameter!(PageId: Path "pageId", String, True, "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.");
@@ -131,7 +132,6 @@ parameter!(JoinedOnly: Query "joinedOnly", bool, False, "`true` gives only the c
 parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
 parameter!(AsTemplate: Query "asTemplate", bool, False, "`true` makes the copy a template. Any other value does not.");
 parameter!(ToWorkspace: Query "toWorkspace", String, False, "The workspace the copy goes to: one the user works in. Left out, the workspace of the path.");
-parameter!(SourceBoardId: Query "sourceBoardId", String, False, "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. Such blocks are copies: the people they name are told nothing of them.");
 parameter!(AllBlocks: Query "all", String, False, "Any value that is not empty asks for every block of the board, and the other parameters are not looked at.");
 parameter!(OneBlockId: Query "blockId", String, False, "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.");
 parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the blocks below the block of this identifier.");

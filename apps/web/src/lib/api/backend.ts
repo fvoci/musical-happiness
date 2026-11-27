@@ -297,6 +297,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
     return this.#blocks.patchView(boardId, viewId, patch);
   }
+  deleteView(boardId: string, viewId: string): Promise<void> {
+    return this.#blocks.deleteView(boardId, viewId);
+  }
+  restoreView(boardId: string, viewId: string): Promise<void> {
+    return this.#blocks.restoreView(boardId, viewId);
+  }
   cards(boardId: string): Promise<CardSummary[]> {
     return this.#blocks.cards(boardId);
   }
@@ -339,7 +345,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     boardId: string,
     commentId: string,
     write: BodyWrite,
-    cardId?: string,
+    cardId: string,
   ): Promise<Comment> {
     return this.#blocks.patchComment(boardId, commentId, write, cardId);
   }
@@ -349,7 +355,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   restoreComment(boardId: string, cardId: string, commentId: string): Promise<Comment> {
     return this.#blocks.restoreComment(boardId, cardId, commentId);
   }
-  commentVersions(boardId: string, commentId: string, cardId?: string): Promise<CommentVersion[]> {
+  commentVersions(boardId: string, commentId: string, cardId: string): Promise<CommentVersion[]> {
     return this.#blocks.commentVersions(boardId, commentId, cardId);
   }
   attachments(boardId: string, cardId: string): Promise<Attachment[]> {
@@ -358,11 +364,11 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {
     return this.#blocks.createAttachment(boardId, cardId, file);
   }
-  deleteBlock(boardId: string, blockId: string): Promise<void> {
-    return this.#blocks.deleteBlock(boardId, blockId);
+  deleteAttachment(boardId: string, cardId: string, attachmentId: string): Promise<void> {
+    return this.#blocks.deleteAttachment(boardId, cardId, attachmentId);
   }
-  restoreBlock(boardId: string, blockId: string): Promise<void> {
-    return this.#blocks.restoreBlock(boardId, blockId);
+  restoreAttachment(boardId: string, cardId: string, attachmentId: string): Promise<void> {
+    return this.#blocks.restoreAttachment(boardId, cardId, attachmentId);
   }
 
   upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {

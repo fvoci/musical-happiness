@@ -1,14 +1,9 @@
-//! Boards and blocks created, patched and deleted together.
+//! Boards and blocks created and deleted together.
 
 use std::collections::HashMap;
 
-use fvoci_model::{
-    ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks, PatchContainersAndBlocks,
-};
+use fvoci_model::{ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks};
 
-use fvoci_store::NewBodyFiles;
-
-use super::containers::CreatorMembership;
 use super::{App, Former};
 use crate::collab::{AccessScope, Deletion};
 use crate::error::AppError;
@@ -21,81 +16,36 @@ const NOBODY: Former<'static> = Former {
 };
 
 impl App {
-    /// Stores the boards and blocks of an archive as they are, identifiers included,
-    /// tells the boards' members and the webhooks, and files each board that is not a
-    /// template under the default category of `user_id`. The boards start without
-    /// members. The images and file blocks of the bodies name the archive's files, which
-    /// the import stores after them and points them at: the board's files are not asked
-    /// of them ([`fvoci_store::NewBodyFiles::Unchecked`]).
+    /// Stores boards and their blocks, identifiers included, tells the boards' members
+    /// and the webhooks, makes `user_id` an admin and editor of each board, and files each
+    /// board that is not a template under the default category of `user_id`. Each image
+    /// and file block of a body names a file of its board
+    /// ([`fvoci_store::NewBodyFiles::Recorded`]).
     ///
     /// # Errors
     ///
     /// Returns a bad request if a block is too large, the store's error if nothing could
     /// be stored, or an error if a board cannot be filed under the user's default
     /// category; in the last case the boards and blocks exist nonetheless.
-    pub async fn create_imported_containers_and_blocks(
-        &self,
-        containers_and_blocks: ContainersAndBlocks,
-        user_id: &str,
-    ) -> Result<ContainersAndBlocks, AppError> {
-        self.create_containers_and_blocks_as(
-            containers_and_blocks,
-            user_id,
-            CreatorMembership::None,
-        )
-        .await
-    }
-
-    /// Stores boards and their blocks as [`App::create_imported_containers_and_blocks`]
-    /// does and makes `user_id` an admin and editor of each board. Each image and file
-    /// block of a body names a file of its board
-    /// ([`fvoci_store::NewBodyFiles::Recorded`]).
-    ///
-    /// # Errors
-    ///
-    /// Returns the errors of [`App::create_imported_containers_and_blocks`].
     pub async fn create_containers_and_blocks_with_admin(
-        &self,
-        containers_and_blocks: ContainersAndBlocks,
-        user_id: &str,
-    ) -> Result<ContainersAndBlocks, AppError> {
-        self.create_containers_and_blocks_as(
-            containers_and_blocks,
-            user_id,
-            CreatorMembership::Admin,
-        )
-        .await
-    }
-
-    async fn create_containers_and_blocks_as(
         &self,
         mut created: ContainersAndBlocks,
         user_id: &str,
-        membership: CreatorMembership,
     ) -> Result<ContainersAndBlocks, AppError> {
         for (index, container) in created.containers.iter().enumerate() {
             self.require_makes(container)
                 .map_err(|error| error.under(&format!("/containers/{index}")))?;
         }
-        let members = match membership {
-            CreatorMembership::Admin => {
-                let _structure = self
-                    .collab()
-                    .changing_structures(self, created.containers.iter().map(|c| c.id.as_str()))
-                    .await;
-                self.store()
-                    .create_containers_and_blocks_with_admin(&mut created, user_id)
-                    .await?
-            }
-            CreatorMembership::None => {
-                self.store()
-                    .create_containers_and_blocks(&mut created, user_id, NewBodyFiles::Unchecked)
-                    .await?;
-                Vec::new()
-            }
+        let members = {
+            let _structure = self
+                .collab()
+                .changing_structures(self, created.containers.iter().map(|c| c.id.as_str()))
+                .await;
+            self.store()
+                .create_containers_and_blocks_with_admin(&mut created, user_id)
+                .await?
         };
 
-        // One check for every board made: an import makes many.
         if !created.containers.is_empty() {
             let made = created.containers.iter().map(|container| &container.id);
             self.collab()
@@ -144,91 +94,6 @@ impl App {
                 .broadcast_member_change(workspace_id, &member.container_id, member)
                 .await;
         }
-    }
-
-    /// Applies board and block patches, all or none, and tells the boards' members and
-    /// the webhooks. Returns the patched boards and blocks in the order of the request.
-    ///
-    /// # Errors
-    ///
-    /// Returns a not-found error if a board or block does not exist or a block is listed
-    /// twice, a bad request if a patched block is too large, or the store's error.
-    pub async fn patch_containers_and_blocks(
-        &self,
-        patches: &PatchContainersAndBlocks,
-        user_id: &str,
-    ) -> Result<ContainersAndBlocks, AppError> {
-        // Load referenced blocks up front so a missing or duplicate block ID fails before writing.
-        let blocks = if patches.block_ids.is_empty() {
-            Vec::new()
-        } else {
-            self.store().get_blocks_by_ids(&patches.block_ids).await?
-        };
-
-        let access_changed: Vec<&String> = patches
-            .container_ids
-            .iter()
-            .zip(&patches.container_patches)
-            .filter(|(_, patch)| super::containers::changes_access(patch))
-            .map(|(container_id, _)| container_id)
-            .collect();
-        if !access_changed.is_empty() {
-            self.collab().narrowing_access(
-                self,
-                &AccessScope::containers(access_changed.iter().copied()),
-            );
-        }
-
-        // Whole bodies are written around the documents of bodies edited together.
-        let card_ids =
-            crate::collab::cards_written_whole(&blocks, &patches.block_ids, &patches.block_patches);
-        let mut result = if card_ids.is_empty() {
-            let touched = patches
-                .container_ids
-                .iter()
-                .map(String::as_str)
-                .chain(blocks.iter().map(|block| block.container_id.as_str()));
-            let _structure = self.collab().changing_structures(self, touched).await;
-            self.store()
-                .patch_containers_and_blocks(patches, user_id)
-                .await?
-        } else {
-            let (patches, user_id) = (patches.clone(), user_id.to_owned());
-            self.collab()
-                .write_whole(self, card_ids, async move |app| {
-                    Ok(app
-                        .store()
-                        .patch_containers_and_blocks(&patches, &user_id)
-                        .await?)
-                })
-                .await?
-        };
-        super::blocks::hide_inactive_numbers(&mut result.blocks);
-
-        if !access_changed.is_empty() {
-            self.collab()
-                .recheck_access(self, AccessScope::containers(access_changed))
-                .await;
-        }
-        let app = self.clone();
-        let broadcast = result.clone();
-        self.spawn_background(async move {
-            let workspace_id = broadcast
-                .containers
-                .first()
-                .map_or("", |container| container.workspace_id.as_str());
-            for block in &broadcast.blocks {
-                app.ws().broadcast_block_change(workspace_id, block).await;
-                app.tell_webhooks(block);
-            }
-            for container in &broadcast.containers {
-                app.ws()
-                    .broadcast_container_change(&container.workspace_id, container)
-                    .await;
-            }
-        });
-
-        Ok(result)
     }
 
     /// Deletes blocks and boards, all or none, and tells the boards' members.

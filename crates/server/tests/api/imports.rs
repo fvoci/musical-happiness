@@ -152,10 +152,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
             ..Block::default()
         });
     }
-    ts.client
-        .insert_blocks(&board.id, &attachments)
-        .await
-        .check_created();
+    crate::blocks::insert(&ts.client, &board.id, &attachments).await;
     let archive = ts
         .client
         .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
@@ -532,10 +529,7 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
         updated_at: 1,
         ..Block::default()
     };
-    ts.client
-        .insert_blocks(&board.id, std::slice::from_ref(&attachment))
-        .await
-        .check_created();
+    crate::blocks::insert_one(&ts.client, &attachment).await;
     let archive = ts
         .client
         .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))

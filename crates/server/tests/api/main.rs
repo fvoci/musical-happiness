@@ -2,7 +2,6 @@
 //! and WebSocket, organized by feature area.
 
 mod block_insert;
-mod block_types;
 mod common;
 
 mod account_deletion;
@@ -23,18 +22,20 @@ mod block_summaries;
 mod blocks;
 mod board_broadcasts;
 mod board_copies;
+mod board_views;
 mod boards;
-mod boards_and_blocks;
 mod bodies;
 mod body_limits;
 mod body_versions;
 mod body_versions_by_hand;
 mod body_versions_kept;
 mod body_versions_restore;
+mod card_attachments;
 mod card_hierarchy;
 mod card_numbers;
 mod card_previews;
 mod cards;
+mod cards_batch_patch;
 mod collab;
 mod collab_deaths;
 mod collab_folds;

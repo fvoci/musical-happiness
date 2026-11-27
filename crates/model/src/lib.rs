@@ -96,11 +96,11 @@ pub use block_ids::{
     rewrite_block_ids,
 };
 pub use board_ops::{
-    BlankBoardScaffolding, BoardLocale, CardBatchIds, CardDuePoint, CardMovesRequest,
-    CardMovesResult, CategoryContainerUpdate, CategoryPatch, ContainerPermissions,
-    CopiedContainerResult, CopyContainerToWorkspaceRequest, DoneWhen, DuplicateAs, MAX_CARD_BATCH,
-    NewCardAttachment, RestoredCards, default_blank_board_scaffolding, extract_card_due_point,
-    is_card_done,
+    BlankBoardScaffolding, BoardLocale, BoardViewPatch, CardBatchIds, CardBatchPatch, CardDuePoint,
+    CardMovesRequest, CardMovesResult, CategoryContainerUpdate, CategoryPatch,
+    ContainerPermissions, CopiedContainerResult, CopyContainerToWorkspaceRequest, DoneWhen,
+    DuplicateAs, MAX_CARD_BATCH, NewCardAttachment, RestoredCards, default_blank_board_scaffolding,
+    extract_card_due_point, is_card_done,
 };
 pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,

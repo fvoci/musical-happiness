@@ -52,7 +52,7 @@ interface Dev {
     }>;
     views: (boardId: string) => Promise<StoredView[]>;
     patchView: (boardId: string, viewId: string, patch: object) => Promise<unknown>;
-    deleteBlock: (boardId: string, blockId: string) => Promise<void>;
+    deleteView: (boardId: string, viewId: string) => Promise<void>;
     /** How long it takes to answer, in milliseconds. */
     latency: number;
   };
@@ -825,7 +825,7 @@ test.describe('views', () => {
       async ({ board, keep }) => {
         const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
         for (const view of await backend.views(board)) {
-          if (view.id !== keep) await backend.deleteBlock(board, view.id);
+          if (view.id !== keep) await backend.deleteView(board, view.id);
         }
       },
       { board: boardId, keep: viewId },

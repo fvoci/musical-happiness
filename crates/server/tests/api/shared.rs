@@ -64,8 +64,10 @@ async fn fixture() -> Fixture {
         .check_ok();
     ts.client2
         .post(
-            &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &json!([{"id": "comment", "containerId": board.id, "parentId": card_id, "type": "comment", "title": "fine by me", "createdAt": 1, "updatedAt": 1}]),
+            &format!("{TEST_WS}/boards/{}/cards/{card_id}/comments", board.id),
+            &json!({"body": {"type": "doc", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "fine by me"}]},
+            ]}}),
         )
         .await
         .check_created();
@@ -162,10 +164,11 @@ async fn a_shared_board_is_read_by_its_token_alone_and_names_nobody() {
         .iter()
         .find(|block| block["type"] == "comment")
         .expect("the comment");
-    assert_eq!(
-        (&comment["title"], &comment["createdBy"]),
-        (&json!("fine by me"), &json!(""))
+    assert!(
+        comment["body"].to_string().contains("fine by me"),
+        "the comment says what it said: {comment}"
     );
+    assert_eq!(comment["createdBy"], json!(""), "who wrote it");
     let cards: Vec<Value> = anonymous.get(&paths[3]).await.ok_json();
     assert_eq!(cards.len(), 1, "the card");
     assert_eq!(cards[0]["id"], json!(f.card_id));
@@ -265,7 +268,7 @@ async fn a_shared_board_is_not_there_without_its_token() {
 
 /// The routes of the board take no read token: without a session they are 401 whatever
 /// the query says, and a user who is no member of the private board does not reach it
-/// with one.
+/// with one (`getCards` refuses the parameter by name).
 #[tokio::test]
 async fn the_board_routes_take_no_read_token() {
     let f = fixture().await;
@@ -279,7 +282,7 @@ async fn the_board_routes_take_no_read_token() {
     let outsider = f.ts.add_user("outsider").await;
     for (under, rest) in [
         ("containers", String::new()),
-        ("boards", "/blocks".to_owned()),
+        ("boards", "/views".to_owned()),
         ("boards", "/cards".to_owned()),
         ("containers", format!("/files/{}", f.file_id)),
         ("containers", format!("/files/{}/info", f.file_id)),
@@ -290,7 +293,9 @@ async fn the_board_routes_take_no_read_token() {
         );
         f.ts.anonymous().get(&path).await.check_unauthorized();
         let response = outsider.get(&path).await;
-        if under == "boards" {
+        // The card list reads its query strictly and names the parameter; the others
+        // read none, and the board is as missing to the outsider as without the token.
+        if rest == "/cards" {
             response.check_bad_request();
             assert_eq!(response.refused_at(), "parameter readToken", "{path}");
         } else {

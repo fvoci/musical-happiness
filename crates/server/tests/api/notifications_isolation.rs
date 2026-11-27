@@ -14,7 +14,7 @@ use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, Making, NotificationReader, Paging, Store};
 use serde_json::{Value, json};
 
-use crate::blocks::{delete, undelete_path};
+use crate::blocks::delete;
 use crate::boards::{delete_member, new_board};
 use crate::common::{
     HIDDEN_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
@@ -204,11 +204,11 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     for user in &named {
         th.client
             .patch(
-                &crate::blocks::block_path(&board.id, &card.id),
-                &json!({"updatedFields": {"properties": {OWNER: user}}}),
+                &format!("{TEST_WS}/cards/{}", card.id),
+                &json!({"updatedProperties": {OWNER: user}}),
             )
             .await
-            .check_no_content();
+            .check_ok();
     }
     tend_notifications(&th.app).await;
     assert_eq!(waiting(&th).await, 0, "every row was worked off");
@@ -408,8 +408,7 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
     assert_eq!(unread(&th.client2).await, 7);
 
     // Back from the trash: read again.
-    th.client
-        .post_empty(&undelete_path(&board.id, &trashed.id))
+    crate::blocks::restore_card(&th.client, &board.id, &trashed.id)
         .await
         .check_ok();
     let back = told(&th, &th.client2).await;

@@ -1,6 +1,6 @@
 //! Blocks: reading and changing them, and telling websocket listeners and webhooks.
 
-use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion, DuplicateAs};
+use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion};
 use fvoci_store::{BlockFilter, ByAgent, DeletedBlock};
 
 use super::App;
@@ -10,9 +10,7 @@ use crate::error::AppError;
 /// Whether the people a change to a block newly names (those its body mentions, those
 /// a card is given to) are told of it. A client that writes again what was said before
 /// (a copy, a change taken back or made again, via `disableNotify`) suppresses it while
-/// its writer watches what it writes new all the same ([`Self::Suppress`]); a bulk copy
-/// from another board (`sourceBoardId`) tells nobody and makes nobody watch
-/// ([`Self::Copied`]).
+/// its writer watches what it writes new all the same ([`Self::Suppress`]).
 ///
 /// Websocket broadcasts and webhooks are not notifications: they happen either way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -23,8 +21,6 @@ pub enum ChangeNotification {
     /// Do not report the change (`disableNotify`): tell nobody, while the writer still
     /// watches newly written cards, pages or comments.
     Suppress,
-    /// Bulk copy from another board (`sourceBoardId`): tell nobody and make nobody watch.
-    Copied,
 }
 
 /// What happened to a block, as the notification service names it.
@@ -57,7 +53,6 @@ impl App {
         match notification {
             ChangeNotification::Send => store,
             ChangeNotification::Suppress => store.quietly(),
-            ChangeNotification::Copied => store.telling_nobody(),
         }
     }
 
@@ -88,23 +83,6 @@ impl App {
         let mut blocks = self.store().get_blocks(&filter).await?;
         hide_inactive_numbers(&mut blocks);
         Ok(blocks)
-    }
-
-    /// Loads every block in `ids` in a single store query, returning `Ok(None)` when any
-    /// requested identifier is missing in this handle's reach.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the query fails.
-    pub async fn blocks_by_ids(&self, ids: &[String]) -> Result<Option<Vec<Block>>, AppError> {
-        match self.store().get_blocks_by_ids(ids).await {
-            Ok(mut blocks) => {
-                hide_inactive_numbers(&mut blocks);
-                Ok(Some(blocks))
-            }
-            Err(error) if error.is_not_found() => Ok(None),
-            Err(error) => Err(error.into()),
-        }
     }
 
     /// Returns all blocks of a board, in no particular order.
@@ -142,6 +120,59 @@ impl App {
             Err(error) if error.is_not_found() => Err(AppError::not_found("block")),
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Returns the block of the board of this type, as [`App::block`] reaches it: a
+    /// block of another board, or of another type, is as missing as one that does not
+    /// exist, since the path names the board and what it holds.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error naming the type if the board has no such block.
+    pub async fn block_of_board(
+        &self,
+        board_id: &str,
+        block_id: &str,
+        block_type: BlockType,
+    ) -> Result<Block, AppError> {
+        match self.block(block_id).await {
+            Ok(block) if block.container_id == board_id && block.block_type == block_type => {
+                Ok(block)
+            }
+            Ok(_) => Err(AppError::not_found(block_type.as_str())),
+            Err(error) if error.is_not_found() => Err(AppError::not_found(block_type.as_str())),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Brings a block of the board of this type back from the trash, as
+    /// [`App::undelete_block`] does, where it went on its own: a block that went there
+    /// with another (an attachment with its card) comes back with that one. With
+    /// `parent_id`, only a block that was below that block.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error naming the type unless the trash has such a deletion of
+    /// the block, and the errors of [`App::undelete_block`].
+    pub async fn undelete_block_of_board(
+        &self,
+        board_id: &str,
+        block_id: &str,
+        block_type: BlockType,
+        parent_id: Option<&str>,
+        user_id: &str,
+    ) -> Result<Block, AppError> {
+        let deletion = self.deletion(block_id).await?;
+        let deleted_alone = deletion.first().is_some_and(|top| {
+            top.id == block_id
+                && top.container_id == board_id
+                && top.block_type == block_type
+                && parent_id.is_none_or(|parent_id| top.parent_id == parent_id)
+        });
+        if !deleted_alone {
+            return Err(AppError::not_found(block_type.as_str()));
+        }
+        self.undelete_block(block_id, user_id).await
     }
 
     /// Coordinates a block write with active collaborative rooms: when
@@ -634,80 +665,6 @@ impl App {
             }
         });
         Ok(block)
-    }
-
-    /// Copies a block of a board and its descendants, except comments, under new
-    /// identifiers, gives copied images, file blocks and attachments files of their own,
-    /// and returns the copies, the copy of the block itself first. Websocket listeners are told in
-    /// the background; webhooks are not told about duplicates.
-    ///
-    /// # Errors
-    ///
-    /// Returns a not-found error if the board does not exist or has no such block,
-    /// or if the block is a comment, which is never copied.
-    pub async fn duplicate_block(
-        &self,
-        container_id: &str,
-        block_id: &str,
-        user_id: &str,
-        duplicate_as: DuplicateAs,
-    ) -> Result<Vec<Block>, AppError> {
-        let container = self.store().get_container(container_id).await?;
-        // The card and all descendant cards below it, which are copied with it.
-        let mut sources = vec![block_id.to_owned()];
-        sources.extend(
-            self.blocks_below(block_id)
-                .await?
-                .into_iter()
-                .filter(|child| {
-                    child.container_id == container_id && child.block_type == BlockType::Card
-                })
-                .map(|child| child.id),
-        );
-        self.collab().write_bodies(self, &sources).await?;
-        let mut blocks = self
-            .store()
-            .duplicate_block(container_id, block_id, user_id, duplicate_as)
-            .await?;
-        let files = self
-            .copy_and_update_card_files(container_id, user_id, &mut blocks)
-            .await;
-        hide_inactive_numbers(&mut blocks);
-        if files.is_ok() {
-            self.keep_bodies_as_copied(&blocks).await;
-        }
-
-        // The copies are stored whatever became of their files, so they are announced
-        // whatever became of their files.
-        let app = self.clone();
-        let copies = blocks.clone();
-        self.spawn_background(async move {
-            for block in &copies {
-                app.ws()
-                    .broadcast_block_change(&container.workspace_id, block)
-                    .await;
-            }
-        });
-        files?;
-        Ok(blocks)
-    }
-
-    /// Keeps the body of each copied card, as it was copied and pointed at its own files,
-    /// as the copy's initial version: a copy begins with the body it was made with to go
-    /// back to, without carrying over the source card's history. A version that cannot be
-    /// kept is logged: the copy is stored and told of already, as a card that has none yet.
-    async fn keep_bodies_as_copied(&self, copies: &[Block]) {
-        let with_bodies = copies
-            .iter()
-            .filter(|copy| copy.block_type.has_room() && copy.body.is_some());
-        for copy in with_bodies {
-            if let Err(error) = self.store().keep_body_version(&copy.id).await {
-                tracing::error!(
-                    block_id = %copy.id, %error,
-                    "the body of a copy was not kept as its version"
-                );
-            }
-        }
     }
 
     /// Queues the blocks for the bounded webhook worker without spawning per-call tasks.

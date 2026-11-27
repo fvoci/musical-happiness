@@ -68,7 +68,7 @@ import { openMemoryRoom } from './bodies.ts';
 import { MemoryBodyVersions } from './body-versions.ts';
 import { MemoryCategories } from './categories.ts';
 import { versionsOf } from './comments.ts';
-import { memberFileUrl, memberRole, memoryPermissionsOf, reads } from './container-access.ts';
+import { memberFileUrl, memberRole, memoryPermissionsOf } from './container-access.ts';
 import * as containerOps from './container-ops.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { MemoryCourses } from './courses.ts';
@@ -204,14 +204,7 @@ export class MemoryBackend implements Backend {
   }
   async boards(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('boards', workspaceId);
-    const mine = [...this.world.containers.values()].filter(
-      (b) =>
-        b.workspaceId === workspaceId &&
-        !b.isTemplate &&
-        (b.kind ?? 'board') === 'board' &&
-        reads(this.world, this.userId, b.id),
-    );
-    return scramble(mine).map(copy);
+    return containerOps.boardsOfMemoryWorkspace(this, workspaceId);
   }
   async trashRetentionDays(): Promise<number> {
     await this.#enter('trashRetentionDays');
@@ -382,6 +375,14 @@ export class MemoryBackend implements Backend {
       return blockOps.patchMemoryView(this, boardId, viewId, sent);
     });
   }
+  async deleteView(boardId: string, viewId: string): Promise<void> {
+    await this.#enter('deleteView');
+    boardAuth.deleteMemoryBlockOf(this, boardId, viewId, 'view');
+  }
+  async restoreView(boardId: string, viewId: string): Promise<void> {
+    await this.#enter('restoreView');
+    boardAuth.restoreMemoryBlockOf(this, boardId, viewId, 'view');
+  }
   async cards(boardId: string): Promise<CardSummary[]> {
     await this.#enter('cards');
     return blockOps.listMemoryCards(this, boardId);
@@ -430,7 +431,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('createComment');
     return blockOps.createMemoryComment(this, boardId, cardId, body);
   }
-  async patchComment(b: string, c: string, write: BodyWrite, _cardId?: string): Promise<Comment> {
+  async patchComment(b: string, c: string, write: BodyWrite, _cardId: string): Promise<Comment> {
     await this.#enter('patchComment');
     return blockOps.patchMemoryComment(this, b, c, write);
   }
@@ -442,7 +443,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('restoreComment');
     return boardAuth.restoreMemoryComment(this, b, cardId, c);
   }
-  async commentVersions(b: string, c: string, _cardId?: string): Promise<CommentVersion[]> {
+  async commentVersions(b: string, c: string, _cardId: string): Promise<CommentVersion[]> {
     await this.#enter('commentVersions');
     memberRole(this.world, this.userId, b);
     return versionsOf(this.world, b, c);
@@ -455,14 +456,13 @@ export class MemoryBackend implements Backend {
     await this.#enter('createAttachment');
     return blockOps.createMemoryAttachment(this, b, c, file);
   }
-
-  async deleteBlock(boardId: string, blockId: string): Promise<void> {
-    await this.#enter('deleteBlock');
-    blockOps.deleteMemoryBlock(this, boardId, blockId);
+  async deleteAttachment(b: string, c: string, attachmentId: string): Promise<void> {
+    await this.#enter('deleteAttachment');
+    boardAuth.deleteMemoryBlockOf(this, b, attachmentId, 'attachment', c);
   }
-  async restoreBlock(boardId: string, blockId: string): Promise<void> {
-    await this.#enter('restoreBlock');
-    blockOps.restoreMemoryBlock(this, boardId, blockId);
+  async restoreAttachment(b: string, c: string, attachmentId: string): Promise<void> {
+    await this.#enter('restoreAttachment');
+    boardAuth.restoreMemoryBlockOf(this, b, attachmentId, 'attachment', c);
   }
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
     await this.#enter('deletedCards');

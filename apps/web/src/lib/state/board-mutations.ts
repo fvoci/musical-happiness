@@ -5,7 +5,7 @@
 import type { BoardView, Card, Container } from '../logic/wire.ts';
 
 import type { CardDraft, CardSummary, ViewDraft } from './backend.ts';
-import { deleteBlockForUndo, performBoardAction } from './board-sync.ts';
+import { deleteCardForUndo, deleteViewForUndo, performBoardAction } from './board-sync.ts';
 import type { BoardWrites, BlockWrites } from './board-writes.ts';
 import type { BoardStore } from './board.svelte.ts';
 import {
@@ -64,7 +64,7 @@ export function createBoardCard(
       return card;
     },
     async (card) => {
-      await deleteBlockForUndo(store, card.id);
+      await deleteCardForUndo(store, card.id);
       store.cards = store.cards.filter((existing) => existing.id !== card.id);
     },
     'createCard',
@@ -88,7 +88,7 @@ export async function duplicateBoardCard(
       return card;
     },
     async (card) => {
-      await deleteBlockForUndo(store, card.id);
+      await deleteCardForUndo(store, card.id);
       store.cards = store.cards.filter((existing) => existing.id !== card.id);
     },
     'duplicateCard',
@@ -143,7 +143,7 @@ export function createBoardView(
       return view;
     },
     async (view) => {
-      await deleteBlockForUndo(store, view.id);
+      await deleteViewForUndo(store, view.id);
       store.views = store.views.filter((existing) => existing.id !== view.id);
     },
     'createView',
@@ -157,11 +157,11 @@ export async function deleteBoardView(store: BoardStore, viewId: string): Promis
     store,
     async () => {
       store.deleting(viewId);
-      await store.workspace.backend.deleteBlock(store.boardId, viewId);
+      await store.workspace.backend.deleteView(store.boardId, viewId);
       store.views = store.views.filter((view) => view.id !== viewId);
     },
     async () => {
-      await store.workspace.backend.restoreBlock(store.boardId, viewId);
+      await store.workspace.backend.restoreView(store.boardId, viewId);
       store.views = take(store.views, gone);
     },
     'deleteView',

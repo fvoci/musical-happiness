@@ -8,8 +8,8 @@ mod account_deletion;
 mod admin;
 mod api_tokens;
 mod archive;
+mod attachments;
 mod auth;
-mod blocks;
 mod board_ops;
 mod body;
 mod body_versions;
@@ -21,7 +21,6 @@ mod comments;
 mod config;
 mod container_teams;
 mod containers;
-mod containers_and_blocks;
 mod content_search;
 pub mod contract;
 mod course_events;
@@ -73,6 +72,7 @@ mod unit_reviews;
 mod unit_versions;
 mod uploads;
 mod users;
+mod views;
 mod wikis;
 mod workspace;
 mod workspace_members;
@@ -88,15 +88,12 @@ use serde::Serialize;
 use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
-    BlockAction, refusal, require_admin, require_block_patch_permission,
-    require_block_patch_permission_with_grant, require_block_permission,
-    require_block_permission_with_grant, require_container_permission, require_container_visible,
-    require_delete_permission, require_deletion_permission, require_granted,
-    require_permission_through, require_workspace_access,
+    BlockAction, refusal, require_admin, require_block_permission, require_container_permission,
+    require_container_visible, require_delete_permission, require_deletion_permission,
+    require_granted, require_permission_through, require_workspace_access,
 };
 pub(crate) use body::{
-    decode_json, decode_object, decode_object_with, decode_with_document, element_pointer,
-    json_object, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
+    BLOCK_FIELDS, decode_json, decode_object, decode_object_with, decode_with_document, json_object,
 };
 pub(crate) use delegated::{Delegated, Read, Write};
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
@@ -147,7 +144,6 @@ fn routes() -> Routes {
         .merge(api_tokens::routes())
         .merge(archive::routes())
         .merge(auth::routes())
-        .merge(blocks::routes())
         .merge(containers::routes())
         .merge(wikis::routes())
         .merge(page_comments::routes())
@@ -161,8 +157,9 @@ fn routes() -> Routes {
         .merge(unit_progress::routes())
         .merge(unit_reviews::routes())
         .merge(unit_versions::routes())
-        .merge(containers_and_blocks::routes())
         .merge(board_ops::routes())
+        .merge(views::routes())
+        .merge(attachments::routes())
         .merge(card_comments::routes())
         .merge(card_markdown::routes())
         .merge(lists::routes())

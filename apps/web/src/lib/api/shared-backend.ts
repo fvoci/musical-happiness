@@ -443,6 +443,8 @@ export class SharedBackend implements Backend {
   moveView: Backend['moveView'] = refused;
   duplicateView: Backend['duplicateView'] = refused;
   patchView: Backend['patchView'] = refused;
+  deleteView: Backend['deleteView'] = refused;
+  restoreView: Backend['restoreView'] = refused;
   createCard: Backend['createCard'] = refused;
   duplicateCard: Backend['duplicateCard'] = refused;
   moveViewCards: Backend['moveViewCards'] = refused;
@@ -454,8 +456,8 @@ export class SharedBackend implements Backend {
   deleteComment: Backend['deleteComment'] = refused;
   restoreComment: Backend['restoreComment'] = refused;
   createAttachment: Backend['createAttachment'] = refused;
-  deleteBlock: Backend['deleteBlock'] = refused;
-  restoreBlock: Backend['restoreBlock'] = refused;
+  deleteAttachment: Backend['deleteAttachment'] = refused;
+  restoreAttachment: Backend['restoreAttachment'] = refused;
   copyContainerToWorkspace: Backend['copyContainerToWorkspace'] = refused;
   upload: Backend['upload'] = refused;
   exportContainer: Backend['exportContainer'] = refused;
