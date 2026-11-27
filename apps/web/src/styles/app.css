@@ -39,7 +39,7 @@
  * left the choice to the device and its main pointer is a finger. The root
  * element carries the settled choice in `data-density` (lib/display.svelte.ts
  * and the script in index.html put it there); a page that never set it (a
- * story, a spike) follows the pointer.
+ * story) follows the pointer.
  */
 @custom-variant roomy {
   &:is([data-density='comfortable'] *) {

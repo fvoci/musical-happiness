@@ -23,9 +23,9 @@
 #   web app; `cargo xtask check` does (names), and it always runs.
 # - Every file a `.rs` under crates/ or xtask/src/: the web app's check, unit tests,
 #   stories, `e2e` and `e2e:apple` are skipped. Its build and `e2e:live`, which runs
-#   the server, are not. The web app reads files of crates/ and xtask/ that are not
-#   Rust (crates/collab/tests/data/, xtask/exceptions/, crates/server/assets/) and the
-#   root's (deny.toml): those, like any other file, run everything.
+#   the server, are not. The web app reads files of crates/ that are not Rust
+#   (crates/collab/tests/data/, crates/server/assets/) and the root's (deny.toml):
+#   those, like any other file, run everything.
 # - A push whose HEAD is a two-parent merge commit and whose tree is one a pull request's
 #   run of .github/workflows/ci.yml on this repository passed for HEAD^2 with all four
 #   jobs of the build (ci-done keeps the artifact `tested-<tree>` for that), and that run

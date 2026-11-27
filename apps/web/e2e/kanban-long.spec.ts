@@ -36,8 +36,8 @@ import {
   showView,
 } from './kanban-long.support.ts';
 
-// Fewer than the spike's 1,600: enough for the column to be many times higher than the
-// view, and quick to make in every project.
+// Enough for the column to be many times higher than the view, and quick to make in
+// every project.
 const MANY = 400;
 /** The one card of the seed in the long column, and the cards made for it. */
 const ALL = MANY + 1;

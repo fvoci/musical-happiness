@@ -18,8 +18,8 @@
  *
  * Not here, because no reading of the document alone shows it: a node at the
  * root that the document may not hold is wrapped by a live editor, and a
- * text at the root makes its binding throw (the collaboration spike has
- * both). An editor also joins neighbouring texts that it wrote itself. And an
+ * text at the root makes its binding throw. An editor also joins
+ * neighbouring texts that it wrote itself. And an
  * element named `text` is kept or takes its line with it, depending on what
  * stands beside it; the server deletes the element.
  */

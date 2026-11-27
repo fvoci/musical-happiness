@@ -148,9 +148,10 @@ merge_change crates/model/src/lib.rs=two crates/collab/tests/data/made-here.json
 expect_plan "data under crates/ (the web app's tests read some) skips nothing" "" \
   EVENT=pull_request
 
-repo xtask-exceptions
-merge_change apps/web/src/app.ts=two xtask/exceptions/names.txt=x
-expect_plan "xtask/exceptions/ (the web app reads it) skips nothing" "" EVENT=pull_request
+repo root-file
+merge_change apps/web/src/app.ts=two deny.toml=x
+expect_plan "a file of the root (the web app reads deny.toml) skips nothing" "" \
+  EVENT=pull_request
 
 repo cargo
 merge_change Cargo.lock=x
