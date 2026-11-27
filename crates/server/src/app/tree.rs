@@ -6,6 +6,7 @@ use fvoci_store::{StoreError, Written};
 
 use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
+use super::changes::Changes;
 
 impl App {
     /// Writes the tree of `container` as `write` does, under the container's structure
@@ -29,19 +30,7 @@ impl App {
         };
         log_notification(ChangeNotification::Send, action, &written.first.id);
         let first = written.first.clone();
-        self.announce(&container.workspace_id, written.into_blocks().collect());
+        self.tell(Changes::in_workspace(&container.workspace_id).changed(written.into_blocks()));
         Ok(first)
-    }
-
-    /// Tells websocket listeners and webhooks in the background of the blocks, in turn.
-    pub(super) fn announce(&self, workspace_id: &str, told: Vec<Block>) {
-        let app = self.clone();
-        let workspace_id = workspace_id.to_owned();
-        self.spawn_background(async move {
-            for block in &told {
-                app.ws().broadcast_block_change(&workspace_id, block).await;
-                app.tell_webhooks(block);
-            }
-        });
     }
 }

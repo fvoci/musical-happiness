@@ -9,6 +9,7 @@ use fvoci_model::{
 use fvoci_store::{ByAgent, StoreError, Written};
 
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
+use super::changes::Changes;
 use super::list_page::ListPage;
 use super::{App, Reached};
 use crate::error::{AppError, OrMissing, Reason};
@@ -216,9 +217,8 @@ impl App {
             .cloned()
             .map(Page::from)
             .ok_or_else(|| AppError::not_found("page"))?;
-        let mut told = renumbered;
-        told.extend(copies);
-        self.announce(&wiki.workspace_id, told);
+        let told = renumbered.into_iter().chain(copies);
+        self.tell(Changes::in_workspace(&wiki.workspace_id).changed(told));
         Ok(page)
     }
 

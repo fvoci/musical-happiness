@@ -129,15 +129,10 @@ async fn deliver(webhook: &Webhook, item: QueuedWebhook) {
 
 impl App {
     /// Queues the block, which is of the organization this handle works in, for the
-    /// operator's webhooks on the bounded single-worker channel; nothing is posted if the
-    /// organization is an account's own space, or if the server cannot tell whose the
-    /// block is.
-    pub(crate) fn tell_webhooks(&self, block: &Block) {
-        self.enqueue_webhook(block);
-    }
-
-    /// Enqueues `block` onto the bounded webhook channel without spawning a per-block task.
-    pub(crate) fn enqueue_webhook(&self, block: &Block) {
+    /// operator's webhooks on the bounded single-worker channel, without a task of its
+    /// own; nothing is posted if the organization is an account's own space, or if the
+    /// server cannot tell whose the block is. Asked by [`App::tell`] alone.
+    pub(super) fn tell_webhooks(&self, block: &Block) {
         if self.config().block_change_webhooks.is_empty() {
             return;
         }

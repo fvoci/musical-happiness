@@ -18,6 +18,7 @@ use super::blocks::{ChangeAction, hide_inactive_numbers, log_notification};
 use super::board_parts::{
     ATTACH_DENIED, CREATE_VIEW_DENIED, DUPLICATE_VIEW_DENIED, MOVE_VIEW_DENIED,
 };
+use super::changes::Changes;
 use super::container_copies::titles_in;
 use super::language::Language;
 use super::{App, ChangeNotification, Reached};
@@ -113,14 +114,7 @@ impl App {
             .clone();
         // The copy is stored: its members and the webhooks are told before the answer is
         // read back, which may still fail.
-        let app = self.clone();
-        let ws_id = container.workspace_id;
-        self.spawn_background(async move {
-            for block in &stored {
-                app.ws().broadcast_block_change(&ws_id, block).await;
-                app.tell_webhooks(block);
-            }
-        });
+        self.tell(Changes::in_workspace(&container.workspace_id).changed(stored));
         self.card_of_block(&root).await
     }
 
@@ -155,18 +149,9 @@ impl App {
             log_notification(notification, ChangeAction::Update, &block.id);
         }
         log_notification(notification, ChangeAction::Update, &view.id);
-
-        let app = self.clone();
-        let ws_id = container.workspace_id;
-        let view_for_ws = view.clone();
-        self.spawn_background(async move {
-            app.ws().broadcast_block_change(&ws_id, &view_for_ws).await;
-            app.tell_webhooks(&view_for_ws);
-            for card_block in &updated_blocks {
-                app.ws().broadcast_block_change(&ws_id, card_block).await;
-                app.tell_webhooks(card_block);
-            }
-        });
+        // The view before the cards it moved.
+        let told = std::iter::once(view.clone()).chain(updated_blocks);
+        self.tell(Changes::in_workspace(&container.workspace_id).changed(told));
         Ok(CardMovesResult { view, cards })
     }
 
@@ -207,21 +192,10 @@ impl App {
         for card_id in card_ids {
             log_notification(notification, ChangeAction::Delete, card_id);
         }
-        let deleted_card_ids: Vec<String> = deleted
+        let deleted_cards = deleted
             .into_iter()
-            .filter(|block| block.block_type == BlockType::Card)
-            .map(|block| block.id)
-            .collect();
-        let app = self.clone();
-        let ws_id = container.workspace_id;
-        let board_owned = board_id.to_owned();
-        self.spawn_background(async move {
-            for deleted_id in &deleted_card_ids {
-                app.ws()
-                    .broadcast_block_delete(&ws_id, deleted_id, &board_owned, BlockType::Card)
-                    .await;
-            }
-        });
+            .filter(|block| block.block_type == BlockType::Card);
+        self.tell(Changes::in_workspace(&container.workspace_id).deleted(deleted_cards));
         Ok(())
     }
 
@@ -324,16 +298,10 @@ impl App {
             }
         }
 
-        let app = self.clone();
-        let ws_id = container.workspace_id;
-        self.spawn_background(async move {
-            for block in &restored {
-                if block.block_type == BlockType::Card {
-                    app.ws().broadcast_block_change(&ws_id, block).await;
-                    app.tell_webhooks(block);
-                }
-            }
-        });
+        let restored_cards = restored
+            .into_iter()
+            .filter(|block| block.block_type == BlockType::Card);
+        self.tell(Changes::in_workspace(&container.workspace_id).changed(restored_cards));
         Ok(RestoredCards { cards })
     }
 
@@ -357,7 +325,7 @@ impl App {
                 .create_board_view(board_id, new, user_id)
                 .await?
         };
-        self.broadcast_view_write(container.workspace_id.clone(), &write);
+        self.tell(view_written(&container.workspace_id, &write));
         Ok(write)
     }
 
@@ -382,7 +350,7 @@ impl App {
                 .move_board_view(board_id, view_id, mv, user_id)
                 .await?
         };
-        self.broadcast_view_write(container.workspace_id.clone(), &write);
+        self.tell(view_written(&container.workspace_id, &write));
         Ok(write)
     }
 
@@ -411,7 +379,7 @@ impl App {
                 .duplicate_board_view(board_id, view_id, dup, titles.copy_of, user_id)
                 .await?
         };
-        self.broadcast_view_write(container.workspace_id.clone(), &write);
+        self.tell(view_written(&container.workspace_id, &write));
         Ok(write)
     }
 
@@ -439,13 +407,7 @@ impl App {
                 .await?
         };
         log_notification(notification, ChangeAction::Add, &attachment.id);
-        let app = self.clone();
-        let ws_id = container.workspace_id.clone();
-        let changed = attachment.clone();
-        self.spawn_background(async move {
-            app.ws().broadcast_block_change(&ws_id, &changed).await;
-            app.tell_webhooks(&changed);
-        });
+        self.tell(Changes::in_workspace(&container.workspace_id).changed([attachment.clone()]));
         Ok(attachment)
     }
 }
@@ -533,22 +495,12 @@ impl App {
             .next()
             .ok_or_else(|| AppError::internal("the board was not made"))
     }
+}
 
-    fn broadcast_view_write(&self, workspace_id: String, write: &BoardViewWrite) {
-        let app = self.clone();
-        let companions = write.companion_views.clone();
-        let view = write.view.clone();
-        self.spawn_background(async move {
-            for companion in &companions {
-                app.ws()
-                    .broadcast_block_change(&workspace_id, companion)
-                    .await;
-                app.tell_webhooks(companion);
-            }
-            app.ws().broadcast_block_change(&workspace_id, &view).await;
-            app.tell_webhooks(&view);
-        });
-    }
+/// What a write of a view changed: the views numbered anew for it, then the view.
+fn view_written(workspace_id: &str, write: &BoardViewWrite) -> Changes {
+    let told = write.companion_views.iter().chain([&write.view]).cloned();
+    Changes::in_workspace(workspace_id).changed(told)
 }
 
 /// The JSON Pointer to the first view of a board in the request that makes the board.

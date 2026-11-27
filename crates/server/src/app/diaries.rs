@@ -11,7 +11,7 @@ use fvoci_store::DiaryMade;
 
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
 use super::list_page::ListPage;
-use super::{App, Reached};
+use super::{App, Changes, Reached};
 use crate::collab::Deletion;
 use crate::error::{AppError, OrMissing};
 use crate::permissions::ContainerPermission;
@@ -134,7 +134,7 @@ impl App {
             ChangeAction::Add,
             &written.entry.id,
         );
-        self.announce_entry(&diary.workspace_id, written.entry.clone());
+        self.tell_of_entry(&diary.workspace_id, written.entry.clone());
         Ok((DiaryEntry::from(written.entry), EntryAnswer::Made))
     }
 
@@ -239,7 +239,8 @@ impl App {
                 .await
                 .map_err(|error| map_entry_patch_error(error, body_field))?
         };
-        self.tell_of_update(&container.workspace_id, &patched, notification);
+        log_notification(notification, ChangeAction::Update, &patched.id);
+        self.tell(Changes::in_workspace(&container.workspace_id).changed([patched.clone()]));
         Ok(patched)
     }
 
@@ -277,13 +278,7 @@ impl App {
             })
             .await?;
         log_notification(notification, ChangeAction::Delete, entry_id);
-        let app = self.clone();
-        let (entry_id, diary_id) = (entry.id.clone(), entry.container_id.clone());
-        self.spawn_background(async move {
-            app.ws()
-                .broadcast_block_delete(&workspace_id, &entry_id, &diary_id, BlockType::Entry)
-                .await;
-        });
+        self.tell(Changes::in_workspace(&workspace_id).deleted([entry.clone()]));
         Ok(())
     }
 
@@ -330,20 +325,15 @@ impl App {
         };
         let entry = restored.or_missing("entry")?;
         log_notification(ChangeNotification::Send, ChangeAction::Add, entry_id);
-        self.announce_entry(&diary.workspace_id, entry.clone());
+        self.tell_of_entry(&diary.workspace_id, entry.clone());
         Ok(DiaryEntry::from(entry))
     }
 
     /// Tells websocket listeners in the background of the entry. Nothing of a user's own
-    /// space goes to the operator's webhooks ([`App::tell_webhooks`]), which is asked
-    /// all the same: it is the one door to them.
-    fn announce_entry(&self, workspace_id: &str, entry: Block) {
-        let app = self.clone();
-        let workspace_id = workspace_id.to_owned();
-        self.spawn_background(async move {
-            app.ws().broadcast_block_change(&workspace_id, &entry).await;
-            app.tell_webhooks(&entry);
-        });
+    /// space goes to the operator's webhooks ([`App::tell_webhooks`]), which are asked
+    /// all the same: they are told as of any block.
+    fn tell_of_entry(&self, workspace_id: &str, entry: Block) {
+        self.tell(Changes::in_workspace(workspace_id).changed([entry]));
     }
 }
 

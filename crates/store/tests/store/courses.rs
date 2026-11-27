@@ -5,7 +5,7 @@ use fvoci_model::{
     Block, BlockError, BlockType, Body, CHAPTERS_PER_COURSE, Container, ContainerKind,
     ContainerVisibility, CourseLimits, NewUnit, UNITS_PER_COURSE, UnitKind, UnitMove, new_id,
 };
-use fvoci_store::{DbType, Store, StoreError};
+use fvoci_store::{DbType, Store, StoreError, Written};
 use serde_json::json;
 
 use crate::boards::new_board;
@@ -45,6 +45,14 @@ async fn add_item(
         .await
         .expect("unit or chapter stored")
         .first
+}
+
+/// The identifiers of the blocks that came back from the trash, the asked-for block first.
+fn came_back(restored: &Written) -> Vec<&str> {
+    std::iter::once(&restored.first)
+        .chain(&restored.below)
+        .map(|block| block.id.as_str())
+        .collect()
 }
 
 fn outline_titles(nodes: &[fvoci_model::UnitNode]) -> Vec<(&str, UnitKind, &str)> {
@@ -276,10 +284,7 @@ async fn course_comments_restore_order_and_sharing_rules_hold() {
         .undelete_unit(&course.id, &ch1.id, CourseLimits::DEFAULT, &user_id)
         .await
         .expect("undelete chapter with commented unit");
-    let restored_ids: Vec<&str> = std::iter::once(&restored.first)
-        .chain(&restored.below)
-        .map(|b| b.id.as_str())
-        .collect();
+    let restored_ids = came_back(&restored);
     assert_eq!(
         restored_ids,
         [ch1.id.as_str(), u1.id.as_str(), unit_comment.id.as_str()],
