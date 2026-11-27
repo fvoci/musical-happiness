@@ -9,11 +9,11 @@
 //! organization gets that and nothing else (`alone`), and starts an organization
 //! later, as an account that is there ([`Store::start_organization`]).
 
-use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{InstanceRole, OrgRole, User, Workspace, WorkspaceRole, new_id};
 
 use crate::db::{Id, Scope, Sql};
 use crate::error::{StoreError, Taken};
-use crate::users::{self, InstanceRole};
+use crate::users;
 use crate::{Store, Tenant};
 use crate::{directory, signups, workspaces};
 

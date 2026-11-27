@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use fvoci_model::{Block, BlockType, Container, new_id};
+use fvoci_model::{Block, BlockType, Container, PublicContainers, new_id};
 use fvoci_server::app::ImportFormat;
 use fvoci_server::error::ErrorKind;
-use fvoci_store::{NewBodyFiles, PublicContainers, StreamBatch, StreamCreateError};
+use fvoci_store::{NewBodyFiles, StreamBatch, StreamCreateError};
 use serde_json::json;
 use zip::write::SimpleFileOptions;
 

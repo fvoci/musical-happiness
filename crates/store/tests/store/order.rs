@@ -10,11 +10,12 @@
 //! times and sort orders so that the order asked for differs both from the order of
 //! the identifiers and from the order of the names.
 
+use fvoci_model::PublicContainers;
 use fvoci_model::{
     Block, BlockType, Category, Container, ContainerKinds, ContainerMember, ContainerSearchField,
     ContainerVisibility, Subscription, User, WorkspaceRole, new_id,
 };
-use fvoci_store::{Looking, Paging, PublicContainers, Reach, Sight, Store};
+use fvoci_store::{Looking, Paging, Reach, Sight, Store};
 
 use crate::common::{self, TestStore};
 

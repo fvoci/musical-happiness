@@ -3,8 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use fvoci_model::{Block, BlockType, Container, ContainersAndBlocks};
-use fvoci_store::DuplicateAs;
+use fvoci_model::{Block, BlockType, Container, ContainersAndBlocks, DuplicateAs};
 use serde_json::{Value, json};
 
 use crate::common::{Client, ROOT_WORKSPACE_ID, ROOT_WS, Setup, TestServer};

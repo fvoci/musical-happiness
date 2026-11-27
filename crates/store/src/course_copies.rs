@@ -16,11 +16,12 @@ use fvoci_model::{
     ValidatedCourseSchedule, renew_containers_and_blocks_ids, shift_unit_scheduled_date,
 };
 
-use crate::blocks::{BlockFilter, CopyChanges, CopyTitles, DuplicateAs};
+use crate::blocks::{BlockFilter, CopyChanges, CopyTitles};
 use crate::containers_and_blocks::create_containers_and_blocks_with_admin;
 use crate::db::Scope;
 use crate::file_refs::NewBodyFiles;
 use crate::{Store, StoreError, blocks, containers, course_schedules, workspace_membership};
+use fvoci_model::DuplicateAs;
 
 impl Store {
     /// Copies a course (or course template) with its live chapters, units, study amounts,

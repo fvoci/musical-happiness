@@ -2,13 +2,14 @@
 //! workspaces and their trash, joining a workspace as its administrator, and the audit
 //! log that records it and is never changed.
 
+use fvoci_model::InstanceRole;
 use fvoci_model::{
     AuditAction, Block, BlockType, Container, ContainerMember, ContainerVisibility, FileRecord,
     OrgRole, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AuditEntry, AuditPlace, DbType, InstanceRole, Joining, LooseState, OrgRoleChange, Paging,
-    Purged, Standing, Store, StoreError, Taken, Tenant, WorkspaceTrashing,
+    AuditEntry, AuditPlace, DbType, Joining, LooseState, OrgRoleChange, Paging, Purged, Standing,
+    Store, StoreError, Taken, Tenant, WorkspaceTrashing,
 };
 
 use crate::common::{self, TestStore};

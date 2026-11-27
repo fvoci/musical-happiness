@@ -2,11 +2,11 @@
 
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
+use fvoci_model::InstanceRole;
 use fvoci_model::{
     ClientStatePatch, ContainerMember, LinkedIdentity, Me, PersonNameChange, Problem,
     UnlinkRequest, User, UserOrganization, UserSettings, UserSettingsPatch,
 };
-use fvoci_store::InstanceRole;
 use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;

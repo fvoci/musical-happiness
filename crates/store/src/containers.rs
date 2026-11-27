@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use fvoci_model::{
     CardPropertyDefinition, Container, ContainerError, ContainerKind, ContainerKinds,
     ContainerMember, ContainerPatch, ContainerRole, ContainerVisibility, DoneWhen, MinimumRole,
+    PublicContainers,
 };
 use serde_json::Value;
 
@@ -39,19 +40,6 @@ pub(crate) const CONTAINER_SELECT_B: &str = "b.id, b.workspace_id, b.created_by,
 
 /// Number of columns in [`CONTAINER_COLUMNS`] and [`CONTAINER_SELECT_B`].
 pub(crate) const CONTAINER_COLUMN_COUNT: usize = 20;
-
-/// Whether a board query also returns the open boards the user is not a member of.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PublicContainers {
-    /// Open boards are returned whether or not the user is a member.
-    Include,
-    /// Only boards the user is a member of are returned.
-    Exclude,
-    /// Open wikis and open courses are returned whether or not the user is a member, as
-    /// whoever works in the workspace reads them; an open board only if the user is its
-    /// member.
-    OpenToRead,
-}
 
 /// What joining a board did.
 #[derive(Debug, Clone, PartialEq, Eq)]

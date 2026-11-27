@@ -6,12 +6,13 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+use fvoci_model::PublicContainers;
 use fvoci_model::{
     Block, BlockType, Body, Category, Container, ContainerKind, ContainerKinds, ContainerMember,
     ContainerPatch, ContainerVisibility, FileRecord, JsonMap, MinimumRole, PublicLinkChange,
     Subscription, new_id,
 };
-use fvoci_store::{BlockFilter, Joined, MemberChange, PublicContainers, Purged, Store, StoreError};
+use fvoci_store::{BlockFilter, Joined, MemberChange, Purged, Store, StoreError};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::Barrier;

@@ -2,11 +2,12 @@
 
 use std::collections::BTreeMap;
 
+use fvoci_model::InstanceRole;
 use fvoci_model::{
     ClientStatePatch, ContainerMember, PersonNameChange, Session, User, UserOrganization,
     UserSettings, UserSettingsPatch, WorkspaceRole,
 };
-use fvoci_store::{AdminChange, InstanceRole, Looking, Sight};
+use fvoci_store::{AdminChange, Looking, Sight};
 
 use super::App;
 use crate::collab::AccessScope;

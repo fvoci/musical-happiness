@@ -12,6 +12,15 @@ use crate::settings::{
     check_client_state_value,
 };
 
+/// What a user is to the instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceRole {
+    /// An administrator of the instance.
+    Administrator,
+    /// A user like any other.
+    User,
+}
+
 /// The user of a session, as their own account is answered to them: the user, and what
 /// nobody else is told of the account.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]

@@ -10,8 +10,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use fvoci_model::{Block, BlockType, Body, Container, LinkedBlock, is_id};
-use fvoci_store::PublicContainers;
+use fvoci_model::{Block, BlockType, Body, Container, LinkedBlock, PublicContainers, is_id};
 
 use super::App;
 use super::list_page::ListPage;

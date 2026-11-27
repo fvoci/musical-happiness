@@ -2,9 +2,11 @@
 //! organizations it comes into: the record is the account's, not an organization's,
 //! and is made with the board, in the transaction that stores it.
 
-use fvoci_model::{ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks, FileRecord};
+use fvoci_model::{
+    ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks, DuplicateAs, FileRecord,
+};
 
-use crate::blocks::{CopyChanges, CopyTitles, DuplicateAs, insert_blocks};
+use crate::blocks::{CopyChanges, CopyTitles, insert_blocks};
 use crate::containers;
 use crate::containers_and_blocks::{delete_containers_and_blocks, duplicate_container};
 use crate::db::{Id, LockRank, Scope};

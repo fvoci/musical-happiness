@@ -3,11 +3,12 @@
 
 use std::time::Duration;
 
+use fvoci_model::DuplicateAs;
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, BodyChange, Container, ContainerVisibility,
     ContainersAndBlocks, FileRecord, new_id,
 };
-use fvoci_store::{DbType, DuplicateAs, NewBodyFiles, StoreError};
+use fvoci_store::{DbType, NewBodyFiles, StoreError};
 use serde_json::json;
 
 use crate::common;

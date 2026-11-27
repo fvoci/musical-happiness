@@ -32,9 +32,10 @@ use crate::app::{
     App, BackTo, Callback, FinishedLogin, HELD_SIGN_IN_LIFETIME_MILLIS, LOGIN_FLOW_LIFETIME_MILLIS,
     LoginFailure, StartedLogin,
 };
-use crate::auth::token::{Credential, Https, cookie_value};
+use crate::auth::token::{Credential, Https};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
+use crate::http_credentials::{self, cookie_value};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -192,7 +193,10 @@ async fn handle_start(
             // Linking is the account's own doing, with a session of it, whatever
             // organization that session opens: the session of the browser's cookie,
             // which is the one the browser comes back with.
-            let token = match app.authenticator().session_cookie().credential(&headers) {
+            let token = match http_credentials::session_credential(
+                app.authenticator().session_cookie(),
+                &headers,
+            ) {
                 Some(Credential::Cookie(token)) => token,
                 Some(Credential::Bearer(_)) | None => {
                     return Err(AppError::unauthorized(
@@ -300,7 +304,10 @@ async fn handle_callback(
         org_id,
         issuer: query.iss,
         // The session a browser comes back with is the one of its cookie.
-        session_token: match app.authenticator().session_cookie().credential(&headers) {
+        session_token: match http_credentials::session_credential(
+            app.authenticator().session_cookie(),
+            &headers,
+        ) {
             Some(Credential::Cookie(token)) => Some(token),
             Some(Credential::Bearer(_)) | None => None,
         },
@@ -314,7 +321,8 @@ async fn handle_callback(
     let org_id = returned.org_id.as_deref();
     let signed_in = |location: &str, token: &str| {
         let mut response = see_other(location);
-        let cookie = app.authenticator().session_cookie().set(token);
+        let cookie =
+            http_credentials::set_cookie_header(app.authenticator().session_cookie(), token);
         response.headers_mut().append(SET_COOKIE, cookie);
         response
     };

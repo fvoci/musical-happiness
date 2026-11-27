@@ -540,8 +540,7 @@ impl Container {
     }
 
     /// The board as it goes to whoever reads it by its link, signed in or not: no
-    /// `createdBy` or `modifiedBy`
-    /// (`docs/s6-design.md`, decision 7). The blocks go so by [`Block::hide_people`].
+    /// `createdBy` or `modifiedBy`. The blocks go so by [`Block::hide_people`].
     ///
     /// [`Block::hide_people`]: crate::Block::hide_people
     pub fn hide_people(&mut self) {

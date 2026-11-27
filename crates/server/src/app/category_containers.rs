@@ -2,11 +2,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use fvoci_model::PublicContainers;
 use fvoci_model::{
     CATEGORY_CONTAINERS_SORT_ORDER_GAP, Category, CategoryContainerMetadata, CategoryContainers,
     CategoryType, Container, ContainerCategoryWebsocketData, SidebarVisibility,
 };
-use fvoci_store::PublicContainers;
 
 use super::App;
 use super::category::CATEGORY;

@@ -115,7 +115,7 @@ pub use diaries::EntryAnswer;
 pub use export::ExportedArchive;
 pub(crate) use file_name::check_file_name;
 pub(crate) use files::FILE;
-pub use housekeeping::WorkspacesPurged;
+pub use housekeeping::TrashPurged;
 pub use import::{
     BundleLimits, ImportCounts, ImportFormat, ImportSummary, ImportWarning, ImportWarningCode,
     Imported, MAX_REPORTED_WARNINGS, ParseImportFormatError,
@@ -165,7 +165,6 @@ use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
 use crate::search::Search;
 use crate::storage::FileBackend;
-use crate::web::WebRoot;
 use crate::webhook::Webhook;
 use crate::ws::Hub;
 
@@ -213,7 +212,6 @@ struct Inner {
     mail: mail::Mailer,
     password_work: HashQueue,
     files: FileBackend,
-    web: WebRoot,
     webhook: Webhook,
     webhook_queue: webhooks::WebhookQueue,
     /// The client of the organizations' providers.
@@ -312,9 +310,6 @@ impl App {
             metrics.clone(),
         );
         let files = files.measured(metrics.clone());
-        let security_contact = config.security_contact()?;
-        let web = WebRoot::new(&config.web_app_path, &config.server_url)
-            .with_security_contact(security_contact);
         let (webhook, oidc) = Self::outbound_clients(&config)?;
         let part_memory = uploads::part_memory_kib(config.upload_part_bytes);
         let slots =
@@ -350,7 +345,6 @@ impl App {
                 login_limiter,
                 password_work,
                 files,
-                web,
                 webhook,
                 webhook_queue: webhooks::WebhookQueue::default(),
                 oidc,
@@ -621,11 +615,6 @@ impl App {
     /// The file storage.
     pub fn files(&self) -> &FileBackend {
         &self.inner.files
-    }
-
-    /// The web app directory.
-    pub fn web(&self) -> &WebRoot {
-        &self.inner.web
     }
 
     /// Waits for the turn to create a user's default category.

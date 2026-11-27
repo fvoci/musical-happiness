@@ -32,6 +32,7 @@ pub mod search;
 mod secret_key;
 mod security;
 pub mod smtp;
+mod trusted_proxies;
 mod upload_limits;
 pub mod wiki;
 
@@ -39,6 +40,7 @@ use environment::{ENV_KEYS, EnvKind, env_value};
 pub use scrapes::{MetricsAddress, MetricsHost, MetricsToken};
 pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
 pub use security::SecurityContact;
+pub use trusted_proxies::TrustedProxies;
 
 use crate::auth::sealed::SecretKey;
 
@@ -246,16 +248,15 @@ pub struct Configuration {
     /// How many days a deleted board or block stays in the trash, where it can be
     /// restored from, before it is removed for good.
     pub trash_retention_days: u32,
-    /// The size in bytes of every part of an upload in parts but the last
-    /// (`docs/s6-design.md` 5.6). At least 5 MiB, the smallest part an S3 multipart
-    /// upload takes.
+    /// The size in bytes of every part of an upload in parts but the last. At least 5 MiB,
+    /// the smallest part an S3 multipart upload takes.
     pub upload_part_bytes: u64,
     /// The directory of the server's temporary files: the parts of uploads that are not
     /// complete yet. Empty for `.tmp` under `file_storage_path`. Not the system's temporary
     /// directory, which may be held in memory.
     pub tmp_path: String,
     /// The most bytes all open uploads in parts of the server may hold back at once:
-    /// the sum of their declared sizes (`docs/s6-design.md` 5.6, 8).
+    /// the sum of their declared sizes.
     pub max_pending_upload_bytes: u64,
     /// The largest archive an import takes, in bytes: 256 MiB unless set. At least 1,
     /// and at most what an upload in parts carries (`upload_part_bytes` × 10,000).
@@ -523,18 +524,16 @@ impl std::fmt::Debug for Configuration {
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 
-/// The largest file, unless the configuration says otherwise: 100 MiB (decision 16 of
-/// `docs/s6-design.md`).
+/// The largest file, unless the configuration says otherwise: 100 MiB.
 const DEFAULT_MAX_FILE_BYTES: i64 = 100 * 1024 * 1024;
 
 /// Cumulative stored file byte ceiling for one organization unless configured: 50 GiB.
 const DEFAULT_MAX_ORG_STORAGE_BYTES: u64 = 50 * 1024 * 1024 * 1024;
 
-/// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB
-/// (`docs/s6-design.md` 5.6, 8).
+/// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB.
 const DEFAULT_MAX_PENDING_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
-/// The largest archive an import takes unless configured (`docs/s6-design.md` 4.2).
+/// The largest archive an import takes unless configured.
 const DEFAULT_MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
 
 /// How many earlier versions of a comment the server keeps unless configured.
@@ -543,8 +542,8 @@ const DEFAULT_MAX_COMMENT_VERSIONS: u32 = fvoci_store::DEFAULT_COMMENT_VERSIONS_
 /// How many exports, and how many imports, the server runs at once unless configured.
 const DEFAULT_MAX_CONCURRENT_ARCHIVES: u32 = 2;
 
-/// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB
-/// (`docs/s6-design.md` 5.6). A file of 100 MiB comes in 13 parts.
+/// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB. A
+/// file of 100 MiB comes in 13 parts.
 const DEFAULT_UPLOAD_PART_BYTES: u64 = 8 * 1024 * 1024;
 
 /// The smallest part an S3 multipart upload takes, and so the smallest part size.
@@ -803,8 +802,7 @@ impl Configuration {
         // from this address.
         crate::auth::token::Origins::new(&self.server_url, &self.allowed_origins)
             .map_err(anyhow::Error::msg)?;
-        crate::client_address::TrustedProxies::parse(&self.trusted_proxies)
-            .map_err(anyhow::Error::msg)?;
+        TrustedProxies::parse(&self.trusted_proxies).map_err(anyhow::Error::msg)?;
         self.check_login_limits()?;
         // Zero would end every session as it starts.
         if self.session_idle_days == 0 || self.session_max_days == 0 {

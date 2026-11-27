@@ -129,8 +129,6 @@ impl Paging {
     }
 }
 
-pub use fvoci_model::DuplicateAs;
-
 /// The titles a copy of a board or a wiki is given, in the language of whoever asked
 /// for it. The store has no words of its own: the caller brings them.
 #[derive(Debug, Clone, Copy)]

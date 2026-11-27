@@ -1,8 +1,8 @@
 //! Which organization an administrator's change of an instance role reaches: only the
 //! instance's own, whichever organization's handle the request came through.
 
-use fvoci_model::OrgRole;
-use fvoci_store::{AdminChange, AuditPlace, DbType, InstanceRole, Paging};
+use fvoci_model::{InstanceRole, OrgRole};
+use fvoci_store::{AdminChange, AuditPlace, DbType, Paging};
 
 use crate::common;
 

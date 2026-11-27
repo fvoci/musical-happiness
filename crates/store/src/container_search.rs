@@ -1,9 +1,9 @@
 //! Boards found by a search term, among those a user can reach.
 
-use fvoci_model::{Container, ContainerKinds, ContainerSearchField};
+use fvoci_model::{Container, ContainerKinds, ContainerSearchField, PublicContainers};
 
 use crate::Store;
-use crate::containers::{self, PublicContainers};
+use crate::containers;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 

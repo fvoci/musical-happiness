@@ -21,6 +21,7 @@ use super::{ApiResult, RequiredSession, accept_language, created, decode_object,
 use crate::app::App;
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
+use crate::http_credentials;
 
 /// The longest `User-Agent` kept with a session, in bytes. Browsers send a hundred or
 /// two; anything longer is cut, it is a label and nothing is decided by it.
@@ -116,7 +117,7 @@ async fn handle_login(
 
 /// Adds the session cookie with the token to a response.
 pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response) -> Response {
-    let cookie = app.authenticator().session_cookie().set(token);
+    let cookie = http_credentials::set_cookie_header(app.authenticator().session_cookie(), token);
     response.headers_mut().insert(SET_COOKIE, cookie);
     response
 }
@@ -140,7 +141,10 @@ async fn handle_logout(State(app): State<App>, account: AccountSession) -> ApiRe
     app.logout(&account.session.id).await?;
     let mut response = no_content();
     let headers = response.headers_mut();
-    headers.insert(SET_COOKIE, app.authenticator().session_cookie().clear());
+    headers.insert(
+        SET_COOKIE,
+        http_credentials::clear_cookie_header(app.authenticator().session_cookie()),
+    );
     headers.insert(
         axum::http::HeaderName::from_static("clear-site-data"),
         axum::http::HeaderValue::from_static("\"cache\""),

@@ -4,11 +4,12 @@
 
 use std::collections::HashMap;
 
+use fvoci_model::DuplicateAs;
 use fvoci_model::{
     AmountUnit, Container, ContainerKind, ContainerMember, ContainerVisibility,
     ContainersAndBlocks, CourseScheduleView, UnitNode, UnitProgress, WorkspaceRole,
 };
-use fvoci_store::{DbType, DuplicateAs};
+use fvoci_store::DbType;
 use serde_json::{Value, json};
 
 use crate::common::{

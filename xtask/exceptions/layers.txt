@@ -11,26 +11,5 @@
 # http -> store: the HTTP layer names the store, or reaches it through `.store()`.
 # logic -> http: the logic names axum, HTTP types, or a module of the HTTP layer.
 
-crates/server/src/api/search.rs      fvoci_store::PublicContainers                            1
-crates/server/src/api/search.rs      fvoci_store::PublicContainers::Include                   1
-crates/server/src/api/users.rs       fvoci_store::InstanceRole                            1
-crates/server/src/api/users.rs       fvoci_store::InstanceRole::Administrator             1
-crates/server/src/api/users.rs       fvoci_store::InstanceRole::User                      1
-crates/server/src/app/mod.rs         fvoci_server::web::WebRoot                           3
-crates/server/src/app/mod.rs         fvoci_server::web::WebRoot::new                      1
 crates/server/src/app/mod.rs         fvoci_server::ws::Hub                                3
 crates/server/src/app/mod.rs         fvoci_server::ws::Hub::new                           1
-crates/server/src/auth/token.rs      axum::http::HeaderMap                                6
-crates/server/src/auth/token.rs      axum::http::HeaderMap::new                           1
-crates/server/src/auth/token.rs      axum::http::HeaderValue                              6
-crates/server/src/auth/token.rs      axum::http::HeaderValue::from_static                 6
-crates/server/src/auth/token.rs      axum::http::HeaderValue::from_str                    1
-crates/server/src/auth/token.rs      axum::http::Uri                                      2
-crates/server/src/auth/token.rs      axum::http::header::AUTHORIZATION                    2
-crates/server/src/auth/token.rs      axum::http::header::COOKIE                           2
-crates/server/src/auth/token.rs      axum::http::header::ORIGIN                           2
-crates/server/src/config.rs          fvoci_server::client_address::TrustedProxies::parse  1
-crates/server/src/lib.rs             .store().clean_up_sessions                           1
-crates/server/src/lib.rs             .store().close                                       1
-crates/server/src/lib.rs             .store().collect_unreferenced_files                  1
-crates/server/src/lib.rs             .store().purge_trash                                 1

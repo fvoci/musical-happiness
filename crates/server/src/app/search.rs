@@ -1,7 +1,6 @@
 //! Searching boards by title or by the name of a card property.
 
-use fvoci_model::{Container, ContainerSearchField};
-use fvoci_store::PublicContainers;
+use fvoci_model::{Container, ContainerSearchField, PublicContainers};
 
 use super::App;
 use crate::error::AppError;

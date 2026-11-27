@@ -2,10 +2,10 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{Block, BlockType};
+use fvoci_model::{Block, BlockType, DuplicateAs};
 use serde_json::Value;
 
-use crate::blocks::{BLOCK_COLUMNS, DuplicateAs, OLDEST_FIRST, fetch_blocks, insert_blocks};
+use crate::blocks::{BLOCK_COLUMNS, OLDEST_FIRST, fetch_blocks, insert_blocks};
 use crate::comment_versions::EDITED_AT_COLUMN;
 use crate::db::Id;
 use crate::file_refs::NewBodyFiles;

@@ -3,13 +3,12 @@
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use fvoci_model::InstanceRole;
 use fvoci_model::{
     ClientStatePatch, Density, Session, Theme, User, UserSettings, UserSettingsPatch,
     WorkspaceRole, new_id,
 };
-use fvoci_store::{
-    AdminChange, DbType, Founding, InstanceRole, Looking, Reach, Sight, Store, StoreError, Taken,
-};
+use fvoci_store::{AdminChange, DbType, Founding, Looking, Reach, Sight, Store, StoreError, Taken};
 use serde_json::{Value, json};
 
 use crate::common;

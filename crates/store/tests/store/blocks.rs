@@ -9,12 +9,13 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use fvoci_model::DuplicateAs;
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, BODY_VERSION, Block, BlockError, BlockPatch,
     BlockPatchBatch, BlockType, Body, BodyChange, ContainersAndBlocksError, FileRecord, JsonMap,
     Subscription, new_id,
 };
-use fvoci_store::{BlockFilter, DbType, DeletedBlock, DuplicateAs, Paging, Store, StoreError};
+use fvoci_store::{BlockFilter, DbType, DeletedBlock, Paging, Store, StoreError};
 use serde_json::{Value, json};
 use sqlx::Connection as _;
 use sqlx::sqlite::SqliteConnection;

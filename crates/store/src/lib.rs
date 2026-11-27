@@ -65,6 +65,7 @@ mod notification_outbox;
 mod notifications;
 mod observe;
 mod oidc;
+mod oidc_flows;
 mod oidc_former;
 mod oidc_held;
 mod oidc_identities;
@@ -123,7 +124,7 @@ pub use api_tokens::{
 };
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
-    BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
+    BlockFilter, BodyPreview, CopyChanges, CopyTitles, ListedBlock, Paging, Previews,
 };
 pub use board_ops::PreparedCardDuplicate;
 pub use body_digest::body_digest;
@@ -137,7 +138,7 @@ pub use clock::Clock;
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
-pub use containers::{ContainerAccessFacts, Joined, MemberChange, PublicContainers};
+pub use containers::{ContainerAccessFacts, Joined, MemberChange};
 pub use containers_and_blocks::{StreamBatch, StreamCreateError};
 pub use course_exams::{
     ExamPublishError, ExamScoreOutcome, ExamViewer, MIN_SCORER_DELTA_TO_REPUBLISH,
@@ -161,7 +162,6 @@ pub use file_versions::{
     DEFAULT_FILE_VERSIONS_KEPT, KeptFileVersion, RestoredCopy, UnusableUpload, VersionAdded,
     VersionRestored,
 };
-pub use fvoci_model::{PublicLinkChange, SidebarVisibility};
 pub use invitations::{
     Acceptance, Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink,
 };
@@ -173,9 +173,8 @@ pub use notifications::{
     ContainerNotificationPlace, NotificationPlace, NotificationReader, StoredNotification,
 };
 pub use observe::{Access, Call, Observer, Outcome};
-pub use oidc::{
-    FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
-};
+pub use oidc::{Identity, OidcAccount, OidcRefusal, Removal, StoredProvider};
+pub use oidc_flows::{FlowPurpose, LoginFlow};
 pub use oidc_former::{FormerEnd, FormerProvider};
 pub use oidc_held::{CarriedOver, CarryOver, CarryOverRefusal, HeldSignIn};
 pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
@@ -186,8 +185,8 @@ pub use page_copies::PageCopies;
 pub use page_trash::PageRestore;
 pub use pages::PageWrite;
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
-pub use schema::SchemaCheck;
 pub use person_names::ChangedName;
+pub use schema::SchemaCheck;
 pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
 pub use search_text::{NumberSearch, TextFound, TextSearch};
@@ -203,7 +202,7 @@ pub use today::{DueSoonCardCandidate, TodayWindow};
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use unit_reviews::DueReviewCandidate;
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
-pub use users::{AdminChange, InstanceRole};
+pub use users::AdminChange;
 pub use visibility::{VisibilityScope, VisibilityVersion};
 pub use workspace_membership::MembershipChange;
 

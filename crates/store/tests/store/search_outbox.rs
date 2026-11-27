@@ -714,7 +714,7 @@ async fn every_way_a_card_is_written_notes_it() {
             &board.id,
             &first.id,
             &user_id,
-            fvoci_store::DuplicateAs::Copy,
+            fvoci_model::DuplicateAs::Copy,
         )
         .await
         .expect("copied");

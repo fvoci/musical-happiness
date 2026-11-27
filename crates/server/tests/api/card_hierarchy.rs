@@ -314,7 +314,7 @@ async fn export_import_roundtrip_preserves_card_hierarchy() {
         .containers_for_user_and_workspace(
             &user_id,
             TEST_WORKSPACE_ID,
-            fvoci_store::PublicContainers::Include,
+            fvoci_model::PublicContainers::Include,
         )
         .await
         .expect("workspace containers");
@@ -351,7 +351,7 @@ async fn hostile_archives_are_rejected_without_storing_boards() {
         .containers_for_user_and_workspace(
             &user_id,
             TEST_WORKSPACE_ID,
-            fvoci_store::PublicContainers::Include,
+            fvoci_model::PublicContainers::Include,
         )
         .await
         .expect("workspace containers before")
@@ -434,7 +434,7 @@ async fn hostile_archives_are_rejected_without_storing_boards() {
         .containers_for_user_and_workspace(
             &user_id,
             TEST_WORKSPACE_ID,
-            fvoci_store::PublicContainers::Include,
+            fvoci_model::PublicContainers::Include,
         )
         .await
         .expect("workspace containers after");

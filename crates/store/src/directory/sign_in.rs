@@ -6,7 +6,7 @@ use fvoci_model::LoginOrganization;
 use crate::Store;
 use crate::db::Id;
 use crate::error::StoreError;
-use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
+use crate::oidc_flows::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 
 impl Store {
     /// Takes the sign-in under way whose `state` has the digest `state_hash`, if the

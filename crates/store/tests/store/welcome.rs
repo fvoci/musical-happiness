@@ -222,7 +222,7 @@ async fn concurrent_instance_role_change_and_take_back_welcome_board_never_deadl
         let role_task = tokio::spawn(async move {
             b1.wait().await;
             let promoted = s1
-                .set_user_admin(&a1, fvoci_store::InstanceRole::Administrator, &o1)
+                .set_user_admin(&a1, fvoci_model::InstanceRole::Administrator, &o1)
                 .await
                 .expect("promote alice");
             assert!(
@@ -230,7 +230,7 @@ async fn concurrent_instance_role_change_and_take_back_welcome_board_never_deadl
                 "alice promoted to instance administrator"
             );
             let demoted = s1
-                .set_user_admin(&a1, fvoci_store::InstanceRole::User, &o1)
+                .set_user_admin(&a1, fvoci_model::InstanceRole::User, &o1)
                 .await
                 .expect("demote alice");
             assert!(

@@ -1,11 +1,12 @@
 //! The kind of a board: what a board is made as it stays, what a wiki is not, and the
 //! lists of boards, each of the kinds its caller asks for.
 
+use fvoci_model::PublicContainers;
 use fvoci_model::{
     Block, BlockType, Container, ContainerError, ContainerKind, ContainerKinds, ContainerPatch,
     ContainerSearchField, ContainerVisibility, MinimumRole, WorkspaceRole, new_id,
 };
-use fvoci_store::{DbType, PublicContainers, Store, StoreError};
+use fvoci_store::{DbType, Store, StoreError};
 
 use crate::boards::new_board;
 use crate::common;

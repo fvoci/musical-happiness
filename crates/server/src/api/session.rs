@@ -14,9 +14,10 @@ use fvoci_model::{Leaving, Session};
 use super::delegated::Admits;
 use crate::app::{App, Caller};
 use crate::auth::api_token;
-use crate::auth::token::{Credential, bearer_token};
+use crate::auth::token::Credential;
 use crate::client_address::ClientAddress;
 use crate::error::{AppError, ErrorKind, Reason};
+use crate::http_credentials::{self, bearer_token};
 
 /// The session of a request to a route that needs one. Extraction fails with 401 if the
 /// request carries no valid session token.
@@ -95,10 +96,10 @@ impl FromRequestParts<App> for AccountSession {
                 leaving: None,
             }),
             Err(error) if error.reason() == Some(Reason::AccountDeletionPending) => {
-                let credential = app
-                    .authenticator()
-                    .session_cookie()
-                    .credential(&parts.headers);
+                let credential = http_credentials::session_credential(
+                    app.authenticator().session_cookie(),
+                    &parts.headers,
+                );
                 let found = match &credential {
                     Some(credential) => {
                         app.authenticator()
@@ -121,10 +122,7 @@ impl FromRequestParts<App> for AccountSession {
 
 /// Whether a request says it comes with a session, valid or not.
 pub(crate) fn claims_session(app: &App, headers: &HeaderMap) -> bool {
-    app.authenticator()
-        .session_cookie()
-        .credential(headers)
-        .is_some()
+    http_credentials::session_credential(app.authenticator().session_cookie(), headers).is_some()
 }
 
 /// The session of a request, from the token in its `Authorization` header or in its
@@ -143,7 +141,8 @@ pub(crate) async fn session_of(
     headers: &HeaderMap,
     extensions: &Extensions,
 ) -> Result<Session, AppError> {
-    let credential = app.authenticator().session_cookie().credential(headers);
+    let credential =
+        http_credentials::session_credential(app.authenticator().session_cookie(), headers);
     let Some(credential) = credential else {
         return Err(AppError::unauthorized("no session token"));
     };
@@ -225,7 +224,8 @@ pub(crate) async fn renew_session_cookie(
     if let Some(token) = renewal.take()
         && !response.headers().contains_key(SET_COOKIE)
     {
-        let cookie = app.authenticator().session_cookie().set(&token);
+        let cookie =
+            http_credentials::set_cookie_header(app.authenticator().session_cookie(), &token);
         response.headers_mut().insert(SET_COOKIE, cookie);
     }
     response

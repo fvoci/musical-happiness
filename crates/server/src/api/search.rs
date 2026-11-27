@@ -1,7 +1,6 @@
 //! Searching boards.
 
-use fvoci_model::{Container, ContainerSearchField};
-use fvoci_store::PublicContainers;
+use fvoci_model::{Container, ContainerSearchField, PublicContainers};
 use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;

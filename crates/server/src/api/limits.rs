@@ -17,9 +17,9 @@ use futures_util::StreamExt as _;
 use super::session::{claims_session, session_of};
 use crate::app::App;
 use crate::auth::api_token;
-use crate::auth::token::bearer_token;
 use crate::client_address::ClientAddress;
 use crate::error::{AppError, Reason};
+use crate::http_credentials::bearer_token;
 
 /// The largest body of a request to a route that needs no session: the login and the
 /// registration. Anyone can send these, so they get no more room than they need; the

@@ -1,9 +1,10 @@
 //! Copies of boards and templates (`duplicateContainer`).
 
+use fvoci_model::DuplicateAs;
 use fvoci_model::{
     Block, BlockType, Category, Container, ContainerVisibility, ContainersAndBlocks, new_id,
 };
-use fvoci_store::{BlockFilter, DuplicateAs};
+use fvoci_store::BlockFilter;
 use reqwest::StatusCode;
 
 use crate::common::TEST_WS;

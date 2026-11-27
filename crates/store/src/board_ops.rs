@@ -12,9 +12,7 @@ use fvoci_model::{
 };
 use serde_json::Value;
 
-use crate::blocks::{
-    self, BLOCK_COLUMNS, DuplicateAs, OLDEST_FIRST, fetch_blocks, insert_blocks, patch_block,
-};
+use crate::blocks::{self, BLOCK_COLUMNS, OLDEST_FIRST, fetch_blocks, insert_blocks, patch_block};
 use crate::body_versions::{self, BodyWrite};
 use crate::comment_versions::EDITED_AT_COLUMN;
 use crate::db::{Dialect, Id, Scope};
@@ -25,6 +23,7 @@ use crate::loose_objects;
 use crate::notification_noting::Telling;
 use crate::trash::{self, with_tree_of};
 use crate::{Store, card_values, containers};
+use fvoci_model::DuplicateAs;
 
 /// Consistent snapshot read before duplicating a card so object-storage files can be
 /// copied before opening the write transaction.

@@ -48,6 +48,7 @@ mod page;
 mod page_tree;
 mod person_name;
 mod problem;
+mod public_containers;
 mod public_link;
 mod refusal;
 mod relation;
@@ -214,6 +215,7 @@ pub use person_name::{
     Title, UnknownCode,
 };
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
+pub use public_containers::PublicContainers;
 pub use public_link::{PublicLink, PublicLinkChange};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
@@ -261,7 +263,7 @@ pub use unit_review::{
     suggested_next_interval_days,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
-pub use user::{ClientStatePatch, EndedSessionScope, LoginOrigin, Me, Session, User};
+pub use user::{ClientStatePatch, EndedSessionScope, InstanceRole, LoginOrigin, Me, Session, User};
 pub use view_fields::{
     BoardViewDuplicate, BoardViewMove, BoardViewWrite, FILTER_DATE_TODAY, FILTER_PERSON_ME,
     GanttZoom, NewBoardView, ParseViewTypeError, SHARED_VIEW_MEMBERS, VIEW_ORDER_MAX_CHARS,

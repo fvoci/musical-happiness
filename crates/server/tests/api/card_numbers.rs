@@ -254,7 +254,7 @@ async fn root_boards(ts: &TestServer) -> Vec<String> {
         .containers_for_user_and_workspace(
             &ts.client.me().await.id,
             ROOT_WORKSPACE_ID,
-            fvoci_store::PublicContainers::Include,
+            fvoci_model::PublicContainers::Include,
         )
         .await
         .expect("the boards of the root workspace")

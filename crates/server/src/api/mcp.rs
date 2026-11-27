@@ -38,9 +38,9 @@ use self::tools::Failure;
 use super::contract::tag;
 use crate::app::{App, Caller};
 use crate::auth::api_token;
-use crate::auth::token::bearer_token;
 use crate::client_address::ClientAddress;
 use crate::error::{AppError, ErrorKind};
+use crate::http_credentials::bearer_token;
 
 /// Where the server is, under the API's prefix: the `path` of [`handle_mcp`].
 pub(super) const PATH: &str = "/mcp";

@@ -4,11 +4,11 @@
 //! Prerequisite fixtures outside the route under test (blocks, sharing, categories)
 //! are arranged directly through the store or application layer.
 
+use fvoci_model::PublicContainers;
 use fvoci_model::{
     Block, BlockType, Category, CategoryContainers, Container, ContainerMember, ContainerPatch,
     ContainerRole, ContainerVisibility, MinimumRole, User, Workspace, is_id, new_id,
 };
-use fvoci_store::PublicContainers;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 

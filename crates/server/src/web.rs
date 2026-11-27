@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use axum::Router;
 use axum::body::Body;
 use axum::extract::{OriginalUri, State};
 use axum::http::header::{
@@ -20,13 +21,13 @@ use axum::http::header::{
 use axum::http::{HeaderValue, Method, Request, StatusCode, Uri};
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
+use axum::routing::get;
 use serde::Deserialize;
 use tower::ServiceExt as _;
 use tower_http::services::ServeDir;
 
 pub(crate) use discovery::{origin_routes, send_robots_tag};
 
-use crate::app::App;
 use crate::config::SecurityContact;
 use crate::error::AppError;
 use discovery::{SecurityTxt, https_origin_of};
@@ -337,8 +338,17 @@ pub(crate) async fn send_security_headers(
     response
 }
 
+/// The routes of the web app, served from `web`: its files under `/static/`, and its page
+/// for every path that no other route takes ([`handle_fallback`]). The fallback is this
+/// router's: merged into one that has its own, it would panic.
+pub(crate) fn app_routes() -> Router<Arc<WebRoot>> {
+    Router::new()
+        .route("/static/{*path}", get(handle_static))
+        .fallback(handle_fallback)
+}
+
 /// Serves a static file under `/static/`.
-pub(crate) async fn handle_static(State(app): State<App>, request: Request<Body>) -> Response {
+async fn handle_static(State(web): State<Arc<WebRoot>>, request: Request<Body>) -> Response {
     // The path as the client sent it, still percent-encoded: the file service decodes
     // it, once.
     let path = request
@@ -347,12 +357,12 @@ pub(crate) async fn handle_static(State(app): State<App>, request: Request<Body>
         .strip_prefix("/static/")
         .unwrap_or_default()
         .to_owned();
-    app.web().serve_static(&path, request).await
+    web.serve_static(&path, request).await
 }
 
 /// The page that starts the web app, for its root.
-pub(crate) async fn handle_root(State(app): State<App>) -> Response {
-    app.web().serve_index().await
+pub(crate) async fn handle_root(State(web): State<Arc<WebRoot>>) -> Response {
+    web.serve_index().await
 }
 
 /// Everything that is neither an API route nor a static file is a route of the web app:
@@ -361,8 +371,8 @@ pub(crate) async fn handle_root(State(app): State<App>) -> Response {
 /// A path that ends in a slash is redirected to the one without, so that every screen
 /// has one address. The root is the exception; with a base path it is the base path
 /// itself, with or without the slash.
-pub(crate) async fn handle_fallback(
-    State(app): State<App>,
+async fn handle_fallback(
+    State(web): State<Arc<WebRoot>>,
     method: Method,
     uri: Uri,
     OriginalUri(original): OriginalUri,
@@ -387,7 +397,7 @@ pub(crate) async fn handle_fallback(
             None => not_found().into_response(),
         };
     }
-    app.web().serve_index().await
+    web.serve_index().await
 }
 
 /// The address a path with a trailing slash is redirected to: the same path without

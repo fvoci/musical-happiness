@@ -1,8 +1,8 @@
 //! Subscriptions, templates, and an explicitly authorized archive transfer.
 
 use base64::Engine as _;
-use fvoci_model::{Container, ContainerMember, Subscription, User, new_id};
-use fvoci_store::{BlockFilter, DbType, DuplicateAs};
+use fvoci_model::{Container, ContainerMember, DuplicateAs, Subscription, User, new_id};
+use fvoci_store::{BlockFilter, DbType};
 use reqwest::Method;
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
