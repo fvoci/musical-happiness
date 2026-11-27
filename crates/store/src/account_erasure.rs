@@ -29,7 +29,9 @@
 //! Steps 1 and 3 reach every organization: a person's memberships, and the records
 //! about them, are of several.
 
-use fvoci_model::{AuditAction, ContainerMember, ContainerRole, OrgRole, WorkspaceRole};
+use fvoci_model::{
+    AuditAction, ContainerMember, ContainerRole, OrgRole, OrganizationName, WorkspaceRole,
+};
 
 use crate::account_deletion::{self, DeletionStanding, Held};
 use crate::audit::{self, AuditActor, AuditEntry};
@@ -191,10 +193,11 @@ impl Store {
                 // Whoever is on their way into an organization that is to go is in it
                 // before it is asked once more who is.
                 let (alone_in, joined) = {
+                    let waited = std::mem::take(&mut standing.alone_in);
+                    wait_for_who_comes_in(scope, &waited).await?;
                     let mut alone_in = Vec::new();
                     let mut joined = Vec::new();
-                    for organization in std::mem::take(&mut standing.alone_in) {
-                        wait_for_who_comes_in(scope, &organization.id).await?;
+                    for organization in waited {
                         if account_deletion::has_other_people(scope, &organization.id, user_id)
                             .await?
                         {
@@ -476,13 +479,18 @@ async fn mark(
     Ok(Some(ended))
 }
 
-/// Waits for whoever is on their way into the organization, on PostgreSQL: a sign-in
-/// through its provider holds the provider's settings, and an acceptance its link,
-/// until it ends. Held here in turn, after the organization's row (`link_locks`), they
-/// are in the organization, or refused, before it is asked who is in it; whoever
-/// comes after waits for this transaction, and finds the provider gone and the link
-/// revoked. SQLite's writers wait for each other already.
-async fn wait_for_who_comes_in(scope: &mut Scope<'_>, org_id: &str) -> Result<(), StoreError> {
+/// Waits for whoever is on their way into the `organizations`, on PostgreSQL: a sign-in
+/// through a provider holds the provider's settings, and an acceptance its link, until
+/// it ends. Held here in turn, after the organizations' rows (`link_locks`), they are in
+/// an organization, or refused, before it is asked who is in it; whoever comes after
+/// waits for this transaction, and finds the provider gone and the link revoked. The
+/// providers of every organization are held before the links of any, in the order of
+/// the organizations, as their ranks have them. SQLite's writers wait for each other
+/// already.
+async fn wait_for_who_comes_in(
+    scope: &mut Scope<'_>,
+    organizations: &[OrganizationName],
+) -> Result<(), StoreError> {
     for (rank, select) in [
         (
             LockRank::Provider,
@@ -493,9 +501,13 @@ async fn wait_for_who_comes_in(scope: &mut Scope<'_>, org_id: &str) -> Result<()
             "SELECT id FROM invitations WHERE org_id = ",
         ),
     ] {
-        let mut sql = scope.sql(select);
-        sql.bind(Id(org_id)).push(" ORDER BY id");
-        scope.hold(rank, org_id, sql, RowLock::Update).await?;
+        for organization in organizations {
+            let mut sql = scope.sql(select);
+            sql.bind(Id(&organization.id)).push(" ORDER BY id");
+            scope
+                .hold(rank, &organization.id, sql, RowLock::Update)
+                .await?;
+        }
     }
     Ok(())
 }
