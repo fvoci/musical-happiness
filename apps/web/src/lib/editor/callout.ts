@@ -76,9 +76,8 @@ const iconsPlaced = new Plugin({
   },
 });
 
-/** The node view: the icon (a button that shows the tones, or a picture), the tones, and the blocks. */
-const calloutView: NodeViewRenderer = ({ node, HTMLAttributes, view, getPos }) => {
-  const page = view.dom.ownerDocument;
+/** The elements of a callout's node view: its frame, its controls, and where its blocks go. */
+function calloutParts(page: Document, HTMLAttributes: Record<string, unknown>) {
   const dom = page.createElement('div');
   for (const [name, value] of Object.entries(HTMLAttributes))
     if (typeof value === 'string') dom.setAttribute(name, value);
@@ -105,6 +104,16 @@ const calloutView: NodeViewRenderer = ({ node, HTMLAttributes, view, getPos }) =
   const contentDOM = page.createElement('div');
   contentDOM.className = 'doc-callout-content';
   dom.append(controls, contentDOM);
+  return { dom, icon, picture, tones, buttons, controls, contentDOM };
+}
+
+/** The node view: the icon (a button that shows the tones, or a picture), the tones, and the blocks. */
+const calloutView: NodeViewRenderer = ({ node, HTMLAttributes, view, getPos }) => {
+  const page = view.dom.ownerDocument;
+  const { dom, icon, picture, tones, buttons, controls, contentDOM } = calloutParts(
+    page,
+    HTMLAttributes,
+  );
 
   let tone = toneOf(node.attrs.tone);
   const show = (): void => {

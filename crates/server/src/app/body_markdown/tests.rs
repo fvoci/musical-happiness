@@ -478,7 +478,10 @@ fn the_markup_of_a_summary_is_written_as_character_references() {
     let written = body_to_markdown(body.document(), &names);
     assert_eq!(written.complex, [], "all is held: {}", written.markdown);
     let summary = summary_line(&written.markdown);
-    assert!(!summary.contains(['<', '>']), "no tag in the summary: {summary}");
+    assert!(
+        !summary.contains(['<', '>']),
+        "no tag in the summary: {summary}"
+    );
     assert!(
         summary.starts_with("&lt;script&gt;alert(1)&lt;/script&gt;&lt;img"),
         "{summary}"

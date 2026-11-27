@@ -308,11 +308,13 @@ impl App {
             .iter()
             .filter(|fid| !file_map.contains_key(fid.as_str()))
             .count();
+        // The bodies name the copies already: renewing the identifiers renamed them.
+        let copies: HashSet<String> = all_copies.into_values().collect();
         if let Err(error) = sanitize_copied_blocks(
             &mut blocks,
             &containers[0],
             &file_map,
-            &all_copies,
+            &copies,
             &snapshot.external_titles,
             &snapshot.member_names,
             &present_users,

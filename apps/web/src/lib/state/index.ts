@@ -264,6 +264,14 @@ export {
   ReferenceTitles,
   type ReferencePlaces,
 } from './reference-titles.svelte.ts';
+export {
+  boardsToShow,
+  embeddedBoards,
+  EmbeddedBoards,
+  viewsOfBoard,
+  RELEASE_AFTER_MS,
+  type HeldBoard,
+} from './embedded-board.svelte.ts';
 export type { LinkedBlock } from './references.ts';
 export { noteMembership, readerOf } from './memberships.svelte.ts';
 export {

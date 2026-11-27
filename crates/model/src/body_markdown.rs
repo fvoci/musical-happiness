@@ -37,4 +37,7 @@ pub enum ComplexBlockReason {
     /// where those are written as character references, which code and a formula do not
     /// read back.
     MarkupInSummary,
+    /// A board view: Markdown has none, and it is written as a link to its view, named
+    /// by its board and its own title where the reader sees them.
+    BoardView,
 }

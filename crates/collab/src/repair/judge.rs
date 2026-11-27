@@ -70,6 +70,7 @@ const DOCUMENT_BLOCKS: &[&str] = &[
     "table",
     "details",
     "callout",
+    "boardView",
 ];
 
 const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMath"];
@@ -147,6 +148,7 @@ fn kind_spec(kind: &str) -> Option<KindSpec> {
         "detailsSummary" => KindSpec::plain("detailsSummary", INLINE, 0),
         "detailsContent" => KindSpec::plain("detailsContent", DOCUMENT_BLOCKS, 1),
         "callout" => KindSpec::with_attrs("callout", BLOCKS, 1),
+        "boardView" => KindSpec::with_attrs("boardView", LEAF, 0),
         _ => return None,
     };
     Some(spec)
@@ -171,6 +173,8 @@ pub(super) struct NodeSummary {
     pub(super) json_bytes: usize,
     pub(super) is_empty_paragraph: bool,
     pub(super) file_ids: Vec<String>,
+    /// The board views in the subtree, the element itself counted.
+    pub(super) board_views: usize,
 }
 
 /// One validated text run from `read::text_nodes`, ready to append into [`ContentAccum`].
@@ -201,6 +205,8 @@ pub(super) struct ContentAccum {
     trailing_text: TrailingText,
     /// Referenced `fileId`s from `image`/`file` nodes below this parent (document order).
     pub(super) file_ids: Vec<String>,
+    /// The board views below this parent.
+    pub(super) board_views: usize,
 }
 
 impl ContentAccum {
@@ -216,6 +222,7 @@ impl ContentAccum {
         if !summary.file_ids.is_empty() {
             self.file_ids.extend(summary.file_ids);
         }
+        self.board_views = self.board_views.saturating_add(summary.board_views);
     }
 
     pub(super) fn push_text_runs(&mut self, runs: Vec<TextRun>) {
@@ -387,6 +394,9 @@ pub(super) fn judge_element(
         }
     }
 
+    let board_views = below
+        .board_views
+        .saturating_add(usize::from(spec.name == "boardView"));
     let mut file_ids = below.dedup_file_ids();
     if let Some(id) = own_file_id {
         file_ids.insert(0, id);
@@ -398,6 +408,7 @@ pub(super) fn judge_element(
         json_bytes: node_json_bytes,
         is_empty_paragraph,
         file_ids,
+        board_views,
     }))
 }
 

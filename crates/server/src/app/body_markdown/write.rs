@@ -10,14 +10,14 @@
 //! Markdown passes on as it is: there each `<`, `>` and `&` of the line is written as a
 //! character reference, so that no letter of a body is ever a tag, and code, a formula
 //! or the target of a link that holds one is named, as its own letters cannot be kept
-//! there.
+//! there. A board view, which Markdown has none of, is a link to its view, and named.
 
 use std::collections::HashMap;
 
 use fvoci_model::{ComplexBlock, ComplexBlockReason};
 use serde_json::Value;
 
-use super::{FILE_SCHEME, USER_SCHEME};
+use super::{FILE_SCHEME, USER_SCHEME, VIEW_SCHEME};
 
 /// What the Markdown of a body calls what the body names by identifier; one not here is
 /// called by its identifier.
@@ -27,6 +27,9 @@ pub(crate) struct Names {
     pub(crate) files: HashMap<String, String>,
     /// The names people are shown by, by their identifiers.
     pub(crate) users: HashMap<String, String>,
+    /// The names of the views board views show (their board's title and theirs), by
+    /// their identifiers.
+    pub(crate) views: HashMap<String, String>,
 }
 
 /// A body in Markdown.
@@ -202,6 +205,19 @@ impl Writer<'_> {
             }
             "table" => self.table(node, path),
             "details" => self.details(node, path),
+            "boardView" => {
+                self.complex(path, ComplexBlockReason::BoardView);
+                let id = attr_text(node, "viewId");
+                let name = self
+                    .names
+                    .views
+                    .get(id)
+                    .map_or("Board view", String::as_str);
+                format!(
+                    "[{}]({VIEW_SCHEME}{id})",
+                    escape(name, Line::Inside, Within::Paragraph)
+                )
+            }
             "callout" => {
                 let marker = match attr_text(node, "tone") {
                     "tip" => "TIP",

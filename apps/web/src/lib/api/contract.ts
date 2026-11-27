@@ -5892,10 +5892,15 @@ export interface paths {
          *     of this workspace on a board, a wiki or a course the user reads (as `getCard`,
          *     `getPage` and `getUnit` ask), each once, in the order they were first named.
          *
+         *     A board view of a body (the node `boardView`) names a view of a board by its
+         *     identifier alone too: a view of a board the user reads is told of with `kind` `view`,
+         *     its title, its board (`containerId`, `containerTitle`) and how it shows its cards
+         *     (`viewType`), as a private board's view is told to its members alone.
+         *
          *     Whatever else an identifier names is left out, and the answer does not tell why:
          *     nothing at all, something in the trash, something of another workspace or
-         *     organization, a card, a page or a unit the user does not read, or a block that is none
-         *     of those (such as a chapter of a course).
+         *     organization, a card, a page, a unit or a view the user does not read, or a block that
+         *     is none of those (such as a chapter of a course).
          *     The body names at most 100 identifiers (more is 400, as an entry that has not the
          *     form of an identifier is); an empty list answers an empty list.
          *
@@ -7261,7 +7266,7 @@ export interface components {
             /** @description The created, moved, or duplicated view block. */
             view: components["schemas"]["Block"];
         };
-        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 6, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
+        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 7, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
         Body: {
             [key: string]: unknown;
         };
@@ -7833,7 +7838,7 @@ export interface components {
          * @description Why the Markdown of a body does not hold one of its blocks as it is.
          * @enum {string}
          */
-        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula" | "heading_with_break" | "markup_in_summary";
+        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula" | "heading_with_break" | "markup_in_summary" | "board_view";
         ConfirmEmailChange: {
             /** @description The secret from the confirmation link's fragment. */
             token: string;
@@ -8887,6 +8892,8 @@ export interface components {
             containerId: string;
             /** @description Whether that is a board, a wiki or a course. */
             containerKind: components["schemas"]["ContainerKind"];
+            /** @description The title of its board: told of a view alone, whose board a board view names. */
+            containerTitle?: string;
             /** @description Its icon, at most one grapheme; empty for none. */
             icon: string;
             /** @description The identifier of the card, the page or the unit. */
@@ -8901,6 +8908,8 @@ export interface components {
             number?: number | null;
             /** @description Its title; empty for one without. */
             title: string;
+            /** @description How a view shows its cards: told of a view alone. */
+            viewType?: components["schemas"]["ViewType"];
         };
         /**
          * @description An identity tied to an account: who its owner is at a provider, by which they sign
@@ -8929,10 +8938,11 @@ export interface components {
             subject: string;
         };
         /**
-         * @description What a reference may name: a card of a board, a page of a wiki or a unit of a course.
+         * @description What a reference may name: a card of a board, a page of a wiki or a unit of a course;
+         *     and the view of a board a board view shows, which no reference names.
          * @enum {string}
          */
-        LinkedKind: "card" | "page" | "unit";
+        LinkedKind: "card" | "page" | "unit" | "view";
         /** @description A file of a board or a wiki as a list of them gives it. */
         ListedFile: {
             /**
