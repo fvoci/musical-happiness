@@ -80,10 +80,11 @@ pub use api_token::{
 };
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
-    AuthParamError, ChangePasswordRequest, ConfirmPasswordRequest, DISPLAY_NAME_MAX_LENGTH,
-    LoginRequest, MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount,
-    NewOrganization, ORGANIZATION_NAME_MAX_LENGTH, RegisterRequest, SetPasswordRequest,
-    USERNAME_MAX_LENGTH, check_new_password, display_name, is_email_valid, organization_name,
+    AuthParamError, ChangePasswordRequest, CheckedAccount, ConfirmPasswordRequest,
+    DISPLAY_NAME_MAX_LENGTH, LoginRequest, MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES,
+    MINIMUM_PASSWORD_LENGTH, NewAccount, NewOrganization, ORGANIZATION_NAME_MAX_LENGTH,
+    RegisterRequest, Registration, SetPasswordRequest, USERNAME_MAX_LENGTH, check_new_password,
+    display_name, is_email_valid, organization_name,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,

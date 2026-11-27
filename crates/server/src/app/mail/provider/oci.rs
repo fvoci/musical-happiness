@@ -60,10 +60,10 @@ impl Oci {
     async fn deliver(&self, message: &Outgoing) -> Outcome {
         let body = json!({
             "sender": {
-                "senderAddress": {"email": message.from},
+                "senderAddress": {"email": message.from.as_str()},
                 "compartmentId": self.compartment,
             },
-            "recipients": {"to": [{"email": message.to}]},
+            "recipients": {"to": [{"email": message.to.as_str()}]},
             "subject": message.subject,
             "bodyText": message.plain,
             "bodyHtml": message.html,

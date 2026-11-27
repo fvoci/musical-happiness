@@ -3,7 +3,8 @@
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockType, Body,
     CARD_FIELDS_MAX_CHARS, CardPropertyDefinition, ChangePasswordRequest, Container,
-    ContainerError, ContainerSearchField, PropertyType, RegisterRequest, is_email_valid,
+    ContainerError, ContainerSearchField, NewAccount, PropertyType, RegisterRequest,
+    is_email_valid,
 };
 use serde_json::json;
 
@@ -196,6 +197,64 @@ fn register(username: &str, email: &str, password: &str) -> Result<(), String> {
     }
     .validate()
     .map_err(|error| error.to_string())
+}
+
+/// What a registration and an account asked for are checked into is what they are
+/// once tidied, and only what is then accepted is: the name and address without the
+/// white space around them, the organization as it is stored, none for a blank one.
+#[test]
+fn a_checked_registration_is_the_tidied_request_that_is_accepted() {
+    let request = |username: &str, organization_name: &str| RegisterRequest {
+        username: username.to_owned(),
+        email: " alice@example.com ".to_owned(),
+        password: "12345678".to_owned(),
+        display_name: String::new(),
+        organization_name: organization_name.to_owned(),
+        language: "ko".to_owned(),
+    };
+    let registration = request(" alice ", "  우리 팀  ")
+        .check_as_first()
+        .expect("a first registration that names its organization");
+    assert_eq!(registration.account().username(), "alice");
+    assert_eq!(registration.account().email(), "alice@example.com");
+    assert_eq!(registration.organization(), Some("우리 팀"));
+    assert_eq!(registration.language(), "ko");
+    let alone = request("alice", "   ")
+        .check()
+        .expect("a registration of no organization");
+    assert_eq!(alone.organization(), None);
+    assert!(
+        request("alice", "   ").check_as_first().is_err(),
+        "the first names one"
+    );
+    assert!(
+        request("al@ice", "").check().is_err(),
+        "a name with @ is refused"
+    );
+    assert!(
+        !format!("{:?}", alone.account()).contains("12345678"),
+        "the password is not debugged"
+    );
+
+    let account = NewAccount {
+        username: " bob ".to_owned(),
+        email: "bob@example.com".to_owned(),
+        password: "12345678".to_owned(),
+        display_name: String::new(),
+    };
+    assert_eq!(
+        account.clone().check().expect("an account").username(),
+        "bob"
+    );
+    let short = NewAccount {
+        password: "1234".to_owned(),
+        ..account
+    };
+    assert_eq!(
+        short.clone().check().map(|_| ()),
+        short.tidied().validate(),
+        "refused as the tidied account is"
+    );
 }
 
 /// A registration names the organization it starts, or none: a name that is left out

@@ -241,18 +241,17 @@ async fn handle_register(
     if !app.takes_registrations().await? {
         return Err(AppError::invitation_required());
     }
-    let register = register.tidied();
     // Until the server has its first user a registration names the organization it
     // starts: told with whatever else is wrong, and asked again where it is stored.
-    if app.has_first_user().await? {
-        register.validate()?;
+    let registration = if app.has_first_user().await? {
+        register.check()?
     } else {
-        register.validate_as_first()?;
-    }
+        register.check_as_first()?
+    };
     if app.verifies_email() {
         let browser = marker_of(&app, &headers);
         let marker = app
-            .sign_up_to_confirm(&register, browser.as_deref(), address_of(client))
+            .sign_up_to_confirm(&registration, browser.as_deref(), address_of(client))
             .await?;
         return Ok(with_marker(
             &app,
@@ -261,7 +260,7 @@ async fn handle_register(
         ));
     }
     let user = app
-        .sign_up_with_language(&register, address_of(client), accept_language(&headers))
+        .sign_up_with_language(&registration, address_of(client), accept_language(&headers))
         .await?;
     Ok(created(&user))
 }

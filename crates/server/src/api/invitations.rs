@@ -403,7 +403,14 @@ async fn handle_accept_invitation(
     body: Bytes,
 ) -> ApiResult {
     let request: AcceptInvitation = decode_object(&body)?;
-    let account = request.account.map(fvoci_model::NewAccount::tidied);
+    let account = match request.account {
+        Some(account) => Some(
+            account
+                .check()
+                .map_err(|refused| AppError::from(refused).under(ACCOUNT))?,
+        ),
+        None => None,
+    };
     let browser = marker_of(&app, &headers);
     let accepting = match (&session, &account) {
         (Some(_), Some(_)) => {
@@ -413,16 +420,11 @@ async fn handle_accept_invitation(
             .with_field("account"));
         }
         (Some(session), None) => Accepting::SignedIn(session.into()),
-        (None, Some(account)) => {
-            account
-                .validate()
-                .map_err(|refused| AppError::from(refused).under(ACCOUNT))?;
-            Accepting::NewAccount {
-                account,
-                language: &request.language,
-                browser: browser.as_deref(),
-            }
-        }
+        (None, Some(account)) => Accepting::NewAccount {
+            account,
+            language: &request.language,
+            browser: browser.as_deref(),
+        },
         (None, None) => {
             return Err(AppError::unauthorized(
                 "accepting an invitation takes a session or an account to make",

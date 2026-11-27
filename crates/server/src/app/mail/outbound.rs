@@ -5,16 +5,46 @@
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
+use std::str::FromStr;
 use std::time::Duration;
 
 use crate::app::language::Language;
 
+/// An address a message comes from or goes to, as SMTP takes one (`local@domain`).
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct Mailbox(lettre::Address);
+
+impl FromStr for Mailbox {
+    type Err = lettre::address::AddressError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        text.parse().map(Self)
+    }
+}
+
+impl Mailbox {
+    /// The address, as it is written.
+    pub(crate) fn as_str(&self) -> &str {
+        self.0.as_ref()
+    }
+
+    /// The domain of the address, after its `@`.
+    pub(crate) fn domain(&self) -> &str {
+        self.0.domain()
+    }
+
+    /// The address, as the SMTP envelope takes it.
+    pub(crate) fn address(&self) -> &lettre::Address {
+        &self.0
+    }
+}
+
 /// One message to one recipient, as every way of sending takes it.
 pub(crate) struct Outgoing {
     /// The sender's address (`mail_from`).
-    pub(crate) from: String,
+    pub(crate) from: Mailbox,
     /// The one recipient's address.
-    pub(crate) to: String,
+    pub(crate) to: Mailbox,
     pub(crate) subject: &'static str,
     pub(crate) plain: String,
     pub(crate) html: String,

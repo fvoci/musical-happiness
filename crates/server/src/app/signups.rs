@@ -10,7 +10,7 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{ContainerKind, RegisterRequest, Session, User, new_id};
+use fvoci_model::{ContainerKind, Registration, Session, User, new_id};
 use fvoci_store::{
     Accepted, Confirmed, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup, SignupStart,
     Started, StoreError,
@@ -37,9 +37,8 @@ impl App {
 
     /// Stores the registration of somebody who signs up, to be confirmed by the link
     /// mailed to its address, and mails that link in the background, in the language of
-    /// the screen it came from: nothing is made of it until then. The caller has tidied
-    /// and checked the request, as for [`App::sign_up`]. Returns the marker of the
-    /// browser it was made from, for its cookie.
+    /// the screen it came from: nothing is made of it until then. Returns the marker of
+    /// the browser it was made from, for its cookie.
     ///
     /// `browser` is the secret of the cookie the browser has already, of a
     /// registration it made before that waits still: this one replaces it, in one
@@ -53,7 +52,7 @@ impl App {
     /// registration holds is the same conflict.
     pub async fn sign_up_to_confirm(
         &self,
-        request: &RegisterRequest,
+        request: &Registration,
         browser: Option<&str>,
         address: Option<IpAddr>,
     ) -> Result<SignupMarker, AppError> {
@@ -66,10 +65,10 @@ impl App {
         };
         let replacing = self.replaced_by(browser);
         let replacing = replacing.as_deref();
-        let user = self.new_account(&request.account(), replacing).await?;
+        let user = self.new_account(request.account(), replacing).await?;
         let now = now_millis();
         let marker = SignupMarker::new();
-        let signup = waiting(&user, &request.language, start, &marker, now);
+        let signup = waiting(&user, request.language(), start, &marker, now);
         self.store()
             .create_signup(&signup, replacing, now)
             .await

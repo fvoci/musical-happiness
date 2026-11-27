@@ -1,6 +1,5 @@
 //! The MIME text of a message, as SMTP carries it and SES's raw sending takes it.
 
-use anyhow::Context as _;
 use mail_builder::MessageBuilder;
 use mail_builder::headers::raw::Raw;
 
@@ -10,10 +9,13 @@ use super::outbound::Outgoing;
 /// of the sender's domain.
 ///
 /// # Errors
-/// Returns an error for a sender without a domain, or what the builder refuses.
+/// Returns what the builder refuses.
 pub(super) fn message(message: &Outgoing) -> anyhow::Result<Vec<u8>> {
-    let domain = message.from.split_once('@').context("invalid sender")?.1;
-    let message_id = format!("{}@{domain}", crate::auth::secret::new_secret());
+    let message_id = format!(
+        "{}@{}",
+        crate::auth::secret::new_secret(),
+        message.from.domain()
+    );
     Ok(MessageBuilder::new()
         .from(message.from.as_str())
         .to(message.to.as_str())

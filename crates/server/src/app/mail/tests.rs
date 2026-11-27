@@ -52,10 +52,10 @@ impl Outbound for Fake {
         &'a self,
         message: &'a Outgoing,
     ) -> Pin<Box<dyn Future<Output = Outcome> + Send + 'a>> {
-        self.attempts
-            .lock()
-            .expect("attempts")
-            .push((self.start.elapsed().as_secs(), message.to.clone()));
+        self.attempts.lock().expect("attempts").push((
+            self.start.elapsed().as_secs(),
+            message.to.as_str().to_owned(),
+        ));
         let mut script = self.script.lock().expect("script");
         let outcome = if script.len() > 1 {
             script.pop_front()
@@ -63,7 +63,7 @@ impl Outbound for Fake {
             script.front().copied()
         };
         let outcome = outcome.unwrap_or(Outcome::Sent);
-        let mut held = (message.to.ends_with("@held.test")).then(|| self.held.subscribe());
+        let mut held = (message.to.as_str().ends_with("@held.test")).then(|| self.held.subscribe());
         Box::pin(async move {
             if let Some(held) = held.as_mut() {
                 // The sender lives as long as the fake; it is never dropped first.

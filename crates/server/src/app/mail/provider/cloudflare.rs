@@ -34,8 +34,8 @@ impl Cloudflare {
 
     async fn deliver(&self, message: &Outgoing) -> Outcome {
         let body = Sending {
-            from: &message.from,
-            to: &message.to,
+            from: message.from.as_str(),
+            to: message.to.as_str(),
             subject: message.subject,
             text: &message.plain,
             html: &message.html,
@@ -46,7 +46,7 @@ impl Cloudflare {
             .bearer_auth(self.token.expose())
             .json(&body);
         match super::send(request).await {
-            Ok(answer) => outcome_of(&answer, &message.to),
+            Ok(answer) => outcome_of(&answer, message.to.as_str()),
             Err(outcome) => outcome,
         }
     }

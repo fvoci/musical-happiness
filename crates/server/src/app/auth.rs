@@ -4,7 +4,8 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use fvoci_model::{
-    MAXIMUM_PASSWORD_BYTES, NewAccount, PersonName, RegisterRequest, Session, User, new_id,
+    CheckedAccount, MAXIMUM_PASSWORD_BYTES, PersonName, RegisterRequest, Registration, Session,
+    User, new_id,
 };
 use fvoci_store::{ConfirmedPassword, SignupLookup, StoreError, Taken};
 
@@ -343,7 +344,7 @@ impl App {
     /// of the registration costs a hash; the store asks again as it stores the account.
     pub(super) async fn require_organization_of_first(
         &self,
-        request: &RegisterRequest,
+        request: &Registration,
     ) -> Result<(), AppError> {
         if request.organization().is_none() && !self.store().is_bootstrapped().await? {
             return Err(RegisterRequest::organization_required().into());
@@ -357,8 +358,7 @@ impl App {
     /// The first user of the instance creates its first organization and administers
     /// the instance; everybody after starts a new organization, where the server
     /// takes several, or none: an account whose request names no organization has its
-    /// own space and is in no organization. The caller has tidied and checked the
-    /// request (`RegisterRequest::tidied`, `RegisterRequest::validate`).
+    /// own space and is in no organization.
     ///
     /// # Errors
     ///
@@ -370,28 +370,28 @@ impl App {
     /// user cannot be stored.
     pub async fn sign_up(
         &self,
-        request: &RegisterRequest,
+        request: &Registration,
         address: Option<IpAddr>,
     ) -> Result<User, AppError> {
         self.sign_up_with_language(request, address, None).await
     }
 
     /// [`App::sign_up`], passing `accept_language` (`Accept-Language`) for choosing the
-    /// welcome board language when `request.language` is empty or unsupported.
+    /// welcome board language when the registration's language is empty or unsupported.
     ///
     /// # Errors
     ///
     /// As [`App::sign_up`].
     pub async fn sign_up_with_language(
         &self,
-        request: &RegisterRequest,
+        request: &Registration,
         address: Option<IpAddr>,
         accept_language: Option<&str>,
     ) -> Result<User, AppError> {
         // A registration costs a hash like a login, and is counted against where it
         // comes from like one. The turn is held until the user is stored.
         let attempt = self.admit_registration(address)?;
-        let preferred_language = super::language::Language::written_in(&request.language)
+        let preferred_language = super::language::Language::written_in(request.language())
             .map(super::language::Language::tag)
             .or(accept_language);
         let Some(name) = request.organization() else {
@@ -399,7 +399,7 @@ impl App {
                 .sign_up_alone(request, preferred_language, attempt)
                 .await;
         };
-        let mut user = self.new_account(&request.account(), None).await?;
+        let mut user = self.new_account(request.account(), None).await?;
         let policy = if self.settings().takes_several_organizations() {
             fvoci_store::FoundingPolicy::FirstOrNew
         } else {
@@ -450,7 +450,7 @@ impl App {
     /// against where it comes from, and the turn is held until the user is stored.
     async fn sign_up_alone(
         &self,
-        request: &RegisterRequest,
+        request: &Registration,
         preferred_language: Option<&str>,
         attempt: crate::auth::limiter::Attempt,
     ) -> Result<User, AppError> {
@@ -458,7 +458,7 @@ impl App {
         if !self.settings().takes_several_organizations() {
             return Err(AppError::invitation_required());
         }
-        let mut user = self.new_account(&request.account(), None).await?;
+        let mut user = self.new_account(request.account(), None).await?;
         let own_space = self
             .store()
             .sign_up_alone(&mut user)
@@ -491,8 +491,7 @@ impl App {
     }
 
     /// The account `account` asks for, not stored yet: under a new identifier, with
-    /// the hash of its password. The caller has checked and tidied the request
-    /// (`NewAccount::validate`, `NewAccount::tidied`). `replacing` is the digest of the
+    /// the hash of its password. `replacing` is the digest of the
     /// marker of the registration this account replaces, whose name and address are
     /// its own to take again.
     ///
@@ -502,7 +501,7 @@ impl App {
     /// case, and a 429 if the server has too much password work to do.
     pub(crate) async fn new_account(
         &self,
-        account: &NewAccount,
+        account: &CheckedAccount,
         replacing: Option<&str>,
     ) -> Result<User, AppError> {
         // Asked first so that a taken name costs no hash. Two registrations at once
@@ -513,10 +512,10 @@ impl App {
             signup.is_some_and(|signup| Some(signup.browser_hash.as_str()) != replacing)
         };
         if self
-            .find_user_for_login(Lookup::Username(&account.username))
+            .find_user_for_login(Lookup::Username(account.username()))
             .await?
             .is_some()
-            || held_by_another(self.find_signup(&account.username, "").await?)
+            || held_by_another(self.find_signup(account.username(), "").await?)
         {
             return Err(username_taken());
         }
@@ -525,25 +524,25 @@ impl App {
         // as one that an account or a registration has, after the same work.
         let kept = self
             .store()
-            .email_is_held_for_revert(&account.email, now_millis())
+            .email_is_held_for_revert(account.email(), now_millis())
             .await?;
         let had = self
-            .find_user_for_login(Lookup::Email(&account.email))
+            .find_user_for_login(Lookup::Email(account.email()))
             .await?
             .is_some();
-        let registered = held_by_another(self.find_signup("", &account.email).await?);
+        let registered = held_by_another(self.find_signup("", account.email()).await?);
         if had || registered || kept {
             return Err(email_taken());
         }
         Ok(User {
             id: new_id(),
-            username: account.username.clone(),
-            email: account.email.clone(),
+            username: account.username().to_owned(),
+            email: account.email().to_owned(),
             name: PersonName {
-                custom_name: account.display_name.clone(),
+                custom_name: account.display_name().to_owned(),
                 ..PersonName::default()
             },
-            password_hash: self.hash(&account.password).await?,
+            password_hash: self.hash(account.password()).await?,
             ..User::default()
         })
     }

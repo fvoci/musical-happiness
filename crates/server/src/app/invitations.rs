@@ -14,9 +14,9 @@ use std::net::IpAddr;
 
 use fvoci_model::User;
 use fvoci_model::{
-    AcceptedInvitation, ContainerKind, ContainerMember, ContainerRole, GUEST_INVITATION_USES,
-    GuestInvitationsChange, INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount,
-    Workspace, WorkspaceRole,
+    AcceptedInvitation, CheckedAccount, ContainerKind, ContainerMember, ContainerRole,
+    GUEST_INVITATION_USES, GuestInvitationsChange, INVITATION_LIFETIME_MILLIS, Invitation,
+    InvitationPreview, Workspace, WorkspaceRole,
 };
 use fvoci_store::{
     Acceptance, Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink, Signup,
@@ -69,10 +69,10 @@ pub enum Accepting<'a> {
     /// The user of the request's session, and the provider it was made through.
     SignedIn(Asker<'a>),
     /// Somebody without an account, who asks for this one, from a screen in
-    /// `language`. The caller has checked and tidied it.
+    /// `language`.
     NewAccount {
         /// The account asked for.
-        account: &'a NewAccount,
+        account: &'a CheckedAccount,
         /// The language tag of the screen, for the mail that confirms its address.
         language: &'a str,
         /// The secret of the browser's cookie, if it has one of a registration that
