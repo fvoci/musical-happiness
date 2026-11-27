@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use super::language::Language;
-use super::mail::{Content, Letter};
+use super::mail::{Content, Letter, SecretLink, SecretPage};
 use crate::auth::limiter::RetryAfter;
 
 use super::App;
@@ -25,10 +25,15 @@ impl App {
     /// Returns not found for an unavailable account, or the storage error.
     pub async fn password_reset_link(&self, username: &str) -> Result<String, AppError> {
         let user = self.store().account_by_username(username).await?;
-        self.reset_link_for(&user.id, Asked::ByOperator).await
+        let link = self.reset_link_for(&user.id, Asked::ByOperator).await?;
+        Ok(link.into_string())
     }
 
-    async fn reset_link_for(&self, user_id: &str, asked: Asked<'_>) -> Result<String, AppError> {
+    async fn reset_link_for(
+        &self,
+        user_id: &str,
+        asked: Asked<'_>,
+    ) -> Result<SecretLink, AppError> {
         let token = new_secret();
         let (digest, now) = (token_digest(&token), now_millis());
         let store = self.store();
@@ -47,10 +52,10 @@ impl App {
         if !stored {
             return Err(AppError::not_found("account with a password"));
         }
-        // Fragments never reach HTTP request targets, proxy logs or Referer headers.
-        Ok(format!(
-            "{}/reset-password#{token}",
-            self.config().server_url.trim_end_matches('/')
+        Ok(SecretLink::new(
+            self.settings().server_url(),
+            SecretPage::ResetPassword,
+            &token,
         ))
     }
 

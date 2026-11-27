@@ -14,7 +14,7 @@ use fvoci_store::EmailReverted;
 use super::App;
 use super::auth::{WrongPassword, account_error};
 use super::language::Language;
-use super::mail::{Content, Letter, Queued};
+use super::mail::{Content, Letter, Queued, SecretLink, SecretPage};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -229,10 +229,10 @@ impl App {
         let Some(notice) = notice.filter(|_| !changed.old_email.is_empty()) else {
             return Ok(());
         };
-        // Fragments never reach HTTP request targets, proxy logs or Referer headers.
-        let link = format!(
-            "{}/revert-email#{revert}",
-            self.config().server_url.trim_end_matches('/')
+        let link = SecretLink::new(
+            self.settings().server_url(),
+            SecretPage::RevertEmail,
+            &revert,
         );
         let app = self.clone();
         self.spawn_background(async move {
@@ -369,11 +369,10 @@ impl App {
                         return Err(AppError::not_found("change of address"));
                     }
                     *digest.lock().expect(DIGEST_LOCK) = made;
-                    // Fragments never reach HTTP request targets, proxy logs or
-                    // Referer headers.
-                    let link = format!(
-                        "{}/confirm-email#{token}",
-                        self.config().server_url.trim_end_matches('/')
+                    let link = SecretLink::new(
+                        self.settings().server_url(),
+                        SecretPage::ConfirmEmail,
+                        &token,
                     );
                     Ok::<_, AppError>(Letter {
                         to: waiting.email.clone(),

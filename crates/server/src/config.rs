@@ -794,6 +794,7 @@ impl Configuration {
         // from this address.
         let origins = crate::auth::token::Origins::new(&self.server_url, &self.allowed_origins)
             .map_err(anyhow::Error::msg)?;
+        let server_url: ServerUrl = self.server_url.parse()?;
         let trusted_proxies =
             TrustedProxies::parse(&self.trusted_proxies).map_err(anyhow::Error::msg)?;
         self.check_login_limits()?;
@@ -824,6 +825,7 @@ impl Configuration {
         let read = settings::Read {
             org_creation,
             database_kind,
+            server_url,
             origins,
             trusted_proxies,
             largest_file: largest.file,

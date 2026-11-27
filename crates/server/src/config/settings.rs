@@ -10,7 +10,7 @@ use anyhow::bail;
 use fvoci_store::DbType;
 
 use super::{Configuration, ORG_CREATION_FIRST_USER_ONLY, ORG_CREATION_OPEN, TrustedProxies};
-use crate::auth::token::Origins;
+use crate::auth::token::{Origins, origin_of};
 
 /// Whether the server holds one organization or takes in several: `org_creation`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,12 +42,18 @@ impl FromStr for OrgCreation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerUrl(String);
 
-impl ServerUrl {
-    /// The URL `text` names, which the check has found to be one.
-    fn checked(text: &str) -> Self {
-        Self(text.trim_end_matches('/').to_owned())
-    }
+impl FromStr for ServerUrl {
+    type Err = anyhow::Error;
 
+    fn from_str(text: &str) -> anyhow::Result<Self> {
+        if origin_of(text).is_none() {
+            bail!("server_url {text:?} is no http or https URL");
+        }
+        Ok(Self(text.trim_end_matches('/').to_owned()))
+    }
+}
+
+impl ServerUrl {
     /// The URL, without a slash at its end.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -79,6 +85,7 @@ pub struct Settings {
 pub(super) struct Read {
     pub(super) org_creation: OrgCreation,
     pub(super) database_kind: DbType,
+    pub(super) server_url: ServerUrl,
     pub(super) origins: Origins,
     pub(super) trusted_proxies: TrustedProxies,
     pub(super) largest_file: NonZeroU64,
@@ -88,7 +95,6 @@ pub(super) struct Read {
 impl Settings {
     /// The settings of `config`, which the check accepted, with what it read.
     pub(super) fn new(config: Configuration, read: Read) -> Self {
-        let server_url = ServerUrl::checked(&config.server_url);
         // The test harness turns the pings off where they would only be noise.
         let websocket_ping = (!config.skip_websocket_pings)
             .then(|| Duration::from_secs(config.websocket_ping_seconds));
@@ -96,7 +102,7 @@ impl Settings {
             config,
             org_creation: read.org_creation,
             database_kind: read.database_kind,
-            server_url,
+            server_url: read.server_url,
             origins: read.origins,
             trusted_proxies: read.trusted_proxies,
             largest_file: read.largest_file,

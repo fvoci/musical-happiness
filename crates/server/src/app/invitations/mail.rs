@@ -188,7 +188,7 @@ impl App {
         let sender_language =
             Language::written_in(self.user_settings(sender).await?.language.as_str());
         let requested = Language::written_in(&request.language);
-        let root = self.config().server_url.trim_end_matches('/');
+        let server = self.settings().server_url();
         for ((recipient, place), allowed) in
             request.recipients.into_iter().zip(queued).zip(admitted)
         {
@@ -236,7 +236,7 @@ impl App {
                             // Members share the one link.
                             _ => request.token.clone(),
                         };
-                        let link = format!("{root}/invite/{token}");
+                        let link = server.at(&format!("/invite/{token}"));
                         Ok(Letter {
                             content: Content::invitation(&link, language, invitation.role),
                             to: recipient,

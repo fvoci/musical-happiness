@@ -1,5 +1,6 @@
 //! Plain-text and HTML messages containing only public links and human-facing text.
 
+use super::SecretLink;
 use crate::app::language::Language;
 
 /// The text of one message, in one language.
@@ -11,7 +12,7 @@ pub(crate) struct Content {
 }
 
 impl Content {
-    pub(crate) fn reset(link: &str, language: Language) -> Self {
+    pub(crate) fn reset(link: &SecretLink, language: Language) -> Self {
         let (subject, intro, ending) = match language {
             Language::English => (
                 "Reset your fvoci password",
@@ -24,12 +25,12 @@ impl Content {
                 "이 링크는 1시간 동안 한 번만 쓸 수 있습니다. 요청하지 않았다면 이 메일을 무시하세요.",
             ),
         };
-        Self::link(subject, intro, ending, link, language)
+        Self::link(subject, intro, ending, link.as_str(), language)
     }
 
     /// The link that confirms the address of a registration, which signs its person in
     /// as `username`: named, so that who did not sign up sees whose registration it is.
-    pub(crate) fn verification(link: &str, username: &str, language: Language) -> Self {
+    pub(crate) fn verification(link: &SecretLink, username: &str, language: Language) -> Self {
         let (subject, intro, ending) = match language {
             Language::English => (
                 "Confirm your email address for fvoci",
@@ -42,12 +43,12 @@ impl Content {
                 "이 링크는 24시간 동안 한 번만 쓸 수 있습니다. 가입한 브라우저가 아닌 곳에서 열면 가입할 때 정한 비밀번호를 묻습니다. 가입한 적이 없으면 이 메일을 무시하면 됩니다. 확인하지 않은 가입은 7일 뒤 지워집니다.",
             ),
         };
-        Self::link(subject, &intro, ending, link, language)
+        Self::link(subject, &intro, ending, link.as_str(), language)
     }
 
     /// The link that makes the address it is mailed to the address of the account
     /// `username`: named, so that who did not ask sees whose account it is.
-    pub(crate) fn email_change(link: &str, username: &str, language: Language) -> Self {
+    pub(crate) fn email_change(link: &SecretLink, username: &str, language: Language) -> Self {
         let (subject, intro, ending) = match language {
             Language::English => (
                 "Confirm your new email address for fvoci",
@@ -62,14 +63,14 @@ impl Content {
                 "이 링크는 24시간 동안 한 번만 쓸 수 있습니다. 쓰기 전까지 계정의 주소는 그대로입니다. 요청한 적이 없으면 이 메일을 무시하면 됩니다. 아무것도 바뀌지 않습니다.",
             ),
         };
-        Self::link(subject, &intro, ending, link, language)
+        Self::link(subject, &intro, ending, link.as_str(), language)
     }
 
     /// The notice to the address the account `username` had, that it is the account's
     /// no more, with the link that gives the account that address back (`link`), for
     /// a change its owner did not make. It names nothing of the new address: whoever
     /// reads the old mailbox learns that the address changed, not where to.
-    pub(crate) fn email_changed(link: &str, username: &str, language: Language) -> Self {
+    pub(crate) fn email_changed(link: &SecretLink, username: &str, language: Language) -> Self {
         let (subject, intro, ending) = match language {
             Language::English => (
                 "The email address of your fvoci account was changed",
@@ -86,7 +87,7 @@ impl Content {
                 "이 링크는 7일 동안 한 번만 쓸 수 있고, 링크를 열기만 해서는 아무것도 바뀌지 않습니다. 열린 페이지의 단추를 눌러야 합니다. 직접 바꿨다면 이 메일을 무시하세요.",
             ),
         };
-        Self::link(subject, &intro, ending, link, language)
+        Self::link(subject, &intro, ending, link.as_str(), language)
     }
 
     /// The notice to the address the account `username` had until a revert link mailed
@@ -186,6 +187,13 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::mail::SecretPage;
+
+    /// The link to `page` of a server at `https://example.test` with `secret`.
+    fn secret_link(page: SecretPage, secret: &str) -> SecretLink {
+        let server: crate::config::ServerUrl = "https://example.test".parse().expect("a URL");
+        SecretLink::new(&server, page, secret)
+    }
 
     #[test]
     fn the_first_language_the_mail_is_written_in_is_taken_or_else_english() {
@@ -212,8 +220,10 @@ mod tests {
             (Language::English, "Reset your fvoci password"),
             (Language::Korean, "fvoci 비밀번호 재설정"),
         ] {
-            let content =
-                Content::reset("https://example.test/reset-password#secret\"<&", language);
+            let content = Content::reset(
+                &secret_link(SecretPage::ResetPassword, "secret\"<&"),
+                language,
+            );
             assert_eq!(content.subject, subject);
             assert!(
                 content
@@ -232,7 +242,7 @@ mod tests {
             (Language::Korean, "fvoci 이메일 주소 확인"),
         ] {
             let content =
-                Content::verification("https://example.test/verify-email#t<", "a<b", language);
+                Content::verification(&secret_link(SecretPage::VerifyEmail, "t<"), "a<b", language);
             assert_eq!(content.subject, subject);
             assert!(
                 content
@@ -276,16 +286,22 @@ mod tests {
     #[test]
     fn the_mails_of_a_changed_address_have_both_languages_and_name_no_workspace() {
         for language in [Language::English, Language::Korean] {
-            let link =
-                Content::email_change("https://example.test/confirm-email#t<", "a<b", language);
+            let link = Content::email_change(
+                &secret_link(SecretPage::ConfirmEmail, "t<"),
+                "a<b",
+                language,
+            );
             assert!(
                 link.plain.contains("https://example.test/confirm-email#t<"),
                 "{}",
                 link.plain
             );
             assert!(link.html.contains("#t&lt;"), "{}", link.html);
-            let notice =
-                Content::email_changed("https://example.test/revert-email#r<", "a<b", language);
+            let notice = Content::email_changed(
+                &secret_link(SecretPage::RevertEmail, "r<"),
+                "a<b",
+                language,
+            );
             assert!(
                 notice
                     .plain

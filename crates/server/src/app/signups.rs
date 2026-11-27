@@ -19,7 +19,7 @@ use fvoci_store::{
 use super::App;
 use super::auth::{PasswordHolder, account_error, incorrect_login};
 use super::language::Language;
-use super::mail::{Content, Letter};
+use super::mail::{Content, Letter, SecretLink, SecretPage};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -222,7 +222,11 @@ impl App {
     }
 
     /// A new link for the registration, of `token`, made as its message has its turn.
-    async fn renew_signup_link(&self, signup_id: &str, token: &str) -> Result<String, AppError> {
+    async fn renew_signup_link(
+        &self,
+        signup_id: &str,
+        token: &str,
+    ) -> Result<SecretLink, AppError> {
         let renewed = self
             .store()
             .renew_signup_link(signup_id, &token_digest(token), now_millis())
@@ -230,10 +234,10 @@ impl App {
         if !renewed {
             return Err(AppError::not_found("registration"));
         }
-        // Fragments never reach HTTP request targets, proxy logs or Referer headers.
-        Ok(format!(
-            "{}/verify-email#{token}",
-            self.config().server_url.trim_end_matches('/')
+        Ok(SecretLink::new(
+            self.settings().server_url(),
+            SecretPage::VerifyEmail,
+            token,
         ))
     }
 

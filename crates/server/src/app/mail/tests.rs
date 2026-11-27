@@ -11,6 +11,12 @@ use tokio::time::Instant;
 use super::*;
 use crate::app::language::Language;
 
+/// A link to choose a new password, of a server at `https://example.test`.
+fn reset_link() -> SecretLink {
+    let server: crate::config::ServerUrl = "https://example.test".parse().expect("a URL");
+    SecretLink::new(&server, SecretPage::ResetPassword, "secret")
+}
+
 /// A way of sending that answers from a script, and the last answer once it runs out.
 struct Fake {
     start: Instant,
@@ -98,7 +104,7 @@ fn send(mailer: &Mailer, queued: Queued, to: &str) -> tokio::task::JoinHandle<()
                 || async {
                     Ok::<_, ()>(Letter {
                         to,
-                        content: Content::reset("https://example.test/reset", Language::English),
+                        content: Content::reset(&reset_link(), Language::English),
                     })
                 },
                 || async { Ok(true) },
@@ -680,7 +686,7 @@ async fn a_message_that_no_longer_stands_is_withdrawn_before_its_next_attempt() 
         || async {
             Ok::<_, ()>(Letter {
                 to: "i@example.test".to_owned(),
-                content: Content::reset("https://example.test/reset", Language::English),
+                content: Content::reset(&reset_link(), Language::English),
             })
         },
         || async { Ok(stands.load(std::sync::atomic::Ordering::SeqCst)) },

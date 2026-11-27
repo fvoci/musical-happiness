@@ -7,6 +7,7 @@ mod outbound;
 mod pace;
 mod provider;
 mod quota;
+mod secret_link;
 mod share;
 mod smtp;
 #[cfg(test)]
@@ -25,6 +26,7 @@ use crate::metrics::{MailFailure, MailKind, Metrics, ResetMailDrop};
 
 pub(super) use content::Content;
 use outbound::{Outbound, Outcome, Outgoing};
+pub(super) use secret_link::{SecretLink, SecretPage};
 pub(super) use share::Organizations;
 
 /// At most four messages are being sent at once; HTTP requests never wait for them.
