@@ -74,9 +74,21 @@
   // svelte-ignore state_referenced_locally (only where it is drawn to open)
   let open = $state(startOpen);
 
+  /**
+   * "Clear" was pressed. The field saves what it holds when it is left, and
+   * the surface closing leaves it: that text is not put over the clearing.
+   */
+  let clearing = false;
+
   function put(value: PropertyValue | undefined): void {
+    if (clearing && value !== undefined && value !== '') return;
     open = false;
     onChange(value);
+  }
+
+  function clear(): void {
+    clearing = true;
+    put(undefined);
   }
 </script>
 
@@ -124,7 +136,15 @@
     {onChange}
   />
 {:else}
-  <PickerSurface bind:open {presentation} title={name} trigger={opener}>
+  <PickerSurface
+    bind:open
+    {presentation}
+    title={name}
+    trigger={opener}
+    onOpenChange={(next: boolean) => {
+      if (next) clearing = false;
+    }}
+  >
     <div class="flex min-w-56 flex-col gap-1 p-1" data-slot="bulk-field">
       {#if type === 'checkbox'}
         <div class="flex items-center gap-1">
@@ -155,9 +175,11 @@
         <Button
           variant="ghost"
           class="justify-start group-data-[presentation=sheet]/surface:min-h-touch"
-          onclick={() => {
-            put(undefined);
+          onmousedown={(event: MouseEvent) => {
+            // The focus stays in the field: leaving it would save its text and close the surface first.
+            event.preventDefault();
           }}
+          onclick={clear}
         >
           {m.property_clear()}
         </Button>

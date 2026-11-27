@@ -115,4 +115,27 @@ describe('the gallery', () => {
     });
     expect(board.card(onOpenCard.mock.calls[0]?.[0])?.fields.properties[STATUS]).toBe('done');
   });
+
+  it('selects a card with Ctrl, and another view of the board starts with nothing selected', async () => {
+    const { board } = await openFirstBoard();
+    const first = board.orderedViews[0];
+    if (!first) throw new Error('no view');
+    const view = { ...first, fields: { ...first.fields, viewType: 'gallery' as const } };
+    const props = {
+      board,
+      view,
+      cards: board.cardsOf(view),
+      cardHref: (cardId: string) => `/board/b/v/${cardId}`,
+      onOpenCard: vi.fn<(cardId: string) => void>(),
+    };
+    const { rerender } = render(Gallery, props);
+    const [card] = screen.getAllByRole('link');
+    if (!card) throw new Error('no cards');
+    await fireEvent.click(card, { ctrlKey: true });
+    expect(screen.getByTestId('selection-bar')).toHaveTextContent('1 selected');
+    expect(props.onOpenCard).not.toHaveBeenCalled();
+
+    await rerender({ ...props, view: { ...view, id: `${view.id}-other` } });
+    expect(screen.queryByTestId('selection-bar')).toBeNull();
+  });
 });

@@ -55,6 +55,22 @@ const SEED: SeedTemplate = {
         filter: { operation: 'and', filters: [] },
       },
     },
+    {
+      id: 'w',
+      title: 'Other',
+      fields: {
+        viewType: 'table',
+        shownProperties: ['status', 'note'],
+        visibleGroups: [],
+        hiddenGroups: [],
+        collapsedGroups: [],
+        sort: [],
+        cardOrder: ['c2', 'c1', 'c3'],
+        columnWidths: {},
+        columnCalculations: {},
+        filter: { operation: 'and', filters: [] },
+      },
+    },
   ],
   cards: [
     {
@@ -79,10 +95,13 @@ const SEED: SeedTemplate = {
   files: [],
 };
 
+let rerenderTable: ((viewId: string) => Promise<void>) | undefined;
+
 async function mount(): Promise<BoardStore> {
   const { board } = await openFirstBoard(setup([SEED]));
   const viewId = board.orderedViews[0]?.id ?? '';
-  render(TableHarness, { props: { board, viewId } });
+  const { rerender } = render(TableHarness, { props: { board, viewId } });
+  rerenderTable = (next) => rerender({ board, viewId: next });
   await tick();
   return board;
 }
@@ -197,6 +216,20 @@ describe('selecting rows', () => {
   });
 });
 
+describe('another view of the board', () => {
+  it('starts with nothing selected', async () => {
+    const board = await mount();
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    expect(bar()).not.toBeNull();
+    const other = board.orderedViews[1]?.id;
+    if (!other || !rerenderTable) throw new Error('no second view');
+    await rerenderTable(other);
+    await tick();
+    expect(bar()).toBeNull();
+    expect(selected()).toEqual([]);
+  });
+});
+
 describe('the bar of the selection', () => {
   it('sets a value on every selected row in one step of undo', async () => {
     const board = await mount();
@@ -229,6 +262,30 @@ describe('the bar of the selection', () => {
     expect(one(bar(), '[data-bulk-property="status"]').getAttribute('title')).toBe(
       'Status: mixed values',
     );
+  });
+
+  it('clears a text property on every selected row, whatever was typed before "Clear"', async () => {
+    const board = await mount();
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    await fireEvent.click(titleOf('Gamma'), { ctrlKey: true });
+    await fireEvent.click(one(bar(), '[data-bulk-menu]'));
+    const menu = await screen.findByRole('menu');
+    await fireEvent.click(within(menu).getByText('Note'));
+    const field = await waitFor(() => one(document, '[data-slot="bulk-field"] input'));
+    await fireEvent.input(field, { target: { value: 'typed' } });
+    const clear = within(one(document, '[data-slot="bulk-field"]')).getByRole('button', {
+      name: 'Clear',
+    });
+    // The press keeps the focus in the field, which would save "typed" when left.
+    expect(await fireEvent.mouseDown(clear)).toBe(false);
+    await fireEvent.click(clear);
+    // A field that is left as the surface closes does not put its text over the clearing.
+    if (field.isConnected) await fireEvent.blur(field);
+    await settle();
+    const noteOf = (title: string): unknown =>
+      board.cards.find((card) => card.title === title)?.fields.properties.note;
+    expect(noteOf('Alpha')).toBeUndefined();
+    expect(noteOf('Gamma')).toBeUndefined();
   });
 
   it('deletes the selected rows in one step, and lets the selection go', async () => {

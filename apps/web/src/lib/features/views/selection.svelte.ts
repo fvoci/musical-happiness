@@ -56,8 +56,7 @@ export function withRange(
 
 export class Selection {
   #selected = $state.raw<readonly string[]>([]);
-  /** A plain press selects instead of opening. */
-  selecting = $state(false);
+  #selecting = $state(false);
   /** The last press would have taken in more cards than may be selected. */
   full = $state(false);
   /** The card a range is measured from: the one pressed last. */
@@ -75,6 +74,15 @@ export class Selection {
     return this.#selected.filter((id) => shown.includes(id));
   });
 
+  /**
+   * A plain press selects instead of opening: after "Select", while a card
+   * of the selection is in the view. One that left it (filtered out) ends
+   * that too.
+   */
+  get selecting(): boolean {
+    return this.#selecting && this.ids.length > 0;
+  }
+
   has(cardId: string): boolean {
     return this.ids.includes(cardId);
   }
@@ -82,7 +90,7 @@ export class Selection {
   #set(next: readonly string[]): void {
     this.full = next.length > CARD_BATCH_LIMIT;
     this.#selected = this.full ? next.slice(0, CARD_BATCH_LIMIT) : next;
-    if (next.length === 0) this.selecting = false;
+    if (next.length === 0) this.#selecting = false;
   }
 
   /** Takes a card in, or out when it was in. */
@@ -110,7 +118,7 @@ export class Selection {
 
   /** "Select" in the menu of a card: from then on a plain press selects. */
   begin(cardId: string): void {
-    this.selecting = true;
+    this.#selecting = true;
     this.toggle(cardId);
   }
 

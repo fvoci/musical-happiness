@@ -1,4 +1,5 @@
 /** The selection of cards in a view of a board (features/views/selection.svelte.ts). */
+import { SvelteSet } from 'svelte/reactivity';
 import { describe, expect, it } from 'vitest';
 
 import { Selection, toggled, withRange } from '$lib/features/views/selection.svelte.ts';
@@ -138,5 +139,34 @@ describe('Escape in a view', () => {
     root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(selection.ids).toEqual([]);
     detach();
+  });
+});
+
+describe('"Select" without a selected card in the view', () => {
+  it('ends once the view no longer shows a selected card, and a plain press opens again', () => {
+    // Reactive, as the view's rows are: the selection reads the change.
+    const shown = new SvelteSet(['a', 'b', 'c']);
+    const selection = new Selection(() => [...shown]);
+    selection.begin('a');
+    expect(selection.selecting).toBe(true);
+    shown.delete('a');
+    expect(selection.ids).toEqual([]);
+    expect(selection.selecting).toBe(false);
+    expect(selection.press('b', 'open')).toBe(false);
+    // The card comes back into the view: a plain press is the card's again until "Select".
+    shown.add('a');
+    selection.clear();
+    expect(selection.press('b', 'open')).toBe(false);
+  });
+
+  it('goes on while a selected card is still in the view', () => {
+    const shown = new SvelteSet(['a', 'b', 'c']);
+    const selection = new Selection(() => [...shown]);
+    selection.begin('a');
+    selection.toggle('b');
+    shown.delete('a');
+    expect(selection.selecting).toBe(true);
+    expect(selection.press('c', 'open')).toBe(true);
+    expect(selection.ids).toEqual(['b', 'c']);
   });
 });

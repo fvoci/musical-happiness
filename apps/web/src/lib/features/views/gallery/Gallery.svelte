@@ -58,6 +58,7 @@
     untrack(() => {
       openMenuId = undefined;
       menusMade.clear();
+      selection.clear();
     });
   });
 

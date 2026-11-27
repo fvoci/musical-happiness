@@ -67,7 +67,7 @@
       : gridTemplate(table.headerColumns.map((column) => column.width)),
   );
 
-  // Another view starts at its top left corner, with nothing being edited.
+  // Another view starts at its top left corner, with nothing being edited or selected.
   $effect(() => {
     // Read the identifier: that is what makes this run again for another view.
     const shown = view.id;
@@ -76,6 +76,7 @@
       keeper.reset();
       editing.stop();
       table.resetCollapsed();
+      selection.clear();
     });
   });
   // After the rows or the columns were drawn anew, one cell is still the Tab stop.
