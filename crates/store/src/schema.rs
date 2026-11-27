@@ -73,7 +73,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 14] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 51] = [
+pub(crate) const ORG_TABLES: [&str; 52] = [
     "api_token_workspaces",
     "audit_log",
     "blocks",
@@ -113,6 +113,7 @@ pub(crate) const ORG_TABLES: [&str; 51] = [
     "organization_members",
     "organizations",
     "public_links",
+    "reactions",
     "search_outbox",
     "subscriptions",
     "team_members",
@@ -136,6 +137,11 @@ const A_SCHEMA_TABLE: &str = "blocks";
 
 /// Applies the migrations the database does not have yet.
 ///
+/// SQLite's migrator holds no lock while it applies them, as PostgreSQL's holds one: of
+/// two openings at once, the second may take up a migration that the first is
+/// applying, and fail when the database has it. It reads the record again then, and
+/// goes on from where the first is.
+///
 /// # Errors
 ///
 /// Returns [`StoreError::Schema`] with the reason if the database holds this server's
@@ -146,11 +152,30 @@ pub(crate) async fn migrate(store: &Store, steps: &[Step]) -> Result<(), StoreEr
     store.with_conn(inspect::refuse_unrecorded_schemas).await?;
 
     let migrator = migrator(store.dialect(), steps);
-    let result = match &store.inner.pool {
-        Pool::Sqlite(pool) => migrator.run(pool).await,
-        Pool::Postgres(pool) => migrator.run(pool).await,
-    };
-    result.map_err(|error| match error {
+    let mut tries = steps.len();
+    loop {
+        let result = match &store.inner.pool {
+            Pool::Sqlite(pool) => migrator.run(pool).await,
+            Pool::Postgres(pool) => migrator.run(pool).await,
+        };
+        let Err(error) = result else {
+            return Ok(());
+        };
+        tries = tries.saturating_sub(1);
+        if store.dialect() == Dialect::Sqlite {
+            match state(store, steps).await? {
+                SchemaState::Current => return Ok(()),
+                SchemaState::Behind if tries > 0 => continue,
+                _ => {}
+            }
+        }
+        return Err(migrate_error(error));
+    }
+}
+
+/// What a failure of the migrator is to the store.
+fn migrate_error(error: MigrateError) -> StoreError {
+    match error {
         MigrateError::Execute(error) | MigrateError::ExecuteMigration(error, _) => {
             StoreError::Database(error)
         }
@@ -163,15 +188,16 @@ pub(crate) async fn migrate(store: &Store, steps: &[Step]) -> Result<(), StoreEr
              database was created by a different build"
         )),
         other => StoreError::Schema(other.to_string()),
-    })
+    }
 }
 
 /// Replaces the record of a database that the last server before the baseline brought
 /// up to date ([`SchemaState::BeforeBaseline`]) with the record of the baseline. Its
 /// schema is the baseline's already: no statement changes it, and a server that serves
 /// the database meanwhile goes on serving it. Of two that do it at once, the second
-/// finds it done: the record is locked (PostgreSQL) or the database is (SQLite's
-/// `BEGIN IMMEDIATE`), and read again under the lock.
+/// finds it done, the baseline's record first in the record, and the first maybe gone
+/// on to the migrations after it: the record is locked (PostgreSQL) or the database is
+/// (SQLite's `BEGIN IMMEDIATE`), and read again under the lock.
 ///
 /// # Errors
 ///
@@ -202,7 +228,7 @@ pub(crate) async fn re_anchor(store: &Store, steps: &[Step]) -> Result<(), Store
                 scope.execute(lock).await?;
             }
             let recorded = inspect::record(scope).await?;
-            if recorded == anchored {
+            if recorded.first() == anchored.first() {
                 return Ok(());
             }
             match inspect::before_baseline(scope, &recorded).await? {
