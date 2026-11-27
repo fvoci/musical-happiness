@@ -102,8 +102,9 @@ const RETIRED_TOKENS: [&str; 5] = [
 ];
 
 /// Path prefixes exempt from [`BANNED_PHRASES`] and [`RETIRED_TOKENS`] (never from
-/// [`BANNED`]): the third-party sources vendored under `vendor/`.
-const PHRASE_EXEMPT_PREFIXES: [&str; 1] = ["vendor/"];
+/// [`BANNED`]): the third-party sources as they were vendored, and nothing written here
+/// beside them (the import script and its lists under `vendor/rhwp-studio/`).
+const PHRASE_EXEMPT_PREFIXES: [&str; 1] = ["vendor/rhwp-studio/upstream/"];
 
 /// The banned words, by their number of letters.
 #[derive(Debug)]
@@ -534,7 +535,7 @@ mod tests {
         );
         assert_eq!(
             check_file(
-                "vendor/rhwp-studio/src/example.ts",
+                "vendor/rhwp-studio/upstream/src/example.ts",
                 concat!("// 원본", "과 비교\n"),
                 &mut reading,
                 &BANNED_PHRASES
@@ -543,12 +544,22 @@ mod tests {
         );
         assert_eq!(
             check_file(
-                "vendor/rhwp-studio/src/example.ts",
+                "vendor/rhwp-studio/import.mjs",
+                concat!("// 원본", "과 비교\n"),
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            ["vendor/rhwp-studio/import.mjs:1"],
+            "what is written here beside the vendored sources is held to the phrases"
+        );
+        assert_eq!(
+            check_file(
+                "vendor/rhwp-studio/upstream/src/example.ts",
                 word_line,
                 &mut reading,
                 &BANNED_PHRASES
             ),
-            ["vendor/rhwp-studio/src/example.ts:1"]
+            ["vendor/rhwp-studio/upstream/src/example.ts:1"]
         );
         assert_eq!(
             check_file("docs/notes.md", phrase_line, &mut reading, &BANNED_PHRASES),
@@ -584,9 +595,18 @@ mod tests {
                 );
             }
             assert_eq!(
-                check_file("vendor/lib/a.ts", hit_line, &mut reading, &[]),
+                check_file(
+                    "vendor/rhwp-studio/upstream/lib/a.ts",
+                    hit_line,
+                    &mut reading,
+                    &[]
+                ),
                 Vec::<String>::new(),
                 "vendored sources are not ours to rename"
+            );
+            assert_eq!(
+                check_file("vendor/rhwp-studio/import.mjs", hit_line, &mut reading, &[]),
+                ["vendor/rhwp-studio/import.mjs:1"]
             );
         }
         let named = concat!("crates/store/src/", "create", "_at.rs");

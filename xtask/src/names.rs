@@ -2,11 +2,12 @@
 //!
 //! A workspace was once named a team, and a board's groups of people are teams now
 //! (`teams`, `team_members`, `container_teams`). What the step refuses is the
-//! identifiers that meant a workspace, or a board of one, and are gone: [`RETIRED`], in
-//! any case, in the text and the path of every file git tracks or would track, and
-//! [`RETIRED_ROUTES`], the routes of the workspaces under that name, in the sources of
-//! the crates and of the web app (the tests of the server keep asking for them, to see
-//! that nothing answers). Nothing is excepted.
+//! identifiers that meant a workspace, or a board of one, and are gone: [`RETIRED`] and
+//! the kind of an organization of that name however its key and value are written
+//! ([`names_the_retired_kind`]), in any case, in the text and the path of every file git
+//! tracks or would track, and [`RETIRED_ROUTES`], the routes of the workspaces under
+//! that name, in the sources of the crates and of the web app (the tests of the server
+//! keep asking for them, to see that nothing answers). Nothing is excepted.
 
 use std::path::Path;
 use std::process::Command;
@@ -17,13 +18,38 @@ use crate::steps;
 
 /// The retired identifiers, written in halves so that this file passes its own check.
 /// Matched in lowercase.
-const RETIRED: [&str; 5] = [
+const RETIRED: [&str; 3] = [
     concat!("orgkind::", "team"),
-    concat!("\"kind\": \"", "team\""),
-    concat!("kind: '", "team'"),
     concat!("board_", "teams"),
     concat!("deleted_", "boards"),
 ];
+
+/// The retired kind of an organization.
+const RETIRED_KIND: &str = "team";
+
+/// Whether `line`, in lowercase, gives a `kind` the value [`RETIRED_KIND`], however the
+/// key and the value are written: `kind`, the quote that ends it if it is quoted, `:`
+/// or `=` (`==`, `===` too), and the kind in quotes, with any spaces between. JSON
+/// (`"kind":"…"`), a script (`kind: '…'`, `kind === "…"`) and SQL (`kind = '…'`) alike.
+fn names_the_retired_kind(line: &str) -> bool {
+    line.match_indices("kind").any(|(at, key)| {
+        let rest = &line[at + key.len()..];
+        let rest = rest.strip_prefix(['"', '\'']).unwrap_or(rest).trim_start();
+        let after_the_sign = rest.strip_prefix(':').or_else(|| {
+            let without = rest.trim_start_matches('=');
+            (without.len() < rest.len()).then_some(without)
+        });
+        let Some(rest) = after_the_sign.map(str::trim_start) else {
+            return false;
+        };
+        let Some(quote) = rest.chars().next().filter(|c| matches!(c, '"' | '\'')) else {
+            return false;
+        };
+        rest[quote.len_utf8()..]
+            .strip_prefix(RETIRED_KIND)
+            .is_some_and(|after| after.starts_with(quote))
+    })
+}
 
 /// The routes of the workspaces under their retired name, refused in [`SOURCES`].
 const RETIRED_ROUTES: [&str; 2] = [concat!("/api/v1/", "teams"), concat!("/api/v2/", "teams")];
@@ -81,7 +107,7 @@ fn check_file(file: &str, text: &str) -> Vec<String> {
     let names = names_for(file);
     let holds = |line: &str| {
         let line = line.to_lowercase();
-        names.iter().any(|name| line.contains(name))
+        names.iter().any(|name| line.contains(name)) || names_the_retired_kind(&line)
     };
     let mut hits = Vec::new();
     if holds(file) {
@@ -186,6 +212,37 @@ mod tests {
         }
         let named = concat!("crates/server/tests/api/board_", "teams.rs");
         assert_eq!(check_file(named, ""), [format!("{named}: in its name")]);
+    }
+
+    #[test]
+    fn the_retired_kind_is_found_however_its_key_and_value_are_written() {
+        for text in [
+            concat!("{\"kind\":\"", "team\"}"),
+            concat!("{\"kind\" :  \"", "team\"}"),
+            concat!("x = { kind: \"", "team\" };"),
+            concat!("UPDATE orgs SET kind = '", "team'"),
+            concat!("WHERE org_kind='", "TEAM'"),
+            concat!("if (org.kind === '", "team') {"),
+        ] {
+            assert_eq!(
+                check_file("apps/web/src/a.ts", text),
+                ["apps/web/src/a.ts:1"],
+                "{text}"
+            );
+        }
+        for text in [
+            "kind: 'shared'",
+            "\"kind\": \"teamwork\"",
+            "kind: 'team\"",
+            "kind team",
+            "the kind of a team",
+        ] {
+            assert_eq!(
+                check_file("apps/web/src/a.ts", text),
+                Vec::<String>::new(),
+                "{text}"
+            );
+        }
     }
 
     #[test]
