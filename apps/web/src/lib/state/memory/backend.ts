@@ -31,6 +31,7 @@ import {
   type CardMovesInput,
   type CardMovesOutput,
   type CardPatch,
+  type CardPropertiesPatch,
   type CardSummary,
   type CardTelling,
   type Category,
@@ -64,6 +65,7 @@ import { BlockTurns } from '../write.ts';
 import { changeName, keepSettings, settingsOf } from './account.ts';
 import * as blockOps from './block-ops.ts';
 import * as boardAuth from './board-authority.ts';
+import { batchPatchMemoryCards } from './card-batch.ts';
 import { openMemoryRoom } from './bodies.ts';
 import { MemoryBodyVersions } from './body-versions.ts';
 import { MemoryCategories } from './categories.ts';
@@ -401,6 +403,10 @@ export class MemoryBackend implements Backend {
   async moveViewCards(b: string, v: string, move: CardMovesInput): Promise<CardMovesOutput> {
     await this.#enter('moveViewCards');
     return boardAuth.moveMemoryViewCards(this, b, v, move);
+  }
+  async batchPatchCards(b: string, ids: readonly string[], p: CardPropertiesPatch) {
+    await this.#enter('batchPatchCards');
+    return batchPatchMemoryCards(this, b, ids, p);
   }
   async batchDeleteCards(boardId: string, cardIds: readonly string[]): Promise<void> {
     await this.#enter('batchDeleteCards');
