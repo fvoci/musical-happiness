@@ -278,12 +278,63 @@ async fn index_gets_the_base_url_and_must_be_revalidated() {
     assert_eq!(header(&response, &X_FRAME_OPTIONS), "DENY");
     assert_eq!(
         header(&response, &CONTENT_SECURITY_POLICY),
-        "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+        strict_policy("script-src 'self'"),
+        "no csp.json: the strict policy, no inline script"
     );
     assert_eq!(
         body_text(response).await,
         "<script>window.baseURL = '/boards'</script><script src=\"/boards/static/main.js\"></script>"
     );
+}
+
+/// The strict policy of `index.html`, with `script_src` as its `script-src`.
+fn strict_policy(script_src: &str) -> String {
+    format!(
+        "default-src 'self'; {script_src}; style-src 'self' 'unsafe-inline'; \
+         img-src 'self' blob:; font-src 'self'; connect-src 'self'; object-src 'none'; \
+         base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    )
+}
+
+/// The policy of `index.html` takes the hashes of the inline scripts from `csp.json`;
+/// without the file, or with one that is not as the build writes it, it is the same
+/// strict policy with none, never one without `script-src`.
+#[tokio::test]
+async fn the_index_policy_is_strict_with_or_without_csp_json() {
+    let fixture = Fixture::new("http://localhost:8000");
+    let hash = "'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='";
+    for (csp_json, script_src) in [
+        (None, "script-src 'self'".to_owned()),
+        (
+            Some(format!(r#"{{"script-src":["{hash}"]}}"#)),
+            format!("script-src 'self' {hash}"),
+        ),
+        (Some("not json".to_owned()), "script-src 'self'".to_owned()),
+        (
+            Some(r#"{"script-src":["'unsafe-inline'"]}"#.to_owned()),
+            "script-src 'self'".to_owned(),
+        ),
+        (
+            Some(r#"{"style-src":[]}"#.to_owned()),
+            "script-src 'self'".to_owned(),
+        ),
+    ] {
+        let path = fixture.dir.join("csp.json");
+        match &csp_json {
+            Some(content) => std::fs::write(&path, content).expect("csp.json is written"),
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        let response = fixture.web.serve_index().await;
+        assert_eq!(response.status(), StatusCode::OK, "{csp_json:?}");
+        let policy = header(&response, &CONTENT_SECURITY_POLICY);
+        assert_eq!(policy, strict_policy(&script_src), "{csp_json:?}");
+        assert!(
+            policy.starts_with("default-src 'self'; script-src 'self'"),
+            "{csp_json:?}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -361,7 +412,8 @@ async fn router_sets_nosniff_clickjacking_headers_and_conditional_hsts_without_d
                 assert_eq!(header(&response, &X_FRAME_OPTIONS), "DENY");
                 assert_eq!(
                     header(&response, &CONTENT_SECURITY_POLICY),
-                    "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+                    strict_policy("script-src 'self'"),
+                    "no csp.json: the strict policy, no inline script"
                 );
             }
         }
