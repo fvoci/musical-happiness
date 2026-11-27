@@ -23,10 +23,14 @@
  *   its summary, and takes an empty line with it where there are others.
  * - Enter on an empty last line of the content leaves the toggle: the line
  *   is put after it, or a new one where it was the only line.
+ *
+ * Chrome on Android leaves Enter to the page (ProseMirror takes its keydown
+ * there for a part of composing), which would split the summary into a toggle
+ * of its own: the `beforeinput` it sends for the new line does what Enter does.
  */
 import { mergeAttributes, Node, type KeyboardShortcutCommand } from '@tiptap/core';
 import { Fragment, type Node as DocumentNode, type ResolvedPos } from '@tiptap/pm/model';
-import { TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state';
+import { Plugin, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state';
 
 import { detailsOpenPlugin, detailsView, openAt } from './details-open.ts';
 import { DOCUMENT_ONLY } from './table.ts';
@@ -123,9 +127,7 @@ function unsetDetails(state: EditorState, tr: Transaction): boolean {
 function isBlank(toggle: DocumentNode): boolean {
   const only = toggle.child(1).childCount === 1 ? toggle.child(1).firstChild : null;
   return (
-    toggle.child(0).content.size === 0 &&
-    only?.type.name === 'paragraph' &&
-    only.content.size === 0
+    toggle.child(0).content.size === 0 && only?.type.name === 'paragraph' && only.content.size === 0
   );
 }
 
@@ -220,6 +222,28 @@ function enterOnLastLine(state: EditorState, dispatch?: (tr: Transaction) => voi
   return true;
 }
 
+/** Enter in a toggle: on in what it hides, or out of it. */
+const enter = (state: EditorState, dispatch?: (tr: Transaction) => void): boolean =>
+  enterInSummary(state, dispatch) || enterOnLastLine(state, dispatch);
+
+/** Enter as a new line the page was asked for (see above), where Enter in a toggle is no split. */
+const newLineAsEnter = (): Plugin =>
+  new Plugin({
+    props: {
+      handleDOMEvents: {
+        beforeinput: (view, event) => {
+          if (event.inputType !== 'insertParagraph' || view.composing) return false;
+          const dispatch = (tr: Transaction): void => {
+            view.dispatch(tr);
+          };
+          if (!enter(view.state, dispatch)) return false;
+          event.preventDefault();
+          return true;
+        },
+      },
+    },
+  });
+
 export const Details = Node.create({
   name: DETAILS,
   group: DOCUMENT_ONLY,
@@ -233,7 +257,11 @@ export const Details = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, { 'data-details': '', class: 'doc-details' }), 0];
+    return [
+      'div',
+      mergeAttributes(HTMLAttributes, { 'data-details': '', class: 'doc-details' }),
+      0,
+    ];
   },
 
   addNodeView() {
@@ -261,9 +289,7 @@ export const Details = Node.create({
 
   addKeyboardShortcuts(): Record<string, KeyboardShortcutCommand> {
     return {
-      Enter: ({ editor }) =>
-        enterInSummary(editor.state, editor.view.dispatch) ||
-        enterOnLastLine(editor.state, editor.view.dispatch),
+      Enter: ({ editor }) => enter(editor.state, editor.view.dispatch),
       Backspace: ({ editor }) =>
         backspaceInSummary(editor.state, editor.view.dispatch) ||
         backspaceInContent(editor.state, editor.view.dispatch),
@@ -271,7 +297,7 @@ export const Details = Node.create({
   },
 
   addProseMirrorPlugins() {
-    return [detailsOpenPlugin()];
+    return [detailsOpenPlugin(), newLineAsEnter()];
   },
 });
 

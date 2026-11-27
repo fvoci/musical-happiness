@@ -351,6 +351,10 @@ describe('toggles and callouts', () => {
     ]);
     expect(valid(content)).toEqual([]);
     expect(notes(written)).toEqual({});
+    // A `</summary>` after a backslash of its own is text of the summary.
+    expect(
+      blocks('<details>\n<summary>ends at \\</summary> \\\\</summary>\n\nnot yet\n\n</details>'),
+    ).toEqual([toggle([text('ends at </summary> \\')], line(text('not yet')))]);
   });
 
   it('reads alerts and toggles from elsewhere where they may stand, as the server does', () => {

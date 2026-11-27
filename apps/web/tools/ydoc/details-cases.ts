@@ -33,13 +33,15 @@ const row = (...children: RawNode[]): RawNode => ({ element: 'tableRow', childre
 /** The element at a path of indexes below a fragment. */
 function at(parent: Y.XmlFragment, ...indexes: number[]): Y.XmlElement {
   let node: Y.XmlFragment = parent;
+  let element: Y.XmlElement | undefined;
   for (const index of indexes) {
-    const child = node.get(index);
+    const child: unknown = node.get(index);
     if (!(child instanceof Y.XmlElement)) throw new Error(`no element at ${indexes.join('/')}`);
-    node = child;
+    element = child as Y.XmlElement;
+    node = element;
   }
-  if (!(node instanceof Y.XmlElement)) throw new Error('the root is no element');
-  return node;
+  if (!element) throw new Error('the root is no element');
+  return element;
 }
 
 export const DETAILS_READINGS: RawCase[] = [

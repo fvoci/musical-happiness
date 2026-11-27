@@ -361,6 +361,7 @@ fn toggles_and_callouts_come_back_the_same() {
             toggle(&[], &json!([paragraph(&[text("deeper")])])),
         ])),
         toggle(&[text("nothing inside")], &json!([{"type": "paragraph"}])),
+        toggle(&[text("ends at </summary> \\")], &json!([paragraph(&[text("not yet")])])),
         callout("info", &json!([paragraph(&[text("a note")])])),
         callout("warn", &json!([{"type": "codeBlock", "content": [text("rm -rf")]}])),
         callout("danger", &json!([{"type": "paragraph"}])),

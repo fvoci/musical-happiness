@@ -4,7 +4,10 @@
  * its chevron, and is left with Enter on an empty line; a callout's icon
  * changes its tone; Markdown pasted with `<details>` and an alert is a toggle
  * and a callout; and at 390 pixels across the chevron, the icon and the
- * tones are a finger's square and the page does not move sideways.
+ * tones are a finger's square and the page does not move sideways. Where a
+ * body is only read, a toggle opens for its reader too, in the editor that
+ * only reads and as the page's own `<details>` in a comment, and a callout's
+ * icon is no button.
  *
  * `FVOCI_SCREENS=1` also takes the pictures of both, wide and narrow, light
  * and dark, into `target/screens/toggle-body/` (`e2e/screens.ts`).
@@ -13,6 +16,8 @@ import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { openCardWithBody, type Dev } from './embeds.support.ts';
+import { lineBoundary } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 import { hideSidebar, openApp } from './shell.support.ts';
 import { paste, slash } from './tables.support.ts';
@@ -82,7 +87,7 @@ test('a toggle and a callout are made from the slash menu, opened, closed and gi
 
   // Enter twice at the end of what it hides leaves it, on a line of the document.
   await hidden.getByText('Because.').click();
-  await page.keyboard.press('End');
+  await lineBoundary(page, 'end');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   await slash(page, 'callout', 'Callout');
@@ -178,4 +183,64 @@ test('at 390 pixels across the chevron, the icon and the tones are a finger wide
       await page.screenshot({ path: path.join(dir, `toggle-${name}-${scheme}.png`) });
     }
   }
+});
+
+/** A body of a question folded away and a warning, as the app stores it. */
+const READ_BODY = {
+  type: 'doc',
+  content: [
+    {
+      type: 'details',
+      content: [
+        { type: 'detailsSummary', content: [{ type: 'text', text: 'A question' }] },
+        {
+          type: 'detailsContent',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Its answer' }] }],
+        },
+      ],
+    },
+    {
+      type: 'callout',
+      attrs: { tone: 'warn' },
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Mind it' }] }],
+    },
+  ],
+};
+
+test('where a body is only read, a toggle still opens for its reader, and a callout keeps its tone', async ({
+  page,
+}) => {
+  const body = await openCardWithBody(page, 'Study notes', READ_BODY);
+  await expect(body).toHaveAttribute('data-editor', 'reading');
+  const answer = body.getByText('Its answer');
+  await expect(answer).toBeHidden();
+  await body.getByRole('button', { name: 'Expand' }).click();
+  await expect(answer).toBeVisible();
+  const icon = body.getByRole('button', { name: 'Callout: Warning. Change its kind' });
+  await icon.click();
+  await expect(body.locator('.doc-callout-tones')).toBeHidden();
+  await expect(body.locator('[data-callout]')).toHaveAttribute('data-tone', 'warn');
+
+  // In a comment, the page's own toggle: closed, and open once its summary is pressed.
+  await page.evaluate(async (written) => {
+    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+    const [workspace] = await dev.backend.workspaces();
+    const boards = await dev.backend.boards(workspace?.id ?? '');
+    const board = boards.find((each) => each.title.startsWith('Study notes'));
+    const cards = await dev.backend.cards(board?.id ?? '');
+    const [card] = [...cards].sort((one, other) => one.title.localeCompare(other.title));
+    const other = dev.someoneElse() as unknown as {
+      createComment(boardId: string, cardId: string, body: object): Promise<unknown>;
+    };
+    await other.createComment(board?.id ?? '', card?.id ?? '', written);
+  }, READ_BODY);
+  const comment = page.getByTestId('card-comments').locator('[data-comment]').last();
+  const details = comment.locator('details');
+  await expect(details).toHaveCount(1);
+  await expect(details).not.toHaveAttribute('open');
+  await expect(comment.getByText('Its answer')).toBeHidden();
+  await details.locator('summary').click();
+  await expect(details).toHaveAttribute('open', '');
+  await expect(comment.getByText('Its answer')).toBeVisible();
+  await expect(comment.getByRole('img', { name: 'Warning' })).toBeVisible();
 });

@@ -70,7 +70,9 @@ export function detailsParts(raw: string): { summary: string; body: string } {
   let rest = raw.replace(/^\s*<details(?:\s[^>]*)?>/i, '');
   const end = rest.search(/<\/details\s*>\s*$/i);
   if (end >= 0) rest = rest.slice(0, end);
-  const summary = /^\s*<summary(?:\s[^>]*)?>([\s\S]*?)<\/summary\s*>/i.exec(rest);
+  // A `</summary>` after a backslash of its own is text of the summary.
+  const summary =
+    /^\s*<summary(?:\s[^>]*)?>([\s\S]*?)(?<=(?:^|[^\\])(?:\\\\)*)<\/summary\s*>/i.exec(rest);
   if (!summary) return { summary: '', body: rest };
   return { summary: (summary[1] ?? '').trim(), body: rest.slice(summary[0].length) };
 }

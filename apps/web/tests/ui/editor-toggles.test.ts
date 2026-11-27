@@ -131,7 +131,8 @@ describe('a toggle in the editor', () => {
     expect(changed.length).toBeGreaterThanOrEqual(2);
     expect(changed.every((docChanged) => !docChanged)).toBe(true);
     expect(updates).toEqual([]);
-    expect(shared.getXmlFragment(BODY_FIELD).toString()).not.toContain('open');
+    const written: string = shared.getXmlFragment(BODY_FIELD).toJSON();
+    expect(written).not.toContain('open');
   });
 
   it('opens when the caret goes into what it hides, and closing it takes the caret out', () => {
@@ -170,10 +171,14 @@ describe('a toggle in the editor', () => {
       return (content.get(0) as Y.XmlElement).get(0) as Y.XmlText;
     };
     const toggleAt = (): number =>
-      editor.state.doc.content.size - editor.state.doc.lastChild!.nodeSize;
+      editor.state.doc.content.size - (editor.state.doc.lastChild?.nodeSize ?? 0);
 
-    other((fragment) => fragment.insert(0, [line('first')]));
-    other((fragment) => hiddenText(fragment).insert(7, ' so'));
+    other((fragment) => {
+      fragment.insert(0, [line('first')]);
+    });
+    other((fragment) => {
+      hiddenText(fragment).insert(7, ' so');
+    });
     await vi.waitFor(() => {
       expect(editor.state.doc.textContent).toBe('firstwhybecause so');
     });
@@ -224,6 +229,30 @@ describe('a toggle in the editor', () => {
       'paragraph',
     ]);
     expect(validateDoc(stored(editor))).toEqual([]);
+  });
+
+  it('takes a new line the page is asked for, as Chrome on Android asks, as Enter', () => {
+    const editor = create(doc(toggle([text('why it is')], paragraph(text('because')))));
+    caret(editor, at(editor, ' it is'));
+    const event = new InputEvent('beforeinput', {
+      inputType: 'insertParagraph',
+      bubbles: true,
+      cancelable: true,
+    });
+    editor.view.dom.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(stored(editor)).toEqual(
+      doc(toggle([text('why')], paragraph(text(' it is')), paragraph(text('because')))),
+    );
+    // Elsewhere it is the page's, and ProseMirror's.
+    caret(editor, at(editor, 'because', true));
+    const elsewhere = new InputEvent('beforeinput', {
+      inputType: 'insertParagraph',
+      bubbles: true,
+      cancelable: true,
+    });
+    editor.view.dom.dispatchEvent(elsewhere);
+    expect(elsewhere.defaultPrevented).toBe(false);
   });
 
   it('is pasted from a page as a toggle, and copied out and in again the same', () => {

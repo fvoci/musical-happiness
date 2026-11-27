@@ -86,7 +86,11 @@ impl Iterator for Pieces<'_> {
         } else if let Some(end) = self.tag(start, "</details") {
             (Piece::Close, end)
         } else if let Some(open) = self.tag(start, "<summary") {
-            let close = self.lower[open..].find("</summary").map(|at| open + at);
+            // A `</summary>` after a backslash of its own is text of the summary.
+            let close = self.lower[open..]
+                .match_indices("</summary")
+                .map(|(at, _)| open + at)
+                .find(|&at| !escaped(self.lower, at));
             let end = close.map_or(self.lower.len(), |close| {
                 self.tag(close, "</summary").unwrap_or(self.lower.len())
             });
@@ -104,6 +108,11 @@ impl Iterator for Pieces<'_> {
         self.at = end;
         Some((piece, start, end))
     }
+}
+
+/// Whether the letter at `at` follows a backslash of its own: an odd run of them.
+fn escaped(text: &str, at: usize) -> bool {
+    text[..at].bytes().rev().take_while(|&letter| letter == b'\\').count() % 2 == 1
 }
 
 /// Whether a tag is one of inline text, read in the summary of a toggle.
