@@ -868,7 +868,11 @@ async fn a_snapshot_is_not_taken_one_scorer_apart(leaving: Leaving) {
     let second = publish().await.expect("9 scorers publish, 4 more than 5");
     // (375 + 37 + 150) / 9 = 62.44…
     assert_average(second.average_score, 62.4, "second snapshot average");
-    assert_eq!(snapshot_scorers(&test, &course.exam_id).await, "9");
+    assert_eq!(
+        snapshot_scorers(&test, &course.exam_id).await,
+        "9",
+        "the second snapshot counts 9"
+    );
 
     for user in &course.came_and_went {
         match leaving {

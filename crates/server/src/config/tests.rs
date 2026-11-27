@@ -711,9 +711,10 @@ fn the_configuration_document_lists_every_key() {
 fn the_secret_key_is_read_from_the_environment_only() {
     use base64::Engine as _;
     let text = base64::engine::general_purpose::STANDARD.encode([9_u8; 32]);
-    let env =
-        |value: &'static str| move |name: &str| (name == SECRET_KEY_ENV).then(|| value.to_owned());
-    let leaked: &'static str = Box::leak(text.clone().into_boxed_str());
+    let env = |value: &str| {
+        let value = value.to_owned();
+        move |name: &str| (name == SECRET_KEY_ENV).then(|| value.clone())
+    };
 
     assert!(
         Configuration::parse("{}", no_env)
@@ -727,7 +728,7 @@ fn the_secret_key_is_read_from_the_environment_only() {
             .secret_key
             .is_none()
     );
-    let config = Configuration::parse("{}", env(leaked)).expect("a key");
+    let config = Configuration::parse("{}", env(&text)).expect("a key");
     assert_eq!(
         config.secret_key,
         Some(crate::auth::sealed::SecretKey::from_base64(&text).expect("a key"))

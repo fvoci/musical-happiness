@@ -5,6 +5,11 @@
 //! databases.
 //!
 //! The schema is this server's own: a list of migrations applied by sqlx's migrator.
+//!
+//! No `unsafe` here: what reaches the database as SQL text is held to `&'static str` by
+//! the types of `db.rs`, and only safe code keeps a string from becoming one at run time
+//! (`clippy.toml` refuses the `leak`s that would make one).
+#![forbid(unsafe_code)]
 
 mod account_deletion;
 mod account_erasure;

@@ -262,8 +262,8 @@ async fn a_change_of_the_provider_takes_back_the_token_under_way(change: Change)
     let session_id = session(&test, &alice, Some(login.clone())).await;
     let mut next = first.clone();
     match change {
-        Change::Secret => next.sealed_client_secret = "another sealed secret".to_owned(),
-        Change::Issuer => next.issuer = "https://two.example".to_owned(),
+        Change::Secret => "another sealed secret".clone_into(&mut next.sealed_client_secret),
+        Change::Issuer => "https://two.example".clone_into(&mut next.issuer),
     }
 
     let mut gate = Gate::before(
@@ -273,7 +273,7 @@ async fn a_change_of_the_provider_takes_back_the_token_under_way(change: Change)
         "NEW.token_hash = 'under-way'",
     )
     .await;
-    let changer = gate.second_store(&test).await;
+    let second = gate.second_store(&test).await;
     let making = {
         let store = test.store.clone();
         let (alice, workspace) = (alice.clone(), workspace.clone());
@@ -292,7 +292,7 @@ async fn a_change_of_the_provider_takes_back_the_token_under_way(change: Change)
     let holder = gate.stopped(&making).await;
     let changing = {
         let (first, alice) = (first.clone(), alice.clone());
-        tokio::spawn(async move { put(&changer, &next, Some(&first), &alice).await })
+        tokio::spawn(async move { put(&second, &next, Some(&first), &alice).await })
     };
     gate.waits_for(holder, &changing).await;
     gate.open().await;
