@@ -78,7 +78,7 @@ pub(crate) async fn limit_session_request_body(
             Ok(room) => room,
             Err(error) => {
                 let (parts, body) = request.into_parts();
-                if !parts.headers.contains_key(EXPECT) {
+                if !waits_to_send(&parts.headers) {
                     discard(body.into_data_stream(), 0).await;
                 }
                 return error.into_response();
@@ -155,9 +155,7 @@ pub(crate) async fn limit_request_body(
     let (parts, body) = request.into_parts();
     let mut stream = body.into_data_stream();
     if declared.is_some_and(|length| length > limit) {
-        // A client that waits for `100 Continue` has sent nothing yet, and reading the
-        // body would invite it to. It gets its answer at once.
-        if !parts.headers.contains_key(EXPECT) {
+        if !waits_to_send(&parts.headers) {
             discard(stream, 0).await;
         }
         return too_large(limit).into_response();
@@ -195,22 +193,47 @@ fn byte_count(length: usize) -> u64 {
     u64::try_from(length).unwrap_or(u64::MAX)
 }
 
-/// Reads what is left of a refused body and throws it away, so that the client can
-/// finish sending and read the refusal. `discarded` is how much of it was thrown away
-/// already; what was read and kept before the body passed its limit does not count, so
-/// up to the limit plus [`DISCARD_LIMIT`] is read of one request.
-pub(crate) async fn discard(mut stream: BodyDataStream, mut discarded: u64) {
+/// Whether the client waits for `100 Continue` before it sends the body (RFC 9110
+/// §10.1.1): it has sent nothing yet, and reading the body would invite it to, so a
+/// refusal is answered at once, without [`discard`].
+pub(crate) fn waits_to_send(headers: &HeaderMap) -> bool {
+    headers
+        .get(EXPECT)
+        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"100-continue"))
+}
+
+/// What is left of a refused request, read piece by piece to be thrown away.
+pub(crate) trait Leftover {
+    /// Reads the next piece and says how many bytes it held, reading not much more than
+    /// `allowance` of it; `None` at the end of the request, or where it cannot be read.
+    async fn next_piece(&mut self, allowance: u64) -> Option<u64>;
+}
+
+impl Leftover for BodyDataStream {
+    async fn next_piece(&mut self, _allowance: u64) -> Option<u64> {
+        match self.next().await {
+            Some(Ok(chunk)) => Some(byte_count(chunk.len())),
+            Some(Err(_)) | None => None,
+        }
+    }
+}
+
+/// Reads what is left of a refused request and throws it away, so that the client can
+/// finish sending and read the refusal: up to [`DISCARD_LIMIT`] past the `discarded`
+/// bytes thrown away already, and for at most [`DISCARD_TIMEOUT`]. What was read and
+/// kept before the request passed its limit does not count, so up to the limit plus
+/// [`DISCARD_LIMIT`] is read of one request.
+pub(crate) async fn discard(mut leftover: impl Leftover, mut discarded: u64) {
     let reading = async {
         while discarded <= DISCARD_LIMIT {
-            match stream.next().await {
-                Some(Ok(chunk)) => {
-                    discarded = discarded.saturating_add(byte_count(chunk.len()));
-                }
-                Some(Err(_)) | None => break,
+            match leftover.next_piece(DISCARD_LIMIT - discarded).await {
+                Some(length) => discarded = discarded.saturating_add(length),
+                None => break,
             }
         }
     };
-    // Whether the body ended, was too long or too slow makes no difference to the answer.
+    // Whether the request ended, was too long or too slow makes no difference to the
+    // answer.
     let _ = tokio::time::timeout(DISCARD_TIMEOUT, reading).await;
 }
 

@@ -782,7 +782,12 @@ async fn a_board_takes_the_people_of_its_workspace() {
 #[tokio::test]
 async fn a_workspace_that_is_no_text_is_not_there_and_another_parameter_is_malformed() {
     let ts = Setup::native().start().await.init_basic().await;
-    for route in ["/w/%FF/categories", "/w/%FF/boards", "/w/%FF/containers/x", "/w/%FF"] {
+    for route in [
+        "/w/%FF/categories",
+        "/w/%FF/boards",
+        "/w/%FF/containers/x",
+        "/w/%FF",
+    ] {
         ts.client
             .get(route)
             .await
