@@ -1,11 +1,15 @@
 //! Erasing an account takes the names of its tokens out of every copy of them: the
-//! versions and documents an agent wrote through one, and what others were told, or
-//! are to be told, of what the account did through one. In every organization, also
-//! one the account had left before (PostgreSQL, which holds several). The names of
-//! somebody else's tokens stay.
+//! versions and documents an agent wrote through one, the comments that say which
+//! agent wrote them, live and in the trash, and what others were told, or are to be
+//! told, of what the account did through one. In every organization, also one the
+//! account had left before (PostgreSQL, which holds several). The names of somebody
+//! else's tokens stay.
 
-use fvoci_model::{ApiTokenScope, new_id};
-use fvoci_store::{DbType, Erasing, GrantedWorkspace, Issuance, Store, Tenant, TokenToIssue};
+use fvoci_model::{ApiTokenScope, Block, BlockPatch, BlockType, Body, BodyChange, new_id};
+use fvoci_store::{
+    ByAgent, DbType, Erasing, GrantedWorkspace, Issuance, Store, Tenant, TokenToIssue,
+};
+use serde_json::json;
 
 use crate::account_erasure::{NOBODY, T0, board_of, erase, founder, holding};
 use crate::common;
@@ -144,6 +148,93 @@ async fn store_written(store: &Store, written: &Written<'_>) {
     }
 }
 
+/// A paragraph of `words`, as the text of a comment.
+fn text(words: &str) -> Body {
+    Body::parse(json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": words}]}
+    ]}))
+    .expect("the text may be stored")
+    .expect("a paragraph is some text")
+}
+
+/// The agent that writes through the token `token_id` named `token_name`.
+fn through<'a>(token_id: &'a str, token_name: &'a str) -> ByAgent<'a> {
+    ByAgent {
+        token_id,
+        token_name,
+        notify_self: true,
+    }
+}
+
+/// A comment on `card` of `board` that `user_id` writes, through `agent` if there is
+/// one, telling nobody: as it is stored.
+async fn comment(
+    store: &Store,
+    (board, card): (&str, &str),
+    user_id: &str,
+    agent: Option<ByAgent<'_>>,
+) -> Block {
+    let mut comment = Block {
+        id: new_id(),
+        container_id: board.to_owned(),
+        parent_id: card.to_owned(),
+        block_type: BlockType::Comment,
+        body: Some(text("first")),
+        ..Block::default()
+    };
+    agent
+        .map_or_else(|| store.clone(), |agent| store.by_agent(agent))
+        .telling_nobody()
+        .insert_block(&mut comment, user_id)
+        .await
+        .expect("the comment is stored");
+    comment
+}
+
+/// The comments whose agents are named: two of the leaver's agent (one put in the
+/// trash), the founder's comment whose text the leaver's agent wrote and the founder
+/// changed after, and one of the founder's agent, which stays.
+async fn comments_by_agents(
+    store: &Store,
+    on_card: (&str, &str),
+    (leaver, leavers): (&str, &str),
+    (founder, founders): (&str, &str),
+) {
+    let by_leaver = through(leavers, LEAVERS_TOKEN);
+    comment(store, on_card, leaver, Some(by_leaver)).await;
+    let trashed = comment(store, on_card, leaver, Some(by_leaver)).await;
+    store
+        .delete_block(&trashed.id, leaver)
+        .await
+        .expect("the comment is put in the trash");
+    let rewritten = comment(store, on_card, founder, None).await;
+    let new_text = BlockPatch {
+        body: BodyChange::Set(text("second")),
+        ..BlockPatch::default()
+    };
+    store
+        .by_agent(by_leaver)
+        .telling_nobody()
+        .patch_block(&rewritten.id, &new_text, leaver)
+        .await
+        .expect("the leaver's agent writes its text");
+    let renamed = BlockPatch {
+        title: Some("kept".to_owned()),
+        ..BlockPatch::default()
+    };
+    let changed = store
+        .telling_nobody()
+        .patch_block(&rewritten.id, &renamed, founder)
+        .await
+        .expect("the founder changes it last");
+    assert_eq!(
+        changed.fields.get("agentTokenName"),
+        Some(&json!(LEAVERS_TOKEN)),
+        "a change of no text keeps who wrote it"
+    );
+    comment(store, on_card, founder, Some(through(founders, FOUNDERS_TOKEN))).await;
+}
+
 #[tokio::test]
 async fn an_erased_account_leaves_no_name_of_its_tokens() {
     let test = common::setup().await;
@@ -177,6 +268,13 @@ async fn an_erased_account_leaves_no_name_of_its_tokens() {
         ..by_the_leaver
     };
     store_written(&test, &by_the_founder).await;
+    comments_by_agents(
+        &test,
+        (&board, &card),
+        (&leaver, &leavers),
+        (&founder, &founders),
+    )
+    .await;
     // On PostgreSQL, an organization the leaver had left before they were erased,
     // where their agent wrote on a card and its people were told.
     if common::db_type() == DbType::Postgres {
@@ -194,9 +292,15 @@ async fn an_erased_account_leaves_no_name_of_its_tokens() {
         };
         store_written(&other, &there).await;
     }
+    let mut before = [
+        &["api_tokens.name", "blocks.fields", "deleted_blocks.block"][..],
+        &COPIES,
+    ]
+    .concat();
+    before.sort_unstable();
     assert_eq!(
         holding(&system, LEAVERS_TOKEN).await,
-        [&["api_tokens.name"][..], &COPIES].concat(),
+        before,
         "every copy of the name, before"
     );
     assert!(
@@ -215,6 +319,7 @@ async fn an_erased_account_leaves_no_name_of_its_tokens() {
         holding(&system, FOUNDERS_TOKEN).await,
         [
             "api_tokens.name",
+            "blocks.fields",
             "body_versions.actor_token_name",
             "notification_outbox.actor_token_name",
             "notifications.actor_token_name",

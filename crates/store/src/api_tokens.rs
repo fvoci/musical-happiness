@@ -636,7 +636,8 @@ const TOKEN_NAMES_BY_ACTOR: [&str; 2] = [
 
 /// Takes the names of the tokens of `user_id` out of every copy, in every organization,
 /// before the tokens go: a name is what the person wrote, as their own name is. What
-/// was written through a token stays, and says no more than that an agent wrote it.
+/// was written through a token stays, and says no more than that an agent wrote it;
+/// a comment, no more than a person's comment does.
 /// The last step of account erasure calls it with a scope of system reach, so the
 /// organizations the account left before it was erased are reached too.
 pub(crate) async fn forget_names_of_tokens_of(
@@ -651,6 +652,81 @@ pub(crate) async fn forget_names_of_tokens_of(
     for update in TOKEN_NAMES_BY_ACTOR {
         let mut sql = scope.sql(update);
         sql.bind(Id(user_id));
+        scope.execute(sql).await?;
+    }
+    forget_names_in_comments_of(scope, user_id).await
+}
+
+/// How a comment that says which agent wrote it (`fields.agentTokenName`,
+/// [`crate::comment_places::sign`]) is found and unsigned, live and in the trash.
+struct SignedComments {
+    /// The statement up to the names it takes away: those of the user's tokens.
+    unsign: [&'static str; 2],
+    /// Who made the comment and who changed it last, as the row has them.
+    made_by: [&'static str; 2],
+    changed_by: [&'static str; 2],
+    /// Whether those are text in JSON rather than identifiers.
+    authors_in_json: bool,
+}
+
+/// The comments of live blocks, then of blocks in the trash, which keep the whole block
+/// as JSON: each on PostgreSQL, then on SQLite.
+const SIGNED_COMMENTS: [SignedComments; 2] = [
+    SignedComments {
+        unsign: [
+            "UPDATE blocks SET fields = (fields::jsonb - 'agentTokenName')::json \
+             WHERE type = 'comment' AND fields->>'agentTokenName' IN ",
+            "UPDATE blocks SET fields = json_remove(fields, '$.agentTokenName') \
+             WHERE type = 'comment' AND json_extract(fields, '$.agentTokenName') IN ",
+        ],
+        made_by: [") AND (created_by = "; 2],
+        changed_by: [" OR modified_by = "; 2],
+        authors_in_json: false,
+    },
+    SignedComments {
+        unsign: [
+            "UPDATE deleted_blocks SET block = (block::jsonb #- '{fields,agentTokenName}')::json \
+             WHERE block_type = 'comment' AND block->'fields'->>'agentTokenName' IN ",
+            "UPDATE deleted_blocks SET block = json_remove(block, '$.fields.agentTokenName') \
+             WHERE block_type = 'comment' AND json_extract(block, '$.fields.agentTokenName') IN ",
+        ],
+        made_by: [
+            ") AND (block->>'createdBy' = ",
+            ") AND (json_extract(block, '$.createdBy') = ",
+        ],
+        changed_by: [
+            " OR block->>'modifiedBy' = ",
+            " OR json_extract(block, '$.modifiedBy') = ",
+        ],
+        authors_in_json: true,
+    },
+];
+
+/// Takes the names of the tokens of `user_id` out of the comments their agents wrote,
+/// live and in the trash. A comment is theirs to unsign if they made it, changed it
+/// last or wrote one of its texts (anyone who edits a board may write a comment's
+/// text), and it names one of their tokens: a token of somebody else's that is named
+/// the same stays on what that one's agent wrote.
+async fn forget_names_in_comments_of(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let on = usize::from(scope.dialect() != Dialect::Postgres);
+    for comments in &SIGNED_COMMENTS {
+        let mut sql = scope.sql(comments.unsign[on]);
+        sql.push_bind("(SELECT name FROM api_tokens WHERE user_id = ", Id(user_id));
+        if comments.authors_in_json {
+            sql.push_bind(comments.made_by[on], user_id)
+                .push_bind(comments.changed_by[on], user_id);
+        } else {
+            sql.push_bind(comments.made_by[on], Id(user_id))
+                .push_bind(comments.changed_by[on], Id(user_id));
+        }
+        sql.push_bind(
+            " OR id IN (SELECT block_id FROM comment_versions WHERE written_by = ",
+            Id(user_id),
+        )
+        .push("))");
         scope.execute(sql).await?;
     }
     Ok(())
