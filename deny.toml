@@ -11,6 +11,11 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# A notice that a crate is no longer maintained counts wherever the crate is in the
+# tree, not only for the workspace's own dependencies (cargo-deny's default since
+# 0.22): the crates the binary is built from are held to it, and each of them that is
+# let through is named below with the reason.
+unmaintained = "all"
 ignore = [
     # smallstr, a small-string type that yrs (the Y documents of crates/collab) builds
     # on, is no longer maintained. The advisory is a notice of that and names no
