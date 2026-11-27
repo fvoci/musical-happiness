@@ -87,8 +87,7 @@ pub(crate) struct InWorkspace {
 
 impl Wall for InWorkspace {
     async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
-        // A path that is no text names no workspace the user could be in.
-        Self::extract(parts, app, admits, workspace_not_found).await
+        Self::extract(parts, app, admits).await
     }
 }
 
@@ -103,24 +102,17 @@ impl InWorkspace {
         }
     }
 
-    /// The workspace of the path for the caller ([`caller_of`]); `no_text` is the
-    /// refusal of a parameter of the path that is no text.
-    async fn extract(
-        parts: &mut Parts,
-        app: &App,
-        admits: Admits,
-        no_text: fn() -> AppError,
-    ) -> Result<Self, AppError> {
+    /// The workspace of the path for the caller ([`caller_of`]).
+    async fn extract(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
         let caller = caller_of(app, &parts.headers, &parts.extensions, admits).await?;
         let params = match RawPathParams::from_request_parts(parts, app).await {
             Ok(params) => params,
-            // The workspace that is no text is `no_text`; another parameter that is none
-            // (a board's, a card's) is the malformed request it was before the route
-            // was under a workspace.
+            // A workspace that is no text is none the user could be in (404); another
+            // parameter that is no text (a board's, a card's) is a malformed request (400).
             Err(RawPathParamsRejection::InvalidUtf8InPathParam(error)) => {
                 return Err(
                     if error.to_string().ends_with(&format!("`{WORKSPACE_ID}`")) {
-                        no_text()
+                        workspace_not_found()
                     } else {
                         malformed_path()
                     },
@@ -253,20 +245,6 @@ impl InWorkspace {
     }
 }
 
-/// A workspace whose path must be UTF-8 text, preserving the malformed-path response
-/// of routes that previously extracted their path as text. Membership and guest
-/// checks are the same as for [`InWorkspace`].
-#[derive(Debug)]
-pub(crate) struct TextInWorkspace(pub(crate) InWorkspace);
-
-impl Wall for TextInWorkspace {
-    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
-        InWorkspace::extract(parts, app, admits, malformed_path)
-            .await
-            .map(Self)
-    }
-}
-
 /// A workspace as an operation on a wiki and its pages enters it: [`InWorkspace`] that reaches
 /// wikis and no board. A board named where a wiki is meant is not there.
 #[derive(Debug)]
@@ -363,26 +341,7 @@ impl Wall for InContainer {
     }
 }
 
-/// [`InContainer`] with the malformed-path answer of [`TextInWorkspace`].
-#[derive(Debug)]
-pub(crate) struct TextInContainer(pub(crate) InWorkspace);
-
-impl Wall for TextInContainer {
-    async fn enter(parts: &mut Parts, app: &App, admits: Admits) -> Result<Self, AppError> {
-        let TextInWorkspace(ws) = TextInWorkspace::enter(parts, app, admits).await?;
-        Ok(Self(ws.reaching(ContainerKinds::EVERY)))
-    }
-}
-
-sessions_only!(
-    InWorkspace,
-    TextInWorkspace,
-    InWiki,
-    InCourse,
-    InLinked,
-    InContainer,
-    TextInContainer,
-);
+sessions_only!(InWorkspace, InWiki, InCourse, InLinked, InContainer,);
 
 fn workspace_not_found() -> AppError {
     AppError::not_found("workspace")
@@ -458,9 +417,7 @@ async fn handle_get_workspace_boards(Delegated(ws, ..): Delegated<Read, InWorksp
     params(WorkspaceId),
     responses((status = 200, description = "The workspace.", body = Workspace)),
 )]
-async fn handle_get_workspace(
-    Delegated(TextInWorkspace(ws), ..): Delegated<Read, TextInWorkspace>,
-) -> ApiResult {
+async fn handle_get_workspace(Delegated(ws, ..): Delegated<Read, InWorkspace>) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let workspace = ws.app.workspace(&ws.workspace_id).await?;
     Ok(json_response(&workspace))

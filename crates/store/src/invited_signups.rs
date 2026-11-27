@@ -4,7 +4,7 @@
 //! use back. Their links are held in the order acceptances hold them: what the link
 //! hangs from (`link_locks::hold_for_letting_in`), the link, then the registration.
 
-use fvoci_model::{AuditAction, Invitation, WorkspaceRole};
+use fvoci_model::{AuditAction, InstanceRole, Invitation, WorkspaceRole};
 
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, Scope};
@@ -15,7 +15,6 @@ use crate::invitations::{
 };
 use crate::link_locks;
 use crate::signups::{self, Confirmed, Proof, Signup, SignupStart, Started};
-use crate::users::InstanceRole;
 use crate::{Acceptance, Accepted, Inviter, Store, accounts};
 
 /// What became of confirming a registration made by a link.

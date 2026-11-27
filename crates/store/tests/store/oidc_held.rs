@@ -257,7 +257,7 @@ async fn a_held_sign_in_is_carried_over_to_the_members_account() {
     );
     let paging = Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     let records = test
         .audit_records(AuditPlace::Organization, paging)
@@ -305,7 +305,7 @@ async fn a_held_sign_in_is_carried_over_to_a_guests_account() {
     let carried = carry(&test, &new.id, &asked, at_the_old("guest"), THEN).await;
     let paging = Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     let records = test
         .audit_records(AuditPlace::Organization, paging)
@@ -595,7 +595,7 @@ async fn an_identity_that_is_the_accounts_already_is_left_as_it_is() {
     assert_eq!(of_the_new[0].email, "as it was tied");
     let paging = Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     let records = test
         .audit_records(AuditPlace::Organization, paging)

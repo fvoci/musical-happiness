@@ -50,13 +50,6 @@ pub(crate) async fn setup() -> TestStore {
     }
 }
 
-/// Retired pre-`0075` SQL column and JSON key names assembled via `concat!` so
-/// repository-wide banned-token checks see zero literal occurrences.
-pub(crate) const PRE0075_CREATE_COL: &str = concat!("create", "_at");
-pub(crate) const PRE0075_UPDATE_COL: &str = concat!("update", "_at");
-pub(crate) const PRE0075_CREATE_KEY: &str = concat!("create", "At");
-pub(crate) const PRE0075_UPDATE_KEY: &str = concat!("update", "At");
-
 /// Makes an organization with its first workspace and returns the identifiers of both.
 pub(crate) async fn organization(store: &Store, name: &str) -> (String, String) {
     let workspace = Workspace {
@@ -68,96 +61,6 @@ pub(crate) async fn organization(store: &Store, name: &str) -> (String, String) 
         .await
         .expect("the organization is made");
     (org_id, workspace.id)
-}
-
-/// Makes an organization with its first workspace using pre-`0075` SQL columns so
-/// migration tests seeded before `0075` do not query post-`0075` `created_at` / `updated_at`.
-pub(crate) async fn pre0075_organization(store: &Store, name: &str) -> (String, String) {
-    let (org_id, ws_id) = (new_id(), new_id());
-    let escaped = name.replace('\'', "''");
-    let sys = store.system();
-    for sql in [
-        format!(
-            "INSERT INTO organizations (id, name, settings, \
-             {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-             VALUES ('{org_id}', '{escaped}', '{{}}', 1, 1)"
-        ),
-        format!(
-            "INSERT INTO workspaces (id, org_id, name, settings, \
-             {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-             VALUES ('{ws_id}', '{org_id}', '', '{{}}', 1, 1)"
-        ),
-        format!("UPDATE organizations SET default_workspace_id = '{ws_id}' WHERE id = '{org_id}'"),
-    ] {
-        sys.execute_unchecked(&sql)
-            .await
-            .expect("pre-0075 organization stored");
-    }
-    (org_id, ws_id)
-}
-
-/// Stores an additional workspace using pre-`0075` SQL columns.
-pub(crate) async fn pre0075_workspace(store: &Store, org_id: &str) -> String {
-    let ws_id = new_id();
-    store
-        .execute_unchecked(&format!(
-            "INSERT INTO workspaces (id, org_id, name, settings, \
-             {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-             VALUES ('{ws_id}', '{org_id}', '', '{{}}', 1, 1)"
-        ))
-        .await
-        .expect("pre-0075 workspace stored");
-    ws_id
-}
-
-/// Inserts a block row directly using pre-`0075` SQL timestamp columns.
-pub(crate) async fn pre0075_insert_block(store: &Store, block: &mut Block, user_id: &str) {
-    if block.id.is_empty() {
-        block.id = new_id();
-    }
-    block.created_by = user_id.to_owned();
-    block.modified_by = user_id.to_owned();
-    if block.created_at == 0 {
-        block.created_at = 1;
-    }
-    if block.updated_at == 0 {
-        block.updated_at = 1;
-    }
-    let parent = if block.parent_id.is_empty() {
-        "NULL".to_owned()
-    } else {
-        format!("'{}'", block.parent_id)
-    };
-    let title = block.title.replace('\'', "''");
-    let fields = serde_json::to_string(&block.fields)
-        .expect("fields json")
-        .replace('\'', "''");
-    let body = match &block.body {
-        Some(body) => format!(
-            "'{}'",
-            serde_json::to_string(body.document())
-                .expect("body json")
-                .replace('\'', "''")
-        ),
-        None => "NULL".to_owned(),
-    };
-    let num = block
-        .number
-        .map_or_else(|| "NULL".to_owned(), |n| n.to_string());
-    store
-        .execute_unchecked(&format!(
-            "INSERT INTO blocks (id, container_id, parent_id, created_by, modified_by, \
-             \"schema\", type, title, fields, body, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, number) \
-             VALUES ('{}', '{}', {parent}, '{user_id}', '{user_id}', 1, '{}', '{title}', \
-             '{fields}', {body}, {}, {}, {num})",
-            block.id,
-            block.container_id,
-            block.block_type.as_str(),
-            block.created_at,
-            block.updated_at,
-        ))
-        .await
-        .expect("pre-0075 block stored");
 }
 
 /// Creates a fresh database without connecting a store to it, for tests of what
@@ -197,26 +100,13 @@ pub(crate) async fn connect_past_the_store(database_connection: &str) -> PgConne
             .await
             .expect("the tables are looked up");
     if has_organizations {
-        let has_created_at: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM information_schema.columns \
-             WHERE table_schema = current_schema() AND table_name = 'organizations' \
-             AND column_name = 'created_at')",
-        )
-        .fetch_one(&mut conn)
-        .await
-        .expect("organizations columns looked up");
-        let order_col = if has_created_at {
-            "created_at"
-        } else {
-            PRE0075_CREATE_COL
-        };
         // The system's reach first: without it the organizations are out of reach too.
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        sqlx::raw_sql(
             "SELECT set_config('fvoci.system', 'on', false); \
              SELECT set_config('fvoci.org', \
              COALESCE((SELECT id::text FROM organizations WHERE NOT is_system \
-             ORDER BY {order_col}, id LIMIT 1), ''), false)"
-        )))
+             ORDER BY created_at, id LIMIT 1), ''), false)",
+        )
         .execute(&mut conn)
         .await
         .expect("the connection is let past the wall");
@@ -451,92 +341,6 @@ pub(crate) async fn works_in(store: &Store, workspace_id: &str, user_id: &str) {
             .await
             .expect("the user is let into the workspace");
     }
-}
-
-/// Stores an account, its personal space, and its membership in `(org_id, workspace_id)`
-/// using pre-`0072` SQL so migration tests seeded before `0072` do not query post-`0072`
-/// `deleted_at IS NULL` predicates.
-pub(crate) async fn pre0072_user(
-    store: &Store,
-    org_id: &str,
-    workspace_id: &str,
-    username: &str,
-) -> String {
-    let (user_id, own_org, own_ws) = (new_id(), new_id(), new_id());
-    let first = store
-        .system()
-        .execute_unchecked(
-            "UPDATE instance SET bootstrapped = true WHERE id = 1 AND bootstrapped = false",
-        )
-        .await
-        .expect("instance bootstrap updated")
-        > 0;
-    let role = if first { "admin" } else { "member" };
-    store
-        .system()
-        .execute_unchecked(&format!(
-            "INSERT INTO users (id, username, email, password_hash, \
-             {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, is_admin) \
-             VALUES ('{user_id}', '{username}', '{username}@example.com', '', 1, 1, {first})"
-        ))
-        .await
-        .expect("pre-0072 user stored");
-    let own = store.for_org(&own_org).expect("own org");
-    for sql in [
-        format!(
-            "INSERT INTO organizations (id, name, kind, owner_id, settings, \
-             {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-             VALUES ('{own_org}', '', 'personal', '{user_id}', '{{}}', 1, 1)"
-        ),
-        format!(
-            "INSERT INTO workspaces (id, org_id, name, settings, guest_invitations, \
-             {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}) \
-             VALUES ('{own_ws}', '{own_org}', '', '{{}}', false, 1, 1)"
-        ),
-        format!(
-            "UPDATE organizations SET default_workspace_id = '{own_ws}' WHERE id = '{own_org}'"
-        ),
-        format!(
-            "INSERT INTO organization_members (org_id, user_id, role, {PRE0075_CREATE_COL}) \
-             VALUES ('{own_org}', '{user_id}', 'admin', 1)"
-        ),
-        format!(
-            "INSERT INTO workspace_members (workspace_id, user_id, role, {PRE0075_CREATE_COL}) \
-             VALUES ('{own_ws}', '{user_id}', 'admin', 1)"
-        ),
-    ] {
-        own.execute_unchecked(&sql)
-            .await
-            .expect("pre-0072 own space stored");
-    }
-    let scoped = store.for_org(org_id).expect("org");
-    for sql in [
-        format!(
-            "INSERT INTO organization_members (org_id, user_id, role, {PRE0075_CREATE_COL}) \
-             VALUES ('{org_id}', '{user_id}', '{role}', 1) ON CONFLICT DO NOTHING"
-        ),
-        format!(
-            "INSERT INTO workspace_members (workspace_id, user_id, role, {PRE0075_CREATE_COL}) \
-             VALUES ('{workspace_id}', '{user_id}', '{role}', 1) ON CONFLICT DO NOTHING"
-        ),
-    ] {
-        scoped
-            .execute_unchecked(&sql)
-            .await
-            .expect("pre-0072 membership stored");
-    }
-    user_id
-}
-
-/// Inserts a `workspace_members` row directly for pre-`0072` migration fixtures.
-pub(crate) async fn pre0072_works_in(store: &Store, workspace_id: &str, user_id: &str) {
-    store
-        .execute_unchecked(&format!(
-            "INSERT INTO workspace_members (workspace_id, user_id, role, {PRE0075_CREATE_COL}) \
-             VALUES ('{workspace_id}', '{user_id}', 'member', 1) ON CONFLICT DO NOTHING"
-        ))
-        .await
-        .expect("pre-0072 workspace membership stored");
 }
 
 /// `storetests.InsertBlocks`: inserts each block on its own.

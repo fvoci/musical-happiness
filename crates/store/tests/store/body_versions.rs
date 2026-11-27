@@ -110,8 +110,7 @@ pub(crate) async fn type_body(store: &Store, card_id: &str, body: Option<Body>, 
     store
         .project_body(
             card_id,
-            Some(body),
-            read_at,
+            fvoci_store::Projection::Written { body, read_at },
             seqs[0],
             &digest,
             user_id,
@@ -739,8 +738,8 @@ async fn the_body_a_version_is_gone_back_to_is_kept_as_restored() {
     test.teardown().await;
 }
 
-/// A version stored without its cause, as every version was before the causes were kept
-/// (migration 0054), is one the server kept on its own.
+/// A version stored without its cause, as every version was before the causes were kept,
+/// is one the server kept on its own.
 #[tokio::test]
 async fn a_version_kept_before_the_causes_were_is_the_servers() {
     let test = common::setup().await;

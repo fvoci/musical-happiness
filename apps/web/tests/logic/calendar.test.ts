@@ -180,7 +180,7 @@ describe('bars in a week', () => {
     expect(folded.more).toEqual([0, 0, 0, 0, 2, 0, 0]);
   });
 
-  it('hides a bar in the whole week when one of its days is full (C4)', () => {
+  it('hides a bar in the whole week when one of its days is full', () => {
     const segments = layWeek(week, [
       span('crowd1', '2026-11-12'),
       span('crowd2', '2026-11-12'),
@@ -259,7 +259,7 @@ describe('which property places the cards, and where a card goes', () => {
     expect(displayProperty('made', [text, due, made])).toBe(made);
   });
 
-  it('falls back to the first date, then to any kind of date, then to nothing (C15)', () => {
+  it('falls back to the first date, then to any kind of date, then to nothing', () => {
     expect(displayProperty(undefined, [text, made, due, start])).toBe(due);
     expect(displayProperty('note', [text, due])).toBe(due);
     expect(displayProperty('gone', [text, made])).toBe(made);

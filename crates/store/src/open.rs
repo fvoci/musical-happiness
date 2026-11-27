@@ -4,14 +4,16 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::SqlitePoolOptions;
 
 use super::{
-    Arc, DEFAULT_MAX_CONNECTIONS, DbType, Duration, Inner, Pool, Store, StoreError, Tenant,
-    body_versions, clock, comment_versions, connect, data_steps, db, file_versions, schema,
+    Arc, DEFAULT_MAX_CONNECTIONS, DbType, Duration, Inner, Pool, SchemaCheck, Store, StoreError,
+    Tenant, body_versions, clock, comment_versions, connect, db, file_versions, schema,
     server_lock, visibility,
 };
 
 impl Store {
-    /// Checks the database's schema, migrates it if it is behind and the connected role
-    /// may change it, and runs post-migration data steps.
+    /// Brings the database's schema to this server's, when the connected role may
+    /// change it: replaces the record of a database before the baseline with the
+    /// baseline's, then applies the migrations the database does not have yet; nothing
+    /// for a schema that is this server's.
     ///
     /// # Errors
     ///
@@ -20,41 +22,101 @@ impl Store {
     /// the database is not this server's to open or the role may not read and write
     /// its tables, and [`StoreError::Database`] if a statement fails.
     pub async fn migrate(&self) -> Result<(), StoreError> {
-        let state = schema::state(self).await?;
-        let may_change = schema::may_change(self).await?;
-        let reason = match (state, may_change) {
-            (schema::SchemaState::Current, true) => None,
-            (schema::SchemaState::Current, false) => {
-                let ungranted = schema::ungranted_tables(self).await?;
-                if !ungranted.is_empty() {
-                    let (role, schema) = schema::whereabouts(self).await?;
-                    return Err(StoreError::Schema(format!(
-                        "the role {role} may not read and write the tables {} of the schema \
-                         {schema}: grant it SELECT, INSERT, UPDATE and DELETE on them \
-                         (SELECT on _sqlx_migrations)",
-                        ungranted.join(", ")
-                    )));
-                }
-                None
-            }
-            (schema::SchemaState::Behind | schema::SchemaState::Foreign(_), true) => {
-                schema::migrate(self, None).await?;
-                None
-            }
-            (schema::SchemaState::Behind, false) => {
-                Some("migrations of this server are not applied yet".to_owned())
-            }
-            (schema::SchemaState::Foreign(reason), false) => Some(reason),
-        };
-        if let Some(reason) = reason {
-            let (role, schema) = schema::whereabouts(self).await?;
-            return Err(StoreError::SchemaNotOwned {
-                role,
-                schema,
-                reason,
-            });
+        self.migrate_with(&schema::STEPS).await
+    }
+
+    /// [`Store::migrate`] with the migrations `steps`: this server's, or a test's.
+    pub(crate) async fn migrate_with(&self, steps: &[schema::Step]) -> Result<(), StoreError> {
+        match self.re_anchor_with(steps).await? {
+            SchemaCheck::Current => Ok(()),
+            SchemaCheck::Behind => schema::migrate(self, steps).await,
+            SchemaCheck::BeforeBaseline => Err(still_before_the_baseline()),
         }
-        data_steps::run(self).await
+    }
+
+    /// Replaces the record of a database before the baseline with the baseline's, as
+    /// [`Store::migrate`] does first, and gives what is left to do: the migrations
+    /// after the baseline ([`SchemaCheck::Behind`]), which change the schema, or none.
+    /// The schema itself is not changed, so that a server that serves the database
+    /// goes on.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::migrate`].
+    pub async fn re_anchor(&self) -> Result<SchemaCheck, StoreError> {
+        self.re_anchor_with(&schema::STEPS).await
+    }
+
+    /// [`Store::re_anchor`] with the migrations `steps`.
+    pub(crate) async fn re_anchor_with(
+        &self,
+        steps: &[schema::Step],
+    ) -> Result<SchemaCheck, StoreError> {
+        let change = self.schema_change(steps).await?;
+        if change != SchemaCheck::BeforeBaseline {
+            return Ok(change);
+        }
+        schema::re_anchor(self, steps).await?;
+        match self.schema_change(steps).await? {
+            SchemaCheck::BeforeBaseline => Err(still_before_the_baseline()),
+            left => Ok(left),
+        }
+    }
+
+    /// What [`Store::migrate`] would do to the database's schema, changing nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::migrate`], for what it would refuse.
+    pub async fn check_schema(&self) -> Result<SchemaCheck, StoreError> {
+        self.with_conn(schema::refuse_unrecorded_schemas).await?;
+        self.schema_change(&schema::STEPS).await
+    }
+
+    /// The change the schema is to have, if the role may make it.
+    async fn schema_change(&self, steps: &[schema::Step]) -> Result<SchemaCheck, StoreError> {
+        let state = schema::state(self, steps).await?;
+        let may_change = schema::may_change(self).await?;
+        let (change, reason) = match state {
+            schema::SchemaState::Current => {
+                if !may_change {
+                    let ungranted = schema::ungranted_tables(self).await?;
+                    if !ungranted.is_empty() {
+                        let (role, schema) = schema::whereabouts(self).await?;
+                        return Err(StoreError::Schema(format!(
+                            "the role {role} may not read and write the tables {} of the \
+                             schema {schema}: grant it SELECT, INSERT, UPDATE and DELETE on \
+                             them (SELECT on _sqlx_migrations)",
+                            ungranted.join(", ")
+                        )));
+                    }
+                }
+                return Ok(SchemaCheck::Current);
+            }
+            schema::SchemaState::Behind => (
+                SchemaCheck::Behind,
+                "migrations of this server are not applied yet".to_owned(),
+            ),
+            schema::SchemaState::BeforeBaseline => (
+                SchemaCheck::BeforeBaseline,
+                "its record of the schema migrations is the one before the baseline, to be \
+                 replaced by the baseline's"
+                    .to_owned(),
+            ),
+            schema::SchemaState::Foreign(reason) if may_change => {
+                return Err(StoreError::Schema(reason));
+            }
+            schema::SchemaState::Foreign(reason) => (SchemaCheck::Current, reason),
+        };
+        if may_change && change != SchemaCheck::Current {
+            return Ok(change);
+        }
+        let (role, schema) = schema::whereabouts(self).await?;
+        Err(StoreError::SchemaNotOwned {
+            role,
+            schema,
+            reason,
+        })
     }
 
     /// Connects to the database and leaves its schema as it is. Nothing but
@@ -144,4 +206,13 @@ impl Store {
             }),
         })
     }
+}
+
+/// The refusal of a record that is the one before the baseline after it was replaced.
+fn still_before_the_baseline() -> StoreError {
+    StoreError::Schema(
+        "the record of the schema migrations is still the one before the baseline after it \
+         was replaced: open the database again"
+            .to_owned(),
+    )
 }

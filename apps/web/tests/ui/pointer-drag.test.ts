@@ -5,7 +5,7 @@
  * with Escape left alone (`escapeCancels: false`).
  *
  * jsdom has no pointer capture; the root records it instead. How a drag
- * feels in a real browser is tested there (spikes/drag/, e2e/).
+ * feels in a real browser is tested there (e2e/).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 

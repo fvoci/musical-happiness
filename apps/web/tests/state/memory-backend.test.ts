@@ -1,6 +1,6 @@
 /**
- * The in-memory backend behaves the way the server design says the server
- * will, as far as a screen can tell.
+ * The in-memory backend behaves the way the contract says the server does,
+ * as far as a screen can tell.
  */
 import { describe, expect, it, vi } from 'vitest';
 

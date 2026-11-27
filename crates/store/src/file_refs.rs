@@ -1,5 +1,4 @@
-//! Which block shows which file of its board, and since when a file is shown by none
-//! (`docs/s6-design.md` 5.7, the C of the files a body no longer shows).
+//! Which block shows which file of its board, and since when a file is shown by none.
 //!
 //! Every write of a block puts down the files it shows. A block in the trash keeps them:
 //! undoing and restoring stay safe for the grace period. A file that no block shows,

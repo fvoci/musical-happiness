@@ -47,8 +47,8 @@ impl Smtp {
 
     async fn deliver(&self, message: &Outgoing) -> Outcome {
         let Ok((envelope, bytes)) = build(message) else {
-            // Addresses were checked before the message was queued; one the builder
-            // still refuses would be refused by every server.
+            // An address the model takes and SMTP does not (a dot at an end of its
+            // local part, or two dots together) would be refused by every relay.
             return Outcome::Refused { code: None };
         };
         match self.transport.send_raw(&envelope, &bytes).await {
@@ -116,8 +116,8 @@ fn outcome_of(reply: Option<u16>) -> Outcome {
 
 /// The envelope and the MIME text of `message`.
 fn build(message: &Outgoing) -> anyhow::Result<(Envelope, Vec<u8>)> {
-    let from: Address = message.from.parse()?;
-    let envelope = Envelope::new(Some(from), vec![message.to.parse()?])?;
+    let from: Address = message.from.as_str().parse()?;
+    let envelope = Envelope::new(Some(from), vec![message.to.as_str().parse()?])?;
     Ok((envelope, mime::message(message)?))
 }
 

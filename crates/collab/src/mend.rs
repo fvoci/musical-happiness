@@ -29,6 +29,8 @@ use yrs::{
     Xml as _, XmlElementRef,
 };
 
+use crate::repair::Cuts;
+
 /// The highest clock `scan` accepts: 31 bits.
 const MAX_CLOCK: u32 = 0x7fff_ffff;
 
@@ -175,16 +177,35 @@ impl MendItem {
     }
 }
 
-/// Verifies before any mutation that every mend targets nested elements and that
-/// writing all mend items as `writer` stays within the 31-bit clock limit.
-pub(crate) fn check_mends(doc: &Doc, writer: u64, mends: &[Mend]) -> Result<(), BodyError> {
-    let total = mends
+/// Mends of a document that every one targets nested elements, and whose items written
+/// as `writer` stay within the 31-bit clock limit: the only mends that are written. They
+/// hold the document they were checked against, the only one they are written to.
+pub(crate) struct CheckedMends<'a> {
+    doc: &'a Doc,
+    mends: &'a [Mend],
+    writer: u64,
+    /// How many items writing them takes.
+    items: u32,
+}
+
+/// Checks `mends` of `doc`, before anything is changed, to write them as `writer`.
+///
+/// # Errors
+///
+/// Returns that the document cannot be mended when a mend targets what is not nested in
+/// it, or its items would run the clock of `writer` past the limit.
+pub(crate) fn check_mends<'a>(
+    doc: &'a Doc,
+    writer: u64,
+    mends: &'a [Mend],
+) -> Result<CheckedMends<'a>, BodyError> {
+    let items = mends
         .iter()
         .try_fold(0_u32, |acc, mend| acc.checked_add(mend.item_count()?))
         .ok_or_else(unmendable)?;
     let txn = doc.transact();
     let start = txn.state_vector().get(&ClientID::new(writer));
-    if start.checked_add(total).is_none_or(|end| end > MAX_CLOCK) {
+    if start.checked_add(items).is_none_or(|end| end > MAX_CLOCK) {
         return Err(unmendable());
     }
     for mend in mends {
@@ -221,89 +242,104 @@ pub(crate) fn check_mends(doc: &Doc, writer: u64, mends: &[Mend]) -> Result<(), 
             }
         }
     }
-    Ok(())
+    Ok(CheckedMends {
+        doc,
+        mends,
+        writer,
+        items,
+    })
 }
 
-/// Applies `mends` directly to `doc` as client `writer`, without copying `doc`, and
-/// returns the version 1 repair update combining `writer`'s changes with `deleted`.
-///
-/// Must be called after `cuts` have run and after [`check_mends`] succeeded.
-pub(crate) fn apply_mends(
-    doc: &Doc,
-    writer: u64,
-    mends: &[Mend],
-    deleted: &mut IdSet,
-) -> Result<Vec<u8>, BodyError> {
-    let writer_id = ClientID::new(writer);
-    let start_clock = doc.transact().state_vector().get(&writer_id);
-    let mut clock = start_clock;
-    let total_items = mends
-        .iter()
-        .try_fold(0_u32, |acc, mend| acc.checked_add(mend.item_count()?))
-        .ok_or_else(unmendable)?;
-    let mut items: Vec<MendItem> =
-        Vec::with_capacity(usize::try_from(total_items).map_err(|_| unmendable())?);
-    let mut last_put: Option<ID> = None;
+impl CheckedMends<'_> {
+    /// Deletes from the document what `cuts` delete, then writes the mends to it as
+    /// their writer, without copying it; returns the version 1 repair update of both.
+    ///
+    /// # Errors
+    ///
+    /// Returns that the document cannot be mended if what is written does not apply.
+    pub(crate) fn apply_after(self, cuts: &[Cuts]) -> Result<Vec<u8>, BodyError> {
+        let doc = self.doc;
+        let mut deleted = {
+            let mut txn = doc.transact_mut();
+            for cuts in cuts {
+                cuts.make(&mut txn);
+            }
+            txn.delete_set().clone()
+        };
+        let items = self.write(doc, &mut deleted)?;
+        apply_encoded_mends(doc, items, &mut deleted)
+    }
 
-    for mend in mends {
-        match mend {
-            Mend::Put {
-                row,
-                left,
-                replaced,
-                cell,
-            } => {
-                let row_id = nested_id(row)?;
-                let left_id = resolve_anchor(left, last_put)?;
-                let right_id = Some(nested_id(replaced)?);
-                let cell_id = push_cell(
-                    &mut items, writer_id, &mut clock, row_id, left_id, right_id, cell,
-                );
-                last_put = Some(cell_id);
-            }
-            Mend::Pad { row, after, cells } => {
-                let row_id = nested_id(row)?;
-                let mut left_id = resolve_anchor(after, last_put)?;
-                for cell in cells {
+    /// Encodes the items of the mends, written as their writer after what `doc` holds,
+    /// as the run of a version 1 update; what a mend deletes is added to `deleted`.
+    fn write(&self, doc: &Doc, deleted: &mut IdSet) -> Result<Vec<u8>, BodyError> {
+        let writer_id = ClientID::new(self.writer);
+        let start_clock = doc.transact().state_vector().get(&writer_id);
+        let mut clock = start_clock;
+        let mut items: Vec<MendItem> =
+            Vec::with_capacity(usize::try_from(self.items).map_err(|_| unmendable())?);
+        let mut last_put: Option<ID> = None;
+
+        for mend in self.mends {
+            match mend {
+                Mend::Put {
+                    row,
+                    left,
+                    replaced,
+                    cell,
+                } => {
+                    let row_id = nested_id(row)?;
+                    let left_id = resolve_anchor(left, last_put)?;
+                    let right_id = Some(nested_id(replaced)?);
                     let cell_id = push_cell(
-                        &mut items, writer_id, &mut clock, row_id, left_id, None, cell,
+                        &mut items, writer_id, &mut clock, row_id, left_id, right_id, cell,
                     );
-                    left_id = Some(cell_id);
+                    last_put = Some(cell_id);
                 }
-                last_put = None;
-            }
-            Mend::Spans {
-                cell,
-                columns,
-                rows,
-            } => {
-                let cell_id = nested_id(cell)?;
-                for (name, span) in [("colspan", columns), ("rowspan", rows)] {
-                    if let Some(span) = span {
-                        let prev = remove_attr(doc, cell, name, deleted)?;
-                        items.push(MendItem::Attr {
-                            left: prev,
-                            parent: cell_id,
-                            key: name,
-                            value: i64::from(*span),
-                        });
-                        clock += 1;
+                Mend::Pad { row, after, cells } => {
+                    let row_id = nested_id(row)?;
+                    let mut left_id = resolve_anchor(after, last_put)?;
+                    for cell in cells {
+                        let cell_id = push_cell(
+                            &mut items, writer_id, &mut clock, row_id, left_id, None, cell,
+                        );
+                        left_id = Some(cell_id);
+                    }
+                    last_put = None;
+                }
+                Mend::Spans {
+                    cell,
+                    columns,
+                    rows,
+                } => {
+                    let cell_id = nested_id(cell)?;
+                    for (name, span) in [("colspan", columns), ("rowspan", rows)] {
+                        if let Some(span) = span {
+                            let prev = remove_attr(doc, cell, name, deleted)?;
+                            items.push(MendItem::Attr {
+                                left: prev,
+                                parent: cell_id,
+                                key: name,
+                                value: i64::from(*span),
+                            });
+                            clock += 1;
+                        }
                     }
                 }
             }
         }
-    }
 
-    let mut encoder = EncoderV1::new();
-    let count = u32::try_from(items.len()).map_err(|_| unmendable())?;
-    encoder.write_var(1_u32);
-    encoder.write_var(count);
-    encoder.write_client(writer_id);
-    encoder.write_var(start_clock);
-    for item in &items {
-        item.encode(&mut encoder);
+        let mut encoder = EncoderV1::new();
+        let count = u32::try_from(items.len()).map_err(|_| unmendable())?;
+        encoder.write_var(1_u32);
+        encoder.write_var(count);
+        encoder.write_client(writer_id);
+        encoder.write_var(start_clock);
+        for item in &items {
+            item.encode(&mut encoder);
+        }
+        Ok(encoder.to_vec())
     }
-    apply_encoded_mends(doc, encoder.to_vec(), deleted)
 }
 
 /// Applies the encoded `writer` run to `doc` and appends `deleted` as the delete set to

@@ -1,4 +1,4 @@
-//! Uploads in parts (`docs/s6-design.md` 5.6): open, send parts, resume, complete,
+//! Uploads in parts: open, send parts, resume, complete,
 //! abandon, and what is refused. The parts kept on the disk are looked at too: nothing
 //! of an upload stays behind once it is completed, abandoned or refused.
 

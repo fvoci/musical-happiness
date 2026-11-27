@@ -1,9 +1,10 @@
 //! Copying a board or a wiki whole.
 
+use fvoci_model::DuplicateAs;
 use fvoci_model::{
     ContainerError, ContainerKind, ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks,
 };
-use fvoci_store::{CopyTitles, DuplicateAs};
+use fvoci_store::CopyTitles;
 
 use super::App;
 use super::accept_language::Reader;

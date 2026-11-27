@@ -1,14 +1,13 @@
 /**
- * What a calendar view is showing: a month or a week (question C17), the
+ * What a calendar view is showing: a month or a week, the
  * month in view, and the day picked. Kept above the parts that draw them, so
  * that a window that changes size and swaps the grid of bars for the small
- * grid or the list of a week does not take them along (docs/calendar-proposal.md,
- * "창 크기가 바뀔 때").
+ * grid or the list of a week does not take them along.
  *
- * Month or week is remembered on the device, for each view (question C19,
- * answer B): it is the reader's way of looking, not the view's, and the
- * server keeps no field for it. The month and the day are the screen's
- * only: a new load starts at today.
+ * Month or week is remembered on the device, for each view: it is the
+ * reader's way of looking, not the view's, and the server keeps no
+ * field for it. The month and the day are the screen's only: a new load
+ * starts at today.
  */
 import {
   firstOf,
@@ -83,7 +82,7 @@ export class Period {
       : weeksOfMonth(this.month, weekStart);
   }
 
-  /** Picks a day; a day of another month brings that month into view (question C21). */
+  /** Picks a day; a day of another month brings that month into view. */
   select(date: CalendarDate): void {
     this.selected = date;
     if (!inMonth(date, this.month)) this.month = monthOf(date);

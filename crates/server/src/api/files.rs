@@ -3,14 +3,13 @@
 use axum::body::Body;
 use std::io;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::time::Duration;
 use std::time::SystemTime;
 
 use axum::extract::multipart::{Field, MultipartRejection};
 use axum::extract::{Multipart, Path};
 use axum::http::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
-    EXPECT, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
+    IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
@@ -25,6 +24,7 @@ use utoipa_axum::routes;
 use super::contract::bodies::{Binary, FileForm};
 use super::contract::params::{ContainerId, FileId, MemberWorkspaceId};
 use super::contract::tag;
+use super::limits;
 use super::workspace::InContainer;
 use super::{Delegated, Read, Write};
 
@@ -288,13 +288,8 @@ async fn handle_upload_file(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok());
     if declared.is_some_and(|length| length > limit.bytes.saturating_add(FORM_ALLOWANCE)) {
-        // A client that waits for `100 Continue` has sent nothing yet, and reading the
-        // form would invite it to. It gets its answer at once.
-        let waits_to_send = headers
-            .get(EXPECT)
-            .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"100-continue"));
-        if !waits_to_send {
-            drain_form(&mut multipart).await;
+        if !limits::waits_to_send(&headers) {
+            limits::discard(&mut multipart, 0).await;
         }
         return Err(limit.refusal());
     }
@@ -325,7 +320,7 @@ async fn handle_upload_file(
         Ok(file_id) => Ok(created(&UploadedFile { file_id })),
         Err(error) => {
             // The client may still be sending; it reads the refusal once it is done.
-            drain_form(&mut multipart).await;
+            limits::discard(&mut multipart, 0).await;
             Err(error)
         }
     }
@@ -334,11 +329,6 @@ async fn handle_upload_file(
 /// What a form may carry besides the file: the boundaries and the part's headers. A
 /// request that declares more than the file's limit and this is refused unread.
 const FORM_ALLOWANCE: u64 = 64 * 1024;
-
-/// How much of a refused form is read and thrown away before the refusal is sent, and
-/// for how long, as [`super::limits`] does with other bodies.
-const FORM_DISCARD_LIMIT: u64 = 8 * 1024 * 1024;
-const FORM_DISCARD_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How the reading of the file went, for telling why storing it failed. Kept in an
 /// [`AtomicU8`]: the reader the storage takes must be `Send`.
@@ -383,11 +373,11 @@ struct SingleUploadLimit {
 }
 
 impl SingleUploadLimit {
-    /// One part of an upload in parts (`docs/s6-design.md` 5.6, 10), or the largest file
+    /// One part of an upload in parts, or the largest file
     /// where that is less.
     fn of(app: &App) -> Self {
         let part = app.config().upload_part_bytes;
-        let largest = u64::try_from(app.limits().largest_file).unwrap_or(0);
+        let largest = app.limits().largest_file.get();
         if part < largest {
             Self {
                 bytes: part,
@@ -470,27 +460,22 @@ async fn store_field(
     }
 }
 
-/// Reads what is left of a refused form and throws it away, up to
-/// [`FORM_DISCARD_LIMIT`] and for at most [`FORM_DISCARD_TIMEOUT`].
-async fn drain_form(multipart: &mut Multipart) {
-    let draining = async {
-        let mut discarded: u64 = 0;
-        while let Ok(Some(mut field)) = multipart.next_field().await {
-            while let Ok(Some(chunk)) = field.chunk().await {
-                discarded =
-                    discarded.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
-                if discarded > FORM_DISCARD_LIMIT {
-                    return;
-                }
-            }
+/// A refused form, read field by field to be thrown away.
+impl limits::Leftover for &mut Multipart {
+    async fn next_piece(&mut self, allowance: u64) -> Option<u64> {
+        let mut field = self.next_field().await.ok()??;
+        let mut read: u64 = 0;
+        while read <= allowance
+            && let Ok(Some(chunk)) = field.chunk().await
+        {
+            read = read.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
         }
-    };
-    // Whether the form ended, was too long or too slow makes no difference to the answer.
-    let _ = tokio::time::timeout(FORM_DISCARD_TIMEOUT, draining).await;
+        Some(read)
+    }
 }
 
-/// Serves a file's contents with the download headers and the range and conditional
-/// handling of `http.ServeContent`.
+/// Serves a file's contents with the download headers, answering a range request and a
+/// conditional one (RFC 9110 §14 and §13).
 async fn serve_content(
     app: &App,
     name: DownloadName<'_>,
@@ -503,7 +488,7 @@ async fn serve_content(
     let content_type = content_type_for(mime_type);
     let mut headers = base_headers(name, &content_type, modtime);
 
-    // Preconditions, in the order of Go's checkPreconditions.
+    // Preconditions, in the order RFC 9110 §13.2.2 evaluates them.
     if let Some(since) = http_date(request_headers, &IF_UNMODIFIED_SINCE)
         && modtime_after(modtime, since)
     {

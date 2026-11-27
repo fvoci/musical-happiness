@@ -21,7 +21,7 @@ const BATCH: usize = 300;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct StoredWatcher {
-    block_type: String,
+    block_type: BlockType,
     user_id: String,
     notified_at: i64,
     created_at: i64,
@@ -43,7 +43,7 @@ pub(super) async fn watchers_of(
             .push(") ORDER BY block_id, created_at, user_id");
         for row in scope.fetch_all(sql).await? {
             watchers.entry(row.id(0)?).or_default().push(StoredWatcher {
-                block_type: row.text(1)?,
+                block_type: crate::blocks::block_type_column(&row, 1, "block_type")?,
                 user_id: row.id(2)?,
                 notified_at: row.int(3)?,
                 created_at: row.int(4)?,
@@ -188,20 +188,13 @@ pub(crate) async fn forget_watcher_of_organization(
 
 /// Makes again the subscriptions `block_id` kept in the trash, of the subscribers that
 /// are accounts still; the block is back among the blocks. One made since stays as it is.
-/// A pre-0076 watcher whose stored `block_type` is outside [`BlockType`] falls back to
-/// `block_type` (the restored block's actual type).
 pub(super) async fn watch_again(
     scope: &mut Scope<'_>,
     block_id: &str,
-    block_type: BlockType,
     watchers: &[StoredWatcher],
 ) -> Result<(), StoreError> {
     let postgres = scope.dialect() == Dialect::Postgres;
     for watcher in watchers {
-        let normalized_type = watcher
-            .block_type
-            .parse::<BlockType>()
-            .unwrap_or(block_type);
         let mut sql = scope.sql(if postgres {
             "INSERT INTO subscriptions (org_id, block_type, block_id, \
              user_id, notified_at, created_at) SELECT b.org_id, "
@@ -209,7 +202,7 @@ pub(super) async fn watch_again(
             "INSERT INTO subscriptions (block_type, block_id, \
              user_id, notified_at, created_at) SELECT "
         });
-        sql.bind(normalized_type.as_str())
+        sql.bind(watcher.block_type.as_str())
             .push_bind(", b.id, u.id, ", watcher.notified_at)
             .push_bind(", ", watcher.created_at)
             .push_bind(

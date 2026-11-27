@@ -7,10 +7,8 @@ use fvoci_model::{
     ContainerMember, ContainerPatch, ContainerVisibility, ContainersAndBlocks,
     ContainersAndBlocksError, DeleteContainersAndBlocks, PatchContainersAndBlocks, is_id, new_id,
 };
-use fvoci_store::{
-    BlockFilter, CopyChanges, CopyTitles, DuplicateAs, NewBodyFiles, PublicContainers, Store,
-    StoreError,
-};
+use fvoci_model::{DuplicateAs, PublicContainers};
+use fvoci_store::{BlockFilter, CopyChanges, CopyTitles, NewBodyFiles, Store, StoreError};
 
 use crate::common;
 

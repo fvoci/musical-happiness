@@ -96,17 +96,11 @@ async fn a_writer_that_keeps_count_of_its_own_writes_is_let_through() {
     assert_eq!(seqs, [read.log_end + 1, read.log_end + 2]);
     known.log_end = seqs[1];
 
-    let read_at = store
-        .get_block(&card_id)
-        .await
-        .expect("the card")
-        .updated_at;
     let writer = common::user(store, "ryan.howard").await;
     store
         .project_body(
             &card_id,
-            None,
-            read_at,
+            fvoci_store::Projection::Held,
             known.log_end,
             b"a digest",
             &writer,
@@ -325,8 +319,10 @@ async fn a_remake_after_another_wrote_the_body_to_the_card_is_refused() {
     store
         .project_body(
             &card_id,
-            Some(theirs),
-            read_at,
+            fvoci_store::Projection::Written {
+                body: theirs,
+                read_at,
+            },
             read.log_end,
             &digest,
             &writer,
@@ -374,8 +370,7 @@ async fn a_body_is_not_written_to_a_card_the_other_holds_written() {
     store
         .project_body(
             &card_id,
-            None,
-            held.updated_at,
+            fvoci_store::Projection::Held,
             theirs.log_end,
             &unchanged,
             &writer,
@@ -393,8 +388,10 @@ async fn a_body_is_not_written_to_a_card_the_other_holds_written() {
     let written = store
         .project_body(
             &card_id,
-            Some(ours.clone()),
-            read_at,
+            fvoci_store::Projection::Written {
+                body: ours.clone(),
+                read_at,
+            },
             read.log_end,
             &body_digest(ours.as_ref()),
             &writer,
@@ -517,8 +514,10 @@ async fn a_write_of_no_document_is_not_found() {
     let written = store
         .project_body(
             &card_id,
-            Some(body.clone()),
-            held.updated_at,
+            fvoci_store::Projection::Written {
+                body: body.clone(),
+                read_at: held.updated_at,
+            },
             1,
             &body_digest(body.as_ref()),
             &author,

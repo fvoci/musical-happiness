@@ -20,7 +20,6 @@
 **/node_modules
 **/target
 apps/web/dist
-apps/web/dist-spikes
 apps/web/storybook-static
 apps/web/test-results
 apps/web/playwright-report
@@ -28,7 +27,6 @@ apps/web/src/styles/fonts
 apps/web/src/lib/i18n/paraglide
 apps/web/e2e
 apps/web/e2e-live
-apps/web/spikes
 apps/web/stories
 apps/web/tests
 apps/web/docs

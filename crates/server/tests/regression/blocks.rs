@@ -10,17 +10,60 @@ use crate::fixtures::{add_member, block, new_blocks, new_board, new_card};
 use crate::harness::ROOT_API;
 use crate::harness::{API, Body, Session, id_by_title};
 
+/// Who works on the board of the block scenarios, and where its blocks are.
+struct Board {
+    /// Its administrator.
+    alice: String,
+    /// A commenter.
+    bob: String,
+    /// No member.
+    carol: String,
+    id: String,
+    /// The route of its blocks.
+    path: String,
+}
+
+/// The blocks the first requests make: a card, a text on it and a view.
+struct Made {
+    card: String,
+    text: String,
+    view: String,
+}
+
 pub(crate) async fn blocks(s: &mut Session) {
     let [alice, bob, carol] = s.users("blocks", ["alice", "bob", "carol"]).await;
-    let board = new_board(s, &alice, "Blocks", "private", json!({})).await;
-    add_member(s, &alice, &board, &bob, "commenter").await;
-    let path = format!("{ROOT_API}/boards/{board}/blocks");
+    let id = new_board(s, &alice, "Blocks", "private", json!({})).await;
+    add_member(s, &alice, &id, &bob, "commenter").await;
+    let path = format!("{ROOT_API}/boards/{id}/blocks");
+    let board = Board {
+        alice,
+        bob,
+        carol,
+        id,
+        path,
+    };
+    let made = listed(s, &board).await;
+    inserted(s, &board, &made).await;
+    patched(s, &board, &made).await;
+    duplicated_deleted_and_restored(s, &board, &made).await;
+    in_the_order_of_the_requests(s, &board).await;
+}
 
-    s.get("list: empty", &path).user(&alice).await;
+/// Lists the blocks of the board, as they are made and by every filter, as whoever
+/// may and may not.
+async fn listed(s: &mut Session, b: &Board) -> Made {
+    let Board {
+        alice,
+        bob,
+        carol,
+        id: board,
+        path,
+    } = b;
+    s.get("list: empty", path).user(alice).await;
     let card = new_card(
         s,
-        &alice,
-        &board,
+        alice,
+        board,
         "First card",
         json!({"icon": "x"}),
         "create first card",
@@ -28,13 +71,13 @@ pub(crate) async fn blocks(s: &mut Session) {
     .await;
     let created = new_blocks(
         s,
-        &alice,
-        &board,
+        alice,
+        board,
         json!([
-            block("text1", &board, "attachment", "Some text", &card, json!({})),
+            block("text1", board, "attachment", "Some text", &card, json!({})),
             block(
                 "view1",
-                &board,
+                board,
                 "view",
                 "Board view",
                 "",
@@ -47,71 +90,83 @@ pub(crate) async fn blocks(s: &mut Session) {
     let text = id_by_title(&created, "Some text");
     let view = id_by_title(&created, "Board view");
 
-    s.get("list", &path).user(&alice).await;
+    s.get("list", path).user(alice).await;
     s.get("list: by type", &format!("{path}?type=card"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.get("list: by parent", &format!("{path}?parentId={card}"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.get(
         "list: by parent and type",
         &format!("{path}?parentId={card}&type=attachment"),
     )
-    .user(&alice)
+    .user(alice)
     .await;
     s.get(
         "list: the old name of the parameter is no filter",
         &format!("{path}?parent_id={card}&type=attachment"),
     )
-    .user(&alice)
+    .user(alice)
     .await;
     s.get("list: unknown type", &format!("{path}?type=h1"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.get("list: all", &format!("{path}?all=true"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.get("list: one block", &format!("{path}?blockId={card}"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.get(
         "list: unknown block id",
         &format!("{path}?blockId=unknown-block"),
     )
-    .user(&alice)
+    .user(alice)
     .await;
     s.get("list: paged", &format!("{path}?page=0&perPage=2"))
-        .user(&alice)
+        .user(alice)
         .unrecorded()
         .await;
-    s.get("list: commenter", &path).user(&bob).await;
-    s.get("list: non-member", &path).user(&carol).await;
-    s.get("list: anonymous", &path).await;
+    s.get("list: commenter", path).user(bob).await;
+    s.get("list: non-member", path).user(carol).await;
+    s.get("list: anonymous", path).await;
     s.get(
         "list: unknown board",
         &format!("{ROOT_API}/boards/unknown-board/blocks"),
     )
-    .user(&alice)
+    .user(alice)
     .await;
+    Made { card, text, view }
+}
 
-    s.post("insert: empty list", &path)
+/// Inserts blocks as the routes take and refuse them.
+async fn inserted(s: &mut Session, b: &Board, made: &Made) {
+    let Board {
+        alice,
+        bob,
+        carol,
+        id: board,
+        path,
+    } = b;
+    let card = &made.card;
+    s.post("insert: empty list", path)
         .json(json!([]))
-        .user(&alice)
+        .user(alice)
         .await;
-    s.post("insert: malformed body", &path)
+    s.post("insert: malformed body", path)
         .raw(b"{")
-        .user(&alice)
+        .user(alice)
         .await;
-    s.post("insert: no type", &path)
+    s.post("insert: no type", path)
         .json(json!([{"id": "x1", "containerId": board}]))
-        .user(&alice)
+        .user(alice)
         .await;
-    s.post("insert: card rejected on /blocks", &path)
-        .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
-        .user(&alice)
+    s.post("insert: card rejected on /blocks", path)
+        .json(json!([block("x1", board, "card", "x", "", json!({}))]))
+        .user(alice)
         .await;
-    s.post("insert: other board id", &path)
+    s.post("insert: other board id", path)
         .json(json!([block(
             "x1",
             "another-board",
@@ -120,192 +175,219 @@ pub(crate) async fn blocks(s: &mut Session) {
             "",
             json!({"viewType": "board"})
         )]))
-        .user(&alice)
+        .user(alice)
         .await;
-    s.post("insert: long title", &path)
+    s.post("insert: long title", path)
         .json(json!([block(
             "x1",
-            &board,
+            board,
             "view",
             &"t".repeat(65_536),
             "",
             json!({"viewType": "board"})
         )]))
-        .user(&alice)
+        .user(alice)
         .await;
-    s.post("insert: non-member", &path)
+    s.post("insert: non-member", path)
         .json(json!([block(
             "x1",
-            &board,
+            board,
             "view",
             "x",
             "",
             json!({"viewType": "board"})
         )]))
-        .user(&carol)
+        .user(carol)
         .await;
-    s.post("insert: commenter inserts a view", &path)
+    s.post("insert: commenter inserts a view", path)
         .json(json!([block(
             "x1",
-            &board,
+            board,
             "view",
             "x",
             "",
             json!({"viewType": "board"})
         )]))
-        .user(&bob)
+        .user(bob)
         .await;
-    s.post("insert: commenter inserts a comment", &path)
+    s.post("insert: commenter inserts a comment", path)
         .json(json!([block(
             "cm1",
-            &board,
+            board,
             "comment",
             "A comment",
-            &card,
+            card,
             json!({})
         )]))
-        .user(&bob)
+        .user(bob)
         .await;
     s.post("insert: keeping ids", &format!("{path}?disableNotify=true"))
         .json(json!([block(
             "x2",
-            &board,
+            board,
             "view",
             "Quiet view",
             "",
             json!({"viewType": "board"})
         )]))
-        .user(&alice)
+        .user(alice)
         .await;
+}
 
+/// Patches one block and several, as the routes take and refuse it.
+async fn patched(s: &mut Session, b: &Board, made: &Made) {
+    let Board {
+        alice,
+        bob,
+        carol,
+        path,
+        ..
+    } = b;
+    let Made { card, text, .. } = made;
     s.patch("patch", &format!("{path}/{card}"))
         .json(json!({
             "title": "Renamed card",
             "updatedFields": {"icon": "y", "extra": [1, 2]},
             "deletedFields": ["contentOrder"],
         }))
-        .user(&alice)
+        .user(alice)
         .await;
     s.patch("patch: commenter", &format!("{path}/{card}"))
         .json(json!({"title": "hijack"}))
-        .user(&bob)
+        .user(bob)
         .await;
     s.patch("patch: non-member", &format!("{path}/{card}"))
         .json(json!({"title": "hijack"}))
-        .user(&carol)
+        .user(carol)
         .await;
     s.patch("patch: unknown block", &format!("{path}/unknown-block"))
         .json(json!({"title": "x"}))
-        .user(&alice)
+        .user(alice)
         .await;
     s.patch("patch: malformed body", &format!("{path}/{card}"))
         .raw(b"{")
-        .user(&alice)
+        .user(alice)
         .await;
     s.patch("patch: long title", &format!("{path}/{card}"))
         .json(json!({"title": "t".repeat(65_536)}))
-        .user(&alice)
+        .user(alice)
         .await;
-    s.patch("patch several", &path)
+    s.patch("patch several", path)
         .json(json!({
             "blockIds": [card, text],
             "blockPatches": [{"title": "Card again"}, {"title": "Text again"}],
         }))
-        .user(&alice)
+        .user(alice)
         .await;
-    s.patch("patch several: unknown block", &path)
+    s.patch("patch several: unknown block", path)
         .json(json!({
             "blockIds": [card, "unknown-block"],
             "blockPatches": [{"title": "a"}, {"title": "b"}],
         }))
-        .user(&alice)
+        .user(alice)
         .await;
-    s.patch("patch several: commenter", &path)
+    s.patch("patch several: commenter", path)
         .json(json!({"blockIds": [card], "blockPatches": [{"title": "hijack"}]}))
-        .user(&bob)
+        .user(bob)
         .await;
-    s.get("list after patches", &path).user(&alice).await;
+    s.get("list after patches", path).user(alice).await;
+}
 
+/// Duplicates, deletes and restores blocks, and deletes a card with what is on it.
+async fn duplicated_deleted_and_restored(s: &mut Session, b: &Board, made: &Made) {
+    let Board {
+        alice,
+        bob,
+        carol,
+        path,
+        ..
+    } = b;
+    let Made { card, view, .. } = made;
     s.post("duplicate", &format!("{path}/{card}/duplicate"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.post(
         "duplicate as template",
         &format!("{path}/{card}/duplicate?asTemplate=true"),
     )
-    .user(&alice)
+    .user(alice)
     .await;
     s.post("duplicate: commenter", &format!("{path}/{card}/duplicate"))
-        .user(&bob)
+        .user(bob)
         .await;
     s.post(
         "duplicate: unknown block",
         &format!("{path}/unknown-block/duplicate"),
     )
-    .user(&alice)
+    .user(alice)
     .await;
 
     s.delete("delete: commenter", &format!("{path}/{view}"))
-        .user(&bob)
+        .user(bob)
         .await;
     s.delete("delete: non-member", &format!("{path}/{view}"))
-        .user(&carol)
+        .user(carol)
         .await;
     s.delete("delete", &format!("{path}/{view}"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.delete("delete: again", &format!("{path}/{view}"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.delete("delete: unknown block", &format!("{path}/unknown-block"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.get("list: views after delete", &format!("{path}?type=view"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.post("undelete: commenter", &format!("{path}/{view}/restore"))
-        .user(&bob)
+        .user(bob)
         .await;
     s.post("undelete", &format!("{path}/{view}/restore"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.post("undelete: again", &format!("{path}/{view}/restore"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.post(
         "undelete: unknown block",
         &format!("{path}/unknown-block/restore"),
     )
-    .user(&alice)
+    .user(alice)
     .await;
     s.get("list: views after undelete", &format!("{path}?type=view"))
-        .user(&alice)
+        .user(alice)
         .await;
 
     s.delete("delete a card with content", &format!("{path}/{card}"))
-        .user(&alice)
+        .user(alice)
         .await;
     s.get(
         "list: children of the deleted card",
         &format!("{path}?parentId={card}"),
     )
-    .user(&alice)
+    .user(alice)
     .await;
+}
 
-    let second = new_board(s, &alice, "Order of a request", "private", json!({})).await;
-    let second_card_a = new_card(s, &alice, &second, "Card A", json!({}), "create Card A").await;
-    let second_card_b = new_card(s, &alice, &second, "Card B", json!({}), "create Card B").await;
+/// Inserts blocks without identifiers and under cards on a second board, and lists
+/// them in the order of the requests.
+async fn in_the_order_of_the_requests(s: &mut Session, b: &Board) {
+    let alice = &b.alice;
+    let second = new_board(s, alice, "Order of a request", "private", json!({})).await;
+    let second_card_a = new_card(s, alice, &second, "Card A", json!({}), "create Card A").await;
+    let second_card_b = new_card(s, alice, &second, "Card B", json!({}), "create Card B").await;
     let second_path = format!("{ROOT_API}/boards/{second}/blocks");
     s.post("insert without identifiers", &second_path)
         .json(json!([
             {"containerId": second, "type": "view", "title": "Nameless one", "fields": {"viewType": "board"}},
             {"containerId": second, "type": "view", "title": "Nameless two", "fields": {"viewType": "table"}},
         ]))
-        .user(&alice)
+        .user(alice)
         .await;
     new_blocks(
         s,
-        &alice,
+        alice,
         &second,
         json!([
             block(
@@ -329,7 +411,7 @@ pub(crate) async fn blocks(s: &mut Session) {
     )
     .await;
     s.get("list: in the order of the requests", &second_path)
-        .user(&alice)
+        .user(alice)
         .await;
 }
 

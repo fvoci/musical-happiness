@@ -66,9 +66,9 @@ impl ContainerWork {
 /// What is copied: a board, a wiki, a diary or a course, the modules of a workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Module {
-    /// A board.
+    /// A board, with its cards and views.
     Board,
-    /// A wiki.
+    /// A wiki, with its pages.
     Wiki,
     /// A diary: exported and imported with a user's own space, and never duplicated.
     Diary,

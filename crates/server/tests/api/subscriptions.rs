@@ -96,7 +96,7 @@ async fn insert_card(client: &Client, board_id: &str) -> Block {
     card
 }
 
-/// `createTestSubscriptions`: a board of the client's user with `count` cards, and the
+/// A board of the client's user with `count` cards, and the
 /// user's subscription to each. Returns the subscriptions as the server answered and
 /// the user's identifier.
 async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscription>, String) {

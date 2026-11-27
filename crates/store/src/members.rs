@@ -3,12 +3,13 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{ContainerKinds, ContainerRole, ContainerVisibility, OrgRole, WorkspaceRole};
+use fvoci_model::{
+    ContainerKinds, ContainerRole, ContainerVisibility, InstanceRole, OrgRole, WorkspaceRole,
+};
 
 use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, LockRank, Scope, Sql};
 use crate::error::StoreError;
-use crate::users::InstanceRole;
 use crate::{Store, container_kinds, org_admin};
 
 /// Opens the condition that the board `b` is in a workspace in use the membership `wm`

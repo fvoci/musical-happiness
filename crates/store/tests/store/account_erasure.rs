@@ -25,7 +25,7 @@ pub(crate) const NOBODY: [String; 0] = [];
 /// Every record, on one page.
 const EVERY: Paging = Paging {
     page: 0,
-    per_page: 0,
+    per_page: std::num::NonZeroU32::new(1000).expect("a page size"),
 };
 
 /// The wait the tests ask for.
@@ -1490,14 +1490,14 @@ async fn the_audit_logs_guard_names_every_column_of_the_table() {
             "target_id",
             "workspace_id"
         ],
-        "a new column of the audit log is added to the guard of migration 75 as well"
+        "a new column of the audit log is added to its guard as well"
     );
     for dialect in ["sqlite", "postgres"] {
         let guard = std::fs::read_to_string(format!(
-            "{}/schema/{dialect}/0075_unified_created_updated_timestamps.sql",
+            "{}/schema/{dialect}/0001_baseline.sql",
             env!("CARGO_MANIFEST_DIR")
         ))
-        .expect("the migration");
+        .expect("the baseline");
         for name in names.iter().filter(|name| *name != "identity") {
             // As a whole word: `OLD.id` is not found in `OLD.identity`.
             let old_value = format!("OLD.{name}");

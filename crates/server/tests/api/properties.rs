@@ -644,7 +644,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
     th.teardown().await;
 }
 
-/// A date property holds a date value (`docs/s6-design.md` 5.7): a calendar date, a
+/// A date property holds a date value: a calendar date, a
 /// range of them or a time, or `null`. Text in its place is refused, and so is a date
 /// value in another property, on the routes of cards and of blocks.
 #[tokio::test]

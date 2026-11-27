@@ -12,10 +12,16 @@ use serde_json::{Value, json};
 
 const STATE_BYTES: u64 = 16 * 1024 * 1024;
 
-/// The worker these tests start: the server's worker with the requests of the tests
-/// (`Request::Stall`), which the server's executable has only when it was last built
-/// for the tests.
+/// The worker these tests start: the server's worker with the request of the tests
+/// (`Request::FailNextSettle`), which the server's executable has only when it was last
+/// built for the tests.
 const TEST_WORKER: &str = env!("CARGO_BIN_EXE_fvoci-test-worker");
+
+/// A request a worker answers at once: closing a document that is not open.
+const PING: Request = Request::Close(u64::MAX);
+
+/// Longer than any time limit of these tests: a worker stopped for it is killed.
+const STALL: Duration = Duration::from_secs(30);
 
 fn limits(documents: u64) -> Limits {
     Limits {
@@ -208,13 +214,10 @@ async fn a_worker_that_is_killed_is_started_again_without_its_documents() {
 #[tokio::test]
 async fn a_worker_that_takes_too_long_is_killed_and_the_request_fails() {
     let worker = worker(Duration::from_millis(300), 10);
-    let (generation, _) = worker
-        .call(None, &Request::Stall(0))
-        .await
-        .expect("a stall of nothing");
+    let (generation, _) = worker.call(None, &PING).await.expect("a stall of nothing");
     let first = worker.pid().await.expect("a worker runs");
     let began = Instant::now();
-    let stalled = worker.call(None, &Request::Stall(30_000)).await;
+    let stalled = worker.stall(STALL, Blame::Worker).await;
     assert_eq!(stalled, Err(CallError::Died(Death::TimedOut)));
     assert!(
         began.elapsed() < Duration::from_secs(5),
@@ -224,7 +227,7 @@ async fn a_worker_that_takes_too_long_is_killed_and_the_request_fails() {
     #[cfg(unix)]
     assert!(!is_alive(first), "killed, and no zombie is left");
     let (next, _) = worker
-        .call(None, &Request::Stall(0))
+        .call(None, &PING)
         .await
         .expect("the next worker answers");
     assert_ne!(next, generation);
@@ -243,14 +246,12 @@ async fn a_death_put_down_to_a_sender_does_not_make_the_next_worker_wait() {
     for (blame, waits) in [(Blame::Sender, false), (Blame::Worker, true)] {
         let worker = worker(Duration::from_millis(200), 10);
         for _ in 0..DEATHS {
-            let stalled = worker
-                .call_blaming(None, &Request::Stall(30_000), blame)
-                .await;
+            let stalled = worker.stall(STALL, blame).await;
             assert_eq!(stalled, Err(CallError::Died(Death::TimedOut)), "{blame:?}");
         }
         let began = Instant::now();
         worker
-            .call(None, &Request::Stall(0))
+            .call(None, &PING)
             .await
             .expect("the next worker answers");
         let took = began.elapsed();
@@ -275,7 +276,7 @@ async fn a_call_given_up_half_way_neither_kills_the_worker_nor_puts_the_answers_
     let first = worker.pid().await.expect("a worker runs");
     let given_up = tokio::time::timeout(
         Duration::from_millis(100),
-        worker.call(None, &Request::Stall(500)),
+        worker.stall(Duration::from_millis(500), Blame::Worker),
     )
     .await;
     assert!(given_up.is_err(), "given up");
@@ -447,10 +448,7 @@ async fn what_is_past_the_limits_is_refused() {
 #[tokio::test]
 async fn the_worker_is_started_with_its_limits() {
     let worker = roomy();
-    worker
-        .call(None, &Request::Stall(0))
-        .await
-        .expect("started");
+    worker.call(None, &PING).await.expect("started");
     let pid = worker.pid().await.expect("a worker runs");
     let limits = std::fs::read_to_string(format!("/proc/{pid}/limits")).expect("its limits");
     let limit = |name: &str| {

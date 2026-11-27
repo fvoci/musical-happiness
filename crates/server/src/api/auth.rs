@@ -21,6 +21,7 @@ use super::{ApiResult, RequiredSession, accept_language, created, decode_object,
 use crate::app::App;
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
+use crate::http_credentials;
 
 /// The longest `User-Agent` kept with a session, in bytes. Browsers send a hundred or
 /// two; anything longer is cut, it is a label and nothing is decided by it.
@@ -114,9 +115,15 @@ async fn handle_login(
     Ok(with_session_cookie(&app, &token, no_content()))
 }
 
+/// The answer to a request after which the session goes on under a new token: no
+/// content, and the token in the cookie in place of the old one.
+fn renewed_session(app: &App, token: &str) -> Response {
+    with_session_cookie(app, token, no_content())
+}
+
 /// Adds the session cookie with the token to a response.
 pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response) -> Response {
-    let cookie = app.authenticator().session_cookie().set(token);
+    let cookie = http_credentials::set_cookie_header(app.authenticator().session_cookie(), token);
     response.headers_mut().insert(SET_COOKIE, cookie);
     response
 }
@@ -140,7 +147,10 @@ async fn handle_logout(State(app): State<App>, account: AccountSession) -> ApiRe
     app.logout(&account.session.id).await?;
     let mut response = no_content();
     let headers = response.headers_mut();
-    headers.insert(SET_COOKIE, app.authenticator().session_cookie().clear());
+    headers.insert(
+        SET_COOKIE,
+        http_credentials::clear_cookie_header(app.authenticator().session_cookie()),
+    );
     headers.insert(
         axum::http::HeaderName::from_static("clear-site-data"),
         axum::http::HeaderValue::from_static("\"cache\""),
@@ -231,18 +241,17 @@ async fn handle_register(
     if !app.takes_registrations().await? {
         return Err(AppError::invitation_required());
     }
-    let register = register.tidied();
     // Until the server has its first user a registration names the organization it
     // starts: told with whatever else is wrong, and asked again where it is stored.
-    if app.has_first_user().await? {
-        register.validate()?;
+    let registration = if app.has_first_user().await? {
+        register.check()?
     } else {
-        register.validate_as_first()?;
-    }
+        register.check_as_first()?
+    };
     if app.verifies_email() {
         let browser = marker_of(&app, &headers);
         let marker = app
-            .sign_up_to_confirm(&register, browser.as_deref(), address_of(client))
+            .sign_up_to_confirm(&registration, browser.as_deref(), address_of(client))
             .await?;
         return Ok(with_marker(
             &app,
@@ -251,7 +260,7 @@ async fn handle_register(
         ));
     }
     let user = app
-        .sign_up_with_language(&register, address_of(client), accept_language(&headers))
+        .sign_up_with_language(&registration, address_of(client), accept_language(&headers))
         .await?;
     Ok(created(&user))
 }
@@ -306,8 +315,7 @@ async fn handle_change_password(
             address,
         )
         .await?;
-    // The session goes on under a new token, which replaces the old one in the cookie.
-    Ok(with_session_cookie(&app, &token, no_content()))
+    Ok(renewed_session(&app, &token))
 }
 
 /// Set the first password
@@ -421,6 +429,5 @@ async fn handle_confirm_password(
     let token = app
         .confirm_session_password(&session, &request.password, address_of(client))
         .await?;
-    // The session goes on under a new token, which replaces the old one in the cookie.
-    Ok(with_session_cookie(&app, &token, no_content()))
+    Ok(renewed_session(&app, &token))
 }

@@ -7,7 +7,7 @@ use axum::routing::post;
 use fvoci_model::{Block, BlockType};
 use fvoci_server::webhook::Webhook;
 
-/// `TestClientUpdateNotify`
+/// A change of a block is sent to the webhook as JSON.
 #[tokio::test]
 async fn client_update_notify() {
     let received: Arc<Mutex<Vec<serde_json::Value>>> = Arc::default();

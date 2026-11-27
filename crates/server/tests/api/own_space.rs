@@ -348,8 +348,9 @@ async fn webhooks_cache_organization_kind_per_handle_and_reset_on_scoped() {
     let th = Setup::native().start().await.init_basic().await;
     let mut config = th.app.config().clone();
     config.block_change_webhooks = vec![url];
+    let (settings, _) = config.check().expect("the configuration with the hook");
     let hooked =
-        fvoci_server::app::App::new(config, th.app.store().clone(), th.app.files().clone())
+        fvoci_server::app::App::new(settings, th.app.store().clone(), th.app.files().clone())
             .expect("a server with the hook");
     let reads = ReadCount::default();
     assert!(

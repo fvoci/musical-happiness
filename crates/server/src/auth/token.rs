@@ -6,9 +6,11 @@
 //! own pages sent it (see [`Origins`] and the request-forgery header in `crate::api`).
 //! A client that is no browser reads the token from the `Set-Cookie` header of the login
 //! and sends it in the `Authorization` header, which no browser adds by itself.
+//!
+//! What the headers say is read here from their text; taking that text from a request,
+//! and putting a cookie into a response, is HTTP's (`crate::http_credentials`).
 
-use axum::http::header::{AUTHORIZATION, COOKIE, ORIGIN};
-use axum::http::{HeaderMap, HeaderValue, Uri};
+use std::net::Ipv6Addr;
 
 /// The session token of a request, by how the request carries it.
 #[derive(Clone, PartialEq, Eq)]
@@ -20,7 +22,7 @@ pub enum Credential {
 }
 
 impl Credential {
-    /// The token.
+    /// The token, wherever the request carried it.
     pub fn token(&self) -> &str {
         match self {
             Self::Bearer(token) | Self::Cookie(token) => token,
@@ -38,10 +40,9 @@ impl std::fmt::Debug for Credential {
     }
 }
 
-/// Returns the token of an `Authorization: Bearer <token>` header, the scheme in any
-/// letter case. A header of another scheme is not a session token.
-pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
-    let authorization = headers.get(AUTHORIZATION)?.to_str().ok()?;
+/// Returns the token of an `Authorization` header whose value is `Bearer <token>`, the
+/// scheme in any letter case. A header of another scheme is not a session token.
+pub fn bearer_from_header(authorization: &str) -> Option<&str> {
     // The scheme alone is a bearer token too, an empty one: whoever sends the header
     // means to present a token, and is not to be taken for a browser with a cookie.
     let (scheme, token) = authorization.split_once(' ').unwrap_or((authorization, ""));
@@ -85,36 +86,40 @@ impl SessionCookie {
         }
     }
 
-    /// Returns the session token a request carries, and how. A token in the
-    /// `Authorization` header counts before one in the cookie: it was sent on purpose.
-    pub fn credential(&self, headers: &HeaderMap) -> Option<Credential> {
-        if let Some(token) = bearer_token(headers) {
+    /// Returns the session token of a request whose `Authorization` header is
+    /// `authorization` and whose `Cookie` header has the lines `cookies`, and how it
+    /// carries it. A token in the `Authorization` header counts before one in the
+    /// cookie: it was sent on purpose.
+    pub fn credential_from_parts<'line>(
+        &self,
+        authorization: Option<&str>,
+        cookies: impl IntoIterator<Item = &'line str>,
+    ) -> Option<Credential> {
+        if let Some(token) = authorization.and_then(bearer_from_header) {
             return Some(Credential::Bearer(token.to_owned()));
         }
-        cookie_value(headers, self.name())
+        cookie_from_headers(cookies, self.name())
             .filter(|token| !token.is_empty())
             .map(Credential::Cookie)
     }
 
-    /// The `Set-Cookie` header that gives a browser the token: not readable by scripts,
-    /// sent along with requests from the same site only, for the whole host.
-    pub fn set(&self, token: &str) -> HeaderValue {
-        self.header(token, self.max_age_seconds)
+    /// The value of the `Set-Cookie` header that gives a browser the token: not readable
+    /// by scripts, sent along with requests from the same site only, for the whole host.
+    pub fn set_cookie_value(&self, token: &str) -> String {
+        self.cookie(token, self.max_age_seconds)
     }
 
-    /// The `Set-Cookie` header that makes a browser forget the token.
-    pub fn clear(&self) -> HeaderValue {
-        self.header("", 0)
+    /// The value of the `Set-Cookie` header that makes a browser forget the token.
+    pub fn clear_cookie_value(&self) -> String {
+        self.cookie("", 0)
     }
 
-    fn header(&self, token: &str, max_age_seconds: i64) -> HeaderValue {
+    fn cookie(&self, token: &str, max_age_seconds: i64) -> String {
         let secure = if self.secure { "; Secure" } else { "" };
-        let cookie = format!(
+        format!(
             "{}={token}; Max-Age={max_age_seconds}; Path=/; HttpOnly; SameSite=Lax{secure}",
             self.name()
-        );
-        // A token is base64url text and the rest is fixed: always a valid header value.
-        HeaderValue::from_str(&cookie).unwrap_or_else(|_| HeaderValue::from_static(""))
+        )
     }
 }
 
@@ -165,51 +170,89 @@ impl Origins {
         self.https
     }
 
-    /// Whether a page of the origin a request names in its `Origin` header may send it.
-    /// A request without the header names none and is not judged here.
-    pub fn allows(&self, origin: &HeaderValue) -> bool {
-        origin
-            .to_str()
-            .ok()
-            .and_then(origin_of)
-            .is_some_and(|origin| self.allowed.contains(&origin))
-    }
-
-    /// Returns the `Origin` header of a request if it names an origin that is not
-    /// allowed.
-    pub fn foreign_origin<'h>(&self, headers: &'h HeaderMap) -> Option<&'h HeaderValue> {
-        headers.get(ORIGIN).filter(|origin| !self.allows(origin))
+    /// Whether a page of `origin`, as a request names it in its `Origin` header, may
+    /// send it. A request without the header names none and is not judged here.
+    pub fn allows_origin(&self, origin: &str) -> bool {
+        origin_of(origin).is_some_and(|origin| self.allowed.contains(&origin))
     }
 }
 
-/// The origin of a URL in one spelling: scheme and host in lower case, the port unless
-/// it is the scheme's own. `None` for what is no `http` or `https` URL with a host; the
-/// `null` that browsers send for pages without an origin is none.
+/// The origin of a URL in one spelling (RFC 6454, 6.1): scheme and host in lower case,
+/// the port unless it is the scheme's own. `None` for what is no `http` or `https` URL
+/// with a host; the `null` that browsers send for pages without an origin is none.
+/// Who signs in (`user@`) is no part of an origin, nor is the path.
 pub(crate) fn origin_of(url: &str) -> Option<String> {
-    let uri: Uri = url.trim().parse().ok()?;
-    let scheme = uri.scheme_str()?.to_ascii_lowercase();
+    let url = url.trim();
+    // What a URI may hold of ASCII (RFC 3986, 2): its unreserved and reserved
+    // characters, and `%`; past ASCII, the letters of a path written out (RFC 3987).
+    let in_a_uri = |byte: u8| {
+        !byte.is_ascii()
+            || byte.is_ascii_alphanumeric()
+            || b"-._~:/?#[]@!$&'()*+,;=%".contains(&byte)
+    };
+    if !url.bytes().all(in_a_uri) {
+        return None;
+    }
+    let (scheme, rest) = url.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
     let default_port = match scheme.as_str() {
         "http" => 80,
         "https" => 443,
         _ => return None,
     };
-    let host = uri
-        .host()
-        .filter(|host| !host.is_empty())?
-        .to_ascii_lowercase();
-    Some(match uri.port_u16() {
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let place = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, place)| place);
+    let (host, port) = host_and_port(place)?;
+    Some(match port {
         Some(port) if port != default_port => format!("{scheme}://{host}:{port}"),
         _ => format!("{scheme}://{host}"),
     })
 }
 
-/// Returns the value of the named cookie, if the request carries it.
-pub(crate) fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers
-        .get_all(COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(';'))
+/// The host of an authority in lower case, an IPv6 address in its brackets, and its
+/// port if it names one (RFC 3986, 3.2.2 and 3.2.3). `None` for an empty or unreadable
+/// host or a port that is no number of 16 bits.
+fn host_and_port(place: &str) -> Option<(String, Option<u16>)> {
+    let (host, port) = if let Some(bracketed) = place.strip_prefix('[') {
+        let (address, after) = bracketed.split_once(']')?;
+        address.parse::<Ipv6Addr>().ok()?;
+        let port = match after {
+            "" => None,
+            after => Some(after.strip_prefix(':')?),
+        };
+        (format!("[{address}]"), port)
+    } else {
+        let (host, port) = match place.rsplit_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (place, None),
+        };
+        let readable = |byte: u8| byte.is_ascii_alphanumeric() || b"-._~%".contains(&byte);
+        if host.is_empty() || !host.bytes().all(readable) {
+            return None;
+        }
+        (host.to_owned(), port)
+    };
+    let port = match port {
+        None | Some("") => None,
+        Some(digits) if digits.bytes().all(|byte| byte.is_ascii_digit()) => {
+            Some(digits.parse().ok()?)
+        }
+        Some(_) => return None,
+    };
+    Some((host.to_ascii_lowercase(), port))
+}
+
+/// Returns the value of the cookie `name` among the lines of a request's `Cookie`
+/// header, if one of them carries it.
+pub fn cookie_from_headers<'line>(
+    lines: impl IntoIterator<Item = &'line str>,
+    name: &str,
+) -> Option<String> {
+    lines
+        .into_iter()
+        .flat_map(|line| line.split(';'))
         .filter_map(|pair| pair.trim().split_once('='))
         .find(|(key, _)| *key == name)
         .map(|(_, value)| value.trim_matches('"').to_owned())
@@ -219,12 +262,12 @@ pub(crate) fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
-        let mut headers = HeaderMap::new();
-        for (name, value) in pairs {
-            headers.append(*name, HeaderValue::from_static(value));
-        }
-        headers
+    fn read(
+        cookie: &SessionCookie,
+        authorization: Option<&str>,
+        cookies: &[&str],
+    ) -> Option<Credential> {
+        cookie.credential_from_parts(authorization, cookies.iter().copied())
     }
 
     #[test]
@@ -234,61 +277,53 @@ mod tests {
         let bearer = |token: &str| Some(Credential::Bearer(token.to_owned()));
         let cookie = |token: &str| Some(Credential::Cookie(token.to_owned()));
 
-        assert_eq!(plain.credential(&headers(&[])), None, "nothing");
+        assert_eq!(read(&plain, None, &[]), None, "nothing");
         for header in ["Bearer mytoken", "BEARER mytoken", "bearer  mytoken "] {
             assert_eq!(
-                plain.credential(&headers(&[("authorization", header)])),
+                read(&plain, Some(header), &[]),
                 bearer("mytoken"),
                 "{header}"
             );
         }
         // A header of the scheme without a token is a credential, and no good one.
         for header in ["Bearer ", "Bearer", "bearer"] {
-            assert_eq!(
-                plain.credential(&headers(&[("authorization", header)])),
-                bearer(""),
-                "{header:?}"
-            );
+            assert_eq!(read(&plain, Some(header), &[]), bearer(""), "{header:?}");
         }
         // Non-Bearer authorization schemes are not accepted as session tokens.
         for header in ["token mytoken", "Basic dTpw", "Bearer:mytoken", "mytoken"] {
-            assert_eq!(
-                plain.credential(&headers(&[("authorization", header)])),
-                None,
-                "{header}"
-            );
+            assert_eq!(read(&plain, Some(header), &[]), None, "{header}");
         }
 
         assert_eq!(
-            plain.credential(&headers(&[("cookie", "a=b; fvoci_session=mytoken; c=d")])),
+            read(&plain, None, &["a=b; fvoci_session=mytoken; c=d"]),
             cookie("mytoken")
         );
         assert_eq!(
-            secure.credential(&headers(&[("cookie", "__Host-fvoci_session=mytoken")])),
+            read(&plain, None, &["a=b", "fvoci_session=\"mytoken\""]),
+            cookie("mytoken"),
+            "several lines, a quoted value"
+        );
+        assert_eq!(
+            read(&secure, None, &["__Host-fvoci_session=mytoken"]),
             cookie("mytoken")
         );
         // Each mode reads its own name only: a cookie under the plain name could be
         // planted over HTTP, and the prefixed one is not set without HTTPS.
+        assert_eq!(read(&secure, None, &["fvoci_session=mytoken"]), None);
+        assert_eq!(read(&plain, None, &["__Host-fvoci_session=mytoken"]), None);
         assert_eq!(
-            secure.credential(&headers(&[("cookie", "fvoci_session=mytoken")])),
-            None
-        );
-        assert_eq!(
-            plain.credential(&headers(&[("cookie", "__Host-fvoci_session=mytoken")])),
-            None
-        );
-        assert_eq!(
-            plain.credential(&headers(&[("cookie", "fvoci_session=")])),
+            read(&plain, None, &["fvoci_session="]),
             None,
             "an empty cookie is none"
         );
 
         // Both: the header, which was sent on purpose.
         assert_eq!(
-            plain.credential(&headers(&[
-                ("cookie", "fvoci_session=of-the-cookie"),
-                ("authorization", "Bearer of-the-header"),
-            ])),
+            read(
+                &plain,
+                Some("Bearer of-the-header"),
+                &["fvoci_session=of-the-cookie"]
+            ),
             bearer("of-the-header")
         );
     }
@@ -296,19 +331,19 @@ mod tests {
     #[test]
     fn the_cookie_is_http_only_same_site_and_secure_over_https() {
         assert_eq!(
-            SessionCookie::new(Https::No, 1_209_600).set("tok"),
+            SessionCookie::new(Https::No, 1_209_600).set_cookie_value("tok"),
             "fvoci_session=tok; Max-Age=1209600; Path=/; HttpOnly; SameSite=Lax"
         );
         assert_eq!(
-            SessionCookie::new(Https::Yes, 1_209_600).set("tok"),
+            SessionCookie::new(Https::Yes, 1_209_600).set_cookie_value("tok"),
             "__Host-fvoci_session=tok; Max-Age=1209600; Path=/; HttpOnly; SameSite=Lax; Secure"
         );
         assert_eq!(
-            SessionCookie::new(Https::No, 1_209_600).clear(),
+            SessionCookie::new(Https::No, 1_209_600).clear_cookie_value(),
             "fvoci_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax"
         );
         assert_eq!(
-            SessionCookie::new(Https::Yes, 60).clear(),
+            SessionCookie::new(Https::Yes, 60).clear_cookie_value(),
             "__Host-fvoci_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax; Secure"
         );
     }
@@ -323,19 +358,22 @@ mod tests {
     fn origins_are_compared_by_scheme_host_and_port() {
         let origins = Origins::new(
             "https://Boards.Example.com/boards",
-            &["http://localhost:5173".to_owned()],
+            &[
+                "http://localhost:5173".to_owned(),
+                "http://[::1]:8000".to_owned(),
+            ],
         )
         .expect("valid origins");
         assert_eq!(origins.https(), Https::Yes);
-        let allows = |origin: &'static str| origins.allows(&HeaderValue::from_static(origin));
 
         for origin in [
             "https://boards.example.com",
             "https://BOARDS.example.com",
             "https://boards.example.com:443",
             "http://localhost:5173",
+            "http://[::1]:8000",
         ] {
-            assert!(allows(origin), "{origin}");
+            assert!(origins.allows_origin(origin), "{origin}");
         }
         for origin in [
             "http://boards.example.com",
@@ -345,40 +383,65 @@ mod tests {
             "https://example.com",
             "http://localhost",
             "http://localhost:5174",
+            "http://[::1]:8001",
             "null",
             "",
             "boards.example.com",
             "file:///boards",
         ] {
-            assert!(!allows(origin), "{origin}");
+            assert!(!origins.allows_origin(origin), "{origin}");
         }
 
         let plain = Origins::new("http://localhost:8000", &[]).expect("valid");
         assert_eq!(plain.https(), Https::No);
-        assert!(plain.allows(&HeaderValue::from_static("http://localhost:8000")));
-        assert!(!plain.allows(&HeaderValue::from_static("http://localhost:8001")));
-        assert!(!plain.allows(&HeaderValue::from_static("http://127.0.0.1:8000")));
+        assert!(plain.allows_origin("http://localhost:8000"));
+        assert!(!plain.allows_origin("http://localhost:8001"));
+        assert!(!plain.allows_origin("http://127.0.0.1:8000"));
     }
 
     #[test]
-    fn a_request_without_an_origin_header_names_no_foreign_origin() {
-        let origins = Origins::new("http://localhost:8000", &[]).expect("valid");
-        assert_eq!(origins.foreign_origin(&headers(&[])), None);
-        assert_eq!(
-            origins.foreign_origin(&headers(&[("origin", "http://localhost:8000")])),
-            None
-        );
-        assert!(
-            origins
-                .foreign_origin(&headers(&[("origin", "https://evil.example")]))
-                .is_some()
-        );
-        assert!(
-            origins
-                .foreign_origin(&headers(&[("origin", "null")]))
-                .is_some(),
-            "a page without an origin is a foreign one"
-        );
+    fn the_origin_of_a_url_is_its_scheme_host_and_port_in_one_spelling() {
+        for (url, origin) in [
+            ("http://127.0.0.1:8000/boards", "http://127.0.0.1:8000"),
+            ("http://127.0.0.1:80", "http://127.0.0.1"),
+            ("http://[::1]:8000", "http://[::1]:8000"),
+            ("https://[2001:DB8::1]:443/x", "https://[2001:db8::1]"),
+            ("http://[::1]", "http://[::1]"),
+            (
+                "HTTPS://Boards.Example.COM:443",
+                "https://boards.example.com",
+            ),
+            ("https://boards.example.com:", "https://boards.example.com"),
+            ("http://localhost:8080?x=1#y", "http://localhost:8080"),
+            (
+                "https://someone:secret@example.com/x",
+                "https://example.com",
+            ),
+            (" https://example.com ", "https://example.com"),
+        ] {
+            assert_eq!(origin_of(url).as_deref(), Some(origin), "{url}");
+        }
+        for url in [
+            "",
+            "null",
+            "example.com",
+            "localhost:8000",
+            "ftp://example.com",
+            "ws://example.com",
+            "https://",
+            "https://:443",
+            "https://someone@",
+            "http://[::1",
+            "http://[zz::1]:80",
+            "http://[::1]8000",
+            "http://example.com:99999",
+            "http://example.com:+80",
+            "http://example.com:x",
+            "http://exa mple.com",
+            "/boards",
+        ] {
+            assert_eq!(origin_of(url), None, "{url:?}");
+        }
     }
 
     #[test]

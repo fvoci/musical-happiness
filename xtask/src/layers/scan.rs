@@ -25,7 +25,7 @@ pub(crate) struct Reference {
 /// What a [`Reference`] names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Target {
-    /// A path.
+    /// An item by its path, as `use` or a call writes it.
     Path {
         /// The path, made absolute: `fvoci_store::Store`, `fvoci_server::ws::Hub`.
         /// Where its first name is one the file gave with `use` or `type`, it starts

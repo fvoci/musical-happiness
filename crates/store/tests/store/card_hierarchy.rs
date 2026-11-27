@@ -3,10 +3,11 @@
 
 use std::collections::HashMap;
 
+use fvoci_model::DuplicateAs;
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, Body, MAX_CARD_DEPTH, Subscription, new_id,
 };
-use fvoci_store::{BlockFilter, CopyChanges, CopyTitles, DuplicateAs, Store, StoreError};
+use fvoci_store::{BlockFilter, CopyChanges, CopyTitles, Store, StoreError};
 use serde_json::json;
 
 use crate::common;

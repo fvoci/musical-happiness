@@ -185,11 +185,17 @@ async fn a_typed_body_and_a_body_written_after_its_block_put_down_what_they_name
         "the body of a document, written to its block"
     );
     // The block holds the body already: written again as it is, the rows stay.
-    let read_at = store.get_block(&typed).await.expect("the card").updated_at;
     let digest = fvoci_store::body_digest(body_naming("typed", &[&target]).as_ref());
     let as_read = crate::body_docs::as_read(store, &typed).await;
     store
-        .project_body(&typed, None, read_at, 1, &digest, &user, as_read)
+        .project_body(
+            &typed,
+            fvoci_store::Projection::Held,
+            1,
+            &digest,
+            &user,
+            as_read,
+        )
         .await
         .expect("marked as written");
     assert_eq!(

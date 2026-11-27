@@ -1,8 +1,8 @@
 /**
- * Changing a card's date on the calendar without a drag (question C9,
- * answer B): "Change date" in the "…" of the card's line opens a month of
- * days, the card moves whole to the day picked, and one undo brings it back.
- * A calendar placed by when cards were changed offers no way and says why.
+ * Changing a card's date on the calendar without a drag: "Change date" in
+ * the "…" of the card's line opens a month of days, the card moves whole to
+ * the day picked, and one undo brings it back. A calendar placed by when
+ * cards were changed offers no way and says why.
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */

@@ -3,7 +3,7 @@
  * server answers with, and the `BackendError` every method of a backend
  * rejects with. `backend.ts` re-exports them.
  */
-/** The statuses the server answers an error with (server design 1.3). */
+/** The statuses the server answers an error with, as the contract lists them. */
 export const ERROR_STATUSES = [400, 401, 403, 404, 405, 409, 412, 413, 416, 429, 500, 503] as const;
 
 export type ErrorStatus = (typeof ERROR_STATUSES)[number];

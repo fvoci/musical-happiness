@@ -54,7 +54,7 @@ impl Content {
         Self::Type(3, Some(name.as_bytes().to_vec()))
     }
 
-    /// An XML text.
+    /// An XML text (type 6): letters and their marks, within an element.
     pub(crate) fn xml_text() -> Self {
         Self::Type(6, None)
     }
@@ -111,7 +111,7 @@ pub(crate) enum Change {
     Collected(u64),
     /// A stretch that is left out.
     Skipped(u64),
-    /// An item.
+    /// A change that holds something: where it was put, and what it holds.
     Item {
         /// The change to its left when it was made.
         left: Option<Id>,
@@ -334,7 +334,7 @@ fn content_bytes(out: &mut Vec<u8>, content: &Content) {
 
 /// Values as an update holds them.
 pub(crate) mod value {
-    /// A text.
+    /// A string (tag 119): its length, then its letters in UTF-8.
     pub(crate) fn text(letters: &str) -> Vec<u8> {
         let mut out = vec![119];
         super::bytes(&mut out, letters.as_bytes());
@@ -357,7 +357,7 @@ pub(crate) mod value {
         out
     }
 
-    /// A list.
+    /// A list (tag 117): how many values it holds, then the values.
     pub(crate) fn list(items: &[Vec<u8>]) -> Vec<u8> {
         let mut out = vec![117];
         super::number(&mut out, super::count_of(items.len()));
@@ -367,7 +367,7 @@ pub(crate) mod value {
         out
     }
 
-    /// A map.
+    /// A map (tag 118): how many members it has, then each one's key and value.
     pub(crate) fn map(members: &[(&str, Vec<u8>)]) -> Vec<u8> {
         let mut out = vec![118];
         super::number(&mut out, super::count_of(members.len()));
@@ -390,7 +390,7 @@ pub(crate) mod value {
         vec![120]
     }
 
-    /// Null.
+    /// JSON's `null` (tag 126).
     pub(crate) fn null() -> Vec<u8> {
         vec![126]
     }

@@ -18,20 +18,19 @@ const USERNAME_MAX_CHARS: usize = 64;
 impl App {
     /// Makes the account of a person who signs in for the first time, a member of the
     /// handle's organization and its default workspace, and signs in to it.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the sign-in's parts, each of its own kind, passed down once"
-    )]
     pub(super) async fn make_account(
         &self,
-        claims: &IdClaims,
-        identity: Identity<'_>,
-        email: &str,
+        newcomer: Newcomer<'_>,
         stored: &StoredProvider,
         ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
     ) -> Result<Ended, LoginFailure> {
+        let Newcomer {
+            claims,
+            identity,
+            email,
+        } = newcomer;
         let base = username_base(claims, email);
         for attempt in 0..3 {
             let username = if attempt == 0 {
@@ -100,6 +99,17 @@ impl App {
         tracing::warn!("no free user name was found for a new account");
         Err(Reason::OidcUnavailable.into())
     }
+}
+
+/// Who signs in through a provider for the first time, and has no account yet.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Newcomer<'a> {
+    /// What the provider says of them.
+    pub(super) claims: &'a IdClaims,
+    /// Who the provider vouches for.
+    pub(super) identity: Identity<'a>,
+    /// The address the provider vouches for.
+    pub(super) email: &'a str,
 }
 
 /// The account a sign-in through a provider ends in, as it was found.

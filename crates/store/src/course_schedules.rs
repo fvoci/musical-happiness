@@ -17,12 +17,11 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::Store;
-use crate::containers::{
-    PublicContainers, fetch_containers, lock_container_of_kind, select_containers_of_user,
-};
+use crate::containers::{fetch_containers, lock_container_of_kind, select_containers_of_user};
 use crate::db::{Dialect, Id, LockRank, OptId, Param, Row, Scope};
 use crate::error::StoreError;
 use crate::unit_progress::{progress_from_row, require_live_unit};
+use fvoci_model::PublicContainers;
 
 /// Maximum rows written per batched statement during schedule redistribution.
 const REDISTRIBUTE_BATCH_SIZE: usize = 100;

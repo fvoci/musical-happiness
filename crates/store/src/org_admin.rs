@@ -184,7 +184,7 @@ impl Store {
             ));
             sql.bind(scope.org()?)
                 .push(" ORDER BY om.created_at, om.user_id");
-            push_page(&mut sql, paging);
+            sql.push_page(paging);
             scope
                 .fetch_all(sql)
                 .await?
@@ -919,14 +919,6 @@ pub(crate) fn name_taken(error: StoreError) -> StoreError {
             StoreError::Conflict(Taken::WorkspaceName)
         }
         other => other,
-    }
-}
-
-/// Limits a list to one page, if `paging` has a page size.
-fn push_page(sql: &mut crate::db::Sql, paging: Paging) {
-    if paging.per_page > 0 {
-        sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-            .push_bind(" OFFSET ", paging.offset());
     }
 }
 

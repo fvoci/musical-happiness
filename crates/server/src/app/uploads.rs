@@ -1,4 +1,4 @@
-//! Uploads in parts (`docs/s6-design.md` 5.6).
+//! Uploads in parts.
 //!
 //! A user opens a session for a file of a board, sends the file in numbered parts of a
 //! size the server sets, and completes the session, which makes the file. Nothing of the
@@ -11,7 +11,7 @@
 //! at the file's final place when the session is opened: each part is received into a
 //! file of that directory and checked as on the local disk, then sent to the bucket and
 //! the file removed, and the record of the part names the object store's identifier of
-//! it (`docs/s6-design.md` 5.6, 6).
+//! it.
 
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -34,10 +34,10 @@ use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
 use crate::storage::S3Files;
 
-/// How long a session lasts after it is opened (`docs/s6-design.md` 5.6, 7).
+/// How long a session lasts after it is opened.
 pub const UPLOAD_LIFETIME_MILLIS: i64 = 24 * 60 * 60 * 1000;
 
-/// How many sessions one user may have open at once (`docs/s6-design.md` 5.6, 8).
+/// How many sessions one user may have open at once.
 pub const MAX_OPEN_UPLOADS: i64 = 8;
 
 /// How long a closed session that is still there is left to whoever closed it before
@@ -255,10 +255,10 @@ impl App {
             .await
     }
 
-    /// Opens a session for `user_id` to upload an archive to import into `workspace_id`
-    /// (`docs/s6-design.md` 5.6, 9). Its parts are kept on the local disk whatever the
-    /// file storage: the import reads the archive at random. The caller has checked that
-    /// the user may import into the workspace.
+    /// Opens a session for `user_id` to upload an archive to import into `workspace_id`.
+    /// Its parts are kept on the local disk whatever the file storage: the import reads the
+    /// archive at random. The caller has checked that the user may import into the
+    /// workspace.
     ///
     /// # Errors
     ///
@@ -287,7 +287,8 @@ impl App {
             UploadPurpose::File => self.limits().largest_file,
             UploadPurpose::Import => self.limits().largest_import,
         };
-        if new.size > limit {
+        // Checked above: the size is no less than zero.
+        if new.size.unsigned_abs() > limit.get() {
             return Err(file_to_upload::too_large(purpose, limit));
         }
 

@@ -1,4 +1,4 @@
-//! Storage for `user_settings` and `user_client_state` (`0076`).
+//! Storage for `user_settings` and `user_client_state`.
 
 use super::{
     BTreeMap, CLIENT_STATE_MAX_ENTRIES, ClientStatePatch, Id, Param, Scope, StoreError,

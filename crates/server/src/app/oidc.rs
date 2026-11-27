@@ -21,7 +21,7 @@ use fvoci_store::{
 };
 
 use super::App;
-use super::oidc_account::{FoundAccount, proved_address};
+use super::oidc_account::{FoundAccount, Newcomer, proved_address};
 use super::oidc_carry::carry_over_refused;
 use super::oidc_settings::secret_context;
 use crate::auth::limiter::RetryAfter;
@@ -192,10 +192,9 @@ impl App {
     /// sends back is never taken for another's (a mix-up of providers); it is known
     /// before the provider is set, and stays when the provider is changed.
     pub fn oidc_redirect_uri(&self, org_id: &str) -> String {
-        format!(
-            "{}{CALLBACK_PATH}/{org_id}",
-            self.config().server_url.trim_end_matches('/')
-        )
+        self.settings()
+            .server_url()
+            .at(&format!("{CALLBACK_PATH}/{org_id}"))
     }
 
     /// What the login page shows: the organization `org_id`, or without one the only
@@ -212,13 +211,13 @@ impl App {
                 self.store().login_organization(Some(org_id)).await?
             }
             Some(_) => None,
-            None if self.config().takes_several_organizations() => None,
+            None if self.settings().takes_several_organizations() => None,
             None => self.store().login_organization(None).await?,
         };
         let has_first_user = self.store().is_bootstrapped().await?;
         Ok(LoginOptions {
             organization,
-            registration_open: self.config().takes_several_organizations() || !has_first_user,
+            registration_open: self.settings().takes_several_organizations() || !has_first_user,
             organization_required: !has_first_user,
             mail_enabled: self.config().mail_enabled(),
             email_verification: self.verifies_email(),
@@ -749,7 +748,12 @@ impl App {
             Ok(false) => {}
             Err(error) => return Err(logged(&error, "looking up an email address")),
         }
-        self.make_account(claims, identity, email, stored, ending, session, digest)
+        let newcomer = Newcomer {
+            claims,
+            identity,
+            email,
+        };
+        self.make_account(newcomer, stored, ending, session, digest)
             .await
     }
 

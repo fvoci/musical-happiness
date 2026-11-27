@@ -3,9 +3,9 @@
   and for someone who may edit, select it, move it to another column and
   delete it. Deleting does not ask first: undo brings the card back.
 
-  "Move to another column" is the way between columns that needs no drag
-  (docs/mobile-proposal.md, question 4). Choosing it opens a second menu with
-  the columns, at the same place.
+  "Move to another column" is the way between columns that needs no
+  drag. Choosing it opens a second menu with the columns, at the same
+  place.
 
   Where the device can hover, the button waits for the card to be pointed at
   or focused; anywhere else it is always there. The element around the card

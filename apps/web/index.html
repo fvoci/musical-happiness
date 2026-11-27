@@ -14,8 +14,7 @@
       on this device (lib/display.svelte.ts remembers them under this key), so
       that a dark screen does not start as a light one. It runs inline because
       it has to run before the style sheet paints; under a content security
-      policy the server allows it by its hash (docs/decisions.md, "The script
-      in index.html"). The two colours are the page colours of the two
+      policy the server allows it by its hash. The two colours are the page colours of the two
       themes; a test holds them to the tokens.
     -->
     <script>

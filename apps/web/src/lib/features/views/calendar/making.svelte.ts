@@ -1,5 +1,5 @@
 /**
- * Making a card on a day of the calendar (questions C11–C13): the values the
+ * Making a card on a day of the calendar: the values the
  * view's filter asks for and the day (`newCardProperties`), then the card
  * opens, as a card made on a board does.
  *
@@ -13,7 +13,7 @@
  *
  * The view header's "New" (and its round button on a folded header) makes
  * a card here too, on the day picked: the calendar names this as its maker
- * to the board page (lib/state/new-card.ts, question C13).
+ * to the board page (lib/state/new-card.ts).
  */
 import { tick } from 'svelte';
 

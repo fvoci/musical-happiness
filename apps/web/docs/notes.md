@@ -3,9 +3,8 @@
 `apps/web`의 구조와 규칙, 고정한 판, 글꼴, 순수 로직의 규칙을 적는다. 경로는 `apps/web` 기준이고 시각은 모두 KST다.
 
 - 다음에 할 일, 도구의 위치, 화면을 띄우는 법, 걸렸던 함정은 `docs/handoff.md`에 있다.
-- 스스로 정한 것은 `docs/decisions.md`에, 서버에 대해 가정한 것은 `docs/contract-assumptions.md`에 있다.
 - W0–W6은 계획의 단계 이름이다: W0 준비, W1 순수 로직, W2 뼈대와 얇은 종단 조각, W3 보드 페이지, W4 카드, W5 나머지 뷰와 기능, W6 모바일 마무리. S6은 같은 계획의 서버 쪽 단계다.
-- Q1–Q16은 "정렬, 필터, 검색, 계산의 규칙"의 번호다. `docs/mobile-proposal.md`의 질문 번호(Q1–Q36)와는 다른 것이다.
+- Q1–Q16은 "정렬, 필터, 검색, 계산의 규칙"의 번호다.
 - 글꼴과 압축을 말하는 곳의 "원본"은 가공하기 전의 파일을 뜻한다.
 
 ## 검증 명령
@@ -18,16 +17,14 @@ pnpm --filter web run check     # paraglide 컴파일 → svelte-check → eslin
 pnpm --filter web run test      # paraglide 컴파일 → vitest를 TZ=UTC, Asia/Seoul, Pacific/Kiritimati 로 세 번
 pnpm --filter web run build     # paraglide 컴파일 → 글꼴 도구 → vite build
 pnpm --filter web run e2e       # Playwright. 먼저 build 가 있어야 한다
-pnpm --filter web run spikes:e2e
 ```
 
 - `check`에 `tsc`를 따로 넣지 않았다. `svelte-check`가 `tsconfig.json`의 `include` 전체(`.ts` 포함)를 같은 설정으로 검사한다. `tools/*.ts`와 `vite.config.ts`의 타입 오류가 `svelte-check` 출력에 나오는 것을 확인했다.
 - `test`는 단위 테스트를 세 시간대로 돌린다(`tools/test-zones.ts`). 하나라도 실패하면 실패다. 한 번만 돌리려면 `test:once`.
 - `e2e`는 `FVOCI_E2E_URL`이 있으면 그 서버를, 없으면 `tools/preview.ts`를 띄워 대상으로 삼는다. `preview.ts`에는 API가 없다. 제품 시나리오는 브라우저 안의 메모리 구현 위에서 돈다.
 - `e2e`의 프로젝트는 셋이다: `desktop`, `mobile`, `middle`(626×890, 터치). 글꼴 측정 7건은 `desktop`에서만 돈다.
-- 스파이크용: `spikes`(개발 서버), `spikes:build`, `spikes:e2e`.
 - 번역: `i18n:keys`(키 집합 검사).
-- 보조 스크립트: `i18n`(메시지 컴파일), `fonts`(글꼴 도구), `licenses`, `names`, `lint`, `format`, `preview`(빌드 결과를 서버 규칙대로 서빙), `storybook`, `build-storybook`, `look`(앱·스파이크·Storybook을 한 포트에서 본다. `docs/handoff.md`).
+- 보조 스크립트: `i18n`(메시지 컴파일), `fonts`(글꼴 도구), `licenses`, `lint`, `format`, `preview`(빌드 결과를 서버 규칙대로 서빙), `storybook`, `build-storybook`, `look`(앱과 Storybook을 한 포트에서 본다. `docs/handoff.md`).
 
 ## 프로젝트 구조
 
@@ -51,10 +48,9 @@ apps/web/
   messages/                메시지 18 로케일 (손으로 고치는 원천)
   tests/                   vitest: logic, state, editor, tokens, tools (node), ui (jsdom)
   e2e/                     Playwright (제품)
-  spikes/                  스파이크 화면과 그 Playwright
   stories/                 Storybook
   tools/                   build, emoji, fonts, i18n, licenses, lint, math, names, preview, serve
-  docs/                    문서와 그림
+  docs/                    문서
 ```
 
 루트에 추가한 파일은 셋이다: `package.json`(`packageManager` 고정), `pnpm-workspace.yaml`, `pnpm-lock.yaml`. 워크스페이스 구성원은 `apps/*`뿐이다. `apps/web/.gitignore`를 따로 뒀다.
@@ -109,11 +105,9 @@ apps/web/
 | prettier-plugin-tailwindcss                          | 0.8.1   | 2026-07-15 |                                                                                                                                                                                                          |
 | @types/node                                          | 26.6.6  | 2026-10-28 | Node 26.13.0에서 작업했다                                                                                                                                                                                |
 | subset-font                                          | 2.9.0   | 2026-09-20 | 글꼴 도구. HarfBuzz의 WebAssembly 빌드를 쓴다                                                                                                                                                            |
-| @tiptap/core, @tiptap/pm, 확장 15개                  | 3.34.0  | 2026-11-13 | 편집기 스파이크(2026-11-10 18:26 KST 확인). 묶음(`starter-kit`)은 쓰지 않는다                                                                                                                            |
+| @tiptap/core, @tiptap/pm, 확장 15개                  | 3.34.0  | 2026-11-13 | 편집기. 묶음(`starter-kit`)은 쓰지 않는다                                                                                                                                                                |
 | marked                                               | 18.2.0  | 2026-11-09 | 마크다운 가져오기                                                                                                                                                                                        |
 | fast-check                                           | 4.10.2  | 2026-09-19 | 속성 기반 테스트(2026-11-10 18:45 KST 확인)                                                                                                                                                              |
-
-Tiptap은 편집기 스파이크에서 넣었다(`docs/spike-editor.md`).
 
 글꼴 원천 파일과 유니코드 자료(2026-11-10 17:07 KST 확인, `tools/fonts/sources.json`에 주소와 SHA-256):
 
@@ -275,9 +269,7 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 1. **설치된 전체**(`pnpm --filter web run licenses`, `check`에 포함): `pnpm licenses list --json`의 모든 패키지. 허용 목록에 없으면 `exceptions.json`의 `tooling`에 이름·라이선스·사유가 있어야 한다. 맞는 패키지가 없는 예외는 오류다.
 2. **번들에 들어간 것**(빌드 때, `notices.ts`): Vite의 라이선스 보고(`build.license`)에 나온 패키지 + `app.css`가 가져오는 CSS 패키지 + 도구가 소스에 써 넣은 코드의 출처(`vendored`: shadcn-svelte, paraglide). 예외 없이 허용 목록만 적용하고, 통과하면 `static/THIRD_PARTY_NOTICES.txt`를 쓴다.
 
-W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2.0 23, ISC 10, BSD-2-Clause 9, BSD-3-Clause 6, Apache-2.0 WITH LLVM-exception 5, 그 밖의 허용 3. 예외 6건은 모두 빌드 기계에서만 도는 도구다: lightningcss와 그 플랫폼 바이너리(MPL-2.0), lru-cache·minimatch(BlueOak-1.0.0), tslib(0BSD), argparse(Python-2.0). 번들에는 svelte, tailwindcss, tw-animate-css, shadcn-svelte, @inlang/paraglide-js(모두 MIT)와 글꼴 6종이 들어갔다.
-
-그 뒤 편집기, 수식, 다이어그램이 더해졌다. 마지막 빌드의 고지는 91 패키지와 글꼴 7종이다. 라이선스별 수는 다시 세지 않았다. 예외 목록에 더해진 갈래(`stated`, `notShipped`)는 `docs/decisions.md`의 5번과 "편집기"의 32–34번에 있다.
+`exceptions.json`의 갈래는 다섯이다: `tooling`(빌드 기계에서만 도는 도구), `stated`(라이선스 필드가 없어 패키지 안의 라이선스 파일로 정한 것), `notShipped`(설치되지만 빌드가 산출물에서 잘라 내는 것), `vendored`(도구가 소스에 써 넣은 코드의 출처), `derived`. 항목마다 이름·라이선스·사유가 있다.
 
 결정이 필요한 것:
 
@@ -286,7 +278,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 
 ## 이름 검사
 
-`pnpm --filter web run names`(`check`에 포함)가 `apps/web` 아래에서 git이 추적하거나 추적할 파일의 이름과 내용을 본다. 워크스페이스의 옛 이름이 저장소의 예외 목록(`xtask/exceptions/names.txt`의 `apps/web/` 항목, 까닭과 함께)이 적어 둔 곳과 검사가 스스로 넘기는 세 경우(다른 낱말 안의 글자, 주소, 메시지 파일의 문구; `tools/names/workspace.ts`)에만 있는지 본다. 웹앱에 따로 두는 예외 목록은 없다. 저장소 전체에 두지 않는 낱말은 `cargo xtask check`의 이름 단계가 본다(`xtask/src/banned.rs`).
+웹앱에 따로 두는 이름 검사는 없다. 저장소 전체의 `cargo xtask check` 이름 단계가 `apps/web` 아래 파일까지 본다: 두지 않는 낱말과 옛 식별자는 `xtask/src/banned.rs`, 워크스페이스의 옛 이름으로 된 식별자와 경로는 `xtask/src/names.rs`. 예외 목록은 없다.
 
 ## 순수 로직 (`src/lib/logic`)
 
@@ -367,29 +359,26 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
   | `weekStart` | `'auto'`, `'sunday'`, `'monday'`, `'saturday'` | `'auto'` | 화면 언어·지역의 관습(`Intl.Locale`의 주 정보. 한국어·미국 영어는 일요일, 영국 영어·독일어는 월요일) |
   | `hourCycle` | `'auto'`, `'h12'`, `'h23'`                     | `'auto'` | 화면 언어의 관습(한국어·미국 영어는 12시간, 독일어·일본어는 24시간)                                  |
 
-  값의 종류는 서버 설계 5.8절의 세 설정과 같다(2026-11-10 19:47 KST에 맞춤. 전에는 `weekStart`가 1–7의 숫자였다). 푼 뒤의 `weekStart`는 여전히 ISO 8601의 요일 번호(1 월요일 – 7 일요일)다. "자동"이 풀리는 요일은 로케일에 따라 셋 밖일 수 있기 때문이다. `readRegionalSettings(받은 값)`은 서버의 응답을 설정으로 읽고, 모르는 값은 `'auto'`로 읽는다.
+  값의 종류는 서버의 세 설정과 같다. 푼 뒤의 `weekStart`는 여전히 ISO 8601의 요일 번호(1 월요일 – 7 일요일)다. "자동"이 풀리는 요일은 로케일에 따라 셋 밖일 수 있기 때문이다. `readRegionalSettings(받은 값)`은 서버의 응답을 설정으로 읽고, 모르는 값은 `'auto'`로 읽는다.
 
   `resolveRegional(settings, locale, browserTimeZone)`이 "자동"을 풀어 `{ timeZone, weekStart, hourCycle }`을 준다. 고정한 시간대를 런타임이 모르면(이름이 바뀐 시간대) 브라우저의 것을, 그것도 못 쓰면 UTC를 쓴다. `weekStart`는 달력을 그리는 `DateProperty.svelte`와 `FilterDate.svelte`가 쓴다. `hourCycle`은 `DisplayContext.hourCycle`로 `displayDateTime`에 들어간다. 세 값을 고르는 화면은 설정 대화상자다.
 
 - **브라우저의 시간대를 읽는 곳은 `src/lib/regional.ts` 하나다**(`browserTimeZone()`). 같은 파일의 `regional(locale)`이 설정을 풀어서 주고, `setRegionalSettings`로 설정을 바꾼다. 작업 공간 저장소(`src/lib/state/workspace.svelte.ts`)가 `Backend`에서 받은 설정으로 그 함수를 부른다. `src` 전체에서 기기의 시간대를 묻는 표현(`resolvedOptions().timeZone`, `getLocalTimeZone`, `getTimezoneOffset`)이 이 파일에만 있다는 것을 `tests/tools/layers.test.ts`의 한 건이 고정한다. 그러려고 shadcn 달력의 머리글 두 파일도 고쳤다(`src/lib/ui/README.md`의 표).
 - **테스트**(`tests/logic/time-zones.test.ts` 20건, `regional.test.ts` 9건): 서머타임으로 하루가 23시간·25시간인 날(뉴욕 2026-03-08, 2026-11-01)의 시작과 끝, 그날의 마지막 순간과 다음 날의 첫 순간이 필터에서 갈리는 것, 자정이 건너뛰어지는 날(아바나), 30분만 바뀌는 곳(로드하우), 날짜 변경선 양쪽(키리티마티 UTC+14, 파고파고 UTC−11, `Etc/GMT+12`)에서 같은 시각이 세 날짜로 갈리는 것과 같은 날짜가 26시간 차이로 시작하는 것, 달력에서 빠진 날(사모아 2011-12-30), "올해"가 보는 사람의 달력으로 정해지는 것. 날짜만 있는 값은 열 개 시간대에서 덮는 날·표시·필터·정렬이 모두 같다는 것(속성 기반 300회 포함). 임의의 시각과 시간대에 대해 "시각은 자기 날의 시작과 끝 사이에 있다"(속성 기반 500회).
-- 서버 쪽 설계(5.8절): 설정은 `GET`·`PATCH /users/me/settings`로 오가고 응답은 늘 세 멤버를 모두 싣는다. 브라우저가 아는 시간대 이름을 서버가 모르면(시간대 자료의 판 차이) 서버가 거절한다. 그때 저장소가 되돌리고 사용자에게 알린다(서버의 답은 `docs/contract-pending.md` 9절).
+- 서버 쪽: 설정은 `GET`·`PATCH /users/me/settings`로 오가고 응답은 늘 세 멤버를 모두 싣는다. 브라우저가 아는 시간대 이름을 서버가 모르면(시간대 자료의 판 차이) 서버가 거절한다. 그때 저장소가 되돌리고 사용자에게 알린다.
 - 확인하지 못한 것: 브라우저가 가진 시간대 자료(ICU)의 판이 서로 다를 때의 차이, `Intl.Locale`의 주 정보가 없는 오래된 브라우저(그때는 월요일로 떨어진다).
 
 ### 날짜 속성 값의 와이어 모양
-
-2026-11-10 19:47 KST에 서버의 설계 문서(저장소 루트의 `docs/s6-design.md` 5.7절, B안)에 맞췄다.
 
 - 날짜 속성의 값은 문자열에 담긴 JSON이 아니라 **JSON 객체**다. 달력 날짜는 `"2026-03-05"` 문자열, 시각은 1970-01-01 00:00 UTC부터의 **밀리초 정수**다. 날짜인지 시각인지는 JSON의 타입이 말한다.
   - 하루: `{"from": "2026-03-05"}`, 범위: `{"from": "2026-03-05", "to": "2026-03-09"}`(`to`는 그날을 포함), 시각: `{"from": 1772703000000}`.
   - `from`은 필수, `to`는 선택. 둘은 같은 종류여야 하고 `to`는 `from`보다 앞설 수 없다. 같으면 `to` 없이 적는다. `includeTime`과 `timeZone` 멤버는 없다.
   - 날짜 필터의 값도 `"2026-03-05"`다.
-- `wire.ts`에서 바뀐 것: `PropertyValue`에 `StoredDateValue`(`{ from: string | number; to?: string | number }`)가 더해졌다. `parseDateValue(stored: unknown)`는 객체를 받고, `formatDateValue(value)`는 객체(빈 값이면 `undefined`)를 준다. `parseFilterDate`·`formatFilterDate`는 달력 날짜 문자열 그대로다. 새 함수 `plainPropertyValue`는 저장 값을 글자나 글자 목록으로 준다(날짜 값은 세고 비교하기 위한 키 `2026-03-05/2026-03-09`가 된다). 날짜가 아닌 종류의 로직(계산의 값 세기, 정렬, 검색, 텍스트 필터)이 이것을 거친다.
-- **읽을 때의 규칙**: 서버가 검증하는 것과 같은 조건을 만족하지 않으면 빈 값이다(없는 날, 연도 0, 소수나 음수, 9999년을 넘는 정수, 종류가 다른 두 끝, 거꾸로 된 범위, 그 밖의 타입). 옛 문자열 형식(`"{\"from\":1772712000000}"`)은 더는 읽지 않는다. 옮길 데이터가 없다.
+- `wire.ts`: `PropertyValue`의 `StoredDateValue`(`{ from: string | number; to?: string | number }`). `parseDateValue(stored: unknown)`는 객체를 받고, `formatDateValue(value)`는 객체(빈 값이면 `undefined`)를 준다. `parseFilterDate`·`formatFilterDate`는 달력 날짜 문자열 그대로다. 새 함수 `plainPropertyValue`는 저장 값을 글자나 글자 목록으로 준다(날짜 값은 세고 비교하기 위한 키 `2026-03-05/2026-03-09`가 된다). 날짜가 아닌 종류의 로직(계산의 값 세기, 정렬, 검색, 텍스트 필터)이 이것을 거친다.
+- **읽을 때의 규칙**: 서버가 검증하는 것과 같은 조건을 만족하지 않으면 빈 값이다(없는 날, 연도 0, 소수나 음수, 9999년을 넘는 정수, 종류가 다른 두 끝, 거꾸로 된 범위, 그 밖의 타입). 문자열에 담긴 JSON(`"{\"from\":1772712000000}"`)은 읽지 않는다.
 - **쓸 때의 규칙**: 두 끝이 같으면 `from`만, 거꾸로 된 범위는 뒤집어 쓴다. 날짜와 시각이 섞인 값(편집기가 만들지 않는다)은 `from`만 쓴다.
-- 내부 표현(`dates.ts`의 `CalendarDate`, `DatePoint`, `DateValue`)과 그 위의 로직은 그대로다. 함께 고친 것 하나: `calendarDate`와 `parseCalendarDate`가 1–99년을 1901–1999년으로 읽던 것(`Date.UTC`의 규칙)을 고쳐 서버가 받는 0001–9999년 전체를 다룬다.
-- 테스트: `tests/logic/wire-shapes.test.ts`의 "the stored value of a date property" 10건이 읽기·쓰기·왕복·거절을 고정한다.
-- 위 타입은 설계 문서를 읽고 손으로 적은 것이다. 계약에서 생성한 타입에 맞추는 일이 남아 있다.
+- 내부 표현은 `dates.ts`의 `CalendarDate`, `DatePoint`, `DateValue`다. `calendarDate`와 `parseCalendarDate`는 서버가 받는 0001–9999년 전체를 다룬다(`Date.UTC`는 1–99년을 1901–1999년으로 읽는다).
+- 테스트: `tests/logic/wire-shapes.test.ts`의 "the stored value of a date property"가 읽기·쓰기·왕복·거절을 고정한다.
 
 ### 테스트
 
@@ -397,34 +386,29 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 - **시간대.** `test` 스크립트가 전체 단위 테스트를 프로세스의 `TZ=UTC`, `Asia/Seoul`, `Pacific/Kiritimati`(UTC+14)로 세 번 돌린다. 로직은 기기의 시간대를 묻지 않으므로, 이 실행은 "프로세스의 TZ가 무엇이든 결과가 같다"를 확인하는 용도다. 시간대에 따라 달라져야 하는 동작은 테스트가 시간대를 인자로 넘겨 검사한다.
 - **속성 기반 테스트**(`sort-properties.test.ts`, fast-check 4.10.2). 생성한 카드와 수동 순서, 정렬 옵션 조합에 대해 두 가지를 각 300회 검사한다. 하나는 비교자가 순서 관계인지다(자기 자신과는 0, 뒤집으면 부호가 반대, 추이적, 서로 다른 카드는 0이 아님). 다른 하나는 정렬 결과가 입력 순서에 좌우되지 않는지다.
 
-## 화면 조립: 서버의 계약 없이, 메모리 구현 위에서
+## 화면과 데이터의 경계
 
-2026-11-10 22:15 KST부터 2026-11-11 01:50 KST까지 했다. 그때 서버의 계약은 아직 없었다.
+화면은 `src/lib/state`의 인터페이스(`Backend`)만 부른다. 그 뒤에는 서버를 부르는 구현(`src/lib/api`)과 브라우저 안의 메모리 구현(`src/lib/state/memory`, 내장 템플릿으로 채운 작업 공간)이 있고, 어느 쪽인지는 `src/app/backend.ts`가 고른다. 서버 없이 띄운 빌드(`tools/preview.ts`, `e2e`)는 메모리 구현으로 돈다. 화면이 서버를 직접 부르지 못하게 하는 것은 린트(`fvoci/no-direct-server`)가 본다.
 
-화면을 계약 없이 끝까지 조립하려고 **데이터의 경계**를 먼저 세웠다. 화면은 `src/lib/state`의 인터페이스(`Backend`)만 부른다. 지금 그 뒤에 있는 것은 브라우저 안의 메모리 구현이다(`src/lib/state/memory`, 내장 템플릿으로 채운 가짜 작업 공간). 서버를 실제로 부르는 구현은 그 인터페이스의 둘째 구현으로 들어온다. 화면이 서버를 직접 부르지 못하게 하는 것은 린트(`fvoci/no-direct-server`)가 본다.
+| 무엇                                                                          | 어디                                                                                                               |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 데이터의 경계, 메모리 구현, 저장소                                            | `src/lib/state/`(`backend.ts`, `memory/`, `workspace.svelte.ts`, `board.svelte.ts`, `card.svelte.ts`)              |
+| 서버의 모양과 화면의 모양 사이                                                | `src/lib/api/`(`contract.ts`는 `contracts/openapi.json`에서 만든다, `convert.ts`)                                  |
+| 층의 순서와 린트                                                              | `tools/lint/layers.ts`(`fvoci/layer-order`, `fvoci/no-direct-server`), `src/lib/README.md`                         |
+| 표시 설정(밝기, 밀도, 카드 여는 방식, 진동), 기기 설정을 따르는 것            | `src/lib/logic/display.ts`, `src/lib/display.svelte.ts`, `src/lib/theme.svelte.ts`, `index.html`의 인라인 스크립트 |
+| 작업 공간의 틀: 사이드바(목록·서랍·띠), 위쪽 막대, 설정 대화상자, 개발용 표시 | `src/lib/features/shell/`                                                                                          |
+| 뷰 머리글: 뷰 탭과 메뉴, 속성, 그룹, 필터, 정렬, 검색, 접힌 줄                | `src/lib/features/view-header/`                                                                                    |
+| 칸반과 갤러리, 카드의 겉                                                      | `src/lib/features/views/kanban/`, `gallery/`, `src/lib/components/card-face/`                                      |
+| 테이블, 캘린더, 간트                                                          | `src/lib/features/views/table/`, `calendar/`, `gantt/`                                                             |
+| 카드 상세: 세 가지 틀, 속성과 그 정의, 본문, 첨부, 댓글                       | `src/lib/features/card/`                                                                                           |
+| 편집기, 읽기 전용 표시기, 수식(KaTeX), 다이어그램(Mermaid), 이모지 목록(CLDR) | `src/lib/editor/`                                                                                                  |
+| 속성 편집기                                                                   | `src/lib/components/properties/`, `stories/properties/`, `tests/ui/properties/`                                    |
+| 드래그                                                                        | `src/lib/drag/`, `src/lib/logic/drop-target.ts`                                                                    |
+| 조립: 주소, 보드 페이지, 카드 대화상자                                        | `src/app/`                                                                                                         |
+| 빌드의 `.zst`                                                                 | `tools/build/`, `docs/build-notes.md`                                                                              |
+| 내장 템플릿                                                                   | 저장소 루트의 `crates/server/assets/templates/`(그 폴더의 `README.md`)                                             |
 
-| 무엇                                                                          | 어디                                                                                                               | 기록                                                                  |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| 데이터의 경계, 메모리 구현, 저장소                                            | `src/lib/state/`(`backend.ts`, `memory/`, `workspace.svelte.ts`, `board.svelte.ts`, `card.svelte.ts`)              | `docs/contract-assumptions.md`, `docs/decisions.md`의 "데이터의 경계" |
-| 층의 순서와 린트                                                              | `tools/lint/layers.ts`(`fvoci/layer-order`, `fvoci/no-direct-server`), `src/lib/README.md`                         | 위 "구조 규칙"                                                        |
-| 표시 설정(밝기, 밀도, 카드 여는 방식, 진동), 기기 설정을 따르는 것            | `src/lib/logic/display.ts`, `src/lib/display.svelte.ts`, `src/lib/theme.svelte.ts`, `index.html`의 인라인 스크립트 | `docs/decisions.md`의 "표시 설정과 기기 설정"                         |
-| 작업 공간의 틀: 사이드바(목록·서랍·띠), 위쪽 막대, 설정 대화상자, 개발용 표시 | `src/lib/features/shell/`                                                                                          | `docs/decisions.md`, `docs/screens/shell/`                            |
-| 뷰 머리글: 뷰 탭과 메뉴, 속성, 그룹, 필터, 정렬, 검색, 접힌 줄                | `src/lib/features/view-header/`                                                                                    | `docs/screens/view-header/`                                           |
-| 칸반과 갤러리, 카드의 겉                                                      | `src/lib/features/views/kanban/`, `gallery/`, `src/lib/components/card-face/`                                      | `docs/screens/kanban/`, `gallery/`                                    |
-| 테이블                                                                        | `src/lib/features/views/table/`                                                                                    | `docs/screens/table/`                                                 |
-| 카드 상세: 세 가지 틀, 속성과 그 정의, 본문, 첨부, 댓글                       | `src/lib/features/card/`                                                                                           | `docs/screens/card/`                                                  |
-| 편집기의 제품 부품, 수식(KaTeX), 다이어그램(Mermaid), 이모지 목록(CLDR)       | `src/lib/editor/`                                                                                                  | `docs/spike-editor.md` 10절                                           |
-| 조립: 주소, 보드 페이지, 카드 대화상자                                        | `src/app/`                                                                                                         | `docs/decisions.md`의 "주소와 언어"                                   |
-| 빌드의 `.zst`                                                                 | `tools/build/`                                                                                                     | `docs/build-notes.md`                                                 |
-| 캘린더 뷰의 화면 안(구현은 하지 않았다)                                       | `spikes/calendar/`, `docs/calendar/`(그림 61장)                                                                    | `docs/calendar-proposal.md`(질문 24개)                                |
-
-- **모바일 안의 결정 36건**은 `docs/mobile-proposal.md`의 "결정" 절에 답마다 "바꾸려면 어디를"과 함께 있다. 권고와 다르게 만든 곳은 그 표에 굵게 적었다: 모바일 안의 Q16의 "보이는 열에 만들기"(만들지 않았다), Q22의 표의 "열기", Q24의 터치 드래그 범위, Q34의 단계가 바뀔 때. 무엇을 설정으로 둘지(카드를 여는 방식, 밀도, 진동)도 그때 정해졌고, 설정은 `src/lib/logic/display.ts`와 설정 대화상자에 있다.
-- **스스로 정한 것**은 `docs/decisions.md` 한 곳에 있다: 맨 앞의 번호 매긴 항목 58개, 화면별 절 일곱(틀, 뷰 머리글, 칸반과 갤러리, 테이블, 카드 상세, 편집기, 빌드), 검토에서 나온 것과 그 처리.
-- **서버에 대해 가정한 것과 물을 것**은 `docs/contract-assumptions.md`에 있다. 답이 난 것은 지웠고, 아직 열린 것만 남았다.
-- **화면의 그림**은 `docs/screens/<화면>/`에 있다. 조립된 앱에서 세 단계(좁음·중간·넓음), 밝음과 어두움으로 찍었다. 다시 찍으면 커밋하지 않는 `target/screens/<화면>/`(저장소의 맨 위, `e2e/screens.ts`)에 생긴다. 문서의 그림을 바꾸려면 거기서 옮긴다. 다시 찍는 명령: `FVOCI_SCREENS=1 pnpm exec playwright test e2e/<화면>.spec.ts -g "pictures|screens|screenshots"`(`apps/web`에서, `build` 뒤에).
-- **만들지 않은 것**(범위 밖으로 정해진 것): 서버를 실제로 부르는 구현, 로그인·가입 화면의 서버 연결, 캘린더 뷰의 구현, 공유 대화상자, 템플릿 선택기, 아카이브 가져오기·내보내기, 온보딩 투어.
-
-조립된 앱을 띄워 보는 법은 `docs/handoff.md`의 "화면을 띄우는 법과 포트"에 있다.
+화면의 그림은 커밋하지 않는다. `FVOCI_SCREENS=1`로 찍으면 `target/screens/<화면>/`(저장소의 맨 위, `e2e/screens.ts`)에 생긴다: `FVOCI_SCREENS=1 pnpm exec playwright test e2e/<화면>.spec.ts -g "pictures|screens|screenshots"`(`apps/web`에서, `build` 뒤에). 조립된 앱을 띄워 보는 법은 `docs/handoff.md`의 "화면을 띄우는 법과 포트"에 있다.
 
 ### 기기에 남는 것
 
@@ -433,140 +417,50 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | 키                      | 무엇                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------ |
 | `fvoci:display`         | 밝기·밀도·카드 여는 방식·진동. 첫 그리기 전에 `index.html`의 스크립트가 읽는다 |
-| `fvoci:memory-settings` | 메모리 구현이 들고 있는 나머지 설정. 서버 구현이 들어오면 없어진다             |
+| `fvoci:memory-settings` | 메모리 구현이 들고 있는 나머지 설정                                            |
 | `fvoci:locale`          | 계정 설정 `language`의 사본: 로그인 전과 첫 그리기의 언어. `auto`면 없다       |
 | `fvoci:sidebar`         | 접은 사이드바                                                                  |
 | `fvoci:dev`             | 개발용 표시(`features/shell/DevReadout.svelte`: 창의 너비와 지금의 단계)       |
 
-### 합친 뒤에 드러나 고친 것
+### 다시 겪을 수 있는 함정
 
-화면 여섯과 편집기를 따로 만들어 합쳤다. 합친 상태에서만 드러난 것이 있었다. 고친 방식과 까닭은 `docs/decisions.md`의 번호에 있다.
-
-| 드러난 것                                                                                       | 처리                                            |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| 표가 실행 취소 단축키를 따로 받고 있었다                                                        | 틀만 받는다(50번)                               |
-| 칸반과 표가 "보이는 자리 → 저장소가 세는 자리"를 서로 다른 규칙으로 바꾸고 있었다               | 저장소의 `placeAmongAll` 하나로 모았다(50번)    |
-| 표의 행에 다른 뷰와 같은 표식(`data-card`)이 없어 뷰 머리글의 종단 테스트가 표에서 실패했다     | 어느 뷰에서나 같은 표식을 단다(49번)            |
-| 라이선스 검사 둘이 "라이선스 필드가 없는 패키지"를 서로 다른 목록으로 받고 있었다               | `stated` 하나로 모았다(5번)                     |
-| 수식의 가장 작은 글꼴이 스타일시트에 `data:` 주소로 박혀 정책의 `font-src 'self'`에 걸릴 뻔했다 | `assetsInlineLimit: 0`(47번)                    |
-| "움직임 줄이기"를 켠 기기에서 다이어그램이 잘렸다                                               | 그리는 자리에서 전환을 껐다(48번)               |
-| 시트가 닫히자마자 다음 시트가 열리면 방문 기록이 한 칸 어긋났다                                 | 우리가 낸 "뒤로"가 도착할 때까지 기다린다(58번) |
-| 메모리 구현에서 포기한 업로드가 "다음 업로드는 실패"라는 테스트의 주문을 가로챌 수 있었다       | 포기한 호출은 포기한 것으로 끝난다              |
-
-뒤의 셋은 다시 겪을 수 있는 함정이라 경위를 적어 둔다.
-
-- **다이어그램.** 조립된 화면의 그림을 찍다가 찾았다(그림은 움직임을 끄고 찍는다). 페이지는 그 설정에서 모든 전환을 0.01ms로 줄인다. 다이어그램 라이브러리는 노드를 놓자마자 그림의 크기를 잰다. 같은 함정이 "놓자마자 재는" 다른 코드에도 있을 수 있다.
-- **방문 기록.** 종단 실행(711건)에서 휴대폰 크기의 한 건이 한 번 실패해 찾았다. 닫히는 시트는 자기 칸을 `history.back()`으로 돌려주는데 이것은 늦게 일어난다. 그사이에 넣은 칸을 브라우저가 엉뚱한 자리에서 셀 때가 있다. 그러면 다음 것을 닫을 때 카드에서 나가 버린다. 방문 기록에 쓰는 것(시트의 칸, 라우터의 주소, 카드를 닫는 한 걸음)이 기다리게 했다(`lib/layout/back.svelte.ts`의 `afterOwnSteps`).
-- **포기한 업로드.** 기기가 느릴 때만 드러났다. 카드 스펙을 여섯 번씩 돌렸을 때 한 번 나왔다.
-
-### 검토 한 번
-
-2026-11-11 00:50–01:10 KST에, 합친 상태를 하위 에이전트 하나가 읽기 전용으로 한 번 훑었다. 본 것은 기능 사이에 겹친 것, 쓰이지 않는 것, 층을 돌아가는 것, 키보드로 닿지 않는 것, 이름 없는 단추, 500줄을 넘는 파일이다. 층의 규칙을 어긴 곳, 키보드로 닿지 않는 곳, 이름 없는 단추는 없었다.
-
-고친 것 13건과 남긴 것은 `docs/decisions.md`의 "검토에서 나온 것과 처리"에 까닭과 함께 있다. 고친 것 가운데 동작이 바뀐 것은 이렇다.
-
-- 사람 속성에서 고를 수 있는 사람은 어디서나 보드의 구성원이다(표의 칸은 전체 사용자를 내놓고 있었다).
-- 표의 끌기도 진동 설정을 따른다.
-- 속성 목록에서 읽는 뷰가 없던 스위치 둘("제목", "댓글 및 설명")을 뺐다. 새 표는 제목 열의 너비를 저장하지 않는다.
-- 표에서 링크 값이 행마다 Tab을 세 번 세우던 것을 없앴다. 손으로 만든 라디오 묶음 넷과 탭 줄이 화살표 키를 받는다.
-- 화면 조립에서 만들고 쓰지 않은 것을 지웠다(`BoardStore.cardTemplates`, `PendingWrites.busy`, `BodyEditor`의 내보낸 함수 둘, 메시지 셋).
-
-남긴 것 가운데 정해야 했던 것은 둘이다.
-
-- 선택지 편집이 카드 상세와 칸반에 두 벌인 것. 표의 칸에서는 선택지를 새로 만들지 못한다. 아직 정하지 않았다.
-- 카드를 지울 때 카드 상세만 묻는 것. **정해졌다: 어느 뷰에서나 묻지 않는다**(사용자 결정, 2026-11-11 02:12 KST). 코드는 아직 카드 상세에서 묻는다.
-
-## 서버의 계약을 기다리며 한 것
-
-2026-11-10 19:40–20:50 KST에 했다. 서버의 계약이 나오기 전이었고, 결정을 반영하고 가짜 데이터로 만들 수 있는 화면 부품을 만들었다. **모든 부품은 값과 콜백을 인자로 받고 API·상태 모듈에 기대지 않는다.** 칸반·테이블 화면의 조립은 그 뒤 "화면 조립"에서 했다.
-
-| 무엇                                               | 어디                                                                              | 기록                                                  |
-| -------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| 날짜 값의 와이어, 지역 설정의 값, 파일 주소의 전제 | `src/lib/logic/wire.ts`, `regional.ts`, `src/lib/editor/files.ts`                 | 위 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대" |
-| 글꼴: 한국어 세 파일, 한국어·일본어는 CJK 먼저     | `tools/fonts/`, `src/styles/app.css`, `e2e/fonts.spec.ts`                         | 위 "글꼴"                                             |
-| 내장 템플릿                                        | 저장소 루트의 `crates/server/assets/templates/`                                   | 그 폴더의 `README.md`                                 |
-| 모바일 화면 안(합의용)                             | `spikes/mobile/`, `docs/mobile/`(그림 64장), `docs/mobile-proposal.md`(질문 36개) | 그 문서                                               |
-| 본문 읽기 전용 표시기                              | `src/lib/editor/render.ts`, `BodyView.svelte`, `drawing.ts`                       | `docs/spike-editor.md` 9절                            |
-| 속성 편집기 15종                                   | `src/lib/components/properties/`, `stories/properties/`, `tests/ui/properties/`   | 아래                                                  |
-| 드래그: 결정 1–11, 열 끌기·여러 장·놓을 곳         | `src/lib/drag/`, `src/lib/logic/drop-target.ts`, `spikes/drag/`                   | `docs/spike-drag.md` "결정의 기록"                    |
-
-### 스파이크
-
-스파이크 화면은 `spikes/<이름>/`에 두고 제품 빌드와 따로 돈다(`vite.spikes.config.ts`, `playwright.spikes.config.ts`). 제품으로 가져갈 순수 로직은 처음부터 `src/lib` 아래에 두고 테스트한다.
-
-| 스파이크           | 결과 문서              | 제품 쪽에 남은 코드                                                               |
-| ------------------ | ---------------------- | --------------------------------------------------------------------------------- |
-| 편집기와 본문 저장 | `docs/spike-editor.md` | `src/lib/editor/`(허용 목록과 검증기, Tiptap 확장 구성, 마크다운 변환, 파일 주소) |
-| 드래그             | `docs/spike-drag.md`   | `src/lib/logic/drop-target.ts`, `src/lib/drag/`                                   |
-
-### 모바일 화면 안
-
-구현 전에 합의하려고 만든 자료다. 완성된 구현이 아니다. `spikes/mobile/`의 화면 여섯(사이드바, 칸반, 테이블, 카드 상세, 메뉴 넷, 뷰 머리글)마다 안 A와 B를 그렸다. 그림 64장과 권고, 정해야 할 **질문 36개**가 `docs/mobile-proposal.md`에 있다. 질문의 답은 그 뒤에 났고 같은 문서의 "결정" 절에 있다.
-
-- 처음에는 좁은 화면 360×740과 넓은 화면 1280×800만 그렸다(2026-11-10 20:31 KST, 질문 28개).
-- 그 뒤 **중간 단계**를 넣었다(2026-11-10 21:38 KST). 466×678, 626×890, 890×626, 820×1180에서 배치가 달라지는 것만 그림으로 남겼다(새 14장). 함께 더한 것은 이렇다.
-  - 화면별로 어느 너비에서 배치가 바뀌는지의 표.
-  - 경계 값의 안: 페이지 600·840px, 보드의 칸 544·992px, 카드 576px. 창이 아니라 **상자의 너비**를 컨테이너 쿼리로 본다.
-  - 한가운데 세로선에 걸리는 안의 점검, 좌우 안전 영역, 쓰는 도중에 창 크기가 바뀔 때의 동작.
-  - 질문 8개.
-- 이 크기들은 어림값이고 실제 기기에서 확인하지 않았다.
-- 한가운데 세로선 점검의 결과로, 카드 상세의 넓은 화면 권고(가운데 대화상자)를 거두고 질문으로 돌렸다(모바일 안의 Q8). 가운데 대화상자는 속성 값과 댓글 입력 칸이 모두 접히는 자리(가정)에 온다. 그 뒤의 결정은 A(가운데 대화상자)다. 접히는 자리에 걸리는 것(모바일 안의 Q35)은 받아들이고, 실제 기기에서 본 뒤 다시 정하기로 했다.
-- 그림을 다시 찍는 명령: `FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop`. 그림은 커밋하지 않는 `target/screens/spikes/mobile/`에 생긴다. 약 1분 25초가 걸리고, 평소의 `spikes:e2e`에서는 건너뛴다. 같은 입력이면 같은 바이트가 나온다.
+- **놓자마자 재는 코드.** "움직임 줄이기"를 켠 기기에서 페이지는 모든 전환을 0.01ms로 줄인다. 다이어그램 라이브러리는 노드를 놓자마자 그림의 크기를 재므로, 그리는 자리에서는 전환을 끈다. 같은 함정이 "놓자마자 재는" 다른 코드에도 있을 수 있다.
+- **방문 기록.** 닫히는 시트는 자기 칸을 `history.back()`으로 돌려주는데 이것은 늦게 일어난다. 그사이에 넣은 칸을 브라우저가 엉뚱한 자리에서 셀 때가 있어, 방문 기록에 쓰는 것(시트의 칸, 라우터의 주소, 카드를 닫는 한 걸음)은 우리가 낸 "뒤로"가 도착할 때까지 기다린다(`lib/layout/back.svelte.ts`의 `afterOwnSteps`).
+- **수식의 글꼴.** 가장 작은 글꼴이 스타일시트에 `data:` 주소로 박히면 정책의 `font-src 'self'`에 걸린다. 그래서 `assetsInlineLimit: 0`이다.
 
 ### 본문 읽기 전용 표시기
 
-편집기(Tiptap) 없이 문서를 DOM으로 그린다. 허용 목록의 노드 15종과 마크 5종을 모두 그리고, 검증을 통과하지 못한 문서는 그리지 않으며, 링크의 `rel`·`target`은 그릴 때 붙인다. 글자는 텍스트 노드로만 넣는다.
+편집기(Tiptap) 없이 문서를 DOM으로 그린다(`src/lib/editor/render.ts`, `BodyView.svelte`, `drawing.ts`). 허용 목록의 노드와 마크를 모두 그리고, 검증을 통과하지 못한 문서는 그리지 않으며, 링크의 `rel`·`target`은 그릴 때 붙인다. 글자는 텍스트 노드로만 넣는다.
 
-- 편집기가 그린 것과의 비교(`tests/ui/body-compare.test.ts`): 템플릿 문서 58개와 손으로 만든 문서 16개, 스파이크 예제 1개, 모두 75개에서 정규화한 DOM이 같다. 비교에서 빼는 것 열 가지는 그 파일 머리에 적혀 있고, 한 번도 쓰이지 않는 항목이 생기면 테스트가 실패한다. 브라우저에서는 모든 요소의 위치·크기와 계산된 스타일 36가지를 견준다(`spikes/editor/view.spec.ts`).
-- 번들 크기(2026-11-10 22:01 KST, 제품 설정으로 따로 묶음): `renderBody`(검증기 포함) 원본 8,132 / gzip 3,102 / **brotli 2,793**바이트. Svelte 부품 `BodyView`까지의 증가분은 brotli 4,191바이트. 같은 방법으로 잰 편집기 조각은 407,951 / 129,024 / 109,957이다. 스파이크 문서 6절의 편집기 수치(523,262 / 146,035 / 121,076)는 이 방법으로 재현되지 않았다. 공백을 지우지 않은 묶음을 잰 것으로 추정한다(확인하지 못함).
-- 비교하다 찾아 고친 것: 편집기 쪽 CSS의 결함 셋(`editor.css`), 검증기가 `{"type":"constructor"}` 같은 마크를 통과시키던 것, 검증기가 문서 모양이 아닌 값에서 예외를 던지던 것, 굵은 글자 속 줄바꿈·멘션에 마크가 붙어 저장 문서가 검증에 걸리던 것(`toStoredDoc`이 뗀다).
+- 편집기가 그린 것과의 비교(`tests/ui/body-compare.test.ts`): 템플릿의 문서, 손으로 만든 문서(`tests/support/body-docs.ts`), 모든 노드와 마크가 든 문서(`tests/ui/fixtures/body-samples.ts`)에서 정규화한 DOM이 같다. 비교에서 빼는 것은 그 파일 머리에 적혀 있고, 한 번도 쓰이지 않는 항목이 생기면 테스트가 실패한다.
+- 적대적인 다이어그램과 수식이 진짜 라이브러리를 거쳐 편집기와 읽기 전용 표시기에 닿는 길 전체는 `e2e/editor-attacks.spec.ts`가 본다. 다른 호스트에 아무것도 묻지 않고, 스크립트가 돌지 않고, 그린 것에 스크립트·링크·처리기·바깥 주소가 없다.
 
-### 속성 편집기 15종
+### 속성 편집기
 
-`src/lib/components/properties/`의 `PropertyValue.svelte`가 속성 정의의 종류로 갈라 그린다. 쓰임은 둘이다: 표시(`mode: 'display'`)와 편집. 15종(text, number, select, multiSelect, date, person, multiPerson, checkbox, url, email, phone, createdTime, createdBy, updatedTime, updatedBy) 모두 표시와 편집(읽기 전용 넷은 표시)이 된다. 만들었을 때 종류마다 Storybook 이야기(75개, 겉 부품 8개 별도)와 상호작용 테스트(`tests/ui/properties/<종류>.test.ts`, 318건)가 있었다.
+`src/lib/components/properties/`의 `PropertyValue.svelte`가 속성 정의의 종류로 갈라 그린다. 쓰임은 둘이다: 표시(`mode: 'display'`)와 편집. 15종(text, number, select, multiSelect, date, person, multiPerson, checkbox, url, email, phone, createdTime, createdBy, updatedTime, updatedBy) 모두 표시와 편집(읽기 전용 넷은 표시)이 된다. 종류마다 Storybook 이야기와 상호작용 테스트(`tests/ui/properties/<종류>.test.ts`)가 있다.
 
-- **날짜**: 범위와 시각을 포함한다. 시각 없는 값은 달력 날짜, 시각 있는 값은 UTC 밀리초다. 입력과 표시는 **계정의 시간대**(인자 `regional.timeZone`)로 한다. 기기의 시간대를 읽지 않는다는 것을 테스트가 고정한다(기기 시간대를 읽게 바꾸면 28건이 실패하는 것을 확인했다). 서머타임으로 없는 시각은 건너뛴 만큼 뒤로, 두 번 있는 시각은 첫 번째로 읽는다. 순수 로직은 `src/lib/logic/date-entry.ts`.
-- **좁은 화면에서 선택 목록과 날짜 선택기가 뜨는 방식**은 한 곳에 모았다: `src/lib/components/picker-surface/PickerSurface.svelte`. "넓으면 팝오버, 좁으면 바닥 시트"이고, 어느 쪽인지는 인자 `presentation` 하나가 정한다.
-- **직접 쓴 공용 부품의 자리**가 생겼다: `src/lib/components/`(겉, 선택 목록, 선택지 배지). `src/lib/ui`는 생성물의 자리라 섞지 않았다.
-- 선택지 색 10종의 토큰(`--option-*`)을 `app.css`에 더했고 대비 검사에 넣었다.
+- **날짜**: 범위와 시각을 포함한다. 시각 없는 값은 달력 날짜, 시각 있는 값은 UTC 밀리초다. 입력과 표시는 **계정의 시간대**(인자 `regional.timeZone`)로 한다. 기기의 시간대를 읽지 않는다는 것을 테스트가 고정한다. 서머타임으로 없는 시각은 건너뛴 만큼 뒤로, 두 번 있는 시각은 첫 번째로 읽는다. 순수 로직은 `src/lib/logic/date-entry.ts`.
+- **좁은 화면에서 선택 목록과 날짜 선택기가 뜨는 방식**은 한 곳에 있다: `src/lib/components/picker-surface/PickerSurface.svelte`. "넓으면 팝오버, 좁으면 바닥 시트"이고, 어느 쪽인지는 인자 `presentation` 하나가 정한다.
+- 선택지 색 10종의 토큰(`--option-*`)은 `app.css`에 있고 대비 검사에 들어 있다.
 - 이메일과 숫자의 검증은 저장된 값이 아니라 입력한 값에 한다. 체크박스는 `'true'`만 체크로 읽는다. 모르는 사용자 ID는 "알 수 없는 사용자"로 보인다. 선택지의 이름을 바꿀 수 있다.
-- 처음에는 `src/lib/features/properties/`에 두었다. 기능 폴더끼리는 서로 가져올 수 없어서, 화면 조립 때 `components/properties`로 내렸다.
-- 남은 것: 수정 시각은 받은 카드의 `updatedAt`만 본다(`docs/contract-assumptions.md`의 A8). 보드 밖 사용자의 검색·추가는 API가 있어야 한다.
 
 ### 드래그
 
-결정 1–11의 기록과 상태는 `docs/spike-drag.md`의 "결정의 기록"에 있다.
-
-- 그때 구현한 것: 조정 값을 한 곳에(`src/lib/drag/settings.ts`), 보드 밖에 놓으면 취소, 정렬된 보기에서는 열만 바뀌고 안내를 보임, 길게 누르기가 성립할 때 진동, 열 끌기(두 단계 정렬).
-- 기반과 단위 테스트까지 한 것: 여러 장(`moveItems`, `selection`), 숨긴 열 같은 "놓을 곳"(`data-drag-zone`).
-- 테스트는 순수 함수 129건, jsdom 25건, 브라우저 94건이었다.
-- `Sortable`의 공개 형태가 바뀌었다(`active.to`가 목록·자리·놓을 곳의 합이 됐다).
-- 표의 열 순서와 사이드바에는 화면 조립 때 붙였다.
+- 조정 값은 한 곳에 있다(`src/lib/drag/settings.ts`). 보드 밖에 놓으면 취소, 정렬된 보기에서는 열만 바뀌고 안내를 보인다. 길게 누르기가 성립할 때 진동한다. 열도 끈다(두 단계 정렬).
+- 여러 장(`moveItems`, `selection`), 숨긴 열 같은 "놓을 곳"(`data-drag-zone`)은 기반과 단위 테스트가 있다.
+- 시작 방식은 너비가 아니라 누름마다 포인터 종류(`pointerType`)로 갈린다. 창의 너비가 달라지거나 높이가 120px 넘게 달라지면 진행 중인 드래그를 취소한다.
 
 ### 화면 크기의 세 단계
 
-2026-11-10 20:40 KST에 계획에 더해진 방침이다. 좁은 화면과 넓은 화면 사이에 중간 단계가 있다(접는 기기, 태블릿). 단계는 기기가 아니라 쓸 수 있는 너비로 나누고, 부품은 자기가 놓인 칸의 너비를 본다. 화면별 안, 경계 값의 안, 정할 질문은 `docs/mobile-proposal.md`에 있다.
+좁은 화면과 넓은 화면 사이에 중간 단계가 있다(접는 기기, 태블릿). 단계는 기기가 아니라 쓸 수 있는 너비로 나누고, 부품은 자기가 놓인 칸의 너비를 본다. 경계 값은 `src/styles/app.css`의 `@theme`에 있고 상자의 너비를 컨테이너 쿼리로 본다.
 
-그 방침에 비추어 그때의 코드를 확인하고 고친 것(2026-11-10 20:58 KST):
-
-| 확인한 것                                         | 결과                                                                                                                        |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| 창 크기가 바뀔 때 진행 중인 드래그                | **고쳤다.** 너비가 달라지거나 높이가 120px 넘게 달라지면 취소한다. `docs/spike-drag.md`의 "창 크기가 바뀌면 취소"           |
-| 창 크기가 바뀔 때 편집기의 글·커서·초점·열린 목록 | 유지된다(고칠 것이 없었다). `docs/spike-editor.md` 6.5절                                                                    |
-| 드래그의 시작 방식이 너비로 갈리는가              | 아니다. 누름마다 포인터 종류(`pointerType`)로 갈린다. 좁은 창의 마우스와 넓은 화면의 손가락을 테스트로 고정했다             |
-| 좌우 안전 영역을 한 값으로 주는 곳                | **고쳤다.** 속성 편집기의 바닥 시트가 왼쪽·오른쪽·아래를 각자의 값으로 준다(`PickerSurface.svelte`, 테스트 5건)(주 1)       |
-| viewport 메타의 `viewport-fit=cover`              | 그때는 앱의 `index.html`에 없었다. 화면 조립 때 배치와 함께 넣었다(주 2)                                                    |
-| 높이 단위                                         | 직접 쓴 부품은 `dvh`를 쓴다(시트 `85dvh`, 목록 `45dvh`). 편집기 스파이크의 JSON 칸 하나가 `70vh`인데 스파이크 화면의 것이다 |
-| 종단 테스트의 뷰포트                              | 제품 e2e에 중간 크기 프로젝트 `middle`(626×890, 터치)을 더했다. 스파이크의 테스트는 파일 안에서 크기를 정한다               |
-
-1. 그때 `src/` 아래에서 안전 영역을 쓰는 곳은 그 시트 하나였고 아래쪽 값만 주고 있었다. 생성 UI의 시트와 사이드바(`src/lib/ui`)는 안전 영역을 전혀 쓰지 않는다. 틀의 안전 영역은 화면 조립 때 넣었다(`docs/decisions.md`의 "작업 공간의 틀").
-2. 그 값이 없으면 `env(safe-area-inset-*)`가 모두 0이라 여백이 효과가 없다. 넣으면 내용이 노치 아래까지 들어가므로 화면 전체에 안전 영역 여백을 함께 넣어야 한다.
-
-계획에 적힌 크기들(466×678, 626×890, 890×626, 820×1180 등)은 **어림값이다.** 출처가 고르지 않고 서로 어긋나는 측정이 있어, 실제 기기에서 확인하기 전에는 확정값으로 쓰지 않는다. 테스트와 문서에서도 그렇게 적었다.
+- 창 크기가 바뀌어도 편집기의 글·커서·초점·열린 목록은 그대로다. 카드는 어느 단계에서나 대화상자 하나이고 클래스만 바뀐다(`features/card/frame.ts`).
+- 직접 쓴 부품은 높이에 `dvh`를 쓴다(시트 `85dvh`, 목록 `45dvh`). 좌우와 아래의 안전 영역은 각자의 값으로 준다(`viewport-fit=cover`와 함께: 그 값이 없으면 `env(safe-area-inset-*)`가 모두 0이다).
+- 제품 e2e에는 중간 크기 프로젝트 `middle`(626×890, 터치)이 있다. 이 크기들은 어림값이고 실제 기기에서 확인하지 않았다.
 
 ## 미결 사항
 
-W0 때 남긴 것 가운데 아직 열려 있는 것이다. `{{.BaseURL}}`을 스크립트가 읽는 방법은 풀렸다(`docs/decisions.md`의 23번).
+열려 있는 것이다.
 
 | 항목                             | 내용                                                                                                                                |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |

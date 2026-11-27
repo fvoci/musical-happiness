@@ -31,7 +31,7 @@ pub const BLOCK_TITLE_MAX_CHARS: usize = 16_383;
 pub const BLOCK_FIELDS_MAX_CHARS: usize = 800_000;
 
 /// Maximum number of characters in the `fields` of a card, a comment or an attachment
-/// once serialized to JSON (`docs/s6-design.md` 5.7). A card's content is its body.
+/// once serialized to JSON. A card's content is its body.
 pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The member of a comment's `fields` that names the personal API token an agent wrote
@@ -50,7 +50,7 @@ pub const COMMENT_AGENT_TOKEN_NAME: &str = "agentTokenName";
 )]
 #[serde(rename_all = "lowercase")]
 pub enum BlockType {
-    /// A card.
+    /// A card of a board, with the values of its properties and a body.
     #[default]
     Card,
     /// A board view.
@@ -105,8 +105,8 @@ impl BlockType {
     /// a chapter has no body.
     pub const WITH_ROOM: [Self; 4] = [Self::Card, Self::Page, Self::Entry, Self::Unit];
 
-    /// Returns `true` for the types that may have a body: a card and a comment
-    /// (`docs/s6-design.md` 5.7), a page, an entry and a unit.
+    /// Returns `true` for the types that may have a body: a card and a comment, a page, an
+    /// entry and a unit.
     #[must_use]
     pub const fn has_body(self) -> bool {
         matches!(
@@ -151,7 +151,7 @@ impl BlockType {
     }
 
     /// Returns `true` for the types a block may be given by a write of blocks: a card,
-    /// a view, a comment and an attachment (`docs/s6-design.md` 5.7). A page is no such
+    /// a view, a comment and an attachment. A page is no such
     /// type: the operations of pages make and change it, which keep it in its place in
     /// the tree of its wiki. Nor is an entry: the operations of diaries make it, which
     /// keep a day to one. Nor is a unit or chapter: the operations of courses make it.
@@ -297,7 +297,7 @@ pub enum BlockError {
     /// boolean (or either `null`).
     #[error("the field {field} of a card must be {expected}")]
     InvalidCardField {
-        /// The field.
+        /// The field, by its name in the JSON: `icon` or `isTemplate`.
         field: &'static str,
         /// What its value must be.
         expected: &'static str,
@@ -306,7 +306,7 @@ pub enum BlockError {
     /// order ([`crate::order_between`]), or either `null`.
     #[error("the field {field} of a page must be {expected}")]
     InvalidPageField {
-        /// The field.
+        /// The field, by its name in the JSON: `icon` or `order`.
         field: &'static str,
         /// What its value must be.
         expected: &'static str,
@@ -351,7 +351,8 @@ pub enum BlockError {
     /// short texts, and the title the day as `date` has it.
     #[error("the field {field} of an entry must be {expected}")]
     InvalidEntryField {
-        /// The field.
+        /// The field, by its name in the JSON: `date`, `mood`, `weather`, `place` or
+        /// `title`.
         field: &'static str,
         /// What its value must be.
         expected: &'static str,
@@ -389,7 +390,7 @@ pub enum BlockError {
     /// order ([`crate::order_between`]) or `null`.
     #[error("the field {field} of a unit must be {expected}")]
     InvalidUnitField {
-        /// The field.
+        /// The field, by its name in the JSON: `order`.
         field: &'static str,
         /// What its value must be.
         expected: &'static str,
@@ -551,8 +552,6 @@ impl BlockError {
 }
 
 /// The basic data unit of a board.
-// `type` is required when decoding; every other member defaults to its empty value.
-// (No extra doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
@@ -628,17 +627,8 @@ pub struct Block {
     /// since the Unix epoch. Absent for a comment never changed and for every other
     /// block. The server sets it, and ignores a client's. What the body said before is
     /// `getCommentVersions`'.
-    #[serde(default, skip_serializing_if = "is_zero")]
+    #[serde(default, skip_serializing_if = "crate::serde_util::is_zero")]
     pub edited_at: i64,
-}
-
-/// Whether a time is none: zero.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's skip_serializing_if passes a reference"
-)]
-fn is_zero(time: &i64) -> bool {
-    *time == 0
 }
 
 /// A card's number as it is read: what is no number a card can have is none, so that
@@ -817,13 +807,12 @@ impl Block {
         malformed
     }
 
-    /// The block as it goes to whoever reads it by the board's link, signed in or not,
-    /// who is nobody the server knows (`docs/s6-design.md`,
-    /// decision 7): no `createdBy` or `modifiedBy`, no user in the mentions of the body,
-    /// and in `fields` none that the board's person properties name (`people`): in a
-    /// card's `properties` ([`PersonProperties::hide_values`]) and in a view's filter and
-    /// groups ([`PersonProperties::hide_view_fields`]). A user's identifier tells when
-    /// they signed up.
+    /// The block as it goes to whoever reads it by the board's link, signed in or not, who
+    /// is nobody the server knows: no `createdBy` or `modifiedBy`, no user in the mentions
+    /// of the body, and in `fields` none that the board's person properties name
+    /// (`people`): in a card's `properties` ([`PersonProperties::hide_values`]) and in a
+    /// view's filter and groups ([`PersonProperties::hide_view_fields`]). A user's
+    /// identifier tells when they signed up.
     pub fn hide_people(&mut self, people: &PersonProperties) {
         self.created_by.clear();
         self.modified_by.clear();

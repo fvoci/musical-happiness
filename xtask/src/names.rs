@@ -1,11 +1,13 @@
-//! `cargo xtask check`, the step "names": the former name of the workspace.
+//! `cargo xtask check`, in the step "names": the retired names of the workspace.
 //!
-//! A workspace once had the name [`FORMER`]; it is a workspace everywhere now, and
-//! that name will be a group of people's. It is refused in any case, in
-//! plurals and compounds, in every file git tracks or would track but the web app's,
-//! which its own check holds to the entries of this list under `apps/web/`. What stays is listed in
-//! [`EXCEPTIONS`], each under the reason it stays; an entry that nothing needs any more
-//! fails the step until it is removed.
+//! A workspace was once named a team, and a board's groups of people are teams now
+//! (`teams`, `team_members`, `container_teams`). What the step refuses is the
+//! identifiers that meant a workspace, or a board of one, and are gone: [`RETIRED`] and
+//! the kind of an organization of that name however its key and value are written
+//! ([`names_the_retired_kind`]), in any case, in the text and the path of every file git
+//! tracks or would track, and [`RETIRED_ROUTES`], the routes of the workspaces under
+//! that name, in the sources of the crates and of the web app (the tests of the server
+//! keep asking for them, to see that nothing answers). Nothing is excepted.
 
 use std::path::Path;
 use std::process::Command;
@@ -14,118 +16,109 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::steps;
 
-/// The former name, written in halves so that this file passes its own check.
-const FORMER: &str = concat!("te", "am");
+/// The retired identifiers, written in halves so that this file passes its own check.
+/// Matched in lowercase.
+const RETIRED: [&str; 3] = [
+    concat!("orgkind::", "team"),
+    concat!("board_", "teams"),
+    concat!("deleted_", "boards"),
+];
 
-/// The file of what may keep the former name, and why.
-pub(crate) const EXCEPTIONS: &str = "xtask/exceptions/names.txt";
+/// The retired kind of an organization.
+const RETIRED_KIND: &str = "team";
 
-/// The folder the web app's own check covers.
-const WEB_APP: &str = "apps/web/";
-
-/// An entry of [`EXCEPTIONS`]: the files it is for and, unless it lets a whole file
-/// keep the name, the text within which a line may.
-#[derive(Debug, PartialEq, Eq)]
-struct Exception {
-    /// Its line in the file of exceptions.
-    line: usize,
-    /// A path from the repository root; `*` stands for any part of a name, `**` for
-    /// any number of folders.
-    pattern: String,
-    /// The text, lowercase; none for the whole file, its name included.
-    text: Option<String>,
+/// Whether `line`, in lowercase, gives a `kind` the value [`RETIRED_KIND`], however the
+/// key and the value are written: `kind`, the quote that ends it if it is quoted, `:`
+/// or `=` (`==`, `===` too), and the kind in quotes, with any spaces between. JSON
+/// (`"kind":"…"`), a script (`kind: '…'`, `kind === "…"`) and SQL (`kind = '…'`) alike.
+fn names_the_retired_kind(line: &str) -> bool {
+    line.match_indices("kind").any(|(at, key)| {
+        let rest = &line[at + key.len()..];
+        let rest = rest.strip_prefix(['"', '\'']).unwrap_or(rest).trim_start();
+        let after_the_sign = rest.strip_prefix(':').or_else(|| {
+            let without = rest.trim_start_matches('=');
+            (without.len() < rest.len()).then_some(without)
+        });
+        let Some(rest) = after_the_sign.map(str::trim_start) else {
+            return false;
+        };
+        let Some(quote) = rest.chars().next().filter(|c| matches!(c, '"' | '\'')) else {
+            return false;
+        };
+        rest[quote.len_utf8()..]
+            .strip_prefix(RETIRED_KIND)
+            .is_some_and(|after| after.starts_with(quote))
+    })
 }
 
-/// Fails if a file has the former name where no exception lets it, or an exception
-/// lets what is not there any more.
+/// The routes of the workspaces under their retired name, refused in [`SOURCES`].
+const RETIRED_ROUTES: [&str; 2] = [concat!("/api/v1/", "teams"), concat!("/api/v2/", "teams")];
+
+/// Where [`RETIRED_ROUTES`] are refused: the sources of each crate and of the web app.
+const SOURCES: [&str; 2] = ["crates/*/src/", "apps/web/src/"];
+
+/// Fails if a file holds a retired name.
 ///
 /// # Errors
 ///
-/// Fails on what it finds, and if git cannot list the files or the exceptions cannot
-/// be read.
+/// Fails on what it finds, and if git cannot list the files or a file cannot be read.
 pub(crate) fn run(root: &Path) -> Result<()> {
-    let listed = std::fs::read_to_string(root.join(EXCEPTIONS))
-        .with_context(|| format!("reading {EXCEPTIONS}"))?;
-    let exceptions = parse(&listed)?;
-    let mut used = vec![false; exceptions.len()];
+    let files = tracked_files(root)?;
     let mut hits = Vec::new();
-    for file in tracked_files(root)? {
-        if !is_checked(&file) {
-            continue;
-        }
-        let text = tracked_text(&root.join(&file)).with_context(|| format!("reading {file}"))?;
-        hits.extend(check_file(&file, &text, &exceptions, &mut used));
+    for file in &files {
+        let text = tracked_text(&root.join(file)).with_context(|| format!("reading {file}"))?;
+        hits.extend(check_file(file, &text));
     }
-    let stale: Vec<String> = exceptions
-        .iter()
-        .zip(&used)
-        .filter(|(exception, used)| !**used && !exception.pattern.starts_with(WEB_APP))
-        .map(|(exception, _)| {
-            format!(
-                "{EXCEPTIONS}:{}: nothing needs it: remove it",
-                exception.line
-            )
-        })
-        .collect();
-    if hits.is_empty() && stale.is_empty() {
+    if hits.is_empty() {
         steps::say(&format!(
-            "    the name {FORMER} only where the {} exceptions of {EXCEPTIONS} let it",
-            exceptions.len()
+            "    {} files without the retired names of the workspace",
+            files.len()
         ));
         return Ok(());
     }
-    for line in hits.iter().chain(&stale) {
-        steps::say(&format!("    {line}"));
+    for hit in &hits {
+        steps::say(&format!("    {hit}"));
     }
-    steps::say(&format!(
-        "    a workspace is a workspace; what keeps the former name is listed in {EXCEPTIONS} with its reason"
-    ));
-    bail!(
-        "{} places have {FORMER}, {} exceptions are stale",
-        hits.len(),
-        stale.len()
-    )
+    steps::say("    a workspace is a workspace, a board a container: rename what is named so");
+    bail!("{} places have a retired name of the workspace", hits.len())
 }
 
-/// Whether this check covers the file: not the web app's, which has its own, nor the
-/// list of exceptions.
-fn is_checked(file: &str) -> bool {
-    !file.starts_with(WEB_APP) && file != EXCEPTIONS
+/// The names `file` is held to: [`RETIRED`], and in the sources [`RETIRED_ROUTES`].
+fn names_for(file: &str) -> Vec<&'static str> {
+    let mut names = RETIRED.to_vec();
+    if SOURCES.iter().any(|source| is_under(file, source)) {
+        names.extend(RETIRED_ROUTES);
+    }
+    names
 }
 
-/// The entries of the file of exceptions. Each stands in a paragraph that begins with
-/// a comment, its reason.
-fn parse(listed: &str) -> Result<Vec<Exception>> {
-    let mut exceptions = Vec::new();
-    let mut reason = false;
-    for (index, line) in listed.lines().enumerate() {
-        let line_number = index + 1;
-        let line = line.trim();
-        if line.is_empty() {
-            reason = false;
-            continue;
-        }
-        if line.starts_with('#') {
-            reason = true;
-            continue;
-        }
-        if !reason {
-            bail!("{EXCEPTIONS}:{line_number}: an exception needs its reason, a comment above it");
-        }
-        let (pattern, text) = match line.split_once(" | ") {
-            Some((pattern, text)) => (pattern.trim(), Some(text.trim().to_lowercase())),
-            None => (line, None),
-        };
-        if text.as_deref().is_some_and(|text| !text.contains(FORMER)) {
-            bail!("{EXCEPTIONS}:{line_number}: the text has no {FORMER} in it");
-        }
-        exceptions.push(Exception {
-            line: line_number,
-            pattern: pattern.to_owned(),
-            text,
-        });
+/// Whether `file` is under `folder`, a `*` in it standing for one folder.
+fn is_under(file: &str, folder: &str) -> bool {
+    let mut parts = file.split('/');
+    folder.trim_end_matches('/').split('/').all(|wanted| {
+        parts
+            .next()
+            .is_some_and(|part| wanted == "*" || wanted == part)
+    }) && parts.next().is_some()
+}
+
+/// The hits of one file: `path: in its name`, then `path:line` for each line.
+fn check_file(file: &str, text: &str) -> Vec<String> {
+    let names = names_for(file);
+    let holds = |line: &str| {
+        let line = line.to_lowercase();
+        names.iter().any(|name| line.contains(name)) || names_the_retired_kind(&line)
+    };
+    let mut hits = Vec::new();
+    if holds(file) {
+        hits.push(format!("{file}: in its name"));
     }
-    Ok(exceptions)
+    for (index, line) in text.lines().enumerate() {
+        if holds(line) {
+            hits.push(format!("{file}:{}", index + 1));
+        }
+    }
+    hits
 }
 
 /// The files git tracks or would track, by their paths from the root.
@@ -162,80 +155,10 @@ pub(crate) fn tracked_files(root: &Path) -> Result<Vec<String>> {
     Ok(files)
 }
 
-/// The hits of one file, `path:line` (`path` for its name), and the exceptions it used.
-fn check_file(file: &str, text: &str, exceptions: &[Exception], used: &mut [bool]) -> Vec<String> {
-    let mine: Vec<usize> = (0..exceptions.len())
-        .filter(|&index| matches(&exceptions[index].pattern, file))
-        .collect();
-    let whole = mine
-        .iter()
-        .copied()
-        .find(|&index| exceptions[index].text.is_none());
-    let name_has_it = file.to_lowercase().contains(FORMER);
-    let mut hits = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let mut rest = line.to_lowercase();
-        if !rest.contains(FORMER) {
-            continue;
-        }
-        if let Some(whole) = whole {
-            used[whole] = true;
-            continue;
-        }
-        for &exception in &mine {
-            if let Some(allowed) = &exceptions[exception].text
-                && rest.contains(allowed.as_str())
-            {
-                used[exception] = true;
-                rest = rest.replace(allowed.as_str(), "");
-            }
-        }
-        if rest.contains(FORMER) {
-            hits.push(format!("{file}:{}", index + 1));
-        }
-    }
-    if name_has_it {
-        match whole {
-            Some(whole) => used[whole] = true,
-            None => hits.insert(0, format!("{file}: in its name")),
-        }
-    }
-    hits
-}
-
-/// Whether `path` is one of the paths `pattern` stands for.
-fn matches(pattern: &str, path: &str) -> bool {
-    let pattern: Vec<&str> = pattern.split('/').collect();
-    let path: Vec<&str> = path.split('/').collect();
-    matches_parts(&pattern, &path)
-}
-
-fn matches_parts(pattern: &[&str], path: &[&str]) -> bool {
-    match pattern.split_first() {
-        None => path.is_empty(),
-        Some((&"**", rest)) => (0..=path.len()).any(|skip| matches_parts(rest, &path[skip..])),
-        Some((first, rest)) => path
-            .split_first()
-            .is_some_and(|(name, others)| matches_name(first, name) && matches_parts(rest, others)),
-    }
-}
-
-/// Whether a name is one `pattern` stands for, `*` standing for any part of it.
-fn matches_name(pattern: &str, name: &str) -> bool {
-    match pattern.split_once('*') {
-        None => pattern == name,
-        Some((head, tail)) => name.strip_prefix(head).is_some_and(|after| {
-            (0..=after.len())
-                .filter(|&cut| after.is_char_boundary(cut))
-                .any(|cut| matches_name(tail, &after[cut..]))
-        }),
-    }
-}
-
 /// The text of a file git tracks, as git holds it: a link is the path it points at (a
 /// link to a folder, as the skills' under `.claude/skills/`, has no text of its own),
-/// a file its bytes read as text whatever their encoding, as the web app's check reads,
-/// and a file deleted from the working tree none, though its name is still checked.
+/// a file its bytes read as text whatever their encoding, and a file deleted from the
+/// working tree none, though its name is still checked.
 pub(crate) fn tracked_text(path: &Path) -> std::io::Result<String> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_symlink() => {
@@ -251,10 +174,6 @@ pub(crate) fn tracked_text(path: &Path) -> std::io::Result<String> {
 mod tests {
     use super::*;
     use crate::files::testing;
-
-    fn exceptions(listed: &str) -> Vec<Exception> {
-        parse(listed).expect("the exceptions are read")
-    }
 
     #[test]
     fn a_link_is_read_as_the_path_it_points_at_and_a_gone_file_as_nothing() {
@@ -278,97 +197,93 @@ mod tests {
     }
 
     #[test]
-    fn the_web_app_and_the_exceptions_are_left_to_their_own_check() {
-        assert!(!is_checked("apps/web/src/a.ts"));
-        assert!(!is_checked(EXCEPTIONS));
-        assert!(is_checked("apps/another/a.ts"));
-        assert!(is_checked("crates/a.rs"));
-    }
-
-    #[test]
-    fn a_pattern_stands_for_names_and_folders() {
-        assert!(matches("crates/a/*.sql", "crates/a/0001_x.sql"));
-        assert!(!matches("crates/a/*.sql", "crates/a/b/0001_x.sql"));
-        assert!(matches("crates/**/x.rs", "crates/x.rs"));
-        assert!(matches("crates/**/x.rs", "crates/a/b/x.rs"));
-        assert!(matches("**", "any/path"));
-        assert!(matches(
-            "crates/*/0001_*.sql",
-            "crates/sqlite/0001_baseline.sql"
-        ));
-        assert!(!matches(
-            "crates/*/0001_*.sql",
-            "crates/sqlite/0011_baseline.sql"
-        ));
-    }
-
-    #[test]
-    fn every_exception_needs_its_reason_and_a_text_with_the_name() {
-        assert!(parse("crates/x.rs\n").is_err(), "no reason");
-        assert!(
-            parse("# why\n\ncrates/x.rs\n").is_err(),
-            "the reason of another paragraph"
-        );
-        let text = concat!("# why\ncrates/x.rs | Te", "amId\ncrates/y.rs\n");
-        let listed = exceptions(text);
-        assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0].text.as_deref(), Some(concat!("te", "amid")));
-        assert_eq!(listed[1].text, None);
-        assert!(
-            parse("# why\ncrates/x.rs | workspace\n").is_err(),
-            "a text without the name"
-        );
-    }
-
-    #[test]
-    fn a_line_passes_when_its_name_is_within_the_texts_of_its_file() {
-        let listed = exceptions(concat!(
-            "# why\n",
-            "a.rs | `TestTe",
-            "amUpload`\n",
-            "b.rs\n",
-            "# why\n",
-            "c.rs | te",
-            "ammate\n",
-        ));
-        let mut used = vec![false; listed.len()];
-        let text = concat!(
-            "fn x() {}\n",
-            "// `TestTe",
-            "amUpload`\n",
-            "// `TestTe",
-            "amUpload` and a te",
-            "am\n",
-            "let te",
-            "am_id = 1;\n",
-        );
-        assert_eq!(
-            check_file("a.rs", text, &listed, &mut used),
-            ["a.rs:3", "a.rs:4"],
-            "the rest of the line is checked, and another file's text does not count"
-        );
-        assert_eq!(used, [true, false, false]);
-        assert_eq!(
-            check_file(
-                concat!("te", "ams/b.rs"),
-                concat!("te", "am\n"),
-                &listed,
-                &mut used
+    fn a_retired_name_is_found_in_any_case_in_the_text_and_the_path() {
+        for (file, text) in [
+            ("crates/model/src/org.rs", concat!("OrgKind::", "Team =>\n")),
+            ("apps/web/src/a.ts", concat!("x = { kind: '", "team' };\n")),
+            ("contracts/a.json", concat!("{\"kind\": \"", "team\"}\n")),
+            (
+                "crates/store/schema/sqlite/0001_baseline.sql",
+                concat!("CREATE TABLE BOARD_", "TEAMS (\n"),
             ),
-            [
-                concat!("te", "ams/b.rs: in its name"),
-                concat!("te", "ams/b.rs:1")
-            ],
-            "a whole-file exception is for its own path"
-        );
+            ("docs/a.md", concat!("`deleted_", "boards`\n")),
+        ] {
+            assert_eq!(check_file(file, text), [format!("{file}:1")], "{text}");
+        }
+        let named = concat!("crates/server/tests/api/board_", "teams.rs");
+        assert_eq!(check_file(named, ""), [format!("{named}: in its name")]);
+    }
+
+    #[test]
+    fn the_retired_kind_is_found_however_its_key_and_value_are_written() {
+        for text in [
+            concat!("{\"kind\":\"", "team\"}"),
+            concat!("{\"kind\" :  \"", "team\"}"),
+            concat!("x = { kind: \"", "team\" };"),
+            concat!("UPDATE orgs SET kind = '", "team'"),
+            concat!("WHERE org_kind='", "TEAM'"),
+            concat!("if (org.kind === '", "team') {"),
+        ] {
+            assert_eq!(
+                check_file("apps/web/src/a.ts", text),
+                ["apps/web/src/a.ts:1"],
+                "{text}"
+            );
+        }
+        for text in [
+            "kind: 'shared'",
+            "\"kind\": \"teamwork\"",
+            "kind: 'team\"",
+            "kind team",
+            "the kind of a team",
+        ] {
+            assert_eq!(
+                check_file("apps/web/src/a.ts", text),
+                Vec::<String>::new(),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_groups_of_people_keep_the_name() {
+        for line in [
+            "CREATE TABLE teams (id TEXT)",
+            "SELECT * FROM team_members",
+            "container_teams, deleted_containers",
+            "a team of the board",
+            "/api/v1/w/{workspace}/teams",
+            "kind: 'shared'",
+        ] {
+            assert_eq!(
+                check_file("crates/store/src/teams.rs", line),
+                Vec::<String>::new(),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_retired_routes_are_refused_in_the_sources_alone() {
+        let route = concat!("GET /api/v1/", "teams/1/channels\n");
+        for source in [
+            "crates/server/src/api/paths.rs",
+            "crates/store/src/a.rs",
+            "apps/web/src/lib/api/client.ts",
+        ] {
+            assert_eq!(check_file(source, route), [format!("{source}:1")]);
+        }
         assert_eq!(
-            check_file("b.rs", concat!("TE", "AMS\n"), &listed, &mut used),
-            Vec::<String>::new()
+            check_file("apps/web/src/b.ts", concat!("'/api/v2/", "teams'\n")),
+            ["apps/web/src/b.ts:1"]
         );
-        assert_eq!(
-            used,
-            [true, true, false],
-            "an exception nothing used stays unused"
-        );
+        for asking in [
+            "crates/server/tests/api/paths.rs",
+            "crates/server/tests/regression/golden/search.json",
+            "apps/web/e2e/a.spec.ts",
+            "crates/src/a.rs",
+        ] {
+            assert_eq!(check_file(asking, route), Vec::<String>::new(), "{asking}");
+        }
     }
 }

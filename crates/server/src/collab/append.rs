@@ -18,7 +18,7 @@ use crate::error::AppError;
 /// they gave an agent.
 #[derive(Debug, Clone, Copy)]
 pub struct Appender<'a> {
-    /// The user.
+    /// The user who has the session, or who gave the agent the token.
     pub user_id: &'a str,
     /// The agent, by its token; `None` for a session.
     pub agent: Option<ByAgent<'a>>,

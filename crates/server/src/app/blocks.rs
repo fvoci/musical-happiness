@@ -1,7 +1,7 @@
 //! Blocks: reading and changing them, and telling websocket listeners and webhooks.
 
-use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion};
-use fvoci_store::{BlockFilter, ByAgent, DeletedBlock, DuplicateAs};
+use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion, DuplicateAs};
+use fvoci_store::{BlockFilter, ByAgent, DeletedBlock};
 
 use super::App;
 use crate::collab::{Deletion, OverEditors};

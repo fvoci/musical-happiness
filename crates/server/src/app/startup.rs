@@ -4,9 +4,9 @@
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
-use fvoci_store::{DbType, Store, StoreError};
+use fvoci_store::{DbType, SchemaCheck, Store, StoreError};
 
-use crate::config::Configuration;
+use crate::config::{Configuration, Settings};
 
 /// Opens the database of the configuration, and looks at the role the server connects
 /// as before anything is made as it: a start that is refused leaves the database as it
@@ -17,9 +17,9 @@ use crate::config::Configuration;
 /// Returns an error if the database cannot be reached, and if the role the server
 /// connects as is one the wall between organizations does not hold while the
 /// configuration takes in several organizations.
-pub(crate) async fn open_store(config: &Configuration) -> anyhow::Result<Store> {
-    let store = connect(config).await?;
-    check_the_wall_holds(&store, config).await?;
+pub(crate) async fn open_store(settings: &Settings) -> anyhow::Result<Store> {
+    let store = connect(settings.database_kind(), settings.config()).await?;
+    check_the_wall_holds(&store, settings).await?;
     Ok(store)
 }
 
@@ -44,16 +44,18 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
 /// Brings the database's schema up to date and ends: `fvoci-server --migrate`, run as
 /// the role that owns the tables when the server connects as one that does not. A
 /// schema that is up to date already is left as it is at once, while a server serves
-/// it. Otherwise it holds the lock of the server meanwhile, so that no server serves
-/// the database while its tables change: it waits for a server that serves it to stop.
-/// It does not look at the wall: the owner that migrates may be a superuser.
+/// it; of a database before the baseline the record is replaced first, which changes no
+/// table. Migrations that are still to be applied then are applied under the lock of
+/// the server, so that no server serves the database while its tables change: it waits
+/// for a server that serves it to stop. It does not look at the wall: the owner that
+/// migrates may be a superuser.
 ///
 /// # Errors
 ///
 /// Returns an error if the database cannot be reached, another process serves it for
 /// longer than `server_lock_wait_seconds`, or the schema cannot be brought up to date.
 pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
-    let store = connect(config).await?;
+    let store = connect(config.database_kind.parse()?, config).await?;
     let migrated = migrate_under_the_lock(&store, config).await;
     store.close().await;
     let done = migrated?;
@@ -63,6 +65,35 @@ pub async fn migrate_database(config: &Configuration) -> anyhow::Result<()> {
         changed = done.changed,
         "the database's schema is up to date"
     );
+    Ok(())
+}
+
+/// Says what [`migrate_database`] would do to the database's schema, and changes
+/// nothing: `fvoci-server --migrate --check`, which an update runs with the new image
+/// while the old one still serves the database, so that a database the new server would
+/// refuse is found before anything stops.
+///
+/// # Errors
+///
+/// Returns an error if the database cannot be reached, or the migration would be
+/// refused: why, as the migration would say it.
+pub async fn check_database(config: &Configuration) -> anyhow::Result<()> {
+    let store = connect(config.database_kind.parse()?, config).await?;
+    let checked = store.check_schema().await;
+    let whereabouts = store.role_and_schema().await;
+    store.close().await;
+    let change = checked.context("the database's schema cannot be brought up to date")?;
+    let (role, schema) =
+        whereabouts.context("reading the role and the schema of the connection")?;
+    let would = match change {
+        SchemaCheck::Current => "leave it: the schema is up to date",
+        SchemaCheck::Behind => "apply this server's migrations, holding the lock of the server",
+        SchemaCheck::BeforeBaseline => {
+            "replace the record of the migrations before the baseline with the baseline's, \
+             leaving the schema as it is"
+        }
+    };
+    tracing::info!(role, schema, "the migration would {would}");
     Ok(())
 }
 
@@ -82,34 +113,47 @@ async fn migrate_under_the_lock(store: &Store, config: &Configuration) -> anyhow
         .role_and_schema()
         .await
         .context("reading the role and the schema of the connection")?;
-    let current = store
-        .schema_is_current()
+    let mut change = store
+        .check_schema()
         .await
         .context("reading the record of the database's migrations")?;
-    if current {
-        return Ok(Migrated {
-            role,
-            schema,
-            changed: false,
-        });
+    let re_anchored = change == SchemaCheck::BeforeBaseline;
+    if re_anchored {
+        // Only the record changes: a server that serves the database goes on.
+        change = store
+            .re_anchor()
+            .await
+            .context("replacing the record of the migrations before the baseline")?;
     }
-    let lock = super::take_server_lock(store, config).await.context(
-        "the schema is to be changed while a server serves the database: stop it, then migrate",
-    )?;
-    let migrated = store.migrate().await;
-    lock.release().await;
-    migrated.context("bringing the database's schema up to date")?;
+    match change {
+        SchemaCheck::Current => {}
+        // The migrations after the baseline change the tables, of a database before it
+        // too.
+        SchemaCheck::Behind => {
+            let lock = super::take_server_lock(store, config).await.context(
+                "the schema is to be changed while a server serves the database: stop it, \
+                 then migrate",
+            )?;
+            let migrated = store.migrate().await;
+            lock.release().await;
+            migrated.context("bringing the database's schema up to date")?;
+        }
+        SchemaCheck::BeforeBaseline => anyhow::bail!(
+            "the record of the migrations is still the one before the baseline after it was \
+             replaced"
+        ),
+    }
     Ok(Migrated {
         role,
         schema,
-        changed: true,
+        changed: re_anchored || change == SchemaCheck::Behind,
     })
 }
 
-/// Connects to the database, trying up to `database_connect_attempts` times a second apart, so that
-/// a server started together with its database waits for it.
-async fn connect(config: &Configuration) -> anyhow::Result<Store> {
-    let db_type: DbType = config.database_kind.parse()?;
+/// Connects to the database of kind `db_type`, trying up to `database_connect_attempts`
+/// times a second apart, so that a server started together with its database waits for
+/// it.
+async fn connect(db_type: DbType, config: &Configuration) -> anyhow::Result<Store> {
     let attempts = config.database_connect_attempts.max(1);
     let mut attempt = 1;
     loop {
@@ -141,7 +185,7 @@ async fn connect(config: &Configuration) -> anyhow::Result<Store> {
 /// organizations does not start without the net. With the one organization of
 /// `first_user_only` it starts, and says so (the default user of a database container
 /// is a superuser, and a server set up that way goes on working).
-async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::Result<()> {
+async fn check_the_wall_holds(store: &Store, settings: &Settings) -> anyhow::Result<()> {
     let Some(role) = store
         .role_past_the_wall()
         .await
@@ -149,7 +193,7 @@ async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::
     else {
         return Ok(());
     };
-    if config.takes_several_organizations() {
+    if settings.takes_several_organizations() {
         bail!(
             "the database role {role:?} is a superuser or has BYPASSRLS, so the row-level \
              security policies that keep organizations apart do not hold it; with \

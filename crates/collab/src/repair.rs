@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use fvoci_model::{BODY_MAX_DEPTH, Body, BodyError};
 use serde_json::{Value, json};
 use yrs::{
-    Array, ArrayRef, Doc, ID, IdSet, ReadTxn, Transact, TransactionMut, Xml as _, XmlElementRef,
-    XmlFragment as _, XmlFragmentRef, XmlOut,
+    Array, ArrayRef, Doc, ID, IdSet, ReadTxn, Transact, TransactionMut, XmlElementRef,
+    XmlFragment as _, XmlFragmentRef,
 };
 
 use self::judge::{
@@ -207,12 +207,14 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
             problem: "more separate parts of the document fail than a repair deletes",
         });
     }
-    if !mends.is_empty() {
-        mend::check_mends(doc, writer, &mends)?;
-    }
+    let checked = if mends.is_empty() {
+        None
+    } else {
+        Some(mend::check_mends(doc, writer, &mends)?)
+    };
     let deleted = cuts.iter().map(|cuts| cuts.indexes.len()).sum();
     let mended = mends.iter().map(Mend::cells).sum();
-    if mends.is_empty() {
+    let Some(checked) = checked else {
         let mut txn = doc.transact_mut();
         for cuts in &cuts {
             cuts.make(&mut txn);
@@ -226,15 +228,8 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
             update,
             body,
         });
-    }
-    let mut del_set = {
-        let mut txn = doc.transact_mut();
-        for cuts in &cuts {
-            cuts.make(&mut txn);
-        }
-        txn.delete_set().clone()
     };
-    let update = mend::apply_mends(doc, writer, &mends, &mut del_set)?;
+    let update = checked.apply_after(&cuts)?;
     let body = {
         let txn = doc.transact();
         project(&txn, &root)?
@@ -306,12 +301,14 @@ fn deleting_with_cache(
             problem: "more separate parts of the document fail than a repair deletes",
         });
     }
-    if !mends.is_empty() {
-        mend::check_mends(doc, writer, &mends)?;
-    }
+    let checked = if mends.is_empty() {
+        None
+    } else {
+        Some(mend::check_mends(doc, writer, &mends)?)
+    };
     let deleted = cuts.iter().map(|cuts| cuts.indexes.len()).sum();
     let mended = mends.iter().map(Mend::cells).sum();
-    if mends.is_empty() {
+    let Some(checked) = checked else {
         let mut txn = doc.transact_mut();
         for cuts in &cuts {
             cuts.make(&mut txn);
@@ -337,15 +334,8 @@ fn deleting_with_cache(
             },
             repair_ds,
         ));
-    }
-    let mut del_set = {
-        let mut txn = doc.transact_mut();
-        for cuts in &cuts {
-            cuts.make(&mut txn);
-        }
-        txn.delete_set().clone()
     };
-    let update = mend::apply_mends(doc, writer, &mends, &mut del_set)?;
+    let update = checked.apply_after(&cuts)?;
     {
         let txn = doc.transact();
         refresh_cache_after_repair(
@@ -391,10 +381,9 @@ fn refresh_cache_after_repair<T: ReadTxn>(
         cache.remove(id);
     }
     for element in cut_elements {
-        // Guard against a cut at index 0 exposing a non-countable `ItemContent::Format`
-        // at an element's start while `len > 0` (mirroring `read::children`), delegating
-        // to `project` to preserve the exact JSON pointer path in `BodyError::InvalidNode`.
-        if element.len(txn) > 0 && element.first_child().is_none() {
+        // A cut can leave a parent that holds what is no XML (a formatting item first,
+        // which is not counted). Reading the whole document says where.
+        if !read::holds_only_xml(txn, element) {
             let _ = project(txn, root)?;
             return Err(BodyError::InvalidNode {
                 path: String::new(),
@@ -433,7 +422,7 @@ const MAX_STRETCHES: usize = 1000;
 
 /// The children of one parent to delete: their indexes, in order.
 #[derive(Debug)]
-struct Cuts {
+pub(crate) struct Cuts {
     parent: ArrayRef,
     indexes: Vec<u32>,
 }
@@ -453,7 +442,7 @@ impl Cuts {
 
     /// Deletes the children, each stretch of neighbours at once, from the last to the
     /// first, so that no deletion moves the place of another.
-    fn make(&self, txn: &mut TransactionMut<'_>) {
+    pub(crate) fn make(&self, txn: &mut TransactionMut<'_>) {
         let stretches: Vec<(u32, u32)> = self.each_stretch().collect();
         for (start, length) in stretches.into_iter().rev() {
             // The indexes were read from this parent, so the stretch is there;
@@ -577,20 +566,10 @@ impl<T: ReadTxn> Survey<'_, T> {
         let mut out = CachedRootSurvey::default();
         let mut own = Vec::new();
         let mut count = 0_u32;
-        let mut next = root.first_child();
-        while let Some(node) = next {
-            next = match &node {
-                XmlOut::Element(element) => element.siblings(self.txn).next(),
-                XmlOut::Text(text) => text.siblings(self.txn).next(),
-                XmlOut::Fragment(_) => None,
-            };
+        let mut children = read::Siblings::of(self.txn, root);
+        while let Some(child) = children.next() {
             let index = count;
             count = count.saturating_add(1);
-            let child = match node {
-                XmlOut::Element(element) => Child::Element(element),
-                XmlOut::Text(text) => Child::Text(text),
-                XmlOut::Fragment(_) => Child::Other,
-            };
             if let Some((cache, dirty)) = cached
                 && let Child::Element(element) = &child
                 && let Some(id) = element_id(element)
@@ -607,17 +586,9 @@ impl<T: ReadTxn> Survey<'_, T> {
                 continue;
             }
             if let Err(err) = self.survey_root_child(index, child, &mut out, &mut own) {
-                // Mirror `read::children` precedence: a corrupt root containing a raw
-                // non-XML item always fails with `InvalidNode` before any child limit error.
-                while let Some(rest) = next {
-                    next = match &rest {
-                        XmlOut::Element(element) => element.siblings(self.txn).next(),
-                        XmlOut::Text(text) => text.siblings(self.txn).next(),
-                        XmlOut::Fragment(_) => None,
-                    };
-                    count = count.saturating_add(1);
-                }
-                if count != root.len(self.txn) {
+                // Whatever a child fails, a root that holds what is no XML fails as that.
+                let rest = u32::try_from(children.count()).unwrap_or(u32::MAX);
+                if count.saturating_add(rest) != root.len(self.txn) {
                     return Err(BodyError::InvalidNode {
                         path: String::new(),
                         problem: "the root holds something that is neither a node nor a text",

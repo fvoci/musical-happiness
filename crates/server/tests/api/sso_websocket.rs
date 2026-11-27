@@ -437,7 +437,7 @@ async fn presence_refused_for_sso_or_password_requirement_logs_no_warning() {
         .created_json();
 
     // Establish presence on `org_board` before SSO is required so `require_sso` forces
-    // `ws/presence/batch.rs` to recheck the active visit as `sso_required`.
+    // `realtime/presence/batch.rs` to recheck the active visit as `sso_required`.
     let mut with_password = Socket::connect_as(&ts.client).await;
     with_password
         .send(json!({

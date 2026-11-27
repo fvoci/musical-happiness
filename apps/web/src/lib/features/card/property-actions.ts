@@ -6,7 +6,7 @@
  * change back.
  *
  * There is no write that changes a board and many of its blocks at once
- * (the store has none, and the server design names none), so a change of
+ * (the store has none, and the contract names none), so a change of
  * kind on a board with many values is many writes.
  */
 import type { OptionCallbacks } from '$lib/components/properties/index.ts';

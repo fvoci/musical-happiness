@@ -95,7 +95,7 @@ export function weeksOfMonth(month: Month, weekStart: Weekday): CalendarDate[][]
  * if it still is a kind of date; otherwise the first date property of the
  * board; otherwise the first property that is a moment (created or updated
  * time). Undefined when the board has none of these: the cards are then
- * placed by when they were made (question C15 of docs/calendar-proposal.md).
+ * placed by when they were made.
  */
 export function displayProperty(
   dateProperty: string | undefined,
@@ -263,7 +263,7 @@ const covers = (segment: Segment, column: number): boolean =>
  * least one). When a day has more cards than rows, its last row says "+N"
  * instead of a bar; a bar in the last row stays only if none of its days
  * needs that row for "+N". A bar that does not fit is hidden in the whole
- * week, not cut at the day that is full (question C4).
+ * week, not cut at the day that is full.
  */
 export function foldWeek(segments: readonly Segment[], lanes: number): Folded {
   const rows = Math.max(1, lanes);
@@ -301,7 +301,7 @@ export function foldWeek(segments: readonly Segment[], lanes: number): Folded {
  * Whether the dates of a calendar can be changed on it: only when its cards
  * are placed by a date property. When they were made or last changed is
  * written by the server, and a board with no date at all places its cards
- * by when they were made (question C14).
+ * by when they were made.
  */
 export function datesWritable(template: PropertyTemplate | undefined): boolean {
   return template?.type === 'date';
@@ -309,7 +309,7 @@ export function datesWritable(template: PropertyTemplate | undefined): boolean {
 
 /**
  * A date value moved whole so that its first day is `first`, for a reader in
- * `timeZone` (question C10). Both ends move by the same number of days, so a
+ * `timeZone`. Both ends move by the same number of days, so a
  * range keeps its length in days; a moment keeps its time of day on the
  * reader's clock (`withDay`). A range stored backwards comes out in order. An
  * empty value becomes that day.
@@ -415,7 +415,7 @@ export function draggedDays(
 }
 
 /**
- * The values of a card made on a day of the calendar (question C11): the
+ * The values of a card made on a day of the calendar: the
  * values the view's filter asks for, as a new card on a board or in a table
  * gets them, and that day for the date the calendar is placed by. The day
  * wins over the filter: where the filter asks for another date, the card is

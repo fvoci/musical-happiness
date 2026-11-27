@@ -18,7 +18,7 @@ const SUBSCRIPTION_COLUMNS: &str = "block_type, block_id, user_id, notified_at, 
 /// user may know of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchedBlock {
-    /// The subscription.
+    /// Who is subscribed to which block, and when they were last told of it.
     pub subscription: Subscription,
     /// The board or the wiki of its block.
     pub container_id: String,

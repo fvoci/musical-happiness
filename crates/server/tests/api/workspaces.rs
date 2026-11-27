@@ -777,32 +777,26 @@ async fn a_board_takes_the_people_of_its_workspace() {
     ts.teardown().await;
 }
 
-/// A parameter of the path that is no text. The routes that a member who is no guest
-/// works with took their parameters as text before they were under `/w/`, and answer it
-/// as a malformed request, as the other routes do, also when it is not the workspace
-/// that is no text; the list of a workspace's boards answers it as a workspace of
-/// others.
+/// A parameter of the path that is no text: the workspace's names a workspace that is
+/// not there (404), any other a malformed request (400), on every route under `/w/`.
 #[tokio::test]
-async fn a_path_that_is_no_text_is_malformed_but_for_the_boards_of_a_workspace() {
+async fn a_workspace_that_is_no_text_is_not_there_and_another_parameter_is_malformed() {
     let ts = Setup::native().start().await.init_basic().await;
-    ts.client
-        .get("/w/%FF/categories")
-        .await
-        .check_error(reqwest::StatusCode::BAD_REQUEST, "the request is malformed");
+    for route in [
+        "/w/%FF/categories",
+        "/w/%FF/boards",
+        "/w/%FF/containers/x",
+        "/w/%FF",
+    ] {
+        ts.client
+            .get(route)
+            .await
+            .check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
+    }
     ts.client
         .put(&format!("{ROOT_WS}/categories/%FF"), &json!({"name": "x"}))
         .await
         .check_error(reqwest::StatusCode::BAD_REQUEST, "the request is malformed");
-    ts.client
-        .get("/w/%FF/boards")
-        .await
-        .check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
-    // The routes that moved under `/w/` (`InContainer`): the workspace that is no text is one of
-    // others, another parameter that is none a malformed request.
-    ts.client
-        .get("/w/%FF/containers/x")
-        .await
-        .check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
     ts.client
         .get(&format!("{ROOT_WS}/containers/%FF"))
         .await

@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use axum::extract::ws::{CloseFrame, Message, Utf8Bytes, WebSocket, close_code};
+use bytes::Bytes;
 use futures_util::stream::SplitSink;
 use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
 use tokio::sync::mpsc;
@@ -17,7 +18,7 @@ use crate::metrics::Disconnect;
 /// closing. A send cancelled with an unflushed frame drops the transport instead.
 pub(super) fn spawn(
     sink: SplitSink<WebSocket, Message>,
-    inbox: mpsc::Receiver<Utf8Bytes>,
+    inbox: mpsc::Receiver<Bytes>,
     docs: Outbox,
     ping_interval: Option<Duration>,
     closed: CancellationToken,
@@ -42,14 +43,22 @@ pub(super) fn spawn(
 }
 
 async fn next_message(
-    inbox: &mut mpsc::Receiver<Utf8Bytes>,
+    inbox: &mut mpsc::Receiver<Bytes>,
     docs: &Outbox,
     ping: &mut Option<tokio::time::Interval>,
     in_rooms: &mut bool,
 ) -> Option<Message> {
     loop {
         return tokio::select! {
-            message = inbox.recv() => message.map(Message::Text),
+            message = inbox.recv() => match message.map(Utf8Bytes::try_from) {
+                Some(Ok(text)) => Some(Message::Text(text)),
+                // The hub queues only what it wrote as JSON.
+                Some(Err(error)) => {
+                    tracing::error!(%error, "websocket: a queued message is no text");
+                    continue;
+                }
+                None => None,
+            },
             outgoing = docs.next(), if *in_rooms => match outgoing {
                 Some(Outgoing::Text(text)) => Some(Message::Text(text.into())),
                 Some(Outgoing::Binary(frame)) => Some(Message::Binary(frame)),

@@ -1,8 +1,6 @@
 /**
  * Where the pictures taken with `FVOCI_SCREENS=1` go: `target/screens/<area>/`
- * at the top of the repository, a folder that is not committed. The pictures
- * already in `docs/screens/` stay as they are; copy a new one there by hand
- * when a document should show it.
+ * at the top of the repository, a folder that is not committed.
  */
 import path from 'node:path';
 

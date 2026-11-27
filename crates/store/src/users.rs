@@ -8,7 +8,8 @@
 use std::collections::BTreeMap;
 
 use fvoci_model::{
-    CLIENT_STATE_MAX_ENTRIES, ClientStatePatch, OrgRole, User, UserSettings, UserSettingsPatch,
+    CLIENT_STATE_MAX_ENTRIES, ClientStatePatch, InstanceRole, OrgRole, User, UserSettings,
+    UserSettingsPatch,
 };
 
 use crate::Store;
@@ -26,15 +27,6 @@ pub(crate) const USER_COLUMNS: &str = concat!(
      is_admin, display_name, email_verified_at, ",
     person_names::name_columns!()
 );
-
-/// What a user is to the instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InstanceRole {
-    /// An administrator of the instance.
-    Administrator,
-    /// A user like any other.
-    User,
-}
 
 /// What became of a change to who is an administrator of the instance.
 #[derive(Debug, Clone, PartialEq, Eq)]

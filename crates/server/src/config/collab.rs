@@ -90,7 +90,7 @@ pub(super) const DEFAULT_STATE_BYTES: u64 = 16 * 1024 * 1024;
 /// walked past and letters cut (`fvoci_collab::PLACING_STEPS`), not by its size.
 pub(super) const DEFAULT_UPDATE_BYTES: u64 = 64 * 1024;
 
-/// The most workers.
+/// The most workers that `collab_workers` may ask for.
 pub(super) const MOST_WORKERS: u32 = 64;
 
 /// The least `collab_state_bytes`: a body may be 8 MiB of JSON (100,000 nodes), its

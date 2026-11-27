@@ -87,11 +87,11 @@ word_setting! {
         /// As the device's locale has it.
         #[default]
         Auto => "auto",
-        /// Sunday.
+        /// Weeks start on Sunday.
         Sunday => "sunday",
-        /// Monday.
+        /// Weeks start on Monday.
         Monday => "monday",
-        /// Saturday.
+        /// Weeks start on Saturday.
         Saturday => "saturday",
     }
 }
@@ -115,9 +115,9 @@ word_setting! {
         /// As the device has it.
         #[default]
         Auto => "auto",
-        /// Light.
+        /// Light colors, whatever the device has.
         Light => "light",
-        /// Dark.
+        /// Dark colors, whatever the device has.
         Dark => "dark",
     }
 }

@@ -43,7 +43,7 @@ impl PartialSchema for PerPageCount {
             .schema_type(Type::Integer)
             .format(Some(SchemaFormat::KnownFormat(KnownFormat::Int32)))
             .minimum(Some(1))
-            .maximum(Some(MAX_PER_PAGE))
+            .maximum(Some(MAX_PER_PAGE.get()))
             .into()
     }
 }

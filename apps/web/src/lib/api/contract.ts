@@ -6928,7 +6928,7 @@ export interface components {
             /** @description For a guest: the board or the wiki they were invited to. */
             containerId?: string | null;
             containerKind?: components["schemas"]["ContainerKind"] | null;
-            /** @description The workspace. */
+            /** @description The workspace the link let them into. */
             workspaceId: string;
         };
         /** @description What a user changes of their name. A member that is left out stays as it is. */
@@ -7113,7 +7113,7 @@ export interface components {
             name: string;
             /** @description Its organization. */
             orgId: string;
-            /** @description The workspace. */
+            /** @description The identifier of the workspace, as its routes take it. */
             workspaceId: string;
         };
         /**
@@ -7321,7 +7321,7 @@ export interface components {
             /** @description The created, moved, or duplicated view block. */
             view: components["schemas"]["Block"];
         };
-        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
+        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 5, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
         Body: {
             [key: string]: unknown;
         };
@@ -9031,11 +9031,11 @@ export interface components {
             /** @description Whether signing in through the organization's provider is on. */
             oidc: boolean;
         };
-        /** @description A login request. */
+        /** @description What a sign-in sends: a user name or an email address, and a password. */
         LoginRequest: {
             /** @description The email address to log in with, used when no user has the given name. */
             email?: string;
-            /** @description The password. */
+            /** @description The password of the account that `username` or `email` names. */
             password: string;
             /** @description The user name to log in with. */
             username?: string;
@@ -9202,7 +9202,10 @@ export interface components {
             displayName?: string;
             /** @description The email address. */
             email: string;
-            /** @description The password. */
+            /**
+             * @description The password the account is to have: at least 8 characters, and at most 1024
+             *     bytes in UTF-8.
+             */
             password: string;
             /** @description The login name. */
             username: string;
@@ -9763,7 +9766,7 @@ export interface components {
             createdAt: number;
             /** @description Whether a client secret is saved with them. */
             hasClientSecret: boolean;
-            /** @description The issuer. */
+            /** @description The issuer's URL, as the provider's ID tokens name it (`iss`). */
             issuer: string;
         };
         /**
@@ -9879,7 +9882,7 @@ export interface components {
         OrgRole: "admin" | "member";
         /** @description The role a member of an organization is given: the body of a change of it. */
         OrgRoleChange: {
-            /** @description The role. */
+            /** @description The role the member is to have from now on. */
             role: components["schemas"]["OrgRole"];
         };
         /**
@@ -10385,7 +10388,10 @@ export interface components {
              *     organization later (`createOrganization`).
              */
             organizationName?: string;
-            /** @description The password. */
+            /**
+             * @description The password the account is to have: at least 8 characters, and at most 1024
+             *     bytes in UTF-8.
+             */
             password: string;
             /** @description The login name. */
             username: string;
@@ -10796,11 +10802,11 @@ export interface components {
         Title: "dr" | "prof";
         /** @description An incomplete card assigned to the caller that is overdue, due today, or due soon. */
         TodayCardItem: {
-            /** @description Board icon. */
+            /** @description The icon of the board the card is on; empty if it has none. */
             boardIcon: string;
             /** @description Board container identifier. */
             boardId: string;
-            /** @description Board title. */
+            /** @description The title of the board the card is on. */
             boardTitle: string;
             /** @description Card block identifier. */
             cardId: string;
@@ -10955,7 +10961,7 @@ export interface components {
              *     chapter.
              */
             scheduledDate: string | null;
-            /** @description The title. */
+            /** @description The title of the unit or chapter, as its outline shows it. */
             title: string;
             /**
              * Format: int64
@@ -11484,7 +11490,7 @@ export interface components {
             containers: components["schemas"]["OverviewContainer"][];
             /** @description Who reads it. */
             me: components["schemas"]["OverviewPerson"];
-            /** @description The workspace. */
+            /** @description The workspace, with its organization and what the reader is in it. */
             workspace: components["schemas"]["OverviewWorkspace"];
         };
         /**

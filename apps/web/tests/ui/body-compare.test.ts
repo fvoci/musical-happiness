@@ -103,7 +103,7 @@ import {
   type DocNode,
 } from '$lib/editor/schema.ts';
 
-import { SAMPLES } from '../../spikes/editor/fixtures.ts';
+import { SAMPLES } from './fixtures/body-samples.ts';
 import { templateDocuments } from '../support/templates.ts';
 import { HAND_MADE, PEOPLE, UNRESOLVED_FILE_PREFIX, WITH_DIAGRAMS } from '../support/body-docs.ts';
 
@@ -376,10 +376,8 @@ describe('the view draws what the editor draws', () => {
     expect(toStoredDoc(editor?.getJSON() as DocNode)).toEqual(doc);
   });
 
-  it('the sample of the editor spike', () => {
-    const sample = SAMPLES.everything;
-    if (!sample) throw new Error('the spike has no sample named "everything"');
-    expectSameShape(sample);
+  it('the sample of every node and mark', () => {
+    expectSameShape(SAMPLES.everything);
   });
 
   // The three tests below look at what went through the comparisons above,

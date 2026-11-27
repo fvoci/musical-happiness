@@ -52,7 +52,7 @@ async fn is_valid(store: &Store, digest: &str, now: i64, idle_since: i64) -> boo
     }
 }
 
-/// `testCreateAndGetAndDeleteSession`.
+/// A session is created, read back and deleted.
 #[tokio::test]
 async fn create_and_get_and_delete_session() {
     let test = common::setup().await;

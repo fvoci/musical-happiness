@@ -22,9 +22,9 @@ use super::oidc::{browser_cookie, held_cookie_name, started_response};
 use super::query::QueryParams;
 use super::{ApiResult, accept_language, no_content};
 use crate::app::App;
-use crate::auth::token::cookie_value;
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
+use crate::http_credentials::{self, cookie_value};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -194,7 +194,8 @@ async fn handle_finish_held(
     let mut response = match ended {
         Ok(token) => {
             let mut response = no_content();
-            let session = app.authenticator().session_cookie().set(&token);
+            let session =
+                http_credentials::set_cookie_header(app.authenticator().session_cookie(), &token);
             response.headers_mut().append(SET_COOKIE, session);
             response
         }

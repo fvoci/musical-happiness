@@ -23,8 +23,8 @@ use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::{StoreError, Taken};
 use crate::link_locks::{self, Turn};
 use crate::trash::{self, TrashedRoles};
-use crate::users::InstanceRole;
 use crate::{Standing, Store, signups};
+use fvoci_model::InstanceRole;
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
 const COLUMNS: &str = "id, workspace_id, role, container_id, container_role, created_by, created_at, \
@@ -145,7 +145,7 @@ impl Acceptance {
 pub struct Accepted {
     /// The account that was let in.
     pub user_id: String,
-    /// The workspace.
+    /// The workspace the link let them into.
     pub workspace_id: String,
     /// For a guest's link: the board.
     pub container_id: Option<String>,

@@ -4,7 +4,7 @@
  *   node tools/serve.ts [--host <address>] [--port <number>] [app:]<name>=<folder> ...
  *
  * Each folder is served under `/<name>/`; `/` lists them. It is for looking
- * at the app, the spikes and Storybook on a phone on the same network:
+ * at the app and Storybook on a phone on the same network:
  * static files only, no API. A `.br`, `.zst` or `.gz` file next to a file is
  * sent in its place when the client accepts it (build/encodings.ts). The
  * default host is this machine alone; `--host 0.0.0.0` listens on every

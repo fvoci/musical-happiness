@@ -88,9 +88,8 @@ export function openMemoryRoom(
 
 /**
  * What the room of a card took is written into the card first, so that a
- * read of it has it: the read a copy of a card is made from. The server is
- * to do the same (R4): until then it reads the body as the room last wrote
- * it (e2e-live/body.spec.ts records that).
+ * read of it has it: the read a copy of a card is made from, as the server
+ * does (e2e-live/body.spec.ts holds it to that).
  */
 export function flushCard<Card extends { id: string }>(world: World, card: Card): Card {
   world.bodyFlushed?.(card.id);

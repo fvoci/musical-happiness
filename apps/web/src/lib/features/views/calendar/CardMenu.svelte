@@ -1,10 +1,10 @@
 <!--
   The "…" of a card in a list of the calendar (the cards of a day, the cards
-  without a date). Its first line changes the card's date without a drag
-  (question C9, answer B): "Change date", or "Set date" for a card that has
-  none. It is missing where the calendar is placed by a date nobody can set
-  (when cards were made or changed). Then duplicate and delete, as on a
-  board; undo brings a deleted card back.
+  without a date). Its first line changes the card's date without a drag:
+  "Change date", or "Set date" for a card that has none. It is missing where
+  the calendar is placed by a date nobody can set (when cards were made or
+  changed). Then duplicate and delete, as on a board; undo brings a deleted
+  card back.
 
   Only for someone who may edit. Where the device can hover, the button waits
   for its line to be pointed at or focused; anywhere else it is always there.

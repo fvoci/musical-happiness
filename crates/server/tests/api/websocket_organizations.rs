@@ -5,8 +5,9 @@
 use std::time::Duration;
 
 use futures_util::SinkExt as _;
-use fvoci_model::PublicLinkChange;
-use fvoci_model::{Block, BlockType, ContainerVisibility, OrgRole, WorkspaceRole, new_id};
+use fvoci_model::{
+    Block, BlockType, ContainerVisibility, OrgRole, PublicLinkChange, WorkspaceRole, new_id,
+};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use serde_json::{Value, json};

@@ -137,7 +137,7 @@ async fn actions(store: &Store) -> Vec<AuditAction> {
             AuditPlace::Organization,
             Paging {
                 page: 0,
-                per_page: 100,
+                per_page: std::num::NonZeroU32::new(100).expect("a page size"),
             },
         )
         .await

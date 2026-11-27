@@ -188,7 +188,7 @@ async fn get_user_category_containers() {
     test.teardown().await;
 }
 
-/// `testAddUpdateCategoryBoard`.
+/// Filing a board in a category and filing it again.
 #[tokio::test]
 async fn add_update_category_container() {
     let test = common::setup().await;
@@ -288,7 +288,7 @@ async fn add_update_category_container() {
     test.teardown().await;
 }
 
-/// `testSetBoardVisibility`.
+/// Setting whether a board shows in its category.
 #[tokio::test]
 async fn set_container_visibility() {
     let test = common::setup().await;

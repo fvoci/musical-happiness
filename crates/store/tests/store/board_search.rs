@@ -1,8 +1,9 @@
 //! Integration tests for searching boards across a user's accessible boards and within a
 //! single workspace.
 
-use fvoci_model::{Container, ContainerKinds, ContainerSearchField, ContainerVisibility, new_id};
-use fvoci_store::PublicContainers;
+use fvoci_model::{
+    Container, ContainerKinds, ContainerSearchField, ContainerVisibility, PublicContainers, new_id,
+};
 use serde_json::json;
 
 use crate::boards::{NOT_AN_ID, new_board, object, sorted_board_ids};

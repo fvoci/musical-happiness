@@ -1,4 +1,4 @@
-//! Users, their preferences and their login sessions.
+//! Users, their settings and client state, and their login sessions.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -11,6 +11,15 @@ use crate::settings::{
     CLIENT_STATE_MAX_NAME_LENGTH, ClientStateError, check_client_state_name,
     check_client_state_value,
 };
+
+/// What a user is to the instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceRole {
+    /// An administrator of the instance.
+    Administrator,
+    /// A user like any other.
+    User,
+}
 
 /// The user of a session, as their own account is answered to them: the user, and what
 /// nobody else is told of the account.

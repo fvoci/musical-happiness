@@ -1,5 +1,4 @@
-//! Uploads in parts: the session a client opens to send one file in numbered parts
-//! (`docs/s6-design.md` 5.6).
+//! Uploads in parts: the session a client opens to send one file in numbered parts.
 
 /// The largest number of parts an upload has: what an S3 multipart upload takes.
 pub const MAX_UPLOAD_PARTS: i64 = 10_000;

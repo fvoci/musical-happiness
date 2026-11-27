@@ -154,7 +154,7 @@ impl fmt::Debug for AcceptInvitation {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptedInvitation {
-    /// The workspace.
+    /// The workspace the link let them into.
     pub workspace_id: String,
     /// For a guest: the board or the wiki they were invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]

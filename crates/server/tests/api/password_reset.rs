@@ -274,7 +274,7 @@ async fn the_operators_reset_link_is_recorded_in_each_organization_of_the_person
 async fn reset_links(store: &fvoci_store::Store) -> Vec<(bool, String, String)> {
     let paging = fvoci_store::Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     store
         .audit_records(fvoci_store::AuditPlace::Organization, paging)

@@ -9,6 +9,10 @@
 //!
 //! The document is committed as `contracts/openapi.json`; `cargo xtask openapi` fails
 //! when the file is not what [`document`] makes.
+//!
+//! The doc comment of a type or a member the contract shows is its description there,
+//! read by whoever calls the API. What only the code's readers need of such a type goes
+//! in a plain `//` comment, which the contract leaves out.
 
 pub(crate) mod bodies;
 mod finish;

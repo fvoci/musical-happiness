@@ -47,7 +47,7 @@ impl App {
         accept_language: Option<&str>,
     ) -> Result<UserWorkspace, AppError> {
         // Where one organization is taken, the first user started it by registering.
-        if !self.config().takes_several_organizations() {
+        if !self.settings().takes_several_organizations() {
             return Err(AppError::invitation_required());
         }
         // An organization is what a registration makes, and is counted against where

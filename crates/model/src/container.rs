@@ -413,8 +413,6 @@ pub enum ContainerError {
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
-// `visibility` is required when decoding; every other member defaults to its empty value.
-// (No doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Container {
@@ -540,8 +538,7 @@ impl Container {
     }
 
     /// The board as it goes to whoever reads it by its link, signed in or not: no
-    /// `createdBy` or `modifiedBy`
-    /// (`docs/s6-design.md`, decision 7). The blocks go so by [`Block::hide_people`].
+    /// `createdBy` or `modifiedBy`. The blocks go so by [`Block::hide_people`].
     ///
     /// [`Block::hide_people`]: crate::Block::hide_people
     pub fn hide_people(&mut self) {

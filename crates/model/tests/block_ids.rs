@@ -300,7 +300,7 @@ fn generate_block_ids_leaves_fields_of_unexpected_type() {
     assert_eq!(Value::Object(blocks[0].fields.clone()), weird);
 }
 
-/// `TestStampModificationMetadata` / "base case"
+/// Stamping who changed a block and when: base case.
 #[test]
 fn stamp_modification_metadata_base_case() {
     let mut blocks = vec![Block::default()];

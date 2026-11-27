@@ -1,10 +1,11 @@
 #!/bin/sh
 # Brings the installation of docker/compose.yaml to the version its files and .env now
-# name (the new docker/ in place, FVOCI_IMAGE set): checks them before anything
-# changes, pulls the images, backs up (backup.sh), stops fvoci, starts everything
-# (`up`, whose migrate brings the schema up), and checks that fvoci is ready and runs
-# the commit expected. Says how long fvoci was down, and, when it fails after the
-# stop, what is left and how to go back. compose.yaml's header says more.
+# name (the new docker/ in place, FVOCI_IMAGE set): checks them before anything changes,
+# pulls the images, asks the new image whether it can open the database as it is
+# (`fvoci-server --migrate --check`), backs up (backup.sh), stops fvoci, starts
+# everything (`up`, whose migrate brings the schema up), and checks that fvoci is ready
+# and runs the commit expected. Says how long fvoci was down, and, when it fails after
+# the stop, what is left and how to go back. compose.yaml's header says more.
 #
 #   docker/update.sh [-p project] [-f compose.yaml]... [--env-file .env]
 #                    [--profile name]... [--dir folder] [--keep-days 14]
@@ -90,6 +91,13 @@ for wanted in $images; do
     docker image inspect "$wanted" >/dev/null 2>&1 ||
         fail "the image $wanted is not on this machine: fvoci still runs, nothing was changed"
 done
+# The new server reads the database while the old one serves it, and changes nothing: a
+# database it would refuse is found before anything stops.
+checked=$(compose run --rm --no-deps -T --pull never migrate --migrate --check 2>&1) ||
+    fail "the new image would not open the database (fvoci still runs, nothing was changed): $(printf '%s\n' "$checked" | tail -n 3)"
+say "$(printf '%s\n' "$checked" | sed -n 's/.*\(the migration would [^"]*\).*/\1/p' | tail -n 1)"
+unset checked
+
 # The image that runs now keeps a unique name of its own: the pull may have moved
 # its tag, and a second update must not overwrite the tag of the image before the first.
 tag_stamp=$(date -u +%Y%m%dT%H%M%SZ)

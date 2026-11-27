@@ -590,7 +590,7 @@ mod tests {
     fn checked(keys: &Value) -> Result<Option<Way>, String> {
         let config =
             Configuration::parse(&keys.to_string(), |_| None).map_err(|e| e.to_string())?;
-        config.check().map_err(|e| e.to_string())?;
+        config.clone().check().map_err(|e| e.to_string())?;
         config.mail.way(&config.smtp).map_err(|e| e.to_string())
     }
 

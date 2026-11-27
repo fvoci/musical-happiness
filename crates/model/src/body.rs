@@ -112,7 +112,7 @@ impl Body {
         Self { document }
     }
 
-    /// The document.
+    /// The body as its JSON, which is stored as it is.
     #[must_use]
     pub fn document(&self) -> &Value {
         &self.document
@@ -418,14 +418,30 @@ impl utoipa::PartialSchema for Body {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
         utoipa::openapi::ObjectBuilder::new()
             .schema_type(utoipa::openapi::schema::Type::Object)
-            .description(Some(
+            .description(Some(format!(
                 "A document of the editor: a node of type `doc` whose `content` is its \
                  blocks. Which nodes, marks and attributes it may have, and how they \
-                 nest, is the allowlist of `docs/s6-design.md` 5.7. At most 8 MiB as \
-                 JSON, 60 levels deep and 100,000 nodes.",
-            ))
+                 nest, is the allowlist of version {BODY_VERSION}, which the server and \
+                 the web app share. At most {} MiB as JSON, {BODY_MAX_DEPTH} levels deep \
+                 and {} nodes.",
+                BODY_MAX_BYTES / (1024 * 1024),
+                in_thousands(BODY_MAX_NODES)
+            )))
             .into()
     }
+}
+
+/// A number as it is written for a reader: its digits in groups of three, by commas.
+fn in_thousands(number: usize) -> String {
+    let digits = number.to_string();
+    let mut written = String::with_capacity(digits.len() + digits.len() / 3);
+    for (at, digit) in digits.chars().enumerate() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            written.push(',');
+        }
+        written.push(digit);
+    }
+    written
 }
 
 impl utoipa::ToSchema for Body {}
@@ -584,6 +600,19 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_number_is_written_in_groups_of_three_digits() {
+        for (number, written) in [
+            (0, "0"),
+            (999, "999"),
+            (1_000, "1,000"),
+            (100_000, "100,000"),
+            (1_234_567, "1,234,567"),
+        ] {
+            assert_eq!(in_thousands(number), written);
+        }
+    }
 
     fn paragraph(text: &str) -> Value {
         json!({"type": "paragraph", "content": [{"type": "text", "text": text}]})

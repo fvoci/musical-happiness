@@ -3,8 +3,9 @@
 //!
 //! Each test starts its own server with public sharing enabled or disabled as needed.
 
-use fvoci_model::PublicLinkChange;
-use fvoci_model::{Container, ContainerMember, ContainerVisibility, PublicLink, new_id};
+use fvoci_model::{
+    Container, ContainerMember, ContainerVisibility, PublicLink, PublicLinkChange, new_id,
+};
 use fvoci_server::auth::secret::SECRET_LENGTH;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};

@@ -3,8 +3,8 @@
 //!
 //! A page cannot see the websocket's own Ping and Pong, so it asks with a `ping` of its
 //! own whether its connection still carries (`contracts/websocket.md` 3). A connection
-//! that sends nothing for [`QUIET_LIMIT`] (no message, no `ping`, no Pong to the
-//! server's Ping) is taken for dead and closed, and so goes from its rooms.
+//! that sends nothing for its hub's quiet limit ([`QuietLimit`]: no message, no `ping`,
+//! no Pong to the server's Ping) is taken for dead and closed, and so goes from its rooms.
 //!
 //! While the server does what the connection asked (a step of a room can wait for an
 //! immediate check of its member, up to two intervals of `collab_recheck_seconds`), it
@@ -15,68 +15,16 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::pin::pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
 use axum::extract::ws::{Message, Utf8Bytes};
+use bytes::Bytes;
 use futures_util::{Stream, StreamExt as _};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use crate::metrics::Disconnect;
-
-/// How long a connection may send nothing before it is taken for dead and closed.
-///
-/// A page that is in the background has its timers slowed: Chrome lets them run once a
-/// minute at most after five minutes hidden, so the `ping` of such a page comes a
-/// minute or so apart; thirty seconds more are for a slow network. The browser answers
-/// the server's Ping (`websocket_ping_seconds`, 1 to 59, 30 by default) whatever its timers do,
-/// which keeps a live connection well within this. The time a connection that died
-/// without a word stays in its rooms (its seat counted against the limits of the room
-/// and of its user) is this at most.
-pub(super) const QUIET_LIMIT: Duration = Duration::from_secs(90);
-
-/// The part of [`QUIET_LIMIT`] kept for a browser's Pong to the server's Ping to come
-/// back over a slow network: a Ping period this much shorter than the limit keeps a
-/// page whose timers are stopped.
-const PONG_MARGIN: Duration = Duration::from_secs(30);
-
-// The longest Ping period the configuration takes keeps that margin.
-const _: () = assert!(
-    crate::config::MAX_WEBSOCKET_PING_SECONDS < QUIET_LIMIT.as_secs() - PONG_MARGIN.as_secs(),
-    "a ping period the configuration takes leaves no time for the Pong"
-);
-
-/// The quiet limit of a hub's connections: [`QUIET_LIMIT`], unless a test shortened
-/// it, which the connections that wait see from their next wait on. Cloning is cheap;
-/// every clone is the same limit.
-#[derive(Debug, Clone)]
-pub(super) struct QuietLimit(Arc<AtomicU64>);
-
-impl Default for QuietLimit {
-    fn default() -> Self {
-        Self(Arc::new(AtomicU64::new(millis(QUIET_LIMIT))))
-    }
-}
-
-impl QuietLimit {
-    fn get(&self) -> Duration {
-        Duration::from_millis(self.0.load(Ordering::Relaxed))
-    }
-
-    /// Has the connections closed after `limit` of sending nothing, from their next
-    /// wait on.
-    #[cfg(feature = "test-util")]
-    pub(super) fn set(&self, limit: Duration) {
-        self.0.store(millis(limit), Ordering::Relaxed);
-    }
-}
-
-fn millis(limit: Duration) -> u64 {
-    u64::try_from(limit.as_millis()).unwrap_or(u64::MAX)
-}
+use crate::realtime::quiet::QuietLimit;
 
 /// How many messages are read ahead while the server does what the connection asked:
 /// a minute of typing as a page sends it (at most 33 frames a second) is about two
@@ -116,7 +64,7 @@ type Read = Option<Result<Message, axum::Error>>;
 pub(super) struct Inbound<S> {
     stream: S,
     /// Where the answers to `ping` go: the connection's messages.
-    outbox: mpsc::Sender<Utf8Bytes>,
+    outbox: mpsc::Sender<Bytes>,
     /// What was read while the server worked for the connection, in order.
     ahead: VecDeque<Read>,
     ahead_bytes: usize,
@@ -131,7 +79,7 @@ where
 {
     /// The reading side of `stream`, answering `ping` on `outbox`; a connection that
     /// sends nothing for `quiet_limit` ends.
-    pub(super) fn new(stream: S, outbox: mpsc::Sender<Utf8Bytes>, quiet_limit: QuietLimit) -> Self {
+    pub(super) fn new(stream: S, outbox: mpsc::Sender<Bytes>, quiet_limit: QuietLimit) -> Self {
         Self {
             stream,
             outbox,
@@ -222,7 +170,7 @@ where
         if !is_ping(text.as_str()) {
             return false;
         }
-        let _ = self.outbox.try_send(Utf8Bytes::from_static(PONG));
+        let _ = self.outbox.try_send(Bytes::from_static(PONG.as_bytes()));
         true
     }
 }
@@ -249,17 +197,19 @@ fn payload_len(read: &Read) -> usize {
 #[cfg(test)]
 mod tests {
     use std::pin::Pin;
+    use std::time::Duration;
 
     use futures_util::stream;
 
     use super::*;
+    use crate::realtime::quiet::QUIET_LIMIT;
 
     type Fed = mpsc::UnboundedSender<Result<Message, axum::Error>>;
     type Feeding = Pin<Box<dyn Stream<Item = Result<Message, axum::Error>> + Send>>;
 
     /// A reading side fed by the test, with the quiet limit of the server, and where
     /// its answers go.
-    fn fed() -> (Inbound<Feeding>, Fed, mpsc::Receiver<Utf8Bytes>) {
+    fn fed() -> (Inbound<Feeding>, Fed, mpsc::Receiver<Bytes>) {
         let (feed, received) = mpsc::unbounded_channel();
         let (outbox, answers) = mpsc::channel(8);
         let stream: Feeding = Box::pin(stream::unfold(received, async |mut received| {
@@ -336,7 +286,7 @@ mod tests {
                 "heard, and nothing to carry out"
             );
         }
-        assert_eq!(answers.try_recv().ok().as_deref(), Some(PONG));
+        assert_eq!(answers.try_recv().ok().as_deref(), Some(PONG.as_bytes()));
         assert!(answers.try_recv().is_err(), "one ping, one pong");
         feed.send(text(r#"{"type":"subscribeWorkspace"}"#))
             .expect("fed");
@@ -364,7 +314,7 @@ mod tests {
         };
         let began = tokio::time::Instant::now();
         let ((), (at, answer)) = tokio::join!(inbound.meanwhile(work), answered_meanwhile);
-        assert_eq!(answer.as_deref(), Some(PONG));
+        assert_eq!(answer.as_deref(), Some(PONG.as_bytes()));
         assert!(at - began < Duration::from_secs(1), "answered at once");
         assert!(
             matches!(inbound.next().await, Ok(Came::Text(_))),

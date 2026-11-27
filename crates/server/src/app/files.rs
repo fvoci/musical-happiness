@@ -363,10 +363,10 @@ impl App {
         }
     }
 
-    /// Checks that every image and file block of a body names a file of the board
-    /// (`docs/s6-design.md` 5.7). The write that stores the body asks again of the
-    /// files it makes a block show newly, and holds their records until it commits
-    /// ([`fvoci_store::NewBodyFiles`]): a file collected in between refuses it the same way.
+    /// Checks that every image and file block of a body names a file of the board. The write
+    /// that stores the body asks again of the files it makes a block show newly, and holds
+    /// their records until it commits ([`fvoci_store::NewBodyFiles`]): a file collected in
+    /// between refuses it the same way.
     ///
     /// # Errors
     ///

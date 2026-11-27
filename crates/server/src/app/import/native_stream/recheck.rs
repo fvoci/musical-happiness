@@ -6,7 +6,7 @@ use super::{
     AppError, Archive, ArchiveFiles, BlockType, BoardWritePlan, BufReader, CardPropertyDefinition,
     HashMap, MAX_JSONL_BYTES, MAX_LINE_BYTES, RawArchiveLine, RawValue, RelationProperties,
     STREAM_READER_BUF_BYTES, StoreError, StreamPlan, Value, clear_block_values_of_another_kind,
-    decode_archive_block, entry_name, read_bounded_line, trim,
+    decode_archive_block, entry_name, read_bounded_line,
 };
 use crate::app::files::stored_extension;
 use crate::auth::secret::SECRET_LENGTH;
@@ -125,7 +125,7 @@ fn recheck_planned_fields_blocking(
         let Some(&idx) = recheck_lines.get(&line_number) else {
             continue;
         };
-        let line = trim(&line_buf);
+        let line = line_buf.trim_ascii();
         let archive_line: RawArchiveLine = serde_json::from_slice(line).map_err(|error| {
             AppError::bad_request(format_args!(
                 "error parsing archive line {line_number}: {error}"

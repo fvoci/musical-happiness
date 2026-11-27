@@ -336,7 +336,7 @@ mod tests {
             )
             .layer(middleware::from_fn_with_state(
                 Arc::new(crate::request_log::Served {
-                    proxies: crate::client_address::TrustedProxies::default(),
+                    proxies: crate::config::TrustedProxies::default(),
                     base_path: "/boards".to_owned(),
                 }),
                 crate::request_log::log_request,

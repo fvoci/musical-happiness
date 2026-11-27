@@ -234,8 +234,11 @@ test('a finger on the name in a body not being written opens the file, and the b
   test.skip(!hasTouch, 'a finger needs a touch screen');
   const body = await cardBody(page);
   const block = await putFile(page, body, NAME, koreanPdf(1), 'application/pdf');
-  // Move selection off the newly inserted file block, then out of the body as when the card was only opened.
-  await body.getByText('Above:').click();
+  // Move the selection off the newly inserted file block (the arrow puts the caret at the end of the
+  // line above it, a finger's screen or not), see that it is off, then take it out of the body as
+  // when the card was only opened.
+  await page.keyboard.press('ArrowLeft');
+  await expect(block).not.toHaveClass(/ProseMirror-selectednode/);
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
     document.getSelection()?.removeAllRanges();

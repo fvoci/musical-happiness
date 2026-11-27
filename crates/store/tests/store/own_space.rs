@@ -5,7 +5,7 @@
 use fvoci_model::{OrgKind, User, new_id};
 use fvoci_store::{DbType, Founding, StoreError, Tenant};
 
-use crate::common::{self, PRE0075_CREATE_COL, PRE0075_UPDATE_COL};
+use crate::common::{self};
 
 /// Whatever handle stores an account, the account has its own space afterwards: an
 /// organization of its own with one workspace, both without a name, the account the
@@ -303,89 +303,6 @@ async fn a_first_password_moves_the_revision_of_the_space_alone() {
     }
 }
 
-/// Migration 0050 (`erase_started_at = 0` filter): active accounts and accounts waiting
-/// in the deletion grace period both receive a valid own space (and cancelling the
-/// waiting account's deletion leaves its space usable), while accounts whose erasure
-/// already began or completed receive no own space.
-#[tokio::test]
-async fn migration_0050_gives_spaces_to_active_and_waiting_accounts_only() {
-    let database = common::empty_database().await;
-    let connection = common::raw_connection(&database);
-    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 49)
-        .await;
-
-    let legacy_col = concat!("delete", "_at");
-    let (active, waiting, mid_erasure, erased) = (new_id(), new_id(), new_id(), new_id());
-    let insert = |id: &str,
-                  name: &str,
-                  legacy_del: i64,
-                  delete_after: i64,
-                  started: i64,
-                  done: i64| {
-        format!(
-            "INSERT INTO users (id, username, email, password_hash, {PRE0075_CREATE_COL}, {PRE0075_UPDATE_COL}, \
-             {legacy_col}, delete_after, erase_started_at, erased_at) \
-             VALUES ('{id}', '{name}', '{name}@example.com', '', 1, 1, {legacy_del}, \
-             {delete_after}, {started}, {done});"
-        )
-    };
-    common::execute_raw(
-        &connection,
-        &[
-            insert(&active, "active", 0, 0, 0, 0),
-            insert(&waiting, "waiting", 100, 9_000_000_000_000, 0, 0),
-            insert(&mid_erasure, "mid", 100, 200, 300, 0),
-            insert(&erased, "", 100, 200, 300, 400),
-        ]
-        .concat(),
-    )
-    .await;
-
-    let store = fvoci_store::Store::connect(database.db_type(), database.database_connection())
-        .await
-        .expect("migrated from 49 through 0050 and latest");
-    let system = store.system();
-
-    for (user_id, label) in [(&active, "active"), (&waiting, "waiting in grace")] {
-        assert_eq!(
-            common::own_space_shape(&system, user_id).await,
-            common::own_space(),
-            "{label} account received a valid own space"
-        );
-    }
-    // Cancelling the waiting account's deletion restores the account with its backfilled
-    // own space ready for use.
-    assert!(
-        store
-            .cancel_account_deletion(&waiting, 150)
-            .await
-            .expect("cancelled"),
-        "waiting account deletion can be cancelled after 0050"
-    );
-    let listed = store
-        .workspaces_of_user(&waiting, fvoci_store::Making::with_password())
-        .await
-        .expect("listed");
-    assert_eq!(
-        listed.len(),
-        1,
-        "backfilled own space is listed: {listed:?}"
-    );
-    assert_eq!(listed[0].kind, OrgKind::Personal);
-
-    for (user_id, label) in [(&mid_erasure, "mid-erasure"), (&erased, "already erased")] {
-        let empty: [Vec<String>; 4] = Default::default();
-        assert_eq!(
-            common::own_space_shape(&system, user_id).await,
-            empty,
-            "{label} account must not receive an own space"
-        );
-    }
-
-    store.close().await;
-    database.remove().await;
-}
-
 async fn seed_personal_diary(test: &common::TestStore, user_id: &str, date: &str) -> String {
     let own_org = test
         .system()
@@ -561,7 +478,7 @@ async fn personal_spaces_and_shared_org_never_cross_pollinate_reads() {
             &fvoci_store::TimeEntryFilter::default(),
             fvoci_store::Paging {
                 page: 0,
-                per_page: 50,
+                per_page: std::num::NonZeroU32::new(50).expect("a page size"),
             },
         )
         .await
@@ -578,7 +495,7 @@ async fn personal_spaces_and_shared_org_never_cross_pollinate_reads() {
             },
             fvoci_store::Paging {
                 page: 0,
-                per_page: 50,
+                per_page: std::num::NonZeroU32::new(50).expect("a page size"),
             },
         )
         .await

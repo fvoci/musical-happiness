@@ -48,6 +48,7 @@ mod page;
 mod page_tree;
 mod person_name;
 mod problem;
+mod public_containers;
 mod public_link;
 mod refusal;
 mod relation;
@@ -79,10 +80,11 @@ pub use api_token::{
 };
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
-    AuthParamError, ChangePasswordRequest, ConfirmPasswordRequest, DISPLAY_NAME_MAX_LENGTH,
-    LoginRequest, MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount,
-    NewOrganization, ORGANIZATION_NAME_MAX_LENGTH, RegisterRequest, SetPasswordRequest,
-    USERNAME_MAX_LENGTH, check_new_password, display_name, is_email_valid, organization_name,
+    AuthParamError, ChangePasswordRequest, CheckedAccount, ConfirmPasswordRequest,
+    DISPLAY_NAME_MAX_LENGTH, LoginRequest, MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES,
+    MINIMUM_PASSWORD_LENGTH, NewAccount, NewOrganization, ORGANIZATION_NAME_MAX_LENGTH,
+    RegisterRequest, Registration, SetPasswordRequest, USERNAME_MAX_LENGTH, check_new_password,
+    display_name, is_email_valid, organization_name,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
@@ -163,7 +165,7 @@ pub use course_schedule::{
 };
 pub use date_value::{
     DateValueError, add_days, check_date_value, date_property_ids, day_at, days_between,
-    is_calendar_date, move_dates, rewrite_previous_date_values, utc_date,
+    is_calendar_date, move_dates, utc_date,
 };
 pub use deleted_item::DeletedItem;
 pub use diary::{
@@ -214,6 +216,7 @@ pub use person_name::{
     Title, UnknownCode,
 };
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
+pub use public_containers::PublicContainers;
 pub use public_link::{PublicLink, PublicLinkChange};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
@@ -261,7 +264,7 @@ pub use unit_review::{
     suggested_next_interval_days,
 };
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
-pub use user::{ClientStatePatch, EndedSessionScope, LoginOrigin, Me, Session, User};
+pub use user::{ClientStatePatch, EndedSessionScope, InstanceRole, LoginOrigin, Me, Session, User};
 pub use view_fields::{
     BoardViewDuplicate, BoardViewMove, BoardViewWrite, FILTER_DATE_TODAY, FILTER_PERSON_ME,
     GanttZoom, NewBoardView, ParseViewTypeError, SHARED_VIEW_MEMBERS, VIEW_ORDER_MAX_CHARS,

@@ -1,7 +1,8 @@
 /**
- * The second line of a bar of a week (features/views/calendar/placed.ts,
- * question C5): the time and the days, then the words of the properties the
- * view turned on; people and boxes are left to the card's own lines.
+ * The second line of a bar of a week
+ * (features/views/calendar/placed.ts): the time and the days, then the
+ * words of the properties the view turned on; people and boxes are left
+ * to the card's own lines.
  */
 import { describe, expect, it } from 'vitest';
 

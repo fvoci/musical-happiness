@@ -918,7 +918,7 @@ fn paths_are_resolved_from_where_they_are_written() {
 }
 
 #[test]
-fn the_list_and_the_code_are_compared_both_ways() {
+fn each_use_that_breaks_the_rule_is_said_once_with_its_lines() {
     let violation = |file: &str, line, named: &str| Violation {
         file: file.to_owned(),
         line,
@@ -931,59 +931,14 @@ fn the_list_and_the_code_are_compared_both_ways() {
         violation("a.rs", 9, "fvoci_store::Store"),
         violation("b.rs", 1, ".store().close"),
     ];
-    let exact = parse_exceptions("# why\n\na.rs fvoci_store::Store 2\nb.rs  .store().close  1\n")
-        .expect("the list reads");
     assert_eq!(
-        judge(&found, &exact),
-        Vec::<String>::new(),
-        "exactly the listed uses"
-    );
-
-    let none = BTreeMap::new();
-    let problems = judge(&found[2..], &none);
-    assert_eq!(
-        problems,
-        ["b.rs:1: http names store: .store().close"],
-        "a use that is not listed"
-    );
-
-    let problems = judge(&found[..1], &exact);
-    assert_eq!(
-        problems,
+        judge(&found),
         [
-            format!(
-                "{EXCEPTIONS}: a.rs names fvoci_store::Store 1 times, listed 2: lower its count to 1"
-            ),
-            format!("{EXCEPTIONS}: b.rs names .store().close 0 times, listed 1: remove its line"),
-        ],
-        "listed uses that are gone"
+            "a.rs:3,9: http names store: fvoci_store::Store",
+            "b.rs:1: http names store: .store().close",
+        ]
     );
-
-    let one = parse_exceptions("a.rs fvoci_store::Store 1\nb.rs .store().close 1\n")
-        .expect("the list reads");
-    let problems = judge(&found, &one);
-    assert_eq!(
-        problems,
-        ["a.rs:3,9: http names store: fvoci_store::Store (2 times, listed 1)"],
-        "one use more than listed"
-    );
-}
-
-#[test]
-fn a_list_that_cannot_be_read_is_refused() {
-    for (text, why) in [
-        ("a.rs fvoci_store::Store", "expected `file named count`"),
-        ("a.rs fvoci_store::Store 1 2", "expected `file named count`"),
-        ("a.rs fvoci_store::Store 0", "is no count"),
-        ("a.rs fvoci_store::Store many", "is no count"),
-        ("a.rs x 1\na.rs x 2", "listed twice"),
-    ] {
-        let error = parse_exceptions(text).expect_err("the list is refused");
-        assert!(
-            format!("{error:#}").contains(why),
-            "{text:?} is refused for its form: {error:#}"
-        );
-    }
+    assert_eq!(judge(&[]), Vec::<String>::new(), "nothing breaks the rule");
 }
 
 /// The modules of the crate `k` in `directory`, each with its file.
@@ -1107,7 +1062,7 @@ fn a_planted_violation_is_found_in_a_workspace() {
 }
 
 #[test]
-fn the_step_holds_a_workspace_to_the_list_on_disk() {
+fn the_step_fails_a_workspace_for_any_use_that_breaks_the_rule() {
     let root = planted_workspace("layers-step");
     for (member, dependencies) in [
         (
@@ -1134,6 +1089,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
         "error",
         "metrics",
         "permissions",
+        "realtime",
         "scheduler",
         "search",
         "storage",
@@ -1145,32 +1101,29 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
         &root,
         "crates/server/src/lib.rs",
         "pub mod api; pub mod app; mod auth; mod collab; mod collab_worker; mod config; mod error; \
-         mod metrics; mod permissions; mod scheduler; mod search; mod storage; mod webhook;",
+         mod metrics; mod permissions; mod realtime; mod scheduler; mod search; mod storage; \
+         mod webhook;",
     );
-    let exact = "crates/server/src/api/mod.rs .store().purge 1\n\
-                 crates/server/src/app.rs axum::response::Response 1\n";
-    write(&root, EXCEPTIONS, exact);
-    run(&root).expect("the code and the list agree");
+    run(&root).expect_err("the planted uses fail the step");
     write(
         &root,
-        EXCEPTIONS,
-        "crates/server/src/app.rs axum::response::Response 1\n",
+        "crates/server/src/api/mod.rs",
+        "use crate::app::App;\nasync fn handler(app: App) {\n    app.purge().await;\n}\n",
     );
-    run(&root).expect_err("a use that is not listed fails the step");
+    run(&root).expect_err("one use is enough to fail the step");
     write(
         &root,
-        EXCEPTIONS,
-        &format!("{exact}crates/server/src/app.rs axum::Json 1\n"),
+        "crates/server/src/app.rs",
+        "use fvoci_store::Store;\n",
     );
-    run(&root).expect_err("a listed use that is gone fails the step");
+    run(&root).expect("nothing breaks the rule");
     std::fs::remove_file(root.join("crates/server/src/webhook.rs")).expect("the file is removed");
     write(
         &root,
         "crates/server/src/lib.rs",
         "pub mod api; pub mod app; mod auth; mod config; mod error; mod metrics; mod permissions; \
-         mod scheduler; mod storage;",
+         mod realtime; mod scheduler; mod storage;",
     );
-    write(&root, EXCEPTIONS, exact);
     run(&root).expect_err("a module of the table that is gone fails the step");
 
     write(&root, "crates/server/src/webhook.rs", "");
@@ -1178,7 +1131,8 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
         &root,
         "crates/server/src/lib.rs",
         "pub mod api; pub mod app; mod auth; mod collab; mod collab_worker; mod config; mod error; \
-         mod metrics; mod permissions; mod scheduler; mod search; mod storage; mod webhook;",
+         mod metrics; mod permissions; mod realtime; mod scheduler; mod search; mod storage; \
+         mod webhook;",
     );
     run(&root).expect("the module is back");
     write(

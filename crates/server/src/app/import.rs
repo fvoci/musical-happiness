@@ -29,14 +29,14 @@ use archive::{
 };
 use native_stream::{build_write_plan, recheck_planned_fields, scan_native_board};
 
-/// The most an archive's entries may decompress to together (`docs/s6-design.md` 4.2):
+/// The most an archive's entries may decompress to together:
 /// what keeps a small archive from unfolding into a disk's worth.
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// The most entries an archive has (`docs/s6-design.md` 4.2).
+/// The most entries an archive has.
 const MAX_ENTRIES: u64 = 10_000;
 
-/// The largest `container.jsonl` that is read (`docs/s6-design.md` 4.2). Streamed line by
+/// The largest `container.jsonl` that is read. Streamed line by
 /// line across two passes (`native_stream`) so peak RAM stays bounded by a single batch
 /// instead of scaling with the full file's JSON AST.
 const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;
@@ -76,7 +76,7 @@ impl App {
         workspace_id: &str,
         modified_by: &str,
     ) -> Result<ImportSummary, AppError> {
-        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
+        let largest_file = self.limits().largest_file.get();
         let limits = BundleLimits::for_largest_file(largest_file);
         self.import_external_archive_with_limits(path, format, workspace_id, modified_by, limits)
             .await
@@ -99,7 +99,7 @@ impl App {
     ) -> Result<ImportSummary, AppError> {
         self.require_import_workspace(workspace_id, modified_by)
             .await?;
-        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
+        let largest_file = self.limits().largest_file.get();
         let limits = BundleLimits {
             max_file_bytes: limits.max_file_bytes.min(largest_file),
             ..limits
@@ -159,7 +159,7 @@ impl App {
         if u64::try_from(zip.len()).map_or(true, |entries| entries > MAX_ENTRIES) {
             return Err(too_many_entries());
         }
-        let largest_file = u64::try_from(self.limits().largest_file).unwrap_or(0);
+        let largest_file = self.limits().largest_file.get();
 
         verify_native_header(&zip).await?;
 
@@ -402,17 +402,6 @@ fn check_version(bytes: &[u8]) -> Result<(), AppError> {
             header.version
         )))
     }
-}
-
-/// Trims ASCII whitespace from both ends of a line, as `bytes.TrimSpace` does.
-fn trim(line: &[u8]) -> &[u8] {
-    let start = line.iter().position(|byte| !byte.is_ascii_whitespace());
-    let Some(start) = start else { return &[] };
-    let end = line
-        .iter()
-        .rposition(|byte| !byte.is_ascii_whitespace())
-        .unwrap_or(start);
-    &line[start..=end]
 }
 
 /// Clears the card values that do not fit the kind of their property, and of relation

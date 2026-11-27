@@ -1,4 +1,4 @@
-//! Imports through an upload in parts (`docs/s6-design.md` 4.2, 5.6, 9): the archive
+//! Imports through an upload in parts: the archive
 //! is sent as a file is, imported by naming the upload, held to the limits of an
 //! archive, and nothing of the upload stays behind.
 
@@ -906,8 +906,8 @@ async fn native_archive_container_member_amplification_is_rejected_with_413_and_
 }
 
 /// 1,000 duplicate `containerMember` lines deduplicate to a single membership (`200 OK`),
-/// normal export/import round-trips cleanly, and retired pre-`0071` v1 view keys are
-/// rejected with `400 Bad Request`.
+/// normal export/import round-trips cleanly, and a view of a version 1 archive with a
+/// key that no view has is rejected with `400 Bad Request`.
 #[tokio::test]
 async fn native_archive_deduplicates_members_round_trips_and_rejects_retired_v1_view_keys() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -971,7 +971,8 @@ async fn native_archive_deduplicates_members_round_trips_and_rejects_retired_v1_
         "round-trip imported"
     );
 
-    // Retired pre-`0071` view field keys in `.fvoci` v1 archive are rejected with 400.
+    // A view of a `.fvoci` version 1 archive with a key that no view has is rejected
+    // with 400.
     for retired_key in [
         "hiddenOptionIds",
         "visibleOptionIds",

@@ -9,7 +9,7 @@ use fvoci_model::{
 };
 
 use crate::Store;
-use crate::blocks::{self, BlockFilter, CopyChanges, CopyTitles, DuplicateAs, Written};
+use crate::blocks::{self, BlockFilter, CopyChanges, CopyTitles, Written};
 use crate::body_versions::BodyWrite;
 use crate::card_values;
 use crate::container_membership;
@@ -24,6 +24,7 @@ use crate::notification_noting::Telling;
 use crate::org_admin;
 use crate::trash;
 use crate::workspace_membership;
+use fvoci_model::DuplicateAs;
 
 /// Message sent from a streaming block producer into
 /// [`Store::create_containers_and_blocks_streamed`].

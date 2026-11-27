@@ -471,7 +471,8 @@ async fn s3_files_tokens_uploads_and_housekeeping_stay_in_their_organizations() 
 /// deletion in another organization. The row is seeded through A's public Store API;
 /// no current HTTP endpoint is claimed to accept this metadata from a client.
 ///
-/// The schema refuses an upload of A that names B's board (0015), so the row names A's
+/// The schema refuses an upload of A that names B's board (the trigger
+/// `uploads_target_of_its_organization`), so the row names A's
 /// own board and only its path is B's: what the cancellation removes is the path.
 #[tokio::test]
 async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file() {

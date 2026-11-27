@@ -1,6 +1,6 @@
 # 빌드의 `.zst` 사전 압축: 한 것과 잰 것
 
-작성: 2026-11-10 23:00 KST. `docs/notes.md`의 "빌드 산출물"에 이어지는 기록이다. 스스로 정한 것과 그 이유는 `decisions.md`의 "빌드의 `.zst`"에 있다. 측정은 이 기기(Node 26.13.0, WSL2)에서 했다.
+작성: 2026-11-10 23:00 KST. `docs/notes.md`의 "빌드 산출물"에 이어지는 기록이다. 측정은 이 기기(Node 26.13.0, WSL2)에서 했다.
 
 ## 1. 빌드가 `.zst`도 만든다
 
@@ -62,7 +62,7 @@
 
 ## 2. 이름 검사 폴백
 
-메시지는 `messages/<태그>.json`, 내장 템플릿은 저장소 루트의 `crates/server/assets/templates/`가 원천이다. 이름 검사(`tools/names/check.ts`)는 git이 파일 목록을 주지 못하면(0개 포함) 폴더를 걸어서 검사하고 한 줄을 찍으며, 그래도 0개면 실패한다.
+메시지는 `messages/<태그>.json`, 내장 템플릿은 저장소 루트의 `crates/server/assets/templates/`가 원천이다.
 
 ## 마지막 실행
 
@@ -75,7 +75,7 @@
 | `build` | 통과. `.br/.zst/.gz` 24개                                                                  | 2초  |
 | `e2e`   | 16 통과, 14 건너뜀(전과 같다)                                                              | 8초  |
 
-- `spikes:e2e`는 돌리지 않았다. 스파이크, `lib/drag`, `lib/editor`를 건드리지 않았다.
+- `lib/drag`, `lib/editor`는 건드리지 않았다.
 
 ## 확인하지 못한 것
 

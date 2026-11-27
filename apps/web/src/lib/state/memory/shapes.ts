@@ -1,5 +1,5 @@
 /**
- * What the memory backend's methods share: the server design's limits, the
+ * What the memory backend's methods share: the server's limits, the
  * refusal as the server makes it, the shapes its stored blocks are answered
  * in, and an order of lists nobody should lean on.
  */
@@ -30,7 +30,7 @@ import type { DiaryEntry, Mood } from '../diary-types.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, StoredCard } from './world.ts';
 
-/** The limits of the server design: section 5.7 (bodies) and 4.2, 5.6 (files). */
+/** The server's limits of a body and of a file, as its default configuration has them. */
 export const LIMITS = {
   bodyBytes: MAX_BODY_BYTES,
   fileBytes: 100 * 1024 * 1024,

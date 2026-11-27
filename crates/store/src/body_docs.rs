@@ -48,6 +48,23 @@ pub struct StoredDoc {
     pub unkept_editors: Vec<String>,
 }
 
+/// What [`Store::project_body`] writes to the block of a document.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Projection {
+    /// The block holds the body of the document already: it is not patched.
+    Held,
+    /// The block takes `body`, if it was not changed since it was read: `read_at` is
+    /// its `updated_at` then. (A restore from the trash in the same millisecond as the
+    /// read, and the import's own writing of bodies, which keeps `updated_at`, are not
+    /// seen; neither writes a block whose document is open.)
+    Written {
+        /// The body the block takes; `None` clears it.
+        body: Option<Body>,
+        /// The block's `updated_at` as it was read.
+        read_at: i64,
+    },
+}
+
 /// The numbers of a stored document as whoever writes it read them, or left them
 /// with its own last write. Every write of the document, of its log, and of its body
 /// to its block names them ([`Store::append_body_updates`],
@@ -388,14 +405,11 @@ impl Store {
     }
 
     /// Writes the body of a block's document to the block, as the document was after
-    /// the update `through_seq`: the block is patched by `user_id` as any change of its
-    /// body is (its plain text, task counts and the files it shows with it), and the
-    /// document is marked as written up to there, with `body_digest` the digest of
-    /// `body`. With `body` `None` the block is not patched: its body is the document's
-    /// already. `read_at` is the block's `updated_at` as it was read: a block changed
-    /// since is not written over. (A restore from the trash in the same millisecond as
-    /// the read, and the import's own writing of bodies, which keeps `updated_at`, are
-    /// not seen; neither writes a block whose document is open.)
+    /// the update `through_seq`, as `projection` says: the block is patched by
+    /// `user_id` as any change of its body is (its plain text, task counts and the
+    /// files it shows with it), and the document is marked as written up to there, with
+    /// `body_digest` the digest of the body. A block that holds the body already
+    /// ([`Projection::Held`]) is not patched.
     ///
     /// Only the body of the document as it was read (`as_read`) is written: the block
     /// is left as it is if the document was written since, also by one whose body is
@@ -404,18 +418,13 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the block, or its document, is not there,
-    /// [`StoreError::Stale`] if the block changed since `read_at`,
+    /// [`StoreError::Stale`] if the block changed since it was read,
     /// [`StoreError::DocumentWritten`] if the document is not as it was read, and the
     /// errors of a patch of the block.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one write of a body: what is written, by whom, and what was read of the block and of the document"
-    )]
     pub async fn project_body(
         &self,
         block_id: &str,
-        body: Option<Option<Body>>,
-        read_at: i64,
+        projection: Projection,
         through_seq: i64,
         body_digest: &[u8],
         user_id: &str,
@@ -427,11 +436,11 @@ impl Store {
             as_read.projected_seq
         );
         self.transaction(async |scope| {
-            match body {
-                // The block holds the body; what it shows is put down again all the
-                // same, in place of the images the log showed meanwhile. Nothing else
-                // that follows from the block changes: it is as it was stored.
-                None => {
+            match projection {
+                // What the block shows is put down again all the same, in place of the
+                // images the log showed meanwhile. Nothing else that follows from the
+                // block changes: it is as it was stored.
+                Projection::Held => {
                     let block = blocks::get_block(scope, block_id).await?;
                     block_derived::refresh(
                         scope,
@@ -441,7 +450,7 @@ impl Store {
                     )
                     .await?;
                 }
-                Some(body) => {
+                Projection::Written { body, read_at } => {
                     let patch = BlockPatch {
                         body: body.map_or(BodyChange::Clear, BodyChange::Set),
                         read_at: Some(read_at),

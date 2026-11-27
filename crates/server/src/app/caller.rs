@@ -25,7 +25,7 @@ pub enum CallerAuth {
 /// Who sends a request: the user, and by what.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Caller {
-    /// The user.
+    /// The user it is sent as.
     pub user_id: String,
     /// What they showed.
     pub auth: CallerAuth,

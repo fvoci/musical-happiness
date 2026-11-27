@@ -157,7 +157,12 @@ pub(crate) fn non_empty_opt(text: &str) -> Option<String> {
 /// Validates `page` and `perPage` strings, reporting both errors when both are invalid.
 pub(crate) fn paging_from_strings(page: &str, per_page: &str) -> Result<ListPage, AppError> {
     let page_res = count_param(page, "page", 0, 0..=MAX_PAGE);
-    let per_page_res = count_param(per_page, "perPage", DEFAULT_PER_PAGE, 1..=MAX_PER_PAGE);
+    let per_page_res = count_param(
+        per_page,
+        "perPage",
+        DEFAULT_PER_PAGE.get(),
+        1..=MAX_PER_PAGE.get(),
+    );
     match (page_res, per_page_res) {
         (Ok(p), Ok(pp)) => Ok(ListPage {
             page: p,
@@ -168,16 +173,19 @@ pub(crate) fn paging_from_strings(page: &str, per_page: &str) -> Result<ListPage
     }
 }
 
-fn count_param(
+/// A count of the query parameter `name` (`default` if it is empty) within `range`,
+/// as the type `T` holds it.
+fn count_param<T: TryFrom<u32>>(
     text: &str,
     name: &str,
     default: u32,
     range: RangeInclusive<u32>,
-) -> Result<u32, AppError> {
+) -> Result<T, AppError> {
     let number = int_param(text, name, i64::from(default))?;
     u32::try_from(number)
         .ok()
         .filter(|count| range.contains(count))
+        .and_then(|count| T::try_from(count).ok())
         .ok_or_else(|| {
             let reason = if number < i64::from(*range.start()) {
                 format!("below {}", range.start())

@@ -4,13 +4,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use fvoci_model::DuplicateAs;
 use fvoci_model::{
     BlankBoardScaffolding, Block, BlockType, BoardLocale, BoardViewDuplicate, BoardViewMove,
     BoardViewWrite, Card, CardMovesRequest, CardMovesResult, Container, ContainerKind,
     ContainersAndBlocks, JsonMap, NewBoardView, NewCardAttachment, PAGE_ORDER_FIELD, RestoredCards,
     ViewType, default_blank_board_scaffolding, new_id, place_view_at,
 };
-use fvoci_store::DuplicateAs;
 use serde_json::{Value, json};
 
 use super::blocks::{ChangeAction, hide_inactive_numbers, log_notification};

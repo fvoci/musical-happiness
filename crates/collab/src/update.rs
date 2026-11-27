@@ -168,7 +168,7 @@ pub enum UpdateError {
     TooLarge {
         /// The size of the update.
         size: usize,
-        /// The limit.
+        /// The limit it is past: [`UpdateLimits::update_bytes`].
         limit: usize,
     },
     /// The bytes are no update.
@@ -181,7 +181,7 @@ pub enum UpdateError {
     /// writes: the library would walk the client's changes again for each.
     #[error("the deletions of client {client} go back to clock {start} from {end}")]
     DeletionsOutOfOrder {
-        /// The client.
+        /// The Yjs client whose deletions they are, by its number.
         client: u64,
         /// Where the range that goes back starts.
         start: u32,
@@ -209,7 +209,7 @@ pub enum UpdateError {
         /// The steps its changes may take to place, counted no further than is needed
         /// to know that they are more than the limit.
         steps: u64,
-        /// The limit.
+        /// The limit it is past: [`UpdateLimits::placing_steps`].
         limit: u64,
     },
     /// With the update the document would name more clients than
@@ -220,7 +220,7 @@ pub enum UpdateError {
     TooManyClients {
         /// The clients it would name.
         clients: usize,
-        /// The limit.
+        /// The limit it is past: [`UpdateLimits::clients`].
         limit: usize,
     },
     /// With the update a client of the document would have more changes than
@@ -232,7 +232,7 @@ pub enum UpdateError {
     TooManyChanges {
         /// The most changes a client would have, deleted ones too.
         changes: u64,
-        /// The limit.
+        /// The limit it is past: [`UpdateLimits::client_changes`].
         limit: u64,
     },
     /// With the update the document would hold more changes across all clients than
@@ -243,7 +243,7 @@ pub enum UpdateError {
     TooManyTotalChanges {
         /// The total changes across all clients, deleted ones too.
         changes: u64,
-        /// The limit.
+        /// The limit it is past: [`UpdateLimits::total_changes`].
         limit: u64,
     },
     /// With the update the library would take more steps to read the document from its
@@ -256,7 +256,7 @@ pub enum UpdateError {
         /// The steps it would take, counted no further than is needed to know that
         /// they are more than the limit.
         steps: u64,
-        /// The limit.
+        /// The limit it is past: [`UpdateLimits::reading_steps`].
         limit: u64,
     },
     /// With the update the document would be larger than [`UpdateLimits::state_bytes`].
@@ -264,7 +264,7 @@ pub enum UpdateError {
     DocumentTooLarge {
         /// The size the document would have.
         size: usize,
-        /// The limit.
+        /// The limit it is past: [`UpdateLimits::state_bytes`].
         limit: usize,
     },
     /// With the update the document could not be read again from what is stored of it:

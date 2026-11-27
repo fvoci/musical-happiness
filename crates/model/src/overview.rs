@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceOverview {
-    /// The workspace.
+    /// The workspace, with its organization and what the reader is in it.
     pub workspace: OverviewWorkspace,
     /// Who reads it.
     pub me: OverviewPerson,

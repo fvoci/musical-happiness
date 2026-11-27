@@ -5,7 +5,7 @@
  * security policy without a refusal.
  *
  * What the two libraries may and may not do with hostile input is tested
- * where it can be tested widely: spikes/editor/attacks.spec.ts and the unit
+ * where it can be tested widely: e2e/editor-attacks.spec.ts and the unit
  * tests. Here is only that the assembled app, with the policy, draws them.
  *
  * `FVOCI_SCREENS=1` also takes the pictures `embeds-*`, into

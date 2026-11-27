@@ -1,8 +1,8 @@
 <!--
-  The field for a new comment: the last row of the card, always in sight
-  (question 9 of docs/mobile-proposal.md). It stays above the on-screen
-  keyboard because the card ends where the keyboard begins (frame.ts), and
-  clear of the home indicator when no keyboard covers that.
+  The field for a new comment: the last row of the card, always in sight.
+  It stays above the on-screen keyboard because the card ends where the
+  keyboard begins (frame.ts), and clear of the home indicator when no
+  keyboard covers that.
 
   A plain text box of several lines, not the editor: Enter starts a line,
   ⌘Enter on Apple devices, Ctrl+Enter elsewhere, or "Send" sends. Lines become paragraphs

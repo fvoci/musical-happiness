@@ -1118,7 +1118,8 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
     });
     let mut config = ts.app.config().clone();
     config.block_change_webhooks = vec![format!("http://{address}/hook")];
-    let hooked = App::new(config, ts.app.store().clone(), ts.app.files().clone())
+    let (settings, _) = config.check().expect("the configuration with the hook");
+    let hooked = App::new(settings, ts.app.store().clone(), ts.app.files().clone())
         .expect("a server with the hook");
     let in_space = hooked.scoped(space.app.store().tenant());
 

@@ -56,8 +56,8 @@ impl Ses {
             return Outcome::Refused { code: None };
         };
         let body = json!({
-            "FromEmailAddress": message.from,
-            "Destination": {"ToAddresses": [message.to]},
+            "FromEmailAddress": message.from.as_str(),
+            "Destination": {"ToAddresses": [message.to.as_str()]},
             "Content": {"Raw": {"Data": STANDARD.encode(raw)}},
         })
         .to_string();

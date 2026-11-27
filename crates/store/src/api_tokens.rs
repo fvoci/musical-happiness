@@ -32,7 +32,7 @@ const LISTED_COLUMNS: &str = "t.id, t.user_id, t.name, t.token_prefix, t.scope, 
 /// A workspace a new token is to reach, in its organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GrantedWorkspace<'a> {
-    /// The workspace.
+    /// The workspace, which the maker of the token was let into.
     pub workspace_id: &'a str,
     /// Its organization, as the server found it when it let the maker in.
     pub org_id: &'a str,
@@ -41,7 +41,7 @@ pub struct GrantedWorkspace<'a> {
 /// The provider the session that makes a token was made through, at its revision then.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokenOrigin<'a> {
-    /// The provider.
+    /// Which of the organization's providers it is.
     pub provider_id: &'a str,
     /// Its revision when the session was made.
     pub revision: i64,

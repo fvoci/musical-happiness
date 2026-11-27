@@ -1,6 +1,6 @@
 //! The bodies of cards: one document per card, written and read through the card
 //! routes, checked before it is stored, and guarded against overwriting a change the
-//! writer has not seen (`docs/s6-design.md` 3.7, 5.7).
+//! writer has not seen.
 
 use fvoci_model::{BLOCK_TITLE_MAX_CHARS, Card, ContainerVisibility};
 use reqwest::StatusCode;
@@ -1016,8 +1016,7 @@ async fn a_copy_of_a_card_with_an_attachment_below_it_begins_with_one_version() 
 }
 
 /// The copies of files that copying a card makes are shown by the copies and are not
-/// collected, however much later; a file that was uploaded and never shown is
-/// (`docs/s6-design.md` 5.7).
+/// collected, however much later; a file that was uploaded and never shown is.
 #[tokio::test]
 async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
     copied_files_are_shown_and_unused_ones_collected("image").await;
@@ -1156,7 +1155,7 @@ async fn block_of(client: &Client, board_id: &str, block_id: &str) -> Value {
         .expect("the block is listed")
 }
 
-/// A comment has a body as a card does (`docs/s6-design.md` 5.7): checked, changed only
+/// A comment has a body as a card does: checked, changed only
 /// with `readAt`, its images files of its board, and copied with its card.
 #[tokio::test]
 async fn a_comment_has_a_body() {
@@ -1360,8 +1359,8 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
 }
 
 /// A commenter posts comments with bodies, as before with titles, and that is all: no
-/// change of a comment, and no files copied into the board (`docs/s6-design.md` 5.7,
-/// the permissions of comments stay).
+/// change of a comment, and no files copied into the board (the permissions of
+/// comments stay).
 #[tokio::test]
 async fn a_commenter_posts_a_body_but_copies_no_files() {
     let th = Setup::native().start().await.init_basic().await;

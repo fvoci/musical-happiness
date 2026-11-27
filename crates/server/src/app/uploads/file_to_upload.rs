@@ -1,6 +1,8 @@
 //! The file a client says it is about to send in parts, and what of it is refused
 //! before a session is opened.
 
+use std::num::NonZeroU64;
+
 use fvoci_model::{RefusalReason, Refusals, UploadPurpose};
 
 use super::MAX_UPLOAD_NAME_CHARS;
@@ -57,12 +59,12 @@ impl FileToUpload {
 
 /// The refusal of a file of more than `limit` bytes, the largest an upload for
 /// `purpose` takes: 413 with the limit and the reason of the purpose.
-pub(super) fn too_large(purpose: UploadPurpose, limit: i64) -> AppError {
+pub(super) fn too_large(purpose: UploadPurpose, limit: NonZeroU64) -> AppError {
     let (what, reason) = match purpose {
         UploadPurpose::File => ("file", Reason::FileTooLarge),
         UploadPurpose::Import => ("archive", Reason::ArchiveTooLarge),
     };
-    let limit = u64::try_from(limit).unwrap_or(u64::MAX);
+    let limit = limit.get();
     AppError::too_large(
         format_args!("the {what} is larger than {limit} bytes"),
         limit,

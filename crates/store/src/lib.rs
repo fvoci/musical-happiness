@@ -43,7 +43,6 @@ mod course_exams;
 mod course_meetings;
 mod course_schedules;
 mod courses;
-mod data_steps;
 mod db;
 mod diaries;
 mod directory;
@@ -66,6 +65,7 @@ mod notification_outbox;
 mod notifications;
 mod observe;
 mod oidc;
+mod oidc_flows;
 mod oidc_former;
 mod oidc_held;
 mod oidc_identities;
@@ -88,6 +88,7 @@ mod search_text;
 mod server_lock;
 mod sessions;
 mod signups;
+mod snapshot;
 #[cfg(any(test, feature = "test-util"))]
 mod sqlite_seed;
 mod subscriptions;
@@ -124,11 +125,11 @@ pub use api_tokens::{
 };
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
-    BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
+    BlockFilter, BodyPreview, CopyChanges, CopyTitles, ListedBlock, Paging, Previews,
 };
 pub use board_ops::PreparedCardDuplicate;
 pub use body_digest::body_digest;
-pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
+pub use body_docs::{DocAsRead, LoggedUpdate, Projection, StoredDoc};
 pub use body_versions::{
     BodyBefore, ByAgent, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DEFAULT_BODY_VERSIONS_MAX_BYTES,
     KeptVersion,
@@ -138,7 +139,7 @@ pub use clock::Clock;
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
-pub use containers::{ContainerAccessFacts, Joined, MemberChange, PublicContainers};
+pub use containers::{ContainerAccessFacts, Joined, MemberChange};
 pub use containers_and_blocks::{StreamBatch, StreamCreateError};
 pub use course_exams::{
     ExamPublishError, ExamScoreOutcome, ExamViewer, MIN_SCORER_DELTA_TO_REPUBLISH,
@@ -162,7 +163,6 @@ pub use file_versions::{
     DEFAULT_FILE_VERSIONS_KEPT, KeptFileVersion, RestoredCopy, UnusableUpload, VersionAdded,
     VersionRestored,
 };
-pub use fvoci_model::{PublicLinkChange, SidebarVisibility};
 pub use invitations::{
     Acceptance, Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink,
 };
@@ -174,9 +174,8 @@ pub use notifications::{
     ContainerNotificationPlace, NotificationPlace, NotificationReader, StoredNotification,
 };
 pub use observe::{Access, Call, Observer, Outcome};
-pub use oidc::{
-    FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
-};
+pub use oidc::{Identity, OidcAccount, OidcRefusal, Removal, StoredProvider};
+pub use oidc_flows::{FlowPurpose, LoginFlow};
 pub use oidc_former::{FormerEnd, FormerProvider};
 pub use oidc_held::{CarriedOver, CarryOver, CarryOverRefusal, HeldSignIn};
 pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
@@ -188,6 +187,7 @@ pub use page_trash::PageRestore;
 pub use pages::PageWrite;
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use person_names::ChangedName;
+pub use schema::SchemaCheck;
 pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
 pub use search_text::{NumberSearch, TextFound, TextSearch};
@@ -203,7 +203,7 @@ pub use today::{DueSoonCardCandidate, TodayWindow};
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use unit_reviews::DueReviewCandidate;
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
-pub use users::{AdminChange, InstanceRole};
+pub use users::AdminChange;
 pub use visibility::{VisibilityScope, VisibilityVersion};
 pub use workspace_membership::MembershipChange;
 
@@ -413,7 +413,6 @@ impl Store {
         Ok(store)
     }
 
-    /// Brings the schema of the database up to date, as [`Store::connect`] does: for a
     /// Returns the store's shared monotonic [`Clock`].
     #[must_use]
     pub fn clock(&self) -> &clock::Clock {
@@ -598,17 +597,6 @@ impl Store {
         .await
     }
 
-    /// Whether the database's schema is this build's already: every migration recorded
-    /// as applied, with this build's text, and no other. Reads only.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Schema`] if the role may not read the record of the
-    /// migrations, and [`StoreError::Database`] if it cannot be read.
-    pub async fn schema_is_current(&self) -> Result<bool, StoreError> {
-        Ok(schema::state(self).await? == schema::SchemaState::Current)
-    }
-
     /// The role the store connects as and the schema it works in, for what a server
     /// says of them; empty on SQLite.
     ///
@@ -747,52 +735,6 @@ impl Store {
                 }
             }
         }
-    }
-
-    /// Runs a multi-statement read in a single consistent snapshot (`BEGIN DEFERRED` on
-    /// SQLite, `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY` on PostgreSQL) without
-    /// acquiring SQLite's writer lock.
-    async fn read_snapshot<T>(
-        &self,
-        operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
-    ) -> Result<T, StoreError> {
-        let watch = self.watch(Access::Read);
-        let kept = self.versions_kept();
-        let result = match &self.inner.pool {
-            Pool::Sqlite(pool) => match Watch::acquire(watch.as_ref(), pool).await {
-                Ok(mut conn) => match conn.begin_with("BEGIN DEFERRED").await {
-                    Ok(mut tx) => {
-                        let mut scope = Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
-                            .with_clock(&self.inner.clock);
-                        let res = operation(&mut scope).await;
-                        drop(tx);
-                        res
-                    }
-                    Err(error) => Err(error.into()),
-                },
-                Err(error) => Err(error.into()),
-            },
-            Pool::Postgres(pool) => match Watch::acquire(watch.as_ref(), pool).await {
-                Ok(mut conn) => match conn
-                    .begin_with(self.tenant.begin_read_snapshot_on_postgres())
-                    .await
-                {
-                    Ok(mut tx) => {
-                        let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
-                            .with_clock(&self.inner.clock);
-                        let res = operation(&mut scope).await;
-                        drop(tx);
-                        res
-                    }
-                    Err(error) => Err(error.into()),
-                },
-                Err(error) => Err(error.into()),
-            },
-        };
-        if let Some(watch) = watch {
-            watch.finish(Access::Read, &result);
-        }
-        result
     }
 
     /// Runs `operation` in a transaction, committing if it succeeds and rolling back if

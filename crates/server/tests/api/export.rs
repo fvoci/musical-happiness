@@ -129,7 +129,7 @@ async fn export_single_board_round_trips() {
         .containers_for_user_and_workspace(
             &user_id,
             ROOT_WORKSPACE_ID,
-            fvoci_store::PublicContainers::Include,
+            fvoci_model::PublicContainers::Include,
         )
         .await
         .expect("the imported boards");
@@ -169,7 +169,7 @@ async fn export_of_a_board_without_blocks_round_trips() {
         .containers_for_user_and_workspace(
             &user_id,
             ROOT_WORKSPACE_ID,
-            fvoci_store::PublicContainers::Include,
+            fvoci_model::PublicContainers::Include,
         )
         .await
         .expect("the imported boards");

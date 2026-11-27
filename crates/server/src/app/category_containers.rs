@@ -2,11 +2,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use fvoci_model::PublicContainers;
 use fvoci_model::{
     CATEGORY_CONTAINERS_SORT_ORDER_GAP, Category, CategoryContainerMetadata, CategoryContainers,
     CategoryType, Container, ContainerCategoryWebsocketData, SidebarVisibility,
 };
-use fvoci_store::PublicContainers;
 
 use super::App;
 use super::category::CATEGORY;
@@ -50,34 +50,43 @@ impl App {
         user_id: &str,
         workspace_id: &str,
     ) -> Result<Vec<CategoryContainers>, AppError> {
-        let category_containers = self
-            .store()
-            .get_user_category_containers(user_id, workspace_id)
-            .await?;
+        let category_containers = self.read_category_containers(user_id, workspace_id).await?;
         if has_default_category(&category_containers) {
             return Ok(category_containers);
         }
+        self.ensure_default_category(user_id, workspace_id).await
+    }
 
-        // Serialize concurrent first-time creation so two simultaneous requests from a
-        // new user do not create duplicate default categories. The category exists before
-        // boards are filed under it, so the nested call that filing makes returns above
-        // and does not wait for this turn again.
-        let _turn = self.default_category_turn().await;
-        let mut category_containers = self
+    /// A user's categories in a workspace with the boards in each, as they are.
+    async fn read_category_containers(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Result<Vec<CategoryContainers>, AppError> {
+        Ok(self
             .store()
             .get_user_category_containers(user_id, workspace_id)
-            .await?;
-        if !has_default_category(&category_containers) {
-            self.create_containers_category(user_id, workspace_id, &category_containers)
-                .await?;
-            // Read again: making the category moved the others, and the list is in the
-            // order of the categories as they are now.
-            category_containers = self
-                .store()
-                .get_user_category_containers(user_id, workspace_id)
-                .await?;
+            .await?)
+    }
+
+    /// Makes the default category of a user in a workspace if they have none, and
+    /// returns their categories with it. One request makes it at a time, so that two at
+    /// once from a new user do not make two.
+    async fn ensure_default_category(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Result<Vec<CategoryContainers>, AppError> {
+        let _turn = self.default_category_turn().await;
+        let category_containers = self.read_category_containers(user_id, workspace_id).await?;
+        if has_default_category(&category_containers) {
+            return Ok(category_containers);
         }
-        Ok(category_containers)
+        self.create_containers_category(user_id, workspace_id, &category_containers)
+            .await?;
+        // Read again: making the category moved the others, and the list is in the
+        // order of the categories as they are now.
+        self.read_category_containers(user_id, workspace_id).await
     }
 
     /// The sidebar of a guest of the workspace: their categories as
@@ -183,21 +192,18 @@ impl App {
             })
             .collect();
         if !container_ids.is_empty() {
-            // Boxed: this function and the one it calls call each other.
-            Box::pin(self.add_update_user_category_container(
-                workspace_id,
-                user_id,
-                &created.id,
-                &container_ids,
-            ))
-            .await
-            .map_err(|error| {
-                error.context(format_args!(
-                    "createBoardsCategory failed to add category-less board to the default \
-                         category, defaultCategoryID: {}, error",
-                    created.id
-                ))
-            })?;
+            self.file_containers(workspace_id, user_id, &created.id, &container_ids)
+                .await
+                .map_err(|error| {
+                    error.context(format_args!(
+                        "createBoardsCategory failed to add category-less board to the \
+                         default category, defaultCategoryID: {}, error",
+                        created.id
+                    ))
+                })?;
+            let category_containers = self.read_category_containers(user_id, workspace_id).await?;
+            self.tell_category_containers(workspace_id, user_id, &created.id, &category_containers)
+                .await?;
         }
         Ok(CategoryContainers {
             category: created,
@@ -226,6 +232,22 @@ impl App {
         if container_ids.is_empty() {
             return Ok(());
         }
+        self.file_containers(workspace_id, user_id, category_id, container_ids)
+            .await?;
+        let category_containers = self.user_category_containers(user_id, workspace_id).await?;
+        self.tell_category_containers(workspace_id, user_id, category_id, &category_containers)
+            .await
+    }
+
+    /// Files boards under one of a user's categories, moving them out of any other,
+    /// once the category is the user's and every board one of the workspace.
+    async fn file_containers(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        category_id: &str,
+        container_ids: &[String],
+    ) -> Result<(), AppError> {
         // Verify category ownership before writing so a user cannot file boards into
         // another user's category.
         self.user_category(workspace_id, user_id, category_id)
@@ -237,8 +259,18 @@ impl App {
         self.store()
             .add_update_category_container(user_id, category_id, container_ids)
             .await?;
+        Ok(())
+    }
 
-        let category_containers = self.user_category_containers(user_id, workspace_id).await?;
+    /// Tells the user's connection the boards of one of their categories, as
+    /// `category_containers` has them.
+    async fn tell_category_containers(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        category_id: &str,
+        category_containers: &[CategoryContainers],
+    ) -> Result<(), AppError> {
         let Some(updated) = category_containers
             .iter()
             .find(|entry| entry.category.id == category_id)

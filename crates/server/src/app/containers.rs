@@ -1,10 +1,11 @@
 //! Boards: reading, creating, patching, deleting, restoring, and sidebar placement.
 
+use fvoci_model::PublicContainers;
 use fvoci_model::{
     CategoryType, Container, ContainerCategoryWebsocketData, ContainerKind, ContainerMember,
     ContainerPatch, ContainerVisibility, new_id,
 };
-use fvoci_store::{DeletedContainer, PublicContainers};
+use fvoci_store::DeletedContainer;
 
 use super::{App, Former};
 use crate::collab::{AccessScope, Deletion};

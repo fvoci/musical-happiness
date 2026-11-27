@@ -1,8 +1,8 @@
 /**
- * Making a card on a day of the calendar (question C11, answer B): "New card
+ * Making a card on a day of the calendar: "New card
  * on …" at the end of the cards of a day, wherever they are listed, and with
  * a mouse the "+" of a day's cell. The card has that day as its date and
- * opens, as on a board (C12); a view's filter gets the values it asks for,
+ * opens, as on a board; a view's filter gets the values it asks for,
  * as a board and a table give them. One undo takes the card away.
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
@@ -89,7 +89,7 @@ test('with a mouse the "+" of a day makes a card there; under a finger the day i
   const cell = day(page, '2026-11-26');
   const plus = calendar(page).locator('[data-new-card="2026-11-26"]');
   if (touch(info) || !wide(info)) {
-    // The cell is the button of the day (C2); cards are made from its list.
+    // The cell is the button of the day; cards are made from its list.
     await expect(plus).toHaveCount(0);
     return;
   }
@@ -108,9 +108,7 @@ test('with a mouse the "+" of a day makes a card there; under a finger the day i
   await expect(focused(page)).toHaveAttribute('data-bar', /.+/);
 });
 
-test('the header’s “New” makes the card on the day picked (question C13)', async ({
-  page,
-}, info) => {
+test('the header’s “New” makes the card on the day picked', async ({ page }, info) => {
   await openCalendar(page, info);
   const before = await cardCount(page);
   // A day is picked: its cards open, and are closed again.

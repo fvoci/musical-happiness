@@ -168,7 +168,7 @@ pub enum StoreError {
     /// an update, was folded, was made again, or its body was written to the block.
     #[error("the document of block {block_id} was written since it was read")]
     DocumentWritten {
-        /// The block.
+        /// The block whose document it is.
         block_id: String,
     },
 

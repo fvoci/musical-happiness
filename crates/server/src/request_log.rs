@@ -14,7 +14,8 @@ use axum::response::{IntoResponse, Response};
 use futures_util::FutureExt as _;
 use uuid::Uuid;
 
-use crate::client_address::{ClientAddress, TrustedProxies};
+use crate::client_address::{self, ClientAddress};
+use crate::config::TrustedProxies;
 use crate::connection::Connection;
 use crate::error::{AppError, PROBLEMS_PATH};
 use crate::error_response::ReportedError;
@@ -60,7 +61,7 @@ fn client_of(
 ) -> (ClientAddress, String) {
     match peer {
         Some(Peer::Tcp(peer)) => {
-            let address = proxies.client_of(peer.ip(), headers);
+            let address = client_address::client_of(proxies, peer.ip(), headers);
             (ClientAddress(Some(address)), address.to_string())
         }
         Some(Peer::Unix) => (ClientAddress(None), "unix socket".to_owned()),

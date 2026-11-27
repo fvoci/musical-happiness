@@ -6,7 +6,7 @@
  * styles that reach outside it.
  *
  * (That the library itself, run on hostile diagram text, yields nothing of
- * the kind is tested in a browser: spikes/editor/attacks.spec.ts.)
+ * the kind is tested in a browser: e2e/editor-attacks.spec.ts.)
  */
 import { afterEach, describe, expect, it } from 'vitest';
 

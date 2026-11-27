@@ -10,7 +10,8 @@ use axum::response::Response;
 
 use super::oidc::browser_cookie;
 use crate::app::{App, SignupMarker};
-use crate::auth::token::{Https, cookie_value};
+use crate::auth::token::Https;
+use crate::http_credentials::cookie_value;
 
 /// The name of the cookie where the server is reached over HTTPS: the `__Host-` prefix
 /// holds it to exactly this host, as the session cookie's.

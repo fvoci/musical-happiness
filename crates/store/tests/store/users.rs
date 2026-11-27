@@ -3,13 +3,12 @@
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use fvoci_model::InstanceRole;
 use fvoci_model::{
     ClientStatePatch, Density, Session, Theme, User, UserSettings, UserSettingsPatch,
     WorkspaceRole, new_id,
 };
-use fvoci_store::{
-    AdminChange, DbType, Founding, InstanceRole, Looking, Reach, Sight, Store, StoreError, Taken,
-};
+use fvoci_store::{AdminChange, DbType, Founding, Looking, Reach, Sight, Store, StoreError, Taken};
 use serde_json::{Value, json};
 
 use crate::common;
@@ -70,7 +69,7 @@ async fn get_users_by_workspace() {
     test.teardown().await;
 }
 
-/// `testCreateAndGetUser`.
+/// A user is created and read back.
 #[tokio::test]
 async fn create_and_get_user() {
     let test = common::setup().await;
@@ -211,7 +210,7 @@ async fn get_users_list() {
     test.teardown().await;
 }
 
-/// `testCreateAndUpdateUser`.
+/// A user is created and updated.
 #[tokio::test]
 async fn create_and_update_user() {
     let test = common::setup().await;
@@ -265,7 +264,7 @@ async fn create_and_update_user() {
     test.teardown().await;
 }
 
-/// `testCreateAndGetRegisteredUserCount`.
+/// The count of registered users follows the users made.
 #[tokio::test]
 async fn create_and_get_registered_user_count() {
     let test = common::setup().await;
@@ -289,7 +288,7 @@ async fn create_and_get_registered_user_count() {
     test.teardown().await;
 }
 
-/// `testPatchUserProps`.
+/// Patching the properties of a user.
 #[tokio::test]
 async fn patch_user_props() {
     let test = common::setup().await;

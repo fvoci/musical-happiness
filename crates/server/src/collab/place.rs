@@ -38,7 +38,7 @@ pub(super) type Held = OwnedMutexGuard<Slot>;
 pub(super) struct Slot {
     /// Its key in the place.
     key: String,
-    /// The card.
+    /// The card whose document the slot holds, in its organization.
     pub(super) card_id: String,
     /// The container owning the card.
     pub(super) container_id: String,

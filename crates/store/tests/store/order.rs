@@ -10,11 +10,12 @@
 //! times and sort orders so that the order asked for differs both from the order of
 //! the identifiers and from the order of the names.
 
+use fvoci_model::PublicContainers;
 use fvoci_model::{
     Block, BlockType, Category, Container, ContainerKinds, ContainerMember, ContainerSearchField,
     ContainerVisibility, Subscription, User, WorkspaceRole, new_id,
 };
-use fvoci_store::{Looking, Paging, PublicContainers, Reach, Sight, Store};
+use fvoci_store::{Looking, Paging, Reach, Sight, Store};
 
 use crate::common::{self, TestStore};
 
@@ -644,7 +645,7 @@ async fn the_trash_comes_the_last_deleted_first() {
             Some(&user_id),
             Some(Paging {
                 page: 1,
-                per_page: 2,
+                per_page: std::num::NonZeroU32::new(2).expect("a page size"),
             }),
             ContainerKinds::BOARDS,
         )

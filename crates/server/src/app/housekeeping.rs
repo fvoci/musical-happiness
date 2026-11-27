@@ -71,11 +71,8 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the workspaces to remove cannot be read.
-    pub async fn purge_workspaces(
-        &self,
-        deleted_before: i64,
-    ) -> Result<WorkspacesPurged, AppError> {
-        let mut done = WorkspacesPurged::default();
+    pub async fn purge_workspaces(&self, deleted_before: i64) -> Result<TrashPurged, AppError> {
+        let mut done = TrashPurged::default();
         for (org_id, workspace_id) in self.store().workspaces_to_purge(deleted_before).await? {
             let purged = match self.store().for_org(&org_id) {
                 Ok(store) => store.purge_workspace(&workspace_id, deleted_before).await,
@@ -93,6 +90,52 @@ impl App {
             }
         }
         Ok(done)
+    }
+
+    /// Deletes the sessions that have ended by `now`, unused for the idle limit
+    /// (`session_idle_days`) or past their absolute limit, and closes what each still has
+    /// open. Returns how many ended.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the sessions cannot be deleted.
+    pub async fn clean_up_sessions(&self, now: i64) -> Result<usize, AppError> {
+        let idle_since = now.saturating_sub(self.config().session_idle_millis());
+        let ended = self.store().clean_up_sessions(now, idle_since).await?;
+        let count = ended.session_ids().len();
+        self.ws().close(ended.into_scope());
+        Ok(count)
+    }
+
+    /// Removes for good the boards and blocks that have been in the trash since before
+    /// `deleted_before`, of every organization the handle reaches, and dooms the objects
+    /// of their files.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the trash cannot be purged; nothing went then.
+    pub async fn purge_trash(&self, deleted_before: i64) -> Result<TrashPurged, AppError> {
+        let purged = self.store().purge_trash(deleted_before).await?;
+        Ok(TrashPurged {
+            records: purged.records,
+            files: purged.files.len(),
+            failed: 0,
+        })
+    }
+
+    /// Removes the records of the files that no block, live or in the trash, has shown
+    /// since before `before`, and dooms their objects. Returns how many went.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the files cannot be collected.
+    pub async fn collect_unreferenced_files(&self, before: i64) -> Result<usize, AppError> {
+        Ok(self.store().collect_unreferenced_files(before).await?.len())
+    }
+
+    /// Closes the connections of the database, waiting for those in use to be given back.
+    pub async fn close(&self) {
+        self.store().close().await;
     }
 
     /// Removes what the temporary directories hold that nothing will use: the parts of
@@ -392,9 +435,9 @@ async fn remove_entry(path: &Path) -> bool {
     }
 }
 
-/// What a purge of the workspaces in the trash came to.
+/// What a purge of the trash came to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct WorkspacesPurged {
+pub struct TrashPurged {
     /// The boards and blocks that went for good.
     pub records: u64,
     /// The files whose objects were doomed.

@@ -6,8 +6,9 @@
  * text with their formatting. `rawType` goes the other way and makes shared
  * types from such a description without any editor's schema in between, so
  * that a document no editor would write can be made: a list without entries,
- * an element of a kind nobody knows. The collaboration spike and the tool
- * that writes `contracts/ydoc-vectors.json` both use these.
+ * an element of a kind nobody knows. The tool that writes
+ * `contracts/ydoc-vectors.json` makes its cases with these, and its test
+ * reads the documents back with them.
  */
 import * as Y from 'yjs';
 

@@ -360,7 +360,7 @@ async fn global_commands_stay_out_of_the_organizations_log(
     let store = server.app.store().for_org(org_id).expect("organization");
     let paging = fvoci_store::Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     let before = store
         .audit_records(fvoci_store::AuditPlace::Organization, paging)
@@ -458,7 +458,7 @@ async fn only_the_password_set_is_recorded(
 ) {
     let paging = fvoci_store::Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     let after = store
         .audit_records(fvoci_store::AuditPlace::Organization, paging)

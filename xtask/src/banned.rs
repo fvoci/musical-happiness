@@ -3,9 +3,9 @@
 //! A banned word is refused in any case, alone or inside a longer word, in the text
 //! and in the path of every file git tracks or would track. Nothing is excepted.
 //!
-//! Narrow porting phrases ([`BANNED_PHRASES`]) are also refused in tracked project files
-//! (except immutable applied SQL migrations under `crates/store/schema/` and third-party
-//! vendored sources under `vendor/`).
+//! Narrow porting phrases ([`BANNED_PHRASES`]) and retired identifiers
+//! ([`RETIRED_TOKENS`]) are also refused, in the text and in the path of every tracked
+//! file but the third-party sources vendored under `vendor/`.
 //!
 //! The word list does not say the words. A word is known by how many letters it has and
 //! by the SHA-256 of those letters in lowercase, so every run of letters in a file is
@@ -68,12 +68,14 @@ const BANNED: [(usize, &str); 10] = [
     ),
 ];
 
-/// Narrow porting phrases refused in tracked project files (matched case-insensitively).
+/// Narrow porting phrases refused in tracked project files (matched case-insensitively),
+/// and the names of another language's standard library given as the reason for code:
+/// the code says what it does, or names the standard it follows.
 ///
 /// Kept narrow so ordinary phrases such as `"original file"`, `"original card"`,
 /// `"원본 이미지"`, or `"원본 파일"` are not flagged. Every entry must be lowercase; built
 /// with `concat!` so this file stays free of literal matches.
-const BANNED_PHRASES: [&str; 8] = [
+const BANNED_PHRASES: [&str; 11] = [
     concat!("ports ", "server/"),
     concat!("the ", "original's"),
     concat!("the ", "original server"),
@@ -82,11 +84,15 @@ const BANNED_PHRASES: [&str; 8] = [
     concat!("원본", "과 "),
     concat!("원본", "과의"),
     concat!("원본", "에서 옮"),
+    concat!("http.serve", "content"),
+    concat!("check", "preconditions"),
+    concat!("bytes.trim", "space"),
 ];
 
-/// Retired pre-launch identifiers refused in tracked project files (matched on ASCII
-/// identifier boundaries so words such as `createAttachment` or `updateAttributes` are
-/// not flagged).
+/// Retired pre-launch identifiers refused in tracked project files: in any case, inside
+/// a longer name (with a prefix such as `old` or a suffix such as `_idx`), and in a
+/// file's path, unless a lowercase letter goes on after them, as in `createAttachment` or
+/// `updateAttributes`. Every entry is matched in lowercase; the tests hold the cases.
 const RETIRED_TOKENS: [&str; 5] = [
     concat!("create", "At"),
     concat!("update", "At"),
@@ -95,10 +101,10 @@ const RETIRED_TOKENS: [&str; 5] = [
     concat!("UserPreferences", "Patch"),
 ];
 
-/// Path prefixes exempt from [`BANNED_PHRASES`] (never from [`BANNED`]):
-/// - `crates/store/schema/`: immutable applied SQL migrations checked by checksum.
-/// - `vendor/`: third-party vendored sources.
-const PHRASE_EXEMPT_PREFIXES: [&str; 2] = ["crates/store/schema/", "vendor/"];
+/// Path prefixes exempt from [`BANNED_PHRASES`] and [`RETIRED_TOKENS`] (never from
+/// [`BANNED`]): the third-party sources as they were vendored, and nothing written here
+/// beside them (the import script and its lists under `vendor/rhwp-studio/`).
+const PHRASE_EXEMPT_PREFIXES: [&str; 1] = ["vendor/rhwp-studio/upstream/"];
 
 /// The banned words, by their number of letters.
 #[derive(Debug)]
@@ -241,7 +247,7 @@ fn find(root: &Path, words: &Words, phrases: &[&str]) -> Result<Found> {
     })
 }
 
-/// Whether `file` is exempt from [`BANNED_PHRASES`] (immutable migrations or vendored code).
+/// Whether `file` is exempt from [`BANNED_PHRASES`] and [`RETIRED_TOKENS`] (vendored code).
 fn is_phrase_exempt(file: &str) -> bool {
     PHRASE_EXEMPT_PREFIXES
         .iter()
@@ -259,20 +265,18 @@ fn finds_phrase(line: &str, phrases: &[&str]) -> bool {
     phrases.iter().any(|phrase| lower.contains(phrase))
 }
 
-const fn is_ident_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
-}
-
-/// Whether `line` contains any identifier token from `tokens` on ASCII identifier
-/// boundaries (`[^A-Za-z0-9_]` or start/end of line).
+/// Whether `line` holds a token of `tokens` in any case with no lowercase letter right
+/// after it. ASCII lowercase keeps every byte where it was, so the letter after a match
+/// is read from `line` itself.
 fn finds_token(line: &str, tokens: &[&str]) -> bool {
+    let lower = line.to_ascii_lowercase();
     let bytes = line.as_bytes();
     tokens.iter().any(|token| {
-        line.match_indices(token).any(|(start, _)| {
-            let end = start + token.len();
-            let before_ok = start == 0 || !is_ident_byte(bytes[start - 1]);
-            let after_ok = end == bytes.len() || !is_ident_byte(bytes[end]);
-            before_ok && after_ok
+        let token = token.to_ascii_lowercase();
+        lower.match_indices(&token).any(|(start, _)| {
+            bytes
+                .get(start + token.len())
+                .is_none_or(|next| !next.is_ascii_lowercase())
         })
     })
 }
@@ -280,14 +284,14 @@ fn finds_token(line: &str, tokens: &[&str]) -> bool {
 /// The hits of one file: `path: in its name`, then `path:line` for each line.
 fn check_file(file: &str, text: &str, reading: &mut Reading<'_>, phrases: &[&str]) -> Vec<String> {
     let mut hits = Vec::new();
-    if reading.finds_in(file) {
-        hits.push(format!("{file}: in its name"));
-    }
     let (active_phrases, active_tokens) = if is_phrase_exempt(file) {
         (&[][..], &[][..])
     } else {
         (phrases, &RETIRED_TOKENS[..])
     };
+    if reading.finds_in(file) || finds_token(file, active_tokens) {
+        hits.push(format!("{file}: in its name"));
+    }
     for (index, line) in text.lines().enumerate() {
         if reading.finds_in(line)
             || finds_phrase(line, active_phrases)
@@ -514,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn phrase_exempt_prefixes_skip_phrases_but_still_enforce_banned_words() {
+    fn vendored_sources_skip_phrases_but_still_enforce_banned_words() {
         let words = banning(&["gadget"]);
         let mut reading = Reading::new(&words);
         let phrase_line = concat!("-- the ", "original's board block\n");
@@ -522,16 +526,16 @@ mod tests {
 
         assert_eq!(
             check_file(
-                "crates/store/schema/sqlite/0042_board_blocks.sql",
+                "crates/store/schema/sqlite/0001_baseline.sql",
                 phrase_line,
                 &mut reading,
                 &BANNED_PHRASES
             ),
-            Vec::<String>::new()
+            ["crates/store/schema/sqlite/0001_baseline.sql:1"]
         );
         assert_eq!(
             check_file(
-                "vendor/rhwp-studio/src/example.ts",
+                "vendor/rhwp-studio/upstream/src/example.ts",
                 concat!("// 원본", "과 비교\n"),
                 &mut reading,
                 &BANNED_PHRASES
@@ -540,12 +544,22 @@ mod tests {
         );
         assert_eq!(
             check_file(
-                "crates/store/schema/sqlite/0042_board_blocks.sql",
+                "vendor/rhwp-studio/import.mjs",
+                concat!("// 원본", "과 비교\n"),
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            ["vendor/rhwp-studio/import.mjs:1"],
+            "what is written here beside the vendored sources is held to the phrases"
+        );
+        assert_eq!(
+            check_file(
+                "vendor/rhwp-studio/upstream/src/example.ts",
                 word_line,
                 &mut reading,
                 &BANNED_PHRASES
             ),
-            ["crates/store/schema/sqlite/0042_board_blocks.sql:1"]
+            ["vendor/rhwp-studio/upstream/src/example.ts:1"]
         );
         assert_eq!(
             check_file("docs/notes.md", phrase_line, &mut reading, &BANNED_PHRASES),
@@ -554,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn retired_timestamp_tokens_match_identifier_boundaries_and_exempt_schemas() {
+    fn retired_tokens_are_found_in_any_case_inside_names_and_in_paths() {
         let words = banning(&[]);
         let mut reading = Reading::new(&words);
         for hit_line in [
@@ -562,37 +576,58 @@ mod tests {
             concat!("SELECT b.", "update", "_at FROM blocks b"),
             concat!(r#"{"id":"1",""#, "create", "At", r#"":10}"#),
             concat!("card.", "update", "At"),
+            concat!("CREATE INDEX blocks_parent_type_", "create", "_at_idx"),
+            concat!("const old", "Create", "At = 1;"),
+            concat!("ALTER TABLE b DROP COLUMN ", "CREATE", "_AT"),
+            concat!("let Preferences = ", "UserPreferences", "Patch::default();"),
         ] {
             assert!(
                 finds_token(hit_line, &RETIRED_TOKENS),
-                "{hit_line:?} must match a retired timestamp token"
+                "{hit_line:?} must match a retired token"
             );
-            assert_eq!(
-                check_file("crates/model/src/lib.rs", hit_line, &mut reading, &[]),
-                ["crates/model/src/lib.rs:1"]
-            );
+            for file in [
+                "crates/model/src/lib.rs",
+                "crates/store/schema/sqlite/0001_baseline.sql",
+            ] {
+                assert_eq!(
+                    check_file(file, hit_line, &mut reading, &[]),
+                    [format!("{file}:1")]
+                );
+            }
             assert_eq!(
                 check_file(
-                    "crates/store/schema/sqlite/0075_unified_created_updated_timestamps.sql",
+                    "vendor/rhwp-studio/upstream/lib/a.ts",
                     hit_line,
                     &mut reading,
                     &[]
                 ),
-                Vec::<String>::new()
+                Vec::<String>::new(),
+                "vendored sources are not ours to rename"
+            );
+            assert_eq!(
+                check_file("vendor/rhwp-studio/import.mjs", hit_line, &mut reading, &[]),
+                ["vendor/rhwp-studio/import.mjs:1"]
             );
         }
+        let named = concat!("crates/store/src/", "create", "_at.rs");
+        assert_eq!(
+            check_file(named, "", &mut reading, &[]),
+            [format!("{named}: in its name")]
+        );
 
         for clean_line in [
             "pub created_at: i64,",
             "pub updated_at: i64,",
+            "CREATED_AT and UPDATED_AT",
             r#"{"createdAt":10,"updatedAt":20}"#,
             "backend.createAttachment(boardId, cardId, file)",
             "editor.commands.updateAttributes('codeBlock', {})",
             "const NO_CREATED_AT: &str = \"missing\";",
+            "blocks_parent_type_created_at_idx",
         ] {
             assert!(
                 !finds_token(clean_line, &RETIRED_TOKENS),
-                "{clean_line:?} must not match any retired timestamp token"
+                "{clean_line:?} must not match any retired token"
             );
         }
     }

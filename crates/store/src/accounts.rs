@@ -9,19 +9,20 @@
 //! organization gets that and nothing else (`alone`), and starts an organization
 //! later, as an account that is there ([`Store::start_organization`]).
 
-use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{InstanceRole, OrgRole, User, Workspace, WorkspaceRole, new_id};
 
 use crate::db::{Id, Scope, Sql};
 use crate::error::{StoreError, Taken};
-use crate::users::{self, InstanceRole};
+use crate::users;
 use crate::{Store, Tenant};
 use crate::{directory, signups, workspaces};
 
 /// The organization somebody who signs up with the name of an organization starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Founding {
-    /// The first organization, created with the first account. If a migrated database
-    /// already has an organization but no account, the first user takes it.
+    /// The first organization, created with the first account. If the database already
+    /// holds an organization of people with no account (one from before organizations
+    /// had accounts, in a database re-anchored at the baseline), the first user takes it.
     First,
     /// A new organization, under an identifier the store gives it, whatever
     /// organization the handle names.
@@ -47,7 +48,7 @@ pub enum FoundingPolicy {
 pub struct OwnSpace {
     /// The organization, of the kind `personal`.
     pub org_id: String,
-    /// Its workspace.
+    /// The one workspace of that organization.
     pub workspace_id: String,
 }
 
@@ -268,7 +269,9 @@ impl Store {
 /// take, or is to be made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OrgPlace {
-    /// A migrated database's organization, which has no account yet.
+    /// An organization of people with no account yet. The baseline seeds none (only
+    /// the system's organization); a database re-anchored at the baseline may hold one
+    /// from before its organizations had accounts.
     Existing,
     /// None yet: it is made under the scope's identifier.
     ToMake,

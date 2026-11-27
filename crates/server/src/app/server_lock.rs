@@ -33,7 +33,7 @@ const TRY_TIMEOUT: Duration = Duration::from_secs(10);
 enum Holding {
     /// Not taken, or let go.
     No,
-    /// Held.
+    /// Taken by this process, and not lost.
     Held,
     /// It was held and is lost: the process goes down.
     Lost,

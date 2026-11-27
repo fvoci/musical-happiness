@@ -107,7 +107,7 @@ export class Placed {
   }
 
   /**
-   * The second line of a bar of a week (question C5): its time and, for
+   * The second line of a bar of a week: its time and, for
    * several days, which; then the text of the properties the view turned on
    * (`shown`). People, files and boxes are left to the card's own lines: a
    * bar has room for words only.

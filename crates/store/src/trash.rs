@@ -175,9 +175,9 @@ impl Store {
     }
 
     /// Returns the cards of a board that are in the trash at the top of what was deleted
-    /// with them, the last deleted first and then by identifier: one page of them if
-    /// `paging` says so (a page size of zero is every card). A card that went with the
-    /// block it was on (a card, a view) comes back with that block and is not listed.
+    /// with them, the last deleted first and then by identifier: the page `paging` names,
+    /// or every one without it. A card that went with the block it was on (a card, a
+    /// view) comes back with that block and is not listed.
     ///
     /// # Errors
     ///
@@ -196,7 +196,7 @@ impl Store {
                  WHERE below.deletion_id = deleted_blocks.deletion_id \
                  AND below.id = deleted_blocks.parent_id) ORDER BY deleted_at DESC, id",
             );
-            push_paging(&mut sql, paging);
+            sql.push_page(paging);
             let mut cards = Vec::new();
             for row in &scope.fetch_all(sql).await? {
                 let block = match block_from_json(row, 0) {
@@ -311,8 +311,8 @@ impl Store {
     /// Returns the boards of `kinds` of a workspace that are in the trash and, with an
     /// `admin_id`, that the user was an admin of when they were deleted (`role` `admin` of
     /// the membership they had); without one, every such board of the workspace in the
-    /// trash. With their memberships, the last deleted first and then by identifier: one
-    /// page of them if `paging` says so (a page size of zero is every board).
+    /// trash. With their memberships, the last deleted first and then by identifier: the
+    /// page `paging` names, or every one without it.
     ///
     /// # Errors
     ///
@@ -325,10 +325,9 @@ impl Store {
         kinds: ContainerKinds,
     ) -> Result<Vec<DeletedContainer>, StoreError> {
         self.with_conn(async |scope| {
-            // A board that went to the trash before boards had a kind says none: a board.
             let kind = match scope.dialect() {
-                Dialect::Sqlite => "COALESCE(json_extract(container, '$.kind'), 'board')",
-                Dialect::Postgres => "COALESCE(container->>'kind', 'board')",
+                Dialect::Sqlite => "json_extract(container, '$.kind')",
+                Dialect::Postgres => "container->>'kind'",
             };
             // The memberships are the JSON array of the board's members when it went.
             let was_admin = match scope.dialect() {
@@ -351,7 +350,7 @@ impl Store {
             }
             crate::container_kinds::push_kinds(&mut sql, kind, kinds);
             sql.push(" ORDER BY deleted_at DESC, id");
-            push_paging(&mut sql, paging);
+            sql.push_page(paging);
             let mut deleted = Vec::new();
             for row in &scope.fetch_all(sql).await? {
                 let container = match from_json(row, 0, "container") {
@@ -542,15 +541,6 @@ pub(crate) fn block_not_in_trash() -> StoreError {
 
 fn container_not_in_trash() -> StoreError {
     StoreError::not_found("deleted board")
-}
-
-/// Limits a list of the trash to one page, if `paging` has a page size.
-pub(crate) fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
-    if let Some(paging) = paging.filter(|paging| paging.per_page > 0) {
-        let offset = paging.offset();
-        sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-            .push_bind(" OFFSET ", offset);
-    }
 }
 
 /// Reads a block of the trash. Its body is taken as it was stored: it was checked when
@@ -775,7 +765,7 @@ pub(crate) async fn take_blocks_out_of_trash(
     let mut kept = Vec::with_capacity(rows.len());
     for row in &rows {
         let (block, watchers) = block_and_watchers_from_json(row, 0)?;
-        kept.push((block.id.clone(), block.block_type, watchers));
+        kept.push((block.id.clone(), watchers));
         restored.push(block);
     }
     let mut known_users = KnownUsers::default();
@@ -794,8 +784,8 @@ pub(crate) async fn take_blocks_out_of_trash(
     for index in parents_first(&restored) {
         blocks::insert_block_row(scope, &restored[index], NewBodyFiles::Unchecked).await?;
     }
-    for (block_id, block_type, watchers) in &kept {
-        watchers::watch_again(scope, block_id, *block_type, watchers).await?;
+    for (block_id, watchers) in &kept {
+        watchers::watch_again(scope, block_id, watchers).await?;
     }
     let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));

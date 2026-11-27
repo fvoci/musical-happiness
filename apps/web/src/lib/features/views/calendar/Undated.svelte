@@ -1,6 +1,6 @@
 <!--
   The cards that have no value for the date the calendar is placed by, and
-  so no place on the grid (question C16, answer A: a drawer opened from the
+  so no place on the grid (a drawer opened from the
   calendar's row). The same list on a sheet of a compact page and in the
   column at the right of the calendar; the column has a button that closes it.
   A Gantt chart has the same list, with its own words (`hint`), and marks

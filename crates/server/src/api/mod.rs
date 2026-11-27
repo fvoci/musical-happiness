@@ -313,12 +313,7 @@ pub(crate) async fn guard_against_forgery(
         return next.run(request).await;
     }
     let headers = request.headers();
-    if app
-        .authenticator()
-        .origins()
-        .foreign_origin(headers)
-        .is_some()
-    {
+    if crate::http_credentials::foreign_origin(app.authenticator().origins(), headers).is_some() {
         tracing::debug!("a request from another origin was refused");
         return foreign_origin().into_response();
     }
@@ -327,7 +322,7 @@ pub(crate) async fn guard_against_forgery(
         .get::<MatchedPath>()
         .is_some_and(|path| path.as_str().ends_with(mcp::PATH));
     let sent_on_purpose = reads_no_cookie
-        || crate::auth::token::bearer_token(headers).is_some()
+        || crate::http_credentials::bearer_token(headers).is_some()
         || headers
             .get(HEADER_REQUESTED_WITH)
             .and_then(|value| value.to_str().ok())

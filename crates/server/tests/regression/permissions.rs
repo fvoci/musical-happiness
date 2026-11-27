@@ -274,18 +274,22 @@ impl Request {
 }
 
 /// Prepares the fixture for a route and returns the request to send. `me` is the
-/// caller's user identifier, empty for the anonymous caller.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one arm per row of the table; splitting it would scatter the table"
-)]
+/// caller's user identifier, empty for the anonymous caller. The routes go by the
+/// family their row names before its colon.
 async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
+    match route.split_once(": ").map(|(family, _)| family) {
+        Some("board" | "members") => board_request(route, fx).await,
+        Some("blocks" | "containers-and-blocks" | "cards") => block_request(route, fx).await,
+        _ => workspace_request(route, fx, me).await,
+    }
+}
+
+/// The request of a row of the board and of its members.
+async fn board_request(route: &str, fx: &Fixture<'_>) -> Request {
     let board = &fx.board;
     let board_path = format!("{ROOT_API}/containers/{board}");
-    let blocks = format!("{ROOT_API}/boards/{board}/blocks");
     let viewer = &fx.users.ids["viewer"];
     let extra = &fx.users.ids["extra"];
-    let workspace = ROOT_API.to_owned();
     match route {
         "board: get" => Request::new(Method::GET, board_path),
         "board: patch title" => {
@@ -334,6 +338,15 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         }
         "members: join" => Request::new(Method::POST, format!("{board_path}/join")),
         "members: leave" => Request::new(Method::POST, format!("{board_path}/leave")),
+        other => panic!("no request is defined for the route {other:?}"),
+    }
+}
+
+/// The request of a row of the blocks and the cards of the board.
+async fn block_request(route: &str, fx: &Fixture<'_>) -> Request {
+    let board = &fx.board;
+    let blocks = format!("{ROOT_API}/boards/{board}/blocks");
+    match route {
         "blocks: list" => Request::new(Method::GET, blocks),
         "blocks: list all" => Request::new(Method::GET, format!("{blocks}?all=true")),
         "blocks: list by parent" => {
@@ -407,6 +420,16 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             format!("{ROOT_API}/cards/{}", fx.card),
             json!({"title": "patched"}),
         ),
+        other => panic!("no request is defined for the route {other:?}"),
+    }
+}
+
+/// The request of a row of what else the board has (its public link, subscriptions,
+/// files, uploads and archive) and of its workspace.
+async fn workspace_request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
+    let board_path = format!("{ROOT_API}/containers/{}", fx.board);
+    let workspace = ROOT_API.to_owned();
+    match route {
         "public-link: get" => {
             fx.owner(
                 Method::POST,

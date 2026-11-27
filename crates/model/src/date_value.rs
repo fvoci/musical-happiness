@@ -1,4 +1,4 @@
-//! The value of a date property (`docs/s6-design.md` 5.7, the wire shape B).
+//! The value of a date property.
 //!
 //! A calendar date is a `YYYY-MM-DD` string, the same day for everybody, and a time is
 //! an integer of milliseconds since 1970-01-01 00:00 UTC:
@@ -11,12 +11,12 @@
 //!
 //! `to` is of the kind of `from`, not before it, and left out when it would equal it.
 //! There are no other members: whether a time is set is said by the kind, and the time
-//! zone is the viewer's (5.8), not the value's.
+//! zone is the viewer's (an account setting), not the value's.
 
 use std::collections::HashSet;
 use std::hash::BuildHasher;
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
@@ -152,42 +152,6 @@ pub fn utc_date(millis: i64) -> Option<String> {
         .then(|| format!("{year:04}-{month:02}-{day:02}"))
 }
 
-/// The value the previous form of a date value stands for, or `None` if the text is not
-/// one. The previous form was JSON in a string, `{"from": <ms>, "to": <ms>,
-/// "includeTime": <bool>}`, and a date without a time was the noon of that day; such a
-/// date becomes its UTC day, which is the day it was written for in every time zone
-/// from UTC-12 to UTC+11.
-#[must_use]
-pub(crate) fn date_value_from_previous(text: &str) -> Option<Value> {
-    let previous: JsonMap = serde_json::from_str(text).ok()?;
-    let millis = |key: &str| previous.get(key).map(|value| value.as_i64().ok_or(()));
-    let from = millis("from")?.ok()?;
-    let to = millis("to").transpose().ok()?;
-    let with_time = previous.get("includeTime") == Some(&Value::Bool(true));
-    let mut value = Map::new();
-    if with_time {
-        value.insert("from".to_owned(), Value::from(from));
-        if let Some(to) = to.filter(|to| *to > from && *to <= LAST_MILLISECOND) {
-            value.insert("to".to_owned(), Value::from(to));
-        }
-    } else {
-        let from = utc_date(from)?;
-        if let Some(to) = to.and_then(utc_date).filter(|to| *to > from) {
-            value.insert("to".to_owned(), Value::from(to));
-        }
-        value.insert("from".to_owned(), Value::from(from));
-    }
-    check_date_value(&value).ok()?;
-    Some(Value::Object(value))
-}
-
-/// The calendar date a date filter's previous value stands for: milliseconds in a
-/// string became the UTC day, as [`date_value_from_previous`] does with a date.
-#[must_use]
-pub(crate) fn date_filter_value_from_previous(text: &str) -> Option<String> {
-    text.parse::<i64>().ok().and_then(utc_date)
-}
-
 /// The calendar day it is at a time for somebody whose settings name `time_zone`, as
 /// `YYYY-MM-DD`. Where the settings leave the zone to the device, which the server does
 /// not know, or name one the bundled database has not, it is the day in UTC. `None`
@@ -313,68 +277,7 @@ pub fn date_property_ids<'d>(
         .collect()
 }
 
-/// Rewrites the date values in the previous shape among a card's or a view's fields,
-/// given the identifiers of the board's date properties. Returns whether anything
-/// changed.
-///
-/// A card's date value in the previous shape becomes the new one, and one that cannot
-/// be read becomes `null`: a date property holds a date value or nothing. A date
-/// filter's values that are milliseconds become calendar dates.
-#[must_use]
-pub fn rewrite_previous_date_values<S: BuildHasher>(
-    fields: &mut Value,
-    dates: &HashSet<String, S>,
-) -> bool {
-    if dates.is_empty() {
-        return false;
-    }
-    let mut changed = false;
-    if let Some(Value::Object(values)) = fields.get_mut("properties") {
-        for (id, value) in values.iter_mut() {
-            if !dates.contains(id) || value.is_null() || value.is_object() {
-                continue;
-            }
-            *value = value
-                .as_str()
-                .and_then(date_value_from_previous)
-                .unwrap_or(Value::Null);
-            changed = true;
-        }
-    }
-    if let Some(filter) = fields.get_mut("filter") {
-        changed |= rewrite_filter(filter, dates);
-    }
-    changed
-}
-
-/// Rewrites the values of a view's filter group, and of the groups within it, that
-/// filter on date properties.
-fn rewrite_filter<S: BuildHasher>(group: &mut Value, dates: &HashSet<String, S>) -> bool {
-    let Some(filters) = group.get_mut("filters").and_then(Value::as_array_mut) else {
-        return false;
-    };
-    let mut changed = false;
-    for filter in filters {
-        changed |= rewrite_filter(filter, dates);
-        let Some(filter) = filter.as_object_mut() else {
-            continue;
-        };
-        if !is_date_filter(filter, dates) {
-            continue;
-        }
-        let Some(values) = filter.get_mut("values").and_then(Value::as_array_mut) else {
-            continue;
-        };
-        for value in values {
-            if let Some(date) = value.as_str().and_then(date_filter_value_from_previous) {
-                *value = Value::String(date);
-                changed = true;
-            }
-        }
-    }
-    changed
-}
-
+/// Whether a filter of a view compares a date property.
 fn is_date_filter<S: BuildHasher>(filter: &JsonMap, dates: &HashSet<String, S>) -> bool {
     filter
         .get("propertyId")
@@ -470,47 +373,6 @@ mod tests {
         assert_eq!(utc_date(LAST_MILLISECOND + 1), None, "year 10000");
         assert_eq!(utc_date(-62_135_596_800_001), None, "year 0");
         assert_eq!(utc_date(-62_135_596_800_000).as_deref(), Some("0001-01-01"));
-    }
-
-    #[test]
-    fn previous_values_become_dates_or_times() {
-        // The noon of 2026-03-05 in Seoul, a date written there.
-        assert_eq!(
-            date_value_from_previous(r#"{"from":1772679600000}"#),
-            Some(json!({"from": "2026-03-05"}))
-        );
-        assert_eq!(
-            date_value_from_previous(
-                r#"{"from":1772679600000,"to":1773025200000,"includeTime":false}"#
-            ),
-            Some(json!({"from": "2026-03-05", "to": "2026-03-09"}))
-        );
-        assert_eq!(
-            date_value_from_previous(r#"{"from":1772679600000,"to":1772679600000}"#),
-            Some(json!({"from": "2026-03-05"})),
-            "a range of one day is a day"
-        );
-        assert_eq!(
-            date_value_from_previous(
-                r#"{"from":1772703000000,"includeTime":true,"timeZone":"Asia/Seoul"}"#
-            ),
-            Some(json!({"from": 1_772_703_000_000_i64}))
-        );
-        for text in [
-            "",
-            "x",
-            "{}",
-            r#"{"from":"x"}"#,
-            r#"{"from":1,"to":"y"}"#,
-            "[1]",
-        ] {
-            assert_eq!(date_value_from_previous(text), None, "{text:?}");
-        }
-        assert_eq!(
-            date_filter_value_from_previous("1772679600000").as_deref(),
-            Some("2026-03-05")
-        );
-        assert_eq!(date_filter_value_from_previous("2026-03-05"), None);
     }
 
     #[test]

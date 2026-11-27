@@ -404,7 +404,7 @@ impl FileBackend {
     }
 
     /// The object store that takes uploads part by part across requests, if the backend
-    /// is one: the local disk is not (`docs/s6-design.md` 5.6, 6).
+    /// is one: the local disk is not.
     pub fn multipart(&self) -> Option<&S3Files> {
         match self {
             Self::Local(_) => None,

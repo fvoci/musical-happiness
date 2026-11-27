@@ -3,9 +3,9 @@
  *
  * The card is a single dialog at every stage of the page; only these classes
  * differ. Nothing inside it is put together again when the window crosses a
- * stage, so what is typed, the caret, the focus and the scroll position stay
- * (question 33 of docs/mobile-proposal.md). Which frame it is comes from
- * `cardFrame` (lib/layout/presentation.ts).
+ * stage, so what is typed, the caret, the focus and the scroll position
+ * stay. Which frame it is comes from `cardFrame`
+ * (lib/layout/presentation.ts).
  *
  * Every class that differs between the frames is written out for each of
  * them, so that they override the dialog's own and one another's cleanly.

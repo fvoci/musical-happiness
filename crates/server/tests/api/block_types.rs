@@ -15,7 +15,7 @@ use serde_json::json;
 // -- the types of new blocks and the limits of their fields ------------------------------
 
 /// A new block is a card, a view, a comment or an attachment: the content blocks went
-/// with the card's content order (`docs/s6-design.md` 5.7). Any other type is refused
+/// with the card's content order. Any other type is refused
 /// as the type on the routes that make blocks, and nothing is stored.
 #[tokio::test]
 async fn a_new_block_of_another_type_is_refused() {
@@ -190,7 +190,7 @@ async fn a_patch_does_not_make_a_block_of_another_type() {
 }
 
 /// The serialized fields of a card, a comment or an attachment have at most 64,000
-/// characters, those of a view 800,000 (`docs/s6-design.md` 5.7), when the block is made
+/// characters, those of a view 800,000, when the block is made
 /// and when it is patched.
 #[tokio::test]
 async fn the_fields_of_a_block_are_limited_by_its_type() {

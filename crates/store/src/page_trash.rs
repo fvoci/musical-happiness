@@ -13,7 +13,7 @@ use fvoci_model::{
 use crate::blocks::Paging;
 use crate::db::{Id, Scope};
 use crate::pages::{page_tree, write_place};
-use crate::trash::{block_from_json, block_not_in_trash, push_paging, take_blocks_out_of_trash};
+use crate::trash::{block_from_json, block_not_in_trash, take_blocks_out_of_trash};
 use crate::{Store, StoreError, containers};
 
 /// What bringing a page back changed: the pages that came back, a parent before what is
@@ -29,9 +29,9 @@ pub struct PageRestore {
 
 impl Store {
     /// The pages of the wiki in the trash at the top of what was deleted with them, the
-    /// last deleted first and then by identifier: one page of them if `paging` says so
-    /// (a page size of zero is every one). A page that went with the page it was below
-    /// comes back with that page, and is not listed.
+    /// last deleted first and then by identifier: the page of them `paging` names, or
+    /// every one without it. A page that went with the page it was below comes back with
+    /// that page, and is not listed.
     ///
     /// # Errors
     ///
@@ -59,7 +59,7 @@ impl Store {
                  WHERE above.deletion_id = top.deletion_id AND above.id = top.parent_id) \
                  ORDER BY top.deleted_at DESC, top.id",
             );
-            push_paging(&mut sql, paging);
+            sql.push_page(paging);
             let mut pages = Vec::new();
             for row in &scope.fetch_all(sql).await? {
                 let block = match block_from_json(row, 0) {

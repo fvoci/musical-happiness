@@ -7,124 +7,44 @@
 //! PostgreSQL it takes an advisory lock, so two servers starting on one empty database
 //! do not both create it. Migrations only go forward.
 //!
-//! The two files of a migration describe one change and differ in the column types
-//! only, as the tests of the baselines hold them to. The migration of the organizations
-//! is the exception on two counts, and a later table of an organization on the first.
-//! PostgreSQL keeps the rows of the organizations apart with row-level security, which
-//! SQLite does not have: there the tables whose statements do not name the organization
-//! get the column `org_id`, with the organization of the transaction as its default,
-//! and every table of an organization gets its policy; SQLite holds one organization
-//! and gets neither. And
-//! SQLite adds no column that both takes no NULL and refers to another table, so where
-//! PostgreSQL alters `teams` (the table of the workspaces before migration 17 named it
-//! so), SQLite makes the table again; and SQLite alone has the
-//! triggers that hold it to one organization. The migration after it, of the keys that
-//! name the organization, is PostgreSQL's alone: SQLite's file says why it is empty.
+//! The two files of a migration describe one change and differ in the column types,
+//! in PostgreSQL's wall and in SQLite's triggers only. PostgreSQL keeps the rows of the
+//! organizations apart with row-level security, which SQLite does not have: every table
+//! of an organization gets its policy there, and SQLite holds one organization by its
+//! triggers instead.
+//!
+//! The first migration is the baseline: the schema the chain of migrations of the
+//! servers before it built. A database such a server brought to the end of its chain
+//! has that schema already, and only its record is replaced ([`re_anchor`]).
 
 mod inspect;
+mod pre_baseline;
 mod steps;
 
 use sqlx::SqlSafeStr as _;
 use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
 
-pub(crate) use self::inspect::{SchemaState, may_change, state, ungranted_tables, whereabouts};
-use self::steps::STEPS;
-use crate::db::Dialect;
+pub(crate) use self::inspect::{
+    SchemaState, may_change, refuse_unrecorded_schemas, state, ungranted_tables, whereabouts,
+};
+pub(crate) use self::steps::{STEPS, Step};
+use crate::db::{Dialect, Param};
 use crate::error::StoreError;
 use crate::{Pool, Store};
-/// The migration that makes the organizations and, on PostgreSQL, puts up the wall
-/// between them.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORGANIZATIONS_VERSION: i64 = 14;
 
-/// The migration that renames the table of the workspaces and the columns that name one.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const WORKSPACES_VERSION: i64 = 17;
-
-/// The migration that makes a workspace's name its own in its organization, among much
-/// else of the organization's management.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
-
-/// The migration that renames the tables of the boards and wikis, the containers, and
-/// the columns that name one.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const CONTAINERS_VERSION: i64 = 41;
-
-/// The migration before the one of the diaries, which widens the kinds of a container.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_DIARIES_VERSION: i64 = 54;
-
-/// The migration before the one of the courses, which widens the kinds of a container.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_COURSES_VERSION: i64 = 60;
-
-/// The migration before unit progress (0063).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_UNIT_PROGRESS_VERSION: i64 = 62;
-
-/// The migration version right before `time_entries` (64).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_TIME_ENTRIES_VERSION: i64 = 63;
-
-/// The migration before the one that adds `org_member_removed` to `audit_log`.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION: i64 = 64;
-
-/// The migration before course schedules (0066).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_COURSE_SCHEDULES_VERSION: i64 = 65;
-
-/// The migration before unit reviews and notes (0067).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_UNIT_REVIEWS_VERSION: i64 = 66;
-
-/// The migration before course meetings and exams (0068).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_COURSE_EVENTS_VERSION: i64 = 67;
-
-/// The migration before subscriptions `user_id` cleanup (0069).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_SUBSCRIPTIONS_USER_ID_VERSION: i64 = 68;
-
-/// The migration before container visibility, `public_links`, and `files` (0070).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_CONTAINER_VISIBILITY_VERSION: i64 = 69;
-
-/// The migration before native view `fields` keys (0071).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION: i64 = 70;
-
-/// The migration before nullable `deleted_at` (0072).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_NULLABLE_DELETED_AT_VERSION: i64 = 71;
-
-/// The migration before the single `role` enum on `container_members` (0073).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION: i64 = 72;
-
-/// The migration before native property definitions and lowercase colors (0074).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION: i64 = 73;
-
-/// The migration before unified `created_at` / `updated_at` timestamps (0075).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_UNIFIED_TIMESTAMPS_VERSION: i64 = 74;
-
-/// The migration before dedicated `user_settings` / `user_client_state`, removal of
-/// `blocks."schema"`, and `organizations.kind` `'shared'` (0076).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_USER_SETTINGS_AND_BLOCK_CLEANUP_VERSION: i64 = 75;
-
-/// The migration before composite indexes, derived columns, `users.email_verified_at`,
-/// exam result snapshots, and course integrity triggers (0077).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_SERVER_INDEXES_AND_DERIVED_COLUMNS_VERSION: i64 = 76;
-
-/// The migration before server-authority columns, derived card tables, and widened
-/// audit/notification kinds (0078).
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) const BEFORE_SERVER_AUTHORITY_VERSION: i64 = 77;
+/// What [`Store::migrate`] would do to a database's schema, as [`Store::check_schema`]
+/// finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaCheck {
+    /// Nothing: the schema is this server's.
+    Current,
+    /// Apply the migrations of this server that the database does not have yet: all of
+    /// them, on an empty database.
+    Behind,
+    /// Replace the record of the migrations, the one the last server before the baseline
+    /// wrote, with the baseline's; the schema is not changed.
+    BeforeBaseline,
+}
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
@@ -212,8 +132,7 @@ const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 /// migration record is told from an empty one.
 const A_SCHEMA_TABLE: &str = "blocks";
 
-/// Applies the migrations the database does not have yet, all of them or, for a test,
-/// those up to a version.
+/// Applies the migrations the database does not have yet.
 ///
 /// # Errors
 ///
@@ -221,10 +140,10 @@ const A_SCHEMA_TABLE: &str = "blocks";
 /// tables without their migration record, was migrated by a newer server, or has a
 /// history that differs from this binary's; and
 /// [`StoreError::Database`] if a statement fails.
-pub(crate) async fn migrate(store: &Store, up_to: Option<i64>) -> Result<(), StoreError> {
+pub(crate) async fn migrate(store: &Store, steps: &[Step]) -> Result<(), StoreError> {
     store.with_conn(inspect::refuse_unrecorded_schemas).await?;
 
-    let migrator = migrator(store.dialect(), up_to);
+    let migrator = migrator(store.dialect(), steps);
     let result = match &store.inner.pool {
         Pool::Sqlite(pool) => migrator.run(pool).await,
         Pool::Postgres(pool) => migrator.run(pool).await,
@@ -245,18 +164,96 @@ pub(crate) async fn migrate(store: &Store, up_to: Option<i64>) -> Result<(), Sto
     })
 }
 
-/// The version of the newest migration.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) fn latest_version() -> i64 {
-    STEPS.last().map_or(0, |step| step.version)
+/// Replaces the record of a database that the last server before the baseline brought
+/// up to date ([`SchemaState::BeforeBaseline`]) with the record of the baseline. Its
+/// schema is the baseline's already: no statement changes it, and a server that serves
+/// the database meanwhile goes on serving it. Of two that do it at once, the second
+/// finds it done: the record is locked (PostgreSQL) or the database is (SQLite's
+/// `BEGIN IMMEDIATE`), and read again under the lock.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Schema`] with the reason if the record, read again, is not the
+/// one before the baseline, and [`StoreError::Database`] if a statement fails; the
+/// record is left as it was then.
+pub(crate) async fn re_anchor(store: &Store, steps: &[Step]) -> Result<(), StoreError> {
+    let migrator = migrator(store.dialect(), steps);
+    let Some(baseline) = migrator.iter().next() else {
+        return Err(StoreError::Schema(
+            "this server has no migration".to_owned(),
+        ));
+    };
+    let anchored = [inspect::Recorded {
+        version: baseline.version,
+        checksum: baseline.checksum.to_vec(),
+        applied: true,
+    }];
+    store
+        .system()
+        .transaction(async |scope| {
+            if scope.dialect() == Dialect::Postgres {
+                // A long transaction that reads the record (a dump) holds the lock off:
+                // the opening fails after a while instead of waiting for it.
+                let wait = scope.sql(RE_ANCHOR_LOCK_TIMEOUT);
+                scope.execute(wait).await?;
+                let lock = scope.sql("LOCK TABLE _sqlx_migrations IN ACCESS EXCLUSIVE MODE");
+                scope.execute(lock).await?;
+            }
+            let recorded = inspect::record(scope).await?;
+            if recorded == anchored {
+                return Ok(());
+            }
+            match inspect::before_baseline(scope, &recorded).await? {
+                Some(SchemaState::BeforeBaseline) => {}
+                Some(SchemaState::Foreign(reason)) => return Err(StoreError::Schema(reason)),
+                Some(SchemaState::Current | SchemaState::Behind) | None => {
+                    return Err(StoreError::Schema(
+                        "the record of the schema migrations changed while it was to be \
+                         replaced by the baseline's: open the database again"
+                            .to_owned(),
+                    ));
+                }
+            }
+            scope
+                .execute(scope.sql("DELETE FROM _sqlx_migrations"))
+                .await?;
+            let mut sql = scope.sql(
+                "INSERT INTO _sqlx_migrations \
+                 (version, description, success, checksum, execution_time) VALUES (",
+            );
+            sql.bind(baseline.version)
+                .push(", ")
+                .bind(baseline.description.as_ref())
+                .push(", TRUE, ")
+                .bind(Param::Bytes(baseline.checksum.to_vec()))
+                .push(", 0)");
+            scope.execute(sql).await?;
+            tracing::info!(
+                replaced = recorded.len(),
+                "the record of the schema migrations before the baseline was replaced by \
+                 the baseline's"
+            );
+            Ok(())
+        })
+        .await
 }
 
-/// The migrator of every migration, or of those up to a version: a database as an
-/// older server left it, for the tests of what a migration makes of one.
-fn migrator(dialect: Dialect, up_to: Option<i64>) -> Migrator {
-    let migrations = STEPS
+/// How long the replacement of the record waits for the lock of the record on
+/// PostgreSQL, in its transaction alone.
+const RE_ANCHOR_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '10s'";
+
+/// The record a database holds when the last server before the baseline brought it up
+/// to date, oldest first: each version with the SHA-384 of its file, in lowercase
+/// hexadecimal.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) fn record_before_the_baseline(dialect: Dialect) -> &'static [(i64, &'static str)] {
+    pre_baseline::record(dialect)
+}
+
+/// The migrator of the migrations `steps`.
+fn migrator(dialect: Dialect, steps: &[Step]) -> Migrator {
+    let migrations = steps
         .iter()
-        .filter(|step| up_to.is_none_or(|version| step.version <= version))
         .map(|step| {
             let sql = match dialect {
                 Dialect::Sqlite => step.sqlite,
@@ -327,16 +324,13 @@ mod tests {
         statement_lines(sql).next() == Some(SYSTEM_SCOPE)
     }
 
-    /// After the wall is up, a PostgreSQL migration that reads or changes rows of an
-    /// organization's table begins by reaching the rows of all: forced on the owner,
+    /// A PostgreSQL migration that reads or changes rows of an organization's table
+    /// begins by reaching the rows of all: forced on the owner,
     /// the policies would otherwise leave its `UPDATE` and `DELETE` without a row and
     /// its `INSERT ... SELECT` without a source, with no error.
     #[test]
-    fn a_migration_after_the_wall_that_touches_an_organizations_rows_begins_in_the_system_scope() {
-        for step in STEPS
-            .iter()
-            .filter(|step| step.version > ORGANIZATIONS_VERSION)
-        {
+    fn a_migration_that_touches_an_organizations_rows_begins_in_the_system_scope() {
+        for step in &STEPS {
             let walled = walled_tables(step.postgres);
             assert!(
                 walled.is_empty() || begins_in_the_system_scope(step.postgres),
@@ -396,6 +390,29 @@ mod tests {
         );
     }
 
+    /// The record before the baseline is never taken for the baseline's: its first
+    /// migration is another file. Its versions go up, as the migrator wrote them.
+    #[test]
+    fn the_record_before_the_baseline_is_not_the_baselines() {
+        for dialect in [Dialect::Sqlite, Dialect::Postgres] {
+            let record = pre_baseline::record(dialect);
+            let baseline = migrator(dialect, &STEPS);
+            let Some(first) = baseline.iter().next() else {
+                panic!("{dialect:?}: no baseline");
+            };
+            assert_eq!(record.first().map(|row| row.0), Some(first.version));
+            assert_ne!(
+                record.first().map(|row| row.1.to_owned()),
+                Some(inspect::hexadecimal(&first.checksum)),
+                "{dialect:?}"
+            );
+            assert!(
+                record.windows(2).all(|pair| pair[0].0 < pair[1].0),
+                "{dialect:?}: the versions go up"
+            );
+        }
+    }
+
     /// No table is both an organization's and nobody's.
     #[test]
     fn the_two_lists_of_tables_share_no_table() {
@@ -404,218 +421,122 @@ mod tests {
         }
     }
 
-    /// The migration of the organizations is in the list under the version the rest of
-    /// the crate knows it by.
-    #[test]
-    fn the_migration_of_the_organizations_is_the_one_the_crate_names() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == ORGANIZATIONS_VERSION)
-            .expect("the migration is in the list");
-        assert_eq!(step.description, "organizations");
-        assert!(
-            step.postgres.contains("CREATE POLICY org_wall"),
-            "it puts up the wall"
-        );
+    /// The baseline, and a migration after it as a later server has one.
+    fn baseline_and_one_more() -> [Step; 2] {
+        let [baseline] = &STEPS;
+        [
+            Step {
+                version: baseline.version,
+                description: baseline.description,
+                sqlite: baseline.sqlite,
+                postgres: baseline.postgres,
+            },
+            Step {
+                version: 2,
+                description: "after the baseline",
+                sqlite: "CREATE TABLE after_the_baseline (id INTEGER PRIMARY KEY);",
+                postgres: "CREATE TABLE after_the_baseline (id BIGINT PRIMARY KEY);",
+            },
+        ]
     }
 
-    /// The migration right after `BEFORE_DIARIES_VERSION` is the one of the diaries.
-    #[test]
-    fn the_migration_after_before_diaries_is_the_diaries_one() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_DIARIES_VERSION + 1)
-            .expect("the migration after BEFORE_DIARIES_VERSION is in the list");
-        assert_eq!(step.description, "diaries");
+    /// The bytes of lowercase hexadecimal, as the record before the baseline has them.
+    fn bytes_of(hexadecimal: &str) -> Vec<u8> {
+        (0..hexadecimal.len())
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&hexadecimal[at..at + 2], 16).expect("hexadecimal"))
+            .collect()
     }
 
-    /// The migration right after `BEFORE_COURSES_VERSION` is the one of the courses.
-    #[test]
-    fn the_migration_after_before_courses_is_the_courses_one() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_COURSES_VERSION + 1)
-            .expect("the migration after BEFORE_COURSES_VERSION is in the list");
-        assert_eq!(step.description, "courses");
+    /// A database of the baseline whose record is the one the last server before the
+    /// baseline left, as a database that server brought up to date is.
+    async fn before_the_baseline() -> Store {
+        let store = Store::open(crate::DbType::Sqlite, ":memory:")
+            .await
+            .expect("the database opens");
+        store.migrate().await.expect("the baseline is applied");
+        store
+            .system()
+            .transaction(async |scope| {
+                scope
+                    .execute(scope.sql("DELETE FROM _sqlx_migrations"))
+                    .await?;
+                for (version, checksum) in pre_baseline::record(Dialect::Sqlite) {
+                    let mut sql = scope.sql(
+                        "INSERT INTO _sqlx_migrations \
+                         (version, description, success, checksum, execution_time) VALUES (",
+                    );
+                    sql.bind(*version)
+                        .push(", 'before the baseline', TRUE, ")
+                        .bind(Param::Bytes(bytes_of(checksum)))
+                        .push(", 0)");
+                    scope.execute(sql).await?;
+                }
+                Ok(())
+            })
+            .await
+            .expect("the record before the baseline is written");
+        store
     }
 
-    /// Migration 63 is unit progress, following `BEFORE_UNIT_PROGRESS_VERSION`.
-    #[test]
-    fn migration_63_is_unit_progress() {
-        let step = STEPS
+    /// The versions the record of the database holds, oldest first.
+    async fn recorded_versions(store: &Store) -> Vec<i64> {
+        store
+            .system()
+            .transaction(async |scope| inspect::record(scope).await)
+            .await
+            .expect("the record is read")
             .iter()
-            .find(|step| step.version == 63)
-            .expect("migration 63 is in the list");
-        assert_eq!(step.description, "unit progress");
-        assert!(BEFORE_UNIT_PROGRESS_VERSION < step.version);
+            .map(|recorded| recorded.version)
+            .collect()
     }
 
-    /// The migration right after `BEFORE_TIME_ENTRIES_VERSION` is the one of time entries.
-    #[test]
-    fn the_migration_after_before_time_entries_is_the_time_entries_one() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_TIME_ENTRIES_VERSION + 1)
-            .expect("the migration after BEFORE_TIME_ENTRIES_VERSION is in the list");
-        assert_eq!(step.description, "time entries");
-    }
-
-    /// The migration right after `BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION` is 65.
-    #[test]
-    fn the_migration_after_before_audit_org_member_removed_is_the_one() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION + 1)
-            .expect("the migration after BEFORE_AUDIT_ORG_MEMBER_REMOVED_VERSION is in the list");
-        assert_eq!(step.description, "audit org member removed");
-    }
-
-    /// Migration 66 is course schedules, immediately following `BEFORE_COURSE_SCHEDULES_VERSION` (65).
-    #[test]
-    fn migration_66_is_course_schedules() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_COURSE_SCHEDULES_VERSION + 1)
-            .expect("migration 66 is in the list");
-        assert_eq!(step.version, 66);
-        assert_eq!(step.description, "course schedules");
-    }
-
-    /// Migration 67 is unit reviews and notes, immediately following `BEFORE_UNIT_REVIEWS_VERSION` (66).
-    #[test]
-    fn migration_67_is_unit_reviews_and_notes() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_UNIT_REVIEWS_VERSION + 1)
-            .expect("migration 67 is in the list");
-        assert_eq!(step.version, 67);
-        assert_eq!(step.description, "unit reviews and notes");
-    }
-
-    /// Migration 68 is course meetings and exams, immediately following `BEFORE_COURSE_EVENTS_VERSION` (67).
-    #[test]
-    fn migration_68_is_course_meetings_and_exams() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_COURSE_EVENTS_VERSION + 1)
-            .expect("migration 68 is in the list");
-        assert_eq!(step.version, 68);
-        assert_eq!(step.description, "course meetings and exams");
-    }
-
-    /// Migration 69 is subscriptions `user_id`, immediately following `BEFORE_SUBSCRIPTIONS_USER_ID_VERSION` (68).
-    #[test]
-    fn migration_69_is_subscriptions_user_id() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_SUBSCRIPTIONS_USER_ID_VERSION + 1)
-            .expect("migration 69 is in the list");
-        assert_eq!(step.version, 69);
-        assert_eq!(step.description, "subscriptions user id");
-    }
-
-    /// Migration 70 is container visibility, `public_links`, and `files`, immediately following `BEFORE_CONTAINER_VISIBILITY_VERSION` (69).
-    #[test]
-    fn migration_70_is_container_visibility_public_links_files() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_CONTAINER_VISIBILITY_VERSION + 1)
-            .expect("migration 70 is in the list");
-        assert_eq!(step.version, 70);
-        assert_eq!(step.description, "container visibility public links files");
-    }
-
-    /// Migration 71 is native view field keys, immediately following `BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION` (70).
-    #[test]
-    fn migration_71_is_native_view_field_keys() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_NATIVE_VIEW_FIELD_KEYS_VERSION + 1)
-            .expect("migration 71 is in the list");
-        assert_eq!(step.version, 71);
-        assert_eq!(step.description, "native view field keys");
-    }
-
-    /// Migration 72 is nullable `deleted_at`, immediately following `BEFORE_NULLABLE_DELETED_AT_VERSION` (71).
-    #[test]
-    fn migration_72_is_nullable_deleted_at() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_NULLABLE_DELETED_AT_VERSION + 1)
-            .expect("migration 72 is in the list");
-        assert_eq!(step.version, 72);
-        assert_eq!(step.description, "nullable deleted at");
-    }
-
-    /// Migration 73 is container member role enum, immediately following `BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION` (72).
-    #[test]
-    fn migration_73_is_container_member_role_enum() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_CONTAINER_MEMBER_ROLE_ENUM_VERSION + 1)
-            .expect("migration 73 is in the list");
-        assert_eq!(step.version, 73);
-        assert_eq!(step.description, "container member role enum");
-    }
-
-    /// Migration 74 is native property definitions and colors, immediately following `BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION` (73).
-    #[test]
-    fn migration_74_is_native_property_definitions_and_colors() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_NATIVE_PROPERTY_DEFINITIONS_VERSION + 1)
-            .expect("migration 74 is in the list");
-        assert_eq!(step.version, 74);
-        assert_eq!(step.description, "native property definitions and colors");
-    }
-
-    /// Migration 75 is unified `created_at` / `updated_at` timestamps, immediately following `BEFORE_UNIFIED_TIMESTAMPS_VERSION` (74).
-    #[test]
-    fn migration_75_is_unified_created_updated_timestamps() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_UNIFIED_TIMESTAMPS_VERSION + 1)
-            .expect("migration 75 is in the list");
-        assert_eq!(step.version, 75);
-        assert_eq!(step.description, "unified created updated timestamps");
-    }
-
-    /// Migration 76 splits `preferences` into `user_settings` and `user_client_state`,
-    /// drops `blocks."schema"`, and updates shared `organizations.kind` to `'shared'`.
-    #[test]
-    fn migration_76_is_user_settings_client_state_and_block_cleanup() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_USER_SETTINGS_AND_BLOCK_CLEANUP_VERSION + 1)
-            .expect("migration 76 is in the list");
-        assert_eq!(step.version, 76);
+    /// Once a server has migrations after the baseline, one migration of a database
+    /// before the baseline replaces its record and then applies them: neither a
+    /// server's start nor `--migrate` leaves it behind until the next.
+    #[tokio::test]
+    async fn a_database_before_the_baseline_takes_the_migrations_after_it_at_once() {
+        let steps = baseline_and_one_more();
+        let store = before_the_baseline().await;
         assert_eq!(
-            step.description,
-            "user settings client state and block cleanup"
+            store.check_schema().await.expect("the record is read"),
+            SchemaCheck::BeforeBaseline
         );
+        store.migrate_with(&steps).await.expect("migrated");
+        assert_eq!(recorded_versions(&store).await, [1, 2]);
+        assert_eq!(
+            state(&store, &steps).await.expect("the record is read"),
+            SchemaState::Current
+        );
+        store
+            .system()
+            .transaction(async |scope| {
+                scope
+                    .execute(scope.sql("INSERT INTO after_the_baseline (id) VALUES (1)"))
+                    .await
+            })
+            .await
+            .expect("the table of the migration after the baseline is there");
+        store.close().await;
     }
 
-    /// Migration 77 adds server indexes, derived columns, `users.email_verified_at`,
-    /// exam snapshot columns, and course child triggers.
-    #[test]
-    fn migration_77_is_server_indexes_and_derived_columns() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_SERVER_INDEXES_AND_DERIVED_COLUMNS_VERSION + 1)
-            .expect("migration 77 is in the list");
-        assert_eq!(step.version, 77);
-        assert_eq!(step.description, "server indexes and derived columns");
-    }
-
-    /// Migration 78 adds server-authority columns, derived card tables, and widened
-    /// audit and notification kinds.
-    #[test]
-    fn migration_78_is_server_authority() {
-        let step = STEPS
-            .iter()
-            .find(|step| step.version == BEFORE_SERVER_AUTHORITY_VERSION + 1)
-            .expect("migration 78 is in the list");
-        assert_eq!(step.version, 78);
-        assert_eq!(step.description, "server authority");
+    /// The replacement of the record alone, which `--migrate` makes while a server
+    /// serves the database, leaves the migrations after the baseline to be applied, as
+    /// it says: those change tables, and are applied under the server's lock.
+    #[tokio::test]
+    async fn the_record_replaced_alone_leaves_the_migrations_after_the_baseline() {
+        let steps = baseline_and_one_more();
+        let store = before_the_baseline().await;
+        assert_eq!(
+            store.re_anchor_with(&steps).await.expect("replaced"),
+            SchemaCheck::Behind
+        );
+        assert_eq!(recorded_versions(&store).await, [1]);
+        assert_eq!(
+            store.re_anchor_with(&STEPS).await.expect("read again"),
+            SchemaCheck::Current,
+            "this server's: nothing is left"
+        );
+        store.close().await;
     }
 }

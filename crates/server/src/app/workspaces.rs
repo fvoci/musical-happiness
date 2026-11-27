@@ -10,7 +10,8 @@ use fvoci_model::{
 };
 use std::time::Instant;
 
-use fvoci_store::{Making, PublicContainers, SessionTaken, Tenant, WorkspaceAccess};
+use fvoci_model::PublicContainers;
+use fvoci_store::{Making, SessionTaken, Tenant, WorkspaceAccess};
 
 use super::api_tokens::SSO_TOKEN_MAX_DAYS;
 use super::{App, Asker, as_managed, sso};

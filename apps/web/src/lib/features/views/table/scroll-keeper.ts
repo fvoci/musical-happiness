@@ -6,8 +6,7 @@
  * table fits, it cuts the position down to what is left to scroll, and does
  * not give it back when the box shrinks again. That also happens within one
  * frame: the stage of the page is worked out by script, one layout after the
- * window changed, so the pane is laid out once at a width it does not keep
- * (docs/mobile-proposal.md, "잃는 경우").
+ * window changed, so the pane is laid out once at a width it does not keep.
  *
  * So the place the reader scrolled to is remembered here, apart from the
  * element. A position that the layout cut is not taken for the reader's, and

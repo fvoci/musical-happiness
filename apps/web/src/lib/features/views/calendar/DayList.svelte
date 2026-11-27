@@ -2,12 +2,12 @@
   The cards of one day, with their titles in full: what a day of the grid
   opens. The same content wherever it is put: under the small grid of a
   narrow box, or in a popover next to the cell (then with a button that
-  closes it; question C3, answer A).
+  closes it).
 
   A line of it is a CardRow: the card's title, time and days, the
   properties the view turned on, and its "…". Where dates cannot be changed
   here, a line under the heading says why. Last, for someone who may make
-  cards there, "New card on …" (question C11, answer B): the way to make a
+  cards there, "New card on …": the way to make a
   card on a day that every pointer and the keys reach.
 -->
 <script lang="ts">
@@ -39,7 +39,7 @@
     onChangeDate?: (cardId: string, line: HTMLElement | undefined) => void;
     /**
      * Why no date can be changed on this calendar, where none can: it is
-     * placed by when cards were made or changed (question C14).
+     * placed by when cards were made or changed.
      */
     fixed?: string;
     /** Makes a card on the day; none where no card can be made here. */

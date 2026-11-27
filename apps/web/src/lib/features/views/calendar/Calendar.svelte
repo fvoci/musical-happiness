@@ -1,24 +1,24 @@
 <!--
   The calendar view: the cards of the view placed on the days of a month or
-  of a week (question C17) by one date property (`displayProperty`: the one the view names, or else the
-  first kind of date of the board, or else when the card was made).
+  of a week by one date property (`displayProperty`: the one the view
+  names, or else the first kind of date of the board, or else when the card
+  was made).
 
   Above, a row to go back and on a month or a week, to today, and between
-  month and week. Under it, a box whose width decides what is drawn
-  (docs/calendar-proposal.md):
+  month and week. Under it, a box whose width decides what is drawn:
 
   - 34rem and wider: the weeks of the month as a grid of bars, or one week
     as high as the box with every card in it. A day opens its cards in a
-    popover next to its cell, or on a sheet on a compact page (C2, C3).
+    popover next to its cell, or on a sheet on a compact page.
   - narrower: a small grid of numbers, dots and lines over the list of the
-    picked day (C1, answer A), or the strip of a week over the lists of its
+    picked day, or the strip of a week over the lists of its
     seven days (WeekAgenda).
 
   A card is made on a day from "New card on …" at the end of the day's list,
-  or with a mouse from the "+" of its cell (question C11, answer B); the
-  header's "New" makes it on the day picked (C13).
+  or with a mouse from the "+" of its cell; the
+  header's "New" makes it on the day picked.
   A card's date is changed from the "…" of its line in a list: a picker of
-  days (DayPicker) moves it whole (questions C9, C10). Where the cards are
+  days (DayPicker) moves it whole. Where the cards are
   placed by a date nobody sets, no line offers it and the lists say why.
   With a pointer, a bar of the grid is dragged to another day, its ends to
   make it longer or shorter, and a card without a date from its column
@@ -28,7 +28,7 @@
   parts that draw them (Period): a window that changes size swaps the grid of
   bars for the small grid, and must not take them along. Month or week is
   remembered on the device for each view; the month and the day are the
-  screen's only, and a new load starts at today (question C19).
+  screen's only, and a new load starts at today.
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
@@ -153,7 +153,7 @@
       ?.focus();
   }
 
-  /** Picks a day; a day of another month brings that month into view (question C21). */
+  /** Picks a day; a day of another month brings that month into view. */
   function select(date: CalendarDate): void {
     period.select(date);
   }
@@ -263,7 +263,7 @@
     void maker.on(date);
   };
 
-  // The header's "New" makes the card on the day picked (question C13).
+  // The header's "New" makes the card on the day picked.
   $effect(() => {
     if (!creatable) return;
     return registerNewCard(view.id, () => maker.on(period.selected));

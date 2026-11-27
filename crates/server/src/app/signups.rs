@@ -10,7 +10,7 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{ContainerKind, RegisterRequest, Session, User, new_id};
+use fvoci_model::{ContainerKind, Registration, Session, User, new_id};
 use fvoci_store::{
     Accepted, Confirmed, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup, SignupStart,
     Started, StoreError,
@@ -19,7 +19,7 @@ use fvoci_store::{
 use super::App;
 use super::auth::{PasswordHolder, account_error, incorrect_login};
 use super::language::Language;
-use super::mail::{Content, Letter};
+use super::mail::{Content, Letter, SecretLink, SecretPage};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -37,9 +37,8 @@ impl App {
 
     /// Stores the registration of somebody who signs up, to be confirmed by the link
     /// mailed to its address, and mails that link in the background, in the language of
-    /// the screen it came from: nothing is made of it until then. The caller has tidied
-    /// and checked the request, as for [`App::sign_up`]. Returns the marker of the
-    /// browser it was made from, for its cookie.
+    /// the screen it came from: nothing is made of it until then. Returns the marker of
+    /// the browser it was made from, for its cookie.
     ///
     /// `browser` is the secret of the cookie the browser has already, of a
     /// registration it made before that waits still: this one replaces it, in one
@@ -53,7 +52,7 @@ impl App {
     /// registration holds is the same conflict.
     pub async fn sign_up_to_confirm(
         &self,
-        request: &RegisterRequest,
+        request: &Registration,
         browser: Option<&str>,
         address: Option<IpAddr>,
     ) -> Result<SignupMarker, AppError> {
@@ -66,10 +65,10 @@ impl App {
         };
         let replacing = self.replaced_by(browser);
         let replacing = replacing.as_deref();
-        let user = self.new_account(&request.account(), replacing).await?;
+        let user = self.new_account(request.account(), replacing).await?;
         let now = now_millis();
         let marker = SignupMarker::new();
-        let signup = waiting(&user, &request.language, start, &marker, now);
+        let signup = waiting(&user, request.language(), start, &marker, now);
         self.store()
             .create_signup(&signup, replacing, now)
             .await
@@ -222,7 +221,11 @@ impl App {
     }
 
     /// A new link for the registration, of `token`, made as its message has its turn.
-    async fn renew_signup_link(&self, signup_id: &str, token: &str) -> Result<String, AppError> {
+    async fn renew_signup_link(
+        &self,
+        signup_id: &str,
+        token: &str,
+    ) -> Result<SecretLink, AppError> {
         let renewed = self
             .store()
             .renew_signup_link(signup_id, &token_digest(token), now_millis())
@@ -230,10 +233,10 @@ impl App {
         if !renewed {
             return Err(AppError::not_found("registration"));
         }
-        // Fragments never reach HTTP request targets, proxy logs or Referer headers.
-        Ok(format!(
-            "{}/verify-email#{token}",
-            self.config().server_url.trim_end_matches('/')
+        Ok(SecretLink::new(
+            self.settings().server_url(),
+            SecretPage::VerifyEmail,
+            token,
         ))
     }
 
@@ -457,7 +460,7 @@ impl App {
         now: i64,
     ) -> Result<Option<Confirmed>, AppError> {
         let store = self.store();
-        let one_organization = !self.config().takes_several_organizations();
+        let one_organization = !self.settings().takes_several_organizations();
         let policy = if one_organization {
             fvoci_store::FoundingPolicy::FirstOnly
         } else {
@@ -504,7 +507,7 @@ impl App {
         now: i64,
     ) -> Result<Option<Confirmed>, AppError> {
         let store = self.store();
-        if !self.config().takes_several_organizations() {
+        if !self.settings().takes_several_organizations() {
             if !store.discard_signup(proof, now).await? {
                 return Ok(None);
             }

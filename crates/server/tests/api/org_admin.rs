@@ -4,8 +4,7 @@
 //! stopping being an administrator takes it back, a workspace in the trash is not there
 //! for anybody, and the public links of the organization close and open again.
 
-use fvoci_model::PublicLinkChange;
-use fvoci_model::{Container, ContainerVisibility, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Container, ContainerVisibility, PublicLinkChange, UserWorkspace, WorkspaceRole};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use reqwest::StatusCode;

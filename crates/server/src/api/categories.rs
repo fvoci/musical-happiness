@@ -14,7 +14,7 @@ use super::contract::bodies::{CategoryUpdate, NewCategory};
 use super::contract::params::{CategoryId, ContainerId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 
-use super::workspace::{InWorkspace, TextInContainer};
+use super::workspace::{InContainer, InWorkspace};
 use super::{
     ApiResult, decode_json, decode_object, json_object, json_response, no_content,
     require_container_visible,
@@ -133,7 +133,7 @@ fn decode_order(body: &[u8]) -> Result<Vec<String>, AppError> {
     request_body = NewCategory,
     responses((status = 201, description = "The category that was made.", body = Category)),
 )]
-async fn handle_create_category(TextInContainer(ws): TextInContainer, body: Bytes) -> ApiResult {
+async fn handle_create_category(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     // The workspace of the path comes first (the extractor): what is asked of a
     // workspace that is not there is not looked at.
@@ -179,7 +179,7 @@ async fn handle_create_category(TextInContainer(ws): TextInContainer, body: Byte
     responses((status = 200, description = "The category as it is now.", body = Category)),
 )]
 async fn handle_update_category(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     Path((_, category_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -228,7 +228,7 @@ async fn handle_update_category(
     responses((status = 200, description = "The updated category.", body = Category)),
 )]
 async fn handle_patch_category(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     Path((_, category_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -255,7 +255,7 @@ async fn handle_patch_category(
     responses((status = 204, description = "The category is deleted.")),
 )]
 async fn handle_delete_category(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     Path((_, category_id)): Path<(String, String)>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
@@ -287,7 +287,7 @@ async fn handle_delete_category(
         body = Vec<CategoryContainers>,
     )),
 )]
-async fn handle_get_user_category_containers(TextInContainer(ws): TextInContainer) -> ApiResult {
+async fn handle_get_user_category_containers(InContainer(ws): InContainer) -> ApiResult {
     // A guest too: their sidebar has the boards they are on, filed as they have filed
     // them. The rest of the sidebar's routes are for who works there.
     let (user_id, workspace_id) = (&ws.caller.user_id, &ws.workspace_id);
@@ -317,7 +317,7 @@ async fn handle_get_user_category_containers(TextInContainer(ws): TextInContaine
     responses((status = 204, description = "The board is under the category.")),
 )]
 async fn handle_update_category_container(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     Path((_, category_id, container_id)): Path<ContainerPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
@@ -354,7 +354,7 @@ async fn handle_update_category_container(
     responses((status = 204, description = "The container placement and visibility are updated.")),
 )]
 async fn handle_put_category_container(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     Path((_, category_id, container_id)): Path<ContainerPlace>,
     body: Bytes,
 ) -> ApiResult {
@@ -398,7 +398,7 @@ async fn handle_put_category_container(
         body = Vec<String>,
     )),
 )]
-async fn handle_reorder_categories(TextInContainer(ws): TextInContainer, body: Bytes) -> ApiResult {
+async fn handle_reorder_categories(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let new_order = decode_order(&body)?;
     let order = ws
@@ -427,7 +427,7 @@ async fn handle_reorder_categories(TextInContainer(ws): TextInContainer, body: B
     )),
 )]
 async fn handle_reorder_category_containers(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     Path((_, category_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -462,7 +462,7 @@ async fn handle_reorder_category_containers(
     responses((status = 204, description = "The board is hidden.")),
 )]
 async fn handle_hide_container(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     Path(place): Path<ContainerPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
@@ -483,7 +483,7 @@ async fn handle_hide_container(
     responses((status = 204, description = "The board is shown.")),
 )]
 async fn handle_unhide_container(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     Path(place): Path<ContainerPlace>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;

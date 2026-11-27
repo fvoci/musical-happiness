@@ -73,7 +73,7 @@ pub enum TakeError {
     BodyTooLarge {
         /// The size the body would have, in bytes of its stored JSON.
         size: usize,
-        /// The limit.
+        /// The limit it is past: [`UpdateLimits::body_bytes`].
         limit: usize,
     },
 }

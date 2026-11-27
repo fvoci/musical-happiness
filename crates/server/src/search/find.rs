@@ -2,8 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{SearchHit, SearchKind, SnippetPart};
-use fvoci_store::{PublicContainers, SearchDocument};
+use fvoci_model::{PublicContainers, SearchHit, SearchKind, SnippetPart};
+use fvoci_store::SearchDocument;
 use tokio::time::Instant;
 
 use super::client::ClientError;

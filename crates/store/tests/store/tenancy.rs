@@ -517,7 +517,7 @@ async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
 #[tokio::test]
 async fn an_open_board_is_found_by_who_works_in_its_workspace() {
     use fvoci_model::ContainerSearchField::Title;
-    use fvoci_store::PublicContainers;
+    use fvoci_model::PublicContainers;
 
     let test = common::setup().await;
     let (member, guest, outsider) = (

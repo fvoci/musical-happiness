@@ -13,10 +13,10 @@ use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 
-use crate::app::App;
 use crate::auth::token::origin_of;
 use crate::config::SecurityContact;
 use crate::error::PROBLEMS_PATH;
+use crate::web::WebRoot;
 
 /// The origin-root path crawlers fetch for robots rules (RFC 9309).
 const ROBOTS_TXT_PATH: &str = "/robots.txt";
@@ -87,8 +87,8 @@ pub(crate) fn https_origin_of(server_url: &str) -> Option<String> {
 /// Always mounted at the server's origin root regardless of `FVOCI_BASE_PATH`, because
 /// RFC 9309 and RFC 9116 clients only query the origin root. When `security_contact` is
 /// unset, `/.well-known/security.txt` answers 404 for every method rather than 405.
-pub(crate) fn origin_routes(app: App) -> Router {
-    let security_route = if app.web().security_txt().is_some() {
+pub(crate) fn origin_routes(web: Arc<WebRoot>) -> Router {
+    let security_route = if web.security_txt().is_some() {
         get(handle_security_txt)
     } else {
         any(handle_not_found)
@@ -97,7 +97,7 @@ pub(crate) fn origin_routes(app: App) -> Router {
         .route(ROBOTS_TXT_PATH, get(handle_robots_txt))
         .route(SECURITY_TXT_PATH, security_route)
         .route(LEGACY_SECURITY_TXT_PATH, any(handle_not_found))
-        .with_state(app)
+        .with_state(web)
 }
 
 /// Adds `X-Robots-Tag: noindex, nofollow` to indexable pages served by the server:
@@ -139,8 +139,8 @@ async fn handle_robots_txt() -> Response {
     plain_text(ROBOTS_TXT_BODY)
 }
 
-async fn handle_security_txt(State(app): State<App>) -> Response {
-    let Some(security_txt) = app.web().security_txt() else {
+async fn handle_security_txt(State(web): State<Arc<WebRoot>>) -> Response {
+    let Some(security_txt) = web.security_txt() else {
         return super::not_found();
     };
     plain_text(security_txt.render(unix_now_seconds()))

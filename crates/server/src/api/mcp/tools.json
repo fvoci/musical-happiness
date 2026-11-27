@@ -11,7 +11,7 @@
       "description": "The workspaces this token reaches: those it was given that its owner still works in, and the owner's own space if it was given that. Start here; every other tool takes a workspaceId of this list.",
       "inputSchema": {
         "additionalProperties": false,
-        "description": "No arguments.",
+        "description": "The arguments of a tool that takes none: an empty object.",
         "type": "object"
       },
       "name": "list_workspaces",
@@ -28,7 +28,7 @@
       "description": "The workspace in one answer: its name, who the caller is, and every board, wiki and course they read, with whether they joined it, their role, and for a board the properties its cards take (cardProperties: ids, types, options). Read it before list_cards or save_card.",
       "inputSchema": {
         "additionalProperties": false,
-        "description": "A workspace.",
+        "description": "A workspace whose overview or day to read.",
         "properties": {
           "workspaceId": {
             "description": "The workspace, as `list_workspaces` names it.",
@@ -64,7 +64,7 @@
             ]
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -128,7 +128,7 @@
             "type": "string"
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -162,7 +162,7 @@
             ]
           },
           "boardId": {
-            "description": "The board.",
+            "description": "The board, as `get_workspace_overview` names it.",
             "type": "string"
           },
           "page": {
@@ -238,7 +238,7 @@
             ]
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -297,7 +297,7 @@
             ]
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -328,7 +328,7 @@
             "type": "string"
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -372,7 +372,7 @@
             "type": "string"
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -412,7 +412,7 @@
             "type": "string"
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -436,7 +436,7 @@
       "description": "The caller's day in the workspace: their cards due or overdue, units scheduled, reviews due and meetings coming.",
       "inputSchema": {
         "additionalProperties": false,
-        "description": "A workspace.",
+        "description": "A workspace whose overview or day to read.",
         "properties": {
           "workspaceId": {
             "description": "The workspace, as `list_workspaces` names it.",
@@ -532,14 +532,14 @@
             ]
           },
           "title": {
-            "description": "The title.",
+            "description": "The title to give it; left out, a card that is changed keeps its own.",
             "type": [
               "string",
               "null"
             ]
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -679,7 +679,7 @@
             ]
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },
@@ -728,7 +728,7 @@
             "type": "string"
           },
           "workspaceId": {
-            "description": "The workspace.",
+            "description": "The workspace, as `list_workspaces` names it.",
             "type": "string"
           }
         },

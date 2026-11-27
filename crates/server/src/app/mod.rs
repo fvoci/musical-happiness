@@ -76,7 +76,7 @@ pub(crate) use server_lock::HeldLock;
 pub(crate) use server_lock::take_server_lock;
 use slots::Busy;
 pub use slots::Slot;
-pub use startup::migrate_database;
+pub use startup::{check_database, migrate_database};
 pub(crate) use startup::{open_store, prepare_store};
 pub(crate) use template_stock::start_restock as start_template_restock;
 mod public_links;
@@ -115,7 +115,7 @@ pub use diaries::EntryAnswer;
 pub use export::ExportedArchive;
 pub(crate) use file_name::check_file_name;
 pub(crate) use files::FILE;
-pub use housekeeping::WorkspacesPurged;
+pub use housekeeping::TrashPurged;
 pub use import::{
     BundleLimits, ImportCounts, ImportFormat, ImportSummary, ImportWarning, ImportWarningCode,
     Imported, MAX_REPORTED_WARNINGS, ParseImportFormatError,
@@ -160,14 +160,13 @@ use crate::auth::hash_queue::HashQueue;
 use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::auth::oidc::fetch::{Addresses, Fetcher};
 use crate::collab::Collab;
-use crate::config::Configuration;
+use crate::config::{Configuration, Settings};
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
+use crate::realtime::Hub;
 use crate::search::Search;
 use crate::storage::FileBackend;
-use crate::web::WebRoot;
 use crate::webhook::Webhook;
-use crate::ws::Hub;
 
 /// The shared state of the server. Cloning is cheap; every clone is the same server.
 ///
@@ -206,14 +205,13 @@ pub struct App {
 
 #[derive(Debug)]
 struct Inner {
-    config: Configuration,
+    settings: Settings,
     auth: Authenticator,
     login_limiter: LoginLimiter,
     reset_limiter: LoginLimiter,
     mail: mail::Mailer,
     password_work: HashQueue,
     files: FileBackend,
-    web: WebRoot,
     webhook: Webhook,
     webhook_queue: webhooks::WebhookQueue,
     /// The client of the organizations' providers.
@@ -278,44 +276,37 @@ pub struct ServerMetadata {
 }
 
 impl App {
-    /// Assembles the application state.
+    /// Assembles the application state of a configuration that was checked.
     ///
     /// # Errors
     ///
-    /// Returns an error if `server_url` or an allowed origin is no URL, if webhooks
-    /// are configured and their HTTP client cannot be set up, or if `metrics_address`
-    /// is no address.
-    pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
-        let metrics = store_metrics::set_up(&config, &store)?;
+    /// Returns an error if webhooks are configured and their HTTP client cannot be set
+    /// up, or if `metrics_address` is no address.
+    pub fn new(settings: Settings, store: Store, files: FileBackend) -> anyhow::Result<Self> {
+        let config = settings.config();
+        let metrics = store_metrics::set_up(config, &store)?;
         store.set_comment_versions_kept(config.max_comment_versions);
         store.set_body_versions_kept(config.collab.collab_body_versions);
         store.set_body_versions_max_bytes(config.collab.body_versions_max_bytes);
         store.set_file_versions_kept(config.max_file_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
-        let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;
+        let auth = Authenticator::new(store.scoped(Tenant::Unset), &settings);
         let login_limiter =
-            LoginLimiter::new(Limits::from_config(&config)).with_metrics(metrics.clone());
+            LoginLimiter::new(Limits::from_config(config)).with_metrics(metrics.clone());
         let password_work = HashQueue::new(
             usize::try_from(config.password_hash_concurrency).unwrap_or(usize::MAX),
             usize::try_from(config.password_hash_queue).unwrap_or(usize::MAX),
             std::time::Duration::from_secs(config.password_hash_queue_seconds),
         );
-        // `check` refuses a period of 0; a configuration given here unchecked does not
-        // make every connection's timer panic either.
-        let ping_interval = (!config.skip_websocket_pings && config.websocket_ping_seconds > 0)
-            .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
         let ws = Hub::new(
             Audience::new(store.clone()),
             auth.clone(),
-            ping_interval,
+            settings.websocket_ping(),
             metrics.clone(),
         );
         let files = files.measured(metrics.clone());
-        let security_contact = config.security_contact()?;
-        let web = WebRoot::new(&config.web_app_path, &config.server_url)
-            .with_security_contact(security_contact);
-        let (webhook, oidc) = Self::outbound_clients(&config)?;
+        let (webhook, oidc) = Self::outbound_clients(config)?;
         let part_memory = uploads::part_memory_kib(config.upload_part_bytes);
         let slots =
             |capacity: u32| slots::Slots::new(usize::try_from(capacity).unwrap_or(usize::MAX));
@@ -338,19 +329,18 @@ impl App {
             agent: None,
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
             inner: Arc::new(Inner {
-                reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
+                reset_limiter: LoginLimiter::new(Limits::from_config(config)),
                 mail: mail::Mailer::new(
                     &config.smtp,
                     &config.mail,
-                    &config.server_url,
+                    settings.server_url().as_str(),
                     metrics.clone(),
                 )?,
-                config,
+                settings,
                 auth,
                 login_limiter,
                 password_work,
                 files,
-                web,
                 webhook,
                 webhook_queue: webhooks::WebhookQueue::default(),
                 oidc,
@@ -411,7 +401,12 @@ impl App {
 
     /// The server configuration.
     pub fn config(&self) -> &Configuration {
-        &self.inner.config
+        self.inner.settings.config()
+    }
+
+    /// What the check of the server configuration read from it.
+    pub fn settings(&self) -> &Settings {
+        &self.inner.settings
     }
 
     /// Current Unix timestamp in milliseconds used by course schedule and review "today"
@@ -623,11 +618,6 @@ impl App {
         &self.inner.files
     }
 
-    /// The web app directory.
-    pub fn web(&self) -> &WebRoot {
-        &self.inner.web
-    }
-
     /// Waits for the turn to create a user's default category.
     pub(crate) async fn default_category_turn(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.inner.default_category.lock().await
@@ -787,8 +777,8 @@ impl App {
             allow_public_links: config.allow_public_links,
             name_display: config.name_display.clone(),
             feature_flags: config.feature_flags.clone(),
-            max_file_bytes: limits.largest_file,
-            max_import_bytes: limits.largest_import,
+            max_file_bytes: i64::try_from(limits.largest_file.get()).unwrap_or(i64::MAX),
+            max_import_bytes: i64::try_from(limits.largest_import.get()).unwrap_or(i64::MAX),
             trash_retention_days: config.trash_retention_days,
             // Every server searches bodies: on its search server, or on its database
             // where none is configured. One that cannot hold the index answers 503.

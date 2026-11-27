@@ -7,6 +7,7 @@ mod outbound;
 mod pace;
 mod provider;
 mod quota;
+mod secret_link;
 mod share;
 mod smtp;
 #[cfg(test)]
@@ -15,6 +16,7 @@ mod tests;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context as _;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
 
@@ -24,7 +26,8 @@ use crate::config::smtp::SmtpSettings;
 use crate::metrics::{MailFailure, MailKind, Metrics, ResetMailDrop};
 
 pub(super) use content::Content;
-use outbound::{Outbound, Outcome, Outgoing};
+use outbound::{Mailbox, Outbound, Outcome, Outgoing};
+pub(super) use secret_link::{SecretLink, SecretPage};
 pub(super) use share::Organizations;
 
 /// At most four messages are being sent at once; HTTP requests never wait for them.
@@ -52,7 +55,7 @@ const LONGEST_PATH_WAIT: Duration = Duration::from_mins(15);
 pub struct UnsentMail {
     /// Password resets and confirmations of a registration, which share a queue.
     pub recovery: usize,
-    /// Invitations.
+    /// Invitations, which have a queue of their own.
     pub invitations: usize,
 }
 
@@ -81,9 +84,8 @@ pub(super) enum InvitationRefusal {
 /// constructing it performs no network I/O.
 #[derive(Clone)]
 pub(super) struct Mailer {
-    outbound: Option<Arc<dyn Outbound>>,
-    /// The sender's address of every message (`mail_from`).
-    from: Arc<str>,
+    /// The way of sending, or `None` for no mail.
+    sender: Option<Sender>,
     connections: Arc<Semaphore>,
     invitation_connections: Arc<Semaphore>,
     reset_queue: Arc<Semaphore>,
@@ -122,7 +124,7 @@ pub(super) struct Mailer {
 impl std::fmt::Debug for Mailer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Mailer")
-            .field("enabled", &self.outbound.is_some())
+            .field("enabled", &self.sender.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -175,9 +177,18 @@ impl Mailer {
     ) -> anyhow::Result<Self> {
         let reset_places = usize::try_from(settings.mail_reset_queue)?;
         let invitation_places = usize::try_from(settings.mail_invitation_queue)?;
+        let sender = match outbound {
+            Some(outbound) => Some(Sender {
+                outbound,
+                from: settings
+                    .mail_from
+                    .parse()
+                    .context("mail_from is no address mail is sent from")?,
+            }),
+            None => None,
+        };
         Ok(Self {
-            outbound,
-            from: Arc::from(settings.mail_from.as_str()),
+            sender,
             connections: Arc::new(Semaphore::new(CONNECTIONS)),
             invitation_connections: Arc::new(Semaphore::new(INVITATION_CONNECTIONS)),
             reset_queue: Arc::new(Semaphore::new(reset_places)),
@@ -466,10 +477,11 @@ impl Queued {
         Writing: Future<Output = Result<Letter, E>>,
         Checking: Future<Output = Result<bool, E>>,
     {
-        let Some(outbound) = mailer.outbound.as_ref() else {
+        let Some(sender) = mailer.sender.as_ref() else {
             tracing::warn!("a message was queued while outgoing mail is disabled");
             return Ok(Delivered::Unwritten);
         };
+        let outbound = &sender.outbound;
         let mut delivered = Delivered::Unwritten;
         let kind = self.kind;
         let mut write = Some(write);
@@ -502,7 +514,7 @@ impl Queued {
                 break;
             }
             let sending = mailer.sending(held).await;
-            let message: &Outgoing = if let Some(ref message) = message {
+            let ready: Option<&Outgoing> = if let Some(ref message) = message {
                 // What it was written of may have changed while it waited (a closed way
                 // holds an invitation for as long as it stays closed).
                 if !still().await? {
@@ -514,19 +526,25 @@ impl Queued {
                     );
                     break;
                 }
-                message
+                Some(message)
             } else {
                 let write = write
                     .take()
                     .expect("the message is written once, at the first attempt");
-                message.insert(mailer.outgoing(write().await?))
+                sender
+                    .outgoing(write().await?)
+                    .map(|written| &*message.insert(written))
             };
-            let outcome = tokio::time::timeout(ATTEMPT_TIMEOUT, outbound.send(message))
-                .await
-                .unwrap_or(Outcome::Later {
-                    after: None,
-                    code: None,
-                });
+            let outcome = match ready {
+                Some(message) => tokio::time::timeout(ATTEMPT_TIMEOUT, outbound.send(message))
+                    .await
+                    .unwrap_or(Outcome::Later {
+                        after: None,
+                        code: None,
+                    }),
+                // A recipient's address that is none: every way refuses it.
+                None => Outcome::Refused { code: None },
+            };
             drop(sending);
             let way = outbound.name();
             mailer.observe(way, outcome);
@@ -738,16 +756,26 @@ impl Mailer {
             None => {}
         }
     }
+}
 
-    /// The message of `letter`, from this mailer's sender.
-    fn outgoing(&self, letter: Letter) -> Outgoing {
-        Outgoing {
-            from: self.from.to_string(),
-            to: letter.to,
+/// A way of sending, and the address its messages come from (`mail_from`).
+#[derive(Clone)]
+struct Sender {
+    outbound: Arc<dyn Outbound>,
+    from: Mailbox,
+}
+
+impl Sender {
+    /// The message of `letter`, from this sender; `None` if its recipient's address is
+    /// none.
+    fn outgoing(&self, letter: Letter) -> Option<Outgoing> {
+        Some(Outgoing {
+            from: self.from.clone(),
+            to: letter.to.parse().ok()?,
             subject: letter.content.subject,
             plain: letter.content.plain,
             html: letter.content.html,
             language: letter.content.language,
-        }
+        })
     }
 }

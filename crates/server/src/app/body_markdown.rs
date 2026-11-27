@@ -84,7 +84,7 @@ fn markdown_nodes(markdown: &str, field: &str) -> Result<Vec<Value>, AppError> {
 /// A body in Markdown ([`App::body_in_markdown`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BodyInMarkdown {
-    /// The Markdown.
+    /// The body, written as Markdown.
     pub markdown: String,
     /// The blocks the Markdown does not hold as they are, in the order of the body: a
     /// body that has any is not written whole from its Markdown

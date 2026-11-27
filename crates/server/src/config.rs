@@ -31,7 +31,9 @@ mod scrapes;
 pub mod search;
 mod secret_key;
 mod security;
+mod settings;
 pub mod smtp;
+mod trusted_proxies;
 mod upload_limits;
 pub mod wiki;
 
@@ -39,6 +41,8 @@ use environment::{ENV_KEYS, EnvKind, env_value};
 pub use scrapes::{MetricsAddress, MetricsHost, MetricsToken};
 pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
 pub use security::SecurityContact;
+pub use settings::{OrgCreation, ServerUrl, Settings};
+pub use trusted_proxies::TrustedProxies;
 
 use crate::auth::sealed::SecretKey;
 
@@ -80,7 +84,7 @@ impl<'de> serde::de::Visitor<'de> for UnreadKeysVisitor {
 pub struct S3Config {
     /// The access key; empty to use the environment's credentials.
     pub access_key_id: String,
-    /// The secret key.
+    /// The secret of the access key; empty with an empty access key.
     pub secret_access_key: String,
     /// The bucket files are stored in.
     pub bucket: String,
@@ -246,16 +250,15 @@ pub struct Configuration {
     /// How many days a deleted board or block stays in the trash, where it can be
     /// restored from, before it is removed for good.
     pub trash_retention_days: u32,
-    /// The size in bytes of every part of an upload in parts but the last
-    /// (`docs/s6-design.md` 5.6). At least 5 MiB, the smallest part an S3 multipart
-    /// upload takes.
+    /// The size in bytes of every part of an upload in parts but the last. At least 5 MiB,
+    /// the smallest part an S3 multipart upload takes.
     pub upload_part_bytes: u64,
     /// The directory of the server's temporary files: the parts of uploads that are not
     /// complete yet. Empty for `.tmp` under `file_storage_path`. Not the system's temporary
     /// directory, which may be held in memory.
     pub tmp_path: String,
     /// The most bytes all open uploads in parts of the server may hold back at once:
-    /// the sum of their declared sizes (`docs/s6-design.md` 5.6, 8).
+    /// the sum of their declared sizes.
     pub max_pending_upload_bytes: u64,
     /// The largest archive an import takes, in bytes: 256 MiB unless set. At least 1,
     /// and at most what an upload in parts carries (`upload_part_bytes` × 10,000).
@@ -523,18 +526,16 @@ impl std::fmt::Debug for Configuration {
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 
-/// The largest file, unless the configuration says otherwise: 100 MiB (decision 16 of
-/// `docs/s6-design.md`).
+/// The largest file, unless the configuration says otherwise: 100 MiB.
 const DEFAULT_MAX_FILE_BYTES: i64 = 100 * 1024 * 1024;
 
 /// Cumulative stored file byte ceiling for one organization unless configured: 50 GiB.
 const DEFAULT_MAX_ORG_STORAGE_BYTES: u64 = 50 * 1024 * 1024 * 1024;
 
-/// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB
-/// (`docs/s6-design.md` 5.6, 8).
+/// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB.
 const DEFAULT_MAX_PENDING_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
-/// The largest archive an import takes unless configured (`docs/s6-design.md` 4.2).
+/// The largest archive an import takes unless configured.
 const DEFAULT_MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
 
 /// How many earlier versions of a comment the server keeps unless configured.
@@ -543,8 +544,8 @@ const DEFAULT_MAX_COMMENT_VERSIONS: u32 = fvoci_store::DEFAULT_COMMENT_VERSIONS_
 /// How many exports, and how many imports, the server runs at once unless configured.
 const DEFAULT_MAX_CONCURRENT_ARCHIVES: u32 = 2;
 
-/// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB
-/// (`docs/s6-design.md` 5.6). A file of 100 MiB comes in 13 parts.
+/// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB. A
+/// file of 100 MiB comes in 13 parts.
 const DEFAULT_UPLOAD_PART_BYTES: u64 = 8 * 1024 * 1024;
 
 /// The smallest part an S3 multipart upload takes, and so the smallest part size.
@@ -603,11 +604,6 @@ impl Configuration {
     /// set.
     pub fn mail_enabled(&self) -> bool {
         self.mail.enabled(&self.smtp)
-    }
-
-    /// Whether the server takes in several organizations (`org_creation` is `open`).
-    pub fn takes_several_organizations(&self) -> bool {
-        self.org_creation == ORG_CREATION_OPEN
     }
 
     /// Reads the configuration file at `path` and applies environment overrides from the
@@ -754,28 +750,23 @@ impl Configuration {
         SecurityContact::parse(&self.security_contact)
     }
 
-    /// Checks that the configuration only asks for what this server supports.
+    /// Checks that the configuration only asks for what this server supports, and reads
+    /// the settings that are text into what they name.
     ///
-    /// Returns the warnings: keys of the file that no setting reads, and settings that
-    /// are accepted but work against each other.
+    /// Returns the [`Settings`] and the warnings: keys of the file that no setting reads,
+    /// and settings that are accepted but work against each other.
     ///
     /// # Errors
     ///
-    /// Returns an error naming the first setting this server cannot honor: a metrics
-    /// address that is no `host:port`, port 0, a limit of zero, a ping period out of its
+    /// Returns an error naming the first setting this server cannot honor: an unknown
+    /// `org_creation` or `database_kind`, a metrics address that is no `host:port`, a
+    /// `server_url` that is no URL, port 0, a limit of zero, a ping period out of its
     /// range, or an unknown file backend.
-    pub fn check(&self) -> anyhow::Result<Vec<String>> {
-        if ![ORG_CREATION_FIRST_USER_ONLY, ORG_CREATION_OPEN].contains(&self.org_creation.as_str())
-        {
-            bail!(
-                "org_creation {:?} is not known; use {ORG_CREATION_FIRST_USER_ONLY:?} or \
-                 {ORG_CREATION_OPEN:?}",
-                self.org_creation
-            );
-        }
-        // SQLite holds one organization, and nothing would keep several apart. (A
-        // database_kind that is none is refused where the database is opened.)
-        if self.takes_several_organizations() && self.database_kind == "sqlite" {
+    pub fn check(self) -> anyhow::Result<(Settings, Vec<String>)> {
+        let org_creation: OrgCreation = self.org_creation.parse()?;
+        let database_kind: fvoci_store::DbType = self.database_kind.parse()?;
+        // SQLite holds one organization, and nothing would keep several apart.
+        if org_creation == OrgCreation::Open && database_kind == fvoci_store::DbType::Sqlite {
             bail!(
                 "org_creation is {ORG_CREATION_OPEN:?}, which needs database_kind \"postgres\": \
                  an SQLite database holds one organization"
@@ -801,10 +792,11 @@ impl Configuration {
         }
         // The session cookie and the check of where a request comes from both follow
         // from this address.
-        crate::auth::token::Origins::new(&self.server_url, &self.allowed_origins)
+        let origins = crate::auth::token::Origins::new(&self.server_url, &self.allowed_origins)
             .map_err(anyhow::Error::msg)?;
-        crate::client_address::TrustedProxies::parse(&self.trusted_proxies)
-            .map_err(anyhow::Error::msg)?;
+        let server_url: ServerUrl = self.server_url.parse()?;
+        let trusted_proxies =
+            TrustedProxies::parse(&self.trusted_proxies).map_err(anyhow::Error::msg)?;
         self.check_login_limits()?;
         // Zero would end every session as it starts.
         if self.session_idle_days == 0 || self.session_max_days == 0 {
@@ -814,7 +806,7 @@ impl Configuration {
         if self.trash_retention_days == 0 {
             bail!("trash_retention_days must be at least 1");
         }
-        self.check_upload_limits()?;
+        let largest = self.check_upload_limits()?;
         self.smtp.check()?;
         self.mail.check(&self.smtp)?;
         self.search.server()?;
@@ -829,7 +821,17 @@ impl Configuration {
             );
         }
 
-        Ok(self.warnings())
+        let warnings = self.warnings();
+        let read = settings::Read {
+            org_creation,
+            database_kind,
+            server_url,
+            origins,
+            trusted_proxies,
+            largest_file: largest.file,
+            largest_import: largest.import,
+        };
+        Ok((Settings::new(self, read), warnings))
     }
 
     /// The warnings of a configuration that is accepted: keys of the file that no

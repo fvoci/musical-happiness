@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{Block, BlockType, ContainerVisibility, OrgRole, WorkspaceRole, new_id};
-use fvoci_server::ws::SubscriptionPause;
+use fvoci_server::realtime::SubscriptionPause;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};

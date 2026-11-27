@@ -12,15 +12,17 @@ pub mod collab;
 pub mod collab_worker;
 pub mod config;
 pub mod error;
+mod http_credentials;
 pub mod metrics;
 pub mod permissions;
 pub mod problems;
+pub mod realtime;
 pub mod scheduler;
 pub mod search;
 pub mod storage;
 pub mod web;
 pub mod webhook;
-pub mod ws;
+mod ws;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -47,7 +49,7 @@ pub use crate::tls::TlsFiles;
 use crate::admin_socket::AdminSocket;
 use crate::app::App;
 use crate::auth::token::Credential;
-use crate::client_address::{ClientAddress, TrustedProxies};
+use crate::client_address::ClientAddress;
 use crate::config::Configuration;
 use crate::connection::{BreakableListener, Connection};
 use crate::error::{AppError, ErrorKind};
@@ -56,6 +58,7 @@ use crate::metrics::{Job, JobOutcome};
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
 use crate::tls::TlsListener;
+use crate::web::WebRoot;
 
 /// The environment variable that names a path prefix under which everything is served.
 pub const BASE_PATH_ENV: &str = "FVOCI_BASE_PATH";
@@ -84,6 +87,8 @@ const CLEAN_UP_UPLOADS_INTERVAL: Duration = Duration::from_hours(1);
 #[derive(Debug)]
 pub struct Server {
     app: App,
+    /// The web app's files and how they are served.
+    web: Arc<WebRoot>,
     base_path: String,
     tls_files: TlsFiles,
     /// The listener of the metrics, if `metrics_address` is set.
@@ -105,19 +110,28 @@ impl Server {
     /// the server of the database for longer than `server_lock_wait_seconds`, or the
     /// metrics listener cannot listen at `metrics_address`.
     pub async fn new(config: Configuration, base_path: &str) -> anyhow::Result<Self> {
-        for warning in config.check()? {
+        let (settings, warnings) = config.check()?;
+        for warning in warnings {
             tracing::warn!("{warning}");
         }
+        // Held across the waits below as the pointer alone: the future stays small.
+        let settings = Box::new(settings);
+        let config = settings.config();
         let base_path = checked_base_path(base_path)?;
-        let store = app::open_store(&config).await?;
+        let store = app::open_store(&settings).await?;
         // Before anything is changed or cleaned up: what is left over is nobody's only
         // if no other process serves the database.
-        let server_lock = app::take_server_lock(&store, &config).await?;
+        let server_lock = app::take_server_lock(&store, config).await?;
         let store = app::prepare_store(store).await?;
         let files =
-            FileBackend::from_config(&config).context("unable to initialize the files storage")?;
+            FileBackend::from_config(config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
-        let app = App::new(config, store, files)?;
+        // Held across the waits below as the pointer alone: the future stays small.
+        let web = Arc::new(
+            WebRoot::new(&config.web_app_path, &config.server_url)
+                .with_security_contact(config.security_contact()?),
+        );
+        let app = App::new(*settings, store, files)?;
         // Before the slow work below: an address that is taken is reported at once.
         let metrics_listener = match app.config().metrics_listen_address()? {
             Some(address) => {
@@ -153,6 +167,7 @@ impl Server {
         }
         Ok(Self {
             app,
+            web,
             base_path: base_path.to_owned(),
             tls_files: TlsFiles::default(),
             metrics_listener,
@@ -208,11 +223,14 @@ impl Server {
             .route("/ws", get(handle_websocket))
             // What the `type` of a problem points at.
             .merge(problems::routes())
-            .route("/static/{*path}", get(web::handle_static))
-            .fallback(web::handle_fallback)
             .method_not_allowed_fallback(method_not_allowed)
-            .with_state(self.app.clone());
-        let origin = web::origin_routes(self.app.clone());
+            .with_state(self.app.clone())
+            .merge(
+                web::app_routes()
+                    .method_not_allowed_fallback(method_not_allowed)
+                    .with_state(Arc::clone(&self.web)),
+            );
+        let origin = web::origin_routes(Arc::clone(&self.web));
         // Nesting puts the API's routes into this router, so they get the layer too; its
         // fallbacks do not, and their answers are measured as unmatched.
         let (routes, origin) = if measured {
@@ -232,7 +250,7 @@ impl Server {
             let root = Router::new()
                 .route(&format!("{}/", self.base_path), get(web::handle_root))
                 .method_not_allowed_fallback(method_not_allowed)
-                .with_state(self.app.clone());
+                .with_state(Arc::clone(&self.web));
 
             Router::new()
                 .nest(&self.base_path, routes)
@@ -277,9 +295,8 @@ impl Server {
     /// security headers, then the containment of handler panics, so that even a
     /// contained 500 carries baseline security headers and is logged.
     fn with_request_layers(&self, router: Router, base_path: &str) -> Router {
-        // The configuration was checked when the application was put together.
-        let proxies = TrustedProxies::parse(&self.app.config().trusted_proxies).unwrap_or_default();
-        let transport = self.app.web().transport_security();
+        let proxies = self.app.settings().trusted_proxies().clone();
+        let transport = self.web.transport_security();
         router
             .layer(middleware::from_fn(request_log::contain_panics))
             .layer(middleware::from_fn_with_state(
@@ -471,7 +488,7 @@ impl Server {
                 .close_store_and_release(STORE_CLOSE_TIMEOUT)
                 .await;
         } else {
-            self.app.store().close().await;
+            self.app.close().await;
         }
         tracing::info!("server shut down");
     }
@@ -528,15 +545,9 @@ async fn clean_up_sessions(app: &App) {
         return;
     }
     let now = auth::now_millis();
-    let idle_since = now.saturating_sub(app.config().session_idle_millis());
-    match app.store().clean_up_sessions(now, idle_since).await {
-        Ok(ended) => {
-            let count = ended.session_ids().len();
-            app.ws().close(ended.into_scope());
-            if count > 0 {
-                tracing::debug!(ended = count, "removed sessions that had ended");
-            }
-        }
+    match app.clean_up_sessions(now).await {
+        Ok(0) => {}
+        Ok(ended) => tracing::debug!(ended, "removed sessions that had ended"),
         Err(error) => tracing::error!(%error, "unable to clean up the sessions"),
     }
     match app.remove_ended_signups(now).await {
@@ -557,12 +568,12 @@ async fn purge_trash(app: &App) -> JobOutcome {
         return JobOutcome::Failed;
     }
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
-    let containers = match app.store().purge_trash(deleted_before).await {
+    let containers = match app.purge_trash(deleted_before).await {
         Ok(purged) => {
-            if purged.records > 0 || !purged.files.is_empty() {
+            if purged.records > 0 || purged.files > 0 {
                 tracing::info!(
                     records = purged.records,
-                    files = purged.files.len(),
+                    files = purged.files,
                     "removed old boards and blocks from the trash"
                 );
             }
@@ -595,7 +606,7 @@ async fn purge_trash(app: &App) -> JobOutcome {
 }
 
 /// Removes the records of the files that no block, live or in the trash, has shown for
-/// as long as the trash keeps what is deleted (`docs/s6-design.md` 5.7). Their objects
+/// as long as the trash keeps what is deleted. Their objects
 /// are doomed with them, and removed by [`remove_doomed_objects`].
 async fn collect_unreferenced_files(app: &App) -> JobOutcome {
     let app = &app.housekeeping();
@@ -604,11 +615,11 @@ async fn collect_unreferenced_files(app: &App) -> JobOutcome {
         return JobOutcome::Failed;
     }
     let before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
-    match app.store().collect_unreferenced_files(before).await {
+    match app.collect_unreferenced_files(before).await {
         Ok(files) => {
-            if !files.is_empty() {
+            if files > 0 {
                 tracing::info!(
-                    files = files.len(),
+                    files,
                     "removed the records of the files no block has shown for the grace period"
                 );
             }
@@ -761,14 +772,14 @@ async fn handle_websocket(
     // to make the server buffer it, and closes the connection (a text message past
     // the limit of a command too, once it is read: `Hub::serve`).
     let limit = api::WEBSOCKET_MESSAGE_LIMIT.max(app.collab().frame_bytes());
-    // Readers by a public link are counted by where they come from (`ws/readers.rs`).
+    // Readers by a public link are counted by where they come from (`realtime/readers.rs`).
     let address = client.and_then(|axum::Extension(ClientAddress(address))| address);
     upgrade
         .max_message_size(limit)
         .max_frame_size(limit)
         .on_upgrade(move |socket| async move {
             // Boxed: what serves a connection holds its whole state, which is large.
-            Box::pin(app.ws().serve(&app, socket, identity, address)).await;
+            Box::pin(ws::serve(&app, socket, identity, address)).await;
         })
 }
 
@@ -784,14 +795,14 @@ async fn handle_websocket(
 async fn websocket_identity(
     app: &App,
     headers: &HeaderMap,
-) -> Result<Option<ws::Identity>, AppError> {
+) -> Result<Option<realtime::Identity>, AppError> {
     let auth = app.authenticator();
-    if auth.origins().foreign_origin(headers).is_some() {
+    if http_credentials::foreign_origin(auth.origins(), headers).is_some() {
         tracing::debug!("a websocket handshake from another origin was refused");
         return Err(api::foreign_origin());
     }
     let from_a_browser = headers.contains_key(ORIGIN);
-    let credential = auth.session_cookie().credential(headers);
+    let credential = http_credentials::session_credential(auth.session_cookie(), headers);
     if credential
         .as_ref()
         .is_some_and(|credential| auth::api_token::is_api_token(credential.token()))
@@ -804,11 +815,11 @@ async fn websocket_identity(
         // Sent on purpose: it is a session's, or the handshake is refused.
         Some(Credential::Bearer(token)) => {
             let session = auth.find_session(&token).await?;
-            Ok(Some(ws::Identity { session, token }))
+            Ok(Some(realtime::Identity { session, token }))
         }
         Some(Credential::Cookie(token)) if from_a_browser => {
             match auth.find_session(&token).await {
-                Ok(session) => Ok(Some(ws::Identity { session, token })),
+                Ok(session) => Ok(Some(realtime::Identity { session, token })),
                 // A cookie that outlived its session: the page may still follow a shared
                 // board.
                 Err(error) if error.kind() == ErrorKind::Unauthorized => Ok(None),

@@ -84,7 +84,7 @@ pub struct OidcFormerProviderEnd {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct OidcPendingProvider {
-    /// The issuer.
+    /// The issuer's URL, as the provider's ID tokens name it (`iss`).
     pub issuer: String,
     /// The client identifier.
     pub client_id: String,

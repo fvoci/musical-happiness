@@ -1,8 +1,8 @@
 /**
- * The week of the calendar (question C17): a week as high as the box with
+ * The week of the calendar: a week as high as the box with
  * every card in it and bars of two lines, or under a narrow box the strip of
  * the week over the lists of its seven days; the arrows go a week; month or
- * week is remembered on the device for the view (C19, answer B).
+ * week is remembered on the device for the view.
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */

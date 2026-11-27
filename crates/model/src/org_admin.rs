@@ -82,7 +82,7 @@ pub struct OrgMember {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OrgRoleChange {
-    /// The role.
+    /// The role the member is to have from now on.
     pub role: OrgRole,
 }
 

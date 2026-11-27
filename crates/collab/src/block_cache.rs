@@ -167,20 +167,12 @@ impl BlockCache {
     /// Removes any cached entries that are not currently live `XmlElement` list children
     /// of `root` (`parent_sub` is `None`), keeping running totals and `file_ids` exact.
     pub(crate) fn retain_live_root_elements<T: ReadTxn>(&mut self, txn: &T, root: &XmlFragmentRef) {
-        let mut live = HashSet::new();
-        let mut next = root.first_child();
-        while let Some(node) = next {
-            next = match &node {
-                XmlOut::Element(element) => element.siblings(txn).next(),
-                XmlOut::Text(text) => text.siblings(txn).next(),
-                XmlOut::Fragment(_) => None,
-            };
-            if let XmlOut::Element(element) = node
-                && let Some(id) = element_id(&element)
-            {
-                live.insert(id);
-            }
-        }
+        let live: HashSet<ID> = read::Siblings::of(txn, root)
+            .filter_map(|child| match child {
+                Child::Element(element) => element_id(&element),
+                Child::Text(_) | Child::Other => None,
+            })
+            .collect();
         let stale: Vec<ID> = self
             .blocks
             .keys()
@@ -311,21 +303,40 @@ impl BlockCache {
             return Ok(());
         };
 
-        // 1. Drop top-level blocks deleted in this transaction (O(log N + deleted)).
+        self.drop_deleted(delta);
+        let dirty = self.dirty_blocks(&txn, &root, delta);
+        if self.reproject(&txn, &dirty).is_none()
+            || !self.root_holds_only_blocks(&txn, &root)
+            || self.check_whole_limits().is_err()
+        {
+            return Err(dirty);
+        }
+        Ok(())
+    }
+
+    /// Drops the top-level blocks deleted in `delta`: O(log N + deleted).
+    fn drop_deleted(&mut self, delta: &ApplyDelta) {
         for (&client, ranges) in delta.delete_set.iter() {
             for range in ranges.iter() {
                 self.remove_range(client, range.start, range.end);
             }
         }
+    }
 
-        // 2. Collect dirty top-level block IDs: newly inserted live root list elements
-        //    (`parent_sub` is `None`) and existing cached blocks whose subtrees or
-        //    attributes changed.
+    /// The top-level blocks to read again after `delta`: the live elements it put
+    /// straight into the root's list (`parent_sub` is `None`), and the cached blocks
+    /// whose subtrees or attributes it changed.
+    fn dirty_blocks<T: ReadTxn>(
+        &self,
+        txn: &T,
+        root: &XmlFragmentRef,
+        delta: &ApplyDelta,
+    ) -> BTreeSet<ID> {
         let first_child_id = root.first_child().map(|first| first.id());
         let mut list_check = RootListCheck::default();
         let mut dirty = BTreeSet::new();
         for &id in &delta.new_types {
-            let Some(branch) = BranchID::get_nested(&txn, &id) else {
+            let Some(branch) = BranchID::get_nested(txn, &id) else {
                 continue;
             };
             if branch.is_deleted() {
@@ -333,9 +344,9 @@ impl BlockCache {
             }
             if let Ok(XmlOut::Element(element)) = XmlOut::try_from(branch)
                 && list_check.is_direct_list_child(
-                    &txn,
+                    txn,
                     self,
-                    &root,
+                    root,
                     first_child_id.as_ref(),
                     id,
                     &element,
@@ -349,32 +360,30 @@ impl BlockCache {
                 dirty.insert(*id);
             }
         }
+        dirty
+    }
 
-        // 3. Re-project and validate only the dirty top-level blocks.
-        for &id in &dirty {
-            let Some(branch) = BranchID::get_nested(&txn, &id) else {
-                return Err(dirty);
-            };
+    /// Projects and validates the `dirty` blocks again, and caches what they are now.
+    /// `None` at the first that is gone, is no element or fails.
+    fn reproject<T: ReadTxn>(&mut self, txn: &T, dirty: &BTreeSet<ID>) -> Option<()> {
+        for &id in dirty {
+            let branch = BranchID::get_nested(txn, &id)?;
             let Ok(XmlOut::Element(element)) = XmlOut::try_from(branch) else {
-                return Err(dirty);
+                return None;
             };
-            let Ok(entry) = project_and_validate_block(&txn, &element) else {
-                return Err(dirty);
-            };
+            let entry = project_and_validate_block(txn, &element).ok()?;
             self.upsert(id, entry);
         }
+        Some(())
+    }
 
-        // 4. Verify root integrity (no stray text/fragment/non-XML countable items AND no
-        //    non-countable `ItemContent::Format` shadowing `root.first_child()` when
-        //    `root_len > 0`) and enforce whole-document limits.
-        let root_len = usize::try_from(root.len(&txn)).unwrap_or(usize::MAX);
-        if self.len() != root_len
-            || (root_len > 0 && root.first_child().is_none())
-            || self.check_whole_limits().is_err()
-        {
-            return Err(dirty);
-        }
-        Ok(())
+    /// Whether the root holds the cached blocks and nothing else: as many children as
+    /// blocks (no stray text, fragment or item that is no XML), and, when it holds any,
+    /// a first child that no formatting item (`ItemContent::Format`, which is not
+    /// counted) shadows.
+    fn root_holds_only_blocks<T: ReadTxn>(&self, txn: &T, root: &XmlFragmentRef) -> bool {
+        let root_len = usize::try_from(root.len(txn)).unwrap_or(usize::MAX);
+        self.len() == root_len && (root_len == 0 || root.first_child().is_some())
     }
 
     /// Returns the deduplicated stored file names referenced by `image` and `file` nodes
@@ -396,14 +405,8 @@ impl BlockCache {
                 let mut seen: HashSet<&str> = HashSet::new();
                 let mut out: Vec<String> = Vec::new();
                 let mut remaining = total_file_blocks;
-                let mut next = root.first_child();
-                while let Some(node) = next {
-                    let following = match &node {
-                        XmlOut::Element(element) => element.siblings(&txn).next(),
-                        XmlOut::Text(text) => text.siblings(&txn).next(),
-                        XmlOut::Fragment(_) => None,
-                    };
-                    if let XmlOut::Element(element) = node
+                for child in read::Siblings::of(&txn, &root) {
+                    if let Child::Element(element) = child
                         && let Some(id) = element_id(&element)
                         && let Some(ids) = self.file_ids.get(&id)
                     {
@@ -417,7 +420,6 @@ impl BlockCache {
                             break;
                         }
                     }
-                    next = following;
                 }
                 out
             }

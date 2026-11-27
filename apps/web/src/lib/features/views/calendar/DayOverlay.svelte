@@ -1,5 +1,5 @@
 <!--
-  The cards of the picked day over the grid of bars (question C3, answer A):
+  The cards of the picked day over the grid of bars:
   a popover next to the day's cell, or a sheet on a compact page.
 
   Nothing opens it but the calendar (`open`); it has no trigger to give the

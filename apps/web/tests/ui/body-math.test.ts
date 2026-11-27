@@ -4,7 +4,7 @@
  * and that a body without formulas never fetches the library.
  *
  * (How long a formula takes and how it looks need a real browser:
- * spikes/editor/embeds.spec.ts and attacks.spec.ts.)
+ * e2e/embeds.spec.ts and e2e/editor-attacks.spec.ts.)
  */
 import { render } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

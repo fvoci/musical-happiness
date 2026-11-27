@@ -72,9 +72,10 @@ pub struct KeptVersion {
 /// leaves names it and its notifications tell of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ByAgent<'a> {
-    /// The token.
+    /// The token the agent writes through.
     pub token_id: &'a str,
-    /// Its name.
+    /// The name of the token when the agent wrote, as the version and the
+    /// notifications show it.
     pub token_name: &'a str,
     /// Whether the token's owner is told of what the agent does, as anybody else would
     /// be: of a comment on what they watch, of being named or given a card.

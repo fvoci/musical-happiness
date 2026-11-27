@@ -10,7 +10,7 @@ use crate::common;
 async fn records(store: &Store) -> Vec<AuditRecord> {
     let paging = Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     store
         .audit_records(AuditPlace::Organization, paging)

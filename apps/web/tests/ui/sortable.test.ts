@@ -5,7 +5,8 @@
  * The simulated page has no layout, so every element says where it is in a
  * `data-rect="left,top,width,height"` attribute and `getBoundingClientRect`
  * is made to read that. What dragging feels like in a real browser (scrolling,
- * fingers, focus) is tested there: spikes/drag/*.spec.ts.
+ * fingers, focus) is tested there: e2e/kanban.spec.ts, kanban-long.spec.ts and
+ * fingers.spec.ts.
  *
  * The page: two groups side by side, each a heading and a list of cards, and
  * a bin beside them. Two sortables share the root: one for the cards (no

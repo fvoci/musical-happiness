@@ -199,7 +199,7 @@ pub struct Unit {
     pub parent_id: String,
     /// Whether this entry is a `unit` or a `chapter`.
     pub kind: UnitKind,
-    /// The title.
+    /// The title of the unit or chapter, as its outline shows it.
     pub title: String,
     /// Its place among the siblings of the same parent, as in `getUnitTree`.
     pub order: String,

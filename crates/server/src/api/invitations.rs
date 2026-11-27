@@ -403,26 +403,27 @@ async fn handle_accept_invitation(
     body: Bytes,
 ) -> ApiResult {
     let request: AcceptInvitation = decode_object(&body)?;
-    let account = request.account.map(fvoci_model::NewAccount::tidied);
-    let browser = marker_of(&app, &headers);
-    let accepting = match (&session, &account) {
+    let account = match (&session, request.account) {
         (Some(_), Some(_)) => {
             return Err(AppError::bad_request(
                 "a request with a session lets in its user, and names no account",
             )
             .with_field("account"));
         }
-        (Some(session), None) => Accepting::SignedIn(session.into()),
-        (None, Some(account)) => {
-            account
-                .validate()
-                .map_err(|refused| AppError::from(refused).under(ACCOUNT))?;
-            Accepting::NewAccount {
-                account,
-                language: &request.language,
-                browser: browser.as_deref(),
-            }
-        }
+        (_, account) => account
+            .map(fvoci_model::NewAccount::check)
+            .transpose()
+            .map_err(|refused| AppError::from(refused).under(ACCOUNT))?,
+    };
+    let browser = marker_of(&app, &headers);
+    let accepting = match (&session, &account) {
+        // A request with a session names no account: refused above.
+        (Some(session), _) => Accepting::SignedIn(session.into()),
+        (None, Some(account)) => Accepting::NewAccount {
+            account,
+            language: &request.language,
+            browser: browser.as_deref(),
+        },
         (None, None) => {
             return Err(AppError::unauthorized(
                 "accepting an invitation takes a session or an account to make",

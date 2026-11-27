@@ -20,27 +20,56 @@ pub(crate) enum Child {
     Other,
 }
 
-/// The children of an element or the root, in order; the place of each in the list is
-/// the index it is deleted by. `None` if the parent holds anything that is no shared
-/// XML type (letters or values put straight into it): no editor writes that, and the
-/// library's own way of listing a parent's content does not come back from some of it
-/// (a letter outside the basic plane in such a string), so the children are followed
-/// from one to the next instead and counted against the parent's length.
-pub(crate) fn children<T: ReadTxn>(txn: &T, parent: &impl XmlFragment) -> Option<Vec<Child>> {
-    let mut found = Vec::new();
-    let mut next = parent.first_child();
-    while let Some(node) = next {
-        next = match &node {
-            XmlOut::Element(element) => element.siblings(txn).next(),
-            XmlOut::Text(text) => text.siblings(txn).next(),
+/// The children of an element or the root, in order, followed from one to the next:
+/// the library's own way of listing a parent's content does not come back from some
+/// content no editor writes (a letter outside the basic plane in a string put straight
+/// into the parent). Whatever is no shared XML type is passed over, and the walk ends
+/// at a fragment inside the document, so a parent that holds either has more in its
+/// length than the walk finds ([`holds_only_xml`]). It makes no list.
+pub(crate) struct Siblings<'txn, T> {
+    txn: &'txn T,
+    next: Option<XmlOut>,
+}
+
+impl<'txn, T: ReadTxn> Siblings<'txn, T> {
+    /// The children of `parent`, from the first.
+    pub(crate) fn of(txn: &'txn T, parent: &impl XmlFragment) -> Self {
+        Self {
+            txn,
+            next: parent.first_child(),
+        }
+    }
+}
+
+impl<T: ReadTxn> Iterator for Siblings<'_, T> {
+    type Item = Child;
+
+    fn next(&mut self) -> Option<Child> {
+        let node = self.next.take()?;
+        self.next = match &node {
+            XmlOut::Element(element) => element.siblings(self.txn).next(),
+            XmlOut::Text(text) => text.siblings(self.txn).next(),
             XmlOut::Fragment(_) => None,
         };
-        found.push(match node {
+        Some(match node {
             XmlOut::Element(element) => Child::Element(element),
             XmlOut::Text(text) => Child::Text(text),
             XmlOut::Fragment(_) => Child::Other,
-        });
+        })
     }
+}
+
+/// Whether `parent` holds only shared XML types: its length counts no more than
+/// [`Siblings`] finds. No editor writes anything else into a parent.
+pub(crate) fn holds_only_xml<T: ReadTxn>(txn: &T, parent: &impl XmlFragment) -> bool {
+    u32::try_from(Siblings::of(txn, parent).count()).ok() == Some(parent.len(txn))
+}
+
+/// The children of an element or the root, in order; the place of each in the list is
+/// the index it is deleted by. `None` if the parent holds anything that is no shared
+/// XML type ([`holds_only_xml`]).
+pub(crate) fn children<T: ReadTxn>(txn: &T, parent: &impl XmlFragment) -> Option<Vec<Child>> {
+    let found: Vec<Child> = Siblings::of(txn, parent).collect();
     (u32::try_from(found.len()).ok() == Some(parent.len(txn))).then_some(found)
 }
 
@@ -253,7 +282,7 @@ impl Content {
         self.nodes.len()
     }
 
-    /// The nodes.
+    /// The nodes, the texts of the same marks next to each other joined.
     pub(crate) fn into_nodes(self) -> Vec<Value> {
         self.nodes
     }

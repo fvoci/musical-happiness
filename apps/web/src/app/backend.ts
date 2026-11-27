@@ -202,6 +202,8 @@ async function startMemory(): Promise<StartedBackend> {
     eraseUser: (userId: string) => {
       eraseUser(world, userId);
     },
+    // The formula library as the bodies draw with it, for e2e/editor-attacks.spec.ts.
+    math: () => import('$lib/editor/math.ts'),
   };
   return { backend };
 }

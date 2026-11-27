@@ -121,7 +121,7 @@ pub enum BoardLocale {
 pub enum DuplicateAs {
     /// An ordinary copy.
     Copy,
-    /// A template.
+    /// A template, which new boards are made from; a wiki is never one.
     Template,
 }
 

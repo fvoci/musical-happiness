@@ -8,7 +8,7 @@
  * time zone; the language is English, whose weeks start on Sunday. November
  * 2026 then has five weeks, from 1 November to 5 December.
  *
- * The projects are the three widths of docs/calendar-proposal.md: the
+ * The projects are three widths: the
  * desktop (a pane of 1024 pixels, a mouse) and the unfolded device (570, a
  * finger) have room for bars; the phone (412) gets the small grid.
  */
@@ -269,7 +269,7 @@ test('a card opened from the cards of a day gives the focus back when it closes'
   else await expect(focused).toHaveAccessibleName('number 1, Open a card, November 12');
 });
 
-test('the cards without a date are counted in the row and listed on asking (C16)', async ({
+test('the cards without a date are counted in the row and listed on asking', async ({
   page,
 }, info) => {
   await openCalendar(page, info);

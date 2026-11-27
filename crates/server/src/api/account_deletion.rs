@@ -15,6 +15,7 @@ use super::{ApiResult, RequiredSession, decode_object, json_response, no_content
 use crate::app::App;
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
+use crate::http_credentials;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(
@@ -125,9 +126,10 @@ async fn handle_request_account_deletion(
         .request_account_deletion(&session, &request, address_of(client))
         .await?;
     let mut response = json_response(&asked);
-    response
-        .headers_mut()
-        .insert(SET_COOKIE, app.authenticator().session_cookie().clear());
+    response.headers_mut().insert(
+        SET_COOKIE,
+        http_credentials::clear_cookie_header(app.authenticator().session_cookie()),
+    );
     Ok(response)
 }
 

@@ -144,7 +144,7 @@ impl From<AuthParamError> for Refusal {
     }
 }
 
-/// A login request.
+/// What a sign-in sends: a user name or an email address, and a password.
 #[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct LoginRequest {
@@ -152,7 +152,7 @@ pub struct LoginRequest {
     pub username: String,
     /// The email address to log in with, used when no user has the given name.
     pub email: String,
-    /// The password.
+    /// The password of the account that `username` or `email` names.
     pub password: String,
 }
 
@@ -174,7 +174,8 @@ pub struct RegisterRequest {
     pub username: String,
     /// The email address.
     pub email: String,
-    /// The password.
+    /// The password the account is to have: at least 8 characters, and at most 1024
+    /// bytes in UTF-8.
     pub password: String,
     /// The name to be shown by; may be left out or empty for none, not `null`. Checked
     /// as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
@@ -276,6 +277,76 @@ impl RegisterRequest {
             display_name: self.display_name.clone(),
         }
     }
+
+    /// The registration the request asks for, tidied ([`RegisterRequest::tidied`]), if
+    /// it is one then ([`RegisterRequest::validate`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`RegisterRequest::validate`], of the tidied request.
+    pub fn check(self) -> Result<Registration, Refusals> {
+        let tidied = self.tidied();
+        tidied.validate()?;
+        Ok(tidied.into_registration())
+    }
+
+    /// As [`RegisterRequest::check`], where the request must name an organization
+    /// ([`RegisterRequest::validate_as_first`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`RegisterRequest::validate_as_first`], of the tidied request.
+    pub fn check_as_first(self) -> Result<Registration, Refusals> {
+        let tidied = self.tidied();
+        tidied.validate_as_first()?;
+        Ok(tidied.into_registration())
+    }
+
+    /// The registration of a request that was tidied and found good.
+    fn into_registration(self) -> Registration {
+        let organization_name = Some(self.organization_name).filter(|name| !name.trim().is_empty());
+        Registration {
+            account: CheckedAccount(NewAccount {
+                username: self.username,
+                email: self.email,
+                password: self.password,
+                display_name: self.display_name,
+            }),
+            organization_name,
+            language: self.language,
+        }
+    }
+}
+
+/// A registration that was tidied and found good ([`RegisterRequest::check`]): the
+/// account to make, the organization it starts if it names one, and the language of
+/// the screen it came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registration {
+    account: CheckedAccount,
+    organization_name: Option<String>,
+    language: String,
+}
+
+impl Registration {
+    /// The account to make.
+    #[must_use]
+    pub fn account(&self) -> &CheckedAccount {
+        &self.account
+    }
+
+    /// The name of the organization the account starts, as it is stored; `None` for
+    /// a registration that names none, whose account starts with its own space alone.
+    #[must_use]
+    pub fn organization(&self) -> Option<&str> {
+        self.organization_name.as_deref()
+    }
+
+    /// The language tag of the screen the registration came from, as it was sent.
+    #[must_use]
+    pub fn language(&self) -> &str {
+        &self.language
+    }
 }
 
 /// The account somebody asks for: who registers, and who accepts an invitation
@@ -287,7 +358,8 @@ pub struct NewAccount {
     pub username: String,
     /// The email address.
     pub email: String,
-    /// The password.
+    /// The password the account is to have: at least 8 characters, and at most 1024
+    /// bytes in UTF-8.
     pub password: String,
     /// The name to be shown by; may be left out or empty for none, not `null`. Checked
     /// as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
@@ -309,7 +381,57 @@ impl fmt::Debug for NewAccount {
 /// Maximum length in Unicode scalar values of [`NewAccount::username`].
 pub const USERNAME_MAX_LENGTH: usize = 64;
 
+/// An account asked for that was tidied and found good ([`NewAccount::check`]): what an
+/// account is made of.
+#[derive(Clone, PartialEq, Eq)]
+pub struct CheckedAccount(NewAccount);
+
+impl CheckedAccount {
+    /// The login name, without the white space around it.
+    #[must_use]
+    pub fn username(&self) -> &str {
+        &self.0.username
+    }
+
+    /// The email address, without the white space around it.
+    #[must_use]
+    pub fn email(&self) -> &str {
+        &self.0.email
+    }
+
+    /// The password, as it was sent.
+    #[must_use]
+    pub fn password(&self) -> &str {
+        &self.0.password
+    }
+
+    /// The name to be shown by, as it is stored; empty for none.
+    #[must_use]
+    pub fn display_name(&self) -> &str {
+        &self.0.display_name
+    }
+}
+
+impl fmt::Debug for CheckedAccount {
+    /// Leaves out the password, as [`NewAccount`]'s does.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("CheckedAccount").field(&self.0).finish()
+    }
+}
+
 impl NewAccount {
+    /// The account tidied ([`NewAccount::tidied`]), if it is one to make then
+    /// ([`NewAccount::validate`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`NewAccount::validate`], of the tidied account.
+    pub fn check(self) -> Result<CheckedAccount, Refusals> {
+        let tidied = self.tidied();
+        tidied.validate()?;
+        Ok(CheckedAccount(tidied))
+    }
+
     /// The account with its name and address without the white space around them, and
     /// its display name as it is stored if it is one: what is refused stays as it was
     /// sent, to be refused by [`NewAccount::validate`].

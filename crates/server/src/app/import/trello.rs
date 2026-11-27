@@ -110,20 +110,17 @@ pub(crate) fn convert_trello_bytes(
     }
 
     let checklists_by_card = group_checklists(&checklists);
-    let built_cards = build_cards(
-        &board_id,
-        cards,
-        &list_options,
-        &closed_lists,
-        &list_rank,
-        &status_prop.id,
-        label_options.as_ref(),
-        due_prop_id.as_deref(),
-        &checklists_by_card,
-        limits,
-        &mut body_budget,
-        &mut summary,
-    )?;
+    let mapping = CardMapping {
+        board_id: &board_id,
+        list_options: &list_options,
+        closed_lists: &closed_lists,
+        list_rank: &list_rank,
+        status_prop_id: &status_prop.id,
+        labels_map: label_options.as_ref(),
+        due_prop_id: due_prop_id.as_deref(),
+        checklists: &checklists_by_card,
+    };
+    let built_cards = build_cards(cards, &mapping, limits, &mut body_budget, &mut summary)?;
 
     let comment_blocks = build_comments(
         &board_id,
@@ -449,24 +446,39 @@ struct BuiltCards {
     order: Vec<String>,
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "maps Trello cards using board property lookup tables"
-)]
+/// What the cards of a Trello board are mapped with: the board they go on, its lists
+/// (the status option of each, the closed ones, their order), the identifiers of the
+/// properties of the status, the labels and the due date, and the checklists of each
+/// card.
+#[derive(Clone, Copy)]
+struct CardMapping<'a> {
+    board_id: &'a str,
+    list_options: &'a HashMap<String, String>,
+    closed_lists: &'a HashSet<String>,
+    list_rank: &'a HashMap<String, usize>,
+    status_prop_id: &'a str,
+    labels_map: Option<&'a LabelPropertyMap>,
+    due_prop_id: Option<&'a str>,
+    checklists: &'a ChecklistIndex<'a>,
+}
+
 fn build_cards(
-    board_id: &str,
     mut cards: Vec<TrelloCard>,
-    list_options: &HashMap<String, String>,
-    closed_lists: &HashSet<String>,
-    list_rank: &HashMap<String, usize>,
-    status_prop_id: &str,
-    labels_map: Option<&LabelPropertyMap>,
-    due_prop_id: Option<&str>,
-    checklists: &ChecklistIndex<'_>,
+    mapping: &CardMapping<'_>,
     limits: &BundleLimits,
     body_budget: &mut BodyBudget,
     summary: &mut ImportSummary,
 ) -> Result<BuiltCards, AppError> {
+    let CardMapping {
+        board_id,
+        list_options,
+        closed_lists,
+        list_rank,
+        status_prop_id,
+        labels_map,
+        due_prop_id,
+        checklists,
+    } = *mapping;
     cards.sort_by(|a, b| {
         let ra = list_rank.get(&a.id_list).copied().unwrap_or(usize::MAX);
         let rb = list_rank.get(&b.id_list).copied().unwrap_or(usize::MAX);

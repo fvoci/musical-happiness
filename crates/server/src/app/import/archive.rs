@@ -124,7 +124,7 @@ pub(super) async fn open_archive(path: &Path) -> Result<Archive, AppError> {
         // keeps at most as many entries as signatures, whatever the end records say. The
         // capacity it reserves first follows the declared count, which the crate bounds
         // only by the file's length (about a 47th of it, as entries): that reservation is
-        // not bounded here (`docs/contract-pending.md` 5).
+        // not bounded here.
         let headers = count_central_headers(&mut file, MAX_ENTRIES).map_err(|error| {
             AppError::internal(format_args!("cannot read the archive: {error}"))
         })?;

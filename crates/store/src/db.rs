@@ -26,7 +26,7 @@ pub(crate) use locks::{DeletedContainersHeld, InstanceHeld, LockRank, Organizati
 /// The SQL dialect of the connected database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dialect {
-    /// SQLite.
+    /// SQLite: the database of a server of one organization.
     Sqlite,
     /// PostgreSQL.
     Postgres,
@@ -345,6 +345,16 @@ impl Sql {
     /// Appends `text` followed by a placeholder: `push("id = ").bind(id)` in one call.
     pub(crate) fn push_bind(&mut self, text: impl IntoSql, param: impl Into<Bound>) -> &mut Self {
         self.push(text).bind(param)
+    }
+
+    /// Limits the statement to the records of `paging`; to none for no page, which
+    /// reads every record.
+    pub(crate) fn push_page(&mut self, paging: impl Into<Option<crate::Paging>>) -> &mut Self {
+        if let Some(paging) = paging.into() {
+            self.push_bind(" LIMIT ", i64::from(paging.per_page.get()))
+                .push_bind(" OFFSET ", paging.offset());
+        }
+        self
     }
 
     /// Appends a comma-separated list of placeholders, one per item.

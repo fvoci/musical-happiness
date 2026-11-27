@@ -1,8 +1,8 @@
 //! Who registers through a handle of an organization, and what being the instance's
 //! administrator makes of them in the organization and its workspaces.
 
-use fvoci_model::{OrgKind, OrgRole, WorkspaceRole, new_id};
-use fvoci_store::{InstanceRole, Tenant};
+use fvoci_model::{InstanceRole, OrgKind, OrgRole, WorkspaceRole, new_id};
+use fvoci_store::Tenant;
 
 use crate::common;
 
