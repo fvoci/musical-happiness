@@ -80,7 +80,7 @@ pub struct WebRoot {
     base_url: String,
     https_origin: Option<String>,
     security_txt: Option<SecurityTxt>,
-    warned_missing_csp: Arc<AtomicBool>,
+    logged_missing_csp: Arc<AtomicBool>,
 }
 
 impl WebRoot {
@@ -91,7 +91,7 @@ impl WebRoot {
             base_url: base_url(server_url),
             https_origin: https_origin_of(server_url),
             security_txt: None,
-            warned_missing_csp: Arc::new(AtomicBool::new(false)),
+            logged_missing_csp: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -224,11 +224,11 @@ impl WebRoot {
                     .ok()
                     .and_then(|manifest| strict_index_csp(&manifest.script_src))
                 {
-                    self.warned_missing_csp.store(false, Ordering::Relaxed);
+                    self.logged_missing_csp.store(false, Ordering::Relaxed);
                     policy
                 } else {
-                    if !self.warned_missing_csp.swap(true, Ordering::Relaxed) {
-                        tracing::warn!(
+                    if !self.logged_missing_csp.swap(true, Ordering::Relaxed) {
+                        tracing::error!(
                             path = %csp_path.display(),
                             "csp.json is malformed; the index is served with no inline script allowed"
                         );
@@ -237,8 +237,8 @@ impl WebRoot {
                 }
             }
             Err(error) => {
-                if !self.warned_missing_csp.swap(true, Ordering::Relaxed) {
-                    tracing::warn!(
+                if !self.logged_missing_csp.swap(true, Ordering::Relaxed) {
+                    tracing::error!(
                         %error,
                         path = %csp_path.display(),
                         "csp.json could not be read; the index is served with no inline script allowed"

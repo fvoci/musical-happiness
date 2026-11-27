@@ -939,6 +939,38 @@ async fn a_snapshot_is_not_taken_one_scorer_apart(leaving: Leaving) {
         "9",
         "showing it again did not count 6"
     );
+
+    // The count climbs back from the 6 who count now, against the snapshot's 9: 11 is
+    // too few more, 12 takes a new snapshot.
+    let mut newcomers = Vec::new();
+    for name in ["s", "t", "u", "v", "w", "y"] {
+        let user = common::user(&test, name).await;
+        common::works_in(&test, &test.workspace_id, &user).await;
+        enroll(&test, &course.course_id, &user).await;
+        newcomers.push(user);
+    }
+    let (eleventh, twelfth) = newcomers.split_at(5);
+    for user in eleventh {
+        score(&test, &course, user, 80.0).await;
+    }
+    assert_eq!(
+        publish().await,
+        Err(ExamPublishError::TooFewChangesSincePublish {
+            current_scorers: 11,
+            previous_scorers: 9,
+            minimum_delta: 3,
+        }),
+        "11 is not 3 more than the 9 counted ({leaving:?})"
+    );
+    score(&test, &course, &twelfth[0], 80.0).await;
+    let third = publish().await.expect("12 scorers publish, 3 more than 9");
+    // (412 + 6 * 80) / 12 = 74.33…
+    assert_average(third.average_score, 74.3, "the 12-scorer average");
+    assert_eq!(
+        snapshot_scorers(&test, &course.exam_id).await,
+        "12",
+        "the third snapshot counts 12"
+    );
     test.teardown().await;
 }
 
