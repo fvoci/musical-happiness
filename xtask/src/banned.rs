@@ -1,11 +1,11 @@
-//! `cargo xtask check`, in the step "names": the words and porting phrases no file may hold.
+//! `cargo xtask check`, in the step "names": the words and phrases no file may hold.
 //!
 //! A banned word is refused in any case, alone or inside a longer word, in the text
 //! and in the path of every file git tracks or would track. Nothing is excepted.
 //!
-//! Narrow porting phrases ([`BANNED_PHRASES`]) and retired identifiers
-//! ([`RETIRED_TOKENS`]) are also refused, in the text and in the path of every tracked
-//! file but the third-party sources vendored under `vendor/`.
+//! Narrow phrases that explain code by where it came from ([`BANNED_PHRASES`]) and
+//! retired identifiers ([`RETIRED_TOKENS`]) are also refused, in the text and in the
+//! path of every tracked file but the third-party sources vendored under `vendor/`.
 //!
 //! The word list does not say the words. A word is known by how many letters it has and
 //! by the SHA-256 of those letters in lowercase, so every run of letters in a file is
@@ -68,18 +68,31 @@ const BANNED: [(usize, &str); 10] = [
     ),
 ];
 
-/// Narrow porting phrases refused in tracked project files (matched case-insensitively),
-/// and the names of another language's standard library given as the reason for code:
-/// the code says what it does, or names the standard it follows.
+/// Narrow phrases that explain code by where it came from, refused in tracked project
+/// files (matched case-insensitively), and the names of another language's standard
+/// library given as the reason for code: the code says what it does, or names the
+/// standard it follows.
 ///
 /// Kept narrow so ordinary phrases such as `"original file"`, `"original card"`,
-/// `"원본 이미지"`, or `"원본 파일"` are not flagged. Every entry must be lowercase; built
-/// with `concat!` so this file stays free of literal matches.
-const BANNED_PHRASES: [&str; 11] = [
+/// `"the original board exists"`, `"원본 이미지"`, or `"원본 파일"` are not flagged. Every
+/// entry must be lowercase; built with `concat!` so this file stays free of literal
+/// matches. A phrase is also found across two lines of a comment ([`joined`]).
+const BANNED_PHRASES: [&str; 21] = [
     concat!("ports ", "server/"),
     concat!("the ", "original's"),
     concat!("the ", "original server"),
     concat!("formats of ", "the original"),
+    concat!("as ", "the original"),
+    concat!("the ", "original did"),
+    concat!("the ", "original does"),
+    concat!("the ", "original app"),
+    concat!("the ", "original tree"),
+    concat!("the ", "original `"),
+    // The names of repositories and folders that are not this one's to tell of.
+    concat!("musical-", "happiness"),
+    concat!("fvoci-", "coordination"),
+    concat!("~/", "atlas/"),
+    concat!(".claude/", "plans"),
     concat!("원본", "의 "),
     concat!("원본", "과 "),
     concat!("원본", "과의"),
@@ -197,8 +210,8 @@ impl<'words> Reading<'words> {
     }
 }
 
-/// Fails if a file has a banned word in its text or in its path, or a banned porting phrase
-/// in its text.
+/// Fails if a file has a banned word in its text or in its path, or a banned phrase in its
+/// text.
 ///
 /// # Errors
 ///
@@ -265,6 +278,28 @@ fn finds_phrase(line: &str, phrases: &[&str]) -> bool {
     phrases.iter().any(|phrase| lower.contains(phrase))
 }
 
+/// The marks a line of a comment begins with, the longest first where one begins
+/// another: Rust's doc and plain comments, a block comment's middle, the comments of
+/// shells, YAML, TOML and Markdown's headings, and SQL's.
+const COMMENT_MARKS: [&str; 6] = ["//!", "///", "//", "*", "#", "--"];
+
+/// What a line says once the mark of a comment it begins with, and the space around it,
+/// are taken away.
+fn said(line: &str) -> &str {
+    let line = line.trim();
+    COMMENT_MARKS
+        .iter()
+        .find_map(|mark| line.strip_prefix(mark))
+        .unwrap_or(line)
+        .trim()
+}
+
+/// Two lines as one sentence, as a phrase cut by a line break reads: what each says
+/// ([`said`]) with one space between.
+fn joined(first: &str, second: &str) -> String {
+    format!("{} {}", said(first), said(second))
+}
+
 /// Whether `line` holds a token of `tokens` in any case with no lowercase letter right
 /// after it. ASCII lowercase keeps every byte where it was, so the letter after a match
 /// is read from `line` itself.
@@ -281,7 +316,8 @@ fn finds_token(line: &str, tokens: &[&str]) -> bool {
     })
 }
 
-/// The hits of one file: `path: in its name`, then `path:line` for each line.
+/// The hits of one file: `path: in its name`, then `path:line` for each line. A phrase
+/// that a line break cuts in two is a hit of the line it begins on.
 fn check_file(file: &str, text: &str, reading: &mut Reading<'_>, phrases: &[&str]) -> Vec<String> {
     let mut hits = Vec::new();
     let (active_phrases, active_tokens) = if is_phrase_exempt(file) {
@@ -292,9 +328,14 @@ fn check_file(file: &str, text: &str, reading: &mut Reading<'_>, phrases: &[&str
     if reading.finds_in(file) || finds_token(file, active_tokens) {
         hits.push(format!("{file}: in its name"));
     }
-    for (index, line) in text.lines().enumerate() {
+    let lines: Vec<&str> = text.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        let cut_in_two = lines.get(index + 1).is_some_and(|next| {
+            finds_phrase(&joined(line, next), active_phrases) && !finds_phrase(next, active_phrases)
+        });
         if reading.finds_in(line)
             || finds_phrase(line, active_phrases)
+            || cut_in_two
             || finds_token(line, active_tokens)
         {
             hits.push(format!("{file}:{}", index + 1));
@@ -485,8 +526,8 @@ mod tests {
         }
 
         for text in [
-            concat!("Ports ", "server/api/files.go"),
-            concat!("PORTS ", "SERVER/app/boards.go"),
+            concat!("Ports ", "server/api/files.rs"),
+            concat!("PORTS ", "SERVER/app/boards.rs"),
             concat!("matches the ", "original's response"),
             concat!("verified against The ", "Original Server"),
             concat!("The formats of ", "the original archive"),
@@ -494,6 +535,16 @@ mod tests {
             concat!("원본", "과 같다"),
             concat!("원본", "과의 비교"),
             concat!("원본", "에서 옮김"),
+            concat!("ordered As ", "the Original does"),
+            concat!("as ", "the original did"),
+            concat!("what the ", "original app showed"),
+            concat!("as in the ", "original tree"),
+            concat!("the cases of the ", "original `a.test.ts`"),
+            concat!("~/atlas/musical-", "happiness-carry/notes"),
+            concat!("fvoci/musical-", "happiness"),
+            concat!("the fvoci-", "coordination repository"),
+            concat!("cd ~/", "atlas/other"),
+            concat!("~/.claude/", "plans/web.md"),
         ] {
             assert!(
                 finds_phrase(text, &BANNED_PHRASES),
@@ -506,6 +557,9 @@ mod tests {
             "the original file name",
             "original card",
             "the original board exists",
+            "the original card stays where it was",
+            "copies of the original file",
+            "originally",
             "원본 이미지",
             "원본 파일",
             "원본 데이터",
@@ -515,6 +569,68 @@ mod tests {
                 "{text:?} must not match any banned phrase"
             );
         }
+    }
+
+    #[test]
+    fn a_phrase_cut_by_a_line_break_is_found_on_the_line_it_begins_on() {
+        let words = banning(&[]);
+        let mut reading = Reading::new(&words);
+        for (file, text) in [
+            (
+                "crates/a.rs",
+                concat!(
+                    "// the name of the\n// ",
+                    "original server's configuration\n"
+                ),
+            ),
+            (
+                "crates/a.rs",
+                concat!("    /// kept as\n    /// the ", "original kept it\n"),
+            ),
+            (
+                "crates/a.rs",
+                concat!("//! read as the\n//! ", "original does\n"),
+            ),
+            (
+                "apps/web/a.ts",
+                concat!(" * the cases of the\n * ", "original `x.test.ts`\n */\n"),
+            ),
+            (
+                "a.yaml",
+                concat!("# laid out as in the\n# ", "original tree\n"),
+            ),
+            ("a.sql", concat!("-- the formats of\n-- ", "the original\n")),
+            ("a.md", concat!("what the\n", "original app showed\n")),
+        ] {
+            let found = check_file(file, text, &mut reading, &BANNED_PHRASES);
+            assert_eq!(found, [format!("{file}:1")], "{text:?}");
+        }
+        // A phrase within one line is its line's, once; the line before it is clean.
+        assert_eq!(
+            check_file(
+                "crates/a.rs",
+                concat!("// first\n// as ", "the original did\n// last\n"),
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            ["crates/a.rs:2"]
+        );
+        // What two lines say together is not banned unless a phrase is.
+        assert_eq!(
+            check_file(
+                "crates/a.rs",
+                "// the copy keeps\n// the original board exists\n// as it was\n",
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            Vec::<String>::new()
+        );
+        assert_eq!(said("   /// text  "), "text");
+        assert_eq!(said(" * text"), "text");
+        assert_eq!(said("//! text"), "text");
+        assert_eq!(said("-- text"), "text");
+        assert_eq!(said("plain text"), "plain text");
+        assert_eq!(joined("// one", "  # two "), "one two");
     }
 
     #[test]
