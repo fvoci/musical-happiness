@@ -10,7 +10,7 @@ use std::time::Duration;
 /// was deleted, who may bring it back; a member who was no admin does not see it. The
 /// last deleted first.
 #[tokio::test]
-async fn the_deleted_boards_are_listed_for_their_former_admins() {
+async fn a_deleted_board_is_listed_for_its_former_admins() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await;
     let titled = |title: &str| Container {

@@ -62,7 +62,7 @@
 
 ## 2. 이름 검사 폴백
 
-메시지는 `messages/<태그>.json`, 내장 템플릿은 저장소 루트의 `crates/server/assets/templates/`가 원천이다. 이름 검사(`tools/names/check.ts`)는 git이 파일 목록을 주지 못하면(0개 포함) 폴더를 걸어서 검사하고 한 줄을 찍으며, 그래도 0개면 실패한다.
+메시지는 `messages/<태그>.json`, 내장 템플릿은 저장소 루트의 `crates/server/assets/templates/`가 원천이다.
 
 ## 마지막 실행
 
