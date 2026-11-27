@@ -21,7 +21,7 @@ use fvoci_store::{
 };
 
 use super::App;
-use super::oidc_account::{FoundAccount, proved_address};
+use super::oidc_account::{FoundAccount, Newcomer, proved_address};
 use super::oidc_carry::carry_over_refused;
 use super::oidc_settings::secret_context;
 use crate::auth::limiter::RetryAfter;
@@ -748,7 +748,12 @@ impl App {
             Ok(false) => {}
             Err(error) => return Err(logged(&error, "looking up an email address")),
         }
-        self.make_account(claims, identity, email, stored, ending, session, digest)
+        let newcomer = Newcomer {
+            claims,
+            identity,
+            email,
+        };
+        self.make_account(newcomer, stored, ending, session, digest)
             .await
     }
 

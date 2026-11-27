@@ -266,8 +266,10 @@ async fn a_card_the_other_server_wrote_does_not_make_the_document_again() {
         .store()
         .project_body(
             &e.card_id,
-            Some(body.clone()),
-            read.updated_at,
+            fvoci_store::Projection::Written {
+                body: body.clone(),
+                read_at: read.updated_at,
+            },
             as_read.log_end,
             &body_digest(body.as_ref()),
             &e.user2,
@@ -313,8 +315,7 @@ async fn a_body_is_not_written_to_a_card_the_other_server_holds_written() {
         .store()
         .project_body(
             &e.card_id,
-            None,
-            held.updated_at,
+            fvoci_store::Projection::Held,
             as_read.log_end,
             &unchanged,
             &e.user2,

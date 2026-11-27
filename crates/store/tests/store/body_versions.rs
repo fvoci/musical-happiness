@@ -110,8 +110,7 @@ pub(crate) async fn type_body(store: &Store, card_id: &str, body: Option<Body>, 
     store
         .project_body(
             card_id,
-            Some(body),
-            read_at,
+            fvoci_store::Projection::Written { body, read_at },
             seqs[0],
             &digest,
             user_id,

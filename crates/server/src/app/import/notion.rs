@@ -182,35 +182,23 @@ pub(crate) async fn convert_notion_bundle(
     });
     let mut containers = Vec::new();
     let mut body_budget = BodyBudget::default();
+    let mut conversion = Conversion {
+        bundle,
+        lookup: &lookup,
+        limits,
+        body_budget: &mut body_budget,
+        summary: &mut summary,
+    };
 
     if !wiki_plan.pages.is_empty() {
         let wiki_title = wrapper_title.as_deref().unwrap_or("Notion Import");
-        let wiki = build_wiki_container(
-            wiki_title,
-            &wiki_plan,
-            bundle,
-            &lookup,
-            limits,
-            &mut body_budget,
-            &mut summary,
-        )
-        .await?;
+        let wiki = build_wiki_container(wiki_title, &wiki_plan, &mut conversion).await?;
         containers.push(wiki);
     }
 
     for ((spec, parsed, row_mds), card_ids) in parsed_dbs.into_iter().zip(card_ids_per_db) {
-        let board = build_board_container(
-            &spec,
-            parsed,
-            &row_mds,
-            &card_ids,
-            bundle,
-            &lookup,
-            limits,
-            &mut body_budget,
-            &mut summary,
-        )
-        .await?;
+        let board =
+            build_board_container(&spec, parsed, &row_mds, &card_ids, &mut conversion).await?;
         containers.push(board);
     }
 
@@ -591,15 +579,22 @@ async fn convert_markdown_off_thread(
     .map_err(|error| AppError::internal(format_args!("markdown conversion task failed: {error}")))?
 }
 
+/// What the bodies of an export's pages are made with: the bundle and the assets in it,
+/// the limits, and the budget of bodies and the summary they are counted in.
+struct Conversion<'a> {
+    bundle: &'a SafeBundle,
+    lookup: &'a Arc<AssetLookup>,
+    limits: &'a BundleLimits,
+    body_budget: &'a mut BodyBudget,
+    summary: &'a mut ImportSummary,
+}
+
 async fn build_wiki_container(
     wiki_title: &str,
     plan: &WikiPlan<'_>,
-    bundle: &SafeBundle,
-    lookup: &Arc<AssetLookup>,
-    limits: &BundleLimits,
-    body_budget: &mut BodyBudget,
-    summary: &mut ImportSummary,
+    conversion: &mut Conversion<'_>,
 ) -> Result<StagedContainer, AppError> {
+    let (bundle, lookup, limits) = (conversion.bundle, conversion.lookup, conversion.limits);
     let wiki_id = new_id();
     let mut staged_files = Vec::new();
     let mut file_placeholders: HashMap<String, String> = HashMap::new();
@@ -624,11 +619,13 @@ async fn build_wiki_container(
                 staged_files,
             )
             .await?;
-            body_budget.charge(body.as_ref())?;
+            conversion.body_budget.charge(body.as_ref())?;
             file_placeholders = next_placeholders;
             staged_files = next_files;
             for notice in notices {
-                summary.push_warning(notice.code, &source.logical_path, notice.reason);
+                conversion
+                    .summary
+                    .push_warning(notice.code, &source.logical_path, notice.reason);
             }
             body
         } else {
@@ -645,7 +642,7 @@ async fn build_wiki_container(
             container_id: wiki_id.clone(),
             parent_id: page.parent_id.clone(),
             block_type: BlockType::Page,
-            title: truncate_title(&page.title, summary),
+            title: truncate_title(&page.title, conversion.summary),
             fields,
             body,
             ..Block::default()
@@ -656,7 +653,7 @@ async fn build_wiki_container(
         id: wiki_id,
         visibility: ContainerVisibility::Private,
         kind: ContainerKind::Wiki,
-        title: truncate_title(wiki_title, summary),
+        title: truncate_title(wiki_title, conversion.summary),
         ..Container::default()
     };
     Ok(StagedContainer {
@@ -666,21 +663,14 @@ async fn build_wiki_container(
     })
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "assembles a Notion CSV board with companion Markdown bodies and local assets"
-)]
 async fn build_board_container(
     spec: &CsvDatabaseSpec<'_>,
     parsed: ParsedCsvDatabase,
     row_mds: &[Option<String>],
     card_ids: &[String],
-    bundle: &SafeBundle,
-    lookup: &Arc<AssetLookup>,
-    limits: &BundleLimits,
-    body_budget: &mut BodyBudget,
-    summary: &mut ImportSummary,
+    conversion: &mut Conversion<'_>,
 ) -> Result<StagedContainer, AppError> {
+    let (bundle, lookup, limits) = (conversion.bundle, conversion.lookup, conversion.limits);
     let board_id = new_id();
     let mut staged_files = Vec::new();
     let mut file_placeholders: HashMap<String, String> = HashMap::new();
@@ -717,11 +707,13 @@ async fn build_board_container(
                 staged_files,
             )
             .await?;
-            body_budget.charge(body.as_ref())?;
+            conversion.body_budget.charge(body.as_ref())?;
             file_placeholders = next_placeholders;
             staged_files = next_files;
             for notice in notices {
-                summary.push_warning(notice.code, md_path, notice.reason);
+                conversion
+                    .summary
+                    .push_warning(notice.code, md_path, notice.reason);
             }
             body
         } else {
@@ -735,7 +727,7 @@ async fn build_board_container(
             id: card_id.clone(),
             container_id: board_id.clone(),
             block_type: BlockType::Card,
-            title: truncate_title(&row.title, summary),
+            title: truncate_title(&row.title, conversion.summary),
             fields,
             body,
             ..Block::default()
@@ -746,7 +738,7 @@ async fn build_board_container(
         id: board_id,
         visibility: ContainerVisibility::Private,
         kind: ContainerKind::Board,
-        title: truncate_title(&spec.title, summary),
+        title: truncate_title(&spec.title, conversion.summary),
         card_properties: parsed.card_properties,
         ..Container::default()
     };

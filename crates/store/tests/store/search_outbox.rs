@@ -237,8 +237,10 @@ async fn typed(store: &Store, card_id: &str, text: &str, seq: i64, user_id: &str
     store
         .project_body(
             card_id,
-            Some(Some(body(text))),
-            read_at,
+            fvoci_store::Projection::Written {
+                body: Some(body(text)),
+                read_at,
+            },
             seq,
             b"a digest",
             user_id,
@@ -753,8 +755,10 @@ async fn every_way_a_card_is_written_notes_it() {
     store
         .project_body(
             &second.id,
-            Some(Some(body("함께 쓴 본문"))),
-            read_at,
+            fvoci_store::Projection::Written {
+                body: Some(body("함께 쓴 본문")),
+                read_at,
+            },
             1,
             b"another digest",
             &user_id,
@@ -772,8 +776,7 @@ async fn every_way_a_card_is_written_notes_it() {
     store
         .project_body(
             &second.id,
-            None,
-            read_at,
+            fvoci_store::Projection::Held,
             2,
             b"another digest",
             &user_id,

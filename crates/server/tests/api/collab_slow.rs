@@ -1007,19 +1007,15 @@ async fn recovering_after_projection_and_before_remake_dedups_mentions() {
         .repair
         .body;
     let digest = body_digest(projected_body.as_ref());
-    let held_card = edit_b
-        .app
-        .store()
-        .get_block(&card_b.id)
-        .await
-        .expect("card");
-    edit_b
-        .app
-        .store()
+    let store = edit_b.app.store();
+    let read_at = store.get_block(&card_b.id).await.expect("card").updated_at;
+    store
         .project_body(
             &card_b.id,
-            Some(projected_body),
-            held_card.updated_at,
+            fvoci_store::Projection::Written {
+                body: projected_body,
+                read_at,
+            },
             *seqs.last().expect("seq"),
             &digest,
             &a.id,

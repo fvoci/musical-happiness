@@ -3,7 +3,7 @@
 //! grew too large again from its body.
 
 use fvoci_model::Body;
-use fvoci_store::{BodyBefore, ByAgent, StoreError, body_digest};
+use fvoci_store::{BodyBefore, ByAgent, Projection, StoreError, body_digest};
 use serde_json::Value;
 use tokio::time::{Instant, sleep_until};
 
@@ -36,6 +36,13 @@ pub(super) enum OnForget {
 pub(super) struct Sent<'a> {
     pub(super) user_id: &'a str,
     pub(super) agent: Option<ByAgent<'a>>,
+}
+
+/// An update as it was sent: its bytes, and who sent it.
+#[derive(Debug, Clone, Copy)]
+struct Sending<'a> {
+    update: &'a [u8],
+    by: Sent<'a>,
 }
 
 impl Collab {
@@ -85,7 +92,7 @@ impl Collab {
             user_id,
             agent: None,
         };
-        self.record_taken(app, card_id, slot, epoch, by, update, answer)
+        self.record_taken(app, card_id, slot, epoch, Sending { update, by }, answer)
             .await
     }
 
@@ -132,29 +139,34 @@ impl Collab {
             return Err(unexpected(&answer).into());
         };
         let taken = self
-            .record_taken(app, card_id, slot, epoch, by, &update, *taken)
+            .record_taken(
+                app,
+                card_id,
+                slot,
+                epoch,
+                Sending {
+                    update: &update,
+                    by,
+                },
+                *taken,
+            )
             .await?;
         Ok((update, epoch, taken))
     }
 
-    /// Keeps what the worker answered (`answer`) of an update it took into the document
-    /// of a held slot at `epoch`: logs the update with what a repair deleted, and the
-    /// document's numbers as they are now.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the update taken, its answer, and where and by whom, on the held slot"
-    )]
+    /// Keeps what the worker answered (`answer`) of an update it took (`sending`) into
+    /// the document of a held slot at `epoch`: logs the update with what a repair
+    /// deleted, and the document's numbers as they are now.
     async fn record_taken(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
         epoch: i64,
-        by: Sent<'_>,
-        update: &[u8],
+        sending: Sending<'_>,
         answer: Answer,
     ) -> Result<Taken, Unanswered> {
-        let user_id = by.user_id;
+        let user_id = sending.by.user_id;
         let Answer::Taken {
             repair,
             state_bytes,
@@ -177,7 +189,7 @@ impl Collab {
             return Err(super::refusals::out_of_step().into());
         }
         let seqs = self
-            .log_taken(app, card_id, slot, by, update, repair.as_deref(), &files)
+            .log_taken(app, card_id, slot, sending, repair.as_deref(), &files)
             .await?;
         let open = slot.open.as_mut().expect("the document is open");
         let now = Instant::now();
@@ -202,22 +214,18 @@ impl Collab {
         })
     }
 
-    /// Logs an update that the worker took, with its repair if any, noting its writer
-    /// for versions and holding any new files it names.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the taken update, its optional repair and files, on the held slot"
-    )]
+    /// Logs an update that the worker took (`sending`), with its repair if any, noting
+    /// its writer for versions and holding any new files it names.
     async fn log_taken(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
-        by: Sent<'_>,
-        update: &[u8],
+        sending: Sending<'_>,
         repair: Option<&[u8]>,
         files: &[String],
     ) -> Result<Vec<i64>, AppError> {
+        let Sending { update, by } = sending;
         let user_id = by.user_id;
         let mut entries: Vec<(&[u8], &str)> = vec![(update, user_id)];
         if let Some(repair) = repair {
@@ -765,8 +773,14 @@ impl Collab {
                 .store()
                 .project_body(
                     card_id,
-                    changed.then(|| body.clone()),
-                    read_at,
+                    if changed {
+                        Projection::Written {
+                            body: body.clone(),
+                            read_at,
+                        }
+                    } else {
+                        Projection::Held
+                    },
                     through,
                     &digest,
                     &last_writer,
