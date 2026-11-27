@@ -940,21 +940,27 @@ async fn a_snapshot_is_not_taken_one_scorer_apart(leaving: Leaving) {
         "showing it again did not count 6"
     );
 
-    // The count climbs back from the 6 who count now, against the snapshot's 9: 11 is
-    // too few more, 12 takes a new snapshot.
+    climb_back(&test, &test.workspace_id, &course, leaving).await;
+    test.teardown().await;
+}
+
+/// Scorers come after the count fell from 9 to 6 (`leaving` them): with 11 the results
+/// are not counted again, 11 being too few more than the 9 the snapshot counted; with
+/// 12 they are, in a new snapshot.
+async fn climb_back(test: &Store, workspace_id: &str, course: &SnapshotCourse, leaving: Leaving) {
     let mut newcomers = Vec::new();
     for name in ["s", "t", "u", "v", "w", "y"] {
-        let user = common::user(&test, name).await;
-        common::works_in(&test, &test.workspace_id, &user).await;
-        enroll(&test, &course.course_id, &user).await;
+        let user = common::user(test, name).await;
+        common::works_in(test, workspace_id, &user).await;
+        enroll(test, &course.course_id, &user).await;
         newcomers.push(user);
     }
     let (eleventh, twelfth) = newcomers.split_at(5);
     for user in eleventh {
-        score(&test, &course, user, 80.0).await;
+        score(test, course, user, 80.0).await;
     }
     assert_eq!(
-        publish().await,
+        publish(test, course).await,
         Err(ExamPublishError::TooFewChangesSincePublish {
             current_scorers: 11,
             previous_scorers: 9,
@@ -962,16 +968,31 @@ async fn a_snapshot_is_not_taken_one_scorer_apart(leaving: Leaving) {
         }),
         "11 is not 3 more than the 9 counted ({leaving:?})"
     );
-    score(&test, &course, &twelfth[0], 80.0).await;
-    let third = publish().await.expect("12 scorers publish, 3 more than 9");
+    score(test, course, &twelfth[0], 80.0).await;
+    let third = publish(test, course)
+        .await
+        .expect("12 scorers publish, 3 more than 9");
     // (412 + 6 * 80) / 12 = 74.33…
     assert_average(third.average_score, 74.3, "the 12-scorer average");
     assert_eq!(
-        snapshot_scorers(&test, &course.exam_id).await,
+        snapshot_scorers(test, &course.exam_id).await,
         "12",
         "the third snapshot counts 12"
     );
-    test.teardown().await;
+}
+
+/// Publishes the results of the course's exam as its manager.
+async fn publish(
+    test: &Store,
+    course: &SnapshotCourse,
+) -> Result<fvoci_model::CourseExam, ExamPublishError> {
+    test.publish_course_exam_results(
+        &course.course_id,
+        &course.exam_id,
+        ExamViewer::Manager(&course.admin),
+    )
+    .await
+    .expect("publish call")
 }
 
 #[tokio::test]

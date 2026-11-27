@@ -104,9 +104,9 @@ const PRIVATE_NAMES: [(usize, &str); 4] = [
 /// standard it follows.
 ///
 /// Kept narrow so ordinary phrases such as `"original file"`, `"original card"`,
-/// `"the original board exists"`, `"원본 이미지"`, or `"원본 파일"` are not flagged. Some
-/// are refused although a copy could say them of its source (`as the original`, the
-/// original followed by a name in backticks): there the copy's text says `the source`.
+/// `"the original board exists"`, `"원본 이미지"`, or `"원본 파일"` are not flagged. Two
+/// are refused although a copy could say them of its source, the word after `as the`
+/// and before a name in backticks: there the copy's text says `the source`.
 /// Every entry must be lowercase; built with `concat!` so this file stays free of
 /// literal matches. A phrase is also found across the lines of a comment
 /// ([`LINES_JOINED`]), and in a file's path.
@@ -767,26 +767,6 @@ mod tests {
             ),
             ("a.sql", concat!("-- the formats of\n-- ", "the original\n")),
             ("a.md", concat!("what the\n", "original app showed\n")),
-            // Quotations, stacked marks and the comments of other languages.
-            ("a.md", concat!("> kept as the\n> ", "original did\n")),
-            ("a.md", concat!("> * kept as the\n> * ", "original did\n")),
-            (
-                "a.rs",
-                concat!("// * kept as\n// * the ", "original kept it\n"),
-            ),
-            ("a.el", concat!(";; kept as the\n;; ", "original did\n")),
-            ("a.tex", concat!("% kept as the\n% ", "original did\n")),
-            // Blanks of any kind and number, and a line carried on to the next.
-            ("a.rs", concat!("// kept as  the\t", "original did\n")),
-            (
-                "a.sh",
-                concat!("echo \"kept as the \\\n  ", "original did\"\n"),
-            ),
-            // Three lines.
-            (
-                "a.rs",
-                concat!("// kept as\n// the\n// ", "original kept it\n"),
-            ),
         ] {
             let found = check_file(file, text, &mut reading, &BANNED_PHRASES);
             assert_eq!(found, [format!("{file}:1")], "{text:?}");
@@ -853,6 +833,38 @@ mod tests {
             Some("one two")
         );
         assert_eq!(joined(&[said("// one"), said("//")]), None);
+    }
+
+    #[test]
+    fn a_phrase_is_found_through_marks_blanks_and_three_lines() {
+        let words = banning(&[]);
+        let nothing = naming(&[]);
+        let mut reading = Reading::new(&words, &nothing);
+        for (file, text) in [
+            // Quotations, stacked marks and the comments of other languages.
+            ("a.md", concat!("> kept as the\n> ", "original did\n")),
+            ("a.md", concat!("> * kept as the\n> * ", "original did\n")),
+            (
+                "a.rs",
+                concat!("// * kept as\n// * the ", "original kept it\n"),
+            ),
+            ("a.el", concat!(";; kept as the\n;; ", "original did\n")),
+            ("a.tex", concat!("% kept as the\n% ", "original did\n")),
+            // Blanks of any kind and number, and a line carried on to the next.
+            ("a.rs", concat!("// kept as  the\t", "original did\n")),
+            (
+                "a.sh",
+                concat!("echo \"kept as the \\\n  ", "original did\"\n"),
+            ),
+            // Three lines.
+            (
+                "a.rs",
+                concat!("// kept as\n// the\n// ", "original kept it\n"),
+            ),
+        ] {
+            let found = check_file(file, text, &mut reading, &BANNED_PHRASES);
+            assert_eq!(found, [format!("{file}:1")], "{text:?}");
+        }
     }
 
     #[test]
