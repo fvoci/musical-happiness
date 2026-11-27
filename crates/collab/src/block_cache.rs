@@ -2,7 +2,8 @@
 //!
 //! A `ProseMirror`/`TipTap` body lives under the root `XmlFragment("default")` as a flat
 //! sequence of independent top-level block elements (`paragraph`, `heading`, lists,
-//! `blockquote`, `codeBlock`, `horizontalRule`, `image`, `file`, `blockMath`, `table`).
+//! `blockquote`, `codeBlock`, `horizontalRule`, `image`, `file`, `blockMath`, `table`,
+//! `details`, `callout`).
 //! Ordinary edits mutate only a handful of those blocks. Storing a compact summary per
 //! live top-level block (keyed by its immutable Yjs [`ID`], with no retained
 //! `serde_json::Value` tree) lets [`crate::BodyDoc::take_in_place`] project, validate,

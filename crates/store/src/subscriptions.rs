@@ -8,10 +8,10 @@
 use fvoci_model::{Subscriber, Subscription};
 
 use crate::Store;
-use crate::db::{Dialect, Id, Row, Scope, Sql};
+use crate::db::{Dialect, FromRow, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 
-/// The columns of a subscription, in the order [`subscription_from_row`] reads them.
+/// The columns of a subscription, in the order [`Subscription::from_row`] reads them.
 const SUBSCRIPTION_COLUMNS: &str = "block_type, block_id, user_id, notified_at, created_at";
 
 /// A subscription, and the board or the wiki its block is on: what decides whether its
@@ -162,7 +162,7 @@ impl Store {
                 .iter()
                 .map(|row| {
                     Ok(WatchedBlock {
-                        subscription: subscription_from_row(row)?,
+                        subscription: Subscription::from_row(row)?,
                         container_id: row.id(5)?,
                     })
                 })
@@ -210,10 +210,7 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("SELECT COUNT(user_id) FROM subscriptions WHERE block_id = ");
             sql.bind(Id(block_id));
-            match scope.fetch_optional(sql).await? {
-                Some(row) => row.int(0),
-                None => Ok(0),
-            }
+            Ok(scope.first(sql).await?.unwrap_or(0))
         })
         .await
     }
@@ -232,24 +229,21 @@ async fn fetch_subscriptions(
     scope: &mut Scope<'_>,
     sql: Sql,
 ) -> Result<Vec<Subscription>, StoreError> {
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(subscription_from_row)
-        .collect()
+    scope.all(sql).await
 }
 
-fn subscription_from_row(row: &Row) -> Result<Subscription, StoreError> {
-    Ok(Subscription {
-        block_type: crate::blocks::block_type_column(row, 0, "block_type")?,
-        block_id: row.id(1)?,
-        user_id: row.id(2)?,
-        notified_at: row.int(3)?,
-        created_at: row.int(4)?,
-        // A subscription that exists is not ended.
-        deleted_at: None,
-    })
+impl FromRow for Subscription {
+    fn from_row(row: &Row) -> Result<Self, StoreError> {
+        Ok(Subscription {
+            block_type: crate::blocks::block_type_column(row, 0, "block_type")?,
+            block_id: row.id(1)?,
+            user_id: row.id(2)?,
+            notified_at: row.int(3)?,
+            created_at: row.int(4)?,
+            // A subscription that exists is not ended.
+            deleted_at: None,
+        })
+    }
 }
 
 fn subscription_not_found(block_id: &str, user_id: &str) -> StoreError {

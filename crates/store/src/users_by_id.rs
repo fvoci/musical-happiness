@@ -79,7 +79,7 @@ pub(crate) async fn found_users_by_ids(
 mod tests {
     use super::*;
 
-    /// The row is read by position (`users::user_from_row`): the columns are those of
+    /// The row is read by position (`User::from_row`): the columns are those of
     /// a user, in the same order.
     #[test]
     fn an_erased_account_is_read_from_the_columns_of_a_user_in_their_order() {
