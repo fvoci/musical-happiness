@@ -651,7 +651,10 @@ mod tests {
             concat!("hidden", "desk"),
             concat!("/hidden", "desks/"),
         ] {
-            assert!(!reading.finds_name_in(text), "{text:?} holds no private name");
+            assert!(
+                !reading.finds_name_in(text),
+                "{text:?} holds no private name"
+            );
         }
         assert_eq!(
             check_file(
@@ -767,14 +770,23 @@ mod tests {
             // Quotations, stacked marks and the comments of other languages.
             ("a.md", concat!("> kept as the\n> ", "original did\n")),
             ("a.md", concat!("> * kept as the\n> * ", "original did\n")),
-            ("a.rs", concat!("// * kept as\n// * the ", "original kept it\n")),
+            (
+                "a.rs",
+                concat!("// * kept as\n// * the ", "original kept it\n"),
+            ),
             ("a.el", concat!(";; kept as the\n;; ", "original did\n")),
             ("a.tex", concat!("% kept as the\n% ", "original did\n")),
             // Blanks of any kind and number, and a line carried on to the next.
             ("a.rs", concat!("// kept as  the\t", "original did\n")),
-            ("a.sh", concat!("echo \"kept as the \\\n  ", "original did\"\n")),
+            (
+                "a.sh",
+                concat!("echo \"kept as the \\\n  ", "original did\"\n"),
+            ),
             // Three lines.
-            ("a.rs", concat!("// kept as\n// the\n// ", "original kept it\n")),
+            (
+                "a.rs",
+                concat!("// kept as\n// the\n// ", "original kept it\n"),
+            ),
         ] {
             let found = check_file(file, text, &mut reading, &BANNED_PHRASES);
             assert_eq!(found, [format!("{file}:1")], "{text:?}");

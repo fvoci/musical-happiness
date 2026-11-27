@@ -91,7 +91,12 @@ async fn a_provider_changed_or_removed_ends_the_tokens_made_through_it() {
         )
         .await;
     refused.check_status(StatusCode::CONFLICT);
-    assert_eq!(refused.value()["reason"], "provider_changed", "{}", refused.text());
+    assert_eq!(
+        refused.value()["reason"],
+        "provider_changed",
+        "{}",
+        refused.text()
+    );
     through.get("/users/me").await.check_ok();
 
     set_provider(&ts, &org_id, &fake).await;
