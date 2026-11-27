@@ -27,7 +27,7 @@ use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
 pub(crate) use self::inspect::{
     SchemaState, may_change, refuse_unrecorded_schemas, state, ungranted_tables, whereabouts,
 };
-use self::steps::STEPS;
+pub(crate) use self::steps::{STEPS, Step};
 use crate::db::{Dialect, Param};
 use crate::error::StoreError;
 use crate::{Pool, Store};
@@ -140,10 +140,10 @@ const A_SCHEMA_TABLE: &str = "blocks";
 /// tables without their migration record, was migrated by a newer server, or has a
 /// history that differs from this binary's; and
 /// [`StoreError::Database`] if a statement fails.
-pub(crate) async fn migrate(store: &Store) -> Result<(), StoreError> {
+pub(crate) async fn migrate(store: &Store, steps: &[Step]) -> Result<(), StoreError> {
     store.with_conn(inspect::refuse_unrecorded_schemas).await?;
 
-    let migrator = migrator(store.dialect());
+    let migrator = migrator(store.dialect(), steps);
     let result = match &store.inner.pool {
         Pool::Sqlite(pool) => migrator.run(pool).await,
         Pool::Postgres(pool) => migrator.run(pool).await,
@@ -176,8 +176,8 @@ pub(crate) async fn migrate(store: &Store) -> Result<(), StoreError> {
 /// Returns [`StoreError::Schema`] with the reason if the record, read again, is not the
 /// one before the baseline, and [`StoreError::Database`] if a statement fails; the
 /// record is left as it was then.
-pub(crate) async fn re_anchor(store: &Store) -> Result<(), StoreError> {
-    let migrator = migrator(store.dialect());
+pub(crate) async fn re_anchor(store: &Store, steps: &[Step]) -> Result<(), StoreError> {
+    let migrator = migrator(store.dialect(), steps);
     let Some(baseline) = migrator.iter().next() else {
         return Err(StoreError::Schema(
             "this server has no migration".to_owned(),
@@ -192,6 +192,10 @@ pub(crate) async fn re_anchor(store: &Store) -> Result<(), StoreError> {
         .system()
         .transaction(async |scope| {
             if scope.dialect() == Dialect::Postgres {
+                // A long transaction that reads the record (a dump) holds the lock off:
+                // the opening fails after a while instead of waiting for it.
+                let wait = scope.sql(RE_ANCHOR_LOCK_TIMEOUT);
+                scope.execute(wait).await?;
                 let lock = scope.sql("LOCK TABLE _sqlx_migrations IN ACCESS EXCLUSIVE MODE");
                 scope.execute(lock).await?;
             }
@@ -234,6 +238,10 @@ pub(crate) async fn re_anchor(store: &Store) -> Result<(), StoreError> {
         .await
 }
 
+/// How long the replacement of the record waits for the lock of the record on
+/// PostgreSQL, in its transaction alone.
+const RE_ANCHOR_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '10s'";
+
 /// The record a database holds when the last server before the baseline brought it up
 /// to date, oldest first: each version with the SHA-384 of its file, in lowercase
 /// hexadecimal.
@@ -242,9 +250,9 @@ pub(crate) fn record_before_the_baseline(dialect: Dialect) -> &'static [(i64, &'
     pre_baseline::record(dialect)
 }
 
-/// The migrator of every migration.
-fn migrator(dialect: Dialect) -> Migrator {
-    let migrations = STEPS
+/// The migrator of the migrations `steps`.
+fn migrator(dialect: Dialect, steps: &[Step]) -> Migrator {
+    let migrations = steps
         .iter()
         .map(|step| {
             let sql = match dialect {
@@ -388,7 +396,7 @@ mod tests {
     fn the_record_before_the_baseline_is_not_the_baselines() {
         for dialect in [Dialect::Sqlite, Dialect::Postgres] {
             let record = pre_baseline::record(dialect);
-            let baseline = migrator(dialect);
+            let baseline = migrator(dialect, &STEPS);
             let Some(first) = baseline.iter().next() else {
                 panic!("{dialect:?}: no baseline");
             };
@@ -411,5 +419,124 @@ mod tests {
         for table in ORG_TABLES {
             assert!(!GLOBAL_TABLES.contains(&table), "{table} is in both lists");
         }
+    }
+
+    /// The baseline, and a migration after it as a later server has one.
+    fn baseline_and_one_more() -> [Step; 2] {
+        let [baseline] = &STEPS;
+        [
+            Step {
+                version: baseline.version,
+                description: baseline.description,
+                sqlite: baseline.sqlite,
+                postgres: baseline.postgres,
+            },
+            Step {
+                version: 2,
+                description: "after the baseline",
+                sqlite: "CREATE TABLE after_the_baseline (id INTEGER PRIMARY KEY);",
+                postgres: "CREATE TABLE after_the_baseline (id BIGINT PRIMARY KEY);",
+            },
+        ]
+    }
+
+    /// The bytes of lowercase hexadecimal, as the record before the baseline has them.
+    fn bytes_of(hexadecimal: &str) -> Vec<u8> {
+        (0..hexadecimal.len())
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&hexadecimal[at..at + 2], 16).expect("hexadecimal"))
+            .collect()
+    }
+
+    /// A database of the baseline whose record is the one the last server before the
+    /// baseline left, as a database that server brought up to date is.
+    async fn before_the_baseline() -> Store {
+        let store = Store::open(crate::DbType::Sqlite, ":memory:")
+            .await
+            .expect("the database opens");
+        store.migrate().await.expect("the baseline is applied");
+        store
+            .system()
+            .transaction(async |scope| {
+                scope
+                    .execute(scope.sql("DELETE FROM _sqlx_migrations"))
+                    .await?;
+                for (version, checksum) in pre_baseline::record(Dialect::Sqlite) {
+                    let mut sql = scope.sql(
+                        "INSERT INTO _sqlx_migrations \
+                         (version, description, success, checksum, execution_time) VALUES (",
+                    );
+                    sql.bind(*version)
+                        .push(", 'before the baseline', TRUE, ")
+                        .bind(Param::Bytes(bytes_of(checksum)))
+                        .push(", 0)");
+                    scope.execute(sql).await?;
+                }
+                Ok(())
+            })
+            .await
+            .expect("the record before the baseline is written");
+        store
+    }
+
+    /// The versions the record of the database holds, oldest first.
+    async fn recorded_versions(store: &Store) -> Vec<i64> {
+        store
+            .system()
+            .transaction(async |scope| inspect::record(scope).await)
+            .await
+            .expect("the record is read")
+            .iter()
+            .map(|recorded| recorded.version)
+            .collect()
+    }
+
+    /// Once a server has migrations after the baseline, one migration of a database
+    /// before the baseline replaces its record and then applies them: neither a
+    /// server's start nor `--migrate` leaves it behind until the next.
+    #[tokio::test]
+    async fn a_database_before_the_baseline_takes_the_migrations_after_it_at_once() {
+        let steps = baseline_and_one_more();
+        let store = before_the_baseline().await;
+        assert_eq!(
+            store.check_schema().await.expect("the record is read"),
+            SchemaCheck::BeforeBaseline
+        );
+        store.migrate_with(&steps).await.expect("migrated");
+        assert_eq!(recorded_versions(&store).await, [1, 2]);
+        assert_eq!(
+            state(&store, &steps).await.expect("the record is read"),
+            SchemaState::Current
+        );
+        store
+            .system()
+            .transaction(async |scope| {
+                scope
+                    .execute(scope.sql("INSERT INTO after_the_baseline (id) VALUES (1)"))
+                    .await
+            })
+            .await
+            .expect("the table of the migration after the baseline is there");
+        store.close().await;
+    }
+
+    /// The replacement of the record alone, which `--migrate` makes while a server
+    /// serves the database, leaves the migrations after the baseline to be applied, as
+    /// it says: those change tables, and are applied under the server's lock.
+    #[tokio::test]
+    async fn the_record_replaced_alone_leaves_the_migrations_after_the_baseline() {
+        let steps = baseline_and_one_more();
+        let store = before_the_baseline().await;
+        assert_eq!(
+            store.re_anchor_with(&steps).await.expect("replaced"),
+            SchemaCheck::Behind
+        );
+        assert_eq!(recorded_versions(&store).await, [1]);
+        assert_eq!(
+            store.re_anchor_with(&STEPS).await.expect("read again"),
+            SchemaCheck::Current,
+            "this server's: nothing is left"
+        );
+        store.close().await;
     }
 }

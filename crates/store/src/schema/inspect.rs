@@ -1,7 +1,7 @@
 //! Reading a database's migration record and role privileges before running or skipping
 //! migrations.
 
-use super::{A_SCHEMA_TABLE, MIGRATIONS_TABLE, migrator, pre_baseline};
+use super::{A_SCHEMA_TABLE, MIGRATIONS_TABLE, Step, migrator, pre_baseline};
 use crate::Store;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
@@ -40,8 +40,8 @@ pub(super) struct Recorded {
 ///
 /// Returns [`StoreError::Schema`] if the record is there but the role may not read it
 /// (it was not granted the tables), and [`StoreError::Database`] if it cannot be read.
-pub(crate) async fn state(store: &Store) -> Result<SchemaState, StoreError> {
-    let migrator = migrator(store.dialect());
+pub(crate) async fn state(store: &Store, steps: &[Step]) -> Result<SchemaState, StoreError> {
+    let migrator = migrator(store.dialect(), steps);
     let known: Vec<(i64, &[u8])> = migrator
         .iter()
         .map(|migration| (migration.version, migration.checksum.as_ref()))
@@ -126,8 +126,8 @@ pub(super) async fn before_baseline(
     if let Some(gap) = gap_from_the_chain(recorded, chain) {
         return Ok(Some(SchemaState::Foreign(format!(
             "the database's record of schema migrations is the one of a server before the \
-             baseline, but {gap}: open it with the last server before the baseline first, \
-             which brings it to migration {last}, then with this one"
+             baseline, but {gap}: open it with the last server before the baseline first \
+             (tag pre-baseline), which brings it to migration {last}, then with this one"
         ))));
     }
     let pending = pending_data_steps(scope).await?;
@@ -135,7 +135,7 @@ pub(super) async fn before_baseline(
         return Ok(Some(SchemaState::Foreign(format!(
             "the database's schema is the one before the baseline, but the changes of the \
              data that follow its migrations are not done ({}): open it with the last server \
-             before the baseline first, then with this one",
+             before the baseline first (tag pre-baseline), then with this one",
             pending.join(", ")
         ))));
     }

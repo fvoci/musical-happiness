@@ -10,9 +10,10 @@ use super::{
 };
 
 impl Store {
-    /// Brings the database's schema to this server's if it is behind, or replaces the
-    /// record of a database before the baseline with the baseline's, when the connected
-    /// role may change it; nothing for a schema that is this server's.
+    /// Brings the database's schema to this server's, when the connected role may
+    /// change it: replaces the record of a database before the baseline with the
+    /// baseline's, then applies the migrations the database does not have yet; nothing
+    /// for a schema that is this server's.
     ///
     /// # Errors
     ///
@@ -21,10 +22,44 @@ impl Store {
     /// the database is not this server's to open or the role may not read and write
     /// its tables, and [`StoreError::Database`] if a statement fails.
     pub async fn migrate(&self) -> Result<(), StoreError> {
-        match self.schema_change().await? {
+        self.migrate_with(&schema::STEPS).await
+    }
+
+    /// [`Store::migrate`] with the migrations `steps`: this server's, or a test's.
+    pub(crate) async fn migrate_with(&self, steps: &[schema::Step]) -> Result<(), StoreError> {
+        match self.re_anchor_with(steps).await? {
             SchemaCheck::Current => Ok(()),
-            SchemaCheck::Behind => schema::migrate(self).await,
-            SchemaCheck::BeforeBaseline => schema::re_anchor(self).await,
+            SchemaCheck::Behind => schema::migrate(self, steps).await,
+            SchemaCheck::BeforeBaseline => Err(still_before_the_baseline()),
+        }
+    }
+
+    /// Replaces the record of a database before the baseline with the baseline's, as
+    /// [`Store::migrate`] does first, and gives what is left to do: the migrations
+    /// after the baseline ([`SchemaCheck::Behind`]), which change the schema, or none.
+    /// The schema itself is not changed, so that a server that serves the database
+    /// goes on.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::migrate`].
+    pub async fn re_anchor(&self) -> Result<SchemaCheck, StoreError> {
+        self.re_anchor_with(&schema::STEPS).await
+    }
+
+    /// [`Store::re_anchor`] with the migrations `steps`.
+    pub(crate) async fn re_anchor_with(
+        &self,
+        steps: &[schema::Step],
+    ) -> Result<SchemaCheck, StoreError> {
+        let change = self.schema_change(steps).await?;
+        if change != SchemaCheck::BeforeBaseline {
+            return Ok(change);
+        }
+        schema::re_anchor(self, steps).await?;
+        match self.schema_change(steps).await? {
+            SchemaCheck::BeforeBaseline => Err(still_before_the_baseline()),
+            left => Ok(left),
         }
     }
 
@@ -35,12 +70,12 @@ impl Store {
     /// As [`Store::migrate`], for what it would refuse.
     pub async fn check_schema(&self) -> Result<SchemaCheck, StoreError> {
         self.with_conn(schema::refuse_unrecorded_schemas).await?;
-        self.schema_change().await
+        self.schema_change(&schema::STEPS).await
     }
 
     /// The change the schema is to have, if the role may make it.
-    async fn schema_change(&self) -> Result<SchemaCheck, StoreError> {
-        let state = schema::state(self).await?;
+    async fn schema_change(&self, steps: &[schema::Step]) -> Result<SchemaCheck, StoreError> {
+        let state = schema::state(self, steps).await?;
         let may_change = schema::may_change(self).await?;
         let (change, reason) = match state {
             schema::SchemaState::Current => {
@@ -171,4 +206,13 @@ impl Store {
             }),
         })
     }
+}
+
+/// The refusal of a record that is the one before the baseline after it was replaced.
+fn still_before_the_baseline() -> StoreError {
+    StoreError::Schema(
+        "the record of the schema migrations is still the one before the baseline after it \
+         was replaced: open the database again"
+            .to_owned(),
+    )
 }

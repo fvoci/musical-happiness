@@ -44,10 +44,11 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
 /// Brings the database's schema up to date and ends: `fvoci-server --migrate`, run as
 /// the role that owns the tables when the server connects as one that does not. A
 /// schema that is up to date already is left as it is at once, while a server serves
-/// it, and so is the schema of a database before the baseline, whose record alone is
-/// replaced. Otherwise it holds the lock of the server meanwhile, so that no server
-/// serves the database while its tables change: it waits for a server that serves it to
-/// stop. It does not look at the wall: the owner that migrates may be a superuser.
+/// it; of a database before the baseline the record is replaced first, which changes no
+/// table. Migrations that are still to be applied then are applied under the lock of
+/// the server, so that no server serves the database while its tables change: it waits
+/// for a server that serves it to stop. It does not look at the wall: the owner that
+/// migrates may be a superuser.
 ///
 /// # Errors
 ///
@@ -112,23 +113,22 @@ async fn migrate_under_the_lock(store: &Store, config: &Configuration) -> anyhow
         .role_and_schema()
         .await
         .context("reading the role and the schema of the connection")?;
-    let change = store
+    let mut change = store
         .check_schema()
         .await
         .context("reading the record of the database's migrations")?;
-    match change {
-        SchemaCheck::Current => {
-            return Ok(Migrated {
-                role,
-                schema,
-                changed: false,
-            });
-        }
+    let re_anchored = change == SchemaCheck::BeforeBaseline;
+    if re_anchored {
         // Only the record changes: a server that serves the database goes on.
-        SchemaCheck::BeforeBaseline => store
-            .migrate()
+        change = store
+            .re_anchor()
             .await
-            .context("replacing the record of the migrations before the baseline")?,
+            .context("replacing the record of the migrations before the baseline")?;
+    }
+    match change {
+        SchemaCheck::Current => {}
+        // The migrations after the baseline change the tables, of a database before it
+        // too.
         SchemaCheck::Behind => {
             let lock = super::take_server_lock(store, config).await.context(
                 "the schema is to be changed while a server serves the database: stop it, \
@@ -138,11 +138,15 @@ async fn migrate_under_the_lock(store: &Store, config: &Configuration) -> anyhow
             lock.release().await;
             migrated.context("bringing the database's schema up to date")?;
         }
+        SchemaCheck::BeforeBaseline => anyhow::bail!(
+            "the record of the migrations is still the one before the baseline after it was \
+             replaced"
+        ),
     }
     Ok(Migrated {
         role,
         schema,
-        changed: true,
+        changed: re_anchored || change == SchemaCheck::Behind,
     })
 }
 
