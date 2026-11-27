@@ -13,7 +13,7 @@ use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
 use super::list_page::ListPage;
 use crate::collab::Deletion;
-use crate::error::AppError;
+use crate::error::{AppError, OrMissing};
 
 impl App {
     /// Makes a diary in its workspace with `user_id` as its admin, as `making` says,
@@ -67,13 +67,11 @@ impl App {
     /// store's error if the block cannot be read.
     pub async fn diary_entry_of(&self, diary_id: &str, entry_id: &str) -> Result<Block, AppError> {
         const WHAT: &str = "entry";
-        match self.block(entry_id).await {
-            Ok(block) if block.container_id == diary_id && block.block_type == BlockType::Entry => {
-                Ok(block)
-            }
-            Ok(_) => Err(AppError::not_found(WHAT)),
-            Err(error) if error.is_not_found() => Err(AppError::not_found(WHAT)),
-            Err(error) => Err(error),
+        let block = self.block(entry_id).await.or_missing(WHAT)?;
+        if block.container_id == diary_id && block.block_type == BlockType::Entry {
+            Ok(block)
+        } else {
+            Err(AppError::not_found(WHAT))
         }
     }
 

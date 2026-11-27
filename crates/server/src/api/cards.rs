@@ -33,7 +33,7 @@ use crate::app::{
     App, CardPreviews, CardsFilter, CardsOrder, CardsUnder, ChangeNotification, body_of_markdown,
 };
 use crate::auth::now_millis;
-use crate::error::AppError;
+use crate::error::{AppError, OrMissing};
 use crate::permissions::ContainerPermission;
 
 /// How a card's body is given (`format`).
@@ -182,11 +182,7 @@ pub(super) async fn card_with_permission(
     denial: &str,
 ) -> Result<Block, AppError> {
     const WHAT: &str = "card";
-    let block = match app.block(card_id).await {
-        Ok(block) => block,
-        Err(error) if error.is_not_found() => return Err(AppError::not_found(WHAT)),
-        Err(error) => return Err(error),
-    };
+    let block = app.block(card_id).await.or_missing(WHAT)?;
     require_permission_through(app, user_id, &block.container_id, permission, denial, WHAT).await?;
     if block.block_type != BlockType::Card {
         return Err(AppError::not_found(WHAT));

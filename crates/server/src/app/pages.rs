@@ -10,7 +10,7 @@ use fvoci_store::{PageCopies, PageRestore, PageWrite, StoreError};
 use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
 use super::list_page::ListPage;
-use crate::error::{AppError, Reason};
+use crate::error::{AppError, OrMissing, Reason};
 
 impl App {
     /// The page of the wiki, its block read once: a block that is no page of this wiki
@@ -23,13 +23,11 @@ impl App {
     /// store's error if the block cannot be read.
     pub async fn page_of(&self, wiki_id: &str, page_id: &str) -> Result<Block, AppError> {
         const WHAT: &str = "page";
-        match self.block(page_id).await {
-            Ok(block) if block.container_id == wiki_id && block.block_type == BlockType::Page => {
-                Ok(block)
-            }
-            Ok(_) => Err(AppError::not_found(WHAT)),
-            Err(error) if error.is_not_found() => Err(AppError::not_found(WHAT)),
-            Err(error) => Err(error),
+        let block = self.block(page_id).await.or_missing(WHAT)?;
+        if block.container_id == wiki_id && block.block_type == BlockType::Page {
+            Ok(block)
+        } else {
+            Err(AppError::not_found(WHAT))
         }
     }
 

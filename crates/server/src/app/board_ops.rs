@@ -19,7 +19,7 @@ use super::container_copies::titles_in;
 use super::language::Language;
 use super::{App, ChangeNotification};
 use crate::collab::Deletion;
-use crate::error::AppError;
+use crate::error::{AppError, OrMissing};
 
 impl App {
     /// Atomically duplicates `card_id` on `board_id`, pre-copying referenced storage
@@ -274,11 +274,11 @@ impl App {
         if !card_ids.iter().all(|card_id| is_id(card_id)) {
             return Err(not_found());
         }
-        let mut blocks = match self.store().get_blocks_by_ids(card_ids).await {
-            Ok(blocks) => blocks,
-            Err(error) if error.is_not_found() => return Err(not_found()),
-            Err(error) => return Err(error.into()),
-        };
+        let mut blocks = self
+            .store()
+            .get_blocks_by_ids(card_ids)
+            .await
+            .or_missing("card")?;
         hide_inactive_numbers(&mut blocks);
         let mut by_id: HashMap<String, Block> = blocks
             .into_iter()

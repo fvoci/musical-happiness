@@ -20,7 +20,7 @@ use super::{
     require_deletion_permission,
 };
 use crate::app::{App, ChangeNotification};
-use crate::error::AppError;
+use crate::error::{AppError, OrMissing};
 use crate::permissions::ContainerPermission;
 
 /// Refusal message when a comment body is empty or omitted.
@@ -166,12 +166,8 @@ pub(super) async fn find_live_comment_on(
     parent: &Block,
     comment_id: &str,
 ) -> Result<Option<Block>, AppError> {
-    match ws.app.block(comment_id).await {
-        Ok(block) if is_comment_on(&block, parent) => Ok(Some(block)),
-        Ok(_) => Ok(None),
-        Err(error) if error.is_not_found() => Ok(None),
-        Err(error) => Err(error),
-    }
+    let found = ws.app.block(comment_id).await.found()?;
+    Ok(found.filter(|block| is_comment_on(block, parent)))
 }
 
 /// Resolves a required live comment under an already-authorized `parent` block (404 when

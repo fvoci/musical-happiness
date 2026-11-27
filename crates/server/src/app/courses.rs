@@ -10,7 +10,7 @@ use fvoci_store::{UnitRestore, UnitWrite};
 use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
 use super::list_page::ListPage;
-use crate::error::AppError;
+use crate::error::{AppError, OrMissing};
 
 impl App {
     /// The unit or chapter of the course, its block read once: a block that is neither a
@@ -24,16 +24,11 @@ impl App {
     /// and the store's error if the block cannot be read.
     pub async fn unit_of(&self, course_id: &str, unit_id: &str) -> Result<Block, AppError> {
         const WHAT: &str = "unit";
-        match self.block(unit_id).await {
+        let block = self.block(unit_id).await.or_missing(WHAT)?;
+        if block.container_id == course_id && UnitKind::of_block(&block.block_type).is_some() {
             Ok(block)
-                if block.container_id == course_id
-                    && UnitKind::of_block(&block.block_type).is_some() =>
-            {
-                Ok(block)
-            }
-            Ok(_) => Err(AppError::not_found(WHAT)),
-            Err(error) if error.is_not_found() => Err(AppError::not_found(WHAT)),
-            Err(error) => Err(error),
+        } else {
+            Err(AppError::not_found(WHAT))
         }
     }
 
