@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-23 13:25 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-27 20:16 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 키를 더하거나 바꾸면 같은 커밋에서 이 문서를 고친다. 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -58,6 +58,46 @@
 | `org_creation` | `FVOCI_ORG_CREATION` | 문자열 | `"first_user_only"` | 서버가 조직을 하나만 두는가(`first_user_only`), 여럿을 받는가(`open`). `open`은 `database_kind`가 `sqlite`이면 시작하지 않는다(SQLite는 조직 하나만 담는다). PostgreSQL에서는 조직의 행을 행 단위 보안 정책이 갈라 둔다. 서버가 붙는 DB 역할이 슈퍼유저이거나 `BYPASSRLS`이면 그 정책이 걸리지 않는다: `open`이면 DB에 아무것도 만들기 전에 시작을 거부하고, `first_user_only`면 경고를 남기고 시작한다. 그 밖의 값은 시작 오류다. 가입(`register`)이 이 값을 따른다: `first_user_only`에서는 첫 사용자만 가입해 조직을 시작하고 그 뒤의 사람은 초대 링크로만 들어온다(403 `invitation_required`). `open`에서는 가입하는 사람마다 새 조직을 시작한다 |
 
 `docker/compose.yaml`로 띄운 설치의 백업과 갱신은 그 곁의 스크립트가 한다(쓰는 법은 그 머리 주석). 세 스크립트는 compose가 그 파일들과 `.env`를 거절하거나 경고하면(값의 `$`는 compose에게 변수이고, 서비스는 그것을 뺀 값을 받는다: 받는 값을 지키려면 `$`와 그 뒤 이름을 지우고, `$`를 주려면 `$$`로 쓰거나 값을 작은따옴표로 감싼다. 그렇게 바뀐 비밀 키나 비밀번호는 그것으로 봉한 것을 열지 못한다) 아무것도 바꾸지 않고 멈추고, compose의 말을 그것이 따온 값 없이 보인다(아는 말은 줄 번호와 그 말로, 나머지는 줄 수로). `docker/backup.sh`는 DB를 `pg_dump -Fc`로, 파일이 볼륨에 있으면 그 파일을, 그리고 `.env`와 compose 파일의 사본을 주인만 읽는 폴더(700, 파일은 600) 하나에 뜨고, `--keep-days`(기본 14)보다 오래된 그 프로젝트의 백업을 지운다. 파일이 S3에 있으면 DB만 뜨고 그렇게 말한다(버킷은 운영자가 맡는다). `docker/restore.sh`는 빈 DB와 빈 파일 볼륨에만 되살린다: fvoci의 컨테이너가 있거나, 표가 하나라도 있거나, 파일이 있거나, 백업의 `made`가 다른 프로젝트(`--other-project`로 허용)·파일 저장 방식을 가리키거나, `FVOCI_SECRET_KEY`가 없거나(`--key-not-checked`로 허용) 백업과 다르면 아무것도 바꾸지 않고 거절한다. 되살린 뒤 `up`이 스키마를 올리고, 관리 소켓의 `search/reindex`로 검색 색인을 다시 만들고 `files/reconcile`로 기록과 파일을 대조한다. `docker/update.sh`는 새 compose 파일과 `.env`를 먼저 검사해 모자란 줄을 이름하고 아무것도 멈추지 않은 채 끝낸다. 지나면 `pull`, 새 이미지의 `--migrate --check`(돌던 fvoci는 그대로, 열 수 없는 데이터베이스면 아무것도 바꾸지 않고 멈춘다), 백업, fvoci 멈춤, `up`(마이그레이션), 준비와 ping의 커밋 확인 순서이고, 내려가 있던 시간과 스키마의 판을 찍고, 그 전에 돌던 이미지에 `fvoci-server:before-update-<프로젝트>-<UTC 시각>` 태그를 붙여 둔다. 내리는 마이그레이션은 없다: 스키마가 바뀐 뒤 되돌리는 길은 백업에서 되살리는 것뿐이다.
+
+### PostgreSQL 컨테이너의 튜닝
+
+`docker/compose.yaml`의 `postgres`는 PostgreSQL 18 이미지의 기본값과 Docker의 기본 `/dev/shm`(64 MiB)으로 뜬다: `shared_buffers=128MB`, `work_mem=4MB`, `wal_compression=off`, `jit=on`. 써 보기에는 되지만 실서버에서는 정렬과 해시(목록의 정렬, 창 함수, 해시 조인)가 `work_mem`을 넘어 디스크의 임시 파일로 넘치고, `org_wall`의 행 단위 보안이 걸린 짧은 질의도 큰 표에서 비용 추정이 `jit_above_cost`(기본 100000)를 넘으면 실행보다 길 수 있는 LLVM 컴파일을 먼저 한다. 큰 값(`blocks.body`·`body_versions.body`의 JSONB, `body_docs.state`·`body_updates.bytes`의 Yjs 상태와 갱신)은 TOAST가 느린 `pglz`로 압축하고, 체크포인트 뒤 처음 고치는 페이지는 그 사본(최대 8 KiB)이 압축 없이 WAL에 들어간다. 그래서 실서버에서는 기기에 맞춘 값을 저장소에 넣지 않는 자기 파일(아래는 `override.yaml`)에 적어 `docker/compose.yaml` 뒤에 준다: `docker compose -f docker/compose.yaml -f override.yaml up -d`. 뒤의 파일이 앞의 것을 덮고(`command`는 통째로 바뀐다) `.env`는 첫 파일 곁의 것을 읽으므로 `docker/compose.yaml`을 먼저 둔다. 세 스크립트에도 같은 `-f` 둘을 준다(`docker/backup.sh -f docker/compose.yaml -f override.yaml`, `restore.sh`와 `update.sh`도): `restore.sh`와 `update.sh`는 받은 파일들로 `up`하고 `backup.sh`는 그 사본을 백업에 넣으므로, 빠뜨리면 PostgreSQL이 기본값으로 다시 만들어지고 백업에 그 파일이 없다. 값을 바꾸면 `up`이 postgres 컨테이너를 새로 만들어 그동안 DB가 내려간다: fvoci를 먼저 멈추고(`stop fvoci`) `up -d`한다.
+
+4 vCPU, 24 GiB, SSD(NVMe나 클라우드의 블록 SSD)에서 fvoci와 OpenSearch가 함께 도는 서버 하나의 `override.yaml`:
+
+```yaml
+services:
+  postgres:
+    shm_size: "2g"
+    command: ["postgres",
+      "-c", "max_connections=40",
+      "-c", "shared_buffers=4GB",
+      "-c", "effective_cache_size=16GB",
+      "-c", "work_mem=32MB",
+      "-c", "maintenance_work_mem=512MB",
+      "-c", "wal_compression=zstd",
+      "-c", "default_toast_compression=lz4",
+      "-c", "checkpoint_timeout=15min",
+      "-c", "max_wal_size=4GB",
+      "-c", "min_wal_size=512MB",
+      "-c", "random_page_cost=1.1",
+      "-c", "effective_io_concurrency=200",
+      "-c", "maintenance_io_concurrency=200",
+      "-c", "max_parallel_workers=4",
+      "-c", "jit=off"]
+```
+
+- `shm_size: "2g"`: 병렬 질의의 일꾼들이 나눠 쓰는 메모리(`dynamic_shared_memory_type=posix`)가 `/dev/shm`에 잡히고, 모자라면 그 질의가 `could not resize shared memory segment … No space left on device`로 실패한다. 병렬 해시 하나가 `work_mem`×`hash_mem_multiplier`(2)×(`max_parallel_workers_per_gather`+1)까지, 여기서는 192MB를 쓰므로 `work_mem`을 올리면 함께 올린다(2g는 그런 해시 열 개쯤). 한도일 뿐 미리 잡지 않고, `shared_buffers`는 여기 들지 않는다(`shared_memory_type=mmap`).
+- `max_connections=40`(기본 100): fvoci의 풀(`database_max_connections`, 기본 20)과 서버 잠금의 전용 연결 하나에, 마이그레이션(`migrate`, `update.sh`의 `--migrate --check`)과 `pg_dump`, `psql`로 하는 점검의 몫, 슈퍼유저 몫(`superuser_reserved_connections`, 3)을 더한 수다. 연결마다 정렬·해시마다 `work_mem`을 쓸 수 있으므로 쓰지 않을 연결을 열어 두지 않는다. `database_max_connections`를 올리면 그만큼 올린다.
+- `shared_buffers=4GB`, `effective_cache_size=16GB`: `shared_buffers`는 메모리의 약 17%로, DB만 도는 기기의 흔한 값(25%)보다 낮다: fvoci와 OpenSearch(그 힙과 그것이 기대는 OS의 페이지 캐시)가 같은 메모리를 쓴다. `effective_cache_size`는 메모리를 잡지 않는 계획기의 짐작으로, `shared_buffers`와 OS의 페이지 캐시를 합쳐 DB가 기대할 수 있는 크기다: 클수록 색인 스캔을 고른다. `wal_buffers`는 기본(-1)이 `shared_buffers`의 1/32을 16MB까지 잡으므로 여기서는 이미 16MB다.
+- `work_mem=32MB`, `maintenance_work_mem=512MB`: `work_mem`은 질의의 정렬·해시 하나의 한도다(병렬 일꾼은 저마다, 해시는 그 2배까지). 40 연결이 하나씩 쓰면 1.25GB다. `maintenance_work_mem`은 색인을 만들 때(마이그레이션, `restore.sh`의 `pg_restore`)와 `VACUUM`의 것이고, autovacuum 일꾼(`autovacuum_max_workers`, 3)도 저마다 이만큼까지 쓴다. 넘치는지는 `pg_stat_database`의 `temp_files`·`temp_bytes`로 본다.
+- `wal_compression=zstd`, `default_toast_compression=lz4`: 체크포인트 뒤 처음 고치는 페이지마다 WAL에 들어가는 페이지 전체(full-page write)를 zstd로 줄인다: 본문과 Yjs 상태처럼 큰 행을 자주 고치는 쓰기의 WAL과 디스크 쓰기가 준다. `default_toast_compression`은 TOAST가 압축하는 큰 값(행이 약 2KB를 넘게 하는 JSONB 본문, Yjs의 bytea)을 `pglz`보다 빠르게 압축하고 푼다. 그 뒤로 쓰는 값에만 걸리고, 있던 값은 다시 쓰일 때까지 `pglz`다. 이미지의 PostgreSQL은 lz4와 zstd를 넣어 지었다.
+- `checkpoint_timeout=15min`, `max_wal_size=4GB`, `min_wal_size=512MB`: 체크포인트가 드물수록 full-page write가 준다. 대신 죽은 뒤 되살릴 때 최대 15분 치 WAL을 다시 읽고, 볼륨의 `pg_wal`이 `max_wal_size` 안팎까지 찬다. `pg_stat_checkpointer`의 `num_requested`가 `num_timed`보다 빨리 늘면 `max_wal_size`가 모자란 것이다. `checkpoint_completion_target`은 기본이 이미 0.9다.
+- `random_page_cost=1.1`, `effective_io_concurrency=200`, `maintenance_io_concurrency=200`(기본 4, 16, 16): SSD에서는 임의 읽기가 순차 읽기와 거의 같은 값이므로 색인 스캔을 고르게 하고, 한 번에 미리 읽는 요청을 늘린다. 하드 디스크면 기본으로 둔다.
+- `max_parallel_workers=4`(기본 8): 병렬 일꾼을 코어 수까지로 막아 fvoci와 OpenSearch의 몫을 남긴다. `max_parallel_workers_per_gather`와 `max_parallel_maintenance_workers`는 기본 2가 이 기기에 맞다. `max_worker_processes`는 기본 8로 둔다: 논리 복제 런처가 그 자리 하나를 차지하므로 4로 내리면 병렬 일꾼은 셋까지만 뜬다.
+- `jit=off`: fvoci의 질의는 짧아서 JIT로 얻을 것이 적고, JIT가 걸리는 것(비용 추정만 큰 것)은 컴파일이 실행보다 길어지기 쉽다.
+
+다른 기기에서는 비율을 따른다. 메모리를 따르는 것은 `shared_buffers` 15~25%(fvoci와 OpenSearch가 같은 기기면 낮은 쪽), `effective_cache_size` 65~70%, `maintenance_work_mem` 2% 안팎, `work_mem`은 그 `max_connections`배가 5% 안팎, `shm_size`는 `work_mem`의 60배 안팎이다: 8 GiB면 `1536MB`·`5GB`·`128MB`·`8MB`·`"512m"`, 16 GiB면 `3GB`·`11GB`·`256MB`·`16MB`·`"1g"`, 64 GiB면 `12GB`·`44GB`·`1GB`·`64MB`·`"4g"`. 코어를 따르는 것은 `max_parallel_workers`(코어 수), `max_parallel_workers_per_gather`와 `max_parallel_maintenance_workers`(그 절반, 4까지), `max_worker_processes`(`max_parallel_workers`+1 이상: 8코어면 `9`)이고, 병렬 해시 하나의 몫이 일꾼 수를 따라 커지므로 `shm_size`도 함께 늘린다. `max_connections`는 메모리가 아니라 `database_max_connections`를 따르고, WAL과 체크포인트의 값은 쓰는 양과 디스크를 따른다.
 
 ## 키: 파일 저장소
 
