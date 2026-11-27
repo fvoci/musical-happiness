@@ -145,10 +145,9 @@ test('the bar fits the screen, stays clear of the add button, and gives a finger
   }
 });
 
-test('a property chosen from "More" opens its editor, and leaves no stop for Tab in the bar', async ({
+test('a property chosen from the menu of the bar opens its editor, and where its button is hidden Tab passes it', async ({
   page,
 }, info) => {
-  test.skip(!touch(info), 'where the view is wide the bar has "Properties", with its words');
   await openView(page, info, BOARD, 'Status board');
   await select(page, info, [card(page, 'Build'), card(page, 'Test')], async () => {
     await page.getByRole('button', { name: 'Card menu: Build' }).click();
@@ -161,6 +160,12 @@ test('a property chosen from "More" opens its editor, and leaves no stop for Tab
   await expect(opener).toHaveAttribute('aria-expanded', 'true');
   await page.keyboard.press('Escape');
   await expect(opener).toHaveAttribute('aria-expanded', 'false');
-  // The button the editor opens from has no place of its own on a phone: Tab passes it.
-  await expect(opener).toHaveAttribute('tabindex', '-1');
+  // Where the view is narrow ("More") the button the editor opens from is hidden, and no stop for
+  // Tab; where it is wide ("Properties") it is a button of the bar like the others.
+  if (await opener.evaluate((element) => element.classList.contains('sr-only'))) {
+    await expect(opener).toHaveAttribute('tabindex', '-1');
+  } else {
+    await expect(opener).toBeVisible();
+    await expect(opener).not.toHaveAttribute('tabindex', '-1');
+  }
 });
