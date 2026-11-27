@@ -53,6 +53,7 @@ mod oidc_account;
 mod oidc_carry;
 mod oidc_link;
 mod oidc_pending;
+mod oidc_purpose;
 mod oidc_settings;
 mod onboarding;
 mod org_admin;
