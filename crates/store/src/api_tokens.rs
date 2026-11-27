@@ -615,6 +615,47 @@ pub(crate) async fn revoke_of_identity(
     Ok(())
 }
 
+/// Where the name of a token is copied, found by the token's owner through the token:
+/// what an agent wrote through it, kept as a version of a body or waiting in a body's
+/// document.
+const TOKEN_NAMES_BY_TOKEN: [&str; 2] = [
+    "UPDATE body_versions SET actor_token_name = NULL WHERE actor_token_name IS NOT NULL \
+     AND actor_token_id IN (SELECT id FROM api_tokens WHERE user_id = ",
+    "UPDATE body_docs SET agent_token_name = NULL WHERE agent_token_name IS NOT NULL \
+     AND agent_token_id IN (SELECT id FROM api_tokens WHERE user_id = ",
+];
+
+/// Where the name of a token is copied, found by its owner: what others are told, or
+/// are to be told, of what the owner did through it.
+const TOKEN_NAMES_BY_ACTOR: [&str; 2] = [
+    "UPDATE notifications SET actor_token_name = NULL WHERE actor_token_name IS NOT NULL \
+     AND actor_id = ",
+    "UPDATE notification_outbox SET actor_token_name = NULL WHERE actor_token_name IS NOT NULL \
+     AND actor_id = ",
+];
+
+/// Takes the names of the tokens of `user_id` out of every copy, in every organization,
+/// before the tokens go: a name is what the person wrote, as their own name is. What
+/// was written through a token stays, and says no more than that an agent wrote it.
+/// The last step of account erasure calls it with a scope of system reach, so the
+/// organizations the account left before it was erased are reached too.
+pub(crate) async fn forget_names_of_tokens_of(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    for update in TOKEN_NAMES_BY_TOKEN {
+        let mut sql = scope.sql(update);
+        sql.bind(Id(user_id)).push(")");
+        scope.execute(sql).await?;
+    }
+    for update in TOKEN_NAMES_BY_ACTOR {
+        let mut sql = scope.sql(update);
+        sql.bind(Id(user_id));
+        scope.execute(sql).await?;
+    }
+    Ok(())
+}
+
 /// Takes back the tokens made through the provider `before` that its change to `after`
 /// ends: every one where it is removed (`after` is `None`), and those of another
 /// revision where it signs in otherwise. A token proves what the session that made it

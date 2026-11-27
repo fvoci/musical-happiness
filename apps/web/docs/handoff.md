@@ -110,4 +110,4 @@
 ## 추적되지 않는 것
 
 - 무시되는 산출물은 `dist/`, `storybook-static/`, `test-results/`, `src/styles/fonts/`, `src/lib/i18n/paraglide/`, `.wrangler/`, `tools/storybook/wrangler/node_modules/`다. 모두 다시 만들 수 있다.
-- 글꼴의 원본과 중간 산출물은 `target/web-fonts/`에, 실서버 검증의 서버와 로그는 `target/web-live/`에 생긴다.
+- 가공하기 전의 글꼴과 중간 산출물은 `target/web-fonts/`에, 실서버 검증의 서버와 로그는 `target/web-live/`에 생긴다.

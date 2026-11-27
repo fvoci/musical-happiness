@@ -535,12 +535,12 @@ mod tests {
             concat!("원본", "과 같다"),
             concat!("원본", "과의 비교"),
             concat!("원본", "에서 옮김"),
-            concat!("ordered As ", "the Original does"),
-            concat!("as ", "the original did"),
+            concat!("ordered As the ", "Original does"),
+            concat!("as the ", "original did"),
             concat!("what the ", "original app showed"),
             concat!("as in the ", "original tree"),
             concat!("the cases of the ", "original `a.test.ts`"),
-            concat!("~/atlas/musical-", "happiness-carry/notes"),
+            concat!("~/", "atlas/musical-", "happiness-carry/notes"),
             concat!("fvoci/musical-", "happiness"),
             concat!("the fvoci-", "coordination repository"),
             concat!("cd ~/", "atlas/other"),
@@ -609,7 +609,7 @@ mod tests {
         assert_eq!(
             check_file(
                 "crates/a.rs",
-                concat!("// first\n// as ", "the original did\n// last\n"),
+                concat!("// first\n// as the ", "original did\n// last\n"),
                 &mut reading,
                 &BANNED_PHRASES
             ),
