@@ -95,6 +95,11 @@ pub enum Issuance {
     /// the account's sessions (a password changed or reset, the account erased...),
     /// which ends their tokens too.
     SessionEnded,
+    /// Not stored: the session that makes it was made through a provider that has been
+    /// removed, switched off or changed how signing in through it goes since (its
+    /// revision). The session proves the provider only as it was, and a token it made
+    /// now would outlive the change that takes back the tokens of the revision before.
+    ProviderChanged,
     /// Not stored: the account has [`API_TOKEN_MAX_LIVE`] tokens that open anything.
     TooMany,
 }
@@ -144,8 +149,11 @@ impl Store {
     /// The account is held for the transaction, and the session that makes the token
     /// with it: what ends the account's sessions (and so its tokens) waits for the token
     /// to be stored and ends it then, or the token is not stored, as a session that
-    /// ended makes none. An account that has [`API_TOKEN_MAX_LIVE`] tokens that open
-    /// anything makes no more until one ends.
+    /// ended makes none. A session made through a provider makes one only while the
+    /// provider is as it was then (there, switched on, at the session's revision), and
+    /// holds it so: a change of the provider waits for the token and takes it back
+    /// with the others, or the token is not stored. An account that has
+    /// [`API_TOKEN_MAX_LIVE`] tokens that open anything makes no more until one ends.
     ///
     /// # Errors
     ///
@@ -487,12 +495,15 @@ impl Store {
     }
 }
 
-/// Holds the account and the session that makes `token` ([`Store::issue_api_token`]),
-/// and says why the token is not stored, if it is not.
+/// Holds the provider, the account and the session that make `token`
+/// ([`Store::issue_api_token`]), and says why the token is not stored, if it is not.
 async fn refused_issuance(
     scope: &mut Scope<'_>,
     token: &TokenToIssue<'_>,
 ) -> Result<Option<Issuance>, StoreError> {
+    if let Some(refused) = refused_by_provider(scope, token).await? {
+        return Ok(Some(refused));
+    }
     // Who changes the account (its password, its erasure) waits for this, and so does
     // another token of it, which counts this one then.
     scope.record_lock(LockRank::Users, token.user_id);
@@ -526,6 +537,48 @@ async fn refused_issuance(
     };
     if usize::try_from(live).unwrap_or(usize::MAX) >= API_TOKEN_MAX_LIVE {
         return Ok(Some(Issuance::TooMany));
+    }
+    Ok(None)
+}
+
+/// Holds the provider the session that makes `token` was made through, if it was, as
+/// signing in through it took when the session was made: there, switched on, and at
+/// the session's revision (as `app/sso.rs` asks of a session that proves a provider).
+/// Says why the token is not stored if the session is gone, or the provider is not so.
+///
+/// A change or removal of the provider rewrites or deletes its row, so it waits for
+/// this token and then takes it back with the others; or it went first, and the row is
+/// read as it left it. The provider is held before the account, as a sign-in through
+/// it holds it before the account it lets in (`oidc::finish_oidc_sign_in`).
+async fn refused_by_provider(
+    scope: &mut Scope<'_>,
+    token: &TokenToIssue<'_>,
+) -> Result<Option<Issuance>, StoreError> {
+    // How a session was made does not change; that it is still there is asked again
+    // under the account's lock.
+    let mut sql = scope.sql("SELECT login_provider_id, login_revision FROM sessions WHERE id = ");
+    sql.bind(Id(token.session_id))
+        .push_bind(" AND user_id = ", Id(token.user_id));
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(Some(Issuance::SessionEnded));
+    };
+    let provider_id = row.id(0)?;
+    if provider_id.is_empty() {
+        return Ok(None);
+    }
+    // A session made before the revisions were kept proves none of them.
+    let Some(revision) = row.opt_int(1)? else {
+        return Ok(Some(Issuance::ProviderChanged));
+    };
+    let mut sql = scope.sql("SELECT 1 FROM oidc_providers WHERE id = ");
+    sql.bind(Id(&provider_id))
+        .push_bind(" AND enabled = ", true)
+        .push_bind(" AND revision = ", revision);
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE");
+    }
+    if scope.fetch_optional(sql).await?.is_none() {
+        return Ok(Some(Issuance::ProviderChanged));
     }
     Ok(None)
 }

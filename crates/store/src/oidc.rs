@@ -532,7 +532,6 @@ pub(crate) async fn write_provider<'c>(
             .push_bind(" AND allow_copy_out = ", true);
         scope.execute(lock_copy).await?;
     }
-    crate::api_tokens::follow_provider(scope, before, Some(&stored)).await?;
     let ended = if let Some(before) = before
         && before.issuer != stored.issuer
     {
@@ -542,6 +541,9 @@ pub(crate) async fn write_provider<'c>(
     } else {
         SessionsEnded::none()
     };
+    // After the sessions, as where the provider is removed: a token that one of them
+    // was making is stored by now (ending them waited for it), and goes with the rest.
+    crate::api_tokens::follow_provider(scope, before, Some(&stored)).await?;
     Ok(Written {
         provider: stored,
         dropped_pending,

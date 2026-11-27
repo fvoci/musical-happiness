@@ -112,8 +112,8 @@ impl App {
                 org_id: &granted.org_id,
             })
             .collect();
-        // A session made before the provider's revisions were kept knows none: its
-        // token is ended by the next one, as no token proves a revision it never had.
+        // A session made before the provider's revisions were kept knows none, and the
+        // store makes no token of it (`Issuance::ProviderChanged`).
         let origin = session.login.as_ref().map(|login| TokenOrigin {
             provider_id: &login.provider_id,
             revision: login.revision.unwrap_or(0),
@@ -145,6 +145,12 @@ impl App {
             }
             Issuance::SessionEnded => {
                 return Err(AppError::unauthorized("the session has ended"));
+            }
+            Issuance::ProviderChanged => {
+                return Err(AppError::unauthorized(
+                    "the organization's provider has changed since this session was made \
+                     through it: sign in again to make a token",
+                ));
             }
             Issuance::TooMany => return Err(AppError::too_many_api_tokens(API_TOKEN_MAX_LIVE)),
         };

@@ -65,6 +65,7 @@ mod page_trash;
 mod pages;
 mod password_reset;
 mod person_names;
+mod provider_tokens;
 mod public_links;
 mod registration;
 mod restored_boards;
