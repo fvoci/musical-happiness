@@ -144,3 +144,23 @@ test('the bar fits the screen, stays clear of the add button, and gives a finger
     }
   }
 });
+
+test('a property chosen from "More" opens its editor, and leaves no stop for Tab in the bar', async ({
+  page,
+}, info) => {
+  test.skip(!touch(info), 'where the view is wide the bar has "Properties", with its words');
+  await openView(page, info, BOARD, 'Status board');
+  await select(page, info, [card(page, 'Build'), card(page, 'Test')], async () => {
+    await page.getByRole('button', { name: 'Card menu: Build' }).click();
+  });
+  await bar(page).locator('[data-bulk-menu]').click();
+  const chosen = page.locator('[data-action^="property-"]').first();
+  const id = ((await chosen.getAttribute('data-action')) ?? '').replace('property-', '');
+  await chosen.click();
+  const opener = bar(page).locator(`[data-bulk-property="${id}"]`);
+  await expect(opener).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(opener).toHaveAttribute('aria-expanded', 'false');
+  // The button the editor opens from has no place of its own on a phone: Tab passes it.
+  await expect(opener).toHaveAttribute('tabindex', '-1');
+});

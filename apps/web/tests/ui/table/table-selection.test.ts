@@ -347,6 +347,35 @@ describe('the bar of the selection', () => {
     expect(noteOf('Gamma')).toBeUndefined();
   });
 
+  it('gives the focus back to a selected row when ✕ lets the selection go', async () => {
+    await mount();
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    await fireEvent.click(titleOf('Gamma'), { ctrlKey: true });
+    const clear = one(bar(), '[data-bulk-clear]');
+    clear.focus();
+    await fireEvent.click(clear);
+    await waitFor(() => {
+      expect(bar()).toBeNull();
+    });
+    await tick();
+    // Alpha is shown above Gamma: its first cell, the title.
+    expect(document.activeElement).toBe(titleOf('Alpha'));
+  });
+
+  it('gives the focus to a row left when Delete took the selected ones', async () => {
+    await mount();
+    await fireEvent.click(titleOf('Beta'), { ctrlKey: true });
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    const remove = one(bar(), '[data-bulk-delete]');
+    remove.focus();
+    await fireEvent.click(remove);
+    await waitFor(() => {
+      expect(bar()).toBeNull();
+    });
+    await tick();
+    expect(document.activeElement).toBe(titleOf('Gamma'));
+  });
+
   it('deletes the selected rows in one step, and lets the selection go', async () => {
     const board = await mount();
     await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });

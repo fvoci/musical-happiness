@@ -49,3 +49,13 @@ export const SelectedNarrow: Story = {
   args: { narrow: true },
   play: Selected.play,
 };
+/** A whom, a status and a due date: three buttons beside the menu and ✕, on the narrowest phone. */
+export const SelectedNarrowest: Story = {
+  args: { quick: true, width: 320 },
+  play: Selected.play,
+};
+/** Just wide enough for the words, which give way to keep ✕ in view. */
+export const SelectedMiddle: Story = {
+  args: { quick: true, width: 720 },
+  play: Selected.play,
+};

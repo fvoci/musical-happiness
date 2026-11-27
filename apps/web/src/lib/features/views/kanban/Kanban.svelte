@@ -449,7 +449,7 @@
     <div data-testid="column-announcer" class="sr-only" aria-live="assertive" aria-atomic="true">
       {columnSort.announcement}
     </div>
-    {#if selectedIds.length > 0}
+    {#if selectedIds.length > 0 && editable}
       <BulkBar {board} {view} {selection} />
     {/if}
   </div>

@@ -260,7 +260,7 @@
       {/if}
     </ul>
   </div>
-  {#if selection.ids.length > 0}
+  {#if selection.ids.length > 0 && board.canEdit}
     <BulkBar {board} {view} {selection} />
   {/if}
 </div>

@@ -79,6 +79,9 @@ export async function selectTwo(
     const [box, room] = [bar.getBoundingClientRect(), view.getBoundingClientRect()];
     await expect(box.left).toBeGreaterThanOrEqual(room.left);
     await expect(box.right).toBeLessThanOrEqual(room.right);
+    // The button that lets the selection go is always in view.
+    const clear = await storyElement(canvas, '[data-bulk-clear]');
+    await expect(clear.getBoundingClientRect().right).toBeLessThanOrEqual(room.right);
   }
   return bar;
 }

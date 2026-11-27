@@ -30,6 +30,21 @@ const BULK_KINDS: ReadonlySet<PropertyType> = new Set<PropertyType>([
   'checkbox',
 ]);
 
+/**
+ * Where the focus goes once the bar let the selection go by its own button
+ * (✕, Delete), which goes with it: the first of `cardIds` still in the view,
+ * unless they were deleted, else the first other card. `cards`: the elements
+ * of the view's cards (`[data-card]`), in its order.
+ */
+export function cardAfter(
+  cards: readonly HTMLElement[],
+  cardIds: readonly string[],
+  deleted: boolean,
+): HTMLElement | undefined {
+  const named = (card: HTMLElement): boolean => cardIds.includes(card.dataset.card ?? '');
+  return (deleted ? undefined : cards.find(named)) ?? cards.find((card) => !named(card));
+}
+
 export function isBulkKind(type: PropertyType): boolean {
   return BULK_KINDS.has(type);
 }

@@ -23,7 +23,7 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import BulkBar from '../BulkBar.svelte';
-  import { BULK_ROOM } from '../bulk-bar.ts';
+  import { BULK_ROOM, cardAfter } from '../bulk-bar.ts';
   import type { ViewProps } from '../props.ts';
 
   import CalculationCell from './CalculationCell.svelte';
@@ -84,6 +84,13 @@
     grid.ensure(table.shownLists, table.headerColumns);
   });
   $effect(() => editing.watch());
+
+  /** The bar of the selection went: the focus goes to the first cell of a row it names, through the grid. */
+  function backToGrid(cardIds: readonly string[], deleted: boolean): void {
+    const rows = [...(table.scroller?.querySelectorAll<HTMLElement>('[data-card]') ?? [])];
+    const cell = cardAfter(rows, cardIds, deleted)?.querySelector<HTMLElement>('[data-cell]');
+    if (cell) grid.focus(cell);
+  }
 
   /** Enter on a cell does what a press on it does. */
   function activate(cell: HTMLElement): void {
@@ -340,8 +347,8 @@
     {columnSort.announcement}
   </div>
   <div class="sr-only" role="status" data-testid="table-status">{table.said}</div>
-  {#if selection.ids.length > 0}
-    <BulkBar {board} {view} {selection} />
+  {#if selection.ids.length > 0 && table.canEdit}
+    <BulkBar {board} {view} {selection} onLeave={backToGrid} />
   {/if}
 </div>
 

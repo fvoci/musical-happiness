@@ -13,10 +13,16 @@
   properties and Delete go under "More". The bar then sits above the button
   that adds a card (`--fab-room`), and above the keyboard.
 
-  The view draws it only while something is selected, inside an element that
-  is `relative` and as wide as the view.
+  The view draws it only while something is selected and the board may be
+  edited, inside an element that is `relative` and as wide as the view. The
+  buttons that name a property give way where the bar is short of room, and
+  on a very narrow screen the count keeps only its number: the button that
+  lets the selection go stays in view. When that button or Delete takes the
+  bar away, the focus goes back to a card of the view (`onLeave`).
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+
   import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
@@ -35,7 +41,7 @@
   import { CARD_BATCH_LIMIT, setCardsProperty, type BoardStore } from '$lib/state/index.ts';
   import { cn } from '$lib/utils.js';
 
-  import { bulkProperties, sharedValue } from './bulk-bar.ts';
+  import { bulkProperties, cardAfter, sharedValue } from './bulk-bar.ts';
   import BulkValueEditor from './BulkValueEditor.svelte';
   import type { Selection } from './selection.svelte.ts';
 
@@ -43,9 +49,15 @@
     board: BoardStore;
     view: BoardView;
     selection: Selection;
+    /**
+     * Puts the focus, which was on the bar, back in the view once ✕ or Delete
+     * took the bar away: on the first of `cardIds` still there, unless they
+     * were `deleted`. Without it, on that card's element (`[data-card]`).
+     */
+    onLeave?: (cardIds: readonly string[], deleted: boolean) => void;
   }
 
-  let { board, view, selection }: Props = $props();
+  let { board, view, selection, onLeave }: Props = $props();
 
   interface Role {
     template: PropertyTemplate;
@@ -87,10 +99,29 @@
     void setCardsProperty(board, selection.ids, template.id, value);
   }
 
-  function remove(): void {
+  /** The element of the bar, whose parent is the view's. */
+  let wrapper = $state<HTMLElement>();
+
+  /**
+   * Lets the selection go, by ✕ or Delete. Once the bar is gone, a focus it
+   * had (on the body now) goes back to the view; one elsewhere stays.
+   */
+  function leave(deleted: boolean): void {
     const ids = selection.ids;
+    const root = wrapper?.parentElement;
     selection.clear();
-    void board.deleteCards(ids);
+    if (deleted) void board.deleteCards(ids);
+    void tick().then(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active.isConnected) return;
+      if (onLeave) onLeave(ids, deleted);
+      else if (root)
+        cardAfter([...root.querySelectorAll<HTMLElement>('[data-card]')], ids, deleted)?.focus();
+    });
+  }
+
+  function remove(): void {
+    leave(true);
   }
 
   const deleteAction = $derived<MenuAction>({
@@ -116,11 +147,18 @@
     ...(wide ? [] : [deleteAction]),
   ]);
 
-  /** The buttons of the bar: 36 pixels high, 44 where a finger presses. */
+  /**
+   * The buttons of the bar: 36 pixels high, 44 where a finger presses. A
+   * button with an icon alone keeps its size; one with words gives way, down
+   * to its icon, where the bar is short of room.
+   */
   const BUTTON =
-    'inline-flex shrink-0 items-center justify-center rounded-lg text-sm font-medium outline-none select-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:bg-muted';
-  const iconButton = cn(BUTTON, 'size-9 roomy:size-touch');
-  const textButton = cn(BUTTON, 'h-9 min-w-0 gap-1.5 px-2 whitespace-nowrap roomy:h-touch');
+    'inline-flex items-center justify-center rounded-lg text-sm font-medium outline-none select-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:bg-muted';
+  const iconButton = cn(BUTTON, 'size-9 shrink-0 roomy:size-touch');
+  const textButton = cn(
+    BUTTON,
+    'h-9 min-w-0 shrink gap-1.5 overflow-hidden px-2 whitespace-nowrap roomy:h-touch',
+  );
 </script>
 
 {#snippet roleEditor(
@@ -138,10 +176,11 @@
         title={label}
         data-bulk-property={template.id}
         data-mixed={shared.mixed ? '' : undefined}
+        tabindex={wide ? undefined : -1}
         class={cn(textButton, !wide && 'sr-only')}
       >
-        {#if Icon}<Icon class="size-4" />{/if}
-        <span class="max-w-32 truncate">{template.name}</span>
+        {#if Icon}<Icon class="size-4 shrink-0" />{/if}
+        <span class="max-w-32 min-w-0 truncate">{template.name}</span>
         {#if shared.mixed}
           <span class="shrink-0 text-muted-foreground">{m.bulk_mixed()}</span>
         {/if}
@@ -190,7 +229,8 @@
   the smaller of the two is added back (the `min`, which is 0 without it).
 -->
 <div
-  class="pointer-events-none absolute inset-x-0 bottom-[calc(max(var(--safe-bottom),var(--keyboard,0px))+min(var(--safe-bottom),var(--keyboard,0px),var(--fab-room,0px))+var(--fab-room,0px)+0.5rem)] z-30 flex flex-col items-center gap-1 px-2"
+  bind:this={wrapper}
+  class="@container/bulk pointer-events-none absolute inset-x-0 bottom-[calc(max(var(--safe-bottom),var(--keyboard,0px))+min(var(--safe-bottom),var(--keyboard,0px),var(--fab-room,0px))+var(--fab-room,0px)+0.5rem)] z-30 flex flex-col items-center gap-1 px-2"
 >
   {#if selection.full}
     <p
@@ -206,8 +246,18 @@
     data-testid="selection-bar"
     class="pointer-events-auto flex max-w-full min-w-0 items-center gap-0.5 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
   >
-    <span role="status" class="shrink-0 px-2 text-sm font-medium whitespace-nowrap tabular-nums">
-      {m.bulk_selected_count({ count: selection.ids.length })}
+    <!-- Narrower than 360 pixels the count shows its number alone; it still says it whole. -->
+    <span
+      role="status"
+      data-slot="bulk-count"
+      class="shrink-0 px-2 text-sm font-medium whitespace-nowrap tabular-nums @max-[22.5rem]/bulk:px-1.5"
+    >
+      <span class="@max-[22.5rem]/bulk:sr-only">
+        {m.bulk_selected_count({ count: selection.ids.length })}
+      </span>
+      <span aria-hidden="true" class="hidden @max-[22.5rem]/bulk:inline">
+        {selection.ids.length}
+      </span>
     </span>
     {#each shown as role (role.template.id)}
       {@render roleEditor(role.template, role.icon, false)}
@@ -226,8 +276,8 @@
         {#snippet trigger(props: Record<string, unknown>)}
           {#if wide}
             <button {...props} type="button" data-bulk-menu class={textButton}>
-              {m.bulk_properties()}
-              <ChevronDownIcon class="size-4" />
+              <span class="min-w-0 truncate">{m.bulk_properties()}</span>
+              <ChevronDownIcon class="size-4 shrink-0" />
             </button>
           {:else}
             <button
@@ -251,8 +301,8 @@
         class={cn(textButton, 'text-destructive hover:text-destructive')}
         onclick={remove}
       >
-        <TrashIcon class="size-4" />
-        {m.bulk_delete()}
+        <TrashIcon class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{m.bulk_delete()}</span>
       </button>
     {/if}
     <button
@@ -262,7 +312,7 @@
       data-bulk-clear
       class={iconButton}
       onclick={() => {
-        selection.clear();
+        leave(false);
       }}
     >
       <XIcon class="size-4" />

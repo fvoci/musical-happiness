@@ -3,6 +3,7 @@
  * of the view in its order, opening one, making one.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import Gallery from '$lib/features/views/gallery/Gallery.svelte';
@@ -134,6 +135,17 @@ describe('the gallery', () => {
     await fireEvent.click(card, { ctrlKey: true });
     expect(screen.getByTestId('selection-bar')).toHaveTextContent('1 selected');
     expect(props.onOpenCard).not.toHaveBeenCalled();
+
+    // ✕ lets it go, and the focus it had goes back to the card.
+    const clear = screen.getByRole('button', { name: 'Clear selection' });
+    clear.focus();
+    await fireEvent.click(clear);
+    await waitFor(() => {
+      expect(screen.queryByTestId('selection-bar')).toBeNull();
+    });
+    await tick();
+    expect(document.activeElement).toBe(card);
+    await fireEvent.click(card, { ctrlKey: true });
 
     await rerender({ ...props, view: { ...view, id: `${view.id}-other` } });
     expect(screen.queryByTestId('selection-bar')).toBeNull();
