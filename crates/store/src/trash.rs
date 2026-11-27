@@ -326,10 +326,7 @@ impl Store {
         kinds: ContainerKinds,
     ) -> Result<Vec<DeletedContainer>, StoreError> {
         self.with_conn(async |scope| {
-            let kind = match scope.dialect() {
-                Dialect::Sqlite => "json_extract(container, '$.kind')",
-                Dialect::Postgres => "container->>'kind'",
-            };
+            let kind = scope.json_text("container", "kind");
             // The memberships are the JSON array of the board's members when it went.
             let was_admin = match scope.dialect() {
                 Dialect::Sqlite => {
@@ -349,7 +346,7 @@ impl Store {
             if let Some(admin_id) = admin_id {
                 sql.push_bind(was_admin, admin_id).push(")");
             }
-            crate::container_kinds::push_kinds(&mut sql, kind, kinds);
+            crate::container_kinds::push_kinds(&mut sql, &kind, kinds);
             sql.push(" ORDER BY deleted_at DESC, id");
             sql.push_page(paging);
             let mut deleted = Vec::new();

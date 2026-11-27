@@ -264,11 +264,8 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     )
     .push(&scope.same_organization(&[("d", "b"), ("cv", "d")]))
     .push(" AND ")
-    .push(match scope.dialect() {
-        Dialect::Sqlite => "json_extract(d.block, '$.type') = 'comment'",
-        Dialect::Postgres => "d.block->>'type' = 'comment'",
-    })
-    .push("))");
+    .push(&scope.json_text("d.block", "type"))
+    .push(" = 'comment'))");
     let open_where_seer_works = match within {
         Some((workspace_id, reach)) => {
             sql.push_bind(" AND b.workspace_id = ", Id(workspace_id));
