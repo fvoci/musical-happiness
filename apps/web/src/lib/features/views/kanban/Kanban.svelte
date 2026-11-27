@@ -31,6 +31,7 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import type { ViewProps } from '../props.ts';
+  import { Selection } from '../selection.svelte.ts';
 
   import { addGroup, faceContextOf, propertiesForColumn } from './board-data.ts';
   import ColumnTabs from './ColumnTabs.svelte';
@@ -55,7 +56,6 @@
   } from './kanban.ts';
   import KanbanColumn from './KanbanColumn.svelte';
   import { Paging } from './paging.svelte.ts';
-  import { Selection } from './selection.svelte.ts';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
 
@@ -328,18 +328,6 @@
       paging.reset();
     });
   });
-
-  /** Escape lets the selection go, unless something else (a drag, a menu) took the key. */
-  const attachKeys = (root: HTMLElement): (() => void) => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented || selectedIds.length === 0) return;
-      selection.clear();
-    };
-    root.addEventListener('keydown', onKeyDown);
-    return () => {
-      root.removeEventListener('keydown', onKeyDown);
-    };
-  };
 </script>
 
 {#if !groupBy}
@@ -347,7 +335,7 @@
     <p class="max-w-sm text-muted-foreground">{m.kanban_no_grouping()}</p>
   </div>
 {:else}
-  <div class="flex h-full min-h-0 flex-col" data-testid="kanban" {@attach attachKeys}>
+  <div class="flex h-full min-h-0 flex-col" data-testid="kanban" {@attach selection.attachEscape}>
     <ColumnTabs
       {tabs}
       current={paging.current}
