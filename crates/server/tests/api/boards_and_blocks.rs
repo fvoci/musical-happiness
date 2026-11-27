@@ -156,7 +156,7 @@ async fn assert_titles_unchanged(th: &TestServer, boards: &TwoBoards) {
     }
 }
 
-// -- TestCreateBoardsAndBlocks --------------------------------------------------------
+// -- creating boards and blocks together ----------------------------------------------
 
 /// Unauthenticated `POST /containers-and-blocks` is rejected.
 #[tokio::test]
@@ -603,7 +603,7 @@ async fn create_boards_and_blocks_is_broadcast() {
     th.teardown().await;
 }
 
-// -- TestPatchBoardsAndBlocks ---------------------------------------------------------
+// -- patching boards and blocks together ----------------------------------------------
 
 async fn patch(client: &Client, request: &impl serde::Serialize) -> ApiResponse {
     client.patch(PATH, request).await
@@ -1041,7 +1041,7 @@ async fn patch_boards_and_blocks_checks() {
     th.teardown().await;
 }
 
-// -- TestDeleteBoardsAndBlocks --------------------------------------------------------
+// -- deleting boards and blocks together ----------------------------------------------
 
 async fn delete(client: &Client, request: &impl serde::Serialize) -> ApiResponse {
     client.delete_json(PATH, request).await

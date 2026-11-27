@@ -170,7 +170,7 @@ async fn get_create_category() {
     test.teardown().await;
 }
 
-/// `testUpdateCategory`.
+/// Updating a category.
 #[tokio::test]
 async fn update_category() {
     let test = common::setup().await;
@@ -240,7 +240,7 @@ async fn update_category() {
     test.teardown().await;
 }
 
-/// `testDeleteCategory`.
+/// Deleting a category.
 #[tokio::test]
 async fn delete_category() {
     let test = common::setup().await;
@@ -348,7 +348,7 @@ async fn get_user_categories() {
     test.teardown().await;
 }
 
-/// `testReorderCategories`.
+/// Reordering the categories of a user.
 #[tokio::test]
 async fn reorder_categories() {
     let test = common::setup().await;
@@ -434,7 +434,7 @@ async fn reorder_categories() {
     test.teardown().await;
 }
 
-/// `testReorderCategoryBoards`.
+/// Reordering the boards of a category.
 #[tokio::test]
 async fn reorder_category_containers() {
     let test = common::setup().await;

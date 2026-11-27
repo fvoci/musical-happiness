@@ -16,7 +16,7 @@ use crate::boards::{
     view_block,
 };
 
-// -- TestDuplicateBoard ---------------------------------------------------------------
+// -- duplicating a board --------------------------------------------------------------
 
 /// Creating and duplicating an open board files the copy under the default category.
 #[tokio::test]

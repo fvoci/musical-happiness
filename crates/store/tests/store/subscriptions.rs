@@ -92,7 +92,7 @@ async fn first_block(store: &Store, user_id: &str) -> Block {
         .expect("one block was created")
 }
 
-/// `testCreateSubscription`.
+/// Creating a subscription.
 #[tokio::test]
 async fn create_subscription() {
     let test = common::setup().await;
@@ -212,7 +212,7 @@ async fn create_subscription() {
     test.teardown().await;
 }
 
-/// `testDeleteSubscription`.
+/// Deleting a subscription.
 #[tokio::test]
 async fn delete_subscription() {
     let test = common::setup().await;
@@ -276,7 +276,7 @@ async fn delete_subscription() {
     test.teardown().await;
 }
 
-/// `testUndeleteSubscription`.
+/// Restoring a deleted subscription.
 #[tokio::test]
 async fn undelete_subscription() {
     let test = common::setup().await;

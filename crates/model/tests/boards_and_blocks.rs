@@ -36,7 +36,7 @@ fn title_patch(title: &str) -> BlockPatch {
     }
 }
 
-/// `TestIsValidBoardsAndBlocks` / "no boards"
+/// Validating boards and blocks together: no boards.
 #[test]
 fn containers_and_blocks_validate_no_containers() {
     let bab = ContainersAndBlocks {
@@ -49,7 +49,7 @@ fn containers_and_blocks_validate_no_containers() {
     assert_eq!(bab.validate(), Err(ContainersAndBlocksError::NoContainers));
 }
 
-/// `TestIsValidBoardsAndBlocks` / "no blocks"
+/// Validating boards and blocks together: no blocks.
 #[test]
 fn containers_and_blocks_validate_no_blocks() {
     let bab = ContainersAndBlocks {
@@ -62,7 +62,7 @@ fn containers_and_blocks_validate_no_blocks() {
     assert_eq!(bab.validate(), Err(ContainersAndBlocksError::NoBlocks));
 }
 
-/// `TestIsValidBoardsAndBlocks` / "block that doesn't belong to the boards"
+/// Validating boards and blocks together: block that doesn't belong to the boards.
 #[test]
 fn containers_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
     let bab = ContainersAndBlocks {
@@ -84,7 +84,7 @@ fn containers_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
     );
 }
 
-/// `TestIsValidBoardsAndBlocks` / "valid boards and blocks"
+/// Validating boards and blocks together: valid boards and blocks.
 #[test]
 fn containers_and_blocks_validate_valid() {
     let bab = ContainersAndBlocks {
@@ -101,7 +101,7 @@ fn containers_and_blocks_validate_valid() {
     assert_eq!(bab.validate(), Ok(()));
 }
 
-/// `TestGenerateBoardsAndBlocksIDs` / "invalid boards and blocks"
+/// Generating the identifiers of boards and blocks: invalid boards and blocks.
 #[test]
 fn generate_containers_and_blocks_ids_invalid_boards_and_blocks() {
     let bab = ContainersAndBlocks {
@@ -168,8 +168,8 @@ fn renew_containers_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
     assert_ne!(blocks[0].id, "block-id-1", "under a new identifier");
 }
 
-/// `TestGenerateBoardsAndBlocksIDs` / "correctly generates IDs for all the boards and
-/// links the blocks to them, with new IDs too"
+/// Generating the identifiers of boards and blocks: correctly generates IDs for all the boards and
+/// links the blocks to them, with new IDs too.
 #[test]
 fn generate_containers_and_blocks_ids_links_blocks_to_new_board_ids() {
     let bab = ContainersAndBlocks {
@@ -230,7 +230,7 @@ fn generate_containers_and_blocks_ids_links_blocks_to_new_board_ids() {
     assert_eq!(block3.container_id, board2.id);
 }
 
-/// `TestIsValidPatchBoardsAndBlocks` / "no board ids"
+/// Validating a patch of boards and blocks: no board ids.
 #[test]
 fn patch_containers_and_blocks_validate_no_container_ids() {
     let pbab = PatchContainersAndBlocks {
@@ -242,7 +242,7 @@ fn patch_containers_and_blocks_validate_no_container_ids() {
     assert_eq!(pbab.validate(), Err(ContainersAndBlocksError::NoContainers));
 }
 
-/// `TestIsValidPatchBoardsAndBlocks` / "missmatch board IDs and patches"
+/// Validating a patch of boards and blocks: mismatched board IDs and patches.
 #[test]
 fn patch_containers_and_blocks_validate_mismatched_container_ids_and_patches() {
     let pbab = PatchContainersAndBlocks {
@@ -260,7 +260,7 @@ fn patch_containers_and_blocks_validate_mismatched_container_ids_and_patches() {
     );
 }
 
-/// `TestIsValidPatchBoardsAndBlocks` / "missmatch block IDs and patches"
+/// Validating a patch of boards and blocks: mismatched block IDs and patches.
 #[test]
 fn patch_containers_and_blocks_validate_mismatched_block_ids_and_patches() {
     let pbab = PatchContainersAndBlocks {
@@ -284,7 +284,7 @@ fn patch_containers_and_blocks_validate_mismatched_block_ids_and_patches() {
     );
 }
 
-/// `TestIsValidPatchBoardsAndBlocks` / "valid"
+/// Validating a patch of boards and blocks: valid.
 #[test]
 fn patch_containers_and_blocks_validate_valid() {
     let pbab = PatchContainersAndBlocks {

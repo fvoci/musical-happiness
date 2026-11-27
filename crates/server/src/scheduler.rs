@@ -162,8 +162,7 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 2, "no run after cancelling");
     }
 
-    /// `TestCancelTask`, with a recurring task: cancelled before its first run, it never
-    /// runs.
+    /// A recurring task cancelled before its first run never runs.
     #[tokio::test(start_paused = true)]
     async fn cancel_task() {
         let interval = Duration::from_millis(100);
