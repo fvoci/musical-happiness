@@ -2,7 +2,6 @@
 //! and WebSocket, organized by feature area.
 
 mod block_insert;
-mod block_types;
 mod common;
 
 mod account_deletion;
@@ -25,7 +24,6 @@ mod board_broadcasts;
 mod board_copies;
 mod board_views;
 mod boards;
-mod boards_and_blocks;
 mod bodies;
 mod body_limits;
 mod body_versions;

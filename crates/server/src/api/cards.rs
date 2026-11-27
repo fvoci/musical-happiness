@@ -216,7 +216,7 @@ pub(super) async fn card_with_permission(
 /// (a block of the board that is no card), `relation_cycle` (ordering dependencies form
 /// a cycle on the board) or `relation_card_not_found`: no card of that
 /// identifier on the board, which is also the answer for a card of another board. Every
-/// write of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)
+/// write of a card checks so (`createCard`, `patchCard`, `batchPatchCards`)
 /// the values it changes, and does not ask again for a card that a value named before.
 #[utoipa::path(
     post,
@@ -584,8 +584,8 @@ pub(super) async fn card_by_number_read(
 /// The server keeps the body of a card as a version each time it changed: when the
 /// last of those who wrote it since the newest version leaves it, at an interval
 /// while it is edited on (its setting `collab_version_minutes`, ten minutes unless
-/// set otherwise), and before and after a write of the whole body (`patchCard` and the
-/// block routes). The newest first, each with when it was kept and who wrote the body
+/// set otherwise), and before and after a write of the whole body (`patchCard`). The
+/// newest first, each with when it was kept and who wrote the body
 /// up to it, without the bodies (`getCardBodyVersion`). The server keeps the newest
 /// of them (its setting `collab_body_versions`, fifty unless set otherwise), so the
 /// numbers may leave the lowest out. Empty for a card whose body never changed since

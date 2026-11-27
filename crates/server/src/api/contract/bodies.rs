@@ -64,12 +64,6 @@ impl ToSchema for ReferenceIds {}
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewBoard {
-    /// Only where boards and blocks are made together, and needed there: a name by
-    /// which the blocks of the request say which board they belong to. The server gives
-    /// the board another identifier. Where one board is made, a board with an `id` is
-    /// refused.
-    #[schema(nullable = false)]
-    id: Option<String>,
     /// Whether the board is open or private.
     visibility: ContainerVisibility,
     /// The role a user gets who joins the board. Left out, `editor`.
@@ -112,49 +106,6 @@ pub(crate) struct NewBoard {
     /// view: an `after` that names one is 400. Not with `scaffold`.
     #[schema(nullable = false)]
     first_view: Option<NewBoardView>,
-}
-
-/// A block to insert.
-#[derive(Debug, ToSchema)]
-#[schema(rename_all = "camelCase")]
-pub(crate) struct NewBlock {
-    /// A name for the block within the request. The server gives every block a new
-    /// identifier, and where one block of the request names another (as its `parentId`,
-    /// or in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts
-    /// the new identifier there. Blocks that come under one name get one identifier,
-    /// which cannot be stored twice; a block that no other names needs no `id`.
-    #[schema(nullable = false)]
-    id: Option<String>,
-    /// The board the block belongs to: the board of the path, or, where boards and
-    /// blocks are made together, the `id` of one of the request's boards.
-    container_id: String,
-    /// The block this one is below: a block of the same board, or the name of another
-    /// block of the request. Left out for a block directly on its board.
-    #[schema(nullable = false)]
-    parent_id: Option<String>,
-    /// The block type (`view`, `comment` or `attachment` on `/boards/{boardId}/blocks`;
-    /// `card` is created via `createCard`, or in bulk via `createContainersAndBlocks`).
-    #[schema(rename = "type")]
-    block_type: BlockType,
-    /// The display title.
-    #[schema(nullable = false)]
-    title: Option<String>,
-    /// Type-specific data, free-form: serialized, at most 64,000 characters for a card,
-    /// a comment or an attachment and 800,000 for a view. The `properties` of a card
-    /// among them are values by property identifier: a string, a list of strings, a date
-    /// value, a list of relation link objects (`{"card", "kind", "lagDays"}`), or `null`.
-    #[schema(value_type = Option<Object>, nullable = false)]
-    fields: Option<JsonMap>,
-}
-
-/// Boards and their blocks, to make together.
-#[derive(Debug, ToSchema)]
-#[schema(rename_all = "camelCase")]
-pub(crate) struct NewContainersAndBlocks {
-    /// The boards, at least one. Each needs an `id`.
-    containers: Vec<NewBoard>,
-    /// The blocks, at least one. The `containerId` of each is the `id` of one of `containers`.
-    blocks: Vec<NewBlock>,
 }
 
 /// A card to make.

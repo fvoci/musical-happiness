@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use fvoci_model::PublicLinkChange;
 use fvoci_model::{
-    Block, Container, ContainerMember, ContainerVisibility, LoginRequest, RegisterRequest, User,
+    Container, ContainerMember, ContainerVisibility, LoginRequest, RegisterRequest, User,
     Workspace, new_id,
 };
 use fvoci_server::app::App;
@@ -1100,26 +1100,6 @@ impl Client {
     pub(crate) async fn create_board(&self, board: &Container) -> ApiResponse {
         self.post(&format!("/w/{}/boards", board.workspace_id), board)
             .await
-    }
-
-    /// `InsertBlocks` on a board of the test workspace (`TEST_WORKSPACE_ID`).
-    pub(crate) async fn insert_blocks(&self, board_id: &str, blocks: &[Block]) -> ApiResponse {
-        self.insert_blocks_in(TEST_WORKSPACE_ID, board_id, blocks)
-            .await
-    }
-
-    /// `InsertBlocks` on a board of the workspace.
-    pub(crate) async fn insert_blocks_in(
-        &self,
-        workspace_id: &str,
-        board_id: &str,
-        blocks: &[Block],
-    ) -> ApiResponse {
-        self.post(
-            &format!("/w/{workspace_id}/boards/{board_id}/blocks"),
-            &blocks,
-        )
-        .await
     }
 
     /// `AddMemberToBoard` on a board of the test workspace (`TEST_WORKSPACE_ID`).

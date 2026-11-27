@@ -3,7 +3,7 @@
 //! Every check of a board asks `App::container_access` once and decides by the grant it
 //! gives (`permissions::grant`).
 
-use fvoci_model::{Block, BlockPatch, BlockType, Workspace};
+use fvoci_model::{Block, BlockType, Workspace};
 
 use crate::app::App;
 use crate::error::{AppError, Reason};
@@ -78,12 +78,12 @@ const SOMEBODY_ELSE_DELETED: &str =
 /// admins do, each refused in its own words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlockAction<'a> {
-    /// Change it (`patchBlock`, `patchBlocks`, `patchContainersAndBlocks`).
+    /// Change it (`patchCardComment`, `patchPageComment`, `patchUnitComment`).
     Change,
-    /// Delete it (`deleteBlock`, `deleteContainersAndBlocks`).
+    /// Delete it (`deleteCardComment`, `deletePageComment`, `deleteUnitComment`).
     Delete,
-    /// Bring it back from the trash (`restoreBlock`), where the deletion of
-    /// `deleted_by` put it.
+    /// Bring it back from the trash (`restoreCardComment`, `restorePageComment`,
+    /// `restoreUnitComment`), where the deletion of `deleted_by` put it.
     Undelete {
         /// Who deleted it; empty if nobody did.
         deleted_by: &'a str,
@@ -150,44 +150,6 @@ fn block_permission<'a>(
         BlockType::Comment => comment_permission(user_id, block, action, denial),
         _ => (ContainerPermission::ManageCards, denial),
     }
-}
-
-/// Checks what a patch does beyond changing a block's text. Changing a comment is its
-/// text (its body and the files that go with it): moving it to another card (`parentId`)
-/// is for editors (the commenter's role makes no card and moves none).
-pub(crate) async fn require_block_patch_permission(
-    app: &App,
-    user_id: &str,
-    block: &Block,
-    patch: &BlockPatch,
-    denial: &str,
-) -> Result<(), AppError> {
-    let moves = patch
-        .parent_id
-        .as_ref()
-        .is_some_and(|parent_id| *parent_id != block.parent_id);
-    if block.block_type == BlockType::Comment && moves {
-        let grant = app.container_grant(user_id, &block.container_id).await?;
-        require_granted(grant, ContainerPermission::ManageCards, denial)?;
-    }
-    Ok(())
-}
-
-/// Checks [`require_block_patch_permission`] using an already-resolved [`Grant`].
-pub(crate) fn require_block_patch_permission_with_grant(
-    grant: Grant,
-    block: &Block,
-    patch: &BlockPatch,
-    denial: &str,
-) -> Result<(), AppError> {
-    let moves = patch
-        .parent_id
-        .as_ref()
-        .is_some_and(|parent_id| *parent_id != block.parent_id);
-    if block.block_type == BlockType::Comment && moves {
-        require_granted(grant, ContainerPermission::ManageCards, denial)?;
-    }
-    Ok(())
 }
 
 /// Checks that the user may delete the block, of a board the request names, with what

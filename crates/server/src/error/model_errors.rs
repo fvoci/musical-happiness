@@ -50,7 +50,6 @@ impl From<BlockError> for AppError {
             BlockError::InvalidRelation(error) => Self::from(error),
             BlockError::TypeNotCurrent
             | BlockError::TypeChanges
-            | BlockError::CardByBlocks
             | BlockError::PageByBlocks
             | BlockError::PageOffWiki
             | BlockError::NotPageOnWiki

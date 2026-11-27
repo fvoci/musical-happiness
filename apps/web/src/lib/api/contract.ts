@@ -1473,8 +1473,9 @@ export interface paths {
         };
         /**
          * The blocks of a shared board
-         * @description What `getBlocks` gives of the board, with the same parameters, read with its read
-         *     token as `getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a
+         * @description The live blocks of the board: all of them (`all`), one (`blockId`), or those below a
+         *     block and of a type (`parentId`, `type`), read with its read token as
+         *     `getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a
          *     user: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in
          *     a body, and so is each user that
          *     the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
@@ -2612,168 +2613,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The blocks of a board
-         * @description For the board's members, and for an open or built-in template everyone who works in
-         *     its workspace.
-         *
-         *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
-         *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
-         *     list is every block of the board. A parameter with an empty value counts as left
-         *     out. Oldest first; the blocks that one request made come in the order that request
-         *     had them in.
-         *
-         *     A personal API token is taken, of either scope (`read` or `write`).
-         */
-        get: operations["getBlocks"];
-        put?: never;
-        /**
-         * Insert blocks
-         * @description Inserts blocks under identifiers the server makes; the identifiers of the request
-         *     only link its blocks to each other. All blocks are inserted or none, and they are
-         *     listed afterwards in the order the request had them in. Comments need the role of a
-         *     commenter, everything else that of an editor. A comment is on a card of the board,
-         *     and no block is below a comment (400 at the block's `parentId`). A comment's body
-         *     has no file block (400 at its `body`), and nothing is copied for one that has.
-         */
-        post: operations["createBlocks"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Change several blocks
-         * @description Applies a patch to each of several blocks of the board, all or none. A body that
-         *     names no block changes nothing and is answered 204 too. Each block needs what
-         *     `patchBlock` needs: the editor's role, for a comment its author's commenter role or
-         *     for the comment of somebody else the board's admin role.
-         */
-        patch: operations["patchBlocks"];
-        trace?: never;
-    };
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete a block
-         * @description The block goes to the trash with the blocks below it, and `restoreBlock` brings it
-         *     back until the trash is emptied of it. For editors; a comment is its author's to
-         *     delete from the commenter's role up, and a comment of somebody else the board's
-         *     admins' only (403, `access denied to delete other users' comments`), also as a
-         *     reply below a comment the user deletes.
-         */
-        delete: operations["deleteBlock"];
-        options?: never;
-        head?: never;
-        /**
-         * Change a block
-         * @description For editors. A comment is changed by its author with the commenter's role, and the
-         *     comment of somebody else by the board's admins only (as `deleteBlock` has it): an
-         *     editor may not change it. The commenter's role changes a comment's text (its body);
-         *     moving a comment to another card (`parentId`) or making it a block of another type
-         *     is for editors, and making a block of somebody else a comment for the board's admins.
-         *     A comment goes only on a card of the board, no block goes below a comment (400 at
-         *     `parentId`), and a card with comments stays a card (400 at `type`). A comment's body
-         *     has no file block, nor does a block made a comment (400 at `body`). The block's
-         *     `modifiedBy` and `updatedAt` say who changed it and when.
-         */
-        patch: operations["patchBlock"];
-        trace?: never;
-    };
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/duplicate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Copy a block
-         * @description Copies a block and the blocks directly below it, except comments. A comment cannot
-         *     be copied. For editors.
-         */
-        post: operations["duplicateBlock"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Bring a deleted block back
-         * @description Restores a block of the board from the trash, with the blocks that went there with
-         *     it. A block whose parent is gone has nowhere to come back to: 404; one whose parent
-         *     may no longer hold it (a comment off a card, a block below a comment): 409. For who may
-         *     delete what comes back, as `deleteBlock` has it: editors, a comment its author from
-         *     the commenter's role up if they deleted it themselves, and a comment of somebody
-         *     else the board's admins only (403, `access denied to undelete other users' comments`),
-         *     as one of the user's that somebody else deleted (403, `a comment somebody else
-         *     deleted is brought back by the board's admins`). What decides is what was
-         *     deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
-         *     so a block below somebody else's comment is brought back by the admins only, and a
-         *     card alone, so a comment that went with its card comes back for whoever may bring
-         *     back the card.
-         */
-        post: operations["restoreBlock"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * What a comment said before
-         * @description The earlier versions of a comment's body: every version but the one it has now, with
-         *     who wrote it and when. The first one first; it is the text the comment was posted
-         *     with, by its author. The server keeps the first version and the newest ones, up to
-         *     its setting `max_comment_versions` in all, so the numbers of the versions may leave
-         *     gaps. Empty for a comment whose body was never changed; the comment's `editedAt` says
-         *     whether it was. For the board's members, also in the trash: the versions go only
-         *     when the comment is gone for good. Not for a reader by the board's read token. A
-         *     block that is no comment is not there (404).
-         *
-         *     A personal API token is taken, of either scope (`read` or `write`).
-         */
-        get: operations["getCommentVersions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards": {
         parameters: {
             query?: never;
@@ -2817,7 +2656,7 @@ export interface paths {
          *     (a block of the board that is no card), `relation_cycle` (ordering dependencies form
          *     a cycle on the board) or `relation_card_not_found`: no card of that
          *     identifier on the board, which is also the answer for a card of another board. Every
-         *     write of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)
+         *     write of a card checks so (`createCard`, `patchCard`, `batchPatchCards`)
          *     the values it changes, and does not ask again for a card that a value named before.
          *
          *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
@@ -3192,7 +3031,7 @@ export interface paths {
         /**
          * The deleted cards of a board
          * @description One page of the board's cards that are in the trash, each with its identifier, its
-         *     title, when it was deleted and by whom; `restoreBlock` brings one back until the
+         *     title, when it was deleted and by whom; `batchRestoreCards` brings one back until the
          *     trash is emptied of it. A card that went with the block it was on (another card, a
          *     view) comes back with that block, and is not listed. For the board's editors. The
          *     last deleted first; the pages cut that order.
@@ -3406,8 +3245,8 @@ export interface paths {
          * @description The server keeps the body of a card as a version each time it changed: when the
          *     last of those who wrote it since the newest version leaves it, at an interval
          *     while it is edited on (its setting `collab_version_minutes`, ten minutes unless
-         *     set otherwise), and before and after a write of the whole body (`patchCard` and the
-         *     block routes). The newest first, each with when it was kept and who wrote the body
+         *     set otherwise), and before and after a write of the whole body (`patchCard`). The
+         *     newest first, each with when it was kept and who wrote the body
          *     up to it, without the bodies (`getCardBodyVersion`). The server keeps the newest
          *     of them (its setting `collab_body_versions`, fifty unless set otherwise), so the
          *     numbers may leave the lowest out. Empty for a card whose body never changed since
@@ -3732,48 +3571,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/v1/w/{workspaceId}/containers-and-blocks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Make boards with their blocks
-         * @description Makes boards and their blocks together, all or none, under identifiers the server
-         *     makes; the identifiers of the request only say which block belongs to which board
-         *     and to which other block. The request needs at least one board and one block; every
-         *     board needs an `id`, and all boards are of one workspace. The user becomes the admin of
-         *     each board, and each board that is no template is filed under the user's default
-         *     category. They are boards: one whose `kind` is not `board` is 400 at its `kind`.
-         */
-        post: operations["createContainersAndBlocks"];
-        /**
-         * Delete boards and blocks together
-         * @description Deletes several boards of one workspace, all or none. The request names at least one
-         *     board, and every block it names must be on one of its boards and be the user's to
-         *     delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
-         *     board takes all of its blocks along. The boards go to the trash as `deleteContainer`
-         *     puts them there, and `restoreContainer` brings each back with its blocks. For the
-         *     admins of every board named.
-         */
-        delete: operations["deleteContainersAndBlocks"];
-        options?: never;
-        head?: never;
-        /**
-         * Change boards and blocks together
-         * @description Applies a patch to each of several boards of one workspace and to blocks of those
-         *     boards, all or none. The request names at least one board, and every block it names
-         *     is on one of its boards: blocks alone are not changed this way. Each board needs
-         *     what `patchContainer` needs, each block what `patchBlock` needs; a board's patch that
-         *     names a `kind` is 400 at `/containerPatches/{index}/kind`.
-         */
-        patch: operations["patchContainersAndBlocks"];
         trace?: never;
     };
     "/api/v1/w/{workspaceId}/containers/{containerId}": {
@@ -6903,7 +6700,7 @@ export interface paths {
         put?: never;
         /**
          * Bring a deleted comment on a page back
-         * @description A comment deleted on its own comes back onto its page, as `restoreBlock` brings a
+         * @description A comment deleted on its own comes back onto its page, as `restoreCardComment` brings a
          *     card's comment back: for its author from the commenter's role up if they deleted it
          *     themselves, and for the wiki's admins whoever wrote or deleted it.
          */
@@ -6923,7 +6720,7 @@ export interface paths {
         };
         /**
          * What a comment on a page said before
-         * @description The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:
+         * @description The earlier texts of the comment, as `getCardCommentVersions` gives a card's comment's:
          *     every version but the one it has now, the first one first, with who wrote it and
          *     when.
          *
@@ -7358,7 +7155,7 @@ export interface components {
              * @description For a comment whose body was changed: when that last happened, in milliseconds
              *     since the Unix epoch. Absent for a comment never changed and for every other
              *     block. The server sets it, and ignores a client's. What the body said before is
-             *     `getCommentVersions`'.
+             *     `getCardCommentVersions`'.
              */
             editedAt?: number;
             /**
@@ -7401,36 +7198,6 @@ export interface components {
              * @description Last modification time in milliseconds since the Unix epoch.
              */
             updatedAt: number;
-        };
-        /**
-         * @description A partial update of a `Block`. Absent members leave the block unchanged. A block's
-         *     `BlockType` is fixed when the block is created and cannot be patched.
-         */
-        BlockPatch: {
-            body?: components["schemas"]["Body"] | null;
-            /** @description Keys of fields to remove. */
-            deletedFields?: string[];
-            /** @description The new parent identifier. */
-            parentId?: string | null;
-            /**
-             * Format: int64
-             * @description The `updatedAt` of the block as the client read it. If the block has changed
-             *     since, the patch is refused.
-             */
-            readAt?: number | null;
-            /** @description The new title. */
-            title?: string | null;
-            /** @description Fields to set, replacing any existing value under the same key. */
-            updatedFields?: {
-                [key: string]: unknown;
-            };
-        };
-        /** @description A batch of block identifiers and the patch to apply to each, matched by position. */
-        BlockPatchBatch: {
-            /** @description The identifiers of the blocks to patch. */
-            blockIds: string[];
-            /** @description The patches, one per identifier. */
-            blockPatches: components["schemas"]["BlockPatch"][];
         };
         /**
          * @description The type of a block.
@@ -8529,13 +8296,6 @@ export interface components {
             /** @description The account's login name, typed out: that the person means this account. */
             username: string;
         };
-        /** @description The identifiers of boards and blocks to delete together. */
-        DeleteContainersAndBlocks: {
-            /** @description The identifiers of the blocks. */
-            blocks?: string[];
-            /** @description The identifiers of the boards. */
-            containers: string[];
-        };
         /**
          * @description An entry in the trash, as the trash of a diary lists it: `restoreDiaryEntry` brings
          *     it back to its day.
@@ -8556,7 +8316,7 @@ export interface components {
         };
         /**
          * @description A card or a board in the trash, with as much as it takes to decide whether to bring
-         *     it back (`restoreBlock`, `restoreContainer`).
+         *     it back (`batchRestoreCards`, `restoreContainer`).
          */
         DeletedItem: {
             /**
@@ -9439,43 +9199,6 @@ export interface components {
              */
             workspaceIds?: string[];
         };
-        /** @description A block to insert. */
-        NewBlock: {
-            /**
-             * @description The board the block belongs to: the board of the path, or, where boards and
-             *     blocks are made together, the `id` of one of the request's boards.
-             */
-            containerId: string;
-            /**
-             * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card,
-             *     a comment or an attachment and 800,000 for a view. The `properties` of a card
-             *     among them are values by property identifier: a string, a list of strings, a date
-             *     value, a list of relation link objects (`{"card", "kind", "lagDays"}`), or `null`.
-             */
-            fields?: {
-                [key: string]: unknown;
-            };
-            /**
-             * @description A name for the block within the request. The server gives every block a new
-             *     identifier, and where one block of the request names another (as its `parentId`,
-             *     or in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts
-             *     the new identifier there. Blocks that come under one name get one identifier,
-             *     which cannot be stored twice; a block that no other names needs no `id`.
-             */
-            id?: string;
-            /**
-             * @description The block this one is below: a block of the same board, or the name of another
-             *     block of the request. Left out for a block directly on its board.
-             */
-            parentId?: string;
-            /** @description The display title. */
-            title?: string;
-            /**
-             * @description The block type (`view`, `comment` or `attachment` on `/boards/{boardId}/blocks`;
-             *     `card` is created via `createCard`, or in bulk via `createContainersAndBlocks`).
-             */
-            type: components["schemas"]["BlockType"];
-        };
         /** @description A board to make. */
         NewBoard: {
             /**
@@ -9495,13 +9218,6 @@ export interface components {
             firstView?: components["schemas"]["NewBoardView"];
             /** @description The board's icon, usually one emoji. */
             icon?: string;
-            /**
-             * @description Only where boards and blocks are made together, and needed there: a name by
-             *     which the blocks of the request say which board they belong to. The server gives
-             *     the board another identifier. Where one board is made, a board with an `id` is
-             *     refused.
-             */
-            id?: string;
             /** @description Whether the board is a template. */
             isTemplate?: boolean;
             /** @description The role a user gets who joins the board. Left out, `editor`. */
@@ -9606,13 +9322,6 @@ export interface components {
             userId: string;
             /** @description The workspace of the path. */
             workspaceId: string;
-        };
-        /** @description Boards and their blocks, to make together. */
-        NewContainersAndBlocks: {
-            /** @description The blocks, at least one. The `containerId` of each is the `id` of one of `containers`. */
-            blocks: components["schemas"]["NewBlock"][];
-            /** @description The boards, at least one. Each needs an `id`. */
-            containers: components["schemas"]["NewBoard"][];
         };
         /** @description A course to make. */
         NewCourse: {
@@ -10341,21 +10050,6 @@ export interface components {
             readAt?: number | null;
             /** @description The new title. */
             title?: string | null;
-        };
-        /**
-         * @description Patches for several boards and blocks, applied together.
-         *
-         *     Identifiers and patches are matched by position.
-         */
-        PatchContainersAndBlocks: {
-            /** @description The identifiers of the blocks to patch. */
-            blockIds?: string[];
-            /** @description The block patches, one per block identifier. */
-            blockPatches?: components["schemas"]["BlockPatch"][];
-            /** @description The identifiers of the boards to patch. */
-            containerIds: string[];
-            /** @description The board patches, one per board identifier. */
-            containerPatches: components["schemas"]["ContainerPatch"][];
         };
         /**
          * @description Request body for updating a personal note on a course unit.
@@ -15271,320 +14965,6 @@ export interface operations {
             };
         };
     };
-    getBlocks: {
-        parameters: {
-            query?: {
-                /** @description Any value that is not empty asks for every block of the board, and the other parameters are not looked at. */
-                all?: string;
-                /** @description Asks for the one block with this identifier, in a list of one. 404 if the board has no such block. */
-                blockId?: string;
-                /** @description Narrows the list to the blocks below the block of this identifier. */
-                parentId?: string;
-                /** @description Narrows the list to the blocks of this type, written as the blocks have it. */
-                type?: string;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The blocks. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Block"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createBlocks: {
-        parameters: {
-            query?: {
-                /** @description The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. Such blocks are copies: the people they name are told nothing of them. */
-                sourceBoardId?: string;
-                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewBlock"][];
-            };
-        };
-        responses: {
-            /** @description The blocks as they were stored, in the order of the request. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Block"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchBlocks: {
-        parameters: {
-            query?: {
-                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BlockPatchBatch"];
-            };
-        };
-        responses: {
-            /** @description The blocks are changed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteBlock: {
-        parameters: {
-            query?: {
-                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The block is deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchBlock: {
-        parameters: {
-            query?: {
-                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BlockPatch"];
-            };
-        };
-        responses: {
-            /** @description The block is changed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    duplicateBlock: {
-        parameters: {
-            query?: {
-                /** @description `true` makes the copy a template. Any other value does not. */
-                asTemplate?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The copies: the copy of the block first, then those of the blocks directly below it, oldest first. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Block"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    restoreBlock: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The block as it is again. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Block"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getCommentVersions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The earlier versions, the first one first. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CommentVersion"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
     getCards: {
         parameters: {
             query?: {
@@ -17408,112 +16788,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Container"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createContainersAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewContainersAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards in the order of the request, and the blocks board by board in that order, each board's in the order of the request. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContainersAndBlocks"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteContainersAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteContainersAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards and blocks are deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchContainersAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
-                workspaceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchContainersAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards and the blocks as they are now, each in the order of the request. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContainersAndBlocks"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

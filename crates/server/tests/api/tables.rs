@@ -175,27 +175,25 @@ async fn an_archive_and_every_copy_keep_a_table() {
         .expect("the imported board");
     let cards: Vec<Value> = ts
         .client
-        .get(&format!(
-            "{TEST_WS}/boards/{}/blocks?type=card",
-            imported.id
-        ))
+        .get(&format!("{TEST_WS}/boards/{}/cards", imported.id))
         .await
         .ok_json();
-    assert_eq!(cards[0]["body"], body, "brought back from the archive");
+    let brought = card(&ts.client, cards[0]["id"].as_str().expect("an id")).await;
+    assert_eq!(
+        body_of(&brought),
+        Some(body.clone()),
+        "brought back from the archive"
+    );
 
-    let copies: Vec<Value> = ts
+    let copy: Value = ts
         .client
         .post_empty(&format!(
-            "{TEST_WS}/boards/{}/blocks/{}/duplicate",
+            "{TEST_WS}/boards/{}/cards/{}/duplicate",
             board.id,
             made["id"].as_str().expect("an id")
         ))
         .await
         .created_json();
-    let copy = copies
-        .iter()
-        .find(|block| block["type"] == json!("card"))
-        .expect("the copy of the card");
     let stored = card(&ts.client, copy["id"].as_str().expect("an id")).await;
     assert_eq!(body_of(&stored), Some(body.clone()), "the copy of the card");
 

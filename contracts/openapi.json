@@ -656,7 +656,7 @@
             "type": "integer"
           },
           "editedAt": {
-            "description": "For a comment whose body was changed: when that last happened, in milliseconds\nsince the Unix epoch. Absent for a comment never changed and for every other\nblock. The server sets it, and ignores a client's. What the body said before is\n`getCommentVersions`'.",
+            "description": "For a comment whose body was changed: when that last happened, in milliseconds\nsince the Unix epoch. Absent for a comment never changed and for every other\nblock. The server sets it, and ignores a client's. What the body said before is\n`getCardCommentVersions`'.",
             "format": "int64",
             "type": "integer"
           },
@@ -712,81 +712,6 @@
           "title",
           "type",
           "updatedAt"
-        ],
-        "type": "object"
-      },
-      "BlockPatch": {
-        "description": "A partial update of a `Block`. Absent members leave the block unchanged. A block's\n`BlockType` is fixed when the block is created and cannot be patched.",
-        "properties": {
-          "body": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Body",
-                "description": "The new body of a card or a comment; `null` takes the body away. Sent only with\n`readAt` (400 naming `readAt` without it)."
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "deletedFields": {
-            "description": "Keys of fields to remove.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "parentId": {
-            "description": "The new parent identifier.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "readAt": {
-            "description": "The `updatedAt` of the block as the client read it. If the block has changed\nsince, the patch is refused.",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "title": {
-            "description": "The new title.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updatedFields": {
-            "additionalProperties": true,
-            "description": "Fields to set, replacing any existing value under the same key.",
-            "type": "object"
-          }
-        },
-        "type": "object"
-      },
-      "BlockPatchBatch": {
-        "description": "A batch of block identifiers and the patch to apply to each, matched by position.",
-        "properties": {
-          "blockIds": {
-            "description": "The identifiers of the blocks to patch.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "blockPatches": {
-            "description": "The patches, one per identifier.",
-            "items": {
-              "$ref": "#/components/schemas/BlockPatch"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "blockIds",
-          "blockPatches"
         ],
         "type": "object"
       },
@@ -2850,29 +2775,6 @@
         ],
         "type": "object"
       },
-      "DeleteContainersAndBlocks": {
-        "description": "The identifiers of boards and blocks to delete together.",
-        "properties": {
-          "blocks": {
-            "description": "The identifiers of the blocks.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "containers": {
-            "description": "The identifiers of the boards.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "containers"
-        ],
-        "type": "object"
-      },
       "DeletedDiaryEntry": {
         "description": "An entry in the trash, as the trash of a diary lists it: `restoreDiaryEntry` brings\nit back to its day.",
         "properties": {
@@ -2914,7 +2816,7 @@
         "type": "object"
       },
       "DeletedItem": {
-        "description": "A card or a board in the trash, with as much as it takes to decide whether to bring\nit back (`restoreBlock`, `restoreContainer`).",
+        "description": "A card or a board in the trash, with as much as it takes to decide whether to bring\nit back (`batchRestoreCards`, `restoreContainer`).",
         "properties": {
           "deletedAt": {
             "description": "When it was deleted, in milliseconds since the Unix epoch.",
@@ -4582,41 +4484,6 @@
         ],
         "type": "object"
       },
-      "NewBlock": {
-        "description": "A block to insert.",
-        "properties": {
-          "containerId": {
-            "description": "The board the block belongs to: the board of the path, or, where boards and\nblocks are made together, the `id` of one of the request's boards.",
-            "type": "string"
-          },
-          "fields": {
-            "additionalProperties": true,
-            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, a date\nvalue, a list of relation link objects (`{\"card\", \"kind\", \"lagDays\"}`), or `null`.",
-            "type": "object"
-          },
-          "id": {
-            "description": "A name for the block within the request. The server gives every block a new\nidentifier, and where one block of the request names another (as its `parentId`,\nor in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts\nthe new identifier there. Blocks that come under one name get one identifier,\nwhich cannot be stored twice; a block that no other names needs no `id`.",
-            "type": "string"
-          },
-          "parentId": {
-            "description": "The block this one is below: a block of the same board, or the name of another\nblock of the request. Left out for a block directly on its board.",
-            "type": "string"
-          },
-          "title": {
-            "description": "The display title.",
-            "type": "string"
-          },
-          "type": {
-            "$ref": "#/components/schemas/BlockType",
-            "description": "The block type (`view`, `comment` or `attachment` on `/boards/{boardId}/blocks`;\n`card` is created via `createCard`, or in bulk via `createContainersAndBlocks`)."
-          }
-        },
-        "required": [
-          "containerId",
-          "type"
-        ],
-        "type": "object"
-      },
       "NewBoard": {
         "description": "A board to make.",
         "properties": {
@@ -4655,10 +4522,6 @@
           },
           "icon": {
             "description": "The board's icon, usually one emoji.",
-            "type": "string"
-          },
-          "id": {
-            "description": "Only where boards and blocks are made together, and needed there: a name by\nwhich the blocks of the request say which board they belong to. The server gives\nthe board another identifier. Where one board is made, a board with an `id` is\nrefused.",
             "type": "string"
           },
           "isTemplate": {
@@ -4853,30 +4716,6 @@
           "name",
           "userId",
           "workspaceId"
-        ],
-        "type": "object"
-      },
-      "NewContainersAndBlocks": {
-        "description": "Boards and their blocks, to make together.",
-        "properties": {
-          "blocks": {
-            "description": "The blocks, at least one. The `containerId` of each is the `id` of one of `containers`.",
-            "items": {
-              "$ref": "#/components/schemas/NewBlock"
-            },
-            "type": "array"
-          },
-          "containers": {
-            "description": "The boards, at least one. Each needs an `id`.",
-            "items": {
-              "$ref": "#/components/schemas/NewBoard"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "containers",
-          "blocks"
         ],
         "type": "object"
       },
@@ -6203,44 +6042,6 @@
             ]
           }
         },
-        "type": "object"
-      },
-      "PatchContainersAndBlocks": {
-        "description": "Patches for several boards and blocks, applied together.\n\nIdentifiers and patches are matched by position.",
-        "properties": {
-          "blockIds": {
-            "description": "The identifiers of the blocks to patch.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "blockPatches": {
-            "description": "The block patches, one per block identifier.",
-            "items": {
-              "$ref": "#/components/schemas/BlockPatch"
-            },
-            "type": "array"
-          },
-          "containerIds": {
-            "description": "The identifiers of the boards to patch.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "containerPatches": {
-            "description": "The board patches, one per board identifier.",
-            "items": {
-              "$ref": "#/components/schemas/ContainerPatch"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "containerIds",
-          "containerPatches"
-        ],
         "type": "object"
       },
       "PatchUnitNote": {
@@ -12183,7 +11984,7 @@
     },
     "/api/v1/shared/{containerId}/blocks": {
       "get": {
-        "description": "What `getBlocks` gives of the board, with the same parameters, read with its read\ntoken as `getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a\nuser: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in\na body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleGroups`, `hiddenGroups`, `collapsedGroups` and\n`groupCalculations` only the group of the cards without a value (`\"\"`). A reference\nin a body keeps its `id` if it names a card of this board, and has an empty one for\nanything else: of what is elsewhere in the workspace nothing is told, nor whether\nthere is anything. Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
+        "description": "The live blocks of the board: all of them (`all`), one (`blockId`), or those below a\nblock and of a type (`parentId`, `type`), read with its read token as\n`getSharedContainer` is; a wiki's or a course's token reads no blocks (404). No block names a\nuser: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in\na body, and so is each user that\nthe board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)\nname in a card's `fields.properties` and in the clauses of a view's `fields.filter`;\na list keeps its length, so how many people a card has still shows. A card's values\nof properties the board does not define are left out, and a view grouped by a person\nproperty keeps of `visibleGroups`, `hiddenGroups`, `collapsedGroups` and\n`groupCalculations` only the group of the cards without a value (`\"\"`). A reference\nin a body keeps its `id` if it names a card of this board, and has an empty one for\nanything else: of what is elsewhere in the workspace nothing is told, nor whether\nthere is anything. Oldest\nfirst; the blocks that one request made come in the order that request had them in.",
         "operationId": "getSharedBlocks",
         "parameters": [
           {
@@ -14587,577 +14388,6 @@
         "x-fvoci-api-token": "read"
       }
     },
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks": {
-      "get": {
-        "description": "For the board's members, and for an open or built-in template everyone who works in\nits workspace.\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.\n\nA personal API token is taken, of either scope (`read` or `write`).",
-        "operationId": "getBlocks",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Any value that is not empty asks for every block of the board, and the other parameters are not looked at.",
-            "in": "query",
-            "name": "all",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.",
-            "in": "query",
-            "name": "blockId",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Narrows the list to the blocks below the block of this identifier.",
-            "in": "query",
-            "name": "parentId",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Narrows the list to the blocks of this type, written as the blocks have it.",
-            "in": "query",
-            "name": "type",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Block"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The blocks."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "The blocks of a board",
-        "tags": [
-          "blocks"
-        ],
-        "x-fvoci-api-token": "read"
-      },
-      "patch": {
-        "description": "Applies a patch to each of several blocks of the board, all or none. A body that\nnames no block changes nothing and is answered 204 too. Each block needs what\n`patchBlock` needs: the editor's role, for a comment its author's commenter role or\nfor the comment of somebody else the board's admin role.",
-        "operationId": "patchBlocks",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
-            "in": "query",
-            "name": "disableNotify",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BlockPatchBatch"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "The blocks are changed."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Change several blocks",
-        "tags": [
-          "blocks"
-        ]
-      },
-      "post": {
-        "description": "Inserts blocks under identifiers the server makes; the identifiers of the request\nonly link its blocks to each other. All blocks are inserted or none, and they are\nlisted afterwards in the order the request had them in. Comments need the role of a\ncommenter, everything else that of an editor. A comment is on a card of the board,\nand no block is below a comment (400 at the block's `parentId`). A comment's body\nhas no file block (400 at its `body`), and nothing is copied for one that has.",
-        "operationId": "createBlocks",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. Such blocks are copies: the people they name are told nothing of them.",
-            "in": "query",
-            "name": "sourceBoardId",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
-            "in": "query",
-            "name": "disableNotify",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/NewBlock"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Block"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The blocks as they were stored, in the order of the request."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Insert blocks",
-        "tags": [
-          "blocks"
-        ]
-      }
-    },
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}": {
-      "delete": {
-        "description": "The block goes to the trash with the blocks below it, and `restoreBlock` brings it\nback until the trash is emptied of it. For editors; a comment is its author's to\ndelete from the commenter's role up, and a comment of somebody else the board's\nadmins' only (403, `access denied to delete other users' comments`), also as a\nreply below a comment the user deletes.",
-        "operationId": "deleteBlock",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the block.",
-            "in": "path",
-            "name": "blockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
-            "in": "query",
-            "name": "disableNotify",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The block is deleted."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Delete a block",
-        "tags": [
-          "blocks"
-        ]
-      },
-      "patch": {
-        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. The commenter's role changes a comment's text (its body);\nmoving a comment to another card (`parentId`) or making it a block of another type\nis for editors, and making a block of somebody else a comment for the board's admins.\nA comment goes only on a card of the board, no block goes below a comment (400 at\n`parentId`), and a card with comments stays a card (400 at `type`). A comment's body\nhas no file block, nor does a block made a comment (400 at `body`). The block's\n`modifiedBy` and `updatedAt` say who changed it and when.",
-        "operationId": "patchBlock",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the block.",
-            "in": "path",
-            "name": "blockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
-            "in": "query",
-            "name": "disableNotify",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BlockPatch"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "The block is changed."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Change a block",
-        "tags": [
-          "blocks"
-        ]
-      }
-    },
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/duplicate": {
-      "post": {
-        "description": "Copies a block and the blocks directly below it, except comments. A comment cannot\nbe copied. For editors.",
-        "operationId": "duplicateBlock",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the block.",
-            "in": "path",
-            "name": "blockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`true` makes the copy a template. Any other value does not.",
-            "in": "query",
-            "name": "asTemplate",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Block"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The copies: the copy of the block first, then those of the blocks directly below it, oldest first."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Copy a block",
-        "tags": [
-          "blocks"
-        ]
-      }
-    },
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/restore": {
-      "post": {
-        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. A block whose parent is gone has nowhere to come back to: 404; one whose parent\nmay no longer hold it (a comment off a card, a block below a comment): 409. For who may\ndelete what comes back, as `deleteBlock` has it: editors, a comment its author from\nthe commenter's role up if they deleted it themselves, and a comment of somebody\nelse the board's admins only (403, `access denied to undelete other users' comments`),\nas one of the user's that somebody else deleted (403, `a comment somebody else\ndeleted is brought back by the board's admins`). What decides is what was\ndeleted, as `deleteBlock` decided it: a comment with every reply that went with it,\nso a block below somebody else's comment is brought back by the admins only, and a\ncard alone, so a comment that went with its card comes back for whoever may bring\nback the card.",
-        "operationId": "restoreBlock",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the block.",
-            "in": "path",
-            "name": "blockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Block"
-                }
-              }
-            },
-            "description": "The block as it is again."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Bring a deleted block back",
-        "tags": [
-          "blocks"
-        ]
-      }
-    },
-    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/versions": {
-      "get": {
-        "description": "The earlier versions of a comment's body: every version but the one it has now, with\nwho wrote it and when. The first one first; it is the text the comment was posted\nwith, by its author. The server keeps the first version and the newest ones, up to\nits setting `max_comment_versions` in all, so the numbers of the versions may leave\ngaps. Empty for a comment whose body was never changed; the comment's `editedAt` says\nwhether it was. For the board's members, also in the trash: the versions go only\nwhen the comment is gone for good. Not for a reader by the board's read token. A\nblock that is no comment is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
-        "operationId": "getCommentVersions",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the block.",
-            "in": "path",
-            "name": "blockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/CommentVersion"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The earlier versions, the first one first."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "What a comment said before",
-        "tags": [
-          "blocks"
-        ],
-        "x-fvoci-api-token": "read"
-      }
-    },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards": {
       "get": {
         "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. With `preview=true` each card has its `preview` (the first image and the beginning of the\ntext of its body), which a list without it leaves out.\n\n`q`, `parentId`, `assigneeId`, `propertyId` with `propertyValue` and `updatedSince`\nchoose the cards the page is of, all of them that are sent; `sort` orders them\notherwise. With `compact=true` each card is given in short (`CompactCard`).\n\nA personal API token is taken, of either scope (`read` or `write`).",
@@ -15316,7 +14546,7 @@
         "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card), `relation_cycle` (ordering dependencies form\na cycle on the board) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`patchCard`, the block routes, `createContainersAndBlocks`)\nthe values it changes, and does not ask again for a card that a value named before.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card), `relation_cycle` (ordering dependencies form\na cycle on the board) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`createCard`, `patchCard`, `batchPatchCards`)\nthe values it changes, and does not ask again for a card that a value named before.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -16590,7 +15820,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/trash/cards": {
       "get": {
-        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `restoreBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The\nlast deleted first; the pages cut that order.",
+        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `batchRestoreCards` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The\nlast deleted first; the pages cut that order.",
         "operationId": "getDeletedCards",
         "parameters": [
           {
@@ -17409,7 +16639,7 @@
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions": {
       "get": {
-        "description": "The server keeps the body of a card as a version each time it changed: when the\nlast of those who wrote it since the newest version leaves it, at an interval\nwhile it is edited on (its setting `collab_version_minutes`, ten minutes unless\nset otherwise), and before and after a write of the whole body (`patchCard` and the\nblock routes). The newest first, each with when it was kept and who wrote the body\nup to it, without the bodies (`getCardBodyVersion`). The server keeps the newest\nof them (its setting `collab_body_versions`, fifty unless set otherwise), so the\nnumbers may leave the lowest out. Empty for a card whose body never changed since\nversions were kept. For the members of the card's board, whatever\ntheir role; to a user who is no member of it there is no such card, and a reader by\nthe board's read token has no session to ask with. A card in the trash is not\nthere (404); its versions come back with it, and go when it is gone for good.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "The server keeps the body of a card as a version each time it changed: when the\nlast of those who wrote it since the newest version leaves it, at an interval\nwhile it is edited on (its setting `collab_version_minutes`, ten minutes unless\nset otherwise), and before and after a write of the whole body (`patchCard`). The\nnewest first, each with when it was kept and who wrote the body\nup to it, without the bodies (`getCardBodyVersion`). The server keeps the newest\nof them (its setting `collab_body_versions`, fifty unless set otherwise), so the\nnumbers may leave the lowest out. Empty for a card whose body never changed since\nversions were kept. For the members of the card's board, whatever\ntheir role; to a user who is no member of it there is no such card, and a reader by\nthe board's read token has no session to ask with. A card in the trash is not\nthere (404); its versions come back with it, and go when it is gone for good.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCardBodyVersions",
         "parameters": [
           {
@@ -18395,154 +17625,6 @@
           "boards"
         ],
         "x-fvoci-api-token": "read"
-      }
-    },
-    "/api/v1/w/{workspaceId}/containers-and-blocks": {
-      "delete": {
-        "description": "Deletes several boards of one workspace, all or none. The request names at least one\nboard, and every block it names must be on one of its boards and be the user's to\ndelete as `deleteBlock` has it; the blocks are checked and nothing more, since a\nboard takes all of its blocks along. The boards go to the trash as `deleteContainer`\nputs them there, and `restoreContainer` brings each back with its blocks. For the\nadmins of every board named.",
-        "operationId": "deleteContainersAndBlocks",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeleteContainersAndBlocks"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "The boards and blocks are deleted."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Delete boards and blocks together",
-        "tags": [
-          "boards"
-        ]
-      },
-      "patch": {
-        "description": "Applies a patch to each of several boards of one workspace and to blocks of those\nboards, all or none. The request names at least one board, and every block it names\nis on one of its boards: blocks alone are not changed this way. Each board needs\nwhat `patchContainer` needs, each block what `patchBlock` needs; a board's patch that\nnames a `kind` is 400 at `/containerPatches/{index}/kind`.",
-        "operationId": "patchContainersAndBlocks",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PatchContainersAndBlocks"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContainersAndBlocks"
-                }
-              }
-            },
-            "description": "The boards and the blocks as they are now, each in the order of the request."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Change boards and blocks together",
-        "tags": [
-          "boards"
-        ]
-      },
-      "post": {
-        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one workspace. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory. They are boards: one whose `kind` is not `board` is 400 at its `kind`.",
-        "operationId": "createContainersAndBlocks",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewContainersAndBlocks"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContainersAndBlocks"
-                }
-              }
-            },
-            "description": "The boards in the order of the request, and the blocks board by board in that order, each board's in the order of the request."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Make boards with their blocks",
-        "tags": [
-          "boards"
-        ]
       }
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}": {
@@ -27523,7 +26605,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/restore": {
       "post": {
-        "description": "A comment deleted on its own comes back onto its page, as `restoreBlock` brings a\ncard's comment back: for its author from the commenter's role up if they deleted it\nthemselves, and for the wiki's admins whoever wrote or deleted it.",
+        "description": "A comment deleted on its own comes back onto its page, as `restoreCardComment` brings a\ncard's comment back: for its author from the commenter's role up if they deleted it\nthemselves, and for the wiki's admins whoever wrote or deleted it.",
         "operationId": "restorePageComment",
         "parameters": [
           {
@@ -27593,7 +26675,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/versions": {
       "get": {
-        "description": "The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:\nevery version but the one it has now, the first one first, with who wrote it and\nwhen.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "The earlier texts of the comment, as `getCardCommentVersions` gives a card's comment's:\nevery version but the one it has now, the first one first, with who wrote it and\nwhen.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPageCommentVersions",
         "parameters": [
           {
@@ -28001,10 +27083,6 @@
     {
       "description": "Sharing a board with whoever has its public link.",
       "name": "public-links"
-    },
-    {
-      "description": "The blocks of a board: cards, views, comments, and what a card is made of.",
-      "name": "blocks"
     },
     {
       "description": "The blocks of type `card`, as cards.",

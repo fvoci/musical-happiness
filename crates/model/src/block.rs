@@ -311,10 +311,6 @@ pub enum BlockError {
         /// What its value must be.
         expected: &'static str,
     },
-    /// A write of blocks gives the type of a card on `/boards/{boardId}/blocks`: cards
-    /// are created through `createCard`.
-    #[error("a card is made by createCard")]
-    CardByBlocks,
     /// A write of blocks gives the type of a page, as the type of a new block or of a
     /// patch: see [`BlockError::type_not_current`].
     #[error("a page is made and changed by the operations of pages")]
@@ -626,7 +622,7 @@ pub struct Block {
     /// For a comment whose body was changed: when that last happened, in milliseconds
     /// since the Unix epoch. Absent for a comment never changed and for every other
     /// block. The server sets it, and ignores a client's. What the body said before is
-    /// `getCommentVersions`'.
+    /// `getCardCommentVersions`'.
     #[serde(default, skip_serializing_if = "crate::serde_util::is_zero")]
     pub edited_at: i64,
 }

@@ -11,7 +11,7 @@ use fvoci_model::{
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::blocks::{block_path, undelete_path};
+use crate::blocks::{insert, restore_card, trash_card};
 use crate::common::{
     ApiResponse, Client, ROOT_WS, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
 };
@@ -166,11 +166,7 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
         title: "neither".to_owned(),
         ..Block::default()
     });
-    let stored: Vec<Block> = th
-        .client
-        .insert_blocks(&mine.board, &others)
-        .await
-        .created_json();
+    let stored = insert(&th.client, &mine.board, &others).await;
     let neither = [&stored[0].id, &stored[1].id, &mine.board, &mine.wiki];
     let neither: Vec<&str> = neither.iter().map(|id| id.as_str()).collect();
     check_as_nothing(&th.client, TEST_WS, &neither, &mine.card, "neither").await;
@@ -207,8 +203,7 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
 async fn what_is_in_the_trash_is_resolved_as_nothing() {
     let th = Setup::native().start().await.init_basic().await;
     let mine = made(&th.client, TEST_WS, "private", "The plan").await;
-    th.client
-        .delete(&block_path(&mine.board, &mine.card))
+    trash_card(&th.client, &mine.board, &mine.card)
         .await
         .check_no_content();
     check_as_nothing(
@@ -219,8 +214,7 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
         "in the trash",
     )
     .await;
-    th.client
-        .post_empty(&undelete_path(&mine.board, &mine.card))
+    restore_card(&th.client, &mine.board, &mine.card)
         .await
         .check_ok();
     assert_eq!(

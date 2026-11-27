@@ -111,30 +111,6 @@ pub(super) fn check_closed_members(
     Ok(())
 }
 
-/// Does [`check_closed_members`] for each object of the list that is the member `list` of
-/// `body` (`containers`).
-///
-/// # Errors
-///
-/// Returns the refusal of the first object that has one.
-pub(super) fn check_listed_boards(
-    body: &JsonMap,
-    list: &str,
-    kind: BoardObject,
-) -> Result<(), AppError> {
-    let objects = body
-        .get(list)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten();
-    for (index, object) in objects.enumerate() {
-        if let Some(object) = object.as_object() {
-            check_closed_members(object, &format!("/{list}/{index}"), kind)?;
-        }
-    }
-    Ok(())
-}
-
 /// Decodes the body of a board patch. A type or minimum role outside its closed set is
 /// refused at the member ([`check_closed_members`]).
 fn decode_container_patch(body: &[u8]) -> Result<ContainerPatch, AppError> {

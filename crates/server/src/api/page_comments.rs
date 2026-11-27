@@ -231,7 +231,7 @@ async fn handle_delete_page_comment(
 
 /// Bring a deleted comment on a page back
 ///
-/// A comment deleted on its own comes back onto its page, as `restoreBlock` brings a
+/// A comment deleted on its own comes back onto its page, as `restoreCardComment` brings a
 /// card's comment back: for its author from the commenter's role up if they deleted it
 /// themselves, and for the wiki's admins whoever wrote or deleted it.
 #[utoipa::path(
@@ -251,7 +251,7 @@ async fn handle_restore_page_comment(commenter: CommenterOf<PageCommentParent>) 
 
 /// What a comment on a page said before
 ///
-/// The earlier texts of the comment, as `getCommentVersions` gives a card's comment's:
+/// The earlier texts of the comment, as `getCardCommentVersions` gives a card's comment's:
 /// every version but the one it has now, the first one first, with who wrote it and
 /// when.
 #[utoipa::path(

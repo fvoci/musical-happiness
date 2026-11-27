@@ -76,21 +76,6 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/boards/{boardId}/cards/{cardId}/files",
         "listCardFiles",
     ),
-    (
-        "POST",
-        "/containers-and-blocks",
-        "createContainersAndBlocks",
-    ),
-    (
-        "DELETE",
-        "/containers-and-blocks",
-        "deleteContainersAndBlocks",
-    ),
-    (
-        "PATCH",
-        "/containers-and-blocks",
-        "patchContainersAndBlocks",
-    ),
     ("GET", "/boards/search?q=secret", "searchWorkspaceBoards"),
     ("GET", "/search?q=secret", "searchWorkspaceContent"),
     ("DELETE", "/containers/{containerId}", "deleteContainer"),
@@ -100,30 +85,6 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "GET",
         "/containers/{containerId}/archive/export",
         "exportContainerArchive",
-    ),
-    ("POST", "/boards/{boardId}/blocks", "createBlocks"),
-    ("GET", "/boards/{boardId}/blocks", "getBlocks"),
-    ("PATCH", "/boards/{boardId}/blocks", "patchBlocks"),
-    (
-        "DELETE",
-        "/boards/{boardId}/blocks/{blockId}",
-        "deleteBlock",
-    ),
-    ("PATCH", "/boards/{boardId}/blocks/{blockId}", "patchBlock"),
-    (
-        "POST",
-        "/boards/{boardId}/blocks/{blockId}/duplicate",
-        "duplicateBlock",
-    ),
-    (
-        "POST",
-        "/boards/{boardId}/blocks/{blockId}/restore",
-        "restoreBlock",
-    ),
-    (
-        "GET",
-        "/boards/{boardId}/blocks/{blockId}/versions",
-        "getCommentVersions",
     ),
     ("POST", "/boards/{boardId}/cards", "createCard"),
     ("GET", "/boards/{boardId}/cards", "getCards"),
@@ -687,6 +648,43 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/boards/{boardId}/cards/{cardId}/attachments",
         "createCardAttachment",
     ),
+    (
+        "GET",
+        "/boards/{boardId}/cards/{cardId}/attachments",
+        "getCardAttachments",
+    ),
+    (
+        "DELETE",
+        "/boards/{boardId}/cards/{cardId}/attachments/{attachmentId}",
+        "deleteCardAttachment",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/{cardId}/attachments/{attachmentId}/restore",
+        "restoreCardAttachment",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/cards/batch-patch",
+        "batchPatchCards",
+    ),
+    ("GET", "/boards/{boardId}/views", "getBoardViews"),
+    ("GET", "/boards/{boardId}/views/{viewId}", "getBoardView"),
+    (
+        "PATCH",
+        "/boards/{boardId}/views/{viewId}",
+        "patchBoardView",
+    ),
+    (
+        "DELETE",
+        "/boards/{boardId}/views/{viewId}",
+        "deleteBoardView",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/views/{viewId}/restore",
+        "restoreBoardView",
+    ),
     ("PATCH", "/categories/{categoryId}", "patchCategory"),
     (
         "PUT",
@@ -802,27 +800,19 @@ const EMPTY_FOR_A_GUEST: &[&str] = &[
     "searchWorkspaceContent",
 ];
 
-/// Asks to make a board, alone and with a card, whose body names the workspace
-/// `hidden_id`, under the root workspace's path, and again one that names a workspace
-/// that is not there: the two are refused the same.
+/// Asks to make a board whose body names the workspace `hidden_id`, under the root
+/// workspace's path, and again one that names a workspace that is not there: the two
+/// are refused the same.
 async fn compare_workspaces_in_a_body(
     client: &Client,
     asker: Asker,
     hidden_id: &str,
 ) -> Vec<String> {
     let mut violations = Vec::new();
-    for bulk in [false, true] {
+    {
         let send = async |workspace: &str| {
             let board = json!({"id": "board-ref", "workspaceId": workspace, "visibility": "private", "title": "new"});
-            let (path, body) = if bulk {
-                (
-                    &format!("{ROOT_WS}/containers-and-blocks"),
-                    json!({"containers": [board], "blocks": [{"id": "card-ref", "containerId": "board-ref", "type": "card", "createdAt": 1, "updatedAt": 1}]}),
-                )
-            } else {
-                (&format!("{ROOT_WS}/boards"), board)
-            };
-            client.post(path, &body).await
+            client.post(&format!("{ROOT_WS}/boards"), &board).await
         };
         let hidden = send(hidden_id).await;
         let absent = send(UNKNOWN_ID).await;
@@ -837,7 +827,7 @@ async fn compare_workspaces_in_a_body(
         };
         if !refused || answer(&hidden) != answer(&absent) {
             violations.push(format!(
-                "workspace in body (bulk={bulk}): {:?} versus {:?}",
+                "workspace in body: {:?} versus {:?}",
                 answer(&hidden),
                 answer(&absent)
             ));
@@ -1350,6 +1340,7 @@ impl Items<'_> {
             .replace("{boardId}", &pick(&self.board.id, UNKNOWN_ID))
             .replace("{viewId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{cardId}", &pick(&self.card.id, UNKNOWN_ID))
+            .replace("{attachmentId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{blockId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{wikiId}", &pick(&self.page.container_id, UNKNOWN_ID))
             .replace("{pageId}", &pick(&self.page.id, UNKNOWN_ID))
@@ -1430,14 +1421,14 @@ pub(super) async fn compare_resource_routes(
             };
             let block = |absent: bool| if absent { UNKNOWN_ID } else { &card.id };
             let body = |absent: bool| match operation {
-                "patchBlocks" => {
-                    json!({"blockIds": [block(absent)], "blockPatches": [{"title": "changed"}]})
-                }
-                "reorderCardProperties" | "createBlocks" => json!([]),
+                "reorderCardProperties" => json!([]),
                 "createCard" => json!({"title": "new card"}),
                 "createBoardView" => json!({"title": "new view", "viewType": "board"}),
                 "batchDeleteCards" | "batchRestoreCards" | "moveViewCards" => {
                     json!({"cardIds": [block(absent)]})
+                }
+                "batchPatchCards" => {
+                    json!({"cardIds": [block(absent)], "updatedProperties": {}})
                 }
                 "createCardAttachment" => json!({"fileId": "missing-file"}),
                 "copyContainerToWorkspace" => json!({"targetWorkspaceId": workspace}),
@@ -1451,7 +1442,7 @@ pub(super) async fn compare_resource_routes(
                 "createCourseExam" => json!({"title": "new exam", "maxScore": 100.0}),
                 "patchCourseExam" => json!({"title": "changed exam"}),
                 "putMyExamScore" => json!({"score": 90.0}),
-                "patchCard" | "patchContainer" | "patchBlock" | "patchUnit" => {
+                "patchCard" | "patchContainer" | "patchUnit" | "patchBoardView" => {
                     json!({"title": "changed"})
                 }
                 "createDiaryEntry" => json!({"date": "2020-02-29"}),
@@ -1838,12 +1829,12 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     };
     assert_reachable_in_workspace(&ts.client, TEST_WORKSPACE_ID, &me, &items).await;
     let violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
-    // Named in a body or a query (the boards of a combined request, the board files are
-    // copied from), the board is as one that does not exist too.
+    // Named in a query (the workspace a board is copied to), the workspace is as one
+    // that does not exist too.
     let own = ts
         .create_board(ROOT_WORKSPACE_ID, ContainerVisibility::Open)
         .await;
-    extra::compare_query_targets(&ts.client, &own, &board).await;
+    extra::compare_query_targets(&ts.client, &own).await;
     ts.teardown().await;
     assert!(
         violations.is_empty(),

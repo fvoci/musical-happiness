@@ -887,12 +887,7 @@ async fn who_may_not_read_is_refused_as_for_no_card() {
         updated_at: 1,
         ..fvoci_model::Block::default()
     };
-    let stored: Vec<fvoci_model::Block> = th
-        .client
-        .insert_blocks(&t.board_id, &[comment])
-        .await
-        .created_json();
-    let comment_id = stored[0].id.clone();
+    let comment_id = crate::blocks::insert_one(&th.client, &comment).await.id;
     let outsider = th.add_user("outsider").await;
     let mut outside = Peer::connect(&outsider, 105).await;
     let mut anonymous = Peer::on(th.anonymous().as_browser().connect_websocket().await, 106);

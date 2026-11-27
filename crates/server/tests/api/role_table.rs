@@ -117,6 +117,10 @@ enum Prepare {
     DeletePage,
     /// The comment on its page is in the trash.
     DeleteComment,
+    /// The board's view is in the trash.
+    DeleteView,
+    /// The attachment of the board's card is in the trash.
+    DeleteAttachment,
 }
 
 const fn op(row: &'static str, method: Method, path: &'static str, body: Body) -> Op {
@@ -324,6 +328,10 @@ fn holding_ops() -> Vec<Op> {
 }
 
 /// The operations of what a board holds.
+#[expect(
+    clippy::too_many_lines,
+    reason = "a table with one entry per operation, not logic"
+)]
 fn board_ops() -> Vec<Op> {
     use Body::{Json, None};
     vec![
@@ -368,15 +376,41 @@ fn board_ops() -> Vec<Op> {
             "/boards/{c}/views/{second}",
             None,
         ),
-        op("blocks: list", Method::GET, "/boards/{c}/blocks", None),
+        op(
+            "views: get",
+            Method::GET,
+            "/boards/{c}/views/{second}",
+            None,
+        ),
+        Op {
+            prepare: Prepare::DeleteView,
+            ..op(
+                "views: restore",
+                Method::POST,
+                "/boards/{c}/views/{second}/restore",
+                Json(|_, _| json!({})),
+            )
+        },
+        op(
+            "attachments: delete",
+            Method::DELETE,
+            "/boards/{c}/cards/{p}/attachments/{attachment}",
+            None,
+        ),
+        Op {
+            prepare: Prepare::DeleteAttachment,
+            ..op(
+                "attachments: restore",
+                Method::POST,
+                "/boards/{c}/cards/{p}/attachments/{attachment}/restore",
+                Json(|_, _| json!({})),
+            )
+        },
         op(
             "comments: create",
             Method::POST,
-            "/boards/{c}/blocks",
-            Json(|things, _| {
-                json!([{"containerId": things.container, "parentId": things.block, "type": "comment",
-                        "title": "said", "createdAt": 1, "updatedAt": 1}])
-            }),
+            "/boards/{c}/cards/{p}/comments",
+            Json(|_, _| json!({"body": said("said")})),
         ),
         op(
             "cards: body versions",
@@ -641,6 +675,8 @@ struct Things {
     comment_at: Value,
     /// A version of the page's body, written twice; empty for a board.
     version: String,
+    /// The attachment of the board's card; an identifier of nothing for other kinds.
+    attachment: String,
 }
 
 fn text(value: &Value, member: &str) -> String {
@@ -744,15 +780,24 @@ async fn make_kind_content(
                 )
                 .await;
             done(&view);
+            let block = text(&card.value(), "id");
+            let attachment = owner
+                .post(
+                    &format!("{TEST_WS}/boards/{container}/cards/{block}/attachments"),
+                    &json!({"fileId": file}),
+                )
+                .await;
+            done(&attachment);
             Things {
                 scope,
                 container,
-                block: text(&card.value(), "id"),
+                block,
                 second: text(&view.value()["view"], "id"),
                 file,
                 comment: String::new(),
                 comment_at: Value::Null,
                 version: String::new(),
+                attachment: text(&attachment.value(), "id"),
             }
         }
         Kind::Course => {
@@ -782,6 +827,7 @@ async fn make_kind_content(
                 comment: text(&comment, "id"),
                 comment_at: comment["updatedAt"].clone(),
                 version: "1".to_owned(),
+                attachment: UNKNOWN_ID.to_owned(),
             }
         }
         Kind::Wiki => {
@@ -812,6 +858,7 @@ async fn make_kind_content(
                 comment: text(&comment, "id"),
                 comment_at: comment["updatedAt"].clone(),
                 version: versions[0]["version"].to_string(),
+                attachment: UNKNOWN_ID.to_owned(),
             }
         }
     }
@@ -843,6 +890,20 @@ async fn prepare(people: &People, op: &Op, things: &Things) {
             );
             done(&owner.delete(&comment).await);
         }
+        Prepare::DeleteView => {
+            let view = format!(
+                "{TEST_WS}/boards/{}/views/{}",
+                things.container, things.second
+            );
+            done(&owner.delete(&view).await);
+        }
+        Prepare::DeleteAttachment => {
+            let attachment = format!(
+                "{TEST_WS}/boards/{}/cards/{}/attachments/{}",
+                things.container, things.block, things.attachment
+            );
+            done(&owner.delete(&attachment).await);
+        }
     }
 }
 
@@ -872,6 +933,7 @@ async fn ask(
         .replace("{f}", &things.file)
         .replace("{comment}", &things.comment)
         .replace("{version}", &things.version)
+        .replace("{attachment}", &things.attachment)
         .replace("{team}", &people.team)
         .replace("{viewer}", &people.viewer)
         .replace("{commenter}", &people.commenter)
@@ -927,6 +989,7 @@ fn nothing(scope: Scope) -> Things {
         comment: UNKNOWN_ID.to_owned(),
         comment_at: json!(1),
         version: "1".to_owned(),
+        attachment: UNKNOWN_ID.to_owned(),
     }
 }
 
@@ -1218,7 +1281,9 @@ fn assert_open_unjoined_board_rows(board: &[(&str, Vec<String>)], unjoined: usiz
         "references: to",
         "cards: list",
         "cards: get",
-        "blocks: list",
+        "views: list",
+        "views: get",
+        "attachments: list",
         "cards: body versions",
     ] {
         let cells = row_of(board, row);
@@ -1645,7 +1710,8 @@ async fn course_template_and_diary_routes_match_the_role_matrix() {
         "files: get",
         "cards: list",
         "cards: get",
-        "blocks: list",
+        "views: list",
+        "views: get",
         "board: export",
     ] {
         assert_eq!(

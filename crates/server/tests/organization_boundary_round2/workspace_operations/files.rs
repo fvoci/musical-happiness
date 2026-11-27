@@ -27,7 +27,19 @@ pub(super) async fn exercise(case: &mut Case, board: &str, card: &str) {
         )
         .await
         .value();
-    case.remember(&attached, "id");
+    let attachment = case.remember(&attached, "id");
+    let of_card = &[("boardId", board), ("cardId", card)];
+    case.present("getCardAttachments", of_card, &attachment)
+        .await;
+    let of_attachment = &[
+        ("boardId", board),
+        ("cardId", card),
+        ("attachmentId", attachment.as_str()),
+    ];
+    case.run("deleteCardAttachment", of_attachment, json!({}))
+        .await;
+    case.run("restoreCardAttachment", of_attachment, json!({}))
+        .await;
     case.present("listContainerFiles", at, &filename).await;
     case.present(
         "listCardFiles",
