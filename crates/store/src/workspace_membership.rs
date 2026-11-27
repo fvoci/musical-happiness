@@ -23,7 +23,7 @@ use fvoci_model::{ContainerMember, ContainerRole, WorkspaceMember, WorkspaceRole
 use crate::Store;
 use crate::audit::{self, AuditEntry};
 use crate::containers::{delete_member, find_member, lock_container, save_member};
-use crate::db::{Dialect, Id, LockRank, Row, Scope};
+use crate::db::{FromRow, Id, LockRank, Row, RowLock, Scope};
 use crate::error::StoreError;
 use crate::trash::{self, TrashedRoles};
 use crate::{members, org_admin, person_names};
@@ -71,12 +71,7 @@ impl Store {
                 .push_bind(" AND t.org_id = ", scope.org()?)
                 .push(" AND t.deleted_at IS NULL")
                 .push(" ORDER BY wm.created_at, wm.user_id");
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(member_from_row)
-                .collect()
+            scope.all(sql).await
         })
         .await
     }
@@ -98,12 +93,7 @@ impl Store {
                 .push_bind(" AND t.org_id = ", scope.org()?)
                 .push(" AND t.deleted_at IS NULL")
                 .push_bind(" AND wm.user_id = ", Id(user_id));
-            scope
-                .fetch_optional(sql)
-                .await?
-                .as_ref()
-                .map(member_from_row)
-                .transpose()
+            scope.first(sql).await
         })
         .await
     }
@@ -336,16 +326,18 @@ const SELECT_MEMBERS: &str = concat!(
      JOIN users AS u ON u.id = wm.user_id WHERE wm.workspace_id = "
 );
 
-fn member_from_row(row: &Row) -> Result<WorkspaceMember, StoreError> {
-    Ok(WorkspaceMember {
-        user_id: row.id(0)?,
-        username: row.text(1)?,
-        display_name: row.text(2)?,
-        name: person_names::name_from_row(row, 6)?,
-        role: role_from(&row.text(3)?)?,
-        created_at: row.int(4)?,
-        joined_as_org_admin: row.bool(5)?,
-    })
+impl FromRow for WorkspaceMember {
+    fn from_row(row: &Row) -> Result<Self, StoreError> {
+        Ok(WorkspaceMember {
+            user_id: row.id(0)?,
+            username: row.text(1)?,
+            display_name: row.text(2)?,
+            name: person_names::name_from_row(row, 6)?,
+            role: role_from(&row.text(3)?)?,
+            created_at: row.int(4)?,
+            joined_as_org_admin: row.bool(5)?,
+        })
+    }
 }
 
 fn role_from(text: &str) -> Result<WorkspaceRole, StoreError> {
@@ -367,7 +359,7 @@ pub(crate) async fn is_workspace_here(
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
         .push(" AND deleted_at IS NULL");
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    scope.exists(sql).await
 }
 
 /// Holds a workspace in use of the scope's organization against other changes of who
@@ -378,15 +370,12 @@ pub(crate) async fn hold_workspace(
     scope: &mut Scope<'_>,
     workspace_id: &str,
 ) -> Result<bool, StoreError> {
-    scope.record_lock(LockRank::Workspace, workspace_id);
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
         .push(" AND deleted_at IS NULL");
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR NO KEY UPDATE");
-    }
-    Ok(scope.fetch_optional(sql).await?.is_some())
+    sql.push_lock(scope.row_lock(LockRank::Workspace, workspace_id, RowLock::NoKeyUpdate));
+    scope.exists(sql).await
 }
 
 /// Holds every board of the workspace the user has a role on, in the order of their
@@ -446,16 +435,14 @@ pub(crate) async fn held_role(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<Option<WorkspaceRole>, StoreError> {
-    scope.record_lock(
-        LockRank::WorkspaceMembers,
-        &format!("{workspace_id}:{user_id}"),
-    );
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
-    }
+    sql.push_lock(scope.row_lock(
+        LockRank::WorkspaceMembers,
+        &format!("{workspace_id}:{user_id}"),
+        RowLock::Update,
+    ));
     match scope.fetch_optional(sql).await? {
         Some(row) => role_from(&row.text(0)?).map(Some),
         None => Ok(None),
@@ -473,7 +460,7 @@ pub(crate) async fn is_only_administrator(
         .push_bind(" AND user_id <> ", Id(user_id))
         .push_bind(" AND role = ", WorkspaceRole::Admin.as_str())
         .push(" LIMIT 1");
-    Ok(scope.fetch_optional(sql).await?.is_none())
+    Ok(!scope.exists(sql).await?)
 }
 
 /// Makes `by` the admin of each of `containers`, which are held, that `user_id` is the only

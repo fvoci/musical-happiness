@@ -19,7 +19,7 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::containers;
-use crate::db::{Dialect, Id, Scope};
+use crate::db::{Id, Scope, SqlFragment};
 use crate::error::StoreError;
 
 /// How many identifiers one query of [`types_on_board`] asks for, twice (live and in the
@@ -337,23 +337,19 @@ async fn types_on_board(
     board_id: &str,
     ids: &[&str],
 ) -> Result<HashMap<String, BlockType>, StoreError> {
-    let trashed_type = match scope.dialect() {
-        Dialect::Sqlite => {
-            "CASE WHEN block_type <> '' THEN block_type ELSE json_extract(block, '$.type') END"
-        }
-        Dialect::Postgres => "CASE WHEN block_type <> '' THEN block_type ELSE block->>'type' END",
-    };
+    let mut trashed_type = SqlFragment::of(&["CASE WHEN block_type <> '' THEN block_type ELSE "]);
+    trashed_type
+        .push_fragment(&scope.json_text("block", "type"))
+        .push(" END");
     let mut types = HashMap::with_capacity(ids.len());
     for chunk in ids.chunks(LOOKUP_CHUNK) {
         let mut sql = scope.sql("SELECT id, type FROM blocks WHERE container_id = ");
         sql.bind(Id(board_id))
             .push(" AND id IN (")
             .bind_list(chunk.iter().map(|id| Id(id)))
-            .push([
-                ") UNION ALL SELECT id, ",
-                trashed_type,
-                " FROM deleted_blocks WHERE container_id = ",
-            ])
+            .push(") UNION ALL SELECT id, ")
+            .push(&trashed_type)
+            .push(" FROM deleted_blocks WHERE container_id = ")
             .bind(Id(board_id))
             .push(" AND id IN (")
             .bind_list(chunk.iter().map(|id| Id(id)))

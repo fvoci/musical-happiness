@@ -240,7 +240,7 @@ const POSTGRES_SECTIONS: [(&str, &str); 9] = [
            || CASE WHEN con.condeferrable THEN ' deferrable' ELSE '' END \
            || CASE WHEN con.convalidated THEN '' ELSE ' not valid' END \
          FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid \
-         WHERE con.connamespace = current_schema()::regnamespace \
+         WHERE con.connamespace = current_schema()::regnamespace AND con.contype <> 'n' \
          ORDER BY c.relname, con.conname",
     ),
     (

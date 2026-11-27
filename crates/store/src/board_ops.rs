@@ -15,10 +15,10 @@ use serde_json::Value;
 use crate::blocks::{self, BLOCK_COLUMNS, OLDEST_FIRST, fetch_blocks, insert_blocks, patch_block};
 use crate::body_versions::{self, BodyWrite};
 use crate::comment_versions::EDITED_AT_COLUMN;
-use crate::db::{Dialect, Id, Scope};
+use crate::db::{Dialect, FromRow, Id, LockRank, RowLock, Scope};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
-use crate::files::{self, FILE_COLUMNS, file_from_row};
+use crate::files::{self, FILE_COLUMNS};
 use crate::loose_objects;
 use crate::notification_noting::Telling;
 use crate::trash::{self, with_tree_of};
@@ -549,11 +549,7 @@ async fn board_org_id(scope: &mut Scope<'_>, board_id: &str) -> Result<String, S
          WHERE c.id = ",
     );
     sql.bind(Id(board_id));
-    scope
-        .fetch_optional(sql)
-        .await?
-        .ok_or_else(|| StoreError::not_found("board"))?
-        .id(0)
+    scope.one::<String>(sql, "board").await
 }
 
 async fn referenced_board_files(
@@ -570,12 +566,7 @@ async fn referenced_board_files(
         .push(" AND name IN (")
         .bind_list(names.iter().map(String::as_str))
         .push(") ORDER BY created_at, id");
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(file_from_row)
-        .collect()
+    scope.all(sql).await
 }
 
 fn validate_card_id_batch(card_ids: &[String]) -> Result<(), Refusals> {
@@ -981,9 +972,7 @@ async fn lock_board_file(
     } else {
         sql.push_bind(" AND name = ", file_id);
     }
-    if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR KEY SHARE");
-    }
+    sql.push_lock(scope.row_lock(LockRank::Container, board_id, RowLock::KeyShare));
     let Some(row) = scope.fetch_optional(sql).await? else {
         let mut refused = Refusals::new();
         refused.refuse(
@@ -993,5 +982,5 @@ async fn lock_board_file(
         );
         return Err(refused.into());
     };
-    file_from_row(&row)
+    FileRecord::from_row(&row)
 }

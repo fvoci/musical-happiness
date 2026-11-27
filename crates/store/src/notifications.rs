@@ -12,7 +12,7 @@ use fvoci_model::{BlockType, ContainerKind, NotificationKind, SearchKind};
 
 use crate::Store;
 use crate::blocks::Paging;
-use crate::db::{Dialect, Id, Row, Scope, Sql};
+use crate::db::{Dialect, FromRow, Id, Row, Scope, Sql};
 use crate::directory::{HAS_PASSWORD, Making, org_kind, taken};
 use crate::error::StoreError;
 use crate::search_docs::select_documents;
@@ -162,12 +162,7 @@ impl Store {
                 reader.push_theirs(&closed, &mut sql);
                 sql.push(" ORDER BY updated_at DESC, id DESC")
                     .push_page(paging);
-                scope
-                    .fetch_all(sql)
-                    .await?
-                    .iter()
-                    .map(notification_from_row)
-                    .collect()
+                scope.all(sql).await
             })
             .await
     }
@@ -189,10 +184,7 @@ impl Store {
                     "SELECT COUNT(*) FROM notifications WHERE read_at = 0 AND recipient_id = ",
                 );
                 reader.push_theirs(&closed, &mut sql);
-                match scope.fetch_optional(sql).await? {
-                    Some(row) => row.int(0),
-                    None => Ok(0),
-                }
+                Ok(scope.first(sql).await?.unwrap_or(0))
             })
             .await
     }
@@ -353,7 +345,7 @@ impl Store {
                     .bind_list(batch.iter().map(|id| Id(id)))
                     .push(")");
                 for row in scope.fetch_all(sql).await? {
-                    places.push(place_from_row(&row)?);
+                    places.push(NotificationPlace::from_row(&row)?);
                 }
             }
             Ok(places)
@@ -447,22 +439,24 @@ pub(crate) fn kind_from_row(row: &Row, index: usize) -> Result<NotificationKind,
         )
 }
 
-fn notification_from_row(row: &Row) -> Result<StoredNotification, StoreError> {
-    Ok(StoredNotification {
-        id: row.id(0)?,
-        org_id: row.id(1)?,
-        kind: kind_from_row(row, 2)?,
-        source_id: row.id(3)?,
-        block_id: row.id(4)?,
-        container_id: row.id(5)?,
-        actor_id: row.id(6)?,
-        created_at: row.int(7)?,
-        updated_at: row.int(8)?,
-        times: row.int(9)?,
-        people: people_of(&row.text(10)?),
-        read_at: row.int(11)?,
-        actor_token_name: row.opt_text(12)?,
-    })
+impl FromRow for StoredNotification {
+    fn from_row(row: &Row) -> Result<Self, StoreError> {
+        Ok(StoredNotification {
+            id: row.id(0)?,
+            org_id: row.id(1)?,
+            kind: kind_from_row(row, 2)?,
+            source_id: row.id(3)?,
+            block_id: row.id(4)?,
+            container_id: row.id(5)?,
+            actor_id: row.id(6)?,
+            created_at: row.int(7)?,
+            updated_at: row.int(8)?,
+            times: row.int(9)?,
+            people: people_of(&row.text(10)?),
+            read_at: row.int(11)?,
+            actor_token_name: row.opt_text(12)?,
+        })
+    }
 }
 
 /// How many people a line's doers name (`doers`, a JSON list); none for a list that
@@ -472,19 +466,21 @@ fn people_of(doers: &str) -> i64 {
         .map_or(0, |doers| i64::try_from(doers.len()).unwrap_or(i64::MAX))
 }
 
-fn place_from_row(row: &Row) -> Result<NotificationPlace, StoreError> {
-    let block_type = crate::blocks::block_type_column(row, 1, "type")?;
-    let block_kind = SearchKind::of_block(&block_type).ok_or_else(|| StoreError::Corrupt {
-        column: "type",
-        reason: format!("a block of type {block_type} is no card, page or unit"),
-    })?;
-    let container_kind = crate::container_kinds::kind_from_text(&row.text(4)?)?;
-    Ok(NotificationPlace {
-        block_id: row.id(0)?,
-        block_kind,
-        title: row.text(2)?,
-        container_id: row.id(3)?,
-        container_kind,
-        workspace_id: row.id(5)?,
-    })
+impl FromRow for NotificationPlace {
+    fn from_row(row: &Row) -> Result<Self, StoreError> {
+        let block_type = crate::blocks::block_type_column(row, 1, "type")?;
+        let block_kind = SearchKind::of_block(&block_type).ok_or_else(|| StoreError::Corrupt {
+            column: "type",
+            reason: format!("a block of type {block_type} is no card, page or unit"),
+        })?;
+        let container_kind = crate::container_kinds::kind_from_text(&row.text(4)?)?;
+        Ok(NotificationPlace {
+            block_id: row.id(0)?,
+            block_kind,
+            title: row.text(2)?,
+            container_id: row.id(3)?,
+            container_kind,
+            workspace_id: row.id(5)?,
+        })
+    }
 }
