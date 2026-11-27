@@ -14,8 +14,8 @@ use thiserror::Error;
 use crate::allowlist;
 
 /// The version of the set of nodes and marks a stored body is written in: 4 added the
-/// file block, 5 the table.
-pub const BODY_VERSION: i64 = 5;
+/// file block, 5 the table, 6 the toggle (`details`) and the callout.
+pub const BODY_VERSION: i64 = 6;
 
 /// The largest body, as serialized JSON, in bytes.
 pub const BODY_MAX_BYTES: usize = 8 * 1024 * 1024;

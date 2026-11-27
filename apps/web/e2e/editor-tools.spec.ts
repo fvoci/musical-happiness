@@ -131,6 +131,8 @@ test('"/" offers the kinds of block, found by what is typed, Korean too', async 
     'Bulleted list',
     'Numbered list',
     'Quote',
+    'Toggle',
+    'Callout',
     'Code block',
     'Formula block',
     'Divider',

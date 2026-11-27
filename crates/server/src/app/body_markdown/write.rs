@@ -2,6 +2,11 @@
 //! as it is comes back the same, and each block it does not is named
 //! ([`ComplexBlock`]). An empty paragraph is not written, and the marks of the spaces
 //! at the edge of a bold, italic or struck text are not kept.
+//!
+//! A toggle is written as GitHub draws one, `<details>` with its summary's line in
+//! `<summary>…</summary>`, and a callout as a GitHub alert (`> [!NOTE]`, `[!TIP]`,
+//! `[!WARNING]` or `[!CAUTION]`, by its tone). Whether a toggle is open is not the
+//! body's, and is not written.
 
 use std::collections::HashMap;
 
@@ -164,7 +169,36 @@ impl Writer<'_> {
                 format!("$${latex}$$")
             }
             "table" => self.table(node, path),
+            "details" => self.details(node, path),
+            "callout" => {
+                let marker = match attr_text(node, "tone") {
+                    "tip" => "TIP",
+                    "warn" => "WARNING",
+                    "danger" => "CAUTION",
+                    _ => "NOTE",
+                };
+                let inner = self.blocks(children(node), path);
+                if inner.is_empty() {
+                    format!("> [!{marker}]")
+                } else {
+                    format!("> [!{marker}]\n{}", prefixed(&inner, "> ", "> "))
+                }
+            }
             _ => String::new(),
+        }
+    }
+
+    /// A toggle: its summary in a block of HTML of its own, and what it hides between
+    /// blank lines, so that Markdown reads it as Markdown.
+    fn details(&mut self, node: &Value, path: &str) -> String {
+        let parts = children(node);
+        let part = |index: usize| parts.get(index).map_or(&[][..], children);
+        let line = self.inlines(part(0), &format!("{path}/content/0"), Within::Paragraph);
+        let inner = self.blocks(part(1), &format!("{path}/content/1"));
+        if inner.is_empty() {
+            format!("<details>\n<summary>{line}</summary>\n\n</details>")
+        } else {
+            format!("<details>\n<summary>{line}</summary>\n\n{inner}\n\n</details>")
         }
     }
 
