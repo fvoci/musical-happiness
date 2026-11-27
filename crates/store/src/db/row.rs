@@ -232,3 +232,48 @@ impl<A: Column, B: Column, C: Column> FromRow for (A, B, C) {
         Ok((A::column(row, 0)?, B::column(row, 1)?, C::column(row, 2)?))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use sqlx::Connection as _;
+
+    use super::{Column, FromRow, Row};
+
+    /// The one row of `select`, on SQLite.
+    async fn row_of(select: &'static str) -> Row {
+        let mut conn = sqlx::SqliteConnection::connect("sqlite::memory:")
+            .await
+            .expect("a database");
+        Row::Sqlite(
+            sqlx::query(select)
+                .fetch_one(&mut conn)
+                .await
+                .expect("a row"),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_row_is_read_as_its_columns_in_order() {
+        let row = row_of("SELECT 'a', 2, 1, 0.5").await;
+        let first: String = FromRow::from_row(&row).expect("read");
+        assert_eq!(first, "a");
+        let two: (String, i64) = FromRow::from_row(&row).expect("read");
+        assert_eq!(two, ("a".to_owned(), 2));
+        let three: (String, i64, bool) = FromRow::from_row(&row).expect("read");
+        assert_eq!(three, ("a".to_owned(), 2, true));
+        assert_eq!(f64::column(&row, 3).expect("read"), 0.5);
+    }
+
+    #[tokio::test]
+    async fn null_is_read_as_the_empty_value() {
+        let row = row_of("SELECT NULL, NULL, NULL").await;
+        let three: (String, i64, bool) = FromRow::from_row(&row).expect("read");
+        assert_eq!(three, (String::new(), 0, false));
+    }
+
+    #[tokio::test]
+    async fn a_column_of_another_type_is_an_error() {
+        let row = row_of("SELECT 'a'").await;
+        assert!(<i64 as FromRow>::from_row(&row).is_err());
+    }
+}

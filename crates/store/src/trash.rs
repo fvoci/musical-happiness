@@ -864,7 +864,7 @@ pub(crate) async fn undelete_container(
     sql.bind(Id(container_id));
     // Of two requests that restore the board at once, the second waits here and then
     // finds the trash without it.
-    sql.push(&scope.row_lock(LockRank::DeletedContainers, container_id, RowLock::Update));
+    sql.push_lock(scope.row_lock(LockRank::DeletedContainers, container_id, RowLock::Update));
     let row = scope
         .fetch_optional(sql)
         .await?

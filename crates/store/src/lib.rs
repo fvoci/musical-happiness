@@ -567,7 +567,7 @@ impl Store {
                 Dialect::Postgres => "SELECT current_setting('server_version')",
             };
             let sql = scope.sql(query);
-            Ok(scope.first(sql).await?.unwrap_or(String::new()))
+            Ok(scope.first(sql).await?.unwrap_or_default())
         })
         .await
     }

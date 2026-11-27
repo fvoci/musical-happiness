@@ -452,7 +452,7 @@ impl Store {
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push(" AND deleted_at IS NOT NULL")
                 .push_bind(" AND deleted_at < ", deleted_before);
-            sql.push(&scope.row_lock(LockRank::Workspace, workspace_id, RowLock::Update));
+            sql.push_lock(scope.row_lock(LockRank::Workspace, workspace_id, RowLock::Update));
             if !scope.exists(sql).await? {
                 return Ok(Purged::default());
             }
@@ -663,7 +663,7 @@ pub(crate) async fn hold_organization_row<'c>(
     sql.bind(scope.org()?);
     // Not FOR UPDATE: what refers to the organization (a member, a workspace, a record)
     // is still added meanwhile; only another holder of this lock waits.
-    sql.push(&scope.row_lock(LockRank::Organization, &org_key, RowLock::NoKeyUpdate));
+    sql.push_lock(scope.row_lock(LockRank::Organization, &org_key, RowLock::NoKeyUpdate));
     scope.fetch_optional(sql).await?;
     Ok(OrganizationHeld::new())
 }

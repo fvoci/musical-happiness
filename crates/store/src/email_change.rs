@@ -311,7 +311,7 @@ async fn hold_account(
         sql.push_bind(" AND password_hash = ", password_hash)
             .push_bind(" AND password_locked_at = ", 0_i64);
     }
-    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
+    sql.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::Update));
     scope
         .fetch_optional(sql)
         .await?

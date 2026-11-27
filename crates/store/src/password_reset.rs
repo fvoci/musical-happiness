@@ -68,7 +68,7 @@ impl Store {
             let mut hold = scope.sql("SELECT id FROM users WHERE ");
             hold.push(RESETTABLE)
                 .push_bind(" AND id = ", Id(&user_id))
-                .push(&scope.row_lock(LockRank::Users, &user_id, RowLock::Update));
+                .push_lock(scope.row_lock(LockRank::Users, &user_id, RowLock::Update));
             if !scope.exists(hold).await? {
                 return Ok(None);
             }
@@ -143,6 +143,6 @@ pub(crate) async fn insert_password_reset(
     if let Some(email) = email {
         sql.push_bind(" AND lower(email) = lower(", email).push(")");
     }
-    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
+    sql.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::Update));
     Ok(scope.execute(sql).await? == 1)
 }

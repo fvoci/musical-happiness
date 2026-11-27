@@ -374,7 +374,7 @@ pub(crate) async fn hold_workspace(
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
         .push(" AND deleted_at IS NULL");
-    sql.push(&scope.row_lock(LockRank::Workspace, workspace_id, RowLock::NoKeyUpdate));
+    sql.push_lock(scope.row_lock(LockRank::Workspace, workspace_id, RowLock::NoKeyUpdate));
     scope.exists(sql).await
 }
 
@@ -438,7 +438,7 @@ pub(crate) async fn held_role(
     let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    sql.push(&scope.row_lock(
+    sql.push_lock(scope.row_lock(
         LockRank::WorkspaceMembers,
         &format!("{workspace_id}:{user_id}"),
         RowLock::Update,

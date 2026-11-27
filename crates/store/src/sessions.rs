@@ -503,7 +503,7 @@ async fn hold_account_proved_by(
         ")) AND id = ",
     ]);
     sql.bind(Id(user_id));
-    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Share));
+    sql.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::Share));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(None);
     };

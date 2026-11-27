@@ -212,7 +212,7 @@ async fn hold_link(
     let mut sql = scope.sql("SELECT i.id FROM invitations AS i WHERE i.id = ");
     sql.bind(Id(invitation_id))
         .push_bind(" AND i.org_id = ", scope.org()?)
-        .push(&scope.row_lock(LockRank::Invitation, invitation_id, RowLock::Update.of("i")));
+        .push_lock(scope.row_lock(LockRank::Invitation, invitation_id, RowLock::Update.of("i")));
     Ok(scope.fetch_optional(sql).await?.map(|_| link))
 }
 

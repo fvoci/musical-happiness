@@ -681,7 +681,7 @@ async fn require_live_exam(
         .push(" AND w.deleted_at IS NULL")
         .push(" AND o.deleted_at IS NULL")
         .push(&scope.same_organization(&[("e", "c"), ("c", "w")]));
-    sql.push(&scope.row_lock(LockRank::CourseItem, exam_id, RowLock::KeyShare.of("e")));
+    sql.push_lock(scope.row_lock(LockRank::CourseItem, exam_id, RowLock::KeyShare.of("e")));
     scope.one(sql, "exam").await
 }
 
@@ -694,7 +694,7 @@ async fn require_active_workspace_user(
     member
         .bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id))
-        .push(&scope.row_lock(
+        .push_lock(scope.row_lock(
             LockRank::WorkspaceMembers,
             &format!("{workspace_id}:{user_id}"),
             RowLock::Share,
@@ -706,7 +706,7 @@ async fn require_active_workspace_user(
     user.bind(Id(user_id))
         .push(" AND deleted_at IS NULL")
         .push_bind(" AND erased_at = ", 0_i64)
-        .push(&scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
+        .push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::KeyShare));
     if !scope.exists(user).await? {
         return Err(StoreError::not_found("exam"));
     }
@@ -727,7 +727,7 @@ async fn fetch_exam_for_update(
     sql.bind(Id(exam_id))
         .push_bind(" AND org_id = ", org.clone())
         .push_bind(" AND container_id = ", Id(course_id))
-        .push(&scope.row_lock(LockRank::CourseItem, exam_id, RowLock::Update));
+        .push_lock(scope.row_lock(LockRank::CourseItem, exam_id, RowLock::Update));
     scope.one(sql, "exam").await
 }
 

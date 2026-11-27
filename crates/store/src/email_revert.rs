@@ -164,7 +164,7 @@ async fn hold_account(
         ")) AND id = ",
     ]);
     sql.bind(Id(user_id));
-    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Update));
+    sql.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::Update));
     scope.first(sql).await
 }
 

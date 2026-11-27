@@ -748,7 +748,7 @@ pub(crate) async fn lock_password(
 pub(crate) async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
     let mut sql = scope.sql("SELECT id FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
-    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::NoKeyUpdate));
+    sql.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::NoKeyUpdate));
     match scope.fetch_optional(sql).await? {
         Some(_) => Ok(()),
         None => Err(StoreError::UserNotFound(user_id.to_owned())),
@@ -776,7 +776,7 @@ pub(crate) async fn hold_user_for_cleanup(
 pub(crate) async fn hold_in_use(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT id FROM users WHERE deleted_at IS NULL AND id = ");
     sql.bind(Id(user_id));
-    sql.push(&scope.row_lock(LockRank::Users, user_id, RowLock::Share));
+    sql.push_lock(scope.row_lock(LockRank::Users, user_id, RowLock::Share));
     scope.exists(sql).await
 }
 
@@ -798,7 +798,7 @@ pub(crate) async fn lock_instance<'c>(
     scope: &mut Scope<'c>,
 ) -> Result<InstanceHeld<'c>, StoreError> {
     let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
-    sql.push(&scope.row_lock(LockRank::Instance, "1", RowLock::Update));
+    sql.push_lock(scope.row_lock(LockRank::Instance, "1", RowLock::Update));
     scope.fetch_optional(sql).await?;
     Ok(InstanceHeld::new())
 }
