@@ -57,7 +57,11 @@ const DOCUMENT_BLOCKS: &[&str] = &[
     "file",
     "blockMath",
     "table",
+    "details",
+    "callout",
 ];
+/// The parts of a toggle, in the order it holds them.
+const DETAILS_PARTS: &[&str] = &["detailsSummary", "detailsContent"];
 const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMath"];
 const LEAF: &[&str] = &[];
 
@@ -69,6 +73,7 @@ enum AttrRule {
     Boolean,
     Language,
     Id,
+    OneOf(&'static [&'static str]),
 }
 
 #[derive(Clone, Copy)]
@@ -114,6 +119,10 @@ const _: () = assert!(
 const MENTION_ATTRS: &[AttrSpec] = &[req("userId", AttrRule::Id)];
 const REFERENCE_ATTRS: &[AttrSpec] = &[req("id", AttrRule::Id)];
 const MATH_ATTRS: &[AttrSpec] = &[req("latex", AttrRule::NonEmptyText(LATEX_MAX))];
+const CALLOUT_ATTRS: &[AttrSpec] = &[req(
+    "tone",
+    AttrRule::OneOf(&["info", "tip", "warn", "danger"]),
+)];
 
 #[derive(Clone, Copy)]
 struct NodeSpec {
@@ -153,6 +162,10 @@ fn node_spec(kind: &str) -> Option<NodeSpec> {
         "mention" => node_spec_def(MENTION_ATTRS, LEAF, 0),
         "reference" => node_spec_def(REFERENCE_ATTRS, LEAF, 0),
         "inlineMath" | "blockMath" => node_spec_def(MATH_ATTRS, LEAF, 0),
+        "details" => node_spec_def(&[], DETAILS_PARTS, DETAILS_PARTS.len()),
+        "detailsSummary" => node_spec_def(&[], INLINE, 0),
+        "detailsContent" => node_spec_def(&[], DOCUMENT_BLOCKS, 1),
+        "callout" => node_spec_def(CALLOUT_ATTRS, BLOCKS, 1),
         _ => return None,
     })
 }
@@ -283,6 +296,14 @@ fn count_element<'a>(
     if kind == "codeBlock" && children.iter().any(|child| child.get("marks").is_some()) {
         return None;
     }
+    if kind == "details"
+        && !children
+            .iter()
+            .map(|child| child.get("type").and_then(Value::as_str))
+            .eq(DETAILS_PARTS.iter().copied().map(Some))
+    {
+        return None;
+    }
     let (child_count, child_nodes, child_bytes) =
         count_content(children, depth + 1, spec.children, files)?;
     if kind == "table" {
@@ -398,6 +419,13 @@ fn canonical_attr_bytes<'a>(
                     AttrBytes::Omitted
                 } else {
                     AttrBytes::Bytes(if truth { 4 } else { 5 })
+                }
+            }
+            Fallback::Text(text) => {
+                if attr.at_fallback == AtFallback::LeftOut {
+                    AttrBytes::Omitted
+                } else {
+                    AttrBytes::Bytes(json_str_len(text))
                 }
             }
         },
@@ -606,6 +634,7 @@ fn attr_rule_allows(rule: AttrRule, value: &Value) -> bool {
         AttrRule::Boolean => value.is_boolean(),
         AttrRule::Language => value.as_str().is_some_and(is_language),
         AttrRule::Id => value.as_str().is_some_and(is_id),
+        AttrRule::OneOf(allowed) => value.as_str().is_some_and(|text| allowed.contains(&text)),
     }
 }
 

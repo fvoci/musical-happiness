@@ -31,6 +31,8 @@ const TASK_ENTRY_WRAPPER_BYTES: usize =
     r#"{"content":[{"content":[],"type":"taskList"}],"type":"doc"}"#.len();
 const TABLE_ROW_WRAPPER_BYTES: usize =
     r#"{"content":[{"content":[],"type":"table"}],"type":"doc"}"#.len();
+const DETAILS_PART_WRAPPER_BYTES: usize =
+    r#"{"content":[{"content":[],"type":"details"}],"type":"doc"}"#.len();
 const TABLE_CELL_WRAPPER_BYTES: usize =
     r#"{"content":[{"content":[{"content":[],"type":"tableRow"}],"type":"table"}],"type":"doc"}"#
         .len();
@@ -66,6 +68,8 @@ const DOCUMENT_BLOCKS: &[&str] = &[
     "file",
     "blockMath",
     "table",
+    "details",
+    "callout",
 ];
 
 const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMath"];
@@ -75,6 +79,8 @@ const TASK_ITEM_ONLY: &[&str] = &["taskItem"];
 const TEXT_ONLY: &[&str] = &["text"];
 const TABLE_ROW_ONLY: &[&str] = &["tableRow"];
 const TABLE_CELLS: &[&str] = &["tableHeader", "tableCell"];
+/// The parts of a toggle, in the order it holds them.
+const DETAILS_PARTS: &[&str] = &["detailsSummary", "detailsContent"];
 
 /// Structural rule for one allowed non-text node type (matching `fvoci_model::allowlist`).
 #[derive(Clone, Copy)]
@@ -137,6 +143,10 @@ fn kind_spec(kind: &str) -> Option<KindSpec> {
         "reference" => KindSpec::with_attrs("reference", LEAF, 0),
         "inlineMath" => KindSpec::with_attrs("inlineMath", LEAF, 0),
         "blockMath" => KindSpec::with_attrs("blockMath", LEAF, 0),
+        "details" => KindSpec::plain("details", DETAILS_PARTS, DETAILS_PARTS.len()),
+        "detailsSummary" => KindSpec::plain("detailsSummary", INLINE, 0),
+        "detailsContent" => KindSpec::plain("detailsContent", DOCUMENT_BLOCKS, 1),
+        "callout" => KindSpec::with_attrs("callout", BLOCKS, 1),
         _ => return None,
     };
     Some(spec)
@@ -403,6 +413,14 @@ fn check_structural_rules(spec: KindSpec, children: &[ChildSlot]) -> bool {
     {
         return false;
     }
+    if spec.name == "details"
+        && !children
+            .iter()
+            .map(|child| child.kind)
+            .eq(DETAILS_PARTS.iter().copied())
+    {
+        return false;
+    }
     if spec.name == "codeBlock" && children.iter().any(|child| child.has_marks) {
         return false;
     }
@@ -487,6 +505,8 @@ fn validate_shell_attrs(spec: KindSpec, place: Place, mut shell: Value) -> Resul
         Place::ListEntry => Wrapper::ListEntry,
         Place::TaskEntry => Wrapper::TaskEntry,
         Place::TableRow => Wrapper::TableRow,
+        // The parts of a toggle have no attributes.
+        Place::DetailsPart => return Ok(true),
         // `passes` strips `colspan`/`rowspan` for standalone cell validation; table cells
         // have no other allowlisted attributes.
         Place::TableCell => return Ok(true),
@@ -525,6 +545,7 @@ fn allowed_in_place(kind: &str, place: Place) -> bool {
         Place::TaskEntry => kind == "taskItem",
         Place::TableRow => kind == "tableRow",
         Place::TableCell => TABLE_CELLS.contains(&kind),
+        Place::DetailsPart => DETAILS_PARTS.contains(&kind),
     }
 }
 
@@ -537,6 +558,7 @@ fn wrapper_metrics(place: Place) -> (usize, usize, usize) {
         Place::TaskEntry => (2, 2, TASK_ENTRY_WRAPPER_BYTES),
         Place::TableRow => (2, 2, TABLE_ROW_WRAPPER_BYTES),
         Place::TableCell => (3, 3, TABLE_CELL_WRAPPER_BYTES),
+        Place::DetailsPart => (2, 2, DETAILS_PART_WRAPPER_BYTES),
     }
 }
 
@@ -584,6 +606,10 @@ mod tests {
                 "type": "doc",
                 "content": [{"type": "table", "content": [{"type": "tableRow", "content": []}]}]
             }))
+        );
+        assert_eq!(
+            DETAILS_PART_WRAPPER_BYTES,
+            len(json!({"type": "doc", "content": [{"type": "details", "content": []}]}))
         );
         assert_eq!(TABLE_CELL_SHELL_BYTES, len(json!({"type": "tableCell"})));
         assert_eq!(

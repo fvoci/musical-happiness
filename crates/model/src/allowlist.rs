@@ -20,8 +20,8 @@ const NODE_MEMBERS: [&str; 5] = ["type", "attrs", "content", "marks", "text"];
 /// The members a mark may have.
 const MARK_MEMBERS: [&str; 2] = ["type", "attrs"];
 
-/// The nodes that stand as blocks: in the document, a quote, a list entry and a cell
-/// of a table.
+/// The nodes that stand as blocks: in the document, a quote, a list entry, a cell of a
+/// table, a callout and what a toggle hides.
 const BLOCKS: [&str; 11] = [
     "paragraph",
     "heading",
@@ -36,18 +36,35 @@ const BLOCKS: [&str; 11] = [
     "blockMath",
 ];
 
-/// The nodes that stand in the document itself: the blocks, and a table. A table stands
-/// nowhere else, so that no table is in another: a cell holds blocks, and so does a list
-/// entry in a cell.
-const DOCUMENT_BLOCKS: [&str; BLOCKS.len() + 1] = {
-    let mut nodes = ["table"; BLOCKS.len() + 1];
+/// The nodes that stand in the document itself and in the content of a toggle: the
+/// blocks, a table, a toggle and a callout. None of these stands anywhere else, so that
+/// no table is in another: a cell holds blocks, and so does a list entry in a cell, a
+/// quote and a callout.
+const DOCUMENT_BLOCKS: [&str; BLOCKS.len() + DOCUMENT_ONLY.len()] = {
+    let mut nodes = [""; BLOCKS.len() + DOCUMENT_ONLY.len()];
     let mut at = 0;
-    while at < BLOCKS.len() {
-        nodes[at] = BLOCKS[at];
+    while at < nodes.len() {
+        nodes[at] = if at < BLOCKS.len() {
+            BLOCKS[at]
+        } else {
+            DOCUMENT_ONLY[at - BLOCKS.len()]
+        };
         at += 1;
     }
     nodes
 };
+
+/// The nodes that stand only where [`DOCUMENT_BLOCKS`] do.
+const DOCUMENT_ONLY: [&str; 3] = ["table", "details", "callout"];
+
+/// The two parts of a toggle, in their order: the line it shows, and what it hides.
+const DETAILS_PARTS: [&str; 2] = ["detailsSummary", "detailsContent"];
+
+/// The tones of a callout, of which it has one. (A toggle has no attribute: whether it
+/// is open is how each reader's own page shows it, so that opening one opens it for
+/// nobody else and reading writes nothing.)
+const CALLOUT_TONES: &[&str] = &["info", "tip", "warn", "danger"];
+
 /// The nodes that stand inside a line.
 const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMath"];
 
@@ -55,12 +72,13 @@ const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMa
 const TABLE_PARTS: &[&str] = &["tableRow", "tableHeader", "tableCell"];
 
 /// The types of node a body may hold besides the document itself and the items of its
-/// lists: those that stand in the document, the parts of a table, then those that stand
-/// inside a line.
+/// lists: those that stand in the document, the parts of a table and of a toggle, then
+/// those that stand inside a line.
 pub fn body_node_types() -> impl Iterator<Item = &'static str> {
     DOCUMENT_BLOCKS
         .iter()
         .chain(TABLE_PARTS)
+        .chain(&DETAILS_PARTS)
         .chain(INLINE)
         .copied()
 }
@@ -95,6 +113,8 @@ enum Rule {
     /// An identifier, of a user or of a block: one in form, whether or not it names
     /// anything.
     Id,
+    /// One of these strings.
+    OneOf(&'static [&'static str]),
 }
 
 /// An attribute of a node or a mark.
@@ -168,6 +188,7 @@ const MENTION: &[Attribute] = &[required("userId", Rule::Id)];
 const REFERENCE: &[Attribute] = &[required("id", Rule::Id)];
 const MATH: &[Attribute] = &[required("latex", Rule::NonEmptyText(LATEX_MAX))];
 const LINK: &[Attribute] = &[required("href", Rule::Href)];
+const CALLOUT: &[Attribute] = &[required("tone", Rule::OneOf(CALLOUT_TONES))];
 
 /// The kind of node of this name, if it is on the list.
 fn node_spec(name: &str) -> Option<NodeSpec> {
@@ -177,8 +198,11 @@ fn node_spec(name: &str) -> Option<NodeSpec> {
         "heading" => node(HEADING, INLINE, 0),
         "bulletList" => node(&[], &["listItem"], 1),
         "orderedList" => node(ORDERED_LIST, &["listItem"], 1),
-        "doc" => node(&[], &DOCUMENT_BLOCKS, 1),
+        "doc" | "detailsContent" => node(&[], &DOCUMENT_BLOCKS, 1),
         "listItem" | "blockquote" => node(&[], &BLOCKS, 1),
+        "details" => node(&[], &DETAILS_PARTS, DETAILS_PARTS.len()),
+        "detailsSummary" => node(&[], INLINE, 0),
+        "callout" => node(CALLOUT, &BLOCKS, 1),
         "table" => node(&[], &["tableRow"], 1),
         // A row may have no cell of its own where the cells above cover it.
         "tableRow" => node(&[], &["tableHeader", "tableCell"], 0),
@@ -298,6 +322,7 @@ impl Rule {
             Self::Href => value.as_str().is_some_and(is_allowed_href),
             Self::FileId => value.as_str().is_some_and(is_file_id),
             Self::Id => value.as_str().is_some_and(is_id),
+            Self::OneOf(allowed) => value.as_str().is_some_and(|text| allowed.contains(&text)),
         }
     }
 }
@@ -404,6 +429,9 @@ impl Walk {
         if name == "codeBlock" && children.iter().any(|child| child.get("marks").is_some()) {
             return Err(self.invalid("text of a code block has marks"));
         }
+        if name == "details" && !is_details_pair(children) {
+            return Err(self.invalid("toggle does not hold a summary and then a content"));
+        }
         for (index, child) in children.iter().enumerate() {
             self.path.push(index);
             self.node(child, depth + 1, spec.children)?;
@@ -430,6 +458,15 @@ impl Walk {
         }
         Ok(())
     }
+}
+
+/// Whether the children of a toggle are its two parts, in their order, and nothing else.
+fn is_details_pair(children: &[Value]) -> bool {
+    children.len() == DETAILS_PARTS.len()
+        && children
+            .iter()
+            .zip(DETAILS_PARTS)
+            .all(|(child, part)| child.get("type").and_then(Value::as_str) == Some(part))
 }
 
 /// Whether a string or a member name in the value holds U+0000, which PostgreSQL cannot
@@ -514,7 +551,8 @@ fn check_text(members: &Map<String, Value>) -> Result<(), &'static str> {
 /// formula in a line gives its source there. A mention gives nothing: the name is not
 /// stored. Nor does a reference: the title of what it names is not the body's, and not
 /// every reader's to see. Nor does a file block: the name is its file's, not the body's.
-/// A table gives the lines of its cells, row after row.
+/// A table gives the lines of its cells, row after row. A toggle gives its summary as a
+/// line, then the lines of what it hides, whether a reader has it open or not.
 pub(crate) fn plain_text(document: &Value) -> String {
     let mut lines = Vec::new();
     collect_lines(document, &mut lines);
@@ -551,7 +589,10 @@ fn collect_lines(node: &Value, lines: &mut Vec<String>) -> String {
                 .flatten()
                 .map(|child| collect_lines(child, lines))
                 .collect();
-            if matches!(kind, "paragraph" | "heading" | "codeBlock") {
+            if matches!(
+                kind,
+                "paragraph" | "heading" | "codeBlock" | "detailsSummary"
+            ) {
                 lines.push(inner);
             }
             String::new()
