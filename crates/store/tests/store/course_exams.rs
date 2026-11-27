@@ -755,3 +755,195 @@ async fn verify_org_admin_joining_score_cleanup(
         "enrolled prior-member personal note kept"
     );
 }
+
+/// How the three scorers who came after the first snapshot leave again.
+#[derive(Debug, Clone, Copy)]
+enum Leaving {
+    /// They delete their own scores.
+    DeleteTheirScores,
+    /// The course administrator removes them from the course; their scores stay behind
+    /// but no longer count.
+    RemovedFromTheCourse,
+}
+
+/// A course with an administrator who never scores, and the ten scorers of the
+/// snapshot tests: A to E, then X, then P, Q and R.
+struct SnapshotCourse {
+    admin: String,
+    course_id: String,
+    exam_id: String,
+    first_five: Vec<String>,
+    x: String,
+    came_and_went: Vec<String>,
+}
+
+async fn snapshot_course(test: &Store, workspace_id: &str) -> SnapshotCourse {
+    let admin = common::user(test, "admin").await;
+    common::works_in(test, workspace_id, &admin).await;
+    let course_id = create_course(test, workspace_id, &admin).await;
+    let mut scorers = Vec::new();
+    for name in ["a", "b", "c", "d", "e", "x", "p", "q", "r"] {
+        let user = common::user(test, name).await;
+        common::works_in(test, workspace_id, &user).await;
+        enroll(test, &course_id, &user).await;
+        scorers.push(user);
+    }
+    let exam = test
+        .create_course_exam(&course_id, &new_exam("Midterm", None, 100.0))
+        .await
+        .expect("exam");
+    let came_and_went = scorers.split_off(6);
+    let x = scorers.pop().expect("x is the sixth");
+    SnapshotCourse {
+        admin,
+        course_id,
+        exam_id: exam.id,
+        first_five: scorers,
+        x,
+        came_and_went,
+    }
+}
+
+async fn score(test: &Store, course: &SnapshotCourse, user: &str, score: f64) {
+    test.upsert_my_exam_score(
+        &course.course_id,
+        &course.exam_id,
+        user,
+        &ValidatedMyExamScore {
+            score,
+            note: String::new(),
+        },
+    )
+    .await
+    .expect("score recorded");
+}
+
+#[track_caller]
+fn assert_average(average: Option<f64>, expected: f64, what: &str) {
+    let average = average.unwrap_or_else(|| panic!("{what}: no average"));
+    assert!(
+        (average - expected).abs() < 1e-9,
+        "{what}: {average} is not {expected}"
+    );
+}
+
+/// The scorer count the stored snapshot counted, which no view shows.
+async fn snapshot_scorers(test: &Store, exam_id: &str) -> String {
+    let counted = test
+        .texts_unchecked(&format!(
+            "SELECT CAST(published_submission_count AS TEXT) FROM course_exams WHERE id = '{exam_id}'"
+        ))
+        .await
+        .expect("the snapshot is read");
+    assert_eq!(counted.len(), 1, "one exam row");
+    counted.into_iter().next().unwrap_or_default()
+}
+
+/// Publishes 5 scorers, then 9, then lets 3 of them leave: the third snapshot would
+/// count 6, one scorer more than the first, and give X's score away as
+/// `6 × avg₃ − 5 × avg₁`. The count fell, so it is refused and the 9-scorer snapshot
+/// stays.
+async fn a_snapshot_is_not_taken_one_scorer_apart(leaving: Leaving) {
+    let test = common::setup().await;
+    let course = snapshot_course(&test, &test.workspace_id).await;
+    let publish = async || {
+        test.publish_course_exam_results(
+            &course.course_id,
+            &course.exam_id,
+            ExamViewer::Manager(&course.admin),
+        )
+        .await
+        .expect("publish call")
+    };
+
+    for (user, points) in course.first_five.iter().zip([70.0, 80.0, 90.0, 60.0, 75.0]) {
+        score(&test, &course, user, points).await;
+    }
+    let first = publish().await.expect("5 scorers publish");
+    assert_average(first.average_score, 75.0, "first snapshot average");
+    score(&test, &course, &course.x, 37.0).await;
+    for user in &course.came_and_went {
+        score(&test, &course, user, 50.0).await;
+    }
+    let second = publish().await.expect("9 scorers publish, 4 more than 5");
+    // (375 + 37 + 150) / 9 = 62.44…
+    assert_average(second.average_score, 62.4, "second snapshot average");
+    assert_eq!(snapshot_scorers(&test, &course.exam_id).await, "9");
+
+    for user in &course.came_and_went {
+        match leaving {
+            Leaving::DeleteTheirScores => test
+                .delete_my_exam_score(&course.course_id, &course.exam_id, user)
+                .await
+                .expect("score deleted"),
+            Leaving::RemovedFromTheCourse => test
+                .delete_member(&course.course_id, user)
+                .await
+                .expect("member removed"),
+        }
+    }
+    assert_eq!(
+        publish().await,
+        Err(ExamPublishError::TooFewChangesSincePublish {
+            current_scorers: 6,
+            previous_scorers: 9,
+            minimum_delta: 3,
+        }),
+        "a count that fell is no change to publish ({leaving:?})"
+    );
+    let kept = test
+        .list_course_exams(&course.course_id, ExamViewer::Manager(&course.admin))
+        .await
+        .expect("listed");
+    assert_eq!(
+        kept[0].score_count, 6,
+        "the manager sees the 6 who count now"
+    );
+    assert_average(kept[0].average_score, 62.4, "the 9-scorer average stays");
+    assert_eq!(
+        kept[0].published_score_bucket,
+        Some(5),
+        "the 9-scorer bucket stays"
+    );
+    assert_eq!(
+        snapshot_scorers(&test, &course.exam_id).await,
+        "9",
+        "the snapshot still counts 9"
+    );
+
+    // Hiding the results and showing them again gives the frozen snapshot back, and
+    // does not count again.
+    let hidden = test
+        .unpublish_course_exam_results(
+            &course.course_id,
+            &course.exam_id,
+            ExamViewer::Manager(&course.admin),
+        )
+        .await
+        .expect("unpublished");
+    assert_eq!(hidden.average_score, None, "hidden while unpublished");
+    let restored = publish().await.expect("the frozen snapshot is shown again");
+    assert_average(restored.average_score, 62.4, "the 9-scorer average again");
+    assert_eq!(
+        restored.published_score_bucket,
+        Some(5),
+        "the 9-scorer bucket"
+    );
+    assert!(restored.results_published_at.is_some(), "published again");
+    assert_eq!(
+        snapshot_scorers(&test, &course.exam_id).await,
+        "9",
+        "showing it again did not count 6"
+    );
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn deleted_scores_do_not_take_a_snapshot_one_scorer_apart() {
+    a_snapshot_is_not_taken_one_scorer_apart(Leaving::DeleteTheirScores).await;
+}
+
+#[tokio::test]
+async fn removed_members_do_not_take_a_snapshot_one_scorer_apart() {
+    a_snapshot_is_not_taken_one_scorer_apart(Leaving::RemovedFromTheCourse).await;
+}

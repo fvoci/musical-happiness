@@ -4445,9 +4445,9 @@ export interface paths {
          * @description Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and
          *     `publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course
          *     role management (`ManageRoles`) and at least 5 active enrolled scorers. When a previous
-         *     snapshot exists, recomputing requires a net scorer count change of at least 3 (`409`
-         *     if already published; restores the frozen snapshot without recomputing if currently
-         *     unpublished).
+         *     snapshot exists, recomputing requires at least 3 more scorers than it counted, so a
+         *     smaller or shrunken count never yields a new snapshot (`409` if already published;
+         *     restores the frozen snapshot without recomputing if currently unpublished).
          */
         post: operations["publishCourseExamResults"];
         /**

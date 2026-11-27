@@ -176,8 +176,8 @@ impl App {
     /// # Errors
     ///
     /// Returns 404 if the course or exam does not exist, 409 if fewer than 5 active
-    /// enrolled members have scored or if already published and fewer than 3 net scorers
-    /// changed since the previous publication, and the store's error on failure.
+    /// enrolled members have scored or if already published and the scorers have not grown
+    /// by at least 3 over the previous publication, and the store's error on failure.
     pub async fn publish_course_exam_results(
         &self,
         course_id: &str,

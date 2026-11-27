@@ -20385,7 +20385,7 @@
         ]
       },
       "post": {
-        "description": "Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and\n`publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course\nrole management (`ManageRoles`) and at least 5 active enrolled scorers. When a previous\nsnapshot exists, recomputing requires a net scorer count change of at least 3 (`409`\nif already published; restores the frozen snapshot without recomputing if currently\nunpublished).",
+        "description": "Freezes and publishes a coarse result snapshot (`averageScore` rounded to `0.1` and\n`publishedScoreBucket` rounded down to a multiple of `5`) on the exam. Requires course\nrole management (`ManageRoles`) and at least 5 active enrolled scorers. When a previous\nsnapshot exists, recomputing requires at least 3 more scorers than it counted, so a\nsmaller or shrunken count never yields a new snapshot (`409` if already published;\nrestores the frozen snapshot without recomputing if currently unpublished).",
         "operationId": "publishCourseExamResults",
         "parameters": [
           {

@@ -32,8 +32,9 @@ use crate::error::StoreError;
 /// exam result snapshot.
 pub const MIN_SCORERS_TO_PUBLISH: u32 = 5;
 
-/// Minimum absolute change in active scorer count since the last published snapshot
-/// required before republishing exam results.
+/// Minimum growth in active scorer count over the last published snapshot required
+/// before recomputing exam results. A count that fell, or rose by less, never yields a
+/// new snapshot: two snapshots one scorer apart would give away that scorer's score.
 pub const MIN_SCORER_DELTA_TO_REPUBLISH: u32 = 3;
 
 /// Caller perspective determining which exam aggregates and personal scores are returned.
@@ -81,14 +82,15 @@ pub enum ExamPublishError {
         /// Minimum active scorers required (`5`).
         minimum: u32,
     },
-    /// Results were already published and the active scorer count has changed by fewer
-    /// than [`MIN_SCORER_DELTA_TO_REPUBLISH`] since the previous snapshot.
+    /// Results are published and the active scorer count has not grown by at least
+    /// [`MIN_SCORER_DELTA_TO_REPUBLISH`] over the previous snapshot (a count that fell
+    /// counts as no growth).
     TooFewChangesSincePublish {
         /// Current active scorer count.
         current_scorers: u32,
         /// Active scorer count recorded at the previous publication.
         previous_scorers: u32,
-        /// Minimum absolute change required (`3`).
+        /// Minimum growth over the previous snapshot required (`3`).
         minimum_delta: u32,
     },
 }
@@ -109,7 +111,7 @@ impl std::fmt::Display for ExamPublishError {
                 minimum_delta,
             } => write!(
                 f,
-                "republishing exam results requires a change of at least {minimum_delta} active member scores since the last snapshot ({previous_scorers} -> {current_scorers})"
+                "republishing exam results requires at least {minimum_delta} more active member scores than the last snapshot ({previous_scorers} -> {current_scorers})"
             ),
         }
     }
@@ -346,11 +348,13 @@ impl Store {
     /// `course_id`.
     ///
     /// Requires at least [`MIN_SCORERS_TO_PUBLISH`] active enrolled course members with a
-    /// recorded score. When a previous snapshot exists, recomputing requires at least
-    /// [`MIN_SCORER_DELTA_TO_REPUBLISH`] net scorer count change: while currently published,
-    /// a smaller delta is refused with [`ExamPublishError::TooFewChangesSincePublish`]; when
-    /// currently unpublished, re-publishing with a smaller delta restores the frozen
-    /// snapshot without recomputing so unpublish/republish cannot probe a single score.
+    /// recorded score. When a previous snapshot exists, recomputing requires the scorer
+    /// count to have grown by at least [`MIN_SCORER_DELTA_TO_REPUBLISH`] over it, so the
+    /// snapshots of one exam only ever count more scorers (5 → 9 → 6 would leave the first
+    /// and the last one scorer apart). Otherwise, while currently published, the call is
+    /// refused with [`ExamPublishError::TooFewChangesSincePublish`]; while currently
+    /// unpublished, it restores the frozen snapshot without recomputing, so
+    /// unpublish/republish cannot probe a single score either.
     ///
     /// # Errors
     ///
@@ -379,7 +383,7 @@ impl Store {
                 }));
             }
             if let Some(previous_scorers) = existing.published_submission_count
-                && count.abs_diff(previous_scorers) < MIN_SCORER_DELTA_TO_REPUBLISH
+                && count < previous_scorers.saturating_add(MIN_SCORER_DELTA_TO_REPUBLISH)
             {
                 if existing.results_published_at.is_some() {
                     return Ok(Err(ExamPublishError::TooFewChangesSincePublish {
