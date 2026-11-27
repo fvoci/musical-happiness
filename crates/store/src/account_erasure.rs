@@ -22,8 +22,9 @@
 //!    trash, as a member taken out of one does, and the organization, and the links it
 //!    made there that nobody used go.
 //! 3. [`Store::finish_account_erasure`] removes what is the person's of no organization
-//!    (their identities, sessions, settings and credentials), takes who they are out of
-//!    the audit log, and leaves of the row its identifier.
+//!    (their identities, sessions, settings and credentials, and the names of their
+//!    tokens wherever they were copied), takes who they are out of the audit log, and
+//!    leaves of the row its identifier.
 //!
 //! Steps 1 and 3 reach every organization: a person's memberships, and the records
 //! about them, are of several.
@@ -347,7 +348,9 @@ impl Store {
     }
 
     /// Ends the erasing of an account at `now`: removes its identities, its sessions,
-    /// its settings and credentials, the links mailed to its own
+    /// its settings and credentials, the names of its tokens from what they were
+    /// copied into (the versions and documents an agent wrote, and what others were
+    /// told the account did through one), the links mailed to its own
     /// address that nobody used (and the address from those that were), and who it is
     /// from the records of the audit log about it, in every organization; and leaves of
     /// its row the identifier, with no name, address or password. Not while the account
@@ -402,6 +405,7 @@ impl Store {
                     .push_bind(" OR subject_id = ", Id(user_id))
                     .push(")");
                 scope.execute(sql).await?;
+                forget_token_names(scope, user_id).await?;
                 for delete in PERSONAL_DELETES {
                     let mut sql = scope.sql(delete);
                     sql.bind(Id(user_id));
@@ -423,6 +427,43 @@ impl Store {
             })
             .await
     }
+}
+
+/// Where the name of a token of the person is copied, found by the token: what an agent
+/// wrote through it, kept as a version of a body or waiting in a body's document.
+const TOKEN_NAMES_BY_TOKEN: [&str; 2] = [
+    "UPDATE body_versions SET actor_token_name = NULL WHERE actor_token_name IS NOT NULL \
+     AND actor_token_id IN (SELECT id FROM api_tokens WHERE user_id = ",
+    "UPDATE body_docs SET agent_token_name = NULL WHERE agent_token_name IS NOT NULL \
+     AND agent_token_id IN (SELECT id FROM api_tokens WHERE user_id = ",
+];
+
+/// Where the name of a token of the person is copied, found by the person: what others
+/// are told, or are to be told, of what the person did through it.
+const TOKEN_NAMES_BY_ACTOR: [&str; 2] = [
+    "UPDATE notifications SET actor_token_name = NULL WHERE actor_token_name IS NOT NULL \
+     AND actor_id = ",
+    "UPDATE notification_outbox SET actor_token_name = NULL WHERE actor_token_name IS NOT NULL \
+     AND actor_id = ",
+];
+
+/// Takes the names of the person's tokens out of every copy, in every organization,
+/// before the tokens go: a name is what the person wrote, as their own name is. What
+/// was written through a token stays, and says no more than that an agent wrote it.
+/// The organizations the account left before it was erased are reached too, which the
+/// steps of each organization are not.
+async fn forget_token_names(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+    for update in TOKEN_NAMES_BY_TOKEN {
+        let mut sql = scope.sql(update);
+        sql.bind(Id(user_id)).push(")");
+        scope.execute(sql).await?;
+    }
+    for update in TOKEN_NAMES_BY_ACTOR {
+        let mut sql = scope.sql(update);
+        sql.bind(Id(user_id));
+        scope.execute(sql).await?;
+    }
+    Ok(())
 }
 
 /// The tables of what is a person's alone, and the column that names them: what goes

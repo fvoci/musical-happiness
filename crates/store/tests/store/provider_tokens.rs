@@ -63,7 +63,7 @@ fn origin(provider: &StoredProvider, revision: Option<i64>) -> LoginOrigin {
 
 /// Stores a session of `user_id`, made through `login` or with a password: its
 /// identifier.
-async fn session(store: &Store, user_id: &str, login: Option<LoginOrigin>) -> String {
+pub(crate) async fn session(store: &Store, user_id: &str, login: Option<LoginOrigin>) -> String {
     let session = Session {
         id: new_id(),
         user_id: user_id.to_owned(),

@@ -9,6 +9,7 @@
 mod account_deletion;
 mod account_erasure;
 mod account_erasure_organizations;
+mod account_erasure_tokens;
 mod alone;
 mod api_tokens;
 mod before_baseline;
