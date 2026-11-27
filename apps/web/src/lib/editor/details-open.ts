@@ -19,14 +19,21 @@
  * changed (shared-place.ts), so mapping the decorations through it would
  * close every toggle around what another person wrote. Its decorations are
  * mapped through what really changed instead: the stretch between where the
- * two documents start and stop being the same.
+ * two documents start and stop being the same. Where one change of another
+ * reaches both before a toggle and into it, that stretch takes the toggle in
+ * too; a toggle so lost is open again where it is the only one of its summary.
  */
 import type { NodeViewRenderer } from '@tiptap/core';
 import type { Node as DocumentNode, ResolvedPos } from '@tiptap/pm/model';
-import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state';
+import {
+  Plugin,
+  PluginKey,
+  TextSelection,
+  type EditorState,
+  type Transaction,
+} from '@tiptap/pm/state';
 import { Mapping, StepMap } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
-import type { Transaction } from '@tiptap/pm/state';
 
 import { m } from '$lib/i18n/paraglide/messages.js';
 
@@ -95,10 +102,40 @@ function openAround(set: DecorationSet, doc: DocumentNode, $pos: ResolvedPos): D
   return next;
 }
 
+/** Where the toggles of a document are, each with its summary. */
+function togglesOf(doc: DocumentNode): { at: number; summary: DocumentNode }[] {
+  const found: { at: number; summary: DocumentNode }[] = [];
+  doc.descendants((node, at) => {
+    const summary = node.type.name === DETAILS ? node.firstChild : null;
+    if (summary) found.push({ at, summary });
+    return node.type.name === DETAILS || node.type.name === DETAILS_CONTENT;
+  });
+  return found;
+}
+
+const openIn = (set: DecorationSet): Decoration[] =>
+  set.find(undefined, undefined, (spec: { detailsOpen?: boolean }) => spec.detailsOpen === true);
+
+/** The set after a change of another, with the toggles it lost open again, where it can tell. */
+function shared(tr: Transaction, set: DecorationSet): DecorationSet {
+  let next = set.map(changeOf(tr.before, tr.doc), tr.doc);
+  const before = openIn(set);
+  if (openIn(next).length === before.length) return next;
+  const toggles = togglesOf(tr.doc);
+  for (const one of before) {
+    const summary = tr.before.nodeAt(one.from)?.firstChild;
+    if (!summary) continue;
+    const same = toggles.filter((toggle) => toggle.summary.eq(summary));
+    const [only] = same;
+    if (same.length === 1 && only && !isOpenIn(next, tr.doc, only.at))
+      next = withOpen(next, tr.doc, only.at, true);
+  }
+  return next;
+}
+
 function apply(tr: Transaction, set: DecorationSet, state: EditorState): DecorationSet {
   let next = set;
-  if (tr.docChanged)
-    next = next.map(fromShared(tr) ? changeOf(tr.before, tr.doc) : tr.mapping, tr.doc);
+  if (tr.docChanged) next = fromShared(tr) ? shared(tr, next) : next.map(tr.mapping, tr.doc);
   const openings = (tr.getMeta(detailsOpenKey) as Opening[] | undefined) ?? [];
   for (const { at, open, steps } of openings)
     next = withOpen(next, tr.doc, tr.mapping.slice(steps).map(at), open);
@@ -123,11 +160,15 @@ export function detailsOpenPlugin(): Plugin<DecorationSet> {
   });
 }
 
+function isOpenIn(set: DecorationSet, doc: DocumentNode, at: number): boolean {
+  const node = doc.nodeAt(at);
+  return node !== null && openOne(set, at, node.nodeSize).length > 0;
+}
+
 /** Whether the toggle at `at` is open in a state. */
 export function isOpenAt(state: EditorState, at: number): boolean {
-  const node = state.doc.nodeAt(at);
   const set = detailsOpenKey.getState(state);
-  return node !== null && set !== undefined && openOne(set, at, node.nodeSize).length > 0;
+  return set !== undefined && isOpenIn(set, state.doc, at);
 }
 
 /** The transaction that opens or closes the toggle at `at`, the caret out of what it hides. */
