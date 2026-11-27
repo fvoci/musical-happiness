@@ -6,7 +6,7 @@
 
 ## 지금 상태
 
-- **화면은 서버에 붙어 있다.** 서버가 서빙하는 앱은 서버를 부르는 구현(`src/lib/api/`)으로 돌고, 서버 없이 빌드를 보는 도구(`preview`, `look`)와 개발 서버는 메모리 구현으로 돈다. 서버에 붙지 않은 조작은 없다. 비밀번호를 받지 않는 조직의 401 `sso_required`는 로그아웃이 아니다(`state/problems.ts`의 `isSignedOut`).
+- **화면은 서버에 붙어 있다.** 서버가 서빙하는 앱은 서버를 부르는 구현(`src/lib/api/`)으로 돌고, 서버 없이 빌드를 보는 도구(`preview`, `look`)와 개발 서버는 메모리 구현으로 돈다. 서버에 붙지 않은 조작은 없다. 비밀번호를 받지 않는 조직의 401 `sso_required`는 로그아웃이 아니다(`state/problems.ts`의 `isSignedOut`). 공급자가 바뀐 뒤 그 전에 공급자로 만든 세션이 토큰을 만들면 409 `provider_changed`다: 세션은 그대로이고 401로 답하지 않는다.
 - **계약**은 저장소 루트의 `contracts/`다: `openapi.json`(`src/lib/api/contract.ts`를 `pnpm --filter web run api:types`로 여기서 만든다), `websocket.md`, 본문·Y 문서·커서·이름의 벡터(`*-vectors.json`).
 - **서버와 한 브랜치에 있다.** 브랜치 `master`에 서버(저장소 루트)와 웹앱(`apps/web`)이 함께 있다. 양쪽에 걸친 안내(브랜치, 푸시, 검증)는 저장소 루트의 `docs/handoff.md` 맨 앞에 있다.
 

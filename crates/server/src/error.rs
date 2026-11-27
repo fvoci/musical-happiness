@@ -389,6 +389,17 @@ impl AppError {
         Self::new(ErrorKind::Conflict, message)
     }
 
+    /// The 409 of a session made through the organization's provider as it was before it
+    /// was removed, switched off or changed: the session stays signed in, and what it
+    /// asked waits for one made through the provider as it is now.
+    pub fn provider_changed() -> Self {
+        Self::conflict(
+            "the organization's provider has changed since this session was made through it: \
+             sign in through it again to make a token",
+        )
+        .with_reason(Reason::ProviderChanged)
+    }
+
     /// A 412 error with the given message.
     pub fn precondition_failed(message: impl std::fmt::Display) -> Self {
         Self::new(ErrorKind::PreconditionFailed, message)

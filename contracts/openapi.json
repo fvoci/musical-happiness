@@ -6745,6 +6745,11 @@
             "type": "/problems/too-many-api-tokens"
           },
           {
+            "reason": "provider_changed",
+            "title": "Provider changed since the session was made",
+            "type": "/problems/provider-changed"
+          },
+          {
             "reason": "complex_blocks_use_append",
             "title": "Body that Markdown does not hold",
             "type": "/problems/complex-blocks-use-append"
@@ -12786,7 +12791,7 @@
         ]
       },
       "post": {
-        "description": "Makes a token for an agent to act as the user with, and answers it once: it is not\nstored, only its digest, and is not shown again. It reaches the workspaces of\n`workspaceIds`, each one the user works in (no guest's) and the session opens, and\nthe user's own space if `allowPersonalSpace` (with the account's `password`, if it\nhas one), never a diary. `scope` says whether it reads, or reads and writes the\ncontent of what it reaches. A workspace of an organization that takes only sessions\nmade through its provider is given only if the organization lets it (403,\n`api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as\n`expiresInDays` asks, 90 unless it asks, at most 365. An account holds at most 25\ntokens that still open something (400, `too_many_api_tokens`). A session that has\nended makes none (401), nor one made through a provider that has been removed,\nswitched off or changed since (401: sign in through it again).",
+        "description": "Makes a token for an agent to act as the user with, and answers it once: it is not\nstored, only its digest, and is not shown again. It reaches the workspaces of\n`workspaceIds`, each one the user works in (no guest's) and the session opens, and\nthe user's own space if `allowPersonalSpace` (with the account's `password`, if it\nhas one), never a diary. `scope` says whether it reads, or reads and writes the\ncontent of what it reaches. A workspace of an organization that takes only sessions\nmade through its provider is given only if the organization lets it (403,\n`api_tokens_disallowed`), and the token lasts at most 90 days then; otherwise as\n`expiresInDays` asks, 90 unless it asks, at most 365. An account holds at most 25\ntokens that still open something (400, `too_many_api_tokens`). A session that has\nended makes none (401), nor one made through a provider that has been removed,\nswitched off or changed since (409, `provider_changed`: the session stays signed in,\nand one made through the provider again makes the token).",
         "operationId": "createApiToken",
         "requestBody": {
           "content": {

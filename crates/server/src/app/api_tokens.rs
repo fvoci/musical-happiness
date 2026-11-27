@@ -146,12 +146,7 @@ impl App {
             Issuance::SessionEnded => {
                 return Err(AppError::unauthorized("the session has ended"));
             }
-            Issuance::ProviderChanged => {
-                return Err(AppError::unauthorized(
-                    "the organization's provider has changed since this session was made \
-                     through it: sign in again to make a token",
-                ));
-            }
+            Issuance::ProviderChanged => return Err(AppError::provider_changed()),
             Issuance::TooMany => return Err(AppError::too_many_api_tokens(API_TOKEN_MAX_LIVE)),
         };
         tracing::info!(

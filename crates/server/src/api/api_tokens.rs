@@ -38,7 +38,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// `expiresInDays` asks, 90 unless it asks, at most 365. An account holds at most 25
 /// tokens that still open something (400, `too_many_api_tokens`). A session that has
 /// ended makes none (401), nor one made through a provider that has been removed,
-/// switched off or changed since (401: sign in through it again).
+/// switched off or changed since (409, `provider_changed`: the session stays signed in,
+/// and one made through the provider again makes the token).
 #[utoipa::path(
     post,
     path = "/users/me/api-tokens",

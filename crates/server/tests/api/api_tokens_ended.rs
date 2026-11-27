@@ -4,10 +4,11 @@
 //! changed, the address given back and the account erased are with their own tests
 //! (`api_tokens`, `email_revert`, `account_erasure`); a first password, in the store's.
 
+use reqwest::StatusCode;
 use serde_json::json;
 
 use crate::api_tokens::{agent_reading, check_token_ended};
-use crate::common::{PASSWORD, Setup, USER2_USERNAME};
+use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, Setup, USER2_USERNAME};
 use crate::fake_oidc::{CLIENT_SECRET, FakeProvider};
 use crate::oidc::{org_of, server_for, set_provider};
 use crate::sso::{ADMIN_SUBJECT, admin_through_provider, through_provider};
@@ -81,6 +82,17 @@ async fn a_provider_changed_or_removed_ends_the_tokens_made_through_it() {
         .await
         .check_ok();
     check_token_ended(&changed).await;
+    // The session made through it stays signed in, and makes no token: a refusal that
+    // is no 401, which the app would take for being signed out.
+    let refused = through
+        .post(
+            "/users/me/api-tokens",
+            &json!({"name": "agent", "scope": "read", "workspaceIds": [ROOT_WORKSPACE_ID]}),
+        )
+        .await;
+    refused.check_status(StatusCode::CONFLICT);
+    assert_eq!(refused.value()["reason"], "provider_changed", "{}", refused.text());
+    through.get("/users/me").await.check_ok();
 
     set_provider(&ts, &org_id, &fake).await;
     let through = through_provider(&ts, &fake, &org_id, ADMIN_SUBJECT).await;

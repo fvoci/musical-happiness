@@ -2438,5 +2438,6 @@
   "audit_api_tokens_enabled": "{actor} allowed API tokens with single sign-on",
   "audit_api_tokens_disabled": "{actor} stopped API tokens with single sign-on",
   "audit_api_token_revoked": "{actor} took {subject}'s API token {prefix}… out of the organization",
-  "account_api_tokens_too_many": "You have too many live tokens. End one you do not use, then make this one."
+  "account_api_tokens_too_many": "You have too many live tokens. End one you do not use, then make this one.",
+  "account_api_tokens_provider_changed": "Your organization's provider has changed since you signed in through it. Sign in through it again, then make the token."
 }

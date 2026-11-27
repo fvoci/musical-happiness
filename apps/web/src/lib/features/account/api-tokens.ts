@@ -60,6 +60,11 @@ export function tokenProblemOf(error: unknown): TokenProblem {
   if (error.reason === 'too_many_api_tokens') {
     return { text: m.account_api_tokens_too_many(), field: undefined };
   }
+  // 409: the session stays signed in, and one made through the provider as it is now
+  // makes the token.
+  if (error.reason === 'provider_changed') {
+    return { text: m.account_api_tokens_provider_changed(), field: undefined };
+  }
   if (error.status === 429) return { text: m.account_rate_limited(), field: undefined };
   if (error.status === 400 && error.refusalAt('/name')) {
     return { text: m.account_api_tokens_name_invalid(), field: 'name' };

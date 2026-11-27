@@ -15,6 +15,7 @@ import {
   tokenWorkspaces,
 } from '$lib/features/account/api-tokens.ts';
 import { refusedMember } from '$lib/state/backend.ts';
+import { isSignedOut } from '$lib/state/problems.ts';
 import {
   BackendError,
   type ApiToken,
@@ -102,7 +103,7 @@ describe('the logic of tokens', () => {
   });
 
   it('tells a refusal by its reason and the member it points at', () => {
-    const refusal = (status: 400 | 403 | 429, extra: object) =>
+    const refusal = (status: 400 | 403 | 409 | 429, extra: object) =>
       new BackendError(status, { detail: 'no', ...extra });
     expect(tokenProblemOf(refusal(403, { reason: 'invalid_credentials' }))).toEqual({
       text: 'The current password is wrong.',
@@ -115,6 +116,12 @@ describe('the logic of tokens', () => {
       tokenProblemOf(refusal(400, { errors: [refusedMember('name', 'no', 'too_long')] })),
     ).toEqual({ text: 'A name has 1 to 80 characters.', field: 'name' });
     expect(tokenProblemOf(refusal(429, {})).field).toBeUndefined();
+    const changed = refusal(409, { reason: 'provider_changed' });
+    expect(tokenProblemOf(changed)).toEqual({
+      text: "Your organization's provider has changed since you signed in through it. Sign in through it again, then make the token.",
+      field: undefined,
+    });
+    expect(isSignedOut(changed), 'the session stays signed in').toBe(false);
   });
 });
 
