@@ -1,5 +1,5 @@
-//! Per-card byte budget for `body_versions`, migration `0062` (`body_bytes`) backfill,
-//! and PostgreSQL TOAST disk-usage measurement for 4 MiB × 50 versions.
+//! Per-card byte budget for `body_versions` (`body_bytes`), and PostgreSQL TOAST
+//! disk-usage measurement for 4 MiB × 50 versions.
 
 use fvoci_model::{BlockPatch, Body, BodyChange, BodyVersionCause};
 use fvoci_store::{

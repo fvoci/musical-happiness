@@ -20,8 +20,9 @@ use crate::{directory, signups, workspaces};
 /// The organization somebody who signs up with the name of an organization starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Founding {
-    /// The first organization, created with the first account. If a migrated database
-    /// already has an organization but no account, the first user takes it.
+    /// The first organization, created with the first account. If the database already
+    /// holds an organization of people with no account ([`OrgPlace::Existing`]), the
+    /// first user takes it.
     First,
     /// A new organization, under an identifier the store gives it, whatever
     /// organization the handle names.
@@ -268,7 +269,9 @@ impl Store {
 /// take, or is to be made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OrgPlace {
-    /// A migrated database's organization, which has no account yet.
+    /// An organization of people with no account yet. The baseline seeds none (only
+    /// the system's organization); a database re-anchored at the baseline may hold one
+    /// from before its organizations had accounts.
     Existing,
     /// None yet: it is made under the scope's identifier.
     ToMake,

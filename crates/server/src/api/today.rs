@@ -8,7 +8,7 @@ use utoipa_axum::routes;
 
 use super::contract::params::WorkspaceId;
 use super::contract::tag;
-use super::workspace::TextInContainer;
+use super::workspace::InContainer;
 use super::{ApiResult, RequiredSession, json_response};
 use super::{Delegated, Read};
 use crate::app::App;
@@ -56,7 +56,7 @@ async fn handle_get_account_today(
     responses((status = 200, description = "Today's items in the workspace.", body = WorkspaceToday)),
 )]
 async fn handle_get_workspace_today(
-    Delegated(TextInContainer(ws), ..): Delegated<Read, TextInContainer>,
+    Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let today = ws

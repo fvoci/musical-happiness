@@ -50,7 +50,7 @@ pub(super) const MAX_CONTAINERS_PER_ENTRY: usize = 64;
 /// Maximum `containerMember` lines accepted in a single `container.jsonl` entry.
 pub(super) const MAX_MEMBER_LINES: usize = 10_000;
 
-/// Legacy view field keys retired in migration `0071`.
+/// Keys of a view that no view has: an archive whose view holds one is refused.
 const RETIRED_VIEW_KEYS: [&str; 8] = [
     "hiddenOptionIds",
     "visibleOptionIds",

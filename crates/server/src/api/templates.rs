@@ -8,7 +8,7 @@ use utoipa_axum::routes;
 use super::contract::params::{AcceptLanguage, WorkspaceId};
 use super::contract::tag;
 
-use super::workspace::TextInWorkspace;
+use super::workspace::InWorkspace;
 use super::{ApiResult, accept_language, json_response};
 use crate::app::{App, as_managed};
 
@@ -33,10 +33,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId, AcceptLanguage),
     responses((status = 200, description = "The templates.", body = Vec<Container>)),
 )]
-async fn handle_get_templates(
-    TextInWorkspace(ws): TextInWorkspace,
-    headers: HeaderMap,
-) -> ApiResult {
+async fn handle_get_templates(ws: InWorkspace, headers: HeaderMap) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let app = &ws
         .app

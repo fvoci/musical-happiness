@@ -325,10 +325,9 @@ impl Store {
         kinds: ContainerKinds,
     ) -> Result<Vec<DeletedContainer>, StoreError> {
         self.with_conn(async |scope| {
-            // A board that went to the trash before boards had a kind says none: a board.
             let kind = match scope.dialect() {
-                Dialect::Sqlite => "COALESCE(json_extract(container, '$.kind'), 'board')",
-                Dialect::Postgres => "COALESCE(container->>'kind', 'board')",
+                Dialect::Sqlite => "json_extract(container, '$.kind')",
+                Dialect::Postgres => "container->>'kind'",
             };
             // The memberships are the JSON array of the board's members when it went.
             let was_admin = match scope.dialect() {
@@ -775,7 +774,7 @@ pub(crate) async fn take_blocks_out_of_trash(
     let mut kept = Vec::with_capacity(rows.len());
     for row in &rows {
         let (block, watchers) = block_and_watchers_from_json(row, 0)?;
-        kept.push((block.id.clone(), block.block_type, watchers));
+        kept.push((block.id.clone(), watchers));
         restored.push(block);
     }
     let mut known_users = KnownUsers::default();
@@ -794,8 +793,8 @@ pub(crate) async fn take_blocks_out_of_trash(
     for index in parents_first(&restored) {
         blocks::insert_block_row(scope, &restored[index], NewBodyFiles::Unchecked).await?;
     }
-    for (block_id, block_type, watchers) in &kept {
-        watchers::watch_again(scope, block_id, *block_type, watchers).await?;
+    for (block_id, watchers) in &kept {
+        watchers::watch_again(scope, block_id, watchers).await?;
     }
     let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));

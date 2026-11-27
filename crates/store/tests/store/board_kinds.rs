@@ -6,7 +6,7 @@ use fvoci_model::{
     Block, BlockType, Container, ContainerError, ContainerKind, ContainerKinds, ContainerPatch,
     ContainerSearchField, ContainerVisibility, MinimumRole, WorkspaceRole, new_id,
 };
-use fvoci_store::{DbType, Store, StoreError};
+use fvoci_store::{Store, StoreError};
 
 use crate::boards::new_board;
 use crate::common;
@@ -401,7 +401,7 @@ async fn a_block_is_found_within_the_kinds_of_its_board_only() {
 }
 
 #[tokio::test]
-async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
+async fn the_trash_is_listed_by_kind_and_each_comes_back_as_what_it_was() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
@@ -413,20 +413,6 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
             .await
             .expect("the board goes to the trash");
     }
-    // The board went before boards had a kind: what the trash keeps of it says none.
-    let without_kind = match common::db_type() {
-        DbType::Sqlite => "json_remove(container, '$.kind')",
-        DbType::Postgres => "(container::jsonb - 'kind')::json",
-    };
-    common::execute_raw(
-        &test.database_connection(),
-        &format!(
-            "UPDATE deleted_containers SET container = {without_kind} WHERE id = '{}'",
-            board.id
-        ),
-    )
-    .await;
-
     for (kinds, expected) in [
         (ContainerKinds::BOARDS, vec![board.id.as_str()]),
         (ContainerKinds::WIKIS, vec![wiki.id.as_str()]),

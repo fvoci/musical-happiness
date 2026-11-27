@@ -10,7 +10,7 @@ use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
 use super::query::{PagingQuery, QueryParams};
-use super::workspace::{InWorkspace, TextInContainer};
+use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, json_response, require_container_permission};
 use crate::app::App;
 use crate::permissions::ContainerPermission;
@@ -72,7 +72,7 @@ async fn handle_get_deleted_cards(
     responses((status = 200, description = "The deleted boards of the page.", body = Vec<DeletedItem>)),
 )]
 async fn handle_get_deleted_containers(
-    TextInContainer(ws): TextInContainer,
+    InContainer(ws): InContainer,
     QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;

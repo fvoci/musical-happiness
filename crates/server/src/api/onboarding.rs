@@ -9,7 +9,7 @@ use utoipa_axum::routes;
 use super::contract::params::{AcceptLanguage, WorkspaceId};
 use super::contract::tag;
 
-use super::workspace::TextInWorkspace;
+use super::workspace::InWorkspace;
 use super::{ApiResult, accept_language, json_response};
 use crate::app::App;
 
@@ -46,7 +46,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId, AcceptLanguage),
     responses((status = 200, description = "Where the new board is.", body = WelcomeBoard)),
 )]
-async fn handle_onboard(TextInWorkspace(ws): TextInWorkspace, headers: HeaderMap) -> ApiResult {
+async fn handle_onboard(ws: InWorkspace, headers: HeaderMap) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let (app, user_id, workspace_id) = (&ws.app, ws.caller.user_id.as_str(), &ws.workspace_id);
     let board_id = app
