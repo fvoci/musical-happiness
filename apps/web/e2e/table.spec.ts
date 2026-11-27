@@ -1305,8 +1305,9 @@ test.describe('when the window changes size', () => {
     const resize = (width: number, height: number): Promise<void> =>
       seenResized(table(page), () => page.setViewportSize({ width, height }));
 
-    // In a window this large the whole table fits: there is nothing to scroll.
-    await resize(2400, 2000);
+    // In a window this large the whole table fits, under the header and the row of quick
+    // filters: there is nothing to scroll.
+    await resize(2400, 2200);
     await expect.poll(() => scrollPlace(page)).toEqual({ x: 0, y: 0 });
     await resize(900, 500);
     await expect.poll(() => scrollPlace(page)).toEqual(place);
