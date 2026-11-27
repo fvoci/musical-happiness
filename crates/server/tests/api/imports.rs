@@ -1,4 +1,4 @@
-//! Imports through an upload in parts (`docs/s6-design.md` 4.2, 5.6, 9): the archive
+//! Imports through an upload in parts: the archive
 //! is sent as a file is, imported by naming the upload, held to the limits of an
 //! archive, and nothing of the upload stays behind.
 

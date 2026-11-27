@@ -418,12 +418,14 @@ impl utoipa::PartialSchema for Body {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
         utoipa::openapi::ObjectBuilder::new()
             .schema_type(utoipa::openapi::schema::Type::Object)
-            .description(Some(
+            .description(Some(format!(
                 "A document of the editor: a node of type `doc` whose `content` is its \
                  blocks. Which nodes, marks and attributes it may have, and how they \
-                 nest, is the allowlist of `docs/s6-design.md` 5.7. At most 8 MiB as \
-                 JSON, 60 levels deep and 100,000 nodes.",
-            ))
+                 nest, is the allowlist of version {BODY_VERSION}, which the server and \
+                 the web app share. At most {} MiB as JSON, {BODY_MAX_DEPTH} levels deep \
+                 and {BODY_MAX_NODES} nodes.",
+                BODY_MAX_BYTES / (1024 * 1024)
+            )))
             .into()
     }
 }

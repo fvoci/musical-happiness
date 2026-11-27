@@ -1,8 +1,8 @@
 /**
- * The server's answers the web app follows (`docs/contract-pending.md` 9,
- * `contracts/websocket.md` 3): a category message goes to every connection
- * of its user, so every tab's sidebar follows; and a session that ends
- * closes its connections, so a page on it asks to sign in by itself.
+ * The server's answers the web app follows (`contracts/websocket.md`
+ * 3): a category message goes to every connection of its user, so every
+ * tab's sidebar follows; and a session that ends closes its
+ * connections, so a page on it asks to sign in by itself.
  */
 import { expect, test, type Page } from '@playwright/test';
 

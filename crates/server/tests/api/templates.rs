@@ -420,10 +420,10 @@ fn bodies_and_dates(files: &[Value]) -> (usize, usize) {
     (bodies, dates)
 }
 
-/// The built-in templates listed in English are the English files of `assets/templates/`
-/// (`docs/s6-design.md` 3.10), every one of them: one marked as the welcome board, each
-/// with its key, the cards' bodies as documents whose files are files of the board,
-/// dates in the shape of 5.7, and views whose card order names cards of their board.
+/// The built-in templates listed in English are the English files of `assets/templates/`,
+/// every one of them: one marked as the welcome board, each with its key, the cards' bodies
+/// as documents whose files are files of the board, dates in the shape of 5.7, and views
+/// whose card order names cards of their board.
 #[tokio::test]
 async fn the_built_in_templates_are_the_template_files() {
     let ts = Setup::native()

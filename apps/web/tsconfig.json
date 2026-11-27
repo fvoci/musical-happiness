@@ -30,7 +30,6 @@
     "e2e/**/*",
     "e2e-live/**/*",
     "stories/**/*",
-    "spikes/**/*",
     "tools/**/*",
     ".storybook/**/*",
     "*.config.ts",

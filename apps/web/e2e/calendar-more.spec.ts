@@ -1,6 +1,6 @@
 /**
  * The cards of a day that do not fit, and the cards without a date, on the
- * way to writing (questions C3 and C16): "+N" opens every card of its day,
+ * way to writing: "+N" opens every card of its day,
  * each with its "…", and a card without a date is given one from the list
  * "No date" opens, with the keys alone; one undo takes the date away again.
  *

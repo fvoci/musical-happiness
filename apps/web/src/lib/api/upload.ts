@@ -1,5 +1,5 @@
 /**
- * Uploading to the server in parts (`docs/contract-pending.md`, 4): an
+ * Uploading to the server in parts: an
  * upload is opened with the file's name and size (`createUpload`, or
  * `createImportUpload` for an archive), each part is sent with the SHA-256
  * of its bytes (`putUploadPart`), and the upload is ended (`completeUpload`

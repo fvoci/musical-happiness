@@ -112,7 +112,7 @@ fn card_from_block_fills_missing_fields_and_times() {
 }
 
 /// A `contentOrder` that a card stored before has, of any shape, is not read: a card's
-/// content is its body (`docs/s6-design.md` 5.7).
+/// content is its body.
 #[test]
 fn card_from_block_does_not_read_a_stored_content_order() {
     for content_order in [json!("abc"), json!(["a", ["b", "c"]]), json!(["a"])] {

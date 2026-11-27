@@ -111,7 +111,7 @@ describe('a calendar', () => {
     options: [],
   };
 
-  it('when new, is placed by the first date property and shows the titles (C15)', () => {
+  it('when new, is placed by the first date property and shows the titles', () => {
     const fields = newViewFields('calendar', [...TEMPLATES, made, due]);
     expect(fields.viewType).toBe('calendar');
     expect(fields.dateProperty).toBe('due');

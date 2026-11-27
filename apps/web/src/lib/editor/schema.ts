@@ -250,7 +250,7 @@ function holdsNul(value: unknown): boolean {
 /**
  * The attributes of a mention in a body that is only shown. Whoever reads a
  * shared board with its read token alone gets every mention with an empty
- * `userId` (`docs/contract-pending.md`, 1): drawn as an unknown user, never
+ * `userId`: drawn as an unknown user, never
  * written back.
  */
 const SHOWN_MENTION = { userId: required(isText(100)) };

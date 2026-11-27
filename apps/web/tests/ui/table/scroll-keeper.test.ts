@@ -242,7 +242,7 @@ describe('the keeper on an element', () => {
     element.scrollLeft = 100;
     element.dispatchEvent(new Event('scroll'));
 
-    // docs/mobile-proposal.md, "잃는 경우": laid out 770 wide once, which cut the place; the
+    // As a device that turned: laid out 770 wide once, which cut the place; the
     // page's observer answered with the sidebar, and this one is told of 770 at 634.
     element.resize(770);
     element.resize(634);

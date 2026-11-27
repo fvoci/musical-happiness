@@ -1,4 +1,4 @@
-//! Uploads in parts (`docs/s6-design.md` 5.6): a file of up to `max_file_bytes` sent in
+//! Uploads in parts: a file of up to `max_file_bytes` sent in
 //! parts the server sizes, each checked against its SHA-256, and resumed where it
 //! stopped.
 
@@ -379,7 +379,7 @@ async fn handle_complete_upload(
     .await
     {
         // The user left the board, or it is gone: the upload cannot be completed any
-        // more, and is thrown away (design 5.6, 2). A completion that began before, with
+        // more, and is thrown away. A completion that began before, with
         // the permission, is let finish first: the throwing away waits for the upload's
         // turn, and finds it gone.
         if refusal.is_client_error() {

@@ -319,7 +319,7 @@ impl Card {
     /// boolean or `properties` is not an object (`null` as `icon` or `isTemplate` is
     /// taken as absent). A card's content is its body; a
     /// `contentOrder` that a card stored before has is left among the block's fields and
-    /// is not read (`docs/s6-design.md` 5.7).
+    /// is not read.
     pub fn from_block(block: &Block, now: i64) -> Result<Self, CardError> {
         if block.block_type != BlockType::Card {
             return Err(CardError::NotCardBlock);

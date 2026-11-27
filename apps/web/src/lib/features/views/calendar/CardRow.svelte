@@ -4,7 +4,7 @@
   where it is listed under a day (`date`), its time on its first day (the
   time is the start's) and for a card of several days which of them this
   is ("November 9 – 13 · Day 2 of 5"). Under it, the properties the view
-  turned on (question C5). At its end, for someone who may edit, the card's
+  turned on. At its end, for someone who may edit, the card's
   "…" (CardMenu), whose first line changes its date.
 
   A card on a loop of a Gantt chart's relation says so (`loop`), in words

@@ -14,7 +14,7 @@ impl Configuration {
             );
         }
         // Zero once meant "no limit"; a server without one is not something to end up
-        // with by leaving a number at what it was (`docs/s6-design.md` 4.2).
+        // with by leaving a number at what it was.
         let largest = self
             .upload_part_bytes
             .saturating_mul(u64::try_from(fvoci_model::MAX_UPLOAD_PARTS).unwrap_or(0));

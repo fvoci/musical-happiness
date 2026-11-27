@@ -1,8 +1,8 @@
 <!--
   "Change date" of a card on the calendar: a month of days to pick its new
-  first day from (question C9, answer B). The card moves whole: a range
+  first day from. The card moves whole: a range
   keeps its length and a moment its time of day on the reader's clock
-  (C10; `movedValue`), in one change that one undo takes back. A card
+  (`movedValue`), in one change that one undo takes back. A card
   without a date gets the day picked. Picking a day is the change; picking
   the day it is on, Escape or a press outside leave the card as it was.
   Other ends and times are edited in the card itself, with the date

@@ -29,14 +29,14 @@ use archive::{
 };
 use native_stream::{build_write_plan, recheck_planned_fields, scan_native_board};
 
-/// The most an archive's entries may decompress to together (`docs/s6-design.md` 4.2):
+/// The most an archive's entries may decompress to together:
 /// what keeps a small archive from unfolding into a disk's worth.
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// The most entries an archive has (`docs/s6-design.md` 4.2).
+/// The most entries an archive has.
 const MAX_ENTRIES: u64 = 10_000;
 
-/// The largest `container.jsonl` that is read (`docs/s6-design.md` 4.2). Streamed line by
+/// The largest `container.jsonl` that is read. Streamed line by
 /// line across two passes (`native_stream`) so peak RAM stays bounded by a single batch
 /// instead of scaling with the full file's JSON AST.
 const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;

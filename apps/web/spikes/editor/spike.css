@@ -1,7 +1,0 @@
-/*
- * The app's style sheet, plus the classes this spike uses. The app's style
- * sheet leaves the spikes folder out; naming the files brings these back in
- * (naming the folder does not).
- */
-@import '../../src/styles/app.css';
-@source './*.svelte';

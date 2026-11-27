@@ -95,9 +95,10 @@ export interface User extends UserNames {
 }
 
 /**
- * The reader's account settings: the three of the server design (5.8), the
- * four display settings the plan adds to them, the language of the
- * interface, and what the reader is told of. The answer always holds every member.
+ * The reader's account settings: the time zone, the first day of the week
+ * and the hour cycle, the four of the display (theme, density, how a card
+ * opens, haptics), the language of the interface, and what the reader is
+ * told of. The answer always holds every member.
  */
 export type { AccountSettings, AccountSettingsPatch };
 
@@ -292,7 +293,7 @@ export interface Backend
    */
   usersById(workspaceId: string, userIds: string[]): Promise<User[]>;
 
-  // Account settings (server design 5.8) and the pocket of screen state.
+  // Account settings and the pocket of screen state.
   settings(): Promise<AccountSettings>;
   patchSettings(patch: AccountSettingsPatch): Promise<AccountSettings>;
   /** Small things a screen wants to find again on another device. Keys and values are text. */

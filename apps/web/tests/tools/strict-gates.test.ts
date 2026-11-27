@@ -112,7 +112,7 @@ describe('browser modal dialog gate (noBrowserDialogs + eslint.config.js)', () =
       expect.arrayContaining([expect.stringContaining('fvoci-dialogs/no-dialog-disable:1:')]),
     );
 
-    // Inline /* eslint ... */ rule reconfiguration comments are also blocked (S6).
+    // Inline /* eslint ... */ rule reconfiguration comments are also blocked.
     const inlineConfigBypass = [
       '/* eslint no-restricted-globals: "off", no-restricted-properties: 0 */',
       "confirm('caught by inline config check');",

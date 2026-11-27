@@ -40,7 +40,7 @@ export interface HeaderMenu {
 /**
  * Sorting, hiding, a step to the left or right, wider and narrower. The last
  * four are what a mouse does by dragging the heading and its edge; on a
- * touch screen the menu is the way (docs/mobile-proposal.md, question 6).
+ * touch screen the menu is the way.
  */
 export function headerMenu(menu: HeaderMenu): MenuAction[] {
   const actions: MenuAction[] = [

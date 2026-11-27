@@ -1,5 +1,6 @@
 //! The allowlist of a body: which nodes and marks a document may have, with which
-//! attributes, and which node may be inside which (`docs/s6-design.md` 5.7, version 5).
+//! attributes, and which node may be inside which, in the version
+//! [`BODY_VERSION`](crate::body::BODY_VERSION).
 //!
 //! The web app's validator (`apps/web/src/lib/editor/schema.ts`) is the same list as
 //! TypeScript; the shared vectors of `contracts/body-vectors.json` hold the two

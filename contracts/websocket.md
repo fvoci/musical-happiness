@@ -3,8 +3,8 @@
 적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST, 그 커서는 2026-11-14 23:20 KST, 다시 들기는 2026-11-15 04:10 KST, 보드의 있음 7절은 2026-11-13 19:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST. 죽은 연결의 `ping`·`pong`, 3절은 2026-11-15 19:02 KST. 팀의 조작, 3절과 6절은 2026-11-14 06:55 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
 - 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `doc…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`container`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다. 커서의 바이트는 편집기의 라이브러리(y-protocols, Yjs)로 찍은 `contracts/caret-vectors.json`에 서버(`collab/caret.rs`)와 웹앱의 테스트가 함께 견준다.
-- 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Container`, `Block`, `ContainerMember`, `Category`와 같은 모양이다(`containerMemberRemoved`의 `member`는 `{containerId, userId}`만 싣는다). `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
-- 이 문서의 모양을 바꾸는 일은 계약을 바꾸는 일이다. 바꿀 때는 이 문서, `websocket.json`, `docs/contract-pending.md`를 같은 커밋에서 고친다.
+- 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Container`, `Block`, `ContainerMember`, `Category`와 같은 모양이다(`containerMemberRemoved`의 `member`는 `{containerId, userId}`만 싣는다). `Block`은 본문(`body`)을 싣는다.
+- 이 문서의 모양을 바꾸는 일은 계약을 바꾸는 일이다. 바꿀 때는 이 문서와 `websocket.json`을 같은 커밋에서 고친다.
 
 ## 1. 핸드셰이크와 인증
 
@@ -79,7 +79,7 @@
 - "보드의 멤버"는 메시지를 보낼 때 유효한 멤버 목록이다: 직접 역할을 받은 사람과 보드에 역할이 있는 팀의 사람. 그 조직의 구성원·역할·팀·공유 상태가 바뀌면 무효화되는 캐시(조직마다 따로이고, 휴지통 비우기 같은 시스템의 집안일은 건드리지 않는다)로 검사하며 워크스페이스 역할도 다시 확인한다. 워크스페이스를 구독하지 않은 연결은 멤버여도 받지 않는다.
 - "보드를 읽는 사람"은 보드의 멤버이고, **워크스페이스에 열린 보드·열린 위키·열린 학습**이면 그 워크스페이스의 구성원(손님 아님) 모두다: 열린 보드·열린 위키·열린 학습은 참여하지 않고 읽는다(`App::container_access`와 같은 규칙). 열린 템플릿은 멤버만이다. 권한을 바꾸는 DB 쓰기가 취소되어 완료 여부를 모르면 그 뒤 60초 동안은 캐시를 쓰지 않고 보낼 때마다 저장소에서 다시 읽는다. 확인된 롤백은 이에 해당하지 않는다.
 - **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 워크스페이스를 구독한 것 모두에 간다.** 같은 사용자의 다른 탭도 받는다.
-- `subscribeBlocks`로 따라가는 연결 가운데 읽기 토큰만으로 읽는 독자(세션 없는 연결, 보드의 역할이 없거나 그 워크스페이스에 없거나 세션이 그 조직을 열지 못하는 사용자)가 받는 `blockChanged`은 HTTP의 `getBlocks`가 그 독자에게 주는 모양이다(`docs/contract-pending.md` 1절): `createdBy`, `modifiedBy`, 댓글의 본문의 모든 멘션의 `userId`, 사람 속성이 가리키는 사람이 비어 있다. 요약의 미리 보기 글에는 멘션과 참조가 아무것도 내지 않는다. 사용자 ID가 가입 시각을 드러낸다. 그 보드를 멤버로 보는 사용자(보드의 역할이 있고, 그 워크스페이스에 있고, 세션이 그 조직을 연다)의 연결은 같은 링크로 따라가도 멤버가 받는 모양을 받는다.
+- `subscribeBlocks`로 따라가는 연결 가운데 읽기 토큰만으로 읽는 독자(세션 없는 연결, 보드의 역할이 없거나 그 워크스페이스에 없거나 세션이 그 조직을 열지 못하는 사용자)가 받는 `blockChanged`은 HTTP의 `getBlocks`가 그 독자에게 주는 모양이다: `createdBy`, `modifiedBy`, 댓글의 본문의 모든 멘션의 `userId`, 사람 속성이 가리키는 사람이 비어 있다. 요약의 미리 보기 글에는 멘션과 참조가 아무것도 내지 않는다. 사용자 ID가 가입 시각을 드러낸다. 그 보드를 멤버로 보는 사용자(보드의 역할이 있고, 그 워크스페이스에 있고, 세션이 그 조직을 연다)의 연결은 같은 링크로 따라가도 멤버가 받는 모양을 받는다.
 - 한 연결이 워크스페이스 구독과 블록 구독을 함께 해서 두 길로 다 해당하면 메시지를 두 번 받는다(보드를 멤버로 보면 둘 다 멤버의 모양, 아니면 블록 구독의 것은 사용자 ID를 비운 모양).
 - 쓴 사람 자신의 연결도 받는다. 서버는 보낸 사람을 빼지 않는다.
 
@@ -161,11 +161,11 @@
 - 메시지는 보낸 순서대로 한 연결에 도착한다. 다른 쓰기의 메시지 사이의 순서는 쓰기가 끝난 순서와 다를 수 있다(메시지를 따로 돌며 보낸다).
 - 서버는 64 KiB를 넘는 프레임과 메시지를 **받지** 않는다(Binary 프레임은 `collab_update_bytes`를 64 KiB 가까이나 그보다 크게 잡았으면 그 값에 32바이트를 더한 것까지 받는다). 서버가 보내는 메시지에는 한도가 없다(댓글이나 보기의 큰 `blockChanged`도, 문서 전체를 싣는 Binary 프레임도 그대로 간다).
 
-## 5. 웹앱의 질문 G1–G6에 대한 답
+## 5. 화면이 기대할 수 있는 것
 
-`apps/web/docs/contract-assumptions.md`의 "실시간 변경" 표의 질문에, 지금 서버가 하는 일로 답한다. 바꾸자는 권고는 웹앱의 질문 전체에 답하는 일(작업 묶음의 7단계)에서 `docs/contract-pending.md`에 적고, 메시지의 모양이나 뜻을 바꾸는 것은 "사용자 결정 필요"로 남긴다.
+실시간 변경을 쓰는 화면이 흔히 기대하는 것과, 서버가 하는 일이다. 메시지의 모양이나 뜻을 바꾸는 것은 사용자의 결정이다.
 
-| # | 웹앱의 가정 | 지금 서버 |
+| # | 화면의 기대 | 서버 |
 |---|---|---|
 | G1 | 구독은 둘: 보드나 위키 하나(`watchContainer`), 나 자신(`watchSelf`) | 구독의 단위는 **워크스페이스**(`subscribeWorkspace`)와 **블록**(`subscribeBlocks`, 읽기 토큰으로)이다. 보드 하나만 구독하는 명령은 없다. 워크스페이스를 구독하면 내가 멤버인 모든 보드의 보드·블록·멤버 변경과 내 카테고리의 변경이 온다. 그러니 `watchContainer`와 `watchSelf`는 연결 하나의 워크스페이스 구독에서 화면이 보드 ID로 갈라 쓴다. 설정(`patchUserSettings`)의 변경은 메시지가 없다. 카테고리 메시지는 그 워크스페이스를 구독한 내 연결 모두에 간다(3절) |
 | G2 | 변경의 종류 일곱 | 보드: `containerChanged`(전체). 보드 삭제: `deletedAt`이 있는 `containerChanged`(따로 된 종류가 없다). 블록: `blockChanged`이 **블록 하나씩**, `Block`을 싣는다. 카드·페이지·일기 항목·단원은 본문 대신 그 요약(`summary`, 3절)을 싣는다. 블록 삭제: `deletedAt`이 있는 `blockChanged`, 지운 블록 하나만(아래 것은 싣지 않는다). 구성원: 전체 목록이 아니라 멤버 한 명씩(`containerMemberChanged`, `containerMemberRemoved`). 카테고리: 전체 목록이 아니라 카테고리 하나(`categoryChanged`), 보드의 자리(`containerCategoriesChanged`), 순서(`categoriesReordered`, `categoryContainersReordered`). 설정: 메시지 없음 |

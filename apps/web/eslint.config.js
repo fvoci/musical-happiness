@@ -18,7 +18,6 @@ export default ts.config(
       'storybook-static/',
       'test-results/',
       'playwright-report/',
-      'dist-spikes/',
       // What `wrangler dev` keeps while it serves Storybook (wrangler.jsonc).
       '.wrangler/',
       'src/lib/i18n/paraglide/',

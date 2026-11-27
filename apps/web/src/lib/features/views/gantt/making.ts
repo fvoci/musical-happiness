@@ -1,5 +1,5 @@
 /**
- * The header's "New" on a Gantt chart (question C13): a card of one day,
+ * The header's "New" on a Gantt chart: a card of one day,
  * today, or the first day wholly in sight where today is not; with the
  * values the view's filter asks for (`newCardProperties`). It opens, as a
  * card made on a board does. One at a time: a second "New" while the first

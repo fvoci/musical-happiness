@@ -1,8 +1,8 @@
 <!--
-  A week in a box too narrow for bars (question C17; the shape of C1's
-  answer B): a strip of the seven days, and under it the cards of each day
-  with their titles in full, a day with none saying so. A card of several
-  days is listed under each of them ("Day 2 of 5", question C7).
+  A week in a box too narrow for bars: a strip of the seven days, and
+  under it the cards of each day with their titles in full, a day with
+  none saying so. A card of several days is listed under each of them
+  ("Day 2 of 5").
 
   The days of the strip are one stop of the Tab key, as in the small grid;
   the arrow keys move the picked day, a day or a week. Picking a day brings
@@ -35,7 +35,7 @@
     today: CalendarDate;
     selected: CalendarDate;
     rows: RowProps;
-    /** Why no date can be changed here, where none can (question C14). */
+    /** Why no date can be changed here, where none can. */
     fixed?: string;
     onpick: (date: CalendarDate) => void;
     onmove: (by: number) => void;

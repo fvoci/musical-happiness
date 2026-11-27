@@ -383,7 +383,7 @@ struct SingleUploadLimit {
 }
 
 impl SingleUploadLimit {
-    /// One part of an upload in parts (`docs/s6-design.md` 5.6, 10), or the largest file
+    /// One part of an upload in parts, or the largest file
     /// where that is less.
     fn of(app: &App) -> Self {
         let part = app.config().upload_part_bytes;

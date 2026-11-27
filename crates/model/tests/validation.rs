@@ -113,7 +113,7 @@ fn block_validate_limits_the_serialized_fields_by_type() {
     }
 }
 
-/// A new block is a card, a view, a comment or an attachment (`docs/s6-design.md` 5.7).
+/// A new block is a card, a view, a comment or an attachment.
 #[test]
 fn only_four_types_are_current() {
     for block_type in [

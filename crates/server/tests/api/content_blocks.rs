@@ -1,8 +1,8 @@
 //! Moving a content block within its card: the route is gone.
 //!
-//! A card's content is its body (`docs/s6-design.md` 5.7), so there are no content
+//! A card's content is its body, so there are no content
 //! blocks to order and the route `moveContentBlock` was taken out with the card's
-//! `contentOrder` (`docs/contract-pending.md` 1).
+//! `contentOrder`.
 
 use fvoci_model::{Block, BlockType, ContainerVisibility, new_id};
 

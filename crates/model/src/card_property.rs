@@ -2,9 +2,9 @@
 //!
 //! A board defines the properties of its cards (`cardProperties` as
 //! [`CardPropertyDefinition`]s), and every card holds a value per property
-//! (`fields.properties` of its block): a value is text, a list of texts, a date value
-//! (`docs/s6-design.md` 5.7), a list of relation links, or `null`. Anything else is
-//! refused before it is stored, so that one member cannot break the board for the others.
+//! (`fields.properties` of its block): a value is text, a list of texts, a date value, a
+//! list of relation links, or `null`. Anything else is refused before it is stored, so that
+//! one member cannot break the board for the others.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
@@ -125,7 +125,7 @@ pub enum PropertyType {
     Select,
     /// Zero or more choices from [`CardPropertyDefinition::options`].
     MultiSelect,
-    /// Calendar date, date range, or millisecond timestamp (`docs/s6-design.md` 5.7).
+    /// Calendar date, date range, or millisecond timestamp.
     Date,
     /// Single assigned workspace user ID.
     Person,
@@ -809,9 +809,9 @@ const TITLE: &str = "title";
 /// them: which ones it defines, which of those name users, and the options of those a
 /// view may group by without naming anybody.
 ///
-/// Such a reader is not told who the server's users are (`docs/s6-design.md`, decision
-/// 7): the values of person properties go to them emptied, one empty string for each
-/// user, so that how many people a card has still shows.
+/// Such a reader is not told who the server's users are: the values of person properties go
+/// to them emptied, one empty string for each user, so that how many people a card has
+/// still shows.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PersonProperties {
     defined: BTreeSet<String>,

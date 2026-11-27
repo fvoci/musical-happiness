@@ -1407,8 +1407,9 @@ test.describe('while the window changes size', () => {
     await expect(filterEditor(page)).toBeVisible();
     await expect(text).toHaveValue('scope');
     // The field is another element than before, and the focus did not come along:
-    // what the shared surface would have to do differently to keep those is in
-    // docs/decisions.md.
+    // to keep those, the shared surfaces (`PickerSurface`, `ActionMenu`) would
+    // have to draw their content once for the sheet and the popover, not once in
+    // each.
     expect(
       await text.evaluate((element) => (window as unknown as { kept: Element }).kept === element),
     ).toBe(false);

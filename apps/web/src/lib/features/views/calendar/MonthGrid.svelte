@@ -7,20 +7,20 @@
   row. How many rows of bars a cell has room for is worked out from the
   height of the grid, every time it changes; a day with more cards than that
   says "+N" in its last row, and a bar that does not fit is hidden in its
-  whole week (question C4).
+  whole week.
 
-  What can be pressed depends on the pointer, not on the width (C2):
+  What can be pressed depends on the pointer, not on the width:
 
   - With a mouse, the number of a day opens the cards of the day, a bar
     opens its card, "+N" opens the cards of the day. A "+" at the top right
-    of a cell, there while it is pointed at, makes a card on that day
-    (question C11, answer B), and while the day's number has the focus. It
-    is no stop of the Tab key and hidden from screen readers: the cards of
-    the day end with "New card on …", which every reader reaches.
+    of a cell, there while it is pointed at, makes a card on that day, and
+    while the day's number has the focus. It is no stop of the Tab key and
+    hidden from screen readers: the cards of the day end with "New card on
+    …", which every reader reaches.
   - With a finger, the whole cell is one button that opens the cards of the
     day. A bar is a picture.
 
-  A week (`week`, question C17) is one row as high as the box: every card of
+  A week (`week`) is one row as high as the box: every card of
   it is drawn, nothing says "+N", and a bar is two lines (its title, then its
   time or days), 2.75rem high, which a finger can press too.
 

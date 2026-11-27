@@ -143,7 +143,7 @@ class PointerDragController {
     };
     this.#root.addEventListener('pointerdown', this.#onPointerDown);
     this.#root.addEventListener('lostpointercapture', this.#onLostCapture);
-    // Present before any finger lands (docs/spike-drag.md): iOS Safari's EventRegion
+    // Present before any finger lands: iOS Safari's EventRegion
     // decides at touchstart whether a listener may cancel touchmove; attaching it later
     // on long-press drag start lets native scrolling take over and cancel the pointer.
     this.#root.addEventListener('touchmove', this.#onTouchMove, this.#notPassive);

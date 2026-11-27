@@ -1,14 +1,12 @@
 <!--
-  The row above the grid: back and on a month or a week, today, and the
-  month or week in view. The arrows and "today" come first and the name of the month after
-  them: in a wide window the middle of the screen then falls on the name or
-  on empty room, not on a button (docs/calendar-proposal.md, "한가운데 세로선").
-  At the far end, the cards without a date and how many (question C16,
-  answer A): the word where the pane has room, the icon and the count always.
-  Between them, month or week (question C17): two buttons where the pane has
-  room, one that turns to the other where it has not. The proposal puts the
-  narrow one in the view's "…" menu; the view header may not reach into a
-  view, so it stays in this row.
+  The row above the grid: back and on a month or a week, today, and the month or week in
+  view. The arrows and "today" come first and the name of the month after them: in a wide
+  window the middle of the screen then falls on the name or on empty room, not on a
+  button. At the far end, the cards without a date and how many: the word where the pane
+  has room, the icon and the count always. Between them, month or week: two buttons where
+  the pane has room, one that turns to the other where it has not. The proposal puts the
+  narrow one in the view's "…" menu; the view header may not reach into a view, so it
+  stays in this row.
 -->
 <script lang="ts">
   import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';

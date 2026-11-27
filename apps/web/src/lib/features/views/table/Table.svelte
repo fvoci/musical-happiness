@@ -3,7 +3,7 @@
 
   The heading row stays at the top, the summary row at the bottom and the
   title column at the left edge while the rest scrolls under them, at every
-  width: on a phone it is still a table (docs/mobile-proposal.md, question 5).
+  width: on a phone it is still a table.
   All of that is CSS. Nothing here asks how wide the page is, so a window
   that changes size does not swap a part of the table for another, and what
   the reader was doing in it (the focus, a text being typed, the place it is

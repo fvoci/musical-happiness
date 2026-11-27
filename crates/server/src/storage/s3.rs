@@ -271,7 +271,7 @@ impl S3Files {
     }
 }
 
-/// Uploads made part by part across requests (`docs/s6-design.md` 5.6, 6). The object
+/// Uploads made part by part across requests. The object
 /// is not there until the upload is completed. Each step is measured here, with
 /// `S3Files::measure`, as the operations of every backend are in `FileBackend`.
 impl S3Files {

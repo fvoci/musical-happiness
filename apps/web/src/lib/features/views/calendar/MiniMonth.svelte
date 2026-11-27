@@ -1,5 +1,5 @@
 <!--
-  The month in a box too narrow for bars (question C1, answer A): a day is
+  The month in a box too narrow for bars: a day is
   its number, and under it only how much is on it. A card of one day is a
   dot (three at most, then "+N"); a card of several days is a thin line
   across them (two rows at most; a third counts as a dot). The titles are in

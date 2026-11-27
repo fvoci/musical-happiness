@@ -1,7 +1,7 @@
 /**
  * The cards without a date of a calendar or a Gantt chart, opened from
  * "No date" in the row above it: a column at the right of the view, or a
- * sheet on a compact page (question C16).
+ * sheet on a compact page.
  *
  * - The column is closed when the page changes between the two, so that a
  *   device turned on its side does not raise a sheet unasked.

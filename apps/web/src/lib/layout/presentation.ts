@@ -14,8 +14,8 @@ import type { Stage } from './room.svelte.ts';
 export type OverlayPresentation = 'sheet' | 'popover';
 
 /**
- * Menus and pickers: a sheet on a compact page, a popover otherwise
- * (question 10 of docs/mobile-proposal.md, answer A, without exceptions).
+ * Menus and pickers: a sheet on a compact page, a popover otherwise, without
+ * exceptions.
  */
 export function overlayPresentation(stage: Stage): OverlayPresentation {
   return stage === 'compact' ? 'sheet' : 'popover';

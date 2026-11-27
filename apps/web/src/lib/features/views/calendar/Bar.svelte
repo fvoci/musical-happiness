@@ -8,7 +8,7 @@
 
   With a mouse the bar is a link that opens the card. With a finger it is a
   picture (`pressable` false): 22 pixels are too low to hit, and the cell
-  under it takes the tap and opens the cards of the day (question C2).
+  under it takes the tap and opens the cards of the day.
 
   Where the reader may change the dates the bar is dragged to another day
   (card-drag.svelte.ts), and a bar that can be pressed has grips at the

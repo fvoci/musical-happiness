@@ -31,7 +31,7 @@ pub const BLOCK_TITLE_MAX_CHARS: usize = 16_383;
 pub const BLOCK_FIELDS_MAX_CHARS: usize = 800_000;
 
 /// Maximum number of characters in the `fields` of a card, a comment or an attachment
-/// once serialized to JSON (`docs/s6-design.md` 5.7). A card's content is its body.
+/// once serialized to JSON. A card's content is its body.
 pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The member of a comment's `fields` that names the personal API token an agent wrote
@@ -105,8 +105,8 @@ impl BlockType {
     /// a chapter has no body.
     pub const WITH_ROOM: [Self; 4] = [Self::Card, Self::Page, Self::Entry, Self::Unit];
 
-    /// Returns `true` for the types that may have a body: a card and a comment
-    /// (`docs/s6-design.md` 5.7), a page, an entry and a unit.
+    /// Returns `true` for the types that may have a body: a card and a comment, a page, an
+    /// entry and a unit.
     #[must_use]
     pub const fn has_body(self) -> bool {
         matches!(
@@ -151,7 +151,7 @@ impl BlockType {
     }
 
     /// Returns `true` for the types a block may be given by a write of blocks: a card,
-    /// a view, a comment and an attachment (`docs/s6-design.md` 5.7). A page is no such
+    /// a view, a comment and an attachment. A page is no such
     /// type: the operations of pages make and change it, which keep it in its place in
     /// the tree of its wiki. Nor is an entry: the operations of diaries make it, which
     /// keep a day to one. Nor is a unit or chapter: the operations of courses make it.
@@ -817,13 +817,12 @@ impl Block {
         malformed
     }
 
-    /// The block as it goes to whoever reads it by the board's link, signed in or not,
-    /// who is nobody the server knows (`docs/s6-design.md`,
-    /// decision 7): no `createdBy` or `modifiedBy`, no user in the mentions of the body,
-    /// and in `fields` none that the board's person properties name (`people`): in a
-    /// card's `properties` ([`PersonProperties::hide_values`]) and in a view's filter and
-    /// groups ([`PersonProperties::hide_view_fields`]). A user's identifier tells when
-    /// they signed up.
+    /// The block as it goes to whoever reads it by the board's link, signed in or not, who
+    /// is nobody the server knows: no `createdBy` or `modifiedBy`, no user in the mentions
+    /// of the body, and in `fields` none that the board's person properties name
+    /// (`people`): in a card's `properties` ([`PersonProperties::hide_values`]) and in a
+    /// view's filter and groups ([`PersonProperties::hide_view_fields`]). A user's
+    /// identifier tells when they signed up.
     pub fn hide_people(&mut self, people: &PersonProperties) {
         self.created_by.clear();
         self.modified_by.clear();

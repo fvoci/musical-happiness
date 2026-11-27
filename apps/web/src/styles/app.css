@@ -11,8 +11,6 @@
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
 
-/* The spikes use the app's styles; their own classes stay out of the product's style sheet. */
-@source not '../../spikes';
 @source not '../../docs';
 /* Tools, tests and message files are not screens: a word in them is not a class in use. */
 @source not '../../tools';
@@ -68,8 +66,7 @@
  * of that for the board. In rem, so that a reader with a larger text size
  * gets the narrower layout sooner: the same number of characters fits.
  *
- * To move a boundary, change the number here. docs/mobile-proposal.md says
- * where each came from.
+ * To move a boundary, change the number here.
  */
 @theme static {
   /* page: 600px. From here a strip of the sidebar stays, a card is a panel, a menu a popover. */

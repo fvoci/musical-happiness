@@ -26,8 +26,9 @@
 //! this crate is built with.
 //!
 //! What the shape is, and what an editor does with shared content, is not assumed here:
-//! the web app's tests state it (`apps/web/spikes/collab`) and write it down as vectors
-//! (`contracts/ydoc-vectors.json`), and this crate's tests read those.
+//! the web app states it (`apps/web/tools/ydoc/vectors.ts` writes it down as the vectors
+//! of `contracts/ydoc-vectors.json`, and `apps/web/tests/editor/ydoc-vectors.test.ts`
+//! holds its editor to them), and this crate's tests read those.
 
 mod append;
 mod block_cache;

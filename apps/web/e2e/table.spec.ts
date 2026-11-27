@@ -1319,8 +1319,9 @@ test.describe('when the window changes size', () => {
   });
 
   test('a window turned on its side and back keeps the sideways place', async ({ page }) => {
-    // The sizes of docs/mobile-proposal.md, "잃는 경우", with the page's own observers in their
-    // own order: the stage changes with the turn, and the table's pane with it.
+    // The sizes at which a device lost the place, with the page's own observers
+    // in their own order: the stage changes with the turn, and the table's pane
+    // with it.
     const opened = await openView(page, 'Project schedule', 'Task table');
     await addCards(page, opened, 5);
     await page.setViewportSize({ width: 626, height: 890 });
@@ -1351,7 +1352,7 @@ test.describe('when the window changes size', () => {
   });
 
   test('a layout that is one beat late does not cost the sideways place', async ({ page }) => {
-    // What docs/mobile-proposal.md found: the window widens, the pane is laid
+    // What a device did: the window widens, the pane is laid
     // out once at the width the old stage gives it (wide enough to cut the
     // scroll position), and only then a script narrows it to its real width.
     const opened = await openView(page, 'Project schedule', 'Task table');
