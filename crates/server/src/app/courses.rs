@@ -6,9 +6,9 @@ use fvoci_model::{
     Block, BlockError, BlockType, Container, CourseLimits, DeletedUnit, NewUnit, Unit, UnitKind,
     UnitMove, UnitNode, UnitPatch,
 };
-use fvoci_store::{ByAgent, UnitRestore, UnitWrite};
+use fvoci_store::ByAgent;
 
-use super::blocks::{ChangeAction, ChangeNotification, log_notification};
+use super::blocks::{ChangeAction, ChangeNotification};
 use super::list_page::ListPage;
 use super::{App, Reached};
 use crate::error::{AppError, OrMissing};
@@ -103,18 +103,14 @@ impl App {
         let course = on.require(ContainerPermission::ManageCards, CREATE_UNIT_DENIED)?;
         new.check_request()?;
         let (course_id, user_id) = (on.container_id(), on.user_id());
-        let written = {
-            let _structure = self.collab().changing_structure(self, course_id).await;
-            self.store()
-                .create_unit(course_id, new, CourseLimits::DEFAULT, user_id)
-                .await?
-        };
-        log_notification(
-            ChangeNotification::Send,
-            ChangeAction::Add,
-            &written.unit.id,
-        );
-        Ok(self.announce_units(&course.workspace_id, written))
+        let unit = self
+            .write_tree(course, ChangeAction::Add, async || {
+                self.store()
+                    .create_unit(course_id, new, CourseLimits::DEFAULT, user_id)
+                    .await
+            })
+            .await?;
+        Ok(Unit::from(unit))
     }
 
     /// Changes the unit or chapter of the course `on` reached as `patch` says, for an
@@ -172,14 +168,14 @@ impl App {
     ) -> Result<Unit, AppError> {
         let course = editing_unit(on, unit, MOVE_UNIT_DENIED)?;
         let (course_id, unit_id, user_id) = (on.container_id(), unit.id.as_str(), on.user_id());
-        let written = {
-            let _structure = self.collab().changing_structure(self, course_id).await;
-            self.store()
-                .move_unit(course_id, unit_id, to, user_id)
-                .await?
-        };
-        log_notification(ChangeNotification::Send, ChangeAction::Update, unit_id);
-        Ok(self.announce_units(&course.workspace_id, written))
+        let unit = self
+            .write_tree(course, ChangeAction::Update, async || {
+                self.store()
+                    .move_unit(course_id, unit_id, to, user_id)
+                    .await
+            })
+            .await?;
+        Ok(Unit::from(unit))
     }
 
     /// Deletes a unit or chapter of the course `on` reached, for an editor of it, as any
@@ -228,45 +224,14 @@ impl App {
     pub async fn undelete_unit(&self, on: &Reached, unit_id: &str) -> Result<Unit, AppError> {
         let course = on.require(ContainerPermission::ManageCards, UNDELETE_UNIT_DENIED)?;
         let (course_id, user_id) = (on.container_id(), on.user_id());
-        let restored = {
-            let _structure = self.collab().changing_structure(self, course_id).await;
-            self.store()
-                .undelete_unit(course_id, unit_id, CourseLimits::DEFAULT, user_id)
-                .await
-        };
-        let UnitRestore { units, renumbered } = restored.or_missing("unit")?;
-        log_notification(ChangeNotification::Send, ChangeAction::Add, unit_id);
-        let unit = units
-            .first()
-            .cloned()
-            .map(Unit::from)
-            .ok_or_else(|| AppError::not_found("unit"))?;
-        let mut told = renumbered;
-        told.extend(units);
-        self.announce_course_blocks(&course.workspace_id, told);
-        Ok(unit)
-    }
-
-    /// Tells websocket listeners and webhooks in the background of the blocks written,
-    /// the siblings numbered anew first, and returns the unit or chapter the write was
-    /// about.
-    fn announce_units(&self, workspace_id: &str, written: UnitWrite) -> Unit {
-        let UnitWrite { unit, renumbered } = written;
-        let mut told: Vec<Block> = renumbered;
-        told.push(unit.clone());
-        self.announce_course_blocks(workspace_id, told);
-        Unit::from(unit)
-    }
-
-    /// Tells websocket listeners and webhooks in the background of the blocks, in turn.
-    fn announce_course_blocks(&self, workspace_id: &str, told: Vec<Block>) {
-        let app = self.clone();
-        let workspace_id = workspace_id.to_owned();
-        self.spawn_background(async move {
-            for block in &told {
-                app.ws().broadcast_block_change(&workspace_id, block).await;
-                app.tell_webhooks(block);
-            }
-        });
+        let unit = self
+            .write_tree(course, ChangeAction::Add, async || {
+                self.store()
+                    .undelete_unit(course_id, unit_id, CourseLimits::DEFAULT, user_id)
+                    .await
+            })
+            .await
+            .or_missing("unit")?;
+        Ok(Unit::from(unit))
     }
 }

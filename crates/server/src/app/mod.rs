@@ -103,6 +103,7 @@ mod templates;
 mod time_entries;
 mod today;
 mod trash;
+mod tree;
 mod unit_progress;
 mod unit_reviews;
 mod uploads;

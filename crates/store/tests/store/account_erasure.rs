@@ -674,7 +674,7 @@ async fn record_course_progress(store: &Store, workspace_id: &str, owner: &str, 
         )
         .await
         .expect("a unit is stored")
-        .unit;
+        .first;
     store
         .save_member(&ContainerMember {
             container_id: course.id.clone(),
