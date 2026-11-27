@@ -341,6 +341,33 @@ fn board_ops() -> Vec<Op> {
             "/cards/{p}",
             Json(|_, _| json!({"title": "changed"})),
         ),
+        op(
+            "cards: batch patch",
+            Method::POST,
+            "/boards/{c}/cards/batch-patch",
+            Json(
+                |things, _| json!({"cardIds": [things.block], "updatedProperties": {"note": "changed"}}),
+            ),
+        ),
+        op(
+            "attachments: list",
+            Method::GET,
+            "/boards/{c}/cards/{p}/attachments",
+            None,
+        ),
+        op("views: list", Method::GET, "/boards/{c}/views", None),
+        op(
+            "views: patch",
+            Method::PATCH,
+            "/boards/{c}/views/{second}",
+            Json(|_, _| json!({"title": "changed"})),
+        ),
+        op(
+            "views: delete",
+            Method::DELETE,
+            "/boards/{c}/views/{second}",
+            None,
+        ),
         op("blocks: list", Method::GET, "/boards/{c}/blocks", None),
         op(
             "comments: create",
@@ -605,7 +632,8 @@ struct Things {
     container: String,
     /// A card of the board, a page of the wiki.
     block: String,
-    /// Another page of the wiki, to move the page below; empty for a board.
+    /// Another page of the wiki or unit of the course, to move the page below; a view of
+    /// the board.
     second: String,
     file: String,
     /// The admin's comment on the page, and when it was written; empty for a board.
@@ -634,7 +662,7 @@ fn done(response: &ApiResponse) {
 
 /// Makes a container of `kind` and `scope` with its people: an editor, a commenter and a
 /// viewer, the guest as an editor on one for the invited only, the team as a viewer;
-/// a file, sharing on, a card (with a comment), or two pages, the first written twice
+/// a file, sharing on, a card and a view, or two pages, the first written twice
 /// and commented on.
 async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
     let owner = &people.clients["admin"];
@@ -709,11 +737,18 @@ async fn make_kind_content(
                 )
                 .await;
             done(&card);
+            let view = owner
+                .post(
+                    &format!("{TEST_WS}/boards/{container}/views"),
+                    &json!({"title": "a view", "viewType": "board"}),
+                )
+                .await;
+            done(&view);
             Things {
                 scope,
                 container,
                 block: text(&card.value(), "id"),
-                second: String::new(),
+                second: text(&view.value()["view"], "id"),
                 file,
                 comment: String::new(),
                 comment_at: Value::Null,
@@ -833,6 +868,7 @@ async fn ask(
         .path
         .replace("{c}", &things.container)
         .replace("{p}", &things.block)
+        .replace("{second}", &things.second)
         .replace("{f}", &things.file)
         .replace("{comment}", &things.comment)
         .replace("{version}", &things.version)

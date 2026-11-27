@@ -8,6 +8,7 @@ mod account_deletion;
 mod admin;
 mod api_tokens;
 mod archive;
+mod attachments;
 mod auth;
 mod blocks;
 mod board_ops;
@@ -73,6 +74,7 @@ mod unit_reviews;
 mod unit_versions;
 mod uploads;
 mod users;
+mod views;
 mod wikis;
 mod workspace;
 mod workspace_members;
@@ -95,8 +97,9 @@ pub(crate) use access::{
     require_permission_through, require_workspace_access,
 };
 pub(crate) use body::{
-    decode_json, decode_object, decode_object_with, decode_with_document, element_pointer,
-    json_object, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
+    BLOCK_FIELDS, decode_json, decode_object, decode_object_with, decode_with_document,
+    element_pointer, json_object, objects_mut, put_patch_bodies, take_block_bodies,
+    take_patch_bodies,
 };
 pub(crate) use delegated::{Delegated, Read, Write};
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
@@ -163,6 +166,8 @@ fn routes() -> Routes {
         .merge(unit_versions::routes())
         .merge(containers_and_blocks::routes())
         .merge(board_ops::routes())
+        .merge(views::routes())
+        .merge(attachments::routes())
         .merge(card_comments::routes())
         .merge(card_markdown::routes())
         .merge(lists::routes())

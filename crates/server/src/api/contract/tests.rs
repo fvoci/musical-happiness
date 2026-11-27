@@ -547,6 +547,7 @@ fn a_schema_that_is_written_where_it_is_used_is_finished_too() {
 /// What each operation that answers a list says about the order of the list: words
 /// of its description, or of the description of its answer.
 const ORDERS: &[(&str, &str)] = &[
+    ("batchPatchCards", "in the order of `cardIds`"),
     ("createBlocks", "in the order of the request"),
     (
         "createContainersAndBlocks",
@@ -562,6 +563,8 @@ const ORDERS: &[(&str, &str)] = &[
         "getBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
+    ("getBoardViews", "Oldest first"),
+    ("getCardAttachments", "Oldest first"),
     ("getCardBodyVersions", "The newest first"),
     ("getCardCommentVersions", "the first one first"),
     ("getCardComments", "oldest first"),

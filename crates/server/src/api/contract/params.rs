@@ -75,6 +75,7 @@ parameter!(EntryVersionNumber: Path "version", i64, True, "The number of the ver
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
 parameter!(ViewId: Path "viewId", String, True, "The identifier of the board view.");
+parameter!(AttachmentId: Path "attachmentId", String, True, "The identifier of the attachment: an attachment of the card of the path. 404 for an attachment of another card, and for a block that is no attachment.");
 parameter!(CardCommentId: Path "commentId", String, True, "The identifier of the comment: a comment on the card of the path. 404 for a comment on another card, and for a block that is no comment.");
 parameter!(WikiId: Path "wikiId", String, True, "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.");
 parameter!(PageId: Path "pageId", String, True, "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.");

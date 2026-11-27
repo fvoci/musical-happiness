@@ -215,10 +215,11 @@ fn filed_path(category: &str, board: &str, rest: &str) -> String {
 }
 
 /// Every route that names something of the hidden owner's: [`board_cases`], and what is
-/// on the board or of the owner ([`content_cases`]).
+/// on the board or of the owner ([`content_cases`], [`view_and_attachment_cases`]).
 fn cases() -> Vec<Case> {
     let mut cases = board_cases();
     cases.extend(content_cases());
+    cases.extend(view_and_attachment_cases());
     cases
 }
 
@@ -496,6 +497,80 @@ fn content_cases() -> Vec<Case> {
     ]
 }
 
+/// The routes of the board's views, of the attachments of its card, and of a batch of
+/// its cards; the card stands in for a view and an attachment.
+fn view_and_attachment_cases() -> Vec<Case> {
+    vec![
+        case(
+            Method::GET,
+            |h, i| format!("{TEST_WS}/boards/{}/views", h.board[i]),
+            no_body,
+        ),
+        case(
+            Method::GET,
+            |h, i| format!("{TEST_WS}/boards/{}/views/{}", h.board[i], h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::PATCH,
+            |h, i| format!("{TEST_WS}/boards/{}/views/{}", h.board[i], h.card[i]),
+            title,
+        ),
+        case(
+            Method::DELETE,
+            |h, i| format!("{TEST_WS}/boards/{}/views/{}", h.board[i], h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, i| {
+                format!(
+                    "{TEST_WS}/boards/{}/views/{}/restore",
+                    h.board[i], h.card[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::GET,
+            |h, i| {
+                format!(
+                    "{TEST_WS}/boards/{}/cards/{}/attachments",
+                    h.board[i], h.card[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::DELETE,
+            |h, i| {
+                let card = &h.card[i];
+                format!(
+                    "{TEST_WS}/boards/{}/cards/{card}/attachments/{card}",
+                    h.board[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, i| {
+                let card = &h.card[i];
+                format!(
+                    "{TEST_WS}/boards/{}/cards/{card}/attachments/{card}/restore",
+                    h.board[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, i| format!("{TEST_WS}/boards/{}/cards/batch-patch", h.board[i]),
+            |h, i| json!({"cardIds": [h.card[i]], "updatedProperties": {"note": "x"}}),
+        ),
+    ]
+}
+
 /// Requests that name something of the asker's own together with something hidden: the
 /// places where one part of a request passes every check and the other part must not
 /// be given away by the answer.
@@ -745,6 +820,73 @@ async fn what_a_user_cannot_see_answers_as_what_does_not_exist() {
     hidden.th.teardown().await;
 }
 
+/// As [`mixed_cases`], a hidden card named as a view, as an attachment and as a card of a
+/// batch through the asker's own board.
+fn mixed_view_and_attachment_cases() -> Vec<Case> {
+    vec![
+        case(
+            Method::GET,
+            |h, i| format!("{TEST_WS}/boards/{}/views/{}", h.own_board, h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::PATCH,
+            |h, i| format!("{TEST_WS}/boards/{}/views/{}", h.own_board, h.card[i]),
+            title,
+        ),
+        case(
+            Method::DELETE,
+            |h, i| format!("{TEST_WS}/boards/{}/views/{}", h.own_board, h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, i| {
+                format!(
+                    "{TEST_WS}/boards/{}/views/{}/restore",
+                    h.own_board, h.card[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::GET,
+            |h, i| {
+                format!(
+                    "{TEST_WS}/boards/{}/cards/{}/attachments",
+                    h.own_board, h.card[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::DELETE,
+            |h, i| {
+                format!(
+                    "{TEST_WS}/boards/{}/cards/{}/attachments/{}",
+                    h.own_board, h.own_card, h.card[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, i| {
+                format!(
+                    "{TEST_WS}/boards/{}/cards/{}/attachments/{}/restore",
+                    h.own_board, h.own_card, h.card[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, _| format!("{TEST_WS}/boards/{}/cards/batch-patch", h.own_board),
+            |h, i| json!({"cardIds": [h.own_card, h.card[i]], "updatedProperties": {"note": "x"}}),
+        ),
+    ]
+}
+
 /// The same where a request names something of the asker's own next to something
 /// hidden: the request is refused, and the same way as for an identifier nobody has.
 #[tokio::test]
@@ -752,7 +894,10 @@ async fn a_hidden_thing_next_to_an_own_one_answers_as_one_that_does_not_exist() 
     let hidden = Hidden::start().await;
     let outsider = &hidden.th.client2;
 
-    for case in mixed_cases() {
+    for case in mixed_cases()
+        .into_iter()
+        .chain(mixed_view_and_attachment_cases())
+    {
         let path = (case.path)(&hidden, 0);
         let existing = ask(outsider, &hidden, &case, 0).await;
         let missing = ask(outsider, &hidden, &case, 1).await;

@@ -144,6 +144,59 @@ impl App {
         }
     }
 
+    /// Returns the block of the board of this type, as [`App::block`] reaches it: a
+    /// block of another board, or of another type, is as missing as one that does not
+    /// exist, since the path names the board and what it holds.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error naming the type if the board has no such block.
+    pub async fn block_of_board(
+        &self,
+        board_id: &str,
+        block_id: &str,
+        block_type: BlockType,
+    ) -> Result<Block, AppError> {
+        match self.block(block_id).await {
+            Ok(block) if block.container_id == board_id && block.block_type == block_type => {
+                Ok(block)
+            }
+            Ok(_) => Err(AppError::not_found(block_type.as_str())),
+            Err(error) if error.is_not_found() => Err(AppError::not_found(block_type.as_str())),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Brings a block of the board of this type back from the trash, as
+    /// [`App::undelete_block`] does, where it went on its own: a block that went there
+    /// with another (an attachment with its card) comes back with that one. With
+    /// `parent_id`, only a block that was below that block.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error naming the type unless the trash has such a deletion of
+    /// the block, and the errors of [`App::undelete_block`].
+    pub async fn undelete_block_of_board(
+        &self,
+        board_id: &str,
+        block_id: &str,
+        block_type: BlockType,
+        parent_id: Option<&str>,
+        user_id: &str,
+    ) -> Result<Block, AppError> {
+        let deletion = self.deletion(block_id).await?;
+        let deleted_alone = deletion.first().is_some_and(|top| {
+            top.id == block_id
+                && top.container_id == board_id
+                && top.block_type == block_type
+                && parent_id.is_none_or(|parent_id| top.parent_id == parent_id)
+        });
+        if !deleted_alone {
+            return Err(AppError::not_found(block_type.as_str()));
+        }
+        self.undelete_block(block_id, user_id).await
+    }
+
     /// Coordinates a block write with active collaborative rooms: when
     /// `whole_body_cards` is empty, runs under structure barriers on `containers`;
     /// otherwise runs via [`crate::collab::Collab::write_whole`].

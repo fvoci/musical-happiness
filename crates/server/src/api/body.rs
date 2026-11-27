@@ -9,6 +9,11 @@ use serde_json::Value;
 
 use crate::error::AppError;
 
+/// The JSON Pointer to the fields of a block, where the store names what it refuses of
+/// them: a request that sends them under another member moves the refusal there
+/// ([`AppError::moved`]).
+pub(crate) const BLOCK_FIELDS: &str = "/fields";
+
 /// Decodes a JSON request body.
 ///
 /// # Errors

@@ -24,11 +24,10 @@ use super::query::{DisableNotifyQuery, QueryParams, int_param, paging_from_strin
 use super::workspace::InWorkspace;
 use super::{Delegated, Read, Write};
 
-use super::blocks::BLOCK_FIELDS;
 use super::body_versions::{
     get_body_version, keep_body_version, list_body_versions, restore_body_version,
 };
-use super::{ApiResult, TRUE, created, json_response};
+use super::{ApiResult, BLOCK_FIELDS, TRUE, created, json_response};
 use super::{decode_with_document, require_container_permission, require_permission_through};
 use crate::app::{
     App, CardPreviews, CardsFilter, CardsOrder, CardsUnder, ChangeNotification, body_of_markdown,

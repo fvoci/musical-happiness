@@ -15,7 +15,7 @@
 use fvoci_model::{
     BlockType, Body, CardOpen, CardPropertyDefinition, CategoryType, ContainerRole,
     ContainerVisibility, Credential, Density, DoneWhen, HourCycle, JsonMap, MinimumRole, NameShown,
-    Theme, Title, WeekStart,
+    NewBoardView, Theme, Title, WeekStart,
 };
 use utoipa::ToSchema;
 
@@ -108,6 +108,10 @@ pub(crate) struct NewBoard {
     /// due-date properties, `doneWhen`, and an initial Kanban view.
     #[schema(nullable = false)]
     scaffold: Option<bool>,
+    /// The board's first view, made with it in one transaction. It goes after no other
+    /// view: an `after` that names one is 400. Not with `scaffold`.
+    #[schema(nullable = false)]
+    first_view: Option<NewBoardView>,
 }
 
 /// A block to insert.

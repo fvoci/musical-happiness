@@ -22,7 +22,7 @@ use super::query::{AsTemplateQuery, DisableNotifyQuery, QueryParams, non_empty_o
 use super::workspace::InWorkspace;
 use super::{Delegated, Read};
 
-use super::{ApiResult, TRUE, created, decode_json, json_response, no_content};
+use super::{ApiResult, BLOCK_FIELDS, TRUE, created, decode_json, json_response, no_content};
 use super::{
     BlockAction, require_block_patch_permission_with_grant, require_block_permission_with_grant,
     require_container_permission, require_delete_permission, require_deletion_permission,
@@ -70,9 +70,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// The refusal to change what is on a board.
 const CHANGES_DENIED: &str = "access denied to make board changes";
 
-/// The JSON Pointers to the fields of a block and to the member of a patch that changes
-/// them.
-pub(super) const BLOCK_FIELDS: &str = "/fields";
+/// The JSON Pointer to the member of a patch that changes the fields of a block.
 pub(super) const PATCH_FIELDS: &str = "/updatedFields";
 
 /// The JSON Pointer to the patches of a `BlockPatchBatch`.

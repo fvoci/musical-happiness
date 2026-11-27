@@ -839,6 +839,40 @@
         },
         "type": "object"
       },
+      "BoardViewPatch": {
+        "additionalProperties": false,
+        "description": "A board view as a request changes it (`PATCH /w/{ws}/boards/{boardId}/views/{viewId}`):\nits title and its fields, and nothing else a block has.",
+        "properties": {
+          "deletedFields": {
+            "description": "Keys of fields to remove.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "readAt": {
+            "description": "The `updatedAt` of the view as the client read it: if the view has changed since,\nthe patch is refused with 409 and changes nothing.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The new title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedFields": {
+            "additionalProperties": true,
+            "description": "Fields to set (`viewType`, `filter`, `sortOptions`, `cardOrder`, ...), each\nreplacing the view's value under the same key.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "BoardViewWrite": {
         "description": "Response returned when creating, moving, or duplicating a board view.",
         "properties": {
@@ -1125,6 +1159,35 @@
               "type": "string"
             },
             "type": "array"
+          }
+        },
+        "required": [
+          "cardIds"
+        ],
+        "type": "object"
+      },
+      "CardBatchPatch": {
+        "additionalProperties": false,
+        "description": "One change of property values for `1..=200` cards of a board, all or none\n(`POST /w/{ws}/boards/{boardId}/cards/batch-patch`). Each card is changed as\n`patchCard` with only these members would change it.",
+        "properties": {
+          "cardIds": {
+            "description": "The cards: `1..=200` distinct identifiers of cards of the board that are no\ntemplates.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "deletedProperties": {
+            "description": "Identifiers of properties whose value the cards are to lose. A property named\nhere and in `updatedProperties` loses its value.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updatedProperties": {
+            "additionalProperties": true,
+            "description": "Property values to set, by property identifier, as `patchCard` sets them: each\nreplaces the card's value for that property, and the card's other values stay.",
+            "type": "object"
           }
         },
         "required": [
@@ -4585,6 +4648,10 @@
               "string",
               "null"
             ]
+          },
+          "firstView": {
+            "$ref": "#/components/schemas/NewBoardView",
+            "description": "The board's first view, made with it in one transaction. It goes after no other\nview: an `after` that names one is 400. Not with `scaffold`."
           },
           "icon": {
             "description": "The board's icon, usually one emoji.",
@@ -14395,7 +14462,7 @@
         "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template. A board is made here and no wiki: a `kind` other\nthan `board` is 400 at `/kind` (`createWiki` makes a wiki).",
+        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template. A board is made here and no wiki: a `kind` other\nthan `board` is 400 at `/kind` (`createWiki` makes a wiki). Its first view\n(`firstView`) is made with it, all or none, as `createBoardView` makes a view; a view\nit refuses is 400 under `/firstView`, and so is one with `scaffold`, which brings its\nown. `getBoardViews` reads it.",
         "operationId": "createBoard",
         "parameters": [
           {
@@ -15383,6 +15450,81 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/batch-patch": {
+      "post": {
+        "description": "Sets and removes the same property values of `1..=200` distinct cards of the board,\nall or none in one transaction: each card is changed as `patchCard` with only\n`updatedProperties` and `deletedProperties` would change it, its values checked alike\nagainst the board's properties, and whom it is newly given to told alike. More cards\nare 400 with the `limit`. A card of another board, or a block that is no card, is not\nthere (404); a template of the board's cards is 400. For the board's editors.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "operationId": "batchPatchCards",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardBatchPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Card"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The cards as they are now, in the order of `cardIds`."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change several cards alike",
+        "tags": [
+          "cards"
+        ],
+        "x-fvoci-api-token": "write"
+      }
+    },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/batch-restore": {
       "post": {
         "description": "Restores `1..=200` distinct deleted cards on `boardId` in one transaction and returns\nall restored cards (including restored sub-cards).",
@@ -15509,6 +15651,69 @@
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/attachments": {
+      "get": {
+        "description": "For whoever may read the board: its members, and for an open or built-in template\neveryone who works in its workspace. A card of another board, and a block that is no\ncard, are not there (404). Oldest first.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "operationId": "getCardAttachments",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Block"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The attachments."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The attachments of a card",
+        "tags": [
+          "cards"
+        ],
+        "x-fvoci-api-token": "read"
+      },
       "post": {
         "description": "Verifies under the board lock that `fileId` belongs to `boardId`, sets the attachment\nblock's trusted filename and size from `files`, and stores the attachment block.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createCardAttachment",
@@ -15587,6 +15792,148 @@
           "cards"
         ],
         "x-fvoci-api-token": "write"
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/attachments/{attachmentId}": {
+      "delete": {
+        "description": "The attachment goes to the trash, and `restoreCardAttachment` brings it back until\nthe trash is emptied of it; its file stays with the board. For the board's editors.\nAn attachment of another card is not there (404).",
+        "operationId": "deleteCardAttachment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the attachment: an attachment of the card of the path. 404 for an attachment of another card, and for a block that is no attachment.",
+            "in": "path",
+            "name": "attachmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The attachment is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete an attachment of a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/attachments/{attachmentId}/restore": {
+      "post": {
+        "description": "Restores an attachment of the card from the trash, where it went on its own: one that\nwent there with its card comes back with the card (`batchRestoreCards`). For the\nboard's editors. An attachment that is not in the trash, one of another card and a\nblock of another type are not there to restore (404).",
+        "operationId": "restoreCardAttachment",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the attachment: an attachment of the card of the path. 404 for an attachment of another card, and for a block that is no attachment.",
+            "in": "path",
+            "name": "attachmentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The attachment as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Bring a deleted attachment back",
+        "tags": [
+          "cards"
+        ]
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments": {
@@ -16320,6 +16667,60 @@
       }
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/views": {
+      "get": {
+        "description": "For whoever may read the board: its members, and for an open or built-in template\neveryone who works in its workspace. Oldest first; the order the board shows them in\nis their `fields.order`.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "operationId": "getBoardViews",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Block"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The views."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The views of a board",
+        "tags": [
+          "boards"
+        ],
+        "x-fvoci-api-token": "read"
+      },
       "post": {
         "description": "Creates a view on `boardId` using server-side fractional indexing (`after`).",
         "operationId": "createBoardView",
@@ -16376,6 +16777,207 @@
           }
         },
         "summary": "Create a board view",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views/{viewId}": {
+      "delete": {
+        "description": "The view goes to the trash, and `restoreBoardView` brings it back until the trash is\nemptied of it. For the board's editors.",
+        "operationId": "deleteBoardView",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board view.",
+            "in": "path",
+            "name": "viewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The view is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a view of a board",
+        "tags": [
+          "boards"
+        ]
+      },
+      "get": {
+        "description": "For whoever may read the board, as `getBoardViews`. A block of the board that is no\nview, and a view of another board, are not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "operationId": "getBoardView",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board view.",
+            "in": "path",
+            "name": "viewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The view."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A view of a board",
+        "tags": [
+          "boards"
+        ],
+        "x-fvoci-api-token": "read"
+      },
+      "patch": {
+        "description": "Sets and removes fields of the view and changes its title; the fields are checked as\na view's are (400 at `/updatedFields/...`). For the board's editors. With `readAt`,\na view that changed since is 409 and nothing changes. The view's `modifiedBy` and\n`updatedAt` say who changed it and when.",
+        "operationId": "patchBoardView",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board view.",
+            "in": "path",
+            "name": "viewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardViewPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The view as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change a view of a board",
         "tags": [
           "boards"
         ]
@@ -16607,6 +17209,67 @@
           }
         },
         "summary": "Move a board view",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/views/{viewId}/restore": {
+      "post": {
+        "description": "Restores a view of the board from the trash. For the board's editors. A view that is\nnot in the trash, one of another board and a block of another type are not there to\nrestore (404).",
+        "operationId": "restoreBoardView",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board view.",
+            "in": "path",
+            "name": "viewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The view as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Bring a deleted view back",
         "tags": [
           "boards"
         ]

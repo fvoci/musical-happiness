@@ -259,7 +259,7 @@ async fn handle_patch_containers_and_blocks(ws: InWorkspace, body: Bytes) -> Api
         .await
         .map_err(|error| {
             error
-                .moved(super::blocks::BLOCK_FIELDS, super::blocks::PATCH_FIELDS)
+                .moved(super::BLOCK_FIELDS, super::blocks::PATCH_FIELDS)
                 .among_blocks(patches.block_ids.iter().map(String::as_str), PATCHES)
         })?;
     Ok(json_response(&result))
