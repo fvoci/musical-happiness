@@ -392,7 +392,7 @@ fn refresh_cache_after_repair<T: ReadTxn>(
         }
     }
     for block in kept {
-        let entry = if kind == RepairKind::WithMends && block.is_table {
+        let entry = if kind == RepairKind::WithMends && block.may_be_mended {
             project_and_validate_block(txn, &block.element)?
         } else {
             block.entry
@@ -480,7 +480,9 @@ struct KeptSurveyBlock {
     id: ID,
     element: XmlElementRef,
     entry: BlockEntry,
-    is_table: bool,
+    /// Whether a mend may have changed it after its survey: a table, or a toggle, which
+    /// may hold tables.
+    may_be_mended: bool,
 }
 
 /// What [`Survey::root_cached`] collected without materializing clean or non-table blocks'
@@ -628,7 +630,7 @@ impl<T: ReadTxn> Survey<'_, T> {
                 out.kept_json_bytes = out.kept_json_bytes.saturating_add(bytes);
                 out.only_empty_paragraph = out.kept_blocks == 1 && summary.is_empty_paragraph;
                 if let Some((id, element)) = elem {
-                    let is_table = summary.kind == "table";
+                    let may_be_mended = matches!(summary.kind, "table" | "details");
                     out.surveyed_kept.push(KeptSurveyBlock {
                         id,
                         element,
@@ -641,7 +643,7 @@ impl<T: ReadTxn> Survey<'_, T> {
                             },
                             file_ids: summary.file_ids.into_boxed_slice(),
                         },
-                        is_table,
+                        may_be_mended,
                     });
                 }
             }

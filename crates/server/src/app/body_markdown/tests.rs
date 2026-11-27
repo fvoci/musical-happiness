@@ -330,3 +330,121 @@ fn a_heading_with_a_line_break_is_written_on_one_line_and_named() {
         written.markdown
     );
 }
+
+fn toggle(summary: &[Value], hidden: &Value) -> Value {
+    let summary = if summary.is_empty() {
+        json!({"type": "detailsSummary"})
+    } else {
+        json!({"type": "detailsSummary", "content": summary})
+    };
+    json!({"type": "details", "content": [summary, {"type": "detailsContent", "content": hidden}]})
+}
+
+fn callout(tone: &str, content: &Value) -> Value {
+    json!({"type": "callout", "attrs": {"tone": tone}, "content": content})
+}
+
+#[test]
+fn toggles_and_callouts_come_back_the_same() {
+    let bold = json!([{"type": "bold"}]);
+    let item = json!({"type": "listItem", "content": [paragraph(&[text("listed")])]});
+    let cell =
+        |kind: &str, words: &str| json!({"type": kind, "content": [paragraph(&[text(words)])]});
+    let body = doc(&json!([
+        toggle(&[text("Why "), marked("this", &bold), text(" <now>?")], &json!([
+            paragraph(&[text("Because.")]),
+            {"type": "table", "content": [
+                {"type": "tableRow", "content": [cell("tableHeader", "a"), cell("tableHeader", "b")]},
+                {"type": "tableRow", "content": [cell("tableCell", "1"), cell("tableCell", "2")]},
+            ]},
+            callout("tip", &json!([paragraph(&[text("inside")]), {"type": "bulletList", "content": [item]}])),
+            toggle(&[], &json!([paragraph(&[text("deeper")])])),
+        ])),
+        toggle(&[text("nothing inside")], &json!([{"type": "paragraph"}])),
+        toggle(&[text("ends at </summary> \\")], &json!([paragraph(&[text("not yet")])])),
+        callout("info", &json!([paragraph(&[text("a note")])])),
+        callout("warn", &json!([{"type": "codeBlock", "content": [text("rm -rf")]}])),
+        callout("danger", &json!([{"type": "paragraph"}])),
+        {"type": "blockquote", "content": [paragraph(&[text("[!NOTE]")]), paragraph(&[text("a quote")])]},
+    ]));
+    let markdown = check_round_trip(&body);
+    assert!(
+        markdown.starts_with("<details>\n<summary>Why **this** \\<now>?</summary>\n\nBecause."),
+        "{markdown}"
+    );
+    for alert in [
+        "> [!NOTE]\n> a note",
+        "> [!WARNING]\n> ```",
+        "> [!CAUTION]",
+        "> [!TIP]\n> inside",
+    ] {
+        assert!(markdown.contains(alert), "{alert} in {markdown}");
+    }
+    assert!(
+        markdown.contains("<summary>nothing inside</summary>\n\n</details>"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn markdown_from_elsewhere_reads_alerts_and_toggles_where_they_may_stand() {
+    let nodes = markdown_nodes(
+        "> [!IMPORTANT]\n> heads up\n\n> [!tip]\n\n\
+         <details open><summary>Q</summary>\n\nA\n</details>\n\n\
+         - item\n\n  <details>\n  <summary>S</summary>\n\n  hidden\n\n  </details>\n\n\
+         > [!NOTE]\n> > [!TIP]\n> > inner\n\n\
+         </details>\n\n\
+         <details>\n<summary>left open</summary>\n\n| a |\n| - |\n| 1 |",
+        "markdown",
+    )
+    .expect("read");
+    let cell =
+        |kind: &str, words: &str| json!({"type": kind, "content": [paragraph(&[text(words)])]});
+    assert_eq!(
+        nodes,
+        [
+            callout("info", &json!([paragraph(&[text("heads up")])])),
+            callout("tip", &json!([{"type": "paragraph"}])),
+            toggle(&[text("Q")], &json!([paragraph(&[text("A")])])),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                paragraph(&[text("item")]),
+                paragraph(&[text("S")]),
+                paragraph(&[text("hidden")]),
+            ]}]}),
+            callout(
+                "info",
+                &json!([{"type": "blockquote", "content": [paragraph(&[text("inner")])]}])
+            ),
+            // The end of a toggle that is not open is HTML, shown as text.
+            paragraph(&[text("</details>")]),
+            toggle(
+                &[text("left open")],
+                &json!([{"type": "table", "content": [
+                    {"type": "tableRow", "content": [cell("tableHeader", "a")]},
+                    {"type": "tableRow", "content": [cell("tableCell", "1")]},
+                ]}])
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_toggle_or_a_table_in_a_callout_is_read_as_its_parts() {
+    let nodes = markdown_nodes(
+        "> [!WARNING]\n> <details>\n> <summary>S</summary>\n>\n> x\n>\n> </details>\n>\n> | a |\n> | - |\n> | 1 |",
+        "markdown",
+    )
+    .expect("read");
+    assert_eq!(
+        nodes,
+        [callout(
+            "warn",
+            &json!([
+                paragraph(&[text("S")]),
+                paragraph(&[text("x")]),
+                paragraph(&[text("a")]),
+                paragraph(&[text("1")]),
+            ])
+        )]
+    );
+}

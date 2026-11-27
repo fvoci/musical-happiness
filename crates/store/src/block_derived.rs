@@ -166,12 +166,7 @@ pub(crate) async fn forget_block(
 
     let mut refs = scope.sql("DELETE FROM file_refs WHERE block_id = ");
     refs.bind(Id(block_id)).push(" RETURNING name");
-    let mut names = scope
-        .fetch_all(refs)
-        .await?
-        .iter()
-        .map(|row| row.text(0))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut names: Vec<String> = scope.all(refs).await?;
     if !names.is_empty() {
         names.sort_unstable();
         names.dedup();
@@ -258,10 +253,7 @@ async fn resolve_container_org_id(
          WHERE c.id = ",
     );
     sql.bind(Id(container_id));
-    match scope.fetch_optional(sql).await? {
-        Some(row) => row.id(0),
-        None => Ok(String::new()),
-    }
+    Ok(scope.first(sql).await?.unwrap_or_default())
 }
 
 async fn sync_one_card_derived(
@@ -341,10 +333,5 @@ async fn existing_user_ids(
     let mut sql = scope.sql("SELECT id FROM users WHERE id IN (");
     sql.bind_list(user_ids.iter().copied().map(Id))
         .push(") ORDER BY id");
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| row.id(0))
-        .collect()
+    scope.all(sql).await
 }
