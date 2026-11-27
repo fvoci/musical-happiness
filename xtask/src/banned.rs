@@ -3,13 +3,18 @@
 //! A banned word is refused in any case, alone or inside a longer word, in the text
 //! and in the path of every file git tracks or would track. Nothing is excepted.
 //!
+//! The names of repositories and folders that are not this one's ([`PRIVATE_NAMES`])
+//! are refused the same way, in the characters that paths and identifiers are made
+//! of, however they are joined (`a-b`, `a_b`, `AB`).
+//!
 //! Narrow phrases that explain code by where it came from ([`BANNED_PHRASES`]) and
 //! retired identifiers ([`RETIRED_TOKENS`]) are also refused, in the text and in the
 //! path of every tracked file but the third-party sources vendored under `vendor/`.
 //!
-//! The word list does not say the words. A word is known by how many letters it has and
+//! Neither list says what it refuses. A word is known by how many letters it has and
 //! by the SHA-256 of those letters in lowercase, so every run of letters in a file is
-//! read through a window of that many letters, and the window's digest is compared.
+//! read through a window of that many letters, and the window's digest is compared; a
+//! name likewise, in a run of the characters of a path ([`folded_name`]).
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
@@ -68,16 +73,44 @@ const BANNED: [(usize, &str); 10] = [
     ),
 ];
 
+/// The names of repositories and folders that are not this one's to tell of: the number
+/// of characters of each, folded as [`folded_name`] folds it, and the digest of those.
+///
+/// A name is added by its digest alone: `printf %s <the name, lowercase, without - and _>
+/// | sha256sum`. A folder is named with the slashes around it, so that it is found in
+/// any path that goes through it.
+const PRIVATE_NAMES: [(usize, &str); 4] = [
+    (
+        16,
+        "5428eb960dc395e10ddd5045fb6a23c24cb81cd568e4c54f7efadaf5b941fcb7",
+    ),
+    (
+        17,
+        "a33e576ab0edcf385fe3f01e4876e5bef232883faf3df4f70e659b0263152b96",
+    ),
+    (
+        7,
+        "18551096f0edeaaab35449c12667a5d6349461b5d45d5422eaa0784a50f6b6a7",
+    ),
+    (
+        13,
+        "0ef05cab22de8cfe2bde5e5437561e8fe7d4c32f143b2728f50d96fc4d33cb41",
+    ),
+];
+
 /// Narrow phrases that explain code by where it came from, refused in tracked project
 /// files (matched case-insensitively), and the names of another language's standard
 /// library given as the reason for code: the code says what it does, or names the
 /// standard it follows.
 ///
 /// Kept narrow so ordinary phrases such as `"original file"`, `"original card"`,
-/// `"the original board exists"`, `"원본 이미지"`, or `"원본 파일"` are not flagged. Every
-/// entry must be lowercase; built with `concat!` so this file stays free of literal
-/// matches. A phrase is also found across two lines of a comment ([`joined`]).
-const BANNED_PHRASES: [&str; 21] = [
+/// `"the original board exists"`, `"원본 이미지"`, or `"원본 파일"` are not flagged. Some
+/// are refused although a copy could say them of its source (`as the original`, the
+/// original followed by a name in backticks): there the copy's text says `the source`.
+/// Every entry must be lowercase; built with `concat!` so this file stays free of
+/// literal matches. A phrase is also found across the lines of a comment
+/// ([`LINES_JOINED`]), and in a file's path.
+const BANNED_PHRASES: [&str; 17] = [
     concat!("ports ", "server/"),
     concat!("the ", "original's"),
     concat!("the ", "original server"),
@@ -88,11 +121,6 @@ const BANNED_PHRASES: [&str; 21] = [
     concat!("the ", "original app"),
     concat!("the ", "original tree"),
     concat!("the ", "original `"),
-    // The names of repositories and folders that are not this one's to tell of.
-    concat!("musical-", "happiness"),
-    concat!("fvoci-", "coordination"),
-    concat!("~/", "atlas/"),
-    concat!(".claude/", "plans"),
     concat!("원본", "의 "),
     concat!("원본", "과 "),
     concat!("원본", "과의"),
@@ -171,19 +199,23 @@ impl Words {
     }
 }
 
-/// A reading of texts for the banned words. It remembers the runs of letters it found
-/// clean, as they were written, so that a word the files repeat is digested once.
+/// A reading of texts for the banned words and the private names. It remembers the runs
+/// it found clean, as they were written, so that a run the files repeat is digested once.
 #[derive(Debug)]
-struct Reading<'words> {
-    words: &'words Words,
+struct Reading<'lists> {
+    words: &'lists Words,
+    names: &'lists Words,
     clean: HashSet<String>,
+    clean_names: HashSet<String>,
 }
 
-impl<'words> Reading<'words> {
-    fn new(words: &'words Words) -> Self {
+impl<'lists> Reading<'lists> {
+    fn new(words: &'lists Words, names: &'lists Words) -> Self {
         Self {
             words,
+            names,
             clean: HashSet::new(),
+            clean_names: HashSet::new(),
         }
     }
 
@@ -208,17 +240,55 @@ impl<'words> Reading<'words> {
         self.clean.insert(run.to_owned());
         false
     }
+
+    /// Whether the text holds a private name, in a run of the characters of a path or an
+    /// identifier, however its parts are joined.
+    fn finds_name_in(&mut self, text: &str) -> bool {
+        let Some(shortest) = self.names.shortest() else {
+            return false;
+        };
+        text.split(|character: char| !is_name_character(character))
+            .filter(|run| run.len() >= shortest)
+            .any(|run| self.finds_name_in_run(run))
+    }
+
+    fn finds_name_in_run(&mut self, run: &str) -> bool {
+        if self.clean_names.contains(run) {
+            return false;
+        }
+        if self.names.any_in_run(&folded_name(run)) {
+            return true;
+        }
+        self.clean_names.insert(run.to_owned());
+        false
+    }
 }
 
-/// Fails if a file has a banned word in its text or in its path, or a banned phrase in its
-/// text.
+/// Whether `character` can be part of a name in a path or an identifier: a letter, a
+/// digit, or what joins their parts and the folders of a path.
+fn is_name_character(character: char) -> bool {
+    character.is_alphanumeric() || matches!(character, '-' | '_' | '.' | '/' | '~')
+}
+
+/// A run of name characters as [`PRIVATE_NAMES`] lists it: in lowercase, and without the
+/// `-` and `_` that join words, so that `a-b`, `a_b` and `AB` are one name.
+fn folded_name(run: &str) -> String {
+    run.chars()
+        .filter(|character| !matches!(character, '-' | '_'))
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Fails if a file has a banned word, a private name or a banned phrase in its text or in
+/// its path.
 ///
 /// # Errors
 ///
 /// Fails on what it finds, and if git cannot list the files or one cannot be read.
 pub(crate) fn run(root: &Path) -> Result<()> {
     let words = Words::parse(&BANNED)?;
-    let Found { files, hits } = find(root, &words, &BANNED_PHRASES)?;
+    let names = Words::parse(&PRIVATE_NAMES)?;
+    let Found { files, hits } = find(root, &words, &names, &BANNED_PHRASES)?;
     if hits.is_empty() {
         steps::say(&format!(
             "    no banned word or phrase in the {files} files, nor in their paths"
@@ -243,11 +313,11 @@ struct Found {
     hits: Vec<String>,
 }
 
-/// Reads every file git tracks or would track under `root`, and its path, for `words`
-/// and `phrases`.
-fn find(root: &Path, words: &Words, phrases: &[&str]) -> Result<Found> {
+/// Reads every file git tracks or would track under `root`, and its path, for `words`,
+/// `private` names and `phrases`.
+fn find(root: &Path, words: &Words, private: &Words, phrases: &[&str]) -> Result<Found> {
     let files = names::tracked_files(root)?;
-    let mut reading = Reading::new(words);
+    let mut reading = Reading::new(words, private);
     let mut hits = Vec::new();
     for file in &files {
         let text =
@@ -278,26 +348,38 @@ fn finds_phrase(line: &str, phrases: &[&str]) -> bool {
     phrases.iter().any(|phrase| lower.contains(phrase))
 }
 
-/// The marks a line of a comment begins with, the longest first where one begins
-/// another: Rust's doc and plain comments, a block comment's middle, the comments of
-/// shells, YAML, TOML and Markdown's headings, and SQL's.
-const COMMENT_MARKS: [&str; 6] = ["//!", "///", "//", "*", "#", "--"];
+/// The marks a line of a comment or a quotation begins with, the longest first where
+/// one begins another: Rust's doc and plain comments, a block comment's middle, the
+/// comments of shells, YAML, TOML and Markdown's headings, SQL's, Markdown's quotations,
+/// and the comments of Lisp, INI files and TeX.
+const COMMENT_MARKS: [&str; 9] = ["//!", "///", "//", "*", "#", "--", ">", ";", "%"];
 
-/// What a line says once the mark of a comment it begins with, and the space around it,
-/// are taken away.
-fn said(line: &str) -> &str {
-    let line = line.trim();
-    COMMENT_MARKS
+/// How many lines a phrase is looked for across: one that line breaks cut into this
+/// many pieces, or fewer, is found. Never across a line that says nothing.
+const LINES_JOINED: usize = 3;
+
+/// What a line says: without the marks it begins with, as many as it has (`> * a`),
+/// without the `\\` that carries it on to the next, and with every run of blanks one space.
+fn said(line: &str) -> String {
+    let mut rest = line.trim_start();
+    while let Some(after) = COMMENT_MARKS
         .iter()
-        .find_map(|mark| line.strip_prefix(mark))
-        .unwrap_or(line)
-        .trim()
+        .find_map(|mark| rest.strip_prefix(mark))
+    {
+        rest = after.trim_start();
+    }
+    let rest = rest.trim_end();
+    let rest = rest.strip_suffix('\\').unwrap_or(rest);
+    rest.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Two lines as one sentence, as a phrase cut by a line break reads: what each says
-/// ([`said`]) with one space between.
-fn joined(first: &str, second: &str) -> String {
-    format!("{} {}", said(first), said(second))
+/// Lines as one sentence, as a phrase cut by line breaks reads: what each says ([`said`])
+/// with one space between. `None` if one of them says nothing, which ends a sentence.
+fn joined(saids: &[String]) -> Option<String> {
+    if saids.iter().any(String::is_empty) {
+        return None;
+    }
+    Some(saids.join(" "))
 }
 
 /// Whether `line` holds a token of `tokens` in any case with no lowercase letter right
@@ -317,7 +399,7 @@ fn finds_token(line: &str, tokens: &[&str]) -> bool {
 }
 
 /// The hits of one file: `path: in its name`, then `path:line` for each line. A phrase
-/// that a line break cuts in two is a hit of the line it begins on.
+/// that line breaks cut apart is a hit of the line it begins on.
 fn check_file(file: &str, text: &str, reading: &mut Reading<'_>, phrases: &[&str]) -> Vec<String> {
     let mut hits = Vec::new();
     let (active_phrases, active_tokens) = if is_phrase_exempt(file) {
@@ -325,17 +407,41 @@ fn check_file(file: &str, text: &str, reading: &mut Reading<'_>, phrases: &[&str
     } else {
         (phrases, &RETIRED_TOKENS[..])
     };
-    if reading.finds_in(file) || finds_token(file, active_tokens) {
+    if reading.finds_in(file)
+        || reading.finds_name_in(file)
+        || finds_token(file, active_tokens)
+        || finds_phrase(file, active_phrases)
+    {
         hits.push(format!("{file}: in its name"));
     }
     let lines: Vec<&str> = text.lines().collect();
+    let saids: Vec<String> = if active_phrases.is_empty() {
+        Vec::new()
+    } else {
+        lines.iter().map(|line| said(line)).collect()
+    };
+    // What the `count` lines from `start` say together, in lowercase.
+    let sentence = |start: usize, count: usize| {
+        saids
+            .get(start..start + count)
+            .and_then(joined)
+            .map(|sentence| sentence.to_lowercase())
+            .unwrap_or_default()
+    };
     for (index, line) in lines.iter().enumerate() {
-        let cut_in_two = lines.get(index + 1).is_some_and(|next| {
-            finds_phrase(&joined(line, next), active_phrases) && !finds_phrase(next, active_phrases)
-        });
+        // A phrase that the lines from here say, and the same number of lines but this
+        // one do not, begins here.
+        let begins_here = !saids.is_empty()
+            && (1..=LINES_JOINED).any(|count| {
+                let (here, from_next) = (sentence(index, count), sentence(index + 1, count - 1));
+                active_phrases
+                    .iter()
+                    .any(|phrase| here.contains(phrase) && !from_next.contains(phrase))
+            });
         if reading.finds_in(line)
+            || reading.finds_name_in(line)
             || finds_phrase(line, active_phrases)
-            || cut_in_two
+            || begins_here
             || finds_token(line, active_tokens)
         {
             hits.push(format!("{file}:{}", index + 1));
@@ -378,14 +484,24 @@ mod tests {
 
     /// The list that bans the given words, written as [`BANNED`] is.
     fn banning(banned: &[&str]) -> Words {
-        let listed: Vec<(usize, String)> = banned
-            .iter()
-            .map(|word| {
+        listing(banned.iter().map(|word| (*word).to_owned()))
+    }
+
+    /// The list of the given made-up private names, folded and written as
+    /// [`PRIVATE_NAMES`] is.
+    fn naming(private: &[&str]) -> Words {
+        listing(private.iter().map(|name| folded_name(name)))
+    }
+
+    /// A list of `entries` written as [`BANNED`] is: each one's characters, and digest.
+    fn listing(entries: impl Iterator<Item = String>) -> Words {
+        let listed: Vec<(usize, String)> = entries
+            .map(|entry| {
                 let mut hexadecimal = String::new();
-                for byte in Sha256::digest(word.as_bytes()) {
+                for byte in Sha256::digest(entry.as_bytes()) {
                     write!(hexadecimal, "{byte:02x}").expect("a string takes what is written");
                 }
-                (word.chars().count(), hexadecimal)
+                (entry.chars().count(), hexadecimal)
             })
             .collect();
         let listed: Vec<(usize, &str)> = listed
@@ -398,7 +514,8 @@ mod tests {
     #[test]
     fn a_word_is_found_in_any_case_and_inside_a_longer_word() {
         let words = banning(&["gadget", "가나다라"]);
-        let mut reading = Reading::new(&words);
+        let nothing = naming(&[]);
+        let mut reading = Reading::new(&words, &nothing);
         for text in [
             "see the gadget docs",
             "see the GADGET docs",
@@ -416,7 +533,8 @@ mod tests {
     #[test]
     fn a_plain_word_and_a_word_cut_apart_are_not_found() {
         let words = banning(&["gadget", "가나다라"]);
-        let mut reading = Reading::new(&words);
+        let nothing = naming(&[]);
+        let mut reading = Reading::new(&words, &nothing);
         for text in [
             "",
             "the original file name",
@@ -433,7 +551,8 @@ mod tests {
     #[test]
     fn a_file_is_reported_by_its_name_and_by_its_lines() {
         let words = banning(&["gadget"]);
-        let mut reading = Reading::new(&words);
+        let nothing = naming(&[]);
+        let mut reading = Reading::new(&words, &nothing);
         assert_eq!(
             check_file(
                 "docs/GADGET-notes.md",
@@ -468,7 +587,7 @@ mod tests {
         git(&root, &["add", "gone-gadget.md"]);
         std::fs::remove_file(root.join("gone-gadget.md")).expect("the file is removed");
 
-        let found = find(&root, &words, &[]).expect("the files are read");
+        let found = find(&root, &words, &naming(&[]), &[]).expect("the files are read");
 
         assert_eq!(found.files, 6);
         assert_eq!(
@@ -500,19 +619,62 @@ mod tests {
     }
 
     #[test]
-    fn workspace_banned_words_catch_retired_sibling_repo_names() {
-        let words = Words::parse(&BANNED).expect("the list is read");
-        let mut reading = Reading::new(&words);
+    fn the_private_names_of_this_workspace_are_read() {
+        let names = Words::parse(&PRIVATE_NAMES).expect("the list is read");
+        assert_eq!(
+            names.by_letters.values().map(Vec::len).sum::<usize>(),
+            PRIVATE_NAMES.len()
+        );
+    }
+
+    #[test]
+    fn a_private_name_is_found_however_its_parts_are_joined() {
+        let words = banning(&[]);
+        let names = naming(&[concat!("secret-", "repo"), concat!("/hidden", "-desk/")]);
+        let mut reading = Reading::new(&words, &names);
         for text in [
-            concat!("fvoci/ground", "zero"),
-            concat!("Ground", "Zero"),
-            concat!("haf", "gufa-staging"),
-            concat!("HAF", "GUFA"),
-            concat!("prop", "ColorDefault"),
-            concat!("prop", "color"),
+            concat!("see secret-", "repo for that"),
+            concat!("SECRET_", "REPO"),
+            concat!("Secret", "Repo"),
+            concat!("git clone https://example.com/org/secret-", "repo.git"),
+            concat!("~/hidden-", "desk/secret-", "repo-carry/notes"),
+            concat!("cd $HOME/hidden", "desk/other"),
+            concat!("/home/someone/hidden_", "desk/a"),
         ] {
-            assert!(reading.finds_in(text), "{text:?} must be caught");
+            assert!(reading.finds_name_in(text), "{text:?} holds a private name");
         }
+        for text in [
+            "a secret, the repo",
+            "secret repo",
+            "secrets",
+            "repository",
+            concat!("hidden", "desk"),
+            concat!("/hidden", "desks/"),
+        ] {
+            assert!(!reading.finds_name_in(text), "{text:?} holds no private name");
+        }
+        assert_eq!(
+            check_file(
+                concat!("docs/secret-", "repo/notes.md"),
+                concat!("one\nnotes of Secret", "Repo\n"),
+                &mut reading,
+                &[]
+            ),
+            [
+                concat!("docs/secret-", "repo/notes.md: in its name"),
+                concat!("docs/secret-", "repo/notes.md:2"),
+            ]
+        );
+        assert_eq!(
+            check_file(
+                "vendor/rhwp-studio/upstream/a.md",
+                concat!("secret-", "repo\n"),
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            ["vendor/rhwp-studio/upstream/a.md:1"],
+            "a private name is refused in vendored sources too"
+        );
     }
 
     #[test]
@@ -540,11 +702,9 @@ mod tests {
             concat!("what the ", "original app showed"),
             concat!("as in the ", "original tree"),
             concat!("the cases of the ", "original `a.test.ts`"),
-            concat!("~/", "atlas/musical-", "happiness-carry/notes"),
-            concat!("fvoci/musical-", "happiness"),
-            concat!("the fvoci-", "coordination repository"),
-            concat!("cd ~/", "atlas/other"),
-            concat!("~/.claude/", "plans/web.md"),
+            // Refused although a copy could say it of its source: it says `the source`.
+            concat!("with the same members as the ", "original"),
+            concat!("a copy of the ", "original `Block`"),
         ] {
             assert!(
                 finds_phrase(text, &BANNED_PHRASES),
@@ -563,6 +723,8 @@ mod tests {
             "원본 이미지",
             "원본 파일",
             "원본 데이터",
+            "the same members as the source",
+            "a copy of the source `Block`",
         ] {
             assert!(
                 !finds_phrase(text, &BANNED_PHRASES),
@@ -574,7 +736,8 @@ mod tests {
     #[test]
     fn a_phrase_cut_by_a_line_break_is_found_on_the_line_it_begins_on() {
         let words = banning(&[]);
-        let mut reading = Reading::new(&words);
+        let nothing = naming(&[]);
+        let mut reading = Reading::new(&words, &nothing);
         for (file, text) in [
             (
                 "crates/a.rs",
@@ -601,6 +764,17 @@ mod tests {
             ),
             ("a.sql", concat!("-- the formats of\n-- ", "the original\n")),
             ("a.md", concat!("what the\n", "original app showed\n")),
+            // Quotations, stacked marks and the comments of other languages.
+            ("a.md", concat!("> kept as the\n> ", "original did\n")),
+            ("a.md", concat!("> * kept as the\n> * ", "original did\n")),
+            ("a.rs", concat!("// * kept as\n// * the ", "original kept it\n")),
+            ("a.el", concat!(";; kept as the\n;; ", "original did\n")),
+            ("a.tex", concat!("% kept as the\n% ", "original did\n")),
+            // Blanks of any kind and number, and a line carried on to the next.
+            ("a.rs", concat!("// kept as  the\t", "original did\n")),
+            ("a.sh", concat!("echo \"kept as the \\\n  ", "original did\"\n")),
+            // Three lines.
+            ("a.rs", concat!("// kept as\n// the\n// ", "original kept it\n")),
         ] {
             let found = check_file(file, text, &mut reading, &BANNED_PHRASES);
             assert_eq!(found, [format!("{file}:1")], "{text:?}");
@@ -625,18 +799,71 @@ mod tests {
             ),
             Vec::<String>::new()
         );
+        // Two phrases that overlap begin on their own lines.
+        assert_eq!(
+            check_file(
+                "crates/a.rs",
+                concat!("// kept as\n// the\n// ", "original did\n"),
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            ["crates/a.rs:1", "crates/a.rs:2"]
+        );
+        // Nor across a line that says nothing, which ends what was said.
+        assert_eq!(
+            check_file(
+                "crates/a.rs",
+                concat!("// kept as\n//\n// the ", "original kept it\n"),
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            Vec::<String>::new()
+        );
+        // Four lines are more than are joined.
+        assert_eq!(
+            check_file(
+                "crates/a.rs",
+                concat!("// formats\n// of\n// the\n// ", "original\n"),
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            Vec::<String>::new()
+        );
         assert_eq!(said("   /// text  "), "text");
         assert_eq!(said(" * text"), "text");
         assert_eq!(said("//! text"), "text");
         assert_eq!(said("-- text"), "text");
+        assert_eq!(said("> > * text"), "text");
+        assert_eq!(said("// a \t  b \\"), "a b");
         assert_eq!(said("plain text"), "plain text");
-        assert_eq!(joined("// one", "  # two "), "one two");
+        assert_eq!(
+            joined(&[said("// one"), said("  # two ")]).as_deref(),
+            Some("one two")
+        );
+        assert_eq!(joined(&[said("// one"), said("//")]), None);
+    }
+
+    #[test]
+    fn a_phrase_in_a_path_is_found() {
+        let words = banning(&[]);
+        let nothing = naming(&[]);
+        let mut reading = Reading::new(&words, &nothing);
+        assert_eq!(
+            check_file(
+                concat!("crates/http.serve", "content.rs"),
+                "clean\n",
+                &mut reading,
+                &BANNED_PHRASES
+            ),
+            [concat!("crates/http.serve", "content.rs: in its name")]
+        );
     }
 
     #[test]
     fn vendored_sources_skip_phrases_but_still_enforce_banned_words() {
         let words = banning(&["gadget"]);
-        let mut reading = Reading::new(&words);
+        let nothing = naming(&[]);
+        let mut reading = Reading::new(&words, &nothing);
         let phrase_line = concat!("-- the ", "original's board block\n");
         let word_line = "-- uses gadget here\n";
 
@@ -686,7 +913,8 @@ mod tests {
     #[test]
     fn retired_tokens_are_found_in_any_case_inside_names_and_in_paths() {
         let words = banning(&[]);
-        let mut reading = Reading::new(&words);
+        let nothing = naming(&[]);
+        let mut reading = Reading::new(&words, &nothing);
         for hit_line in [
             concat!("pub ", "create", "_at: i64,"),
             concat!("SELECT b.", "update", "_at FROM blocks b"),
