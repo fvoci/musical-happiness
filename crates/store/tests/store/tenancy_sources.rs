@@ -21,8 +21,9 @@ pub(crate) fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>
 /// transaction of one organization makes of all, each named for what it asks:
 /// `directory/every_organization.rs`), the records of the server's
 /// operator in each organization of a person, the deleting of a person's account (whose
-/// memberships are of several organizations), the changes of the data after a
-/// migration, and the one function of the server that its housekeeping works through;
+/// memberships are of several organizations), the re-anchoring of a database made
+/// before the baseline (`schema.rs`, which replaces its record of the migrations), and
+/// the one function of the server that its housekeeping works through;
 /// the revisions of the cached checks, which name it to tell what its writes move;
 /// what a person was told (`notifications.rs`), which is theirs in whichever
 /// organization it was made; and a person's time entries (`time_entries.rs`), where one
@@ -34,7 +35,7 @@ pub(crate) fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 14] = [
+    const ALLOWED: [&str; 15] = [
         "store/src/lib.rs",
         "store/src/db.rs",
         "store/src/api_tokens.rs",
@@ -47,6 +48,7 @@ fn the_systems_reach_is_asked_for_in_few_places() {
         "store/src/directory/sign_in.rs",
         "store/src/operator_records.rs",
         "store/src/signups.rs",
+        "store/src/schema.rs",
         "store/src/visibility.rs",
         "server/src/app/housekeeping.rs",
     ];

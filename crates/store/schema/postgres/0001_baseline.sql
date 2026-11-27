@@ -5,9 +5,11 @@
 -- indexes, the foreign keys, the triggers, and the wall.
 --
 -- Identifiers are version 7 UUIDs in their canonical text, 36 characters; times are
--- milliseconds since the Unix epoch. The two files of the baseline hold the same
--- tables, columns, keys and indexes; they differ in the column types,
--- in PostgreSQL's wall and in SQLite's triggers that hold one organization.
+-- milliseconds since the Unix epoch. The two files of the baseline make the same
+-- tables and indexes, and each table has the same columns, but that PostgreSQL's tables
+-- of an organization's rows also have the organization (`org_id`), which its keys and
+-- two more indexes use. They differ besides in the column types, in PostgreSQL's wall
+-- and in SQLite's triggers that hold one organization.
 --
 -- This is the schema the migrations 1 to 79 of the servers before it built, with their
 -- record replaced (`crate::schema::inspect`). A migration that has been released is

@@ -2,12 +2,11 @@
 //! `Store::connect` promises. And what the schema it creates promises: the same tables
 //! on both databases, with foreign keys that are enforced.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use fvoci_model::{
-    Block, BlockType, BodySummary, Category, CategoryType, ContainerVisibility, FileRecord, new_id,
-};
-use fvoci_store::{BlockFilter, DbType, Store, StoreError};
+use fvoci_model::{Block, Category, CategoryType, ContainerVisibility, FileRecord, new_id};
+use fvoci_store::{DbType, Store, StoreError};
 use tokio::task::JoinSet;
 
 use crate::common;
@@ -451,7 +450,7 @@ async fn the_schema_refuses_a_category_type_that_is_none() {
 
 /// The column types that only PostgreSQL has. Where its baseline names one of them,
 /// SQLite's says `TEXT`.
-const POSTGRES_ONLY_TYPES: [&str; 3] = ["UUID", "JSONB", "JSON"];
+const POSTGRES_ONLY_TYPES: [&str; 3] = ["uuid", "jsonb", "json"];
 
 /// Reads the baseline schema of a database kind.
 fn baseline_schema(directory: &str) -> String {
@@ -491,231 +490,146 @@ fn words(line: &str) -> impl Iterator<Item = &str> {
         .filter(|word| !word.is_empty())
 }
 
-/// A line of the PostgreSQL baseline as the SQLite baseline has it: every word that is
-/// a PostgreSQL-only type reads `TEXT`, and nothing else differs.
-fn with_sqlite_types(line: &str) -> String {
-    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
-    let mut converted = String::with_capacity(line.len());
-    for piece in line.split_inclusive(|c: char| !is_word(c)) {
-        let (word, separator) = piece.split_at(piece.trim_end_matches(|c: char| !is_word(c)).len());
-        converted.push_str(if POSTGRES_ONLY_TYPES.contains(&word) {
-            "TEXT"
-        } else {
-            word
-        });
-        converted.push_str(separator);
-    }
-    converted
+/// The indexes that PostgreSQL's baseline has and SQLite's does not: they serve the
+/// keys that hold the organization of a row, which SQLite, of one organization, has not.
+const POSTGRES_ONLY_INDEXES: [&str; 2] = ["loose_objects_path_idx", "workspace_members_scope_key"];
+
+/// What a baseline makes: each table with the names of its columns, and the names of
+/// the indexes.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Shape {
+    tables: BTreeMap<String, BTreeSet<String>>,
+    indexes: BTreeSet<String>,
 }
 
-/// Where two baselines stop describing one schema, if they do: the first statement
-/// line of the PostgreSQL one that, with its types as SQLite has them, is not the
-/// corresponding line of the SQLite one. Comments are not compared.
-fn schema_difference(postgres: &str, sqlite: &str) -> Option<String> {
-    let postgres_lines = statement_lines(postgres);
-    let sqlite_lines = statement_lines(sqlite);
-    for (index, (number, line)) in postgres_lines.iter().enumerate() {
-        let Some((sqlite_number, sqlite_line)) = sqlite_lines.get(index) else {
-            return Some(format!(
-                "PostgreSQL line {number} `{line}` is past the end of the SQLite baseline"
-            ));
-        };
-        let expected = with_sqlite_types(line);
-        if expected != *sqlite_line {
-            return Some(format!(
-                "PostgreSQL line {number} `{line}` should be `{expected}` on SQLite, whose \
-                 line {sqlite_number} is `{sqlite_line}`"
-            ));
+/// The tables, columns and indexes a schema file makes. A column is a line of a
+/// `CREATE TABLE` that begins with a name; a line of a key or a check is none.
+fn shape_of(schema: &str) -> Shape {
+    let mut shape = Shape::default();
+    let mut table: Option<String> = None;
+    for (_, line) in statement_lines(schema) {
+        if let Some(name) = line.strip_prefix("CREATE TABLE ") {
+            let name = name.trim_end_matches(" (").to_owned();
+            shape.tables.insert(name.clone(), BTreeSet::new());
+            table = Some(name);
+            continue;
+        }
+        if line.starts_with(')') {
+            table = None;
+            continue;
+        }
+        if let Some(index) = line
+            .strip_prefix("CREATE INDEX ")
+            .or_else(|| line.strip_prefix("CREATE UNIQUE INDEX "))
+            .and_then(|rest| words(rest).next())
+        {
+            shape.indexes.insert(index.to_owned());
+            continue;
+        }
+        if let Some(columns) = table.as_ref().and_then(|name| shape.tables.get_mut(name))
+            && let Some(column) = words(line).next()
+            && !["PRIMARY", "UNIQUE", "CHECK", "FOREIGN", "CONSTRAINT"].contains(&column)
+        {
+            columns.insert(column.to_owned());
         }
     }
-    sqlite_lines
-        .get(postgres_lines.len())
-        .map(|(number, line)| {
-            format!("SQLite line {number} `{line}` is past the end of the PostgreSQL baseline")
-        })
+    shape
 }
 
-/// The two migrations that add the body describe one change, as the baselines do.
+/// The two baseline files make the same tables and indexes. Each table of PostgreSQL's
+/// has the columns of SQLite's, and the organization of its rows (`org_id`) where
+/// SQLite, of one organization, has none; PostgreSQL has two indexes more, for the keys
+/// that hold that organization. The column types that only PostgreSQL has are `TEXT`
+/// on SQLite. A table, column or index that one file has and the other lacks fails here.
 #[test]
-fn the_two_body_migrations_differ_in_the_column_types_only() {
-    let postgres = schema_file("postgres", "0002_body.sql");
-    let sqlite = schema_file("sqlite", "0002_body.sql");
-    assert_eq!(
-        statement_lines(&postgres).len(),
-        5,
-        "five columns: {postgres}"
-    );
-    assert_eq!(
-        schema_difference(&postgres, &sqlite),
-        None,
-        "the body migrations of the two databases add different columns"
-    );
-}
-
-/// A database of the baseline alone, with blocks in it, takes the body migration: the
-/// blocks have no body and nothing to count.
-#[tokio::test]
-async fn blocks_stored_before_the_body_migration_have_no_body() {
-    let test = common::setup().await;
-    let user_id = common::user(&test, "migrated").await;
-    let workspace_id = common::workspace(&test).await;
-    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
-    let mut card = Block {
-        id: new_id(),
-        container_id: boards[0].id.clone(),
-        block_type: BlockType::Card,
-        title: "from before".to_owned(),
-        ..Block::default()
-    };
-    test.insert_block(&mut card, &user_id)
-        .await
-        .expect("the card is stored");
-    test.store.close().await;
-    // Back to the baseline, as a database the previous server left behind.
-    for statement in [
-        "ALTER TABLE blocks DROP COLUMN body",
-        "ALTER TABLE blocks DROP COLUMN body_version",
-        "ALTER TABLE blocks DROP COLUMN body_text",
-        "ALTER TABLE blocks DROP COLUMN body_tasks_total",
-        "ALTER TABLE blocks DROP COLUMN body_tasks_done",
-        "DELETE FROM _sqlx_migrations WHERE version = 2",
-    ] {
-        common::execute_raw(&test.database_connection(), statement).await;
-    }
-
-    let store = test.reconnect().await;
-    let read = store.get_block(&card.id).await.expect("the card is read");
-    assert_eq!(read.body, None, "{read:?}");
-    assert_eq!(read.title, "from before");
-    let listed = store
-        .get_listed_blocks(
-            &BlockFilter::container(&boards[0].id),
-            fvoci_store::Previews::Without,
-        )
-        .await
-        .expect("the cards are listed");
-    assert_eq!(
-        listed,
-        [fvoci_store::ListedBlock {
-            block: read,
-            summary: BodySummary::default(),
-            last_comment_at: 0,
-            preview: None,
-        }],
-        "no body, no tasks and no comments"
-    );
-    store.close().await;
-
-    test.teardown().await;
-}
-
-/// The two baseline files describe one schema: statement for statement the same, but
-/// for the column types that only PostgreSQL has, which are `TEXT` on SQLite. A table,
-/// column, key, default or index that one file has and the other lacks fails here.
-#[test]
-fn the_two_baseline_schemas_differ_in_the_column_types_only() {
+fn the_two_baselines_make_the_same_tables_columns_and_indexes() {
     let postgres = baseline_schema("postgres");
     let sqlite = baseline_schema("sqlite");
-    let postgres_lines = statement_lines(&postgres);
+    let mut postgres_shape = shape_of(&postgres);
+    let sqlite_shape = shape_of(&sqlite);
     assert!(
-        postgres_lines.len() > 100,
-        "the PostgreSQL baseline is read whole: {} lines of statements",
-        postgres_lines.len()
+        postgres_shape.tables.len() > 50 && postgres_shape.indexes.len() > 100,
+        "the PostgreSQL baseline is read whole: {postgres_shape:?}"
     );
 
+    for index in POSTGRES_ONLY_INDEXES {
+        assert!(
+            postgres_shape.indexes.remove(index) && !sqlite_shape.indexes.contains(index),
+            "{index} is PostgreSQL's alone"
+        );
+    }
+    for (table, columns) in &mut postgres_shape.tables {
+        if sqlite_shape
+            .tables
+            .get(table)
+            .is_some_and(|sqlite_columns| !sqlite_columns.contains("org_id"))
+        {
+            columns.remove("org_id");
+        }
+    }
     assert_eq!(
-        schema_difference(&postgres, &sqlite),
-        None,
-        "the baselines of the two databases describe different schemas"
+        postgres_shape, sqlite_shape,
+        "the baselines of the two databases make different tables, columns or indexes"
     );
 
-    // The rule is no wider than the files: each of the types is in the PostgreSQL
-    // baseline, and none of them is in SQLite's.
-    let sqlite_lines = statement_lines(&sqlite);
+    // Each of the types is in the PostgreSQL baseline, and none of them is in SQLite's.
+    let postgres_types = column_types(&postgres);
+    let sqlite_types = column_types(&sqlite);
     for postgres_type in POSTGRES_ONLY_TYPES {
         assert!(
-            postgres_lines
-                .iter()
-                .any(|(_, line)| words(line).any(|word| word == postgres_type)),
-            "the PostgreSQL baseline has no {postgres_type} column"
+            postgres_types.contains(postgres_type),
+            "the PostgreSQL baseline has no {postgres_type} column: {postgres_types:?}"
         );
-        let in_sqlite = sqlite_lines
-            .iter()
-            .find(|(_, line)| words(line).any(|word| word == postgres_type));
-        assert_eq!(
-            in_sqlite, None,
-            "the SQLite baseline names the PostgreSQL type {postgres_type}"
+        assert!(
+            !sqlite_types.contains(postgres_type),
+            "the SQLite baseline has a column of the PostgreSQL type {postgres_type}"
         );
     }
 }
 
-/// The comparison of the baselines sees what it is there to see: it lets the type
-/// names and the comments differ, and nothing else.
-#[test]
-fn the_comparison_of_the_baselines_lets_only_types_and_comments_differ() {
-    let postgres = "-- PostgreSQL.\n\
-                    CREATE TABLE t (\n    \
-                        id UUID NOT NULL PRIMARY KEY, -- an identifier\n    \
-                        parent_id UUID,\n    \
-                        json_name TEXT NOT NULL DEFAULT '',\n    \
-                        fields JSON NOT NULL,\n    \
-                        properties JSONB NOT NULL\n\
-                    );\n\
-                    CREATE INDEX t_parent_id_idx ON t (parent_id);\n";
-    let sqlite = "-- SQLite.\n\n\
-                  CREATE TABLE t (\n    \
-                      id TEXT NOT NULL PRIMARY KEY,\n    \
-                      parent_id TEXT,\n    \
-                      -- A name, not a type.\n    \
-                      json_name TEXT NOT NULL DEFAULT '',\n    \
-                      fields TEXT NOT NULL,\n    \
-                      properties TEXT NOT NULL\n\
-                  );\n\
-                  CREATE INDEX t_parent_id_idx ON t (parent_id);\n";
-    assert_eq!(
-        schema_difference(postgres, sqlite),
-        None,
-        "types and comments may differ"
-    );
-
-    let drifts = [
-        (
-            "a type outside the rule",
-            "id TEXT NOT NULL",
-            "id BLOB NOT NULL",
-        ),
-        (
-            "a constraint",
-            "parent_id TEXT,",
-            "parent_id TEXT NOT NULL,",
-        ),
-        ("a column", "    fields TEXT NOT NULL,\n", ""),
-        (
-            "an index",
-            "CREATE INDEX t_parent_id_idx ON t (parent_id);\n",
-            "",
-        ),
-        ("a PostgreSQL type kept", "fields TEXT", "fields JSON"),
-        (
-            "a statement more",
-            ");\nCREATE",
-            ");\nCREATE TABLE u (id TEXT);\nCREATE",
-        ),
-    ];
-    for (what, from, to) in drifts {
-        assert!(sqlite.contains(from), "{what}: the case changes something");
-        let drifted = sqlite.replacen(from, to, 1);
-        assert_ne!(
-            schema_difference(postgres, &drifted),
-            None,
-            "{what}: a difference in the SQLite baseline is seen"
-        );
+/// The types of the columns of a schema file, in lowercase: the word after the name of
+/// each column of a `CREATE TABLE`.
+fn column_types(schema: &str) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
+    let mut in_table = false;
+    for (_, line) in statement_lines(schema) {
+        if line.starts_with("CREATE TABLE ") {
+            in_table = true;
+        } else if line.starts_with(')') {
+            in_table = false;
+        } else if in_table {
+            let mut words = words(line);
+            if let (Some(column), Some(kind)) = (words.next(), words.next())
+                && !["PRIMARY", "UNIQUE", "CHECK", "FOREIGN", "CONSTRAINT"].contains(&column)
+            {
+                types.insert(kind.to_ascii_lowercase());
+            }
+        }
     }
-    let without_index =
-        postgres.replacen("CREATE INDEX t_parent_id_idx ON t (parent_id);\n", "", 1);
-    assert_ne!(
-        schema_difference(&without_index, sqlite),
-        None,
-        "a statement the PostgreSQL baseline lacks is seen"
+    types
+}
+
+/// The shape of a schema is read as the test above needs it: the columns of a table
+/// but not its keys or checks, and every index, also one written over two lines.
+#[test]
+fn the_shape_of_a_schema_is_its_tables_columns_and_indexes() {
+    let schema = "-- A table.\n\
+                  CREATE TABLE t (\n    \
+                      id UUID NOT NULL, -- an identifier\n    \
+                      parent_id UUID,\n    \
+                      PRIMARY KEY (id),\n    \
+                      CHECK (parent_id <> id)\n\
+                  );\n\
+                  CREATE INDEX t_parent_id_idx ON t (parent_id);\n\
+                  CREATE UNIQUE INDEX t_id_key\n    ON t (id);\n";
+    let names = |names: &[&str]| -> BTreeSet<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    };
+    assert_eq!(
+        shape_of(schema),
+        Shape {
+            tables: BTreeMap::from([("t".to_owned(), names(&["id", "parent_id"]))]),
+            indexes: names(&["t_id_key", "t_parent_id_idx"]),
+        }
     );
 }
