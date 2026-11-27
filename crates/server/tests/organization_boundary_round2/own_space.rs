@@ -1055,8 +1055,12 @@ async fn write_in_the_diary(in_space: &App, space: &Space) {
         weather: format!("{SECRET} posted"),
         place: String::new(),
     };
+    let diary = in_space
+        .reach(&space.owner_id, &space.diary.id)
+        .await
+        .expect("the diary of the space");
     in_space
-        .create_diary_entry(&space.diary.id, day, written, &space.owner_id)
+        .create_diary_entry(&diary, day, written)
         .await
         .expect("an entry of the space");
     let mood = fvoci_model::DiaryEntryPatch {
@@ -1076,8 +1080,12 @@ async fn write_in_the_diary(in_space: &App, space: &Space) {
         title: format!("{SECRET} webhook unit"),
         ..fvoci_model::NewUnit::default()
     };
+    let course = in_space
+        .reach(&space.owner_id, &space.course.id)
+        .await
+        .expect("the course of the space");
     let created = in_space
-        .create_unit(&space.course.id, &new_unit, &space.owner_id)
+        .create_unit(&course, &new_unit)
         .await
         .expect("a unit of the space");
     let unit_patch = fvoci_model::BlockPatch {

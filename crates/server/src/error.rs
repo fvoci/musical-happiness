@@ -899,8 +899,10 @@ impl From<SubscriptionError> for AppError {
 
 mod account_errors;
 mod model_errors;
+mod or_missing;
 mod reason;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use or_missing::OrMissing;
 pub use reason::Reason;
