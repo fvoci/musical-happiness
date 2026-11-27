@@ -21,6 +21,7 @@ use crate::container_team_access;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::directory::{IN_USE, Making, SessionTaken};
 use crate::error::StoreError;
+use crate::snapshot::Snapshot;
 use crate::users;
 
 const TIME_ENTRY_COLUMNS: &str = "id, org_id, workspace_id, container_id, block_id, target_kind, \
@@ -64,12 +65,13 @@ pub struct TimeReader<'a> {
 
 impl TimeReader<'_> {
     /// Fail-closed allow-list of active organizations `(org_id, is_present_member)` holding
-    /// at least one time entry of this user that `self.making` opens. Must be called inside
-    /// a consistent snapshot transaction ([`Store::read_snapshot`]).
+    /// at least one time entry of this user that `self.making` opens, as `snapshot` reads
+    /// them: what else it reads of the entries agrees with the list.
     async fn open_organizations(
         self,
-        scope: &mut Scope<'_>,
+        snapshot: &mut Snapshot<'_>,
     ) -> Result<Vec<(String, bool)>, StoreError> {
+        let scope = snapshot.scope();
         let mut sql = scope.sql(
             "SELECT DISTINCT te.org_id, o.kind, o.deleted_at, p.id, \
              CASE WHEN u.password_hash = '' THEN '' ELSE 'set' END, \
@@ -321,8 +323,9 @@ impl Store {
             return Ok(empty_list());
         }
         self.system()
-            .read_snapshot(async |scope| {
-                let open_all = reader.open_organizations(scope).await?;
+            .read_snapshot(async |snapshot| {
+                let open_all = reader.open_organizations(snapshot).await?;
+                let scope = snapshot.scope();
                 let targets_filtered = filter.block_id.is_some() || filter.container_id.is_some();
                 let mut open = Vec::with_capacity(open_all.len());
                 let mut former_orgs = std::collections::HashSet::new();

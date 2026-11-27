@@ -57,7 +57,8 @@ impl Store {
         card_id: &str,
         duplicate_as: DuplicateAs,
     ) -> Result<PreparedCardDuplicate, StoreError> {
-        self.read_snapshot(async |scope| {
+        self.read_snapshot(async |snapshot| {
+            let scope = snapshot.scope();
             let not_found = || {
                 StoreError::not_found(format_args!(
                     "card subtree BoardID={board_id} CardID={card_id}"

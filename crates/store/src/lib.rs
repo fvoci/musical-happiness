@@ -88,6 +88,7 @@ mod search_text;
 mod server_lock;
 mod sessions;
 mod signups;
+mod snapshot;
 #[cfg(any(test, feature = "test-util"))]
 mod sqlite_seed;
 mod subscriptions;
@@ -735,52 +736,6 @@ impl Store {
                 }
             }
         }
-    }
-
-    /// Runs a multi-statement read in a single consistent snapshot (`BEGIN DEFERRED` on
-    /// SQLite, `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY` on PostgreSQL) without
-    /// acquiring SQLite's writer lock.
-    async fn read_snapshot<T>(
-        &self,
-        operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
-    ) -> Result<T, StoreError> {
-        let watch = self.watch(Access::Read);
-        let kept = self.versions_kept();
-        let result = match &self.inner.pool {
-            Pool::Sqlite(pool) => match Watch::acquire(watch.as_ref(), pool).await {
-                Ok(mut conn) => match conn.begin_with("BEGIN DEFERRED").await {
-                    Ok(mut tx) => {
-                        let mut scope = Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
-                            .with_clock(&self.inner.clock);
-                        let res = operation(&mut scope).await;
-                        drop(tx);
-                        res
-                    }
-                    Err(error) => Err(error.into()),
-                },
-                Err(error) => Err(error.into()),
-            },
-            Pool::Postgres(pool) => match Watch::acquire(watch.as_ref(), pool).await {
-                Ok(mut conn) => match conn
-                    .begin_with(self.tenant.begin_read_snapshot_on_postgres())
-                    .await
-                {
-                    Ok(mut tx) => {
-                        let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
-                            .with_clock(&self.inner.clock);
-                        let res = operation(&mut scope).await;
-                        drop(tx);
-                        res
-                    }
-                    Err(error) => Err(error.into()),
-                },
-                Err(error) => Err(error.into()),
-            },
-        };
-        if let Some(watch) = watch {
-            watch.finish(Access::Read, &result);
-        }
-        result
     }
 
     /// Runs `operation` in a transaction, committing if it succeeds and rolling back if
