@@ -32,6 +32,7 @@ mod doomed;
 mod download;
 mod email_change;
 mod export;
+mod favorites;
 mod file_leases;
 mod file_name;
 mod file_versions;

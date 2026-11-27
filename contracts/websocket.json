@@ -148,6 +148,12 @@
         ]
       }
     },
+    "favoritesChanged": {
+      "members": {
+        "type": "string",
+        "workspaceId": "string"
+      }
+    },
     "categoryContainersReordered": {
       "members": {
         "type": "string",

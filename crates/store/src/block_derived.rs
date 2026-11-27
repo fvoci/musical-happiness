@@ -187,6 +187,7 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
     unit_progress::forget_gone_blocks(scope).await?;
     unit_reviews::forget_gone_blocks(scope).await?;
     forget_gone_card_due_notices(scope).await?;
+    crate::favorites::forget_gone_targets(scope).await?;
     file_refs::forget_gone_blocks(scope).await?;
     file_refs::mark(scope, None).await
 }

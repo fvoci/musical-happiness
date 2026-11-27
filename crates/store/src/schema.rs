@@ -71,7 +71,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 14] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 51] = [
+pub(crate) const ORG_TABLES: [&str; 52] = [
     "api_token_workspaces",
     "audit_log",
     "blocks",
@@ -95,6 +95,7 @@ pub(crate) const ORG_TABLES: [&str; 51] = [
     "deleted_containers",
     "diary_days",
     "exam_scores",
+    "favorites",
     "file_refs",
     "file_versions",
     "files",
@@ -423,7 +424,7 @@ mod tests {
 
     /// The baseline, and a migration after it as a later server has one.
     fn baseline_and_one_more() -> [Step; 2] {
-        let [baseline] = &STEPS;
+        let [baseline, ..] = &STEPS;
         [
             Step {
                 version: baseline.version,
@@ -533,9 +534,9 @@ mod tests {
         );
         assert_eq!(recorded_versions(&store).await, [1]);
         assert_eq!(
-            store.re_anchor_with(&STEPS).await.expect("read again"),
+            store.re_anchor_with(&STEPS[..1]).await.expect("read again"),
             SchemaCheck::Current,
-            "this server's: nothing is left"
+            "the baseline alone: nothing is left"
         );
         store.close().await;
     }

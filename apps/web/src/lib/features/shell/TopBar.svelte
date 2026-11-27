@@ -38,11 +38,18 @@
 
   import { shortcutKeys, shortcutLabel } from '$lib/keys.ts';
   import PresenceRoster from './PresenceRoster.svelte';
+  import FavoriteToggle from '$lib/components/favorite-toggle/FavoriteToggle.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { cardTrash, isOwnSpace, type Trash, type Workspace } from '$lib/state/index.ts';
+  import {
+    cardTrash,
+    isOwnSpace,
+    workspaceFavorites,
+    type Trash,
+    type Workspace,
+  } from '$lib/state/index.ts';
 
   import { Button } from '$lib/ui/button/index.js';
 
@@ -287,6 +294,9 @@
           </span>
         {/if}
       </h1>
+      {#if container.kind !== 'diary' && !container.isTemplate}
+        <FavoriteToggle stars={workspaceFavorites(workspace)} targetId={container.id} />
+      {/if}
     </div>
     {#if container.description || describe}
       {#key container.id}

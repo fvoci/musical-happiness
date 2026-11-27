@@ -56,6 +56,8 @@
     titleHas,
   } from './sidebar-logic.ts';
   import SidebarContainer from './SidebarContainer.svelte';
+  import type { FavoritePlaces } from './favorite-places.ts';
+  import SidebarFavorites from './SidebarFavorites.svelte';
   import SidebarFold from './SidebarFold.svelte';
 
   interface Props {
@@ -63,6 +65,8 @@
     /** The board or wiki on the page. */
     containerId: string | undefined;
     containerHref: (container: Container) => string;
+    /** Where the reader's stars lead (`SidebarFavorites`); none, no stars. */
+    favoritePlaces?: FavoritePlaces | undefined;
     /** What the reader typed into the search of the sidebar. */
     query: string;
     /** What the backend found for the query; those the list shows already are left out. */
@@ -88,6 +92,7 @@
     workspace,
     containerId,
     containerHref,
+    favoritePlaces,
     query,
     found,
     searching,
@@ -214,6 +219,15 @@
   {@attach sortable.attach}
 >
   <p id={instructionsId} class="sr-only">{m.shell_drag_instructions()}</p>
+
+  {#if favoritePlaces && !filtering}
+    <SidebarFavorites
+      {workspace}
+      {containerId}
+      places={favoritePlaces}
+      describedBy={instructionsId}
+    />
+  {/if}
 
   {#each shown as entry (entry.category.id)}
     {@const category = entry.category}

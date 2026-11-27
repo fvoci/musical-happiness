@@ -40,6 +40,7 @@ mod diaries;
 mod diary_schema;
 mod email_change;
 mod email_revert;
+mod favorites;
 mod files;
 mod image_files;
 mod instance_role_scope;

@@ -13,11 +13,12 @@
   import LinkIcon from '@lucide/svelte/icons/link';
 
   import { copyCardLink } from '$lib/components/card-number/card-link.ts';
+  import FavoriteToggle from '$lib/components/favorite-toggle/FavoriteToggle.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { CourseStore, CourseUnit } from '$lib/state/index.ts';
+  import { workspaceFavorites, type CourseStore, type CourseUnit } from '$lib/state/index.ts';
 
   import type { UnitOpenings } from './unit-openings.svelte.ts';
 
@@ -88,6 +89,10 @@
 <span class="text-xs text-muted-foreground" role="status" data-testid="unit-link-copied">
   {copied ? m['CardActionsMenu.copiedLink']() : ''}
 </span>
+
+{#if !course.container?.isTemplate}
+  <FavoriteToggle stars={workspaceFavorites(course.workspace)} targetId={unit.id} />
+{/if}
 
 <ActionMenu title={m.course_unit_more({ title })} subtitle={title} align="end" {actions}>
   {#snippet trigger(props: Record<string, unknown>)}

@@ -595,6 +595,7 @@ impl Named {
             .replace("{boardId}", &self.board.id)
             .replace("{cardId}", &self.card_id)
             .replace("{blockId}", &self.card_id)
+            .replace("{targetId}", &self.card_id)
             .replace("{courseId}", &self.course_id)
             .replace("{unitId}", &self.unit_id)
             .replace("{meetingId}", &self.meeting_id)
@@ -615,6 +616,7 @@ impl Named {
         match operation {
             "getWorkspaceUsersById" => json!([self.user_id]),
             "reorderCardProperties" => json!([]),
+            "reorderFavorites" => json!([self.card_id]),
             "importArchive" => json!({ "uploadId": self.upload_id }),
             "acceptInvitation" | "previewInvitation" => json!({ "token": self.invitation }),
             "startTimeEntry" => json!({

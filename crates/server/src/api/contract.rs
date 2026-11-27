@@ -328,6 +328,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ClientConfig", Members::All),
     ("CommentVersion", Members::All),
     ("DeletedItem", Members::AllBut(&["kind"])),
+    ("Favorite", Members::AllBut(&["number"])),
+    ("FavoriteKind", Members::AsWritten),
     ("FileRecord", Members::All),
     ("ListedFile", Members::All),
     ("FileLease", Members::All),

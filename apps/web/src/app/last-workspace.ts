@@ -6,6 +6,8 @@
  * Only the identifier is kept. Whether it is still theirs is the backend's
  * say (`Workspace.load` enters it only when it is among their workspaces).
  */
+import { forgetRecentPlaces } from './recent-places.ts';
+
 const KEY = 'fvoci:last-workspace:';
 
 export function lastWorkspace(userId: string): string | undefined {
@@ -53,8 +55,12 @@ export function rememberPlace(userId: string, workspaceId: string, boardId: stri
   }
 }
 
-/** Clears unscoped UI state in `localStorage` on sign-out while preserving per-user workspace memory. */
+/**
+ * Clears unscoped UI state in `localStorage` on sign-out while preserving per-user workspace memory;
+ * what each reader opened last, which the search starts with, goes too (`recent-places.ts`).
+ */
 export function forgetUnscoped(): void {
+  forgetRecentPlaces();
   try {
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('fvoci.calendar.scale.')) {
@@ -69,6 +75,7 @@ export function forgetUnscoped(): void {
 /** Forgets every account-scoped identifier kept on this browser for `userId` (on account deletion). */
 export function forgetUser(userId: string): void {
   if (!userId) return;
+  forgetRecentPlaces();
   try {
     for (const key of Object.keys(localStorage)) {
       if (

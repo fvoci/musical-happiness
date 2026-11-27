@@ -24,13 +24,14 @@
 
   import { copyCardLink } from '$lib/components/card-number/card-link.ts';
   import CardNumber from '$lib/components/card-number/CardNumber.svelte';
+  import FavoriteToggle from '$lib/components/favorite-toggle/FavoriteToggle.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CardFrame } from '$lib/layout/presentation.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
-  import type { BoardStore, CardStore } from '$lib/state/index.ts';
+  import { workspaceFavorites, type BoardStore, type CardStore } from '$lib/state/index.ts';
 
   import WatchToggle from './WatchToggle.svelte';
 
@@ -193,6 +194,9 @@
   {/if}
   {#if there && board.role !== '' && !card.summary?.fields.isTemplate}
     <WatchToggle {workspace} blockId={card.cardId} kind="card" />
+  {/if}
+  {#if there && !card.summary?.fields.isTemplate && !board.container?.isTemplate}
+    <FavoriteToggle stars={workspaceFavorites(workspace)} targetId={card.cardId} />
   {/if}
   <span
     class="shrink-0 px-1 text-xs text-muted-foreground"

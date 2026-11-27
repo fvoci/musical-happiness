@@ -28,6 +28,7 @@ import { containerOf, userOf, type Schemas } from './convert.ts';
 import { ServerCourses } from './courses.ts';
 import { ServerDiaries } from './diaries.ts';
 import { ServerEmailChange } from './email-change.ts';
+import { ServerFavorites } from './favorites.ts';
 import { ServerFileVersions } from './file-versions.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerNotifications } from './notifications.ts';
@@ -81,6 +82,8 @@ export class ServerRequests extends AccountRequests implements TrashReads {
   readonly notifications: ServerNotifications;
   /** What the reader watches, the cards, pages and units they are told of. */
   readonly watches: ServerWatches;
+  /** The reader's stars, at the head of the sidebar and of the search. */
+  readonly favorites: ServerFavorites;
   /** Personal time tracking entries and active timer of the signed-in reader. */
   readonly time: ServerTime;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
@@ -111,6 +114,9 @@ export class ServerRequests extends AccountRequests implements TrashReads {
       this.inWorkspace(path, params, options, workspaceId),
     );
     this.watches = new ServerWatches((path, params, options, workspaceId) =>
+      this.inWorkspace(path, params, options, workspaceId),
+    );
+    this.favorites = new ServerFavorites((path, params, options, workspaceId) =>
       this.inWorkspace(path, params, options, workspaceId),
     );
     const request = this.#inContainer.bind(this);

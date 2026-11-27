@@ -337,6 +337,11 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
              of one or by `createOrganization`. An organization it was invited into is not \
              counted, and neither is its own space. Nothing was made."
         }
+        Reason::TooManyFavorites => {
+            "Status 400. The user has as many stars in the workspace as a user may, which \
+             `limit` tells (100): when a star is put on something (`putFavorite`). Nothing \
+             was changed. Taking a star off makes room."
+        }
         _ => return None,
     })
 }

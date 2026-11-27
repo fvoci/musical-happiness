@@ -74,6 +74,7 @@ import { MemoryContentSearch } from './content-search.ts';
 import { MemoryCourses } from './courses.ts';
 import { MemoryDiaries } from './diaries.ts';
 import { MemoryFileVersions } from './file-versions.ts';
+import { MemoryFavorites } from './favorites.ts';
 import { readableBlob, readableFile, storeUpload } from './files.ts';
 import { MemoryNotifications } from './notifications.ts';
 import { pause } from './pause.ts';
@@ -88,7 +89,7 @@ import * as spaces from './spaces.ts';
 import { MemoryTime } from './time.ts';
 import { deletedCardsOf, deletedContainersOf, mayManageCards } from './trash.ts';
 import { MemoryWatches } from './unit-watch.ts';
-import { userFound, usersAmong, usersNamed } from './users.ts';
+import { usersAmong, usersMatching, usersNamed } from './users.ts';
 import { MemoryWikis } from './wikis.ts';
 import type { World } from './world.ts';
 
@@ -109,6 +110,7 @@ export class MemoryBackend implements Backend {
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
   readonly notifications = new MemoryNotifications(this, () => this.#enter('notifications'));
   readonly watches = new MemoryWatches(this, () => this.#enter('watches'));
+  readonly favorites = new MemoryFavorites(this, () => this.#enter('favorites'));
   readonly time = new MemoryTime(this, () => this.#enter('time'));
   readonly #categories = new MemoryCategories(this, (method, workspaceId) =>
     this.#enterWorkspace(method, workspaceId),
@@ -179,11 +181,7 @@ export class MemoryBackend implements Backend {
   }
   async searchUsers(workspaceId: string, query: string): Promise<User[]> {
     await this.#enter('searchUsers');
-    const wanted = query.trim().toLowerCase();
-    return (await this.users(workspaceId))
-      .filter((u) => userFound(u, wanted))
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .slice(0, 10);
+    return usersMatching(await this.users(workspaceId), query);
   }
   async settings(): Promise<AccountSettings> {
     await this.#enter('settings');

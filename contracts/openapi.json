@@ -3216,6 +3216,63 @@
         ],
         "type": "object"
       },
+      "Favorite": {
+        "description": "A star as its person is shown it now: what it is on, what that is called, and where\nit is.",
+        "properties": {
+          "containerId": {
+            "description": "The board, wiki or course it is, or is of.",
+            "type": "string"
+          },
+          "containerKind": {
+            "$ref": "#/components/schemas/ContainerKind",
+            "description": "What that container is."
+          },
+          "icon": {
+            "description": "Its icon, at most one grapheme; empty for none.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FavoriteKind",
+            "description": "What that is."
+          },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for anything\nelse.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "targetId": {
+            "description": "The identifier of what the star is on.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Its title as it is now; empty for one without.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "containerId",
+          "containerKind",
+          "icon",
+          "kind",
+          "targetId",
+          "title"
+        ],
+        "type": "object"
+      },
+      "FavoriteKind": {
+        "description": "What a star is on.",
+        "enum": [
+          "container",
+          "card",
+          "page",
+          "unit"
+        ],
+        "type": "string"
+      },
       "FileForm": {
         "description": "A form with one file.",
         "properties": {
@@ -6781,6 +6838,11 @@
             "reason": "too_many_organizations",
             "title": "Too many organizations made",
             "type": "/problems/too-many-organizations"
+          },
+          {
+            "reason": "too_many_favorites",
+            "title": "Too many favorites in the workspace",
+            "type": "/problems/too-many-favorites"
           }
         ]
       },
@@ -23732,6 +23794,189 @@
         "summary": "The deleted entries of a diary",
         "tags": [
           "diaries"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/favorite-order": {
+      "put": {
+        "description": "Puts the stars of the user of the session in the workspace in the order of the body,\na list of what they are on by identifier: those it names first, as it names them,\nand the others after them in the order they had. An identifier of no star of theirs\nis passed over. 400 for more than 100 identifiers, and for an entry of no form of\none. The user's connections to the workspace are told (`favoritesChanged`). A\nsession alone: a personal API token is refused.",
+        "operationId": "reorderFavorites",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "They are in that order."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put the favorites in order",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/favorites": {
+      "get": {
+        "description": "The stars of the user of the session in the workspace, in their order (as\n`reorderFavorites` put them, a new one after the others): on boards, wikis and\ncourses, and on cards, pages and units of them. Each is asked again whether the user\nreads what it is on, as every route to it asks, and is listed with that as it is\nnow: its title, its icon and where it is. What they do not read now is left out, and\nnothing says that it was there: what is in the trash, what is of a board they left\nor that went private, what is gone; once it is there to them again, so is its star.\nNobody else's stars are listed anywhere, to anybody. A user has at most 100 in a\nworkspace. A session alone: a personal API token is refused.",
+        "operationId": "getFavorites",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Favorite"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The favorites, in the user's order."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The user's favorites",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/favorites/{targetId}": {
+      "delete": {
+        "description": "Takes the star of the user of the session off what it is on; the answer is the same\nwhether there was one, whatever the identifier names. The user's connections to the\nworkspace are told where one went (`favoritesChanged`). A session alone: a personal\nAPI token is refused.",
+        "operationId": "deleteFavorite",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "There is no star on it."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take a star off",
+        "tags": [
+          "sidebar"
+        ]
+      },
+      "put": {
+        "description": "Puts a star of the user of the session on a board, a wiki or a course of the\nworkspace they read, or on a card, a page or a unit of one, after their other stars;\nthe server finds which it is. One that is there stays where it is. 404 for what the\nuser does not read, for a diary and an entry of one, for a template, and for an\nidentifier of nothing, all alike. Past 100 in the workspace it is 400 with the reason\n`too_many_favorites`. The user's connections to the workspace are told\n(`favoritesChanged`). A session alone: a personal API token is refused.",
+        "operationId": "putFavorite",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The star is on it."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put a star on something",
+        "tags": [
+          "sidebar"
         ]
       }
     },

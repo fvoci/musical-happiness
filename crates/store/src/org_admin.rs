@@ -883,6 +883,7 @@ async fn end_joining(
         .push_bind(" AND user_id = ", Id(user_id));
     scope.execute(sql).await?;
     if joined.prior.is_none() {
+        crate::favorites::forget_user_in_workspace(scope, workspace_id, user_id).await?;
         crate::unit_progress::forget_user_in_workspace(scope, workspace_id, user_id).await?;
         crate::course_exams::forget_user_in_workspace(scope, workspace_id, user_id).await?;
         crate::unit_reviews::forget_user_in_workspace(scope, workspace_id, user_id).await?;

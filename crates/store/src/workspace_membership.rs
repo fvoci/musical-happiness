@@ -288,6 +288,7 @@ async fn remove(
     crate::unit_reviews::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
     crate::api_tokens::forget_workspace_of_user(scope, workspace_id, user_id).await?;
+    crate::favorites::forget_user_in_workspace(scope, workspace_id, user_id).await?;
     let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));

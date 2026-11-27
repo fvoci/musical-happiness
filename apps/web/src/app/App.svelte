@@ -54,6 +54,7 @@
     shownLanguage,
   } from './locale.ts';
   import LazyView from './LazyView.svelte';
+  import { favoritePlaces } from './places.ts';
   import Problems from './Problems.svelte';
   import { keepReturn, resume, takeReturn } from './return-to.ts';
   import { placeRoute, shownContainerId, workspaceIdOf, type Router } from './router.svelte.ts';
@@ -424,6 +425,9 @@
       ? { active: router.route.kind === 'learningToday', onOpen: openLearningToday }
       : undefined}
     containerHref={(container: ContainerPlace) => router.href(placeRoute(container))}
+    favoritePlaces={workspace.backend.favorites
+      ? favoritePlaces(router, () => workspace?.info?.id)
+      : undefined}
     sharedHref={(containerId: string, readToken: string) =>
       router.href({ boardId: containerId, readToken })}
     onOpenContainer={openContainer}

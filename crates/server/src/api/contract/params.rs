@@ -91,6 +91,7 @@ parameter!(UserId: Path "userId", String, True, "The identifier of the user.");
 parameter!(ApiTokenId: Path "tokenId", String, True, "The identifier of the personal API token.");
 parameter!(InvitationId: Path "invitationId", String, True, "The identifier of the invitation, as making it and the list answer it. It is not the link's token.");
 parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.");
+parameter!(FavoriteTargetId: Path "targetId", String, True, "The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is.");
 parameter!(NotificationId: Path "notificationId", String, True, "The identifier of the notification: one of the user of the session.");
 parameter!(TimeEntryId: Path "entryId", String, True, "The identifier of the time entry: one of the user of the session.");
 parameter!(SubscribedUserId: Path "userId", String, True, "The identifier of the user: the user of the session.");

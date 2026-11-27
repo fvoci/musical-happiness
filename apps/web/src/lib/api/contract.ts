@@ -5537,6 +5537,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/favorite-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put the favorites in order
+         * @description Puts the stars of the user of the session in the workspace in the order of the body,
+         *     a list of what they are on by identifier: those it names first, as it names them,
+         *     and the others after them in the order they had. An identifier of no star of theirs
+         *     is passed over. 400 for more than 100 identifiers, and for an entry of no form of
+         *     one. The user's connections to the workspace are told (`favoritesChanged`). A
+         *     session alone: a personal API token is refused.
+         */
+        put: operations["reorderFavorites"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The user's favorites
+         * @description The stars of the user of the session in the workspace, in their order (as
+         *     `reorderFavorites` put them, a new one after the others): on boards, wikis and
+         *     courses, and on cards, pages and units of them. Each is asked again whether the user
+         *     reads what it is on, as every route to it asks, and is listed with that as it is
+         *     now: its title, its icon and where it is. What they do not read now is left out, and
+         *     nothing says that it was there: what is in the trash, what is of a board they left
+         *     or that went private, what is gone; once it is there to them again, so is its star.
+         *     Nobody else's stars are listed anywhere, to anybody. A user has at most 100 in a
+         *     workspace. A session alone: a personal API token is refused.
+         */
+        get: operations["getFavorites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/favorites/{targetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put a star on something
+         * @description Puts a star of the user of the session on a board, a wiki or a course of the
+         *     workspace they read, or on a card, a page or a unit of one, after their other stars;
+         *     the server finds which it is. One that is there stays where it is. 404 for what the
+         *     user does not read, for a diary and an entry of one, for a template, and for an
+         *     identifier of nothing, all alike. Past 100 in the workspace it is 400 with the reason
+         *     `too_many_favorites`. The user's connections to the workspace are told
+         *     (`favoritesChanged`). A session alone: a personal API token is refused.
+         */
+        put: operations["putFavorite"];
+        post?: never;
+        /**
+         * Take a star off
+         * @description Takes the star of the user of the session off what it is on; the answer is the same
+         *     whether there was one, whatever the identifier names. The user's connections to the
+         *     workspace are told where one went (`favoritesChanged`). A session alone: a personal
+         *     API token is refused.
+         */
+        delete: operations["deleteFavorite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/guest-invitations": {
         parameters: {
             query?: never;
@@ -8512,6 +8598,35 @@ export interface components {
              */
             workspaceId: string;
         };
+        /**
+         * @description A star as its person is shown it now: what it is on, what that is called, and where
+         *     it is.
+         */
+        Favorite: {
+            /** @description The board, wiki or course it is, or is of. */
+            containerId: string;
+            /** @description What that container is. */
+            containerKind: components["schemas"]["ContainerKind"];
+            /** @description Its icon, at most one grapheme; empty for none. */
+            icon: string;
+            /** @description What that is. */
+            kind: components["schemas"]["FavoriteKind"];
+            /**
+             * Format: int32
+             * @description A card's number on its board, as `Card.number` gives it; absent for anything
+             *     else.
+             */
+            number?: number | null;
+            /** @description The identifier of what the star is on. */
+            targetId: string;
+            /** @description Its title as it is now; empty for one without. */
+            title: string;
+        };
+        /**
+         * @description What a star is on.
+         * @enum {string}
+         */
+        FavoriteKind: "container" | "card" | "page" | "unit";
         /** @description A form with one file. */
         FileForm: {
             /**
@@ -20440,6 +20555,136 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeletedDiaryEntry"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reorderFavorites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description They are in that order. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getFavorites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The favorites, in the user's order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Favorite"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putFavorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is. */
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The star is on it. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteFavorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is. */
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description There is no star on it. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

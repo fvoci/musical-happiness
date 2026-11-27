@@ -441,6 +441,18 @@ fn content_cases() -> Vec<Case> {
             |h, i| format!("{TEST_WS}/subscriptions/{}/{}", h.card[i], h.owner[i]),
             no_body,
         ),
+        // A star put on the board and on its card. (Taking one off is 204 whatever it
+        // was on, there or not: `favorites.rs`.)
+        case(
+            Method::PUT,
+            |h, i| format!("{TEST_WS}/favorites/{}", h.board[i]),
+            no_body,
+        ),
+        case(
+            Method::PUT,
+            |h, i| format!("{TEST_WS}/favorites/{}", h.card[i]),
+            no_body,
+        ),
         // The owner's category.
         case(
             Method::PUT,

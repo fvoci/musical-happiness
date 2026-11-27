@@ -63,6 +63,7 @@
 | `containerCategoriesChanged` | `workspaceId`, `containerCategories`(`{containerId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setContainerCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideContainer`·`unhideContainer`·`restoreContainer`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
 | `categoriesReordered` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `categoryContainersReordered` | `workspaceId`, `categoryId`, `containerOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
+| `favoritesChanged` | `workspaceId`. 무엇이 바뀌었는지 싣지 않는다: 받은 클라이언트가 즐겨찾기를 다시 읽는다(`getFavorites`) | 즐겨찾기 주인의, 그 워크스페이스를 구독한 연결 모두 |
 | `clientConfigChanged` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
 | `workspaceSubscribed` | `workspaceId` | `subscribeWorkspace`가 수락된 그 연결 |
 | `blocksSubscribed` | `workspaceId`, `blockIds`(중복 제거·정렬된 수락 블록 ID 목록) | `subscribeBlocks`가 수락된 그 연결 |
@@ -108,6 +109,7 @@
 | `reorderCategories` | `categoriesReordered` |
 | `setContainerCategory`, `hideContainer`, `unhideContainer` | `containerCategoriesChanged` |
 | `reorderCategoryContainers` | `categoryContainersReordered` |
+| `putFavorite`(새로 붙였을 때), `deleteFavorite`(떼었을 때), `reorderFavorites` | `favoritesChanged`. 이미 붙어 있던 것을 다시 붙이거나 없는 것을 떼면 아무것도 내지 않는다 |
 | `setPublicLink`(끄기, 새 토큰) | 옛 토큰으로 따라가던 연결에 `blocksUnsubscribed` |
 | `patchMe` | 이름이 바뀌면 그 사람이 구성원인(손님 포함) 워크스페이스마다 `userChanged`. 바꾸는 것이 없는 요청은 아무것도 내지 않는다 |
 | `leaveOrganization` | 나간 사람의 연결 가운데 그 조직의 워크스페이스를 구독한 것에 워크스페이스마다 `workspaceUnsubscribed`(`workspace access ended`). 그 워크스페이스들의 방이 나간 사람을 다시 묻는다(`docLeft`). 나간 사람이 혼자 관리하던 보드가 워크스페이스의 다른 관리자에게 넘어가면 그 보드의 `containerMemberChanged`(새 관리자). 워크스페이스에서 사람을 뺄 때처럼 다른 사람에게 그 사람이 빠졌다는 메시지는 없다 |

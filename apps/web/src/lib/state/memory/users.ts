@@ -68,6 +68,15 @@ export function eraseUser(world: World, userId: string): void {
 }
 
 /** The people who work in a workspace (`workersOf`), but who are gone. */
+/** The first ten of `users` whose names hold `query`, whatever its case, the oldest first. */
+export function usersMatching(users: readonly User[], query: string): User[] {
+  const wanted = query.trim().toLowerCase();
+  return users
+    .filter((user) => userFound(user, wanted))
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(0, 10);
+}
+
 export function usersAmong(world: World, workers: ReadonlySet<string>): User[] {
   return scramble([...world.users.values()])
     .filter((user) => workers.has(user.id) && !isGone(user) && user.deletedAt === undefined)

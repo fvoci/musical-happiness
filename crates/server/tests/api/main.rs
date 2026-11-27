@@ -76,6 +76,7 @@ mod fake_oidc;
 mod fake_provider;
 mod fake_search;
 mod fake_smtp;
+mod favorites;
 mod file_blocks;
 mod file_leases;
 mod file_versions;

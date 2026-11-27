@@ -56,6 +56,7 @@ mod directory;
 mod email_change;
 mod email_revert;
 mod error;
+mod favorites;
 mod file_refs;
 mod file_versions;
 mod files;
@@ -163,6 +164,7 @@ pub use email_change::{
 };
 pub use email_revert::{EMAIL_REVERT_LIFETIME_MILLIS, EmailRevert, EmailReverted};
 pub use error::{StoreError, Taken};
+pub use favorites::{FavoriteAdded, StoredFavorite};
 pub use file_refs::NewBodyFiles;
 pub use file_versions::{
     DEFAULT_FILE_VERSIONS_KEPT, KeptFileVersion, RestoredCopy, UnusableUpload, VersionAdded,

@@ -32,6 +32,7 @@
 
   import BoardPage from './BoardPage.svelte';
   import { lastPlace, rememberPlace, TODAY_PLACE } from './last-workspace.ts';
+  import { recentOfRoute, rememberRecent } from './recent-places.ts';
   import LazyView from './LazyView.svelte';
   import NotFound from './NotFound.svelte';
   import { placeRoute, shownContainerId, workspaceIdOf, type Router } from './router.svelte.ts';
@@ -91,6 +92,13 @@
     }
     const listed = workspace.containers.find((container) => container.id === placeId);
     if (shown && listed) rememberPlace(me.id, shown.id, listed.id);
+  });
+
+  // What is opened, the latest first, for the start of the search; nothing of a diary.
+  $effect(() => {
+    const me = workspace.me;
+    const opened = recentOfRoute(router.route);
+    if (shown && me && opened) rememberRecent(me.id, shown.id, opened);
   });
 
   // The device's time zone, for who leaves it to follow the device, once the workspace is ready.

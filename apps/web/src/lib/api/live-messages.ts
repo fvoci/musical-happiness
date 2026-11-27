@@ -103,6 +103,8 @@ export async function dispatchLiveMessage(
   }
   if (message.type === 'notificationsChanged') {
     sink.tellSelf({ kind: 'notifications' });
+  } else if (message.type === 'favoritesChanged' && message.workspaceId !== undefined) {
+    sink.tellSelf({ kind: 'favorites', workspaceId: message.workspaceId });
   } else if (message.type === 'userChanged' && 'userId' in message) {
     sink.tellSelf({ kind: 'user', userId: message.userId });
   } else if (message.type === 'containerChanged' && 'container' in message) {

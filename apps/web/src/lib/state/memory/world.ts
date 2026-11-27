@@ -167,6 +167,8 @@ export class World {
   readonly fileLeases = new Map<string, FileLeaseHeld>();
   /** What each user was told, by user (`notifications.ts`). */
   readonly notifications = new Map<string, StoredNotification[]>();
+  /** The stars of each user in each workspace, in their order (`userId/workspaceId`, `favorites.ts`). */
+  readonly favorites = new Map<string, string[]>();
   /** Explicit unit watch overrides per user (`userId -> Map<unitId, boolean>`). */
   readonly unitWatchers = new Map<string, Map<string, boolean>>();
   /** Personal unit progress rows per user (`userId -> Map<unitId, UnitProgress>`). */

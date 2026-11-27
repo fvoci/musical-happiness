@@ -31,6 +31,7 @@ mod course_schedule;
 mod date_value;
 mod deleted_item;
 mod diary;
+mod favorite;
 mod file_lease;
 mod file_version;
 mod files;
@@ -176,6 +177,7 @@ pub use diary::{
     ParseMonthDayError, ParseMoodError, entry_body_updated_at, entry_date, entry_mood,
     is_empty_entry,
 };
+pub use favorite::{Favorite, FavoriteKind, MAX_FAVORITES, UnknownFavoriteKind};
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
 pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};
 pub use files::{FileKey, FileRecord, ListedFile, is_storage_path};
