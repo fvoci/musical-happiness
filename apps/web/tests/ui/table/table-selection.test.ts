@@ -1,0 +1,232 @@
+/**
+ * Selecting rows of the table and changing them together through the bar of
+ * the selection (features/views/BulkBar.svelte), over a board store on the
+ * in-memory backend. Where the bar sits and how it fits a phone need a
+ * browser and are in e2e/bulk.spec.ts.
+ */
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import type { BoardStore } from '$lib/state/index.ts';
+import type { SeedTemplate } from '$lib/state/memory/seed.ts';
+
+import { openFirstBoard, setup, settle } from '../../state/support.ts';
+
+import TableHarness from './TableHarness.svelte';
+
+/** A board with one table view: a select and a text column, three cards. */
+const SEED: SeedTemplate = {
+  key: 'table-selection',
+  onboarding: false,
+  board: {
+    id: 'b',
+    title: 'Table',
+    description: '',
+    icon: '',
+    showDescription: false,
+    cardProperties: [
+      {
+        id: 'status',
+        name: 'Status',
+        type: 'select',
+        options: [
+          { id: 'todo', label: 'To do', color: 'blue' },
+          { id: 'done', label: 'Done', color: 'green' },
+        ],
+      },
+      { id: 'note', name: 'Note', type: 'text', options: [] },
+    ],
+  },
+  views: [
+    {
+      id: 'v',
+      title: 'All',
+      fields: {
+        viewType: 'table',
+        shownProperties: ['status', 'note'],
+        visibleGroups: [],
+        hiddenGroups: [],
+        collapsedGroups: [],
+        sort: [],
+        cardOrder: ['c2', 'c1', 'c3'],
+        columnWidths: {},
+        columnCalculations: {},
+        filter: { operation: 'and', filters: [] },
+      },
+    },
+  ],
+  cards: [
+    {
+      id: 'c1',
+      title: 'Alpha',
+      fields: { icon: '', isTemplate: false, properties: { status: 'todo', note: 'first' } },
+      body: null,
+    },
+    {
+      id: 'c2',
+      title: 'Beta',
+      fields: { icon: '', isTemplate: false, properties: { status: 'done' } },
+      body: null,
+    },
+    {
+      id: 'c3',
+      title: 'Gamma',
+      fields: { icon: '', isTemplate: false, properties: { status: 'todo' } },
+      body: null,
+    },
+  ],
+  files: [],
+};
+
+async function mount(): Promise<BoardStore> {
+  const { board } = await openFirstBoard(setup([SEED]));
+  const viewId = board.orderedViews[0]?.id ?? '';
+  render(TableHarness, { props: { board, viewId } });
+  await tick();
+  return board;
+}
+
+const grid = (): HTMLElement => screen.getByRole('grid');
+const rowOf = (title: string): HTMLElement => {
+  const row = [...grid().querySelectorAll<HTMLElement>('[data-card]')].find(
+    (each) => each.querySelector('[data-slot="row-title"]')?.textContent === title,
+  );
+  if (!row) throw new Error(`no row "${title}"`);
+  return row;
+};
+const cellOf = (title: string, column: string): HTMLElement => {
+  const cell = rowOf(title).querySelector<HTMLElement>(`[data-cell][data-col="${column}"]`);
+  if (!cell) throw new Error(`no cell "${column}" in "${title}"`);
+  return cell;
+};
+const titleOf = (title: string): HTMLElement => {
+  const cell = rowOf(title).querySelector<HTMLElement>('[data-cell][data-kind="title"]');
+  if (!cell) throw new Error(`no title cell in "${title}"`);
+  return cell;
+};
+const selected = (): string[] =>
+  [...grid().querySelectorAll('[data-card][data-selected] [data-slot="row-title"]')].map(
+    (title) => title.textContent,
+  );
+const bar = (): HTMLElement | null => screen.queryByTestId('selection-bar');
+/** The element `selector` finds in `root`; the test fails where there is none. */
+const one = (root: ParentNode | null | undefined, selector: string): HTMLElement => {
+  const found = root?.querySelector<HTMLElement>(selector);
+  if (!found) throw new Error(`nothing is ${selector}`);
+  return found;
+};
+const statusOf = (board: BoardStore, title: string): unknown =>
+  board.cards.find((card) => card.title === title)?.fields.properties.status;
+
+beforeAll(() => {
+  vi.stubGlobal('CSS', { escape: (value: string) => value });
+  Element.prototype.scrollIntoView = () => undefined;
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe('selecting rows', () => {
+  it('takes a row in with Ctrl, a range with Shift, and lets one go with Ctrl again', async () => {
+    await mount();
+    expect(bar()).toBeNull();
+    await fireEvent.click(cellOf('Beta', 'note'), { ctrlKey: true });
+    expect(selected()).toEqual(['Beta']);
+    expect(bar()?.textContent).toContain('1 selected');
+    await fireEvent.click(titleOf('Gamma'), { shiftKey: true });
+    expect(selected()).toEqual(['Beta', 'Alpha', 'Gamma']);
+    await fireEvent.click(cellOf('Alpha', 'status'), { ctrlKey: true });
+    expect(selected()).toEqual(['Beta', 'Gamma']);
+    expect(bar()?.textContent).toContain('2 selected');
+    // Selecting edited nothing.
+    expect(grid().querySelector('[data-editing]')).toBeNull();
+  });
+
+  it('takes the row of a cell in with X, and lets the selection go with Escape', async () => {
+    await mount();
+    const cell = cellOf('Alpha', 'note');
+    cell.focus();
+    await fireEvent.keyDown(cell, { key: 'x' });
+    expect(selected()).toEqual(['Alpha']);
+    await fireEvent.keyDown(cell, { key: 'x', isComposing: true });
+    expect(selected()).toEqual(['Alpha']);
+    await fireEvent.keyDown(cell, { key: 'Escape' });
+    expect(selected()).toEqual([]);
+    expect(bar()).toBeNull();
+  });
+
+  it('by the box of a row, and by "Select" in its menu, after which a plain press selects', async () => {
+    await mount();
+    const box = one(rowOf('Gamma'), '[data-select-row]');
+    expect(box.getAttribute('aria-checked')).toBe('false');
+    await fireEvent.click(box);
+    expect(selected()).toEqual(['Gamma']);
+    expect(box.getAttribute('aria-checked')).toBe('true');
+    await fireEvent.click(box);
+    expect(selected()).toEqual([]);
+
+    await fireEvent.click(one(rowOf('Beta'), '[data-more]'));
+    const menu = await screen.findByRole('menu');
+    await fireEvent.click(within(menu).getByText('Select'));
+    await waitFor(() => {
+      expect(selected()).toEqual(['Beta']);
+    });
+    await fireEvent.click(cellOf('Alpha', 'note'));
+    expect(selected()).toEqual(['Beta', 'Alpha']);
+    expect(grid().querySelector('[data-editing]')).toBeNull();
+  });
+});
+
+describe('the bar of the selection', () => {
+  it('sets a value on every selected row in one step of undo', async () => {
+    const board = await mount();
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    await fireEvent.click(titleOf('Gamma'), { ctrlKey: true });
+    const status = one(bar(), '[data-bulk-property="status"]');
+    expect(status.getAttribute('title')).toBe('Status');
+    await fireEvent.click(status);
+    const done = await screen.findByRole('option', { name: /Done/ });
+    await fireEvent.click(done);
+    await waitFor(() => {
+      expect(statusOf(board, 'Alpha')).toBe('done');
+      expect(statusOf(board, 'Gamma')).toBe('done');
+    });
+    await settle();
+    expect(statusOf(board, 'Beta')).toBe('done');
+
+    await board.workspace.undoLast();
+    await waitFor(() => {
+      expect(statusOf(board, 'Alpha')).toBe('todo');
+      expect(statusOf(board, 'Gamma')).toBe('todo');
+    });
+    expect(board.workspace.undo.canUndo).toBe(false);
+  });
+
+  it('says where the selected values differ', async () => {
+    await mount();
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    await fireEvent.click(titleOf('Beta'), { shiftKey: true });
+    expect(one(bar(), '[data-bulk-property="status"]').getAttribute('title')).toBe(
+      'Status: mixed values',
+    );
+  });
+
+  it('deletes the selected rows in one step, and lets the selection go', async () => {
+    const board = await mount();
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    await fireEvent.click(titleOf('Beta'), { ctrlKey: true });
+    // Without layout the view counts as wide: Delete is a button of the bar, not a line of "More".
+    await fireEvent.click(one(bar(), '[data-bulk-delete]'));
+    await waitFor(() => {
+      expect(board.cards.map((card) => card.title)).toEqual(['Gamma']);
+    });
+    expect(bar()).toBeNull();
+    await settle();
+    await board.workspace.undoLast();
+    await waitFor(() => {
+      expect(board.cards).toHaveLength(3);
+    });
+  });
+});

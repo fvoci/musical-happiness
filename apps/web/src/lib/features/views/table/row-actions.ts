@@ -1,6 +1,6 @@
 /**
  * What the lines of a row's "more" menu do (`rowMenu`): open, duplicate,
- * copy the link and delete the card. After a duplicate or a delete the
+ * copy the link, select and delete the card. After a duplicate or a delete the
  * keyboard goes on from a row that is there.
  */
 import { tick } from 'svelte';
@@ -10,6 +10,8 @@ import type { MenuAction } from '$lib/components/menu/actions.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { TITLE_COLUMN_ID, type Card } from '$lib/logic/wire.ts';
 import type { BoardStore } from '$lib/state/index.ts';
+
+import type { Selection } from '../selection.svelte.ts';
 
 import type { GridFocus } from './grid-focus.ts';
 import { rowMenu } from './menus.ts';
@@ -21,6 +23,7 @@ export interface RowActionsHost {
   cardHref: (cardId: string) => string;
   openCard: (cardId: string) => void;
   grid: GridFocus;
+  selection: Selection;
   /** Tells a screen reader what happened without a sign of its own. */
   say: (text: string) => void;
 }
@@ -69,5 +72,9 @@ export function rowActionsOf(host: RowActionsHost, card: Card): MenuAction[] {
     onDuplicate: () => void duplicateCard(host, card),
     onCopyLink: () => void copyLink(host, card),
     onDelete: () => void deleteCard(host, card),
+    selected: host.selection.has(card.id),
+    onSelect: () => {
+      host.selection.begin(card.id);
+    },
   });
 }

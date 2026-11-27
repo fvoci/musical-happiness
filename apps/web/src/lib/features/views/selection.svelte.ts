@@ -12,7 +12,22 @@
  * the board's batch routes takes. A press that would take in more takes in
  * what fits, and `full` says so until the selection changes again.
  */
+import { primaryModifier } from '$lib/keys.ts';
 import { CARD_BATCH_LIMIT } from '$lib/state/index.ts';
+
+/** What a press on a card asks for: the card opened, taken into the selection, or the range up to it. */
+export type Activation = 'open' | 'toggle' | 'range';
+
+/**
+ * What a click or Enter on a card asks for: the platform's Ctrl or ⌘ takes
+ * it in or out, Shift takes the range up to it. The other platform's
+ * modifier is no command on a card (undefined).
+ */
+export function activationOf(event: MouseEvent | KeyboardEvent): Activation | undefined {
+  if ((event.ctrlKey || event.metaKey) && !primaryModifier(event)) return undefined;
+  if (primaryModifier(event)) return 'toggle';
+  return event.shiftKey ? 'range' : 'open';
+}
 
 /** A selection with one card taken in, or taken out when it was in. */
 export function toggled(selected: readonly string[], cardId: string): string[] {
@@ -78,6 +93,17 @@ export class Selection {
   extendTo(cardId: string): void {
     this.#set(withRange(this.#shown(), this.ids, this.#anchor, cardId));
     this.#anchor = cardId;
+  }
+
+  /**
+   * A press on a card, as `activationOf` reads it. Says whether the
+   * selection took it: a plain press opens the card, unless `selecting`.
+   */
+  press(cardId: string, how: Activation): boolean {
+    if (how === 'open' && !this.selecting) return false;
+    if (how === 'range') this.extendTo(cardId);
+    else this.toggle(cardId);
+    return true;
   }
 
   /** "Select" in the menu of a card: from then on a plain press selects. */

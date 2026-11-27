@@ -28,10 +28,11 @@
   import { moveItems, type ListOrder } from '$lib/logic/drop-target.ts';
   import type { BoardGroup } from '$lib/logic/group.ts';
   import { whileHere, type CardDrop } from '$lib/state/index.ts';
-  import { Button } from '$lib/ui/button/index.js';
 
+  import BulkBar from '../BulkBar.svelte';
+  import { BULK_ROOM } from '../bulk-bar.ts';
   import type { ViewProps } from '../props.ts';
-  import { Selection } from '../selection.svelte.ts';
+  import { Selection, type Activation } from '../selection.svelte.ts';
 
   import { addGroup, faceContextOf, propertiesForColumn } from './board-data.ts';
   import ColumnTabs from './ColumnTabs.svelte';
@@ -50,7 +51,6 @@
     withColumnHidden,
     withColumnShown,
     withColumnStepped,
-    type Activation,
     type ColumnLists,
     type MoveTarget,
   } from './kanban.ts';
@@ -126,9 +126,7 @@
   const selectedIds = $derived(selection.ids);
 
   function activate(cardId: string, how: Activation): void {
-    if (!editable || (how === 'open' && !selection.selecting)) onOpenCard(cardId);
-    else if (how === 'range') selection.extendTo(cardId);
-    else selection.toggle(cardId);
+    if (!editable || !selection.press(cardId, how)) onOpenCard(cardId);
   }
 
   // -------------------------------------------------------------- changes
@@ -335,7 +333,12 @@
     <p class="max-w-sm text-muted-foreground">{m.kanban_no_grouping()}</p>
   </div>
 {:else}
-  <div class="flex h-full min-h-0 flex-col" data-testid="kanban" {@attach selection.attachEscape}>
+  <div
+    class="relative flex h-full min-h-0 flex-col"
+    data-testid="kanban"
+    style:--bulk-room={selectedIds.length > 0 ? BULK_ROOM : undefined}
+    {@attach selection.attachEscape}
+  >
     <ColumnTabs
       {tabs}
       current={paging.current}
@@ -344,25 +347,6 @@
         paging.show(at);
       }}
     />
-
-    {#if selectedIds.length > 0}
-      <div
-        data-testid="selection-bar"
-        class="flex shrink-0 items-center gap-2 border-b px-4 py-1 text-sm"
-      >
-        <span role="status">{m.kanban_selected_count({ count: selectedIds.length })}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="roomy:min-h-touch"
-          onclick={() => {
-            selection.clear();
-          }}
-        >
-          {m.kanban_clear_selection()}
-        </Button>
-      </div>
-    {/if}
 
     <div
       bind:this={paging.scroller}
@@ -465,6 +449,9 @@
     <div data-testid="column-announcer" class="sr-only" aria-live="assertive" aria-atomic="true">
       {columnSort.announcement}
     </div>
+    {#if selectedIds.length > 0}
+      <BulkBar {board} {view} {selection} />
+    {/if}
   </div>
 
   <DragLayer

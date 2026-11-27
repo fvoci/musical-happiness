@@ -29,6 +29,8 @@ import {
 } from '$lib/logic/wire.ts';
 import type { BoardStore } from '$lib/state/index.ts';
 
+import { activationOf, Selection } from '../selection.svelte.ts';
+
 import { titleProperty } from './calculation-names.ts';
 import { CellEditing } from './cell-editing.svelte.ts';
 import { ColumnResize } from './column-resize.svelte.ts';
@@ -406,6 +408,11 @@ export class TableController {
     );
   }
 
+  /** The rows selected, to change together; in the order the table shows them. */
+  readonly selection = new Selection(() =>
+    this.shownLists.flatMap((list) => list.rows.map((row) => row.card.id)),
+  );
+
   readonly #rowActions: RowActionsHost = {
     board: () => this.#board,
     cards: () => this.#source.cards(),
@@ -414,6 +421,7 @@ export class TableController {
       this.#source.openCard(cardId);
     },
     grid: this.grid,
+    selection: this.selection,
     say: (text) => {
       this.#say(text);
     },
@@ -465,5 +473,12 @@ export class TableController {
       table.toggleParent(cardId);
     },
     rowActions: (card) => rowActionsOf(table.#rowActions, card),
+    pick: (cardId, event) => {
+      const how = activationOf(event);
+      return table.canEdit && how !== undefined && table.selection.press(cardId, how);
+    },
+    toggleSelected: (cardId, range) => {
+      table.selection.press(cardId, range ? 'range' : 'toggle');
+    },
   }))(this);
 }

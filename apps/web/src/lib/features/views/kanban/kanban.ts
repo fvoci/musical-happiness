@@ -66,9 +66,6 @@ export function listsAfterDrop(
   }));
 }
 
-/** What a press on a card asks for: the card opened, taken into the selection, or the range up to it. */
-export type Activation = 'open' | 'toggle' | 'range';
-
 /**
  * The "…" button of a card on a board or in a gallery: a plain element with
  * the ghost icon button's classes instead of a component wrapper per card.

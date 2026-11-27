@@ -22,6 +22,8 @@
   import { TITLE_COLUMN_ID } from '$lib/logic/wire.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import BulkBar from '../BulkBar.svelte';
+  import { BULK_ROOM } from '../bulk-bar.ts';
   import type { ViewProps } from '../props.ts';
 
   import CalculationCell from './CalculationCell.svelte';
@@ -46,7 +48,8 @@
       onOpenCard(cardId);
     },
   });
-  const { editing, grid, keeper, rows, columnSort, host } = table;
+  const { editing, grid, keeper, rows, columnSort, host, selection } = table;
+  const selecting = $derived(selection.ids.length > 0 || selection.selecting);
 
   const rowDrag = $derived(rows.active);
   const columnDrag = $derived(columnSort.active);
@@ -117,6 +120,12 @@
       if (next && next !== cell) grid.focus(next);
     } else if (primary) {
       return;
+    } else if ((event.key === 'x' || event.key === 'X') && table.canEdit) {
+      // X takes the row of the cell into the selection, or out of it.
+      const cardId = cell.closest<HTMLElement>('[data-card]')?.dataset.card;
+      if (cardId === undefined) return;
+      event.preventDefault();
+      selection.toggle(cardId);
     } else if (event.key === 'Enter' || event.key === 'F2') {
       event.preventDefault();
       activate(cell);
@@ -164,7 +173,12 @@
   </div>
 {/snippet}
 
-<div class="relative h-full" data-testid="table-view">
+<div
+  class="relative h-full"
+  data-testid="table-view"
+  style:--bulk-room={selection.ids.length > 0 ? BULK_ROOM : undefined}
+  {@attach selection.attachEscape}
+>
   <p id="{uid}-help" class="sr-only">{m.table_keys_help()}</p>
   <!-- svelte-ignore a11y_interactive_supports_focus (the cells of a grid take the focus, not the grid) -->
   <div
@@ -269,6 +283,8 @@
               hasChildren={entry.hasChildren}
               collapsed={entry.collapsed}
               showIndent={table.hasHierarchy}
+              selected={selection.has(card.id)}
+              {selecting}
             />
           {/each}
           {#if !list.collapsed && table.canAddTo(list)}
@@ -300,6 +316,10 @@
           <div role="presentation" class="border-t bg-background"></div>
         </div>
       </div>
+      {#if selection.ids.length > 0}
+        <!-- Room to scroll the last rows out from under the bar of the selection. -->
+        <div role="presentation" class="h-[calc(var(--fab-room,0px)+var(--bulk-room,0px))]"></div>
+      {/if}
     </div>
   </div>
 
@@ -315,6 +335,9 @@
     {columnSort.announcement}
   </div>
   <div class="sr-only" role="status" data-testid="table-status">{table.said}</div>
+  {#if selection.ids.length > 0}
+    <BulkBar {board} {view} {selection} />
+  {/if}
 </div>
 
 {#if notice}
