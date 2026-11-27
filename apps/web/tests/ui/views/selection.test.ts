@@ -111,6 +111,19 @@ describe('the limit of a selection', () => {
     expect(selection.full).toBe(true);
   });
 
+  it('keeps the cards nearest the one pressed first when a range upwards is too long', () => {
+    const selection = new Selection(() => many);
+    const last = CARD_BATCH_LIMIT + 5;
+    selection.toggle(`card-${last}`);
+    selection.extendTo('card-0');
+    expect(selection.ids).toHaveLength(CARD_BATCH_LIMIT);
+    // From the card pressed first upwards: card-6 to card-205; card-0 to card-5 are left out.
+    const nearest = last - CARD_BATCH_LIMIT + 1;
+    expect([...selection.ids].sort()).toEqual(many.slice(nearest, last + 1).sort());
+    expect(selection.has(`card-${nearest - 1}`)).toBe(false);
+    expect(selection.full).toBe(true);
+  });
+
   it('takes no card in past the limit, and lets one out', () => {
     const selection = new Selection(() => many);
     selection.toggle('card-0');

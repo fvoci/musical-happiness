@@ -12,6 +12,7 @@
  * the board's batch routes takes. A press that would take in more takes in
  * what fits, and `full` says so until the selection changes again.
  */
+import { untrack } from 'svelte';
 import { on } from 'svelte/events';
 
 import { primaryModifier } from '$lib/keys.ts';
@@ -54,6 +55,24 @@ export function withRange(
   return [...selected, ...range.filter((id) => !selected.includes(id))];
 }
 
+/**
+ * A range grown past the limit, cut to it: what was selected, then the
+ * cards of the range nearest `anchor`, whichever way the range went; in the
+ * order of `grown`.
+ */
+function nearAnchor(
+  order: readonly string[],
+  selected: readonly string[],
+  grown: readonly string[],
+  anchor: string | undefined,
+): string[] {
+  const at = anchor === undefined ? -1 : order.indexOf(anchor);
+  const away = (id: string): number => Math.abs(order.indexOf(id) - at);
+  const added = grown.filter((id) => !selected.includes(id)).sort((a, b) => away(a) - away(b));
+  const kept = new Set([...selected, ...added].slice(0, CARD_BATCH_LIMIT));
+  return grown.filter((id) => kept.has(id));
+}
+
 export class Selection {
   #selected = $state.raw<readonly string[]>([]);
   #selecting = $state(false);
@@ -87,9 +106,10 @@ export class Selection {
     return this.ids.includes(cardId);
   }
 
-  #set(next: readonly string[]): void {
-    this.full = next.length > CARD_BATCH_LIMIT;
-    this.#selected = this.full ? next.slice(0, CARD_BATCH_LIMIT) : next;
+  /** `cut`: more were asked for than fit, though `next` may have been cut to fit already. */
+  #set(next: readonly string[], cut = next.length > CARD_BATCH_LIMIT): void {
+    this.full = cut;
+    this.#selected = next.length > CARD_BATCH_LIMIT ? next.slice(0, CARD_BATCH_LIMIT) : next;
     if (next.length === 0) this.#selecting = false;
   }
 
@@ -101,7 +121,13 @@ export class Selection {
 
   /** Takes in every card from the one pressed last to this one. */
   extendTo(cardId: string): void {
-    this.#set(withRange(this.#shown(), this.ids, this.#anchor, cardId));
+    const order = this.#shown();
+    const grown = withRange(order, this.ids, this.#anchor, cardId);
+    if (grown.length > CARD_BATCH_LIMIT) {
+      this.#set(nearAnchor(order, this.ids, grown, this.#anchor), true);
+    } else {
+      this.#set(grown);
+    }
     this.#anchor = cardId;
   }
 
@@ -125,6 +151,27 @@ export class Selection {
   clear(): void {
     this.#set([]);
     this.#anchor = undefined;
+  }
+
+  /**
+   * Attaches the selection to the root of its view. Escape there lets it go
+   * (`attachEscape`), and a card that leaves the view (filtered out, its
+   * column hidden, its group folded, deleted) leaves the selection: it does
+   * not come back selected with the card.
+   */
+  readonly attach = (root: HTMLElement): (() => void) => {
+    $effect(() => {
+      this.#keep(this.#shown());
+    });
+    return this.attachEscape(root);
+  };
+
+  /** Drops the selected cards that `shown` has not. */
+  #keep(shown: readonly string[]): void {
+    untrack(() => {
+      const kept = this.#selected.filter((id) => shown.includes(id));
+      if (kept.length < this.#selected.length) this.#set(kept);
+    });
   }
 
   /**

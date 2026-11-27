@@ -337,7 +337,7 @@
     class="relative flex h-full min-h-0 flex-col"
     data-testid="kanban"
     style:--bulk-room={selectedIds.length > 0 ? BULK_ROOM : undefined}
-    {@attach selection.attachEscape}
+    {@attach selection.attach}
   >
     <ColumnTabs
       {tabs}

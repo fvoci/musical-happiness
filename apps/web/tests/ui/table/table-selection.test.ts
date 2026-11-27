@@ -71,6 +71,25 @@ const SEED: SeedTemplate = {
         filter: { operation: 'and', filters: [] },
       },
     },
+    {
+      id: 'f',
+      title: 'To do',
+      fields: {
+        viewType: 'table',
+        shownProperties: ['status', 'note'],
+        visibleGroups: [],
+        hiddenGroups: [],
+        collapsedGroups: [],
+        sort: [],
+        cardOrder: ['c2', 'c1', 'c3'],
+        columnWidths: {},
+        columnCalculations: {},
+        filter: {
+          operation: 'and',
+          filters: [{ propertyId: 'status', condition: 'includes', values: ['todo'] }],
+        },
+      },
+    },
   ],
   cards: [
     {
@@ -97,9 +116,9 @@ const SEED: SeedTemplate = {
 
 let rerenderTable: ((viewId: string) => Promise<void>) | undefined;
 
-async function mount(): Promise<BoardStore> {
+async function mount(title = 'All'): Promise<BoardStore> {
   const { board } = await openFirstBoard(setup([SEED]));
-  const viewId = board.orderedViews[0]?.id ?? '';
+  const viewId = board.orderedViews.find((view) => view.title === title)?.id ?? '';
   const { rerender } = render(TableHarness, { props: { board, viewId } });
   rerenderTable = (next) => rerender({ board, viewId: next });
   await tick();
@@ -163,6 +182,17 @@ describe('selecting rows', () => {
     expect(grid().querySelector('[data-editing]')).toBeNull();
   });
 
+  it('tells a screen reader which rows are selected, and that X selects', async () => {
+    await mount();
+    expect(grid().getAttribute('aria-multiselectable')).toBe('true');
+    expect(
+      document.getElementById(grid().getAttribute('aria-describedby') ?? '')?.textContent,
+    ).toContain('X selects the row of a cell');
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    expect(rowOf('Alpha').getAttribute('aria-selected')).toBe('true');
+    expect(rowOf('Beta').getAttribute('aria-selected')).toBe('false');
+  });
+
   it('takes the row of a cell in with X, and lets the selection go with Escape', async () => {
     await mount();
     const cell = cellOf('Alpha', 'note');
@@ -171,6 +201,11 @@ describe('selecting rows', () => {
     expect(selected()).toEqual(['Alpha']);
     await fireEvent.keyDown(cell, { key: 'x', isComposing: true });
     expect(selected()).toEqual(['Alpha']);
+    // On Hangul's layout the key where X is gives ㅌ; on Dvorak's that key is Q, and X is elsewhere.
+    await fireEvent.keyDown(cellOf('Beta', 'note'), { key: 'ㅌ', code: 'KeyX' });
+    expect(selected()).toEqual(['Beta', 'Alpha']);
+    await fireEvent.keyDown(cellOf('Gamma', 'note'), { key: 'q', code: 'KeyX' });
+    expect(selected()).toEqual(['Beta', 'Alpha']);
     await fireEvent.keyDown(cell, { key: 'Escape' });
     expect(selected()).toEqual([]);
     expect(bar()).toBeNull();
@@ -216,12 +251,36 @@ describe('selecting rows', () => {
   });
 });
 
+describe('a row that leaves the view', () => {
+  it('leaves the selection, and comes back unselected', async () => {
+    const board = await mount('To do');
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    await fireEvent.click(one(bar(), '[data-bulk-property="status"]'));
+    await fireEvent.click(await screen.findByRole('option', { name: /Done/ }));
+    // Done is not to do: the row leaves the view, and the bar with it.
+    await waitFor(() => {
+      expect(bar()).toBeNull();
+    });
+    await settle();
+    await board.workspace.undoLast();
+    await waitFor(() => {
+      expect(statusOf(board, 'Alpha')).toBe('todo');
+    });
+    await tick();
+    expect(selected()).toEqual([]);
+    expect(bar()).toBeNull();
+    // A plain press is the row's again.
+    await fireEvent.click(cellOf('Gamma', 'note'));
+    expect(selected()).toEqual([]);
+  });
+});
+
 describe('another view of the board', () => {
   it('starts with nothing selected', async () => {
     const board = await mount();
     await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
     expect(bar()).not.toBeNull();
-    const other = board.orderedViews[1]?.id;
+    const other = board.orderedViews.find((view) => view.title === 'Other')?.id;
     if (!other || !rerenderTable) throw new Error('no second view');
     await rerenderTable(other);
     await tick();

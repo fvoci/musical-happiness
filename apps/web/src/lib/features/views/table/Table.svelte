@@ -16,7 +16,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { isComposing, primaryModifier } from '$lib/keys.ts';
+  import { isComposing, isLetterKey, primaryModifier } from '$lib/keys.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CalculationOption } from '$lib/logic/properties.ts';
   import { TITLE_COLUMN_ID } from '$lib/logic/wire.ts';
@@ -121,8 +121,8 @@
       if (next && next !== cell) grid.focus(next);
     } else if (primary) {
       return;
-    } else if ((event.key === 'x' || event.key === 'X') && table.canEdit) {
-      // X takes the row of the cell into the selection, or out of it.
+    } else if (isLetterKey(event, 'x') && table.canEdit) {
+      // X takes the row of the cell into the selection, or out of it, on any layout.
       const cardId = cell.closest<HTMLElement>('[data-card]')?.dataset.card;
       if (cardId === undefined) return;
       event.preventDefault();
@@ -178,9 +178,12 @@
   class="relative h-full"
   data-testid="table-view"
   style:--bulk-room={selection.ids.length > 0 ? BULK_ROOM : undefined}
-  {@attach selection.attachEscape}
+  {@attach selection.attach}
 >
-  <p id="{uid}-help" class="sr-only">{m.table_keys_help()}</p>
+  <p id="{uid}-help" class="sr-only">
+    {m.table_keys_help()}
+    {#if table.canEdit}{m.table_keys_select_help()}{/if}
+  </p>
   <!-- svelte-ignore a11y_interactive_supports_focus (the cells of a grid take the focus, not the grid) -->
   <div
     bind:this={table.scroller}
@@ -188,6 +191,7 @@
     aria-label={view.title || m['Sidebar.untitled-view']()}
     aria-describedby="{uid}-help"
     aria-readonly={table.canEdit ? undefined : 'true'}
+    aria-multiselectable={table.canEdit ? 'true' : undefined}
     data-testid="table"
     data-scrolled={table.sideways ? '' : undefined}
     data-drag-scroll={columnDrag ? 'x' : 'y'}

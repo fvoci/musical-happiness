@@ -107,7 +107,7 @@
 <div
   class="relative h-full"
   style:--bulk-room={selection.ids.length > 0 ? BULK_ROOM : undefined}
-  {@attach selection.attachEscape}
+  {@attach selection.attach}
 >
   <div
     class="h-full overflow-y-auto pb-[calc(var(--fab-room,0px)+var(--bulk-room,0px))]"

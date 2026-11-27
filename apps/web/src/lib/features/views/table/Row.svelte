@@ -137,6 +137,7 @@
 <div
   bind:this={row}
   role="row"
+  aria-selected={host.canEdit ? selected : undefined}
   data-nav-row
   data-row={card.id}
   data-card={card.id}

@@ -1018,6 +1018,7 @@
   "shell_stage_medium": "medium",
   "shell_stage_expanded": "expanded",
   "table_keys_help": "Arrow keys move between cells. Enter edits a cell and Escape leaves it. On the name of a card, Space picks the row up to move it. On the heading of a column, Enter opens its menu and Space picks the column up to move it.",
+  "table_keys_select_help": "X selects the row of a cell, or lets it go, and Escape lets the selection go.",
   "table_column_menu": "{name} column",
   "table_column_move_left": "Move left",
   "table_column_move_right": "Move right",
