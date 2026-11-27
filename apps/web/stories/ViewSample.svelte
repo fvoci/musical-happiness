@@ -21,9 +21,11 @@
     narrow = false,
     week = false,
     headerOnly = false,
+    quick = false,
+    filtered = false,
   }: WorkspaceExample & { narrow?: boolean; week?: boolean; headerOnly?: boolean } = $props();
   const example = $derived(
-    exampleWorkspace({ kind, count, readOnly, cycle, late, variedRelations }),
+    exampleWorkspace({ kind, count, readOnly, cycle, late, variedRelations, quick, filtered }),
   );
   const board = $derived(example.workspace.board);
   const view = $derived(board?.view('example-view'));

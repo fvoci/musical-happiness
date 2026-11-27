@@ -6,6 +6,8 @@
  * Only the identifier is kept. Whether it is still theirs is the backend's
  * say (`Workspace.load` enters it only when it is among their workspaces).
  */
+import { QUICK_FILTERS_KEY } from '$lib/state/board-quick.svelte.ts';
+
 const KEY = 'fvoci:last-workspace:';
 
 export function lastWorkspace(userId: string): string | undefined {
@@ -57,7 +59,7 @@ export function rememberPlace(userId: string, workspaceId: string, boardId: stri
 export function forgetUnscoped(): void {
   try {
     for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('fvoci.calendar.scale.')) {
+      if (key.startsWith('fvoci.calendar.scale.') || key.startsWith(QUICK_FILTERS_KEY)) {
         localStorage.removeItem(key);
       }
     }
@@ -76,7 +78,8 @@ export function forgetUser(userId: string): void {
         key.startsWith(`${PLACE_KEY}${userId}:`) ||
         key.startsWith(`fvoci:wiki-open:${userId}:`) ||
         key.startsWith(`fvoci:course-open:${userId}:`) ||
-        key.startsWith('fvoci.calendar.scale.')
+        key.startsWith('fvoci.calendar.scale.') ||
+        key.startsWith(QUICK_FILTERS_KEY)
       ) {
         localStorage.removeItem(key);
       }
