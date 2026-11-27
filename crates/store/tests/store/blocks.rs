@@ -82,8 +82,7 @@ pub(crate) async fn another_board(store: &Store, workspace_id: &str, user_id: &s
         .id
 }
 
-/// Stores `N` users, which take the place of `user-id-1`, `user-id-2` and so on of the
-/// original suite, and returns their identifiers.
+/// Stores `N` users, `user-1`, `user-2` and so on, and returns their identifiers.
 async fn users<const N: usize>(store: &Store) -> [String; N] {
     let mut user_ids = Vec::with_capacity(N);
     for number in 1..=N {

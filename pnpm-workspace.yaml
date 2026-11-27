@@ -1,6 +1,5 @@
-# The JavaScript workspace of fvoci: the new web app, and what it builds in
-# from source that npm does not carry (vendor/rhwp-studio, the HWP editor). The
-# original `webapp/` tree keeps its own npm lockfile and is not a member.
+# The JavaScript workspace of fvoci: the web app, and what it builds in from
+# source that npm does not carry (vendor/rhwp-studio, the HWP editor).
 packages:
   - apps/*
   - vendor/*

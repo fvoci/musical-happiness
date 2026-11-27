@@ -761,8 +761,6 @@ async fn duplicate_a_card_whose_attachment_names_its_file_as(ts: &TestServer, ke
     download.check_ok();
 }
 
-// -- the legacy reader fallback (ported but unreachable from the route) -----------------
-
 // -- files are tied to their board --------------------------------------------------------
 
 /// The private board of the first user with an uploaded file, and a private board of

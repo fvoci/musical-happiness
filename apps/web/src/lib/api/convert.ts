@@ -272,8 +272,8 @@ export function patchCardRequest(
 }
 
 /**
- * A comment: a block whose text is its body. A comment stored before bodies
- * were (its text in the title, as the original app wrote it) is shown with
+ * A comment: a block whose text is its body. A comment that has no body and
+ * keeps its text in the title, as comments were first stored, is shown with
  * each line of the title as a paragraph of plain text.
  */
 export function commentOf(block: Schemas['Block']): Comment {

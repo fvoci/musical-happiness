@@ -121,7 +121,7 @@ describe('Markdown into document nodes', () => {
 });
 
 describe('what a document cannot say is counted', () => {
-  it('shows HTML as the characters it is, like the original did', () => {
+  it('shows HTML as the characters it is, never as markup', () => {
     expect(blocks('a <b>x</b>')).toEqual([
       { type: 'paragraph', content: [{ type: 'text', text: 'a <b>x</b>' }] },
     ]);

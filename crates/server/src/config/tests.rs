@@ -63,18 +63,18 @@ fn a_port_of_zero_and_s3_settings_that_are_no_object_are_refused() {
     Configuration::parse(r#"{"file_storage_s3": null}"#, no_env).expect("null is no settings");
 }
 
-/// The keys of a file are matched as they are written: another case, or a name of the
-/// original server's configuration, is no setting, and is named in the warning of the
-/// keys that are not read (without its value).
+/// The keys of a file are matched as they are written: another case, or a name that is
+/// close to a setting's, is no setting, and is named in the warning of the keys that
+/// are not read (without its value).
 #[test]
 fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
     let text = r#"{
             "PORT": 8088,
             "auth_mode": "native",
             "Listen_Loopback_Only": true,
-            "serverRoot": "https://hidden.example",
-            "dbconfig": "postgres://u:hunter2@h/db",
-            "enablePublicSharedBoards": true,
+            "serverAddress": "https://hidden.example",
+            "databaseurl": "postgres://u:hunter2@h/db",
+            "allowPublicSharing": true,
             "file_storage_s3": {"Bucket": "b", "accesskeyid": "s3cr3t", "bucket": "a"}
         }"#;
     let config = Configuration::parse(text, no_env).expect("valid JSON");
@@ -90,10 +90,10 @@ fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
         [
             "Listen_Loopback_Only",
             "PORT",
+            "allowPublicSharing",
             "auth_mode",
-            "dbconfig",
-            "enablePublicSharedBoards",
-            "serverRoot",
+            "databaseurl",
+            "serverAddress",
             "file_storage_s3.Bucket",
             "file_storage_s3.accesskeyid",
         ]
@@ -103,7 +103,7 @@ fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
     assert_eq!(
         warnings[0],
         "the configuration file has keys that no setting reads: \"Listen_Loopback_Only\", \
-         \"PORT\", \"auth_mode\", \"dbconfig\", \"enablePublicSharedBoards\", \"serverRoot\", \
+         \"PORT\", \"allowPublicSharing\", \"auth_mode\", \"databaseurl\", \"serverAddress\", \
          \"file_storage_s3.Bucket\", \"file_storage_s3.accesskeyid\""
     );
     for value in ["hunter2", "s3cr3t", "hidden.example"] {
@@ -372,7 +372,8 @@ fn check_rejects_what_the_server_cannot_honor() {
             .expect_err("the setting is not supported")
             .to_string()
     };
-    // The values are this server's own: those of the original are no other names of them.
+    // Only the names the server lists are values: one close to them is refused, and the
+    // answer names the value it may have meant.
     assert!(error(r#"{"file_storage": "amazons3"}"#).contains("\"s3\""));
     parse(r#"{"file_storage": "s3", "file_storage_s3": {"bucket": "b"}}"#)
         .check()

@@ -63,7 +63,7 @@
 
   /** The stored value as text or a list of texts; a date left on another kind reads as its key. */
   const plain = $derived(plainPropertyValue(value));
-  /** For the kinds that hold one text. A list left behind by another kind is joined, as the original showed it. */
+  /** For the kinds that hold one text. A list left behind by another kind is shown joined by commas. */
   const text = $derived(Array.isArray(plain) ? plain.join(',') : (plain ?? ''));
   /** For the kinds that hold identifiers: each one once. */
   const one = $derived(typeof plain === 'string' && plain !== '' ? [plain] : []);

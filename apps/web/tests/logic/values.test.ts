@@ -1,6 +1,6 @@
 /**
- * Calendar dates, formatting and text helpers. Written for the port; the
- * original tests cover only part of this code (see utils.test.ts).
+ * Calendar dates, formatting and text helpers, past what utils.test.ts
+ * covers of them.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -137,7 +137,7 @@ describe('durations and sizes', () => {
     expect(relativeTime(ago(3 * HOUR), 'ko', now)).toBe('3시간 전');
   });
 
-  it('rounds each unit before choosing it, like the library the original used', () => {
+  it('rounds each unit before choosing it', () => {
     // 44.7 seconds round to 45: no longer "a few seconds".
     expect(humanizeDuration(44_700, 'en')).toBe('1 minute');
     expect(humanizeDuration(44 * MINUTE + 40_000, 'en')).toBe('1 hour');

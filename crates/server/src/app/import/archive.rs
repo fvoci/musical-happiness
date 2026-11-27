@@ -377,8 +377,9 @@ pub(super) fn split_entry_name(name: &str) -> (String, String) {
     }
 }
 
-/// Normalises a directory path the way Go's `path.Clean` does for the names this import
-/// meets: it resolves `.` and `..` segments. The result is used only as a map key.
+/// Normalises a directory path lexically: drops empty and `.` segments, and resolves
+/// `..` against the segment before it (keeping a leading `..` that has none). The
+/// result is used only as a map key.
 pub(super) fn clean_dir(dir: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
     for segment in dir.split('/') {

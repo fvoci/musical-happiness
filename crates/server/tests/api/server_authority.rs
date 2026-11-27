@@ -29,7 +29,7 @@ fn text_doc(text: &str) -> Value {
 
 /// 1) Mandatory regression test: if storage `Copy` fails while duplicating a card with
 /// an attached file and an embedded file block, `POST .../cards/{cardId}/duplicate`
-/// returns 500, leaves **zero** cloned blocks referencing the original `fileId` (and
+/// returns 500, leaves **zero** cloned blocks referencing the source card's `fileId` (and
 /// zero extra cards on the board), and leaves no unsettled `Writing` loose objects.
 #[tokio::test]
 async fn atomic_card_duplicate_rolls_back_when_file_copy_fails() {

@@ -102,7 +102,7 @@ pub(crate) fn renew_block_ids_told(
 /// values under `relations`, and references inside its body) into `out`.
 ///
 /// Matches [`renew_block_ids`]: when `contentOrder` is present and not a JSON array,
-/// collection stops before inspecting `defaultTemplateId` (matching original Go behavior).
+/// collection stops before inspecting `defaultTemplateId`, as renewing does.
 pub fn collect_block_references<S: BuildHasher>(
     block: &Block,
     relations: &RelationProperties,
