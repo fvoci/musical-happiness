@@ -194,14 +194,13 @@ const CALLOUT: &[Attribute] = &[required("tone", Rule::OneOf(CALLOUT_TONES))];
 fn node_spec(name: &str) -> Option<NodeSpec> {
     const LEAF: &[&str] = &[];
     Some(match name {
-        "paragraph" => node(&[], INLINE, 0),
+        "paragraph" | "detailsSummary" => node(&[], INLINE, 0),
         "heading" => node(HEADING, INLINE, 0),
         "bulletList" => node(&[], &["listItem"], 1),
         "orderedList" => node(ORDERED_LIST, &["listItem"], 1),
         "doc" | "detailsContent" => node(&[], &DOCUMENT_BLOCKS, 1),
         "listItem" | "blockquote" => node(&[], &BLOCKS, 1),
         "details" => node(&[], &DETAILS_PARTS, DETAILS_PARTS.len()),
-        "detailsSummary" => node(&[], INLINE, 0),
         "callout" => node(CALLOUT, &BLOCKS, 1),
         "table" => node(&[], &["tableRow"], 1),
         // A row may have no cell of its own where the cells above cover it.

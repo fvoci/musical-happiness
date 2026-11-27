@@ -112,7 +112,11 @@ impl Iterator for Pieces<'_> {
 
 /// Whether the letter at `at` follows a backslash of its own: an odd run of them.
 fn escaped(text: &str, at: usize) -> bool {
-    text[..at].bytes().rev().take_while(|&letter| letter == b'\\').count() % 2 == 1
+    let backslashes = text[..at]
+        .bytes()
+        .rev()
+        .take_while(|&letter| letter == b'\\');
+    backslashes.count() % 2 == 1
 }
 
 /// Whether a tag is one of inline text, read in the summary of a toggle.

@@ -27,6 +27,8 @@
  * Chrome on Android leaves Enter to the page (ProseMirror takes its keydown
  * there for a part of composing), which would split the summary into a toggle
  * of its own: the `beforeinput` it sends for the new line does what Enter does.
+ * Only there: on iOS ProseMirror takes Enter from the change the page makes,
+ * and from no change, so a new line refused there would be a second Enter.
  */
 import { mergeAttributes, Node, type KeyboardShortcutCommand } from '@tiptap/core';
 import { Fragment, type Node as DocumentNode, type ResolvedPos } from '@tiptap/pm/model';
@@ -226,6 +228,12 @@ function enterOnLastLine(state: EditorState, dispatch?: (tr: Transaction) => voi
 const enter = (state: EditorState, dispatch?: (tr: Transaction) => void): boolean =>
   enterInSummary(state, dispatch) || enterOnLastLine(state, dispatch);
 
+/** Whether the page is Chrome on Android, by its name, as ProseMirror tells (its browser.ts). */
+const isAndroidChrome = (page: Document): boolean => {
+  const agent = page.defaultView?.navigator.userAgent ?? '';
+  return /Android \d/.test(agent) && /Chrome\/\d/.test(agent);
+};
+
 /** Enter as a new line the page was asked for (see above), where Enter in a toggle is no split. */
 const newLineAsEnter = (): Plugin =>
   new Plugin({
@@ -233,6 +241,7 @@ const newLineAsEnter = (): Plugin =>
       handleDOMEvents: {
         beforeinput: (view, event) => {
           if (event.inputType !== 'insertParagraph' || view.composing) return false;
+          if (!isAndroidChrome(view.dom.ownerDocument)) return false;
           const dispatch = (tr: Transaction): void => {
             view.dispatch(tr);
           };

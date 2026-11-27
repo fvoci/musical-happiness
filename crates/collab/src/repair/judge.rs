@@ -505,11 +505,10 @@ fn validate_shell_attrs(spec: KindSpec, place: Place, mut shell: Value) -> Resul
         Place::ListEntry => Wrapper::ListEntry,
         Place::TaskEntry => Wrapper::TaskEntry,
         Place::TableRow => Wrapper::TableRow,
-        // The parts of a toggle have no attributes.
-        Place::DetailsPart => return Ok(true),
-        // `passes` strips `colspan`/`rowspan` for standalone cell validation; table cells
-        // have no other allowlisted attributes.
-        Place::TableCell => return Ok(true),
+        // The parts of a toggle have no attributes; `passes` strips `colspan`/`rowspan`
+        // for standalone cell validation, and table cells have no other allowlisted
+        // attributes.
+        Place::DetailsPart | Place::TableCell => return Ok(true),
     };
     if spec.min_children > 0 {
         let dummy = match spec.name {

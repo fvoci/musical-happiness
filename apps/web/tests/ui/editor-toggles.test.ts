@@ -232,13 +232,22 @@ describe('a toggle in the editor', () => {
   });
 
   it('takes a new line the page is asked for, as Chrome on Android asks, as Enter', () => {
+    const newLine = (): InputEvent =>
+      new InputEvent('beforeinput', {
+        inputType: 'insertParagraph',
+        bubbles: true,
+        cancelable: true,
+      });
     const editor = create(doc(toggle([text('why it is')], paragraph(text('because')))));
     caret(editor, at(editor, ' it is'));
-    const event = new InputEvent('beforeinput', {
-      inputType: 'insertParagraph',
-      bubbles: true,
-      cancelable: true,
-    });
+    // Not on other pages: on iOS ProseMirror takes the Enter itself.
+    const iPhone = newLine();
+    editor.view.dom.dispatchEvent(iPhone);
+    expect(iPhone.defaultPrevented).toBe(false);
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
+    );
+    const event = newLine();
     editor.view.dom.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     expect(stored(editor)).toEqual(
@@ -246,13 +255,10 @@ describe('a toggle in the editor', () => {
     );
     // Elsewhere it is the page's, and ProseMirror's.
     caret(editor, at(editor, 'because', true));
-    const elsewhere = new InputEvent('beforeinput', {
-      inputType: 'insertParagraph',
-      bubbles: true,
-      cancelable: true,
-    });
+    const elsewhere = newLine();
     editor.view.dom.dispatchEvent(elsewhere);
     expect(elsewhere.defaultPrevented).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it('is pasted from a page as a toggle, and copied out and in again the same', () => {

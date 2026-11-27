@@ -145,7 +145,7 @@ const fn node_spec_def(
 
 fn node_spec(kind: &str) -> Option<NodeSpec> {
     Some(match kind {
-        "paragraph" => node_spec_def(&[], INLINE, 0),
+        "paragraph" | "detailsSummary" => node_spec_def(&[], INLINE, 0),
         "heading" => node_spec_def(HEADING_ATTRS, INLINE, 0),
         "bulletList" => node_spec_def(&[], &["listItem"], 1),
         "orderedList" => node_spec_def(ORDERED_LIST_ATTRS, &["listItem"], 1),
@@ -163,7 +163,6 @@ fn node_spec(kind: &str) -> Option<NodeSpec> {
         "reference" => node_spec_def(REFERENCE_ATTRS, LEAF, 0),
         "inlineMath" | "blockMath" => node_spec_def(MATH_ATTRS, LEAF, 0),
         "details" => node_spec_def(&[], DETAILS_PARTS, DETAILS_PARTS.len()),
-        "detailsSummary" => node_spec_def(&[], INLINE, 0),
         "detailsContent" => node_spec_def(&[], DOCUMENT_BLOCKS, 1),
         "callout" => node_spec_def(CALLOUT_ATTRS, BLOCKS, 1),
         _ => return None,

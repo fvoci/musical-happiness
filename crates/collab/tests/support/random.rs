@@ -260,7 +260,11 @@ fn block(random: &mut Random, depth: usize) -> Value {
 /// A callout of one of the tones, of blocks.
 fn callout(random: &mut Random, depth: usize) -> Value {
     let tone = *random.pick(&["info", "tip", "warn", "danger"]);
-    with_content("callout", Some(json!({"tone": tone})), blocks(random, depth))
+    with_content(
+        "callout",
+        Some(json!({"tone": tone})),
+        blocks(random, depth),
+    )
 }
 
 /// A callout, or a toggle whose summary may be empty and whose content may hold a
