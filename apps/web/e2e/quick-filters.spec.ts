@@ -475,12 +475,20 @@ test.describe('the filter of a view', () => {
     await expect(box).toHaveCount(1);
     await expect.poll(() => shown(page)).toEqual(['Build', 'Write the help pages', 'Test']);
   });
+});
 
-  test('on a phone 390 pixels wide a group and its lines fold to fit, none wider than the screen', async ({
+test.describe('on a phone 390 pixels wide', () => {
+  // The window is that size from the start: an emulated iPhone resized under an open sheet
+  // leaves the sheet where the page no longer takes a press.
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('a group and its lines fold to fit, none wider than the screen', async ({
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile', 'a phone');
-    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page);
+    await tool(page, 'filter').click();
+    await expect(filterEditor(page)).toBeVisible();
     await filterEditor(page).locator('[data-tool="add-group"]').click();
     const box = filterEditor(page).locator('[data-filter-group]');
     const row = filterRows(box).first();
