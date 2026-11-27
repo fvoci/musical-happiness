@@ -270,9 +270,7 @@ impl Store {
                     Err(error) => return Err(error),
                 };
                 entries.push(DeletedDiaryEntry {
-                    date: entry_date(&block)
-                        .map(|date| date.to_string())
-                        .unwrap_or_default(),
+                    date: entry_date(&block).map_or_default(|date| date.to_string()),
                     mood: entry_mood(&block),
                     id: block.id,
                     deleted_at: row.int(2)?,

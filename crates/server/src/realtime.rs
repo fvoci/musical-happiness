@@ -367,19 +367,16 @@ impl Listener {
 impl Listeners {
     /// The listeners of a user that are subscribed to the workspace: every tab of the user.
     fn of_user(&self, workspace_id: &str, user_id: &str) -> Vec<ListenerId> {
-        self.by_workspace
-            .get(workspace_id)
-            .map(|ids| {
-                ids.iter()
-                    .copied()
-                    .filter(|id| {
-                        self.by_id
-                            .get(id)
-                            .is_some_and(|listener| listener.user_id == user_id)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.by_workspace.get(workspace_id).map_or_default(|ids| {
+            ids.iter()
+                .copied()
+                .filter(|id| {
+                    self.by_id
+                        .get(id)
+                        .is_some_and(|listener| listener.user_id == user_id)
+                })
+                .collect()
+        })
     }
 
     /// Queues `text` for each of `recipients`, and closes and takes out one that does

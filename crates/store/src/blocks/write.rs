@@ -101,7 +101,7 @@ pub(super) fn push_body(
     body: Option<&Body>,
     how: BodyColumns,
 ) -> Result<(), StoreError> {
-    let tasks = body.map(Body::tasks).unwrap_or_default();
+    let tasks = body.map_or_default(Body::tasks);
     let first_image = body.and_then(Body::first_image_file_id).map(str::to_owned);
     let values = [
         (", body = ", Param::opt_jsonb(body.map(Body::document))?),

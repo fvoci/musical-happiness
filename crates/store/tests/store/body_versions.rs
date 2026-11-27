@@ -129,10 +129,7 @@ async fn texts(store: &Store, card_id: &str) -> Vec<(i64, String)> {
             .await
             .expect("read")
             .expect("a listed version is there");
-        texts.push((
-            kept.version,
-            body.map(|body| body.text()).unwrap_or_default(),
-        ));
+        texts.push((kept.version, body.map_or_default(|body| body.text())));
     }
     texts
 }

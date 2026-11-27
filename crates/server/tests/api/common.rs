@@ -1337,7 +1337,7 @@ impl ApiResponse {
         assert!(kind.is_some(), "a kind of problem the server lists: {body}");
         assert_eq!(
             body["title"],
-            kind.map(|kind| kind.title).unwrap_or_default(),
+            kind.map_or_default(|kind| kind.title),
             "the title of the type: {body}"
         );
         assert!(body["detail"].is_string(), "the detail: {body}");

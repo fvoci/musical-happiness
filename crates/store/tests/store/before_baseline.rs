@@ -140,7 +140,7 @@ async fn sqlite_catalog(path: &str) -> String {
             .await
             .expect("the definitions are read");
     for (kind, name, table, sql) in &objects {
-        let sql = sql.as_deref().map(normalized_sql).unwrap_or_default();
+        let sql = sql.as_deref().map_or_default(normalized_sql);
         writeln!(text, "{kind} {name} on {table}: {sql}").expect("a string takes what is written");
     }
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")

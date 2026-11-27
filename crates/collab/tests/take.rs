@@ -300,12 +300,10 @@ fn random_refused_in_place_updates_rebuild_to_exact_prior_bytes() {
                 expected.repair.body,
                 "seed {seed} step {step}: body"
             );
-            let expected_files: Vec<String> = expected
-                .repair
-                .body
-                .as_ref()
-                .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
-                .unwrap_or_default();
+            let expected_files: Vec<String> =
+                expected.repair.body.as_ref().map_or_default(|body| {
+                    body.file_ids().into_iter().map(str::to_owned).collect()
+                });
             assert_eq!(
                 changed.doc.file_ids(),
                 expected_files,

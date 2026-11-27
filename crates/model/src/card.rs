@@ -349,7 +349,7 @@ impl Card {
             }
         };
 
-        let summary = block.body.as_ref().map(Body::summary).unwrap_or_default();
+        let summary = block.body.as_ref().map_or_default(Body::summary);
         let mut card = Self {
             id: block.id.clone(),
             board_id: block.container_id.clone(),

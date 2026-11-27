@@ -148,8 +148,7 @@ fn collect_written_relations(
         let had: HashSet<&str> = before
             .and_then(|before| before.get(property))
             .and_then(Value::as_array)
-            .map(|items| items.iter().filter_map(relation_link_card).collect())
-            .unwrap_or_default();
+            .map_or_default(|items| items.iter().filter_map(relation_link_card).collect());
         let Some(links) = check_relation_value(&block.id, property, value, &had)
             .map_err(|error| invalid(&block.id, error.into()))?
         else {
