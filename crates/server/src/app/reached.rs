@@ -75,24 +75,41 @@ impl Reached {
         self.access.as_ref()
     }
 
-    /// What the caller may do on the container: nothing if it is not there for them.
-    pub fn grant(&self) -> Grant {
-        self.access.as_ref().map_or(Grant::NONE, |access| access.grant)
+    /// Whether `block` is of the container: what a write of a block that a request found
+    /// by its identifier asks, so that the container reached is the one written to.
+    #[must_use]
+    pub fn holds(&self, block: &Block) -> bool {
+        block.container_id == self.container_id
     }
 
-    /// Checks that the caller has `permission` on the container the request names.
+    /// What the caller may do on the container: nothing if it is not there for them.
+    pub fn grant(&self) -> Grant {
+        self.access
+            .as_ref()
+            .map_or(Grant::NONE, |access| access.grant)
+    }
+
+    /// Checks that the caller has `permission` on the container the request names, and
+    /// gives the container they have it on.
     ///
     /// # Errors
     ///
     /// Returns 403 (`denial`) for who sees the container ([`Grant::sees`]); for anybody
     /// else, and for the content of a container the caller only manages
     /// ([`Grant::hides`]), not found: the board is not there.
-    pub fn require(&self, permission: ContainerPermission, denial: &str) -> Result<(), AppError> {
-        require_granted(self.grant(), permission, denial)
+    pub fn require(
+        &self,
+        permission: ContainerPermission,
+        denial: &str,
+    ) -> Result<&Container, AppError> {
+        require_granted(self.grant(), permission, denial)?;
+        // Granted something, the caller has the container: nothing is granted on none.
+        self.container().ok_or_else(|| AppError::not_found("board"))
     }
 
     /// Checks that the caller has `permission` on a container the request does not name
-    /// itself but reaches through `what`, such as a card of the board.
+    /// itself but reaches through `what`, such as a card of the board, and gives the
+    /// container.
     ///
     /// # Errors
     ///
@@ -104,10 +121,10 @@ impl Reached {
         permission: ContainerPermission,
         denial: &str,
         what: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<&Container, AppError> {
         let grant = self.grant();
         if grant.allows(permission) {
-            Ok(())
+            self.container().ok_or_else(|| AppError::not_found(what))
         } else if grant.reads() {
             Err(AppError::forbidden(denial))
         } else {
@@ -150,7 +167,7 @@ impl Reached {
         denial: &str,
     ) -> Result<(), AppError> {
         let (permission, denial) = comment_permission(&self.user_id, comment, action, denial);
-        self.require(permission, denial)
+        require_granted(self.grant(), permission, denial)
     }
 
     /// Checks that the caller may do `action` to `block` of the container: a comment as
@@ -167,7 +184,7 @@ impl Reached {
     ) -> Result<(), AppError> {
         match block.block_type {
             BlockType::Comment => self.require_on_comment(block, action, denial),
-            _ => self.require(ContainerPermission::ManageCards, denial),
+            _ => require_granted(self.grant(), ContainerPermission::ManageCards, denial),
         }
     }
 

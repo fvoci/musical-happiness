@@ -553,7 +553,7 @@ async fn save_unit(
         .await
         .map_err(|error| done.told(error))?;
     if let Some(progress) = &progress {
-        let recorded = record_progress(&ws, course_id, &done.id, progress)
+        let recorded = record_progress(&ws, &done.id, progress)
             .await
             .map_err(|error| done.told(error))?;
         if let Value::Object(members) = &mut saved {
@@ -727,15 +727,8 @@ where
     T: serde::de::DeserializeOwned,
 {
     let commenter = CommenterOf::<K>::admit(ws, container_id, parent_id, None).await?;
-    let comment = create_comment_on::<T>(
-        &commenter.ws,
-        &commenter.container_id,
-        commenter.parent,
-        parent_what,
-        body,
-        ChangeNotification::Send,
-    )
-    .await?;
+    let comment =
+        create_comment_on::<_, T>(&commenter, parent_what, body, ChangeNotification::Send).await?;
     let done = Done::made(&comment.id);
     let listed = listed_comment(&commenter.ws, &commenter.container_id, comment)
         .await

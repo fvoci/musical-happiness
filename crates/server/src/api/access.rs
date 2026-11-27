@@ -4,10 +4,10 @@
 //! these are the checks of the routes that ask one question of a board, and the routes
 //! that ask more keep the `Reached` and ask it.
 
-use fvoci_model::{Block, BlockType, Workspace};
+use fvoci_model::Workspace;
 
-pub(crate) use crate::app::{BlockAction, refusal, require_granted};
 use crate::app::App;
+pub(crate) use crate::app::{BlockAction, refusal, require_granted};
 use crate::error::{AppError, Reason};
 use crate::permissions::ContainerPermission;
 
@@ -42,58 +42,8 @@ pub(crate) async fn require_container_permission(
 ) -> Result<(), AppError> {
     app.reach(user_id, container_id)
         .await?
-        .require(permission, denial)
-}
-
-/// Checks that the user may do `action` to the block, of a board the request names
-/// (`Reached::require_on_block`): a comment is its author's from the commenter's role
-/// up, and somebody else's the board admins' only (`ManageOthersComments`); any other
-/// block is the editors'. A refusal says `denial`, except for the comment of somebody
-/// else, whose refusal says so. [`require_deletion_permission`] checks what a deletion
-/// takes along.
-pub(crate) async fn require_block_permission(
-    app: &App,
-    user_id: &str,
-    block: &Block,
-    action: BlockAction<'_>,
-    denial: &str,
-) -> Result<(), AppError> {
-    app.reach(user_id, &block.container_id)
-        .await?
-        .require_on_block(block, action, denial)
-}
-
-/// Checks that the user may delete the block, of a board the request names, with what
-/// deleting it takes along: [`require_deletion_permission`] with the blocks below it.
-pub(crate) async fn require_delete_permission(
-    app: &App,
-    user_id: &str,
-    block: &Block,
-    denial: &str,
-) -> Result<(), AppError> {
-    // Only a comment's replies have a say: what goes with a card is the card's.
-    let below = if block.block_type == BlockType::Comment {
-        app.blocks_below(&block.id).await?
-    } else {
-        Vec::new()
-    };
-    require_deletion_permission(app, user_id, block, &below, BlockAction::Delete, denial).await
-}
-
-/// Checks that the user may delete a block and what goes with it, or bring them back
-/// (`action`), as `Reached::require_on_deletion` says: `top` is the block that is
-/// deleted, `below` the blocks it takes along.
-pub(crate) async fn require_deletion_permission(
-    app: &App,
-    user_id: &str,
-    top: &Block,
-    below: &[Block],
-    action: BlockAction<'_>,
-    denial: &str,
-) -> Result<(), AppError> {
-    app.reach(user_id, &top.container_id)
-        .await?
-        .require_on_deletion(top, below, action, denial)
+        .require(permission, denial)?;
+    Ok(())
 }
 
 /// Checks that the user has the permission on a board that the request does not name
@@ -113,7 +63,8 @@ pub(crate) async fn require_permission_through(
 ) -> Result<(), AppError> {
     app.reach(user_id, container_id)
         .await?
-        .require_through(permission, denial, what)
+        .require_through(permission, denial, what)?;
+    Ok(())
 }
 
 /// Checks that the user sees the board at all (`Grant::sees`). For anybody else it does

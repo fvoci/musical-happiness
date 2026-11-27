@@ -20,12 +20,12 @@ use super::contract::params::{MemberWorkspaceId, PageId, PerPage, WikiId};
 use super::contract::tag;
 use super::query::{PagingQuery, QueryParams};
 use super::workspace::{InWiki, InWorkspace};
-use super::{
-    ApiResult, created, decode_object, decode_with_document, json_response, no_content,
-    require_container_permission,
-};
+use super::{ApiResult, created, decode_object, decode_with_document, json_response, no_content};
 use super::{Delegated, Read, Write};
-use crate::app::{App, ChangeNotification};
+use crate::app::{
+    App, CREATE_PAGE_DENIED, DELETE_PAGE_DENIED, DUPLICATE_PAGE_DENIED, MOVE_PAGE_DENIED,
+    PAGE_TRASH_DENIED, PATCH_PAGE_DENIED, Reached,
+};
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
@@ -134,8 +134,8 @@ pub(super) const READ_DENIED: &str = "access denied to fetch page";
 /// Returns the page of the wiki for a handler of `/wikis/{wikiId}/pages/{pageId}`, if
 /// the user has the permission on the wiki: its block, read once.
 ///
-/// Who may not read the wiki is told what `require_container_permission` tells; a block
-/// that is no page of this wiki is no page, whatever else it is.
+/// Who may not read the wiki is told what [`Reached::require`] tells; a block that is no
+/// page of this wiki is no page, whatever else it is.
 pub(super) async fn page_with_permission(
     ws: &InWorkspace,
     wiki_id: &str,
@@ -143,8 +143,23 @@ pub(super) async fn page_with_permission(
     permission: ContainerPermission,
     denial: &str,
 ) -> Result<Block, AppError> {
-    require_container_permission(&ws.app, &ws.caller.user_id, wiki_id, permission, denial).await?;
-    ws.app.page_of(wiki_id, page_id).await
+    let (_, page) = page_reached(ws, wiki_id, page_id, permission, denial).await?;
+    Ok(page)
+}
+
+/// The wiki as the caller reached it and its page, as [`page_with_permission`] finds
+/// them: for a route that writes the page, which the wiki's [`Reached`] is asked for.
+pub(super) async fn page_reached(
+    ws: &InWorkspace,
+    wiki_id: &str,
+    page_id: &str,
+    permission: ContainerPermission,
+    denial: &str,
+) -> Result<(Reached, Block), AppError> {
+    let on = ws.app.reach(&ws.caller.user_id, wiki_id).await?;
+    on.require(permission, denial)?;
+    let page = ws.app.page_of(wiki_id, page_id).await?;
+    Ok((on, page))
 }
 
 /// The pages of a wiki
@@ -177,14 +192,8 @@ pub(super) async fn page_tree_read(
     ws: &InWorkspace,
     wiki_id: &str,
 ) -> Result<Vec<PageNode>, AppError> {
-    require_container_permission(
-        &ws.app,
-        &ws.caller.user_id,
-        wiki_id,
-        ContainerPermission::View,
-        "access denied to fetch pages",
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, wiki_id).await?;
+    on.require(ContainerPermission::View, "access denied to fetch pages")?;
     ws.app.page_tree(wiki_id).await
 }
 
@@ -233,19 +242,12 @@ pub(super) async fn create_page_from(
     wiki_id: &str,
     body: &Bytes,
 ) -> Result<Page, AppError> {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        wiki_id,
-        ContainerPermission::ManageCards,
-        "access denied to create page",
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, wiki_id).await?;
+    // Asked before the body is read, as every route asks.
+    on.require(ContainerPermission::ManageCards, CREATE_PAGE_DENIED)?;
     let new: NewPage = decode_object(body)?;
-    new.check_request()?;
-    let page = ws.app.create_page(wiki_id, &new, user_id).await?;
-    tracing::debug!(wiki_id, page_id = %page.id, user_id, "CreatePage");
+    let page = ws.app.create_page(&on, &new).await?;
+    tracing::debug!(wiki_id, page_id = %page.id, user_id = on.user_id(), "CreatePage");
     Ok(page)
 }
 
@@ -313,33 +315,16 @@ pub(super) async fn patch_page_from(
     page_id: &str,
     body: &Bytes,
 ) -> Result<Page, AppError> {
-    let user_id = ws.caller.user_id.as_str();
-    let page = page_with_permission(
-        ws,
-        wiki_id,
-        page_id,
-        ContainerPermission::ManageCards,
-        "access denied to patch page",
-    )
-    .await?;
+    let editing = ContainerPermission::ManageCards;
+    let (on, page) = page_reached(ws, wiki_id, page_id, editing, PATCH_PAGE_DENIED).await?;
     let (mut patch, document): (PagePatch, _) = decode_with_document(body)?;
     patch.body = document;
-    patch.check_request()?;
-    ws.app
-        .check_body_files(wiki_id, patch.body.new_body())
-        .await?;
     let patched = ws
         .app
-        .patch_block_as(
-            &page.id,
-            &patch.into_block_patch(),
-            user_id,
-            ChangeNotification::Send,
-            ws.caller.agent(),
-        )
+        .patch_page(&on, &page, patch, ws.caller.agent())
         .await?;
-    tracing::debug!(wiki_id, page_id, user_id, "PatchPage");
-    Ok(Page::from(patched))
+    tracing::debug!(wiki_id, page_id, user_id = on.user_id(), "PatchPage");
+    Ok(patched)
 }
 
 /// Move a page
@@ -370,18 +355,11 @@ async fn handle_move_page(
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
-        ContainerPermission::ManageCards,
-        "access denied to move page",
-    )
-    .await?;
+    let editing = ContainerPermission::ManageCards;
+    let (on, page) = page_reached(&ws, &wiki_id, &page_id, editing, MOVE_PAGE_DENIED).await?;
     let to: PageMove = decode_object(&body)?;
-    let moved = ws.app.move_page(&wiki_id, &page.id, &to, user_id).await?;
-    tracing::debug!(wiki_id, page_id, user_id, "MovePage");
+    let moved = ws.app.move_page(&on, &page, &to).await?;
+    tracing::debug!(wiki_id, page_id, user_id = on.user_id(), "MovePage");
     Ok(json_response(&moved))
 }
 
@@ -414,22 +392,12 @@ async fn handle_duplicate_page(
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
-        ContainerPermission::ManageCards,
-        "access denied to duplicate page",
-    )
-    .await?;
+    let editing = ContainerPermission::ManageCards;
+    let denial = DUPLICATE_PAGE_DENIED;
+    let (on, page) = page_reached(&ws, &wiki_id, &page_id, editing, denial).await?;
     let copy: PageDuplicate = decode_object(&body)?;
-    copy.check_request()?;
-    let made = ws
-        .app
-        .duplicate_page(&wiki_id, &page.id, copy.title.as_deref(), user_id)
-        .await?;
-    tracing::debug!(wiki_id, page_id, user_id, "DuplicatePage");
+    let made = ws.app.duplicate_page(&on, &page, &copy).await?;
+    tracing::debug!(wiki_id, page_id, user_id = on.user_id(), "DuplicatePage");
     Ok(created(&made))
 }
 
@@ -451,19 +419,10 @@ async fn handle_delete_page(
     InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
-        ContainerPermission::ManageCards,
-        "access denied to delete page",
-    )
-    .await?;
-    ws.app
-        .delete_block(&page.id, user_id, ChangeNotification::Send)
-        .await?;
-    tracing::debug!(wiki_id, page_id, user_id, "DeletePage");
+    let editing = ContainerPermission::ManageCards;
+    let (on, page) = page_reached(&ws, &wiki_id, &page_id, editing, DELETE_PAGE_DENIED).await?;
+    ws.app.delete_page(&on, &page).await?;
+    tracing::debug!(wiki_id, page_id, user_id = on.user_id(), "DeletePage");
     Ok(no_content())
 }
 
@@ -488,16 +447,11 @@ async fn handle_get_deleted_pages(
     Path((_, wiki_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<PagingQuery>,
 ) -> ApiResult {
-    require_container_permission(
-        &ws.app,
-        &ws.caller.user_id,
-        &wiki_id,
-        ContainerPermission::ManageCards,
-        "access denied to the trash of the wiki",
-    )
-    .await?;
+    let on = ws.app.reach(&ws.caller.user_id, &wiki_id).await?;
+    // Asked before the query is read, as every route asks.
+    on.require(ContainerPermission::ManageCards, PAGE_TRASH_DENIED)?;
     let page = query.into_list_page()?;
-    Ok(json_response(&ws.app.deleted_pages(&wiki_id, page).await?))
+    Ok(json_response(&ws.app.deleted_pages(&on, page).await?))
 }
 
 /// Bring back a page
@@ -525,16 +479,8 @@ async fn handle_restore_page(
     InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    require_container_permission(
-        &ws.app,
-        user_id,
-        &wiki_id,
-        ContainerPermission::ManageCards,
-        "access denied to undelete page",
-    )
-    .await?;
-    let page = ws.app.undelete_page(&wiki_id, &page_id, user_id).await?;
-    tracing::debug!(wiki_id, page_id, user_id, "UndeletePage");
+    let on = ws.app.reach(&ws.caller.user_id, &wiki_id).await?;
+    let page = ws.app.undelete_page(&on, &page_id).await?;
+    tracing::debug!(wiki_id, page_id, user_id = on.user_id(), "UndeletePage");
     Ok(json_response(&page))
 }
