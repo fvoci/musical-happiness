@@ -457,11 +457,11 @@
     </div>
   </PickerSurface>
 {:else if text !== ''}
-  <span data-slot="property-date" class="block min-w-0 truncate px-2 py-1.5" title={text}
-    >{text}</span
-  >
+  <span data-slot="property-date" class="block min-w-0 truncate px-2 py-1.5" title={text}>
+    {text}
+  </span>
 {:else if placeholder !== ''}
-  <span data-slot="property-empty" class="block px-2 py-1.5 text-muted-foreground"
-    >{placeholder}</span
-  >
+  <span data-slot="property-empty" class="block px-2 py-1.5 text-muted-foreground">
+    {placeholder}
+  </span>
 {/if}

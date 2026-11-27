@@ -95,8 +95,9 @@
 
 {#snippet people()}
   {#each ids as id (id)}
-    <span data-slot="person-chip" class={chipClass}><span class="truncate">{nameOf(id)}</span></span
-    >
+    <span data-slot="person-chip" class={chipClass}>
+      <span class="truncate">{nameOf(id)}</span>
+    </span>
   {/each}
   {#if ids.length === 0 && placeholder !== ''}
     <span data-slot="property-empty" class="text-muted-foreground">{placeholder}</span>

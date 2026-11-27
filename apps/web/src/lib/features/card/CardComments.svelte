@@ -200,9 +200,12 @@
           <p class="flex flex-wrap items-baseline gap-x-2">
             <span class="font-medium">{author}</span>
             {#if agent}
-              <span class="rounded-sm bg-muted px-1 text-xs font-medium" data-testid="comment-agent"
-                >{m.agent_badge({ name: agent })}</span
+              <span
+                class="rounded-sm bg-muted px-1 text-xs font-medium"
+                data-testid="comment-agent"
               >
+                {m.agent_badge({ name: agent })}
+              </span>
             {/if}
             <time
               class="text-xs text-muted-foreground"

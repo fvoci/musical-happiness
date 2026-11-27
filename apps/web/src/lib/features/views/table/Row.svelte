@@ -225,8 +225,10 @@
       <span
         data-slot="row-title"
         class={['min-w-0 flex-1 truncate px-2', card.title === '' && 'text-muted-foreground']}
-        {title}>{title}</span
+        {title}
       >
+        {title}
+      </span>
     {/if}
     <CardPresence {board} cardId={card.id} class="px-1" />
     <span

@@ -124,8 +124,10 @@
           <span
             class="absolute top-0.5 right-0.5 min-w-4 rounded-full bg-primary px-1 text-[0.625rem] leading-4 font-semibold text-primary-foreground tabular-nums"
             data-testid="unread-notifications"
-            aria-hidden="true">{unreadBadge(inbox.unread)}</span
+            aria-hidden="true"
           >
+            {unreadBadge(inbox.unread)}
+          </span>
         {/if}
       </IconButton>
     {/snippet}
@@ -178,8 +180,10 @@
     size="sm"
     disabled={!inbox.listed || !inbox.items.some((one) => one.readAt === 0)}
     data-testid="read-all-notifications"
-    onclick={() => void inbox.readAll()}>{m.notifications_read_all()}</Button
+    onclick={() => void inbox.readAll()}
   >
+    {m.notifications_read_all()}
+  </Button>
 {/snippet}
 
 {#snippet list()}

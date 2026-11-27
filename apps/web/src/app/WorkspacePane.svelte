@@ -145,8 +145,10 @@
         class="mt-4 roomy:min-h-touch"
         onclick={() => {
           if (routeWorkspaceId) void workspace.enter(routeWorkspaceId);
-        }}>{m.app_retry()}</Button
+        }}
       >
+        {m.app_retry()}
+      </Button>
     </div>
   </div>
 {:else if !shown}
