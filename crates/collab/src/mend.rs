@@ -178,9 +178,11 @@ impl MendItem {
 }
 
 /// Mends of a document that every one targets nested elements, and whose items written
-/// as `writer` stay within the 31-bit clock limit: the only mends that are written.
-pub(crate) struct CheckedMends<'m> {
-    mends: &'m [Mend],
+/// as `writer` stay within the 31-bit clock limit: the only mends that are written. They
+/// hold the document they were checked against, the only one they are written to.
+pub(crate) struct CheckedMends<'a> {
+    doc: &'a Doc,
+    mends: &'a [Mend],
     writer: u64,
     /// How many items writing them takes.
     items: u32,
@@ -192,11 +194,11 @@ pub(crate) struct CheckedMends<'m> {
 ///
 /// Returns that the document cannot be mended when a mend targets what is not nested in
 /// it, or its items would run the clock of `writer` past the limit.
-pub(crate) fn check_mends<'m>(
-    doc: &Doc,
+pub(crate) fn check_mends<'a>(
+    doc: &'a Doc,
     writer: u64,
-    mends: &'m [Mend],
-) -> Result<CheckedMends<'m>, BodyError> {
+    mends: &'a [Mend],
+) -> Result<CheckedMends<'a>, BodyError> {
     let items = mends
         .iter()
         .try_fold(0_u32, |acc, mend| acc.checked_add(mend.item_count()?))
@@ -241,6 +243,7 @@ pub(crate) fn check_mends<'m>(
         }
     }
     Ok(CheckedMends {
+        doc,
         mends,
         writer,
         items,
@@ -248,13 +251,14 @@ pub(crate) fn check_mends<'m>(
 }
 
 impl CheckedMends<'_> {
-    /// Deletes from `doc` what `cuts` delete, then writes the mends to it as their
-    /// writer, without copying `doc`; returns the version 1 repair update of both.
+    /// Deletes from the document what `cuts` delete, then writes the mends to it as
+    /// their writer, without copying it; returns the version 1 repair update of both.
     ///
     /// # Errors
     ///
     /// Returns that the document cannot be mended if what is written does not apply.
-    pub(crate) fn apply_after(self, doc: &Doc, cuts: &[Cuts]) -> Result<Vec<u8>, BodyError> {
+    pub(crate) fn apply_after(self, cuts: &[Cuts]) -> Result<Vec<u8>, BodyError> {
+        let doc = self.doc;
         let mut deleted = {
             let mut txn = doc.transact_mut();
             for cuts in cuts {

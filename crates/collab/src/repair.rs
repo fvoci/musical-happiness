@@ -229,7 +229,7 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
             body,
         });
     };
-    let update = checked.apply_after(doc, &cuts)?;
+    let update = checked.apply_after(&cuts)?;
     let body = {
         let txn = doc.transact();
         project(&txn, &root)?
@@ -335,7 +335,7 @@ fn deleting_with_cache(
             repair_ds,
         ));
     };
-    let update = checked.apply_after(doc, &cuts)?;
+    let update = checked.apply_after(&cuts)?;
     {
         let txn = doc.transact();
         refresh_cache_after_repair(
