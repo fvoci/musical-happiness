@@ -32,6 +32,18 @@
 # mode). An `up` that brings a new image whose schema changes waits for that lock: stop
 # fvoci first (`docker compose stop fvoci`, then `up -d`).
 #
+# PostgreSQL runs on its image's defaults (shared_buffers=128MB, work_mem=4MB,
+# wal_compression=off, jit=on) and Docker's /dev/shm of 64 MiB, which holds what a
+# parallel query's workers share: enough to try fvoci, too little to serve with. On a
+# server, size it to the machine in a file of your own given after this one, to compose
+# and to the scripts below alike (-f docker/compose.yaml -f override.yaml), as
+# docs/configuration.md says, with the values for 4 CPUs and 24 GiB and why:
+#   services:
+#     postgres:
+#       shm_size: "2g"
+#       command: ["postgres", "-c", "shared_buffers=4GB", "-c", "work_mem=32MB", ...]
+# A changed value recreates postgres at `up`: stop fvoci first, as above.
+#
 # The search server is OpenSearch with nori and its security plugin; fvoci reaches it as
 # https://search:9200 and trusts the authority it made (volume search-ca) beside the
 # system's. Its certificates are made when the volume search-tls is new; its user fvoci,
