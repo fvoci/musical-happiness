@@ -58,6 +58,7 @@ mod overview;
 mod pages;
 mod password_reset;
 mod presence;
+mod reached;
 mod readiness;
 mod reconcile;
 mod references;
@@ -131,6 +132,8 @@ pub use oidc::{
 pub use oidc_carry::HELD_SIGN_IN_LIFETIME_MILLIS;
 pub use oidc_settings::secret_context;
 pub use overview::OverviewReader;
+pub use reached::{BlockAction, Reached};
+pub(crate) use reached::{refusal, require_granted};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use references::MAX_REFERENCE_IDS;

@@ -1,13 +1,15 @@
 //! Checks that many handlers share: who may do what on a board or in a workspace.
 //!
-//! Every check of a board asks `App::container_access` once and decides by the grant it
-//! gives (`permissions::grant`).
+//! Every check of a board asks `App::reach` once and decides by the `Reached` it gives:
+//! these are the checks of the routes that ask one question of a board, and the routes
+//! that ask more keep the `Reached` and ask it.
 
 use fvoci_model::{Block, BlockType, Workspace};
 
+pub(crate) use crate::app::{BlockAction, refusal, require_granted};
 use crate::app::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::{self, CommentAction, ContainerPermission, Grant};
+use crate::permissions::ContainerPermission;
 
 /// Checks that the user is an administrator of the instance.
 ///
@@ -26,7 +28,7 @@ pub(crate) async fn require_admin(app: &App, user_id: &str) -> Result<(), AppErr
 }
 
 /// Checks that the user has the permission on the board that the request names in its
-/// path.
+/// path (`Reached::require`).
 ///
 /// What a user without the permission is told depends on what they may know. Who sees
 /// the board (`Grant::sees`) is refused (403, `denial`); for anybody else the board does
@@ -38,84 +40,17 @@ pub(crate) async fn require_container_permission(
     permission: ContainerPermission,
     denial: &str,
 ) -> Result<(), AppError> {
-    let grant = app.container_grant(user_id, container_id).await?;
-    require_granted(grant, permission, denial)
+    app.reach(user_id, container_id)
+        .await?
+        .require(permission, denial)
 }
 
-/// Checks that the grant of the board named in the path has the permission: refused
-/// (403, `denial`) if the user sees the board, not found (404) if not, and not found
-/// for the content of a board the user only manages (`Grant::hides`).
-pub(crate) fn require_granted(
-    grant: Grant,
-    permission: ContainerPermission,
-    denial: &str,
-) -> Result<(), AppError> {
-    if grant.allows(permission) {
-        Ok(())
-    } else if grant.hides(permission) {
-        Err(AppError::not_found("board"))
-    } else {
-        Err(AppError::forbidden(denial))
-    }
-}
-
-/// What a user is told who may not do what they ask on the board named in the path, if
-/// it is not its content: refused (403, `denial`) if they see the board, not found
-/// (404) if they do not.
-pub(crate) fn refusal(grant: Grant, denial: &str) -> AppError {
-    if grant.sees() {
-        AppError::forbidden(denial)
-    } else {
-        AppError::not_found("board")
-    }
-}
-
-/// The refusal of a comment to its author who did not delete it.
-const SOMEBODY_ELSE_DELETED: &str =
-    "a comment somebody else deleted is brought back by the board's admins";
-
-/// What a user does to a block, which a comment of somebody else lets only the board's
-/// admins do, each refused in its own words.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BlockAction<'a> {
-    /// Change it (`patchCardComment`, `patchPageComment`, `patchUnitComment`).
-    Change,
-    /// Delete it (`deleteCardComment`, `deletePageComment`, `deleteUnitComment`).
-    Delete,
-    /// Bring it back from the trash (`restoreCardComment`, `restorePageComment`,
-    /// `restoreUnitComment`), where the deletion of `deleted_by` put it.
-    Undelete {
-        /// Who deleted it; empty if nobody did.
-        deleted_by: &'a str,
-    },
-}
-
-impl<'a> BlockAction<'a> {
-    /// The refusal of this to a comment of somebody else.
-    fn others_comments_denial(self) -> &'static str {
-        match self {
-            Self::Change => "access denied to change other users' comments",
-            Self::Delete => "access denied to delete other users' comments",
-            Self::Undelete { .. } => "access denied to undelete other users' comments",
-        }
-    }
-
-    /// What it is to a comment.
-    fn on_comment(self) -> CommentAction<'a> {
-        match self {
-            Self::Change => CommentAction::Change,
-            Self::Delete => CommentAction::Delete,
-            Self::Undelete { deleted_by } => CommentAction::Undelete { deleted_by },
-        }
-    }
-}
-
-/// Checks that the user may do `action` to the block, of a board the request names: a
-/// comment is its author's from the commenter's role up, and somebody else's the board
-/// admins' only (`ManageOthersComments`); any other block is the editors'. A refusal
-/// says `denial`, except for the comment of somebody else, whose refusal says so.
-/// [`require_block_patch_permission`] checks a patch itself, and
-/// [`require_deletion_permission`] what a deletion takes along.
+/// Checks that the user may do `action` to the block, of a board the request names
+/// (`Reached::require_on_block`): a comment is its author's from the commenter's role
+/// up, and somebody else's the board admins' only (`ManageOthersComments`); any other
+/// block is the editors'. A refusal says `denial`, except for the comment of somebody
+/// else, whose refusal says so. [`require_deletion_permission`] checks what a deletion
+/// takes along.
 pub(crate) async fn require_block_permission(
     app: &App,
     user_id: &str,
@@ -123,33 +58,9 @@ pub(crate) async fn require_block_permission(
     action: BlockAction<'_>,
     denial: &str,
 ) -> Result<(), AppError> {
-    let grant = app.container_grant(user_id, &block.container_id).await?;
-    require_block_permission_with_grant(grant, user_id, block, action, denial)
-}
-
-/// Checks `action` on `block` using an already-resolved [`Grant`] on `block.container_id`.
-pub(crate) fn require_block_permission_with_grant(
-    grant: Grant,
-    user_id: &str,
-    block: &Block,
-    action: BlockAction<'_>,
-    denial: &str,
-) -> Result<(), AppError> {
-    let (permission, denial) = block_permission(user_id, block, action, denial);
-    require_granted(grant, permission, denial)
-}
-
-/// The permission that doing `action` to the block needs, and the refusal without it.
-fn block_permission<'a>(
-    user_id: &str,
-    block: &Block,
-    action: BlockAction<'_>,
-    denial: &'a str,
-) -> (ContainerPermission, &'a str) {
-    match block.block_type {
-        BlockType::Comment => comment_permission(user_id, block, action, denial),
-        _ => (ContainerPermission::ManageCards, denial),
-    }
+    app.reach(user_id, &block.container_id)
+        .await?
+        .require_on_block(block, action, denial)
 }
 
 /// Checks that the user may delete the block, of a board the request names, with what
@@ -170,12 +81,8 @@ pub(crate) async fn require_delete_permission(
 }
 
 /// Checks that the user may delete a block and what goes with it, or bring them back
-/// (`action`): `top` is the block that is deleted, `below` the blocks it takes along.
-/// The top decides for a card, or any block that is no comment: the comments on a card
-/// go with it. A comment takes the replies below it, so who deletes it, or brings it
-/// back, must be allowed that for each of them too: nobody takes away the comment of
-/// somebody else by deleting their own. The top's permission is asked first.
-/// For a comment this is a guard: the store keeps anything from being below one.
+/// (`action`), as `Reached::require_on_deletion` says: `top` is the block that is
+/// deleted, `below` the blocks it takes along.
 pub(crate) async fn require_deletion_permission(
     app: &App,
     user_id: &str,
@@ -184,44 +91,14 @@ pub(crate) async fn require_deletion_permission(
     action: BlockAction<'_>,
     denial: &str,
 ) -> Result<(), AppError> {
-    let replies = if top.block_type == BlockType::Comment {
-        below
-    } else {
-        &[]
-    };
-    let grant = app.container_grant(user_id, &top.container_id).await?;
-    for block in std::iter::once(top).chain(replies) {
-        let (permission, denial) = block_permission(user_id, block, action, denial);
-        require_granted(grant, permission, denial)?;
-    }
-    Ok(())
-}
-
-/// The permission that doing `action` to a comment, or making the block one, needs
-/// ([`permissions::comment_permission`]), and the refusal without it: `denial` for the
-/// author, the action's own words for anybody else, and for the author of a comment
-/// somebody else deleted that it is the board's admins' to bring back.
-fn comment_permission<'a>(
-    user_id: &str,
-    block: &Block,
-    action: BlockAction<'_>,
-    denial: &'a str,
-) -> (ContainerPermission, &'a str) {
-    let permission =
-        permissions::comment_permission(user_id, &block.created_by, action.on_comment());
-    match action {
-        _ if permission == ContainerPermission::CommentCards => (permission, denial),
-        BlockAction::Undelete { deleted_by }
-            if block.created_by == user_id && !deleted_by.is_empty() =>
-        {
-            (permission, SOMEBODY_ELSE_DELETED)
-        }
-        _ => (permission, action.others_comments_denial()),
-    }
+    app.reach(user_id, &top.container_id)
+        .await?
+        .require_on_deletion(top, below, action, denial)
 }
 
 /// Checks that the user has the permission on a board that the request does not name
-/// itself but reaches through `what`, such as a block or a card of the board.
+/// itself but reaches through `what`, such as a block or a card of the board
+/// (`Reached::require_through`).
 ///
 /// A user who may not read the board's contents is told that `what` does not exist
 /// (404): the identifier in the request says nothing about a board, so not even an open
@@ -234,14 +111,9 @@ pub(crate) async fn require_permission_through(
     denial: &str,
     what: &str,
 ) -> Result<(), AppError> {
-    let grant = app.container_grant(user_id, container_id).await?;
-    if grant.allows(permission) {
-        Ok(())
-    } else if grant.reads() {
-        Err(AppError::forbidden(denial))
-    } else {
-        Err(AppError::not_found(what))
-    }
+    app.reach(user_id, container_id)
+        .await?
+        .require_through(permission, denial, what)
 }
 
 /// Checks that the user sees the board at all (`Grant::sees`). For anybody else it does
@@ -251,11 +123,7 @@ pub(crate) async fn require_container_visible(
     user_id: &str,
     container_id: &str,
 ) -> Result<(), AppError> {
-    if app.container_grant(user_id, container_id).await?.sees() {
-        Ok(())
-    } else {
-        Err(AppError::not_found("board"))
-    }
+    app.reach(user_id, container_id).await?.require_visible()
 }
 
 /// The workspace, or a 404 unless the user works in it (`App::works_in_workspace`): a workspace
