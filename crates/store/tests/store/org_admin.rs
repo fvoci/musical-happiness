@@ -113,7 +113,7 @@ async fn log_of(store: &Store, workspace_id: &str) -> Vec<(AuditAction, String, 
 async fn organization_records(store: &Store) -> Vec<(AuditAction, String)> {
     let every = Paging {
         page: 0,
-        per_page: 0,
+        per_page: std::num::NonZeroU32::new(1000).expect("a page size"),
     };
     store
         .audit_records(AuditPlace::Organization, every)

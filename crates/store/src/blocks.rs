@@ -6,6 +6,7 @@
 //! identifier.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::num::NonZeroU32;
 
 use fvoci_model::{
     BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, BodySummary,
@@ -112,20 +113,20 @@ impl BlockFilter {
     }
 }
 
-/// One page of a result.
+/// One page of a result. A read of every record takes no page (`Option<Paging>`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Paging {
     /// The zero-based page number.
     pub page: u32,
-    /// The number of records per page. Zero means all records, whatever the page number.
-    pub per_page: u32,
+    /// The number of records per page.
+    pub per_page: NonZeroU32,
 }
 
 impl Paging {
     /// How many records come before the page; at most `i64::MAX`, past every record.
     #[must_use]
     pub fn offset(self) -> i64 {
-        i64::from(self.page).saturating_mul(i64::from(self.per_page))
+        i64::from(self.page).saturating_mul(i64::from(self.per_page.get()))
     }
 }
 
@@ -687,13 +688,7 @@ fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &[&'static 
     if let Some(block_type) = filter.block_type {
         sql.push_bind(" AND type = ", block_type.as_str());
     }
-    sql.push(OLDEST_FIRST);
-    // A page size of zero does not limit, and the offset of any page is then zero.
-    if let Some(paging) = filter.paging.filter(|paging| paging.per_page > 0) {
-        let offset = paging.offset();
-        sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-            .push_bind(" OFFSET ", offset);
-    }
+    sql.push(OLDEST_FIRST).push_page(filter.paging);
     sql
 }
 

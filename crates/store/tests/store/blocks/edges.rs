@@ -438,9 +438,10 @@ async fn get_blocks_pages_the_result() {
     create_test_blocks_for_card(store, &cards[0].id, 3).await;
     let card_ids: BTreeSet<String> = cards.iter().map(|card| card.id.clone()).collect();
 
-    // Cards only, as the handler that lists the cards of a board asks for them.
+    // Cards only, as the handler that lists the cards of a board asks for them; no
+    // page size is no page.
     let page = |page: u32, per_page: u32| BlockFilter {
-        paging: Some(Paging { page, per_page }),
+        paging: std::num::NonZeroU32::new(per_page).map(|per_page| Paging { page, per_page }),
         ..BlockFilter::container(&board_id).with_type(BlockType::Card)
     };
 
@@ -469,18 +470,12 @@ async fn get_blocks_pages_the_result() {
         "a page larger than the result holds all of it: {blocks:?}"
     );
 
-    // A zero page size applies no limit.
-    for number in [0, 3] {
-        let blocks = store
-            .get_blocks(&page(number, 0))
-            .await
-            .expect("a page is read");
-        assert_eq!(
-            blocks.len(),
-            5,
-            "a page size of zero does not limit, whatever the page number {number}: {blocks:?}"
-        );
-    }
+    // No page reads every card.
+    let blocks = store
+        .get_blocks(&page(0, 0))
+        .await
+        .expect("every card is read");
+    assert_eq!(blocks.len(), 5, "no page does not limit: {blocks:?}");
 
     test.teardown().await;
 }

@@ -262,11 +262,8 @@ impl Store {
                     sql.push(" AND a.workspace_id IS NULL");
                 }
             }
-            sql.push(" ORDER BY a.created_at DESC, a.id DESC");
-            if paging.per_page > 0 {
-                sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-                    .push_bind(" OFFSET ", paging.offset());
-            }
+            sql.push(" ORDER BY a.created_at DESC, a.id DESC")
+                .push_page(paging);
             scope
                 .fetch_all(sql)
                 .await?

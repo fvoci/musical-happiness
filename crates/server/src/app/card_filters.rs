@@ -209,15 +209,10 @@ impl App {
             .collect();
         filter.order.sort(&mut chosen);
         let paging = page.paging();
-        let (skipped, per_page) = if paging.per_page == 0 {
-            (0, usize::MAX)
-        } else {
-            let per_page = usize::try_from(paging.per_page).unwrap_or(usize::MAX);
-            let skipped = usize::try_from(paging.page)
-                .unwrap_or(usize::MAX)
-                .saturating_mul(per_page);
-            (skipped, per_page)
-        };
+        let per_page = usize::try_from(paging.per_page.get()).unwrap_or(usize::MAX);
+        let skipped = usize::try_from(paging.page)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(per_page);
         let now = now_millis();
         chosen
             .into_iter()

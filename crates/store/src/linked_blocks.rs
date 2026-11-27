@@ -174,12 +174,8 @@ impl Store {
                 .bind(Id(target_id))
                 .push(" AND l.container_id IN (")
                 .bind_list(container_ids.iter().map(|id| Id(id)))
-                .push(")) ORDER BY created_at, id");
-            if paging.per_page > 0 {
-                let offset = paging.offset();
-                sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-                    .push_bind(" OFFSET ", offset);
-            }
+                .push(")) ORDER BY created_at, id")
+                .push_page(paging);
             scope
                 .fetch_all(sql)
                 .await?

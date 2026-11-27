@@ -8,7 +8,7 @@ use crate::common;
 
 const PAGING: Paging = Paging {
     page: 0,
-    per_page: 100,
+    per_page: std::num::NonZeroU32::new(100).expect("a page size"),
 };
 
 /// Through another organization's handle, an administrator of the instance makes a

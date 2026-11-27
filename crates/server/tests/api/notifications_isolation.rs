@@ -32,7 +32,7 @@ use crate::workspaces::another_organization;
 async fn held_by(th: &TestServer, user_id: &str) -> usize {
     let all = Paging {
         page: 0,
-        per_page: 1000,
+        per_page: std::num::NonZeroU32::new(1000).expect("a page size"),
     };
     let reader = NotificationReader {
         user_id,

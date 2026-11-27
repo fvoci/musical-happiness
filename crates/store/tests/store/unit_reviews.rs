@@ -604,7 +604,7 @@ async fn notify_due_review_is_atomic_and_deduplicated() {
             alice_reader,
             Paging {
                 page: 0,
-                per_page: 50,
+                per_page: std::num::NonZeroU32::new(50).expect("a page size"),
             },
         )
         .await
@@ -617,7 +617,7 @@ async fn notify_due_review_is_atomic_and_deduplicated() {
             bob_reader,
             Paging {
                 page: 0,
-                per_page: 50
+                per_page: std::num::NonZeroU32::new(50).expect("a page size")
             }
         )
         .await

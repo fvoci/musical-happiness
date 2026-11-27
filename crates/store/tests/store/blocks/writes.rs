@@ -314,7 +314,10 @@ async fn lists_of_blocks_are_ordered_by_creation_time_then_identifier() {
     );
     for (page, expected) in [(0, &OLDEST_FIRST[..4]), (1, &OLDEST_FIRST[4..])] {
         let filter = BlockFilter {
-            paging: Some(Paging { page, per_page: 4 }),
+            paging: Some(Paging {
+                page,
+                per_page: std::num::NonZeroU32::new(4).expect("a page size"),
+            }),
             ..board().with_parent(&card_id)
         };
         assert_eq!(

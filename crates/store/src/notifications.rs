@@ -160,11 +160,8 @@ impl Store {
                     " FROM notifications WHERE recipient_id = ",
                 ]);
                 reader.push_theirs(&closed, &mut sql);
-                sql.push_bind(
-                    " ORDER BY updated_at DESC, id DESC LIMIT ",
-                    i64::from(paging.per_page),
-                )
-                .push_bind(" OFFSET ", paging.offset());
+                sql.push(" ORDER BY updated_at DESC, id DESC")
+                    .push_page(paging);
                 scope
                     .fetch_all(sql)
                     .await?

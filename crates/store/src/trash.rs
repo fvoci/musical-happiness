@@ -196,7 +196,7 @@ impl Store {
                  WHERE below.deletion_id = deleted_blocks.deletion_id \
                  AND below.id = deleted_blocks.parent_id) ORDER BY deleted_at DESC, id",
             );
-            push_paging(&mut sql, paging);
+            sql.push_page(paging);
             let mut cards = Vec::new();
             for row in &scope.fetch_all(sql).await? {
                 let block = match block_from_json(row, 0) {
@@ -350,7 +350,7 @@ impl Store {
             }
             crate::container_kinds::push_kinds(&mut sql, kind, kinds);
             sql.push(" ORDER BY deleted_at DESC, id");
-            push_paging(&mut sql, paging);
+            sql.push_page(paging);
             let mut deleted = Vec::new();
             for row in &scope.fetch_all(sql).await? {
                 let container = match from_json(row, 0, "container") {
@@ -541,15 +541,6 @@ pub(crate) fn block_not_in_trash() -> StoreError {
 
 fn container_not_in_trash() -> StoreError {
     StoreError::not_found("deleted board")
-}
-
-/// Limits a list of the trash to one page, if `paging` has a page size.
-pub(crate) fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
-    if let Some(paging) = paging.filter(|paging| paging.per_page > 0) {
-        let offset = paging.offset();
-        sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-            .push_bind(" OFFSET ", offset);
-    }
 }
 
 /// Reads a block of the trash. Its body is taken as it was stored: it was checked when

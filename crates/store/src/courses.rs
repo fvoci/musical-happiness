@@ -17,7 +17,7 @@ use crate::blocks::Paging;
 use crate::db::{Id, Scope};
 use crate::page_trash::{self, place_taken, push_block_types_in_trash};
 use crate::pages::{self, write_place};
-use crate::trash::{block_from_json, block_not_in_trash, push_paging, take_blocks_out_of_trash};
+use crate::trash::{block_from_json, block_not_in_trash, take_blocks_out_of_trash};
 use crate::{Store, StoreError, blocks, containers, page_places};
 
 /// The block types that make up a course's outline.
@@ -303,7 +303,7 @@ impl Store {
                  WHERE above.deletion_id = top.deletion_id AND above.id = top.parent_id) \
                  ORDER BY top.deleted_at DESC, top.id",
             );
-            push_paging(&mut sql, paging);
+            sql.push_page(paging);
             let mut deleted = Vec::new();
             for row in &scope.fetch_all(sql).await? {
                 let block = match block_from_json(row, 0) {

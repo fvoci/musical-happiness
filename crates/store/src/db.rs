@@ -347,6 +347,16 @@ impl Sql {
         self.push(text).bind(param)
     }
 
+    /// Limits the statement to the records of `paging`; to none for no page, which
+    /// reads every record.
+    pub(crate) fn push_page(&mut self, paging: impl Into<Option<crate::Paging>>) -> &mut Self {
+        if let Some(paging) = paging.into() {
+            self.push_bind(" LIMIT ", i64::from(paging.per_page.get()))
+                .push_bind(" OFFSET ", paging.offset());
+        }
+        self
+    }
+
     /// Appends a comma-separated list of placeholders, one per item.
     ///
     /// An empty list produces `NULL`, so that `IN (...)` matches nothing.

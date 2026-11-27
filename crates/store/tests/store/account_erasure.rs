@@ -25,7 +25,7 @@ pub(crate) const NOBODY: [String; 0] = [];
 /// Every record, on one page.
 const EVERY: Paging = Paging {
     page: 0,
-    per_page: 0,
+    per_page: std::num::NonZeroU32::new(1000).expect("a page size"),
 };
 
 /// The wait the tests ask for.

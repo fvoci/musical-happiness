@@ -46,7 +46,7 @@ async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
             AuditPlace::Organization,
             Paging {
                 page: 0,
-                per_page: 100,
+                per_page: std::num::NonZeroU32::new(100).expect("a page size"),
             },
         )
         .await
@@ -92,7 +92,7 @@ async fn operator_records_are_distinct_immutable_and_made_with_the_release() {
             AuditPlace::Organization,
             Paging {
                 page: 0,
-                per_page: 100
+                per_page: std::num::NonZeroU32::new(100).expect("a page size")
             }
         )
         .await
@@ -176,7 +176,7 @@ async fn an_operator_role_change_is_recorded_only_in_the_instances_organization(
         .expect("already an administrator");
     let paging = Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     let records = test
         .audit_records(AuditPlace::Organization, paging)
@@ -238,7 +238,7 @@ async fn a_save_records_only_what_it_changed() {
             AuditPlace::Organization,
             Paging {
                 page: 0,
-                per_page: 100,
+                per_page: std::num::NonZeroU32::new(100).expect("a page size"),
             },
         )
         .await
@@ -283,7 +283,7 @@ async fn a_workspaces_records_tell_no_identity_whatever_is_stored() {
     }
     let paging = Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
 
     let of_workspace = test

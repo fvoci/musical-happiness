@@ -77,7 +77,7 @@ fn reader(user_id: &str) -> NotificationReader<'_> {
 async fn told(store: &Store, user_id: &str) -> Vec<StoredNotification> {
     let all = Paging {
         page: 0,
-        per_page: 1000,
+        per_page: std::num::NonZeroU32::new(1000).expect("a page size"),
     };
     store
         .notifications_of_user(reader(user_id), all)

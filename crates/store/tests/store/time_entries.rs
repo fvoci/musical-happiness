@@ -181,7 +181,7 @@ async fn assert_patch_stop_and_summary(
             &TimeEntryFilter::default(),
             Paging {
                 page: 0,
-                per_page: 10,
+                per_page: std::num::NonZeroU32::new(10).expect("a page size"),
             },
         )
         .await
@@ -230,7 +230,7 @@ async fn summary_saturates_at_i64_max_without_sqlite_overflow() {
             &TimeEntryFilter::default(),
             Paging {
                 page: 0,
-                per_page: 5,
+                per_page: std::num::NonZeroU32::new(5).expect("a page size"),
             },
         )
         .await
@@ -491,7 +491,7 @@ async fn org_leaving_and_account_erasure_clean_up_time_entries() {
             &TimeEntryFilter::default(),
             Paging {
                 page: 0,
-                per_page: 10,
+                per_page: std::num::NonZeroU32::new(10).expect("a page size"),
             },
         )
         .await

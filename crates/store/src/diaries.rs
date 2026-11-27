@@ -24,7 +24,7 @@ use crate::body_versions::BodyWrite;
 use crate::db::{Dialect, Id, Param, Scope, Sql};
 use crate::notification_noting::Telling;
 use crate::trash::{
-    self, block_from_json, block_not_in_trash, from_json, push_paging, take_blocks_out_of_trash,
+    self, block_from_json, block_not_in_trash, from_json, take_blocks_out_of_trash,
 };
 use crate::{Store, StoreError, containers, directory, org_admin, workspace_membership};
 
@@ -254,7 +254,7 @@ impl Store {
             sql.bind(Id(diary_id))
                 .push_bind(" AND block_type = ", BlockType::Entry.as_str())
                 .push(" ORDER BY deleted_at DESC, id");
-            push_paging(&mut sql, paging);
+            sql.push_page(paging);
             let mut entries = Vec::new();
             for row in &scope.fetch_all(sql).await? {
                 let block = match block_from_json(row, 0) {

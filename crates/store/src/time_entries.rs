@@ -348,11 +348,8 @@ impl Store {
                 ]);
                 push_filter(reader.user_id, &open, filter, &mut list_sql);
                 list_sql
-                    .push_bind(
-                        " ORDER BY started_at DESC, id DESC LIMIT ",
-                        i64::from(paging.per_page),
-                    )
-                    .push_bind(" OFFSET ", paging.offset());
+                    .push(" ORDER BY started_at DESC, id DESC")
+                    .push_page(paging);
                 let entries = scope
                     .fetch_all(list_sql)
                     .await?

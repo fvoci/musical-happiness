@@ -66,7 +66,7 @@ async fn a_page_deleted_with_those_below_is_listed_once_and_comes_back_with_them
     );
     let second = Paging {
         page: 1,
-        per_page: 1,
+        per_page: std::num::NonZeroU32::new(1).expect("a page size"),
     };
     let paged = test
         .get_deleted_pages(&wiki.id, Some(second))

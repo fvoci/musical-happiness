@@ -22,7 +22,7 @@ const T0: i64 = 1_800_000_000_000;
 /// Every record, on one page.
 const EVERY: Paging = Paging {
     page: 0,
-    per_page: 0,
+    per_page: std::num::NonZeroU32::new(1000).expect("a page size"),
 };
 
 /// The tables that hold who is where, and what they follow, counted together: what a

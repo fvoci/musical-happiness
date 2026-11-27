@@ -284,7 +284,7 @@ async fn notify_upcoming_meetings_targets_active_members_once_and_skips_others()
             password_reader(&member),
             Paging {
                 page: 0,
-                per_page: 50,
+                per_page: std::num::NonZeroU32::new(50).expect("a page size"),
             },
         )
         .await

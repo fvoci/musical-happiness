@@ -478,7 +478,7 @@ async fn personal_spaces_and_shared_org_never_cross_pollinate_reads() {
             &fvoci_store::TimeEntryFilter::default(),
             fvoci_store::Paging {
                 page: 0,
-                per_page: 50,
+                per_page: std::num::NonZeroU32::new(50).expect("a page size"),
             },
         )
         .await
@@ -495,7 +495,7 @@ async fn personal_spaces_and_shared_org_never_cross_pollinate_reads() {
             },
             fvoci_store::Paging {
                 page: 0,
-                per_page: 50,
+                per_page: std::num::NonZeroU32::new(50).expect("a page size"),
             },
         )
         .await

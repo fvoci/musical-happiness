@@ -645,7 +645,7 @@ async fn the_trash_comes_the_last_deleted_first() {
             Some(&user_id),
             Some(Paging {
                 page: 1,
-                per_page: 2,
+                per_page: std::num::NonZeroU32::new(2).expect("a page size"),
             }),
             ContainerKinds::BOARDS,
         )

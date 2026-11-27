@@ -240,7 +240,7 @@ async fn a_session_made_just_now_binds_the_identity_and_applies_the_settings() {
     assert_eq!(kept.map(|kept| kept.issuer).as_deref(), Some(ONE));
     let paging = Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     let records = test
         .audit_records(AuditPlace::Organization, paging)
@@ -298,7 +298,7 @@ async fn an_identity_without_an_address_is_recorded_by_its_subject() {
 
     let paging = Paging {
         page: 0,
-        per_page: 100,
+        per_page: std::num::NonZeroU32::new(100).expect("a page size"),
     };
     let records = test
         .audit_records(AuditPlace::Organization, paging)
