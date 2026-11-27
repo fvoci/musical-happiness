@@ -50,6 +50,7 @@ for (const [platform, apple] of [
         expect(
           closesPlace(new KeyboardEvent('keydown', { key, ...modifier, isComposing: true })),
         ).toBe(false);
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only mark Safari leaves
         expect(closesPlace(new KeyboardEvent('keydown', { key, ...modifier, keyCode: 229 }))).toBe(
           false,
         );
