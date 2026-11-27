@@ -104,10 +104,22 @@ async fn handle_list_container_files(
     Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
-    require_file_reader(&ws.app, &ws.caller.user_id, &container_id).await?;
     Ok(json_response(
-        &ws.app.files_of_container(&container_id).await?,
+        &files_of_container(&ws, &container_id).await?,
     ))
+}
+
+/// The files of the board or wiki `container_id`, as `listContainerFiles` lists them.
+///
+/// # Errors
+///
+/// As `listContainerFiles` answers.
+pub(super) async fn files_of_container(
+    ws: &InWorkspace,
+    container_id: &str,
+) -> Result<Vec<ListedFile>, AppError> {
+    require_file_reader(&ws.app, &ws.caller.user_id, container_id).await?;
+    ws.app.files_of_container(container_id).await
 }
 
 /// The files of a card
@@ -126,10 +138,26 @@ async fn handle_list_card_files(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, card_id)): Path<(String, String, String)>,
 ) -> ApiResult {
+    Ok(json_response(
+        &files_of_card(&ws, &board_id, &card_id).await?,
+    ))
+}
+
+/// The files the card `card_id` of the board `board_id` shows, as `listCardFiles` lists
+/// them.
+///
+/// # Errors
+///
+/// As `listCardFiles` answers.
+pub(super) async fn files_of_card(
+    ws: &InWorkspace,
+    board_id: &str,
+    card_id: &str,
+) -> Result<Vec<ListedFile>, AppError> {
     let card = card_with_permission(
         &ws.app,
         &ws.caller.user_id,
-        &card_id,
+        card_id,
         ContainerPermission::View,
         "access denied to fetch card",
     )
@@ -144,7 +172,7 @@ async fn handle_list_card_files(
         .unwrap_or_default();
     let attachments = ws
         .app
-        .blocks(&board_id, Some(&card.id), Some(&BlockType::Attachment))
+        .blocks(board_id, Some(&card.id), Some(&BlockType::Attachment))
         .await?;
     named.extend(attachments.iter().filter_map(|attachment| {
         attachment
@@ -155,10 +183,10 @@ async fn handle_list_card_files(
     }));
     let mut files = Vec::with_capacity(named.len());
     for file_id in named {
-        if let Some(record) = ws.app.file_record(&board_id, &file_id).await? {
+        if let Some(record) = ws.app.file_record(board_id, &file_id).await? {
             files.push(ListedFile::from(record));
         }
     }
     files.sort_by(|a, b| (a.created_at, &a.file_id).cmp(&(b.created_at, &b.file_id)));
-    Ok(json_response(&files))
+    Ok(files)
 }

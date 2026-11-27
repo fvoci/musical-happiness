@@ -43,6 +43,7 @@ mod oidc;
 mod org_admin;
 mod org_kind;
 mod organization;
+mod overview;
 mod page;
 mod page_tree;
 mod person_name;
@@ -202,6 +203,7 @@ pub use organization::{
     OrgRole, UnknownRole, UserOrganization, UserWorkspace, WorkspaceMember, WorkspaceRole,
     WorkspaceRoleChange,
 };
+pub use overview::{OverviewContainer, OverviewPerson, OverviewWorkspace, WorkspaceOverview};
 pub use page::{
     DeletedPage, NewPage, OrderError, PAGE_ICON_FIELD, PAGE_ORDER_FIELD, Page, PageDuplicate,
     PageMove, PageNode, PagePatch, order_between, sort_pages,

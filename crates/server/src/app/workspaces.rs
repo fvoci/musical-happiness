@@ -165,21 +165,9 @@ impl App {
         asker: Asker<'_>,
         workspace_id: &str,
     ) -> Result<Option<Entered>, AppError> {
-        let Some(access) = self
-            .store()
-            .resolve_workspace(asker.user_id, workspace_id)
-            .await?
-        else {
+        let Some(access) = self.admit_to_workspace(asker, workspace_id).await? else {
             return Ok(None);
         };
-        if let Some(delegation) = asker.delegation
-            && !self
-                .delegation_reaches(delegation, workspace_id, &access)
-                .await?
-        {
-            return Ok(None);
-        }
-        sso::require_session_opens(asker, &access.org_id, &access.takes)?;
         let mut app = self
             .in_organization(&access.org_id)?
             .with_org_kind(access.kind);
@@ -195,6 +183,76 @@ impl App {
             org_role: access.org_role,
             kind: access.kind,
         }))
+    }
+
+    /// Who is let into the workspace `workspace_id`, as [`Self::enter_workspace_as`] asks
+    /// it and before it counts anything: the user's membership as the store has it,
+    /// `None` unless they are a member (and, for a token, unless the token reaches it).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::enter_workspace_as`], but for the counts of the organization's tokens.
+    async fn admit_to_workspace(
+        &self,
+        asker: Asker<'_>,
+        workspace_id: &str,
+    ) -> Result<Option<WorkspaceAccess>, AppError> {
+        let Some(access) = self
+            .store()
+            .resolve_workspace(asker.user_id, workspace_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if let Some(delegation) = asker.delegation
+            && !self
+                .delegation_reaches(delegation, workspace_id, &access)
+                .await?
+        {
+            return Ok(None);
+        }
+        sso::require_session_opens(asker, &access.org_id, &access.takes)?;
+        Ok(Some(access))
+    }
+
+    /// The workspaces the user of `asker` is a member of that it is let into, in the
+    /// order of [`Store::workspaces_of_user`]: for a token, those it names and its
+    /// owner still works in (and the owner's own space if it was given that), of the
+    /// organizations that give their workspaces to tokens; for a session, those it
+    /// opens. A workspace it is not let into is left out without a word of why, as a
+    /// workspace that is not there; nothing is counted against the limits of tokens.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error.
+    ///
+    /// [`Store::workspaces_of_user`]: fvoci_store::Store::workspaces_of_user
+    pub async fn workspaces_let_in(
+        &self,
+        asker: Asker<'_>,
+    ) -> Result<Vec<UserWorkspace>, AppError> {
+        let workspaces = self
+            .store()
+            .workspaces_of_user(asker.user_id, asker.making)
+            .await?;
+        let mut let_in = Vec::with_capacity(workspaces.len());
+        for workspace in workspaces {
+            match self.admit_to_workspace(asker, &workspace.id).await {
+                Ok(Some(_)) => let_in.push(workspace),
+                Ok(None) => {}
+                Err(error)
+                    if matches!(
+                        error.reason(),
+                        Some(
+                            Reason::SsoRequired
+                                | Reason::PasswordSignInRequired
+                                | Reason::ApiTokensDisallowed
+                        )
+                    ) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(let_in)
     }
 
     /// Whether a token reaches a workspace its owner is a member of, as `access` was

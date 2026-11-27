@@ -11,7 +11,7 @@ use crate::diaries::{a_diary, in_a_space, last_of, text_of, write_body, written}
 use crate::files::{upload_in, uploaded_id};
 
 /// What the diary is known by: a word of its entry.
-const WORD: &str = "보름달";
+pub(crate) const WORD: &str = "보름달";
 
 #[track_caller]
 fn check_not_there(response: &ApiResponse) {
@@ -43,19 +43,19 @@ fn check_a_persons(response: &ApiResponse) {
 
 /// A space with a diary, an entry that says [`WORD`] and a file, a board beside it,
 /// and a token that writes and was given the space.
-struct Space {
-    ws: String,
-    own: String,
-    diary: String,
-    diary_id: String,
-    entry: String,
-    file_id: String,
-    board_id: String,
-    agent: Client,
-    th: TestServer,
+pub(crate) struct Space {
+    pub(crate) ws: String,
+    pub(crate) own: String,
+    pub(crate) diary: String,
+    pub(crate) diary_id: String,
+    pub(crate) entry: String,
+    pub(crate) file_id: String,
+    pub(crate) board_id: String,
+    pub(crate) agent: Client,
+    pub(crate) th: TestServer,
 }
 
-async fn a_space_with_a_diary() -> Space {
+pub(crate) async fn a_space_with_a_diary() -> Space {
     let (th, ws) = in_a_space().await;
     let client = &th.client;
     let own = ws.trim_start_matches("/w/").to_owned();

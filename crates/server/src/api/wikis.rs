@@ -165,15 +165,27 @@ async fn handle_get_page_tree(
     Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id)): Path<(String, String)>,
 ) -> ApiResult {
+    Ok(json_response(&page_tree_read(&ws, &wiki_id).await?))
+}
+
+/// The pages of the wiki `wiki_id` without their bodies, as `getPageTree` lists them.
+///
+/// # Errors
+///
+/// As `getPageTree` answers.
+pub(super) async fn page_tree_read(
+    ws: &InWorkspace,
+    wiki_id: &str,
+) -> Result<Vec<PageNode>, AppError> {
     require_container_permission(
         &ws.app,
         &ws.caller.user_id,
-        &wiki_id,
+        wiki_id,
         ContainerPermission::View,
         "access denied to fetch pages",
     )
     .await?;
-    Ok(json_response(&ws.app.page_tree(&wiki_id).await?))
+    ws.app.page_tree(wiki_id).await
 }
 
 /// Make a page
@@ -208,20 +220,33 @@ async fn handle_create_page(
     Path((_, wiki_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
+    Ok(created(&create_page_from(&ws, &wiki_id, &body).await?))
+}
+
+/// Makes the page `body` describes, as `createPage` takes it, in the wiki `wiki_id`.
+///
+/// # Errors
+///
+/// As `createPage` answers.
+pub(super) async fn create_page_from(
+    ws: &InWorkspace,
+    wiki_id: &str,
+    body: &Bytes,
+) -> Result<Page, AppError> {
     let user_id = ws.caller.user_id.as_str();
     require_container_permission(
         &ws.app,
         user_id,
-        &wiki_id,
+        wiki_id,
         ContainerPermission::ManageCards,
         "access denied to create page",
     )
     .await?;
-    let new: NewPage = decode_object(&body)?;
+    let new: NewPage = decode_object(body)?;
     new.check_request()?;
-    let page = ws.app.create_page(&wiki_id, &new, user_id).await?;
+    let page = ws.app.create_page(wiki_id, &new, user_id).await?;
     tracing::debug!(wiki_id, page_id = %page.id, user_id, "CreatePage");
-    Ok(created(&page))
+    Ok(page)
 }
 
 /// A page
@@ -271,20 +296,37 @@ async fn handle_patch_page(
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
+    Ok(json_response(
+        &patch_page_from(&ws, &wiki_id, &page_id, &body).await?,
+    ))
+}
+
+/// Changes the page `page_id` of the wiki `wiki_id` as `body` says, as `patchPage`
+/// takes it.
+///
+/// # Errors
+///
+/// As `patchPage` answers.
+pub(super) async fn patch_page_from(
+    ws: &InWorkspace,
+    wiki_id: &str,
+    page_id: &str,
+    body: &Bytes,
+) -> Result<Page, AppError> {
     let user_id = ws.caller.user_id.as_str();
     let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
+        ws,
+        wiki_id,
+        page_id,
         ContainerPermission::ManageCards,
         "access denied to patch page",
     )
     .await?;
-    let (mut patch, document): (PagePatch, _) = decode_with_document(&body)?;
+    let (mut patch, document): (PagePatch, _) = decode_with_document(body)?;
     patch.body = document;
     patch.check_request()?;
     ws.app
-        .check_body_files(&wiki_id, patch.body.new_body())
+        .check_body_files(wiki_id, patch.body.new_body())
         .await?;
     let patched = ws
         .app
@@ -297,7 +339,7 @@ async fn handle_patch_page(
         )
         .await?;
     tracing::debug!(wiki_id, page_id, user_id, "PatchPage");
-    Ok(json_response(&Page::from(patched)))
+    Ok(Page::from(patched))
 }
 
 /// Move a page

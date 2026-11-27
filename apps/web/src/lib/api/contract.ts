@@ -557,6 +557,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The Model Context Protocol
+         * @description One JSON-RPC 2.0 message of the Model Context Protocol (Streamable HTTP, no session):
+         *     `initialize`, `ping`, `tools/list` and `tools/call` are answered with 200 and their
+         *     result or error as `application/json`; a notification, or an answer to the server, is
+         *     taken with 202 and no body. A batch is refused (`-32600`), as is a body that is no
+         *     JSON (`-32700`), with 400. `tools/list` lists the tools the token's scope covers: one
+         *     that reads only is told of no tool that writes, and is refused one it calls all the
+         *     same. What a tool may not do (403, 404, 409 and the like of the route it stands for)
+         *     is its result, marked `isError`, with the problem; its arguments not being what it
+         *     takes are `-32602`, and the server failing `-32603`.
+         *
+         *     Only a personal API token is taken: a request with a session, or with none, is
+         *     answered 401 with `WWW-Authenticate: Bearer`. A request counts against the token's
+         *     limits as one to any operation does, and is answered 429 past them. An
+         *     `MCP-Protocol-Version` header the server does not speak is answered 400.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
+         */
+        post: operations["postMcp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications": {
         parameters: {
             query?: never;
@@ -5862,6 +5897,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A workspace in one answer
+         * @description The workspace (its name, its organization, what that organization is and what the
+         *     caller is in the workspace), the caller (their login name and the name they are
+         *     shown by, not their email), and every container of the workspace the caller reads:
+         *     those they are a member of, by a role of their own or of a group they are in, and its open ones
+         *     unless they are a guest of it. Oldest first. An administrator is not given the
+         *     private containers they only manage. Each says what the caller is on it (`joined`,
+         *     `myRole`, absent where they are no member: an open container they read all the same),
+         *     and a board the properties its cards take (`cardProperties`), joined or not: what
+         *     `getCards` filters by and `patchCard` writes. A personal API token is given no
+         *     diary. 404 unless the caller is a member of the workspace.
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
+         */
+        get: operations["getWorkspaceOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/references/resolve": {
         parameters: {
             query?: never;
@@ -9895,6 +9961,63 @@ export interface components {
             /** @description Whether boards may be read by a public link. */
             publicLinks?: boolean | null;
         };
+        /** @description A container of an overview: what it is and what the reader is on it. */
+        OverviewContainer: {
+            /**
+             * @description The properties of the cards of a board, in display order: what a card's
+             *     `properties` are keyed by. Absent for any other kind.
+             */
+            cardProperties?: components["schemas"]["CardPropertyDefinition"][] | null;
+            /** @description Its icon, usually one emoji; empty for none. */
+            icon: string;
+            /** @description Its identifier. */
+            id: string;
+            /**
+             * @description Whether the reader is a member of it, by a role of their own or of a group they
+             *     are in: an open container they read without being one is `false`.
+             */
+            joined: boolean;
+            /** @description What it is for. */
+            kind: components["schemas"]["ContainerKind"];
+            myRole?: components["schemas"]["ContainerRole"] | null;
+            /** @description Its title. */
+            title: string;
+            /**
+             * Format: int64
+             * @description When it last changed, in milliseconds since the Unix epoch.
+             */
+            updatedAt: number;
+            /** @description Whether it is open to whoever works in the workspace or private to its members. */
+            visibility: components["schemas"]["ContainerVisibility"];
+        };
+        /** @description Who reads an overview, by the name they are shown by. */
+        OverviewPerson: {
+            /** @description Their identifier. */
+            id: string;
+            /**
+             * @description The name they are shown by: their display name, or the login name if they have
+             *     none.
+             */
+            name: string;
+            /** @description Their login name. */
+            username: string;
+        };
+        /** @description The workspace of an overview. */
+        OverviewWorkspace: {
+            /** @description Its identifier. */
+            id: string;
+            /** @description What its organization is: one people work in together, or the user's own space. */
+            kind: components["schemas"]["OrgKind"];
+            /** @description What the reader is in it. */
+            myWorkspaceRole: components["schemas"]["WorkspaceRole"];
+            /**
+             * @description Its name; empty for the workspace of the user's own space, which a client names
+             *     in the reader's language.
+             */
+            name: string;
+            /** @description The identifier of its organization. */
+            orgId: string;
+        };
         /** @description A page of a wiki. */
         Page: {
             body: components["schemas"]["Body"] | null;
@@ -11355,6 +11478,15 @@ export interface components {
              */
             name: string;
         };
+        /** @description A workspace, its containers and who reads them, as an agent finds its way by. */
+        WorkspaceOverview: {
+            /** @description The containers they read, oldest first. */
+            containers: components["schemas"]["OverviewContainer"][];
+            /** @description Who reads it. */
+            me: components["schemas"]["OverviewPerson"];
+            /** @description The workspace. */
+            workspace: components["schemas"]["OverviewWorkspace"];
+        };
         /**
          * @description What a member of a workspace is in it.
          * @enum {string}
@@ -12034,6 +12166,63 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    postMcp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One JSON-RPC 2.0 request or notification. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description The answer to the request: its result or its error. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description A notification, or an answer to the server, taken. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that is no single JSON-RPC message: the JSON-RPC error (`-32700` or `-32600`) without an `id`, as `application/json`, as the transport has it. An `MCP-Protocol-Version` header the server does not speak is a problem. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -20799,6 +20988,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WelcomeBoard"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace, the caller and the containers they read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOverview"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

@@ -70,6 +70,11 @@ of use. An organization that takes only sessions made through its provider holds
 days a token made before it did: older, the token is answered 401 there with the reason \
 `token_expired_for_organization`.
 
+An agent may instead speak the Model Context Protocol to `POST /api/v1/mcp` (`postMcp`), \
+which takes a token and nothing else: its tools read and write as the operations above do, \
+for the same token, with the same limits and refusals, and a token that reads only is told \
+of no tool that writes.
+
 ## Requests that change something
 
 Every request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header \
@@ -380,6 +385,13 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Subscription", Members::AllBut(&["deletedAt"])),
     ("WelcomeBoard", Members::All),
     ("Workspace", Members::All),
+    ("WorkspaceOverview", Members::All),
+    ("OverviewWorkspace", Members::All),
+    ("OverviewPerson", Members::All),
+    (
+        "OverviewContainer",
+        Members::AllBut(&["myRole", "cardProperties"]),
+    ),
     ("Team", Members::All),
     ("TeamMember", Members::All),
     ("TeamName", Members::AsWritten),

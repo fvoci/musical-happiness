@@ -16,6 +16,11 @@ fn the_document_can_be_made() {
     assert!(text.ends_with("}\n"), "the text ends with one line break");
 }
 
+/// The operations that answer some refusals in a protocol of their own, besides the
+/// problem: the MCP server answers a body that is no JSON-RPC message with the JSON-RPC
+/// error, as the transport has it.
+const SPOKEN_IN_THEIR_PROTOCOL: [(&str, &str, &str); 1] = [("post", "/api/v1/mcp", "400")];
+
 #[test]
 fn every_operation_answers_a_refusal_with_the_problem() {
     let text = document().expect("the document");
@@ -42,11 +47,19 @@ fn every_operation_answers_a_refusal_with_the_problem() {
                 let content = response["content"]
                     .as_object()
                     .expect("an error has a body");
-                assert_eq!(
-                    content.keys().collect::<Vec<_>>(),
-                    ["application/problem+json"],
-                    "the {status} of {method} {path}"
-                );
+                let mut types: Vec<&str> = content.keys().map(String::as_str).collect();
+                types.sort_unstable();
+                let spoken = SPOKEN_IN_THEIR_PROTOCOL.contains(&(
+                    method.as_str(),
+                    path.as_str(),
+                    status.as_str(),
+                ));
+                let expected: &[&str] = if spoken {
+                    &["application/json", "application/problem+json"]
+                } else {
+                    &["application/problem+json"]
+                };
+                assert_eq!(types, expected, "the {status} of {method} {path}");
             }
         }
     }

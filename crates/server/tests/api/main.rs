@@ -102,6 +102,8 @@ mod mail_reset_review;
 mod mail_ses;
 mod mail_shutdown;
 mod mail_smoke;
+mod mcp;
+mod mcp_writes;
 mod member_welcome;
 mod metrics;
 mod metrics_accounts;

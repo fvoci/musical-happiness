@@ -194,7 +194,7 @@ pub(super) async fn exercise(
     }
     account(case).await;
     organization(case).await;
-    tokens(case).await;
+    tokens(case, server).await;
     notifications(case, server).await;
     exam_publication(case, server).await;
     time_entries(case).await;
@@ -396,8 +396,9 @@ async fn account(case: &mut Case) {
 }
 
 /// The founder gives an agent a token of the workspace, finds it as its owner and as the
-/// organization's administrator, and takes one back each way.
-async fn tokens(case: &mut Case) {
+/// organization's administrator, lets the agent speak MCP with it, and takes one back
+/// each way.
+async fn tokens(case: &mut Case, server: &TestServer) {
     let made = json!({"name": "agent", "scope": "read", "workspaceIds": [case.workspace]});
     let first = case.run("createApiToken", &[], made.clone()).await.value();
     let first = case.remember(&first["apiToken"], "id");
@@ -405,10 +406,48 @@ async fn tokens(case: &mut Case) {
     case.present("getOrgApiTokens", &[], &first).await;
     case.run("revokeOrgApiToken", &[("tokenId", &first)], json!({}))
         .await;
-    let second = case.run("createApiToken", &[], made).await.value();
-    let second = case.remember(&second["apiToken"], "id");
+    let issued = case.run("createApiToken", &[], made).await.value();
+    let second = case.remember(&issued["apiToken"], "id");
+    let agent = server.client_with_token(issued["token"].as_str().expect("the token"));
+    mcp(case, &agent).await;
     case.run("revokeApiToken", &[("tokenId", &second)], json!({}))
         .await;
+}
+
+/// The agent of a founder's token is told of the tools it may call, and is given the
+/// overview of the founder's workspace and nothing of the other organization's.
+async fn mcp(case: &mut Case, agent: &Client) {
+    let message = |id: u32, method: &str, params: serde_json::Value| json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+    let listed =
+        agent
+            .request(reqwest::Method::POST, "/mcp")
+            .json(&message(1, "tools/list", json!({})));
+    let listed = case.send("postMcp", listed).await.value();
+    assert!(
+        listed["result"]["tools"]
+            .as_array()
+            .is_some_and(|tools| !tools.is_empty()),
+        "the tools are listed: {listed}"
+    );
+    let overview = agent.request(reqwest::Method::POST, "/mcp").json(&message(
+        2,
+        "tools/call",
+        json!({"name": "get_workspace_overview",
+               "arguments": {"workspaceId": case.workspace}}),
+    ));
+    let overview = Client::send(overview).await;
+    case.assert_is_ours("postMcp", &overview.body);
+    let overview = overview.value();
+    assert_eq!(
+        overview["result"]["isError"], false,
+        "the overview is given: {overview}"
+    );
+    assert!(
+        overview["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains(&case.workspace)),
+        "the overview is of the founder's workspace: {overview}"
+    );
 }
 
 async fn organization(case: &mut Case) {

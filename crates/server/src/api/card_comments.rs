@@ -10,8 +10,8 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::comments::{
-    CommentParentKind, CommenterOf, create_comment_on, created_comment, delete_comment_on,
-    existing_comment_on, find_live_comment_on, get_comment_versions_on, list_comments_on,
+    CommentParentKind, CommenterOf, comments_on, create_comment_on, created_comment,
+    delete_comment_on, existing_comment_on, find_live_comment_on, get_comment_versions_on,
     patch_comment_on, restore_comment_on,
 };
 use super::contract::params::{BoardId, CardCommentId, CardId, DisableNotify, MemberWorkspaceId};
@@ -63,7 +63,16 @@ impl CommentParentKind for CardCommentParent {
     }
 }
 
-async fn card_on_board(ws: &InWorkspace, board_id: &str, card_id: &str) -> Result<Block, AppError> {
+/// The card `card_id` of the board `board_id`, live; 404 for anything else.
+///
+/// # Errors
+///
+/// Returns 404 for a block that is no card of the board, and the store's error.
+pub(super) async fn card_on_board(
+    ws: &InWorkspace,
+    board_id: &str,
+    card_id: &str,
+) -> Result<Block, AppError> {
     let block = ws.app.block(card_id).await.map_err(|err| {
         if err.is_not_found() {
             AppError::not_found("card")
@@ -127,16 +136,32 @@ async fn handle_get_card_comments(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, card_id)): Path<(String, String, String)>,
 ) -> ApiResult {
+    Ok(json_response(
+        &card_comments(&ws, &board_id, &card_id).await?,
+    ))
+}
+
+/// The comments on the card `card_id` of the board `board_id`, as `getCardComments`
+/// lists them.
+///
+/// # Errors
+///
+/// As `getCardComments` answers.
+pub(super) async fn card_comments(
+    ws: &InWorkspace,
+    board_id: &str,
+    card_id: &str,
+) -> Result<Vec<Block>, AppError> {
     require_container_permission(
         &ws.app,
         &ws.caller.user_id,
-        &board_id,
+        board_id,
         ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
-    let card = card_on_board(&ws, &board_id, &card_id).await?;
-    list_comments_on(&ws, &board_id, &card.id).await
+    let card = card_on_board(ws, board_id, card_id).await?;
+    comments_on(ws, board_id, &card.id).await
 }
 
 /// Write a comment on a card

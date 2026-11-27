@@ -96,6 +96,26 @@ impl<K: CommentParentKind> Wall for CommenterOf<K> {
             .ok_or_else(|| AppError::internal("route missing container path parameter"))?;
         let parent_id =
             parent_id.ok_or_else(|| AppError::internal("route missing parent path parameter"))?;
+        Self::admit(ws, container_id, &parent_id, comment_id).await
+    }
+}
+
+impl<K: CommentParentKind> CommenterOf<K> {
+    /// Who comments on the block `parent_id` of the container `container_id` (or
+    /// changes the comment `comment_id` on it), in the workspace `ws` was entered for:
+    /// one who may comment there, on a live parent of the kind `K`.
+    ///
+    /// # Errors
+    ///
+    /// Returns what `require_container_permission` refuses with, and 404 for a parent
+    /// that is not there.
+    pub(super) async fn admit(
+        ws: InWorkspace,
+        container_id: String,
+        parent_id: &str,
+        comment_id: Option<String>,
+    ) -> Result<Self, AppError> {
+        let ws = ws.reaching(K::kinds());
         let denial = if comment_id.is_some() {
             K::CHANGES_DENIED
         } else {
@@ -109,7 +129,7 @@ impl<K: CommentParentKind> Wall for CommenterOf<K> {
             denial,
         )
         .await?;
-        let parent = K::load_parent(&ws, &container_id, &parent_id).await?;
+        let parent = K::load_parent(&ws, &container_id, parent_id).await?;
         Ok(Self {
             ws,
             container_id,
@@ -166,18 +186,22 @@ pub(super) async fn existing_comment_on(
         .ok_or_else(|| AppError::not_found("comment"))
 }
 
-/// Lists comments on an already-authorized `parent` block, oldest first.
-pub(super) async fn list_comments_on(
+/// The comments on an already-authorized `parent` block, oldest first.
+///
+/// # Errors
+///
+/// Returns the store's error.
+pub(super) async fn comments_on(
     ws: &InWorkspace,
     container_id: &str,
     parent_id: &str,
-) -> ApiResult {
+) -> Result<Vec<Block>, AppError> {
     let mut comments = ws
         .app
         .blocks(container_id, Some(parent_id), Some(&BlockType::Comment))
         .await?;
     comments.sort_by(|one, other| (one.created_at, &one.id).cmp(&(other.created_at, &other.id)));
-    Ok(json_response(&comments))
+    Ok(comments)
 }
 
 /// Creates a comment on an already-authorized `parent` block from a decoded payload `T`.

@@ -534,6 +534,11 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "patchTimeEntry",
     "patchUserSettings",
     "ping",
+    // The MCP server takes a personal API token and no session: a session is answered
+    // 401 before anything is read. What a token reaches behind the wall is asked as a
+    // tool enters its workspace
+    // (`api_tokens::an_organization_that_takes_no_password_gives_its_workspaces_to_tokens_while_it_lets`).
+    "postMcp",
     // What a link leads into is shown to whoever holds it, signed in or not.
     "previewInvitation",
     // Marking as read what the account was told, as listing it (`getNotifications`):

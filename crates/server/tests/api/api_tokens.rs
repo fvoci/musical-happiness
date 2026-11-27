@@ -10,6 +10,7 @@ use crate::common::{
     ApiResponse, Client, HIDDEN_WORKSPACE_ID, PASSWORD, ROOT_WORKSPACE_ID, Setup,
     TEST_WORKSPACE_ID, TestServer,
 };
+use crate::mcp::{called, listed, refused};
 
 /// Makes a token as `client` that reaches `workspaces`, with `scope`.
 async fn make_token(client: &Client, scope: &str, workspaces: &[&str]) -> IssuedApiToken {
@@ -340,6 +341,7 @@ async fn an_organization_that_takes_no_password_gives_its_workspaces_to_tokens_w
     );
     let reader = agent(&ts, &issued);
     reader.get(&boards).await.check_ok();
+    check_given_to_the_agent(&reader).await;
 
     // Switched off, the token opens nothing of the organization until it is on again.
     admin
@@ -351,6 +353,7 @@ async fn an_organization_that_takes_no_password_gives_its_workspaces_to_tokens_w
         StatusCode::FORBIDDEN,
         "api_tokens_disallowed",
     );
+    check_kept_from_the_agent(&reader).await;
     admin
         .patch(&org, &json!({"allowApiTokens": true}))
         .await
@@ -540,4 +543,28 @@ async fn a_token_is_refused_an_upload_of_an_archive() {
 /// A token of `client`'s user that writes in the test workspace, as an agent holds it.
 pub(crate) async fn agent_writing(ts: &TestServer, client: &Client) -> Client {
     agent(ts, &make_token(client, "write", &[TEST_WORKSPACE_ID]).await)
+}
+
+/// The root workspace is listed to the agent of `reader`, and its overview given.
+async fn check_given_to_the_agent(reader: &Client) {
+    assert_eq!(
+        listed(reader).await,
+        [ROOT_WORKSPACE_ID],
+        "and to its agent"
+    );
+    let overview = json!({"workspaceId": ROOT_WORKSPACE_ID});
+    called(reader, "get_workspace_overview", &overview).await;
+}
+
+/// The root workspace is not listed to the agent of `reader`, and its overview is
+/// refused for the organization that lets no token in.
+async fn check_kept_from_the_agent(reader: &Client) {
+    assert_eq!(
+        listed(reader).await,
+        Vec::<String>::new(),
+        "nor to its agent"
+    );
+    let overview = json!({"workspaceId": ROOT_WORKSPACE_ID});
+    let problem = refused(reader, "get_workspace_overview", &overview).await;
+    assert_eq!(problem["reason"], "api_tokens_disallowed", "{problem}");
 }

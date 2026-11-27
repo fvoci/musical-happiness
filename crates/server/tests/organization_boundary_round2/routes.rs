@@ -60,6 +60,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/boards", "createBoard"),
     ("GET", "/boards", "getWorkspaceBoards"),
     ("GET", "/containers", "listWorkspaceContainers"),
+    ("GET", "/overview", "getWorkspaceOverview"),
     (
         "GET",
         "/containers/{containerId}/files",
@@ -883,6 +884,12 @@ pub(super) async fn compare_workspace_routes(
             hidden.status == StatusCode::OK
                 && answer(&hidden).1[0]["containerMetadata"] == json!([])
                 && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "getWorkspaceOverview" && asker == Asker::Guest {
+            // The workspace as its guest has it: theirs to be in, with no container here.
+            hidden.status == StatusCode::OK
+                && answer(&hidden).1["containers"] == json!([])
+                && answer(&hidden).1["workspace"]["myWorkspaceRole"] == "guest"
+                && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "getWorkspaceLearningToday" && asker == Asker::Guest {
             // A guest not enrolled in any course sees empty today/overdue lists.
             hidden.status == StatusCode::OK
@@ -943,9 +950,9 @@ pub(super) async fn compare_workspace_routes(
 
 /// Every route under `/w/{workspaceId}` answers for a workspace the asker is not in, a
 /// workspace of another organization, and a workspace the asker is a guest of as for one
-/// that does not exist; but `getWorkspaceBoards`, `getCategories`, `exportWorkspaceArchive`
-/// and the users of the workspace, which let a guest see, file and export the boards it is
-/// on and their people.
+/// that does not exist; but `getWorkspaceBoards`, `getCategories`, `exportWorkspaceArchive`,
+/// the overview and the users of the workspace, which let a guest see, file and export the
+/// boards it is on and their people.
 #[tokio::test]
 async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
     const HIDDEN: &str = HIDDEN_WORKSPACE_ID;

@@ -24,10 +24,11 @@ pub(crate) mod tag {
     pub(crate) const TIME: &str = "time";
     pub(crate) const ORGANIZATION: &str = "organization";
     pub(crate) const API_TOKENS: &str = "api-tokens";
+    pub(crate) const MCP: &str = "mcp";
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-pub(super) const TAGS: [(&str, &str); 21] = [
+pub(super) const TAGS: [(&str, &str); 22] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -120,5 +121,11 @@ pub(super) const TAGS: [(&str, &str); 21] = [
         "Personal API tokens: what a user gives an agent to read, or read and write, the \
          content of some of their workspaces on their behalf (see \"Personal API tokens\" \
          above).",
+    ),
+    (
+        tag::MCP,
+        "The Model Context Protocol server, by which an agent with a personal API token \
+         reads and writes what the token reaches through tools, as the operations above \
+         do.",
     ),
 ];

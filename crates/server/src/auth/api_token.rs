@@ -4,7 +4,8 @@
 //!
 //! A token is a credential of its own kind. The lookups of sessions refuse it before
 //! they look anything up ([`refused_as_session`]), so that a route that takes a session
-//! takes no token: only the routes that say they do (`Delegated` of `crate::api`) take
+//! takes no token: only the routes that say they do (`Delegated` of `crate::api`, and
+//! the MCP server, `TokenCaller` of `crate::api::mcp`, which takes nothing else) take
 //! one, and only from the `Authorization` header.
 //!
 //! How many requests a token sends is counted in memory ([`TokenLimits`]): of each

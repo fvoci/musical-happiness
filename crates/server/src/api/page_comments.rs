@@ -10,8 +10,8 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::comments::{
-    CommentParentKind, CommenterOf, create_comment_on, created_comment, delete_comment_on,
-    existing_comment_on, find_live_comment_on, get_comment_versions_on, list_comments_on,
+    CommentParentKind, CommenterOf, comments_on, create_comment_on, created_comment,
+    delete_comment_on, existing_comment_on, find_live_comment_on, get_comment_versions_on,
     patch_comment_on, restore_comment_on,
 };
 use super::contract::params::{CommentId, MemberWorkspaceId, PageId, WikiId};
@@ -114,15 +114,25 @@ async fn handle_get_page_comments(
     Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let page = page_with_permission(
-        &ws,
-        &wiki_id,
-        &page_id,
-        ContainerPermission::View,
-        READ_DENIED,
-    )
-    .await?;
-    list_comments_on(&ws, &wiki_id, &page.id).await
+    Ok(json_response(
+        &page_comments(&ws, &wiki_id, &page_id).await?,
+    ))
+}
+
+/// The comments on the page `page_id` of the wiki `wiki_id`, as `getPageComments`
+/// lists them.
+///
+/// # Errors
+///
+/// As `getPageComments` answers.
+pub(super) async fn page_comments(
+    ws: &InWorkspace,
+    wiki_id: &str,
+    page_id: &str,
+) -> Result<Vec<Block>, AppError> {
+    let page =
+        page_with_permission(ws, wiki_id, page_id, ContainerPermission::View, READ_DENIED).await?;
+    comments_on(ws, wiki_id, &page.id).await
 }
 
 /// Write a comment on a page

@@ -6,13 +6,13 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{CourseProgressSummary, UnitProgress, UnitProgressUpdate};
+use fvoci_model::{CourseProgressSummary, UnitProgress, UnitProgressChange, UnitProgressUpdate};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::params::{CourseId, MemberWorkspaceId, UnitId};
 use super::contract::tag;
-use super::workspace::InCourse;
+use super::workspace::{InCourse, InWorkspace};
 use super::{ApiResult, decode_object, json_response, require_granted};
 use super::{Delegated, Read, Write};
 use crate::app::{App, ContainerAccess};
@@ -59,22 +59,33 @@ async fn handle_get_my_course_progress(
     Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id)): Path<(String, String)>,
 ) -> ApiResult {
+    Ok(json_response(&my_progress_in(&ws, &course_id).await?))
+}
+
+/// The caller's progress in the course `course_id`, as `getMyCourseProgress` gives it:
+/// nothing for who reads an open course they have not joined.
+///
+/// # Errors
+///
+/// As `getMyCourseProgress` answers.
+pub(super) async fn my_progress_in(
+    ws: &InWorkspace,
+    course_id: &str,
+) -> Result<Vec<UnitProgress>, AppError> {
     let user_id = ws.caller.user_id.as_str();
     let access = course_view_access(
         &ws.app,
         user_id,
-        &course_id,
+        course_id,
         "access denied to course progress",
     )
     .await?;
     if !access.has_membership() {
-        return Ok(json_response(&Vec::<UnitProgress>::new()));
+        return Ok(Vec::new());
     }
-    let rows = ws
-        .app
-        .my_course_progress(&course_id, user_id, &access.container.properties)
-        .await?;
-    Ok(json_response(&rows))
+    ws.app
+        .my_course_progress(course_id, user_id, &access.container.properties)
+        .await
 }
 
 /// Record my progress on a unit
@@ -104,11 +115,50 @@ async fn handle_put_unit_progress(
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
+    Ok(json_response(
+        &put_progress_from(&ws, &course_id, &unit_id, &body).await?,
+    ))
+}
+
+/// Records the caller's progress on the unit `unit_id` of the course `course_id` as
+/// `body` says, as `putUnitProgress` takes it: for a member of the course alone.
+///
+/// # Errors
+///
+/// As `putUnitProgress` answers.
+pub(super) async fn put_progress_from(
+    ws: &InWorkspace,
+    course_id: &str,
+    unit_id: &str,
+    body: &Bytes,
+) -> Result<UnitProgress, AppError> {
+    let progress = progress_to_record(ws, course_id, body).await?;
+    record_progress(ws, course_id, unit_id, &progress).await
+}
+
+/// The caller's progress in a course, as `body` says it and checked as
+/// `putUnitProgress` checks it, before it is recorded ([`record_progress`]).
+pub(super) struct ProgressToRecord {
+    access: ContainerAccess,
+    change: UnitProgressChange,
+}
+
+/// Checks the progress `body` says, of the caller in the course `course_id`, as
+/// `putUnitProgress` checks it: the caller reads the course and is a member of it, and
+/// the progress is what may be recorded. Nothing is written.
+///
+/// # Errors
+///
+/// As `putUnitProgress` answers, but for the unit.
+pub(super) async fn progress_to_record(
+    ws: &InWorkspace,
+    course_id: &str,
+    body: &Bytes,
+) -> Result<ProgressToRecord, AppError> {
     let access = course_view_access(
         &ws.app,
-        user_id,
-        &course_id,
+        &ws.caller.user_id,
+        course_id,
         "access denied to update unit progress",
     )
     .await?;
@@ -117,19 +167,31 @@ async fn handle_put_unit_progress(
             "join the course before recording progress",
         ));
     }
-    let update: UnitProgressUpdate = decode_object(&body)?;
+    let update: UnitProgressUpdate = decode_object(body)?;
     let change = update.check_request()?;
-    let progress = ws
-        .app
+    Ok(ProgressToRecord { access, change })
+}
+
+/// Records `progress` on the unit `unit_id` of the course `course_id`.
+///
+/// # Errors
+///
+/// As `putUnitProgress` answers for the unit.
+pub(super) async fn record_progress(
+    ws: &InWorkspace,
+    course_id: &str,
+    unit_id: &str,
+    progress: &ProgressToRecord,
+) -> Result<UnitProgress, AppError> {
+    ws.app
         .put_unit_progress(
-            &course_id,
-            &unit_id,
-            user_id,
-            &change,
-            &access.container.properties,
+            course_id,
+            unit_id,
+            &ws.caller.user_id,
+            &progress.change,
+            &progress.access.container.properties,
         )
-        .await?;
-    Ok(json_response(&progress))
+        .await
 }
 
 /// Progress summary of a course

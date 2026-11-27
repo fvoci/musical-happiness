@@ -57,6 +57,20 @@ impl Caller {
         self.delegation().map(Delegation::by_agent)
     }
 
+    /// Refuses a caller who came with a personal API token that does not cover
+    /// `needed`; a session covers all.
+    ///
+    /// # Errors
+    ///
+    /// Returns 403 with the reason `token_scope_insufficient` for a token that reads
+    /// only, asked to write.
+    pub fn require_scope(&self, needed: ApiTokenScope) -> Result<(), AppError> {
+        match self.delegation() {
+            Some(delegation) if !delegation.scope.covers(needed) => Err(api_token::reads_only()),
+            _ => Ok(()),
+        }
+    }
+
     /// The caller as the rule of what opens what asks of them.
     #[must_use]
     pub fn asker(&self) -> Asker<'_> {

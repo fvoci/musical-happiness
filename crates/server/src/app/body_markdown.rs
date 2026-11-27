@@ -10,7 +10,9 @@ mod write;
 
 use std::collections::{BTreeSet, HashMap};
 
-use fvoci_model::{Body, BodyChange, Card, RefusalReason, Refusals, WorkspaceRole, is_id};
+use fvoci_model::{
+    Body, BodyChange, Card, ComplexBlock, RefusalReason, Refusals, WorkspaceRole, is_id,
+};
 use serde_json::Value;
 
 use super::App;
@@ -79,6 +81,17 @@ fn markdown_nodes(markdown: &str, field: &str) -> Result<Vec<Value>, AppError> {
         .nodes)
 }
 
+/// A body in Markdown ([`App::body_in_markdown`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BodyInMarkdown {
+    /// The Markdown.
+    pub markdown: String,
+    /// The blocks the Markdown does not hold as they are, in the order of the body: a
+    /// body that has any is not written whole from its Markdown
+    /// (`complex_blocks_use_append`).
+    pub complex_blocks: Vec<ComplexBlock>,
+}
+
 /// Reads Markdown into a body, `None` for Markdown that says nothing.
 ///
 /// # Errors
@@ -87,6 +100,20 @@ fn markdown_nodes(markdown: &str, field: &str) -> Result<Vec<Value>, AppError> {
 fn markdown_body(markdown: &str, field: &str) -> Result<Option<Body>, AppError> {
     let nodes = markdown_nodes(markdown, field)?;
     blocks_to_body(nodes).map_err(|error| error.with_field(field))
+}
+
+/// The text of a comment, read of `markdown`, as a comment's body is written.
+///
+/// # Errors
+///
+/// Returns 400 or 413 at `field` for Markdown that is no body, and 400 at `field` for
+/// Markdown that says nothing, as for a comment sent without its text.
+pub(crate) fn comment_text_of_markdown(markdown: &str, field: &str) -> Result<Body, AppError> {
+    markdown_body(markdown, field)?.ok_or_else(|| {
+        let mut refusals = Refusals::new();
+        refusals.refuse(field, RefusalReason::Required, "a comment has a text");
+        refusals.into()
+    })
 }
 
 /// The identifiers a document names, of files and of people.
@@ -192,6 +219,32 @@ impl App {
         Ok(names)
     }
 
+    /// `body`, a body of the board `container_id` (a card's, a page's, a unit's or a
+    /// comment's), in Markdown as `reader` reads it, with the blocks the Markdown does
+    /// not hold as they are; no body is empty Markdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if a file or a person cannot be read.
+    pub async fn body_in_markdown(
+        &self,
+        reader: MarkdownReader<'_>,
+        container_id: &str,
+        body: Option<&Body>,
+    ) -> Result<BodyInMarkdown, AppError> {
+        let written = match body {
+            Some(body) => {
+                let names = self.names_in(reader, container_id, body.document()).await?;
+                body_to_markdown(body.document(), &names)
+            }
+            None => body_to_markdown(&Value::Null, &Names::default()),
+        };
+        Ok(BodyInMarkdown {
+            markdown: written.markdown,
+            complex_blocks: written.complex,
+        })
+    }
+
     /// Gives `card` its body in Markdown as `reader` reads it, in place of the body,
     /// with the blocks the Markdown does not hold as they are.
     ///
@@ -203,17 +256,12 @@ impl App {
         reader: MarkdownReader<'_>,
         card: &mut Card,
     ) -> Result<(), AppError> {
-        let written = match card.body.take() {
-            Some(body) => {
-                let names = self
-                    .names_in(reader, &card.board_id, body.document())
-                    .await?;
-                body_to_markdown(body.document(), &names)
-            }
-            None => body_to_markdown(&Value::Null, &Names::default()),
-        };
-        card.has_complex_blocks = Some(!written.complex.is_empty());
-        card.complex_blocks = Some(written.complex);
+        let body = card.body.take();
+        let written = self
+            .body_in_markdown(reader, &card.board_id, body.as_ref())
+            .await?;
+        card.has_complex_blocks = Some(!written.complex_blocks.is_empty());
+        card.complex_blocks = Some(written.complex_blocks);
         card.body_markdown = Some(written.markdown);
         Ok(())
     }
@@ -236,6 +284,28 @@ impl App {
         container_id: &str,
         markdown: &str,
     ) -> Result<(), AppError> {
+        let nodes = self.markdown_to_append(container_id, markdown).await?;
+        let by = Appender {
+            user_id: &caller.user_id,
+            agent: caller.agent(),
+        };
+        self.collab().append(self, block_id, by, &nodes).await
+    }
+
+    /// The nodes `markdown` adds after the last of a body of the container
+    /// `container_id`, checked as [`Self::append_markdown`] checks them before it
+    /// writes: so that what is to be added after other changes is refused before them.
+    ///
+    /// # Errors
+    ///
+    /// Returns 400 at `/markdown` for Markdown that adds nothing, nests too deep or
+    /// names a file the container does not have, and 413 for a body that would be
+    /// larger than it may.
+    pub async fn markdown_to_append(
+        &self,
+        container_id: &str,
+        markdown: &str,
+    ) -> Result<Vec<Value>, AppError> {
         let nodes = markdown_nodes(markdown, "markdown")?;
         let Some(added) =
             blocks_to_body(nodes.clone()).map_err(|error| error.with_field("markdown"))?
@@ -251,10 +321,6 @@ impl App {
         self.check_body_files(container_id, Some(&added))
             .await
             .map_err(|error| error.moved("/body", "/markdown"))?;
-        let by = Appender {
-            user_id: &caller.user_id,
-            agent: caller.agent(),
-        };
-        self.collab().append(self, block_id, by, &nodes).await
+        Ok(nodes)
     }
 }

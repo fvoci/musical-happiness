@@ -8,7 +8,7 @@ use utoipa_axum::routes;
 use super::contract::params::{ContentKind, ContentLimit, ContentText, MemberWorkspaceId};
 use super::contract::tag;
 use super::query::{QueryParams, int_param};
-use super::workspace::InContainer;
+use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, json_response};
 use super::{Delegated, Read};
 use crate::app::App;
@@ -17,10 +17,10 @@ use crate::search::{Asked, AskedError};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-struct ContentSearchQuery {
-    q: String,
-    kind: String,
-    limit: String,
+pub(super) struct ContentSearchQuery {
+    pub(super) q: String,
+    pub(super) kind: String,
+    pub(super) limit: String,
 }
 
 /// How many hits a search answers with unless it asks for another number.
@@ -78,6 +78,20 @@ async fn handle_search_content(
     Delegated(InContainer(ws), ..): Delegated<Read, InContainer>,
     QueryParams(query): QueryParams<ContentSearchQuery>,
 ) -> ApiResult {
+    Ok(json_response(&search_content(&ws, &query, None).await?))
+}
+
+/// What `query` finds in the workspace `ws` was entered for, as
+/// `searchWorkspaceContent` finds it: in the container `within` alone if one is given.
+///
+/// # Errors
+///
+/// As `searchWorkspaceContent` answers.
+pub(super) async fn search_content(
+    ws: &InWorkspace,
+    query: &ContentSearchQuery,
+    within: Option<&str>,
+) -> Result<Vec<SearchHit>, AppError> {
     let kind = match query.kind.as_str() {
         "" => None,
         word => Some(
@@ -93,10 +107,14 @@ async fn handle_search_content(
             AskedError::LimitOutOfRange => "limit",
         })
     })?;
+    let asked = match within {
+        Some(container_id) => asked.within(container_id),
+        None => asked,
+    };
     let found = ws
         .app
         .search_workspace(&ws.caller.user_id, &ws.workspace_id, &asked)
         .await?;
     tracing::debug!(found = found.len(), "SearchContent");
-    Ok(json_response(&found))
+    Ok(found)
 }

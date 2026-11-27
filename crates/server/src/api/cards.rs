@@ -31,7 +31,7 @@ use super::body_versions::{
 use super::{ApiResult, TRUE, created, json_response};
 use super::{decode_with_document, require_container_permission, require_permission_through};
 use crate::app::{
-    App, CardPreviews, CardsFilter, CardsOrder, CardsUnder, MarkdownReader, body_of_markdown,
+    App, CardPreviews, CardsFilter, CardsOrder, CardsUnder, ChangeNotification, body_of_markdown,
 };
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -40,7 +40,7 @@ use crate::permissions::ContainerPermission;
 /// How a card's body is given (`format`).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum BodyFormatValue {
+pub(super) enum BodyFormatValue {
     #[default]
     Json,
     Markdown,
@@ -234,17 +234,32 @@ async fn handle_create_card(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
+    let card = create_card_from(&ws, &board_id, &body, query.notification()).await?;
+    Ok(created(&card))
+}
+
+/// Makes the card `body` describes, as `createCard` takes it, on the board `board_id`
+/// of the workspace `ws` was entered for.
+///
+/// # Errors
+///
+/// As `createCard` answers.
+pub(super) async fn create_card_from(
+    ws: &InWorkspace,
+    board_id: &str,
+    body: &Bytes,
+    notification: ChangeNotification,
+) -> Result<Card, AppError> {
     let user_id = ws.caller.user_id.as_str();
-    let notification = query.notification();
     require_container_permission(
         &ws.app,
         user_id,
-        &board_id,
+        board_id,
         ContainerPermission::ManageCards,
         "access denied to create card",
     )
     .await?;
-    let (mut card, document): (Card, _) = decode_with_document(&body)?;
+    let (mut card, document): (Card, _) = decode_with_document(body)?;
     // Everything of the request's shape that is refused, before the store is asked.
     let mut refused: Refusals = card.check_request().err().unwrap_or_default();
     if !card.board_id.is_empty() && card.board_id != board_id {
@@ -265,21 +280,21 @@ async fn handle_create_card(
     };
     (card.has_complex_blocks, card.complex_blocks) = (None, None);
     ws.app
-        .check_body_files(&board_id, card.body.as_ref())
+        .check_body_files(board_id, card.body.as_ref())
         .await
         .map_err(|error| error.moved("/body", body_at))?;
-    card.board_id.clone_from(&board_id);
+    board_id.clone_into(&mut card.board_id);
     card.populate(now_millis());
     card.validate().map_err(AppError::bad_request)?;
 
     // What the store refuses of the card's values it names as the block's `fields`.
     let card = ws
         .app
-        .create_card(card, &board_id, user_id, notification)
+        .create_card(card, board_id, user_id, notification)
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/properties"))?;
     tracing::debug!(board_id, card_id = %card.id, user_id, "CreateCard");
-    Ok(created(&card))
+    Ok(card)
 }
 
 /// The cards of a board
@@ -318,30 +333,45 @@ async fn handle_get_cards(
     Path((_, board_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<CardsListQuery>,
 ) -> ApiResult {
+    let cards = cards_of_board(&ws, &board_id, &query).await?;
+    if query.compact == TRUE {
+        let compact = cards.into_iter().map(CompactCard::from).collect();
+        return Ok(json_response(&CardsOfPage::Compact(compact)));
+    }
+    Ok(json_response(&CardsOfPage::Whole(cards)))
+}
+
+/// The cards of the board `board_id` that `query` chooses, as `getCards` describes
+/// them, for whoever reads the board; whole, whatever `compact` says.
+///
+/// # Errors
+///
+/// As `getCards` answers.
+pub(super) async fn cards_of_board(
+    ws: &InWorkspace,
+    board_id: &str,
+    query: &CardsListQuery,
+) -> Result<Vec<Card>, AppError> {
     let user_id = &ws.caller.user_id;
     require_container_permission(
         &ws.app,
         user_id,
-        &board_id,
+        board_id,
         ContainerPermission::View,
         "access denied to fetch cards",
     )
     .await?;
     let filter = query.filter(user_id)?;
     let cards = if filter.is_everything() {
-        cards_page(&ws.app, &board_id, &query).await?
+        cards_page(&ws.app, board_id, query).await?
     } else {
         let page = paging_from_strings(&query.page, &query.per_page)?;
         ws.app
-            .filtered_cards(&board_id, &filter, page, previews_of(&query))
+            .filtered_cards(board_id, &filter, page, previews_of(query))
             .await?
     };
     tracing::debug!(board_id, user_id, count = cards.len(), "GetCards");
-    if query.compact == TRUE {
-        let compact = cards.into_iter().map(CompactCard::from).collect();
-        return Ok(json_response(&CardsOfPage::Compact(compact)));
-    }
-    Ok(json_response(&CardsOfPage::Whole(cards)))
+    Ok(cards)
 }
 
 /// The page of the board's cards that the query of a request asks for, as `getCards`
@@ -393,19 +423,33 @@ async fn handle_patch_card(
     QueryParams(query): QueryParams<DisableNotifyQuery>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    let notification = query.notification();
+    let patched = patch_card_from(&ws, &card_id, &body, query.notification()).await?;
+    Ok(json_response(&patched))
+}
 
+/// Changes the card `card_id` as `body` says, as `patchCard` takes it, for whoever
+/// entered its workspace as `ws`.
+///
+/// # Errors
+///
+/// As `patchCard` answers.
+pub(super) async fn patch_card_from(
+    ws: &InWorkspace,
+    card_id: &str,
+    body: &Bytes,
+    notification: ChangeNotification,
+) -> Result<Card, AppError> {
+    let user_id = ws.caller.user_id.as_str();
     let card = card_with_permission(
         &ws.app,
         user_id,
-        &card_id,
+        card_id,
         ContainerPermission::ManageCards,
         "access denied to patch card",
     )
     .await?;
     // The block, read to check the permission, is the card as it was.
-    let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
+    let (mut patch, document): (CardPatch, _) = decode_with_document(body)?;
     patch.body = document;
     let body_at = body_member(patch.body_markdown.as_ref());
     if let Some(markdown) = patch.body_markdown.take() {
@@ -425,7 +469,7 @@ async fn handle_patch_card(
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))?;
     tracing::debug!(board_id = %patched.board_id, card_id = %patched.id, user_id, "PatchCard");
-    Ok(json_response(&patched))
+    Ok(patched)
 }
 
 /// A card
@@ -445,26 +489,38 @@ async fn handle_get_card(
     Path((_, card_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<CardQuery>,
 ) -> ApiResult {
+    Ok(json_response(
+        &card_read(&ws, &card_id, query.format).await?,
+    ))
+}
+
+/// The card `card_id`, with its body as `format` says, as `getCard` gives it.
+///
+/// # Errors
+///
+/// As `getCard` answers.
+pub(super) async fn card_read(
+    ws: &InWorkspace,
+    card_id: &str,
+    format: BodyFormatValue,
+) -> Result<Card, AppError> {
     let user_id = ws.caller.user_id.as_str();
     let block = card_with_permission(
         &ws.app,
         user_id,
-        &card_id,
+        card_id,
         ContainerPermission::View,
         "access denied to fetch card",
     )
     .await?;
     let mut card = ws.app.card_of_block(&block).await?;
-    if query.format == BodyFormatValue::Markdown {
-        let reader = MarkdownReader {
-            user_id,
-            workspace_id: &ws.workspace_id,
-            role: ws.role,
-        };
-        ws.app.put_card_in_markdown(reader, &mut card).await?;
+    if format == BodyFormatValue::Markdown {
+        ws.app
+            .put_card_in_markdown(ws.markdown_reader(), &mut card)
+            .await?;
     }
     tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
-    Ok(json_response(&card))
+    Ok(card)
 }
 
 /// A card by its number
@@ -488,11 +544,26 @@ async fn handle_get_card_by_number(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, number)): Path<(String, String, String)>,
 ) -> ApiResult {
+    Ok(json_response(
+        &card_by_number_read(&ws, &board_id, &number).await?,
+    ))
+}
+
+/// The card of the board `board_id` that has `number`, as `getCardByNumber` gives it.
+///
+/// # Errors
+///
+/// As `getCardByNumber` answers.
+pub(super) async fn card_by_number_read(
+    ws: &InWorkspace,
+    board_id: &str,
+    number: &str,
+) -> Result<Card, AppError> {
     const WHAT: &str = "card";
     let user_id = ws.caller.user_id.as_str();
     let denial = "access denied to fetch card";
     let view = ContainerPermission::View;
-    require_permission_through(&ws.app, user_id, &board_id, view, denial, WHAT).await?;
+    require_permission_through(&ws.app, user_id, board_id, view, denial, WHAT).await?;
     // A number as `Card.number` writes it, so that a card has one path: not `+7` or `07`.
     let number = number
         .parse::<u32>()
@@ -501,12 +572,12 @@ async fn handle_get_card_by_number(
         .ok_or_else(|| AppError::not_found(WHAT))?;
     let block = ws
         .app
-        .card_by_number(&board_id, number)
+        .card_by_number(board_id, number)
         .await?
         .ok_or_else(|| AppError::not_found(WHAT))?;
     let card = ws.app.card_of_block(&block).await?;
     tracing::debug!(board_id, card_id = %card.id, user_id, "GetCardByNumber");
-    Ok(json_response(&card))
+    Ok(card)
 }
 
 /// The versions kept of a card's body

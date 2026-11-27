@@ -13,7 +13,10 @@ use super::contract::params::{CardId, MemberWorkspaceId};
 use super::contract::tag;
 use super::workspace::InWorkspace;
 use super::{ApiResult, Delegated, Write, decode_object, json_response};
+use fvoci_model::Card;
+
 use crate::app::App;
+use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -53,17 +56,31 @@ async fn handle_append_card_markdown(
     body: Bytes,
 ) -> ApiResult {
     let request: MarkdownAppend = decode_object(&body)?;
+    let card = append_to_card(&ws, &card_id, &request.markdown).await?;
+    Ok(json_response(&card))
+}
+
+/// Adds `markdown` after the last of the body of the card `card_id`, as
+/// `appendCardMarkdown` does, and answers with the card as it is now.
+///
+/// # Errors
+///
+/// As `appendCardMarkdown` answers.
+pub(super) async fn append_to_card(
+    ws: &InWorkspace,
+    card_id: &str,
+    markdown: &str,
+) -> Result<Card, AppError> {
     let card = card_with_permission(
         &ws.app,
         &ws.caller.user_id,
-        &card_id,
+        card_id,
         ContainerPermission::ManageCards,
         "access denied to change card",
     )
     .await?;
     ws.app
-        .append_markdown(&ws.caller, &card.id, &card.container_id, &request.markdown)
+        .append_markdown(&ws.caller, &card.id, &card.container_id, markdown)
         .await?;
-    let card = ws.app.card(&card.id).await?;
-    Ok(json_response(&card))
+    ws.app.card(&card.id).await
 }
