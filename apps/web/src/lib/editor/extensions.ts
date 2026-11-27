@@ -36,6 +36,8 @@ import {
   type Trigger,
 } from '@tiptap/suggestion';
 
+import { Callout } from './callout.ts';
+import { Details, DetailsContent, DetailsSummary } from './details.ts';
 import { BodyCodeBlock } from './diagram-block.ts';
 import { IMAGE_ATTRIBUTES, LINK_ATTRIBUTES } from './drawing.ts';
 import { EditingPlace } from './editing-place.ts';
@@ -337,6 +339,10 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     BodyTableRow,
     BodyTableHeader,
     BodyTableCell,
+    Details,
+    DetailsSummary,
+    DetailsContent,
+    Callout,
     // Marks
     Bold,
     Italic,

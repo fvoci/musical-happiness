@@ -71,6 +71,19 @@ const cellOf =
     Object.keys(spans).length > 0 ? { type, attrs: spans, content } : { type, content };
 export const cell = cellOf('tableCell');
 export const header = cellOf('tableHeader');
+/** A toggle: its summary's line, then what it hides. */
+export const toggle = (summary: DocNode[], ...content: DocNode[]): DocNode => ({
+  type: 'details',
+  content: [
+    summary.length > 0 ? { type: 'detailsSummary', content: summary } : { type: 'detailsSummary' },
+    { type: 'detailsContent', content },
+  ],
+});
+export const callout = (tone: string, ...content: DocNode[]): DocNode => ({
+  type: 'callout',
+  attrs: { tone },
+  content,
+});
 
 /** The people the documents mention. The third (gone) is deliberately not among them. */
 export const PEOPLE: Record<string, string> = {
@@ -354,6 +367,20 @@ export const HAND_MADE: Record<string, DocNode> = {
     // A row covered whole by the cells above has no cell of its own.
     table(row(cell({ rowspan: 2 }, paragraph(text('tall')))), row()),
     paragraph(text('after')),
+  ),
+
+  'toggles and callouts': doc(
+    toggle([text('Question '), text('one', 'bold')], paragraph(text('The answer.'))),
+    toggle([], paragraph()),
+    toggle(
+      [text('A toggle in a toggle'), lineBreak(), text('on two lines')],
+      toggle([text('inner')], quote(paragraph(text('quoted')))),
+      table(row(cell({}, paragraph(text('cell'))))),
+      callout('tip', paragraph(text('a tip inside'))),
+    ),
+    callout('info', paragraph(text('A note.'))),
+    callout('warn', heading(3, text('Careful')), bullets(item(paragraph(text('one'))))),
+    callout('danger', paragraph()),
   ),
 };
 

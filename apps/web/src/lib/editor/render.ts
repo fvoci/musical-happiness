@@ -36,6 +36,7 @@ import {
   type MathNodeName,
 } from './drawing.ts';
 import { fileUrl } from './files.ts';
+import { drawBlock } from './render-blocks.ts';
 import { drawTable } from './render-table.ts';
 import {
   DIAGRAM_LANGUAGE,
@@ -417,6 +418,11 @@ class BodyDrawing {
         return this.#math('blockMath', node);
       case 'table':
         return drawTable(this.#page, node, childrenOf, (tag, cell) => this.#container(tag, cell));
+      case 'details':
+      case 'callout':
+        return drawBlock(this.#page, node, childrenOf, (tag, part, line) =>
+          line ? this.#textblock(tag, part) : this.#container(tag, part),
+        );
       default:
         // Not on the list: not drawn.
         return undefined;
