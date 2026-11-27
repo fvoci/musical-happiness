@@ -36,9 +36,10 @@ impl FromStr for OrgCreation {
     }
 }
 
-/// The public URL of the server (`server_url`): an `http` or `https` URL, without the
-/// slash it may have been written with at its end, so that a path of the web app is
-/// written after it.
+/// The public URL of the server (`server_url`): an `http` or `https` URL without a
+/// user, a query or a fragment, and without the spaces around it and the slash it may
+/// have been written with at its end, so that a path of the web app is written after it
+/// (a link of a mail, whose secret is its own fragment).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerUrl(String);
 
@@ -46,8 +47,20 @@ impl FromStr for ServerUrl {
     type Err = anyhow::Error;
 
     fn from_str(text: &str) -> anyhow::Result<Self> {
+        let text = text.trim();
         if origin_of(text).is_none() {
             bail!("server_url {text:?} is no http or https URL");
+        }
+        let after_scheme = text.split_once("://").map_or("", |(_, rest)| rest);
+        let authority = after_scheme.split('/').next().unwrap_or_default();
+        if authority.contains('@') {
+            bail!("server_url {text:?} names a user: the server's links are anybody's");
+        }
+        if text.contains(['?', '#']) {
+            bail!(
+                "server_url {text:?} has a query or a fragment, which the paths of the \
+                 server's links would follow"
+            );
         }
         Ok(Self(text.trim_end_matches('/').to_owned()))
     }
@@ -171,5 +184,45 @@ impl Settings {
     #[must_use]
     pub fn websocket_ping(&self) -> Option<Duration> {
         self.websocket_ping
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ServerUrl;
+
+    /// A path of the web app is written after the URL as it was given, without the
+    /// spaces around it and its last slash.
+    #[test]
+    fn a_server_url_is_written_before_the_paths_of_the_web_app() {
+        for (given, written) in [
+            ("https://fvoci.example", "https://fvoci.example/reset"),
+            ("  https://fvoci.example/  ", "https://fvoci.example/reset"),
+            (
+                "http://localhost:8000/app/",
+                "http://localhost:8000/app/reset",
+            ),
+        ] {
+            let url: ServerUrl = given.parse().expect("a server URL");
+            assert_eq!(url.at("/reset"), written, "{given:?}");
+        }
+    }
+
+    /// A URL whose links would not reach the web app's pages is refused: one of another
+    /// scheme, and one with a user, a query or a fragment, which the paths of the links
+    /// would follow.
+    #[test]
+    fn a_server_url_with_a_user_a_query_or_a_fragment_is_refused() {
+        for given in [
+            "",
+            "fvoci.example",
+            "ftp://fvoci.example",
+            "https://admin:secret@fvoci.example",
+            "https://admin@fvoci.example/",
+            "https://fvoci.example/?lang=ko",
+            "https://fvoci.example#top",
+        ] {
+            assert!(given.parse::<ServerUrl>().is_err(), "{given:?}");
+        }
     }
 }
