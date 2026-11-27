@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use fvoci_model::{BODY_MAX_DEPTH, Body, BodyError};
 use serde_json::{Value, json};
 use yrs::{
-    Array, ArrayRef, Doc, ID, IdSet, ReadTxn, Transact, TransactionMut, Xml as _, XmlElementRef,
-    XmlFragment as _, XmlFragmentRef, XmlOut,
+    Array, ArrayRef, Doc, ID, IdSet, ReadTxn, Transact, TransactionMut, XmlElementRef,
+    XmlFragment as _, XmlFragmentRef,
 };
 
 use self::judge::{
@@ -381,10 +381,9 @@ fn refresh_cache_after_repair<T: ReadTxn>(
         cache.remove(id);
     }
     for element in cut_elements {
-        // Guard against a cut at index 0 exposing a non-countable `ItemContent::Format`
-        // at an element's start while `len > 0` (mirroring `read::children`), delegating
-        // to `project` to preserve the exact JSON pointer path in `BodyError::InvalidNode`.
-        if element.len(txn) > 0 && element.first_child().is_none() {
+        // A cut can leave a parent that holds what is no XML (a formatting item first,
+        // which is not counted). Reading the whole document says where.
+        if !read::holds_only_xml(txn, element) {
             let _ = project(txn, root)?;
             return Err(BodyError::InvalidNode {
                 path: String::new(),
@@ -567,20 +566,10 @@ impl<T: ReadTxn> Survey<'_, T> {
         let mut out = CachedRootSurvey::default();
         let mut own = Vec::new();
         let mut count = 0_u32;
-        let mut next = root.first_child();
-        while let Some(node) = next {
-            next = match &node {
-                XmlOut::Element(element) => element.siblings(self.txn).next(),
-                XmlOut::Text(text) => text.siblings(self.txn).next(),
-                XmlOut::Fragment(_) => None,
-            };
+        let mut children = read::Siblings::of(self.txn, root);
+        while let Some(child) = children.next() {
             let index = count;
             count = count.saturating_add(1);
-            let child = match node {
-                XmlOut::Element(element) => Child::Element(element),
-                XmlOut::Text(text) => Child::Text(text),
-                XmlOut::Fragment(_) => Child::Other,
-            };
             if let Some((cache, dirty)) = cached
                 && let Child::Element(element) = &child
                 && let Some(id) = element_id(element)
@@ -597,17 +586,9 @@ impl<T: ReadTxn> Survey<'_, T> {
                 continue;
             }
             if let Err(err) = self.survey_root_child(index, child, &mut out, &mut own) {
-                // Mirror `read::children` precedence: a corrupt root containing a raw
-                // non-XML item always fails with `InvalidNode` before any child limit error.
-                while let Some(rest) = next {
-                    next = match &rest {
-                        XmlOut::Element(element) => element.siblings(self.txn).next(),
-                        XmlOut::Text(text) => text.siblings(self.txn).next(),
-                        XmlOut::Fragment(_) => None,
-                    };
-                    count = count.saturating_add(1);
-                }
-                if count != root.len(self.txn) {
+                // Whatever a child fails, a root that holds what is no XML fails as that.
+                let rest = u32::try_from(children.count()).unwrap_or(u32::MAX);
+                if count.saturating_add(rest) != root.len(self.txn) {
                     return Err(BodyError::InvalidNode {
                         path: String::new(),
                         problem: "the root holds something that is neither a node nor a text",

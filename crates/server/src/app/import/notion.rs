@@ -27,7 +27,7 @@ use super::markdown::{
     AssetResolver, BodyContext, MarkdownNotice, ResolvedTarget, blocks_to_body, markdown_to_blocks,
 };
 use super::markdown_nodes::BodyBudget;
-use super::notion_csv::{ParsedCsvDatabase, parse_notion_csv_bounded};
+use super::notion_csv::{ParsedCsvDatabase, ParsedCsvRow, parse_notion_csv_bounded};
 use super::staged::{StagedArchive, StagedContainer, StagedFile};
 use super::summary::{
     BundleLimits, ImportFormat, ImportSummary, ImportWarningCode, truncate_chars,
@@ -358,27 +358,54 @@ fn match_row_markdowns(
 
     let mut used = vec![false; candidates.len()];
     let mut matched = vec![None; db.rows.len()];
-    // Pass 1: lock in every exact title match first so a normalized match on an earlier row
-    // cannot steal a companion Markdown file that exact-matches a later row.
-    for (slot, row) in matched.iter_mut().zip(&db.rows) {
-        let row_trimmed = row.title.trim();
-        if let Some(idx) = pop_unused(&mut by_clean, row_trimmed, &mut used) {
+    match_exact_titles(
+        &db.rows,
+        &candidates,
+        &mut by_clean,
+        &mut used,
+        &mut matched,
+    );
+    match_normalized_titles(&db.rows, &candidates, &mut by_norm, &mut used, &mut matched);
+    matched
+}
+
+/// Gives each row the file (of `candidates`: its path, cleaned title and normalized
+/// title) whose cleaned title is the row's. This goes first, so that a normalized
+/// match on an earlier row cannot take the file that is the exact match of a later one.
+fn match_exact_titles(
+    rows: &[ParsedCsvRow],
+    candidates: &[(String, String, String)],
+    by_clean: &mut HashMap<&str, VecDeque<usize>>,
+    used: &mut [bool],
+    matched: &mut [Option<String>],
+) {
+    for (slot, row) in matched.iter_mut().zip(rows) {
+        if let Some(idx) = pop_unused(by_clean, row.title.trim(), used) {
             *slot = Some(candidates[idx].0.clone());
         }
     }
-    // Pass 2: match remaining rows using normalized (case/punctuation-insensitive) keys.
-    for (slot, row) in matched.iter_mut().zip(&db.rows) {
+}
+
+/// Gives each row still without a file the one whose title is the row's but for case
+/// and punctuation.
+fn match_normalized_titles(
+    rows: &[ParsedCsvRow],
+    candidates: &[(String, String, String)],
+    by_norm: &mut HashMap<&str, VecDeque<usize>>,
+    used: &mut [bool],
+    matched: &mut [Option<String>],
+) {
+    for (slot, row) in matched.iter_mut().zip(rows) {
         if slot.is_some() {
             continue;
         }
         let row_norm = normalize_match_key(row.title.trim());
         if !row_norm.is_empty()
-            && let Some(idx) = pop_unused(&mut by_norm, &row_norm, &mut used)
+            && let Some(idx) = pop_unused(by_norm, &row_norm, used)
         {
             *slot = Some(candidates[idx].0.clone());
         }
     }
-    matched
 }
 
 fn pop_unused(
