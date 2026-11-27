@@ -27,6 +27,8 @@ use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
 pub(crate) use self::inspect::{
     SchemaState, may_change, refuse_unrecorded_schemas, state, ungranted_tables, whereabouts,
 };
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) use self::steps::UNDONE_FOR_TESTS;
 pub(crate) use self::steps::{STEPS, Step};
 use crate::db::{Dialect, Param};
 use crate::error::StoreError;
@@ -421,16 +423,36 @@ mod tests {
         }
     }
 
+    /// Every migration after the baseline can be taken away again for the tests that
+    /// make a database the one the last server before the baseline left: each has its
+    /// statement, newest first, and nothing else has one.
+    #[test]
+    fn every_migration_after_the_baseline_is_undone_for_the_tests() {
+        let mut after: Vec<i64> = STEPS.iter().skip(1).map(|step| step.version).collect();
+        after.reverse();
+        let undone: Vec<i64> = UNDONE_FOR_TESTS
+            .iter()
+            .map(|(version, _)| *version)
+            .collect();
+        assert_eq!(undone, after, "UNDONE_FOR_TESTS, newest first");
+    }
+
+    /// The baseline alone: the migrations of a server that has none after it.
+    fn the_baseline() -> [Step; 1] {
+        let [baseline, ..] = &STEPS;
+        [Step {
+            version: baseline.version,
+            description: baseline.description,
+            sqlite: baseline.sqlite,
+            postgres: baseline.postgres,
+        }]
+    }
+
     /// The baseline, and a migration after it as a later server has one.
     fn baseline_and_one_more() -> [Step; 2] {
-        let [baseline] = &STEPS;
+        let [baseline] = the_baseline();
         [
-            Step {
-                version: baseline.version,
-                description: baseline.description,
-                sqlite: baseline.sqlite,
-                postgres: baseline.postgres,
-            },
+            baseline,
             Step {
                 version: 2,
                 description: "after the baseline",
@@ -454,7 +476,10 @@ mod tests {
         let store = Store::open(crate::DbType::Sqlite, ":memory:")
             .await
             .expect("the database opens");
-        store.migrate().await.expect("the baseline is applied");
+        store
+            .migrate_with(&the_baseline())
+            .await
+            .expect("the baseline is applied");
         store
             .system()
             .transaction(async |scope| {
@@ -533,9 +558,12 @@ mod tests {
         );
         assert_eq!(recorded_versions(&store).await, [1]);
         assert_eq!(
-            store.re_anchor_with(&STEPS).await.expect("read again"),
+            store
+                .re_anchor_with(&the_baseline())
+                .await
+                .expect("read again"),
             SchemaCheck::Current,
-            "this server's: nothing is left"
+            "a server without the migration after it: nothing is left"
         );
         store.close().await;
     }
