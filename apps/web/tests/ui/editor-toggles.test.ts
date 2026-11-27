@@ -337,11 +337,25 @@ describe('a callout in the editor', () => {
     expect(stored(editor)).toEqual(tip());
   });
 
-  it('keeps its tone where the body cannot be changed', () => {
+  it('keeps its tone where the body cannot be changed, its icon a picture that names it', () => {
     const editor = create(tip(), undefined, false);
-    iconOf(editor).click();
+    const picture = iconOf(editor);
+    expect(picture.tagName).toBe('SPAN');
+    expect(picture.getAttribute('role')).toBe('img');
+    expect(picture.getAttribute('aria-label')).toBe('Tip');
+    expect(picture.hasAttribute('aria-haspopup')).toBe(false);
+    expect(picture.hasAttribute('aria-expanded')).toBe(false);
+    picture.click();
     expect(tones(editor)?.hidden).toBe(true);
     expect(stored(editor)).toEqual(tip());
+    // Made writable, the icon is the button again; made read-only, the picture.
+    editor.setEditable(true);
+    expect(iconOf(editor).tagName).toBe('BUTTON');
+    iconOf(editor).click();
+    expect(tones(editor)?.hidden).toBe(false);
+    editor.setEditable(false);
+    expect(iconOf(editor).tagName).toBe('SPAN');
+    expect(tones(editor)?.hidden).toBe(true);
   });
 
   it('is made of the blocks of the selection, and only where it may stand', () => {

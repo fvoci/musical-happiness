@@ -7833,7 +7833,7 @@ export interface components {
          * @description Why the Markdown of a body does not hold one of its blocks as it is.
          * @enum {string}
          */
-        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula" | "heading_with_break";
+        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula" | "heading_with_break" | "markup_in_summary";
         ConfirmEmailChange: {
             /** @description The secret from the confirmation link's fragment. */
             token: string;

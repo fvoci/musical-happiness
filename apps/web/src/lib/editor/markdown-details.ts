@@ -38,7 +38,17 @@ export function alertOf(quote: Tokens.Blockquote): { tone: CalloutTone; body: st
 
 const OPEN = /<details(?:\s[^>]*)?>/gi;
 const CLOSE = /<\/details\s*>/gi;
+/**
+ * A summary, from its tag to the end that no backslash of its own escapes:
+ * what is written in it is its line's text, never a tag of a toggle.
+ */
+const SUMMARY = /<summary(?:\s[^>]*)?>[\s\S]*?(?<=(?:^|[^\\])(?:\\\\)*)<\/summary\s*>/gi;
 const count = (text: string, pattern: RegExp): number => text.match(pattern)?.length ?? 0;
+/** How deeper an HTML token takes the toggles it is in: its tags, not the text of a summary. */
+const deepening = (raw: string): number => {
+  const tags = raw.replace(SUMMARY, '');
+  return count(tags, OPEN) - count(tags, CLOSE);
+};
 
 /** Whether a token of HTML opens a toggle. */
 export const opensDetails = (token: Token): boolean =>
@@ -59,7 +69,7 @@ export function detailsRun(
     const token = tokens[index];
     if (!token) break;
     raw += token.raw;
-    if (token.type === 'html') depth += count(token.raw, OPEN) - count(token.raw, CLOSE);
+    if (token.type === 'html') depth += deepening(token.raw);
     if (depth <= 0) break;
   }
   return { length: Math.min(index, tokens.length - 1) - start + 1, raw };

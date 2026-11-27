@@ -304,7 +304,7 @@ describe('toggles and callouts', () => {
     // As crates/server/src/app/body_markdown/write.rs writes them.
     const written = [
       '<details>',
-      '<summary>Why **this** \\<now>?</summary>',
+      '<summary>Why **this** &lt;now&gt; &amp; [then](https://example.com/?a=1&amp;b=2)?</summary>',
       '',
       'Because.',
       '',
@@ -339,7 +339,13 @@ describe('toggles and callouts', () => {
     const content = blocks(written);
     expect(content).toEqual([
       toggle(
-        [text('Why '), text('this', [{ type: 'bold' }]), text(' <now>?')],
+        [
+          text('Why '),
+          text('this', [{ type: 'bold' }]),
+          text(' <now> & '),
+          text('then', [{ type: 'link', attrs: { href: 'https://example.com/?a=1&b=2' } }]),
+          text('?'),
+        ],
         line(text('Because.')),
         callout('tip', line(text('inside'))),
         toggle([], line(text('deeper'))),
@@ -355,6 +361,53 @@ describe('toggles and callouts', () => {
     expect(
       blocks('<details>\n<summary>ends at \\</summary> \\\\</summary>\n\nnot yet\n\n</details>'),
     ).toEqual([toggle([text('ends at </summary> \\')], line(text('not yet')))]);
+  });
+
+  it('counts no tag of a toggle in the text of a summary', () => {
+    // The server writes each of these; its reader reads them as these toggles.
+    expect(
+      blocks('<details>\n<summary>a \\</details> b</summary>\n\nhidden\n\n</details>\n\nafter'),
+    ).toEqual([toggle([text('a </details> b')], line(text('hidden'))), line(text('after'))]);
+    expect(
+      blocks(
+        '<details>\n<summary>a \\<details> b</summary>\n\nhidden\n\n</details>\n\nafter one\n\nafter two',
+      ),
+    ).toEqual([
+      toggle([text('a <details> b')], line(text('hidden'))),
+      line(text('after one')),
+      line(text('after two')),
+    ]);
+    expect(
+      blocks('<details>\n<summary>a `</details>` b</summary>\n\nhidden\n\n</details>\n\nafter'),
+    ).toEqual([
+      toggle(
+        [text('a '), text('</details>', [{ type: 'code' }]), text(' b')],
+        line(text('hidden')),
+      ),
+      line(text('after')),
+    ]);
+  });
+
+  it('reads a toggle in 28 others as its lines, so that a body stays within its depth', () => {
+    const nested = (count: number, inner: string): string =>
+      count === 0
+        ? inner
+        : `<details>\n<summary>${String(count)}</summary>\n\n${nested(count - 1, inner)}\n\n</details>`;
+    const deepest = (node: DocNode | undefined, depth = 0): number =>
+      node?.type === 'details' ? deepest(node.content?.[1]?.content?.[0], depth + 1) : depth;
+    const fits = blocks(nested(28, 'words'));
+    expect(deepest(fits[0])).toBe(28);
+    expect(valid(fits)).toEqual([]);
+    const over = markdownToBlocks(nested(29, 'words'));
+    expect(deepest(over.content[0])).toBe(28);
+    expect(valid(over.content)).toEqual([]);
+    expect(over.notes).toEqual({ toggle: 1 });
+    // Far deeper reads quickly, and as deep.
+    const started = performance.now();
+    const far = blocks(nested(3000, 'words'));
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(deepest(far[0])).toBe(28);
+    expect(valid(far)).toEqual([]);
   });
 
   it('reads alerts and toggles from elsewhere where they may stand, as the server does', () => {

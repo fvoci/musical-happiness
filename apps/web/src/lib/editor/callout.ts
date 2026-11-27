@@ -9,9 +9,13 @@
  *
  * Where the body is edited the icon is a button: it shows the four tones,
  * each a button that gives the callout its tone (Escape, or a press
- * elsewhere, closes them). Where it can only be read the icon is a picture.
+ * elsewhere, closes them). Where it can only be read the icon is a picture
+ * that says the tone's name, as a callout drawn for reading is
+ * (render-blocks.ts), and it becomes the one or the other again when the
+ * editor can be written or no longer can.
  */
 import { mergeAttributes, Node as BodyNode, type NodeViewRenderer } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 
 import { m } from '$lib/i18n/paraglide/messages.js';
@@ -43,7 +47,36 @@ function toneButton(page: Document, tone: CalloutTone): HTMLButtonElement {
   return button;
 }
 
-/** The node view: the icon's button, the tones it shows, and the blocks. */
+/** What puts the icon of each callout drawn in an editor as its editor can be written now. */
+const placings = new WeakMap<HTMLElement, () => void>();
+
+/** Places the icon of each callout in `view` as the editor can be written now. */
+function placeIcons(view: EditorView): void {
+  for (const callout of view.dom.querySelectorAll<HTMLElement>('[data-callout]'))
+    placings.get(callout)?.();
+}
+
+/**
+ * Places the icons of the callouts again once the editor can be written, or
+ * no longer can; and once its plugins are in, as the callouts drawn before
+ * them were drawn as for an editor that can be written.
+ */
+const iconsPlaced = new Plugin({
+  key: new PluginKey('calloutIcons'),
+  view: (view) => {
+    let editable = view.editable;
+    placeIcons(view);
+    return {
+      update: (current) => {
+        if (current.editable === editable) return;
+        editable = current.editable;
+        placeIcons(current);
+      },
+    };
+  },
+});
+
+/** The node view: the icon (a button that shows the tones, or a picture), the tones, and the blocks. */
 const calloutView: NodeViewRenderer = ({ node, HTMLAttributes, view, getPos }) => {
   const page = view.dom.ownerDocument;
   const dom = page.createElement('div');
@@ -55,6 +88,9 @@ const calloutView: NodeViewRenderer = ({ node, HTMLAttributes, view, getPos }) =
   icon.type = 'button';
   icon.className = 'doc-callout-icon';
   icon.setAttribute('aria-haspopup', 'true');
+  const picture = page.createElement('span');
+  picture.className = 'doc-callout-icon';
+  picture.setAttribute('role', 'img');
   const tones = page.createElement('div');
   tones.className = 'doc-callout-tones';
   tones.setAttribute('role', 'group');
@@ -75,6 +111,8 @@ const calloutView: NodeViewRenderer = ({ node, HTMLAttributes, view, getPos }) =
     dom.dataset.tone = tone;
     icon.replaceChildren(toneIcon(page, tone));
     icon.setAttribute('aria-label', m.editor_callout_change({ tone: toneName(tone) }));
+    picture.replaceChildren(toneIcon(page, tone));
+    picture.setAttribute('aria-label', toneName(tone));
     for (const button of buttons)
       button.setAttribute('aria-pressed', String(button.dataset.tone === tone));
   };
@@ -91,8 +129,17 @@ const calloutView: NodeViewRenderer = ({ node, HTMLAttributes, view, getPos }) =
     icon.setAttribute('aria-expanded', 'true');
     page.addEventListener('pointerdown', outside, true);
   };
+  /** The button where the editor can be written, the picture where it can only be read. */
+  const place = (): void => {
+    const shown = view.editable ? icon : picture;
+    if (controls.firstChild === shown) return;
+    close();
+    controls.firstChild?.replaceWith(shown);
+  };
   show();
   close();
+  place();
+  placings.set(dom, place);
 
   controls.addEventListener('mousedown', (event) => {
     event.preventDefault();
@@ -171,6 +218,10 @@ export const Callout = BodyNode.create({
 
   addNodeView() {
     return calloutView;
+  },
+
+  addProseMirrorPlugins() {
+    return [iconsPlaced];
   },
 
   addCommands() {

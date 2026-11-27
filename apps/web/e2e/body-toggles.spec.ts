@@ -207,22 +207,9 @@ const READ_BODY = {
   ],
 };
 
-test('where a body is only read, a toggle still opens for its reader, and a callout keeps its tone', async ({
-  page,
-}) => {
-  const body = await openCardWithBody(page, 'Study notes', READ_BODY);
-  await expect(body).toHaveAttribute('data-editor', 'reading');
-  const answer = body.getByText('Its answer');
-  await expect(answer).toBeHidden();
-  await body.getByRole('button', { name: 'Expand' }).click();
-  await expect(answer).toBeVisible();
-  const icon = body.getByRole('button', { name: 'Callout: Warning. Change its kind' });
-  await icon.click();
-  await expect(body.locator('.doc-callout-tones')).toBeHidden();
-  await expect(body.locator('[data-callout]')).toHaveAttribute('data-tone', 'warn');
-
-  // In a comment, the page's own toggle: closed, and open once its summary is pressed.
-  await page.evaluate(async (written) => {
+/** Has someone else comment `written` on the card open, the first of its board by title. */
+async function commentWith(page: Page, written: object): Promise<void> {
+  await page.evaluate(async (body) => {
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
     const [workspace] = await dev.backend.workspaces();
     const boards = await dev.backend.boards(workspace?.id ?? '');
@@ -232,8 +219,29 @@ test('where a body is only read, a toggle still opens for its reader, and a call
     const other = dev.someoneElse() as unknown as {
       createComment(boardId: string, cardId: string, body: object): Promise<unknown>;
     };
-    await other.createComment(board?.id ?? '', card?.id ?? '', written);
-  }, READ_BODY);
+    await other.createComment(board?.id ?? '', card?.id ?? '', body);
+  }, written);
+}
+
+test('where a body is only read, a toggle still opens for its reader, and a callout keeps its tone', async ({
+  page,
+}) => {
+  const body = await openCardWithBody(page, 'Study notes', READ_BODY);
+  await expect(body).toHaveAttribute('data-editor', 'reading');
+  const answer = body.getByText('Its answer');
+  await expect(answer).toBeHidden();
+  await body.getByRole('button', { name: 'Expand' }).click();
+  await expect(answer).toBeVisible();
+  // The icon is a picture of the tone, not a button that would open nothing.
+  await expect(body.getByRole('button', { name: /Callout/ })).toHaveCount(0);
+  const icon = body.getByRole('img', { name: 'Warning' });
+  await expect(icon).toBeVisible();
+  await icon.click();
+  await expect(body.locator('.doc-callout-tones')).toBeHidden();
+  await expect(body.locator('[data-callout]')).toHaveAttribute('data-tone', 'warn');
+
+  // In a comment, the page's own toggle: closed, and open once its summary is pressed.
+  await commentWith(page, READ_BODY);
   const comment = page.getByTestId('card-comments').locator('[data-comment]').last();
   const details = comment.locator('details');
   await expect(details).toHaveCount(1);
@@ -243,4 +251,29 @@ test('where a body is only read, a toggle still opens for its reader, and a call
   await expect(details).toHaveAttribute('open', '');
   await expect(comment.getByText('Its answer')).toBeVisible();
   await expect(comment.getByRole('img', { name: 'Warning' })).toBeVisible();
+});
+
+test('at 390 pixels across, the summary of a toggle in a comment is a finger tall, and its gutter opens it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openCardWithBody(page, 'Study notes', READ_BODY);
+  await commentWith(page, READ_BODY);
+  const comment = page.getByTestId('card-comments').locator('[data-comment]').last();
+  const details = comment.locator('details');
+  const summary = details.locator('summary');
+  await summary.scrollIntoViewIfNeeded();
+  const box = await summary.boundingBox();
+  const outer = await details.boundingBox();
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  // The summary takes the whole width of the toggle, the chevron's gutter too.
+  expect(Math.abs((box?.x ?? 0) - (outer?.x ?? 0))).toBeLessThanOrEqual(1);
+  await expect(details).not.toHaveAttribute('open');
+  // A press near the toggle's start, beside the chevron, opens it.
+  await summary.click({ position: { x: 6, y: (box?.height ?? 44) / 2 } });
+  await expect(details).toHaveAttribute('open', '');
+  await summary.click({ position: { x: 36, y: (box?.height ?? 44) / 2 } });
+  await expect(details).not.toHaveAttribute('open');
+  const width = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(width).toBeLessThanOrEqual(390);
 });

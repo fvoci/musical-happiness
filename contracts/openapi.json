@@ -1792,7 +1792,8 @@
           "cell_with_blocks",
           "uneven_table",
           "unwritten_formula",
-          "heading_with_break"
+          "heading_with_break",
+          "markup_in_summary"
         ],
         "type": "string"
       },

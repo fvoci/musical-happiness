@@ -6,7 +6,11 @@
 //! A toggle is written as GitHub draws one, `<details>` with its summary's line in
 //! `<summary>…</summary>`, and a callout as a GitHub alert (`> [!NOTE]`, `[!TIP]`,
 //! `[!WARNING]` or `[!CAUTION]`, by its tone). Whether a toggle is open is not the
-//! body's, and is not written.
+//! body's, and is not written. The summary is in a block of HTML, which a renderer of
+//! Markdown passes on as it is: there each `<`, `>` and `&` of the line is written as a
+//! character reference, so that no letter of a body is ever a tag, and code, a formula
+//! or the target of a link that holds one is named, as its own letters cannot be kept
+//! there.
 
 use std::collections::HashMap;
 
@@ -72,6 +76,34 @@ enum Within {
     Heading,
     /// A cell: a `|` in code ends it too.
     Cell,
+    /// The summary of a toggle, in a block of HTML: [`MARKUP`] is written as character
+    /// references.
+    Summary,
+}
+
+/// What HTML reads as markup in the summary of a toggle.
+const MARKUP: [char; 3] = ['<', '>', '&'];
+
+/// The character reference a letter of [`MARKUP`] is written as.
+fn reference_of(letter: char) -> Option<&'static str> {
+    match letter {
+        '<' => Some("&lt;"),
+        '>' => Some("&gt;"),
+        '&' => Some("&amp;"),
+        _ => None,
+    }
+}
+
+/// `text` with each letter of [`MARKUP`] written as its character reference.
+fn as_references(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for letter in text.chars() {
+        match reference_of(letter) {
+            Some(reference) => out.push_str(reference),
+            None => out.push(letter),
+        }
+    }
+    out
 }
 
 struct Writer<'n> {
@@ -193,7 +225,7 @@ impl Writer<'_> {
     fn details(&mut self, node: &Value, path: &str) -> String {
         let parts = children(node);
         let part = |index: usize| parts.get(index).map_or(&[][..], children);
-        let line = self.inlines(part(0), &format!("{path}/content/0"), Within::Paragraph);
+        let line = self.inlines(part(0), &format!("{path}/content/0"), Within::Summary);
         let inner = self.blocks(part(1), &format!("{path}/content/1"));
         if inner.is_empty() {
             format!("<details>\n<summary>{line}</summary>\n\n</details>")
@@ -306,7 +338,7 @@ impl Writer<'_> {
                 .count();
             while open.len() > kept {
                 if let Some(mark) = open.pop() {
-                    out.push_str(&mark.closing());
+                    out.push_str(&self.closing(mark, path, within));
                 }
             }
             for mark in &piece.marks[kept..] {
@@ -325,9 +357,18 @@ impl Writer<'_> {
             };
             match &piece.what {
                 What::Text(text) => out.push_str(&escape(text, line, within)),
-                What::Code(code) => out.push_str(&code_span(code, within)),
+                What::Code(code) => {
+                    if within == Within::Summary && code.contains(MARKUP) {
+                        self.complex(path, ComplexBlockReason::MarkupInSummary);
+                    }
+                    out.push_str(&code_span(code, within));
+                }
                 What::Node(node) => {
-                    let written = self.inline_node(node, &format!("{path}/content/{index}"));
+                    if within == Within::Summary && attr_text(node, "latex").contains(MARKUP) {
+                        self.complex(path, ComplexBlockReason::MarkupInSummary);
+                    }
+                    let at = format!("{path}/content/{index}");
+                    let written = self.inline_node(node, &at, within);
                     out.push_str(&written);
                 }
                 What::Break => {
@@ -339,20 +380,43 @@ impl Writer<'_> {
             line_empty = false;
         }
         while let Some(mark) = open.pop() {
-            out.push_str(&mark.closing());
+            out.push_str(&self.closing(mark, path, within));
         }
         out
     }
 
-    fn inline_node(&mut self, node: &Value, path: &str) -> String {
+    /// The end of a mark; in a summary, a link whose target HTML would read as markup
+    /// is named, and its target written without it.
+    fn closing(&mut self, mark: &Mark, path: &str, within: Within) -> String {
+        match mark {
+            Mark::Link(href) if within == Within::Summary => {
+                if href.contains(['<', '>', ' ']) {
+                    self.complex(path, ComplexBlockReason::MarkupInSummary);
+                }
+                let target = href
+                    .replace(' ', "%20")
+                    .replace('<', "%3C")
+                    .replace('>', "%3E");
+                format!("]({})", as_references(&destination(&target)))
+            }
+            _ => mark.closing(),
+        }
+    }
+
+    fn inline_node(&mut self, node: &Value, path: &str, within: Within) -> String {
         match kind(node) {
             "mention" => {
                 let id = attr_text(node, "userId");
                 // Who is not seen is named by the identifier alone.
                 let name = self.names.users.get(id).map_or("", String::as_str);
+                let within = if within == Within::Summary {
+                    Within::Summary
+                } else {
+                    Within::Paragraph
+                };
                 format!(
                     "@[{}]({USER_SCHEME}{id})",
-                    escape(name, Line::Inside, Within::Paragraph)
+                    escape(name, Line::Inside, within)
                 )
             }
             "reference" => format!("[[{}]]", attr_text(node, "id")),
@@ -360,6 +424,9 @@ impl Writer<'_> {
                 let latex = attr_text(node, "latex");
                 if !inline_formula_is_written(latex) {
                     self.complex(path, ComplexBlockReason::UnwrittenFormula);
+                }
+                if within == Within::Summary {
+                    return format!("${}$", as_references(latex));
                 }
                 format!("${latex}$")
             }
@@ -415,10 +482,10 @@ fn code_span(code: &str, within: Within) -> String {
     let padded = code.starts_with('`')
         || code.ends_with('`')
         || (code.starts_with(' ') && code.ends_with(' ') && code.trim() != "");
-    let code = if within == Within::Cell {
-        code.replace('|', "\\|")
-    } else {
-        code.to_owned()
+    let code = match within {
+        Within::Cell => code.replace('|', "\\|"),
+        Within::Summary => as_references(code),
+        Within::Paragraph | Within::Heading => code.to_owned(),
     };
     if padded {
         format!("{fence} {code} {fence}")
@@ -504,6 +571,12 @@ fn escape(text: &str, line: Line, within: Within) -> String {
         let first = line.starts() && at == lead;
         if at < lead || at >= trail_from {
             out.push_str(if letter == '\t' { "&#9;" } else { "&#32;" });
+            continue;
+        }
+        if within == Within::Summary
+            && let Some(reference) = reference_of(letter)
+        {
+            out.push_str(reference);
             continue;
         }
         let escaped = match letter {
