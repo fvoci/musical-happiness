@@ -68,6 +68,11 @@
  *     in it is compared. The view puts its blocks in the same frame, with the
  *     language's name and the copy button, once the body is in the page
  *     (code-view.ts, tested in body-code.test.ts).
+ * 17. The frame of a toggle: the editor draws `div.doc-details` around its
+ *     chevron's button (`aria-expanded`) and its two parts, which are divs,
+ *     and marks it `data-open` while it is open; the view draws the page's
+ *     own `<details>`, closed, of a `<summary>` and the div of what it
+ *     hides. The parts are compared, the summary as a `<summary>`.
  *
  * On both sides:
  *
@@ -78,6 +83,10 @@
  * On the view's side, what makes it read-only:
  *
  * 10. `aria-readonly` on a task's checkbox.
+ * 18. The icon of a callout: in the editor a button that shows the four
+ *     tones to choose from (`doc-callout-controls`), in the view a picture
+ *     that says its tone's name (`doc-callout-icon`). The callout and its
+ *     blocks are compared.
  *
  * On the view's side, for what is drawn later:
  *
@@ -148,6 +157,8 @@ const LEFT_OUT = {
   'what a file block shows': 0, // 14
   'bar of a code block': 0, // 15
   'attribute data-line-digits': 0, // 16
+  'frame of a toggle': 0, // 17
+  'icon of a callout': 0, // 18
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -214,6 +225,27 @@ function shapeOf(node: Node, side: 'editor' | 'view'): Shape | undefined {
     source.classList.remove('doc-diagram-source');
     source.querySelector('code')?.removeAttribute('aria-label');
     return shapeOf(source, side);
+  }
+  if (ofEditor && node.tagName === 'DIV' && node.hasAttribute('data-details')) {
+    leaveOut('frame of a toggle');
+    const parts = node.querySelector(':scope > .doc-details-parts');
+    const summary = parts?.querySelector(':scope > [data-details-summary]');
+    const content = parts?.querySelector(':scope > [data-details-content]');
+    const drawn = summary ? shapeOf(summary, side) : undefined;
+    const inside = content ? shapeOf(content, side) : undefined;
+    if (drawn === undefined || typeof drawn === 'string' || inside === undefined)
+      throw new Error('a toggle without its parts');
+    return {
+      tag: 'details',
+      attributes: { 'data-details': '' },
+      classes: ['doc-details'],
+      children: [{ ...drawn, tag: 'summary' }, inside],
+    };
+  }
+  const iconOfCallout = ofEditor ? 'doc-callout-controls' : 'doc-callout-icon';
+  if (node.parentElement?.hasAttribute('data-callout') && node.classList.contains(iconOfCallout)) {
+    leaveOut('icon of a callout');
+    return undefined;
   }
   if (ofEditor && node.tagName === 'DIV' && node.classList.contains('doc-code')) {
     leaveOut('bar of a code block');
@@ -394,7 +426,7 @@ describe('the view draws what the editor draws', () => {
       types.map((type) => [type, (counts.get(type) ?? 0) > 0]);
     const nodeTypes = Object.keys(NODE_SPECS);
     const markTypes = Object.keys(MARK_SPECS);
-    expect(nodeTypes).toHaveLength(23);
+    expect(nodeTypes).toHaveLength(27);
     expect(markTypes).toHaveLength(5);
     expect(times(compared.nodes, nodeTypes)).toEqual(nodeTypes.map((type) => [type, true]));
     expect(times(compared.marks, markTypes)).toEqual(markTypes.map((type) => [type, true]));

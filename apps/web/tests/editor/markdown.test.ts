@@ -278,3 +278,124 @@ describe('what a document cannot say is counted', () => {
     for (const kind of Object.keys(total)) expect(NOTE_KINDS).toContain(kind);
   });
 });
+
+describe('toggles and callouts', () => {
+  const text = (words: string, marks?: DocNode['marks']): DocNode =>
+    marks ? { type: 'text', text: words, marks } : { type: 'text', text: words };
+  const line = (...content: DocNode[]): DocNode =>
+    content.length > 0 ? { type: 'paragraph', content } : { type: 'paragraph' };
+  const toggle = (summary: DocNode[], ...hidden: DocNode[]): DocNode => ({
+    type: 'details',
+    content: [
+      summary.length > 0
+        ? { type: 'detailsSummary', content: summary }
+        : { type: 'detailsSummary' },
+      { type: 'detailsContent', content: hidden },
+    ],
+  });
+  const callout = (tone: string, ...content: DocNode[]): DocNode => ({
+    type: 'callout',
+    attrs: { tone },
+    content,
+  });
+  const cell = (type: string, words: string): DocNode => ({ type, content: [line(text(words))] });
+
+  it('reads the Markdown the server writes them in', () => {
+    // As crates/server/src/app/body_markdown/write.rs writes them.
+    const written = [
+      '<details>',
+      '<summary>Why **this** \\<now>?</summary>',
+      '',
+      'Because.',
+      '',
+      '> [!TIP]',
+      '> inside',
+      '',
+      '<details>',
+      '<summary></summary>',
+      '',
+      'deeper',
+      '',
+      '</details>',
+      '',
+      '</details>',
+      '',
+      '<details>',
+      '<summary>nothing inside</summary>',
+      '',
+      '</details>',
+      '',
+      '> [!WARNING]',
+      '> ```',
+      '> rm -rf',
+      '> ```',
+      '',
+      '> [!CAUTION]',
+      '',
+      '> \\[!NOTE\\]',
+      '>',
+      '> a quote',
+    ].join('\n');
+    const content = blocks(written);
+    expect(content).toEqual([
+      toggle(
+        [text('Why '), text('this', [{ type: 'bold' }]), text(' <now>?')],
+        line(text('Because.')),
+        callout('tip', line(text('inside'))),
+        toggle([], line(text('deeper'))),
+      ),
+      toggle([text('nothing inside')], line()),
+      callout('warn', { type: 'codeBlock', content: [text('rm -rf')] }),
+      callout('danger', line()),
+      { type: 'blockquote', content: [line(text('[!NOTE]')), line(text('a quote'))] },
+    ]);
+    expect(valid(content)).toEqual([]);
+    expect(notes(written)).toEqual({});
+  });
+
+  it('reads alerts and toggles from elsewhere where they may stand, as the server does', () => {
+    // The same Markdown as the server's test of it (body_markdown/tests.rs).
+    const markdown = [
+      '> [!IMPORTANT]\n> heads up',
+      '> [!tip]',
+      '<details open><summary>Q</summary>\n\nA\n</details>',
+      '- item\n\n  <details>\n  <summary>S</summary>\n\n  hidden\n\n  </details>',
+      '> [!NOTE]\n> > [!TIP]\n> > inner',
+      '</details>',
+      '<details>\n<summary>left open</summary>\n\n| a |\n| - |\n| 1 |',
+    ].join('\n\n');
+    expect(blocks(markdown)).toEqual([
+      callout('info', line(text('heads up'))),
+      callout('tip', line()),
+      toggle([text('Q')], line(text('A'))),
+      {
+        type: 'bulletList',
+        content: [
+          {
+            type: 'listItem',
+            content: [line(text('item')), line(text('S')), line(text('hidden'))],
+          },
+        ],
+      },
+      callout('info', { type: 'blockquote', content: [line(text('inner'))] }),
+      line(text('</details>')),
+      toggle([text('left open')], {
+        type: 'table',
+        content: [
+          { type: 'tableRow', content: [cell('tableHeader', 'a')] },
+          { type: 'tableRow', content: [cell('tableCell', '1')] },
+        ],
+      }),
+    ]);
+    expect(notes(markdown)).toEqual({ toggle: 1, callout: 1, 'html-as-text': 1 });
+  });
+
+  it('reads a toggle or a table in a callout as its parts, as the server does', () => {
+    const markdown =
+      '> [!WARNING]\n> <details>\n> <summary>S</summary>\n>\n> x\n>\n> </details>\n>\n> | a |\n> | - |\n> | 1 |';
+    expect(blocks(markdown)).toEqual([
+      callout('warn', line(text('S')), line(text('x')), line(text('a')), line(text('1'))),
+    ]);
+    expect(notes(markdown)).toEqual({ toggle: 1, table: 1 });
+  });
+});

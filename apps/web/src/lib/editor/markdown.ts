@@ -11,6 +11,7 @@
  */
 import { marked, type Token, type Tokens } from 'marked';
 
+import { alertOf, detailsParts, detailsRun, opensDetails } from './markdown-details.ts';
 import { isAllowedHref, type DocMark, type DocNode } from './schema.ts';
 import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from './table-grid.ts';
 
@@ -43,6 +44,10 @@ export interface Conversion {
  *   list; the boxes are written out as `[ ]` and `[x]`.
  * - `ordered-task-list`: a numbered task list lost its numbers.
  * - `code-language-dropped`: the language of a code block was not a plain tag.
+ * - `toggle`: a toggle (`<details>`) in a quote, a list entry or a callout,
+ *   where none stands, became its summary's line and then what it hides.
+ * - `callout`: a GitHub alert (`> [!NOTE]`) in a quote, a list entry or a
+ *   callout became a quote of what it says.
  */
 export const NOTE_KINDS = [
   'html-as-text',
@@ -56,13 +61,18 @@ export const NOTE_KINDS = [
   'mixed-task-list',
   'ordered-task-list',
   'code-language-dropped',
+  'toggle',
+  'callout',
 ] as const;
+
+/** How the text is read: GitHub's Markdown, a single line break a line break. */
+const READING = { gfm: true, breaks: true } as const;
 
 export type NoteKind = (typeof NOTE_KINDS)[number];
 
 class Converter {
   readonly notes: ConversionNotes = {};
-  /** How many quotes and list entries the blocks read now are in. */
+  /** How many quotes, list entries and callouts the blocks read now are in. */
   #inside = 0;
 
   /** What `read` gives, read as inside one more quote or list entry. */
@@ -164,12 +174,23 @@ class Converter {
   /** The blocks of a list entry; an entry always starts with a paragraph. */
   item(tokens: readonly Token[], prefix = ''): DocNode[] {
     const blocks: DocNode[] = [];
+    // Blocks one after another are read together: a toggle is written in several.
+    let run: Token[] = [];
+    const read = (): void => {
+      const taken = run;
+      run = [];
+      if (taken.length > 0) blocks.push(...this.#within(() => this.blocks(taken)));
+    };
     for (const token of tokens) {
       if (token.type === 'checkbox') continue;
-      if (token.type === 'text')
-        blocks.push(...this.paragraph((token as Tokens.Text).tokens ?? [token]));
-      else blocks.push(...this.#within(() => this.blocks([token])));
+      if (token.type !== 'text') {
+        run.push(token);
+        continue;
+      }
+      read();
+      blocks.push(...this.paragraph((token as Tokens.Text).tokens ?? [token]));
     }
+    read();
     if (blocks[0]?.type !== 'paragraph') blocks.unshift({ type: 'paragraph' });
     if (prefix !== '') {
       const first = blocks[0];
@@ -246,9 +267,57 @@ class Converter {
     ];
   }
 
+  /**
+   * The toggle that opens at `tokens[start]`, where one may stand; its lines
+   * elsewhere. Gives the index of the last token it took.
+   */
+  #details(tokens: readonly Token[], start: number, nodes: DocNode[]): number {
+    const run = detailsRun(tokens, start);
+    const { summary, body } = detailsParts(run.raw);
+    const line = this.inline(marked.Lexer.lexInline(summary, READING), []);
+    if (this.#inside > 0) {
+      this.note('toggle');
+      if (line.length > 0) nodes.push({ type: 'paragraph', content: line });
+      nodes.push(...this.blocks(marked.lexer(body, READING)));
+    } else {
+      // What a toggle hides may be what the document holds: a table, a callout, a toggle.
+      const hidden = this.blocks(marked.lexer(body, READING));
+      nodes.push({
+        type: 'details',
+        content: [
+          line.length > 0 ? { type: 'detailsSummary', content: line } : { type: 'detailsSummary' },
+          { type: 'detailsContent', content: hidden.length > 0 ? hidden : [{ type: 'paragraph' }] },
+        ],
+      });
+    }
+    return start + run.length - 1;
+  }
+
+  /** A quote: a callout where it is an alert and one may stand, else a quote. */
+  #quote(quote: Tokens.Blockquote): DocNode[] {
+    const alert = alertOf(quote);
+    if (!alert) {
+      const content = this.#within(() => this.blocks(quote.tokens));
+      return content.length > 0 ? [{ type: 'blockquote', content }] : [];
+    }
+    const content = this.#within(() => this.blocks(marked.lexer(alert.body, READING)));
+    if (this.#inside > 0) {
+      this.note('callout');
+      return content.length > 0 ? [{ type: 'blockquote', content }] : [];
+    }
+    const blocks = content.length > 0 ? content : [{ type: 'paragraph' }];
+    return [{ type: 'callout', attrs: { tone: alert.tone }, content: blocks }];
+  }
+
   blocks(tokens: readonly Token[]): DocNode[] {
     const nodes: DocNode[] = [];
-    for (const token of tokens) {
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (!token) continue;
+      if (opensDetails(token)) {
+        index = this.#details(tokens, index, nodes);
+        continue;
+      }
       switch (token.type) {
         case 'space':
         case 'def':
@@ -282,11 +351,9 @@ class Converter {
           });
           break;
         }
-        case 'blockquote': {
-          const content = this.#within(() => this.blocks((token as Tokens.Blockquote).tokens));
-          if (content.length > 0) nodes.push({ type: 'blockquote', content });
+        case 'blockquote':
+          nodes.push(...this.#quote(token as Tokens.Blockquote));
           break;
-        }
         case 'list':
           nodes.push(...this.list(token as Tokens.List));
           break;
@@ -337,7 +404,7 @@ function mergeText(nodes: DocNode[]): DocNode[] {
 /** The block nodes a Markdown text stands for, and what could not be kept. */
 export function markdownToBlocks(markdown: string): Conversion {
   const converter = new Converter();
-  const tokens = marked.lexer(markdown, { gfm: true, breaks: true });
+  const tokens = marked.lexer(markdown, READING);
   return { content: converter.blocks(tokens), notes: converter.notes };
 }
 

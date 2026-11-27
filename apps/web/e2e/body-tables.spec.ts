@@ -73,6 +73,8 @@ test('a table is made, written in and changed with the keyboard alone', async ({
     'Bulleted list',
     'Numbered list',
     'Quote',
+    'Toggle',
+    'Callout',
     'Code block',
     'Formula block',
     'Divider',
