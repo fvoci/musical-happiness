@@ -220,7 +220,8 @@ async fn handle_get_shared_blocks(
 ) -> ApiResult {
     shared.require_kind(ContainerKind::Board)?;
     let container = shared.container().await?;
-    let mut blocks = asked_blocks(&shared.app, &shared.container_id, &query).await?;
+    let asked = asked_blocks(&shared.app, &shared.container_id, &query).await?;
+    let mut blocks: Vec<Block> = asked.into_iter().map(Block::outward).collect();
     let people = container.person_properties();
     let bodies = blocks.iter().filter_map(|block| block.body.as_ref());
     let shown = shared

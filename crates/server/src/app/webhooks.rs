@@ -98,7 +98,7 @@ async fn deliver(webhook: &Webhook, item: QueuedWebhook) {
     let QueuedWebhook {
         store,
         org_kind,
-        mut block,
+        block,
     } = item;
     let kind = org_kind
         .get_or_try_init(|| async {
@@ -111,12 +111,7 @@ async fn deliver(webhook: &Webhook, item: QueuedWebhook) {
         })
         .await;
     match kind {
-        Ok(OrgKind::Shared) => {
-            if !block.takes_number() && block.number.is_some() {
-                block.hide_inactive_number();
-            }
-            webhook.notify_update(&block).await;
-        }
+        Ok(OrgKind::Shared) => webhook.notify_update(&block.outward()).await,
         Ok(OrgKind::Personal) => {}
         Err(error) => {
             tracing::warn!(

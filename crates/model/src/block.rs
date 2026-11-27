@@ -674,13 +674,16 @@ impl Block {
         self.takes_number().then_some(self.number).flatten()
     }
 
-    /// Clears `number` when this block does not currently take one
-    /// ([`Self::takes_number`]), so responses and broadcasts never expose a preserved
-    /// card number on a template.
-    pub fn hide_inactive_number(&mut self) {
+    /// The block as it leaves the server: without a number it does not take now
+    /// ([`Self::takes_number`]). A card template keeps its number in storage, to have it
+    /// again once it is a card again; no response, broadcast, webhook or archive shows
+    /// it until then. Asked where a block leaves, not where it is read.
+    #[must_use]
+    pub fn outward(mut self) -> Self {
         if !self.takes_number() {
             self.number = None;
         }
+        self
     }
 
     /// Checks that the block may be stored.

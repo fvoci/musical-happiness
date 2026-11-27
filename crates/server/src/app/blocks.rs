@@ -81,9 +81,7 @@ impl App {
         if let Some(&block_type) = block_type {
             filter = filter.with_type(block_type);
         }
-        let mut blocks = self.store().get_blocks(&filter).await?;
-        hide_inactive_numbers(&mut blocks);
-        Ok(blocks)
+        Ok(self.store().get_blocks(&filter).await?)
     }
 
     /// Returns all blocks of a board, in no particular order.
@@ -92,12 +90,10 @@ impl App {
     ///
     /// Returns the store's error if the query fails.
     pub async fn blocks_for_container(&self, container_id: &str) -> Result<Vec<Block>, AppError> {
-        let mut blocks = self
+        Ok(self
             .store()
             .get_blocks(&BlockFilter::container(container_id))
-            .await?;
-        hide_inactive_numbers(&mut blocks);
-        Ok(blocks)
+            .await?)
     }
 
     /// Returns the block with the given identifier: only a block of a board of the kinds
@@ -113,9 +109,7 @@ impl App {
             .store()
             .get_block_within(block_id, self.workspace.as_deref(), self.kinds)
             .await;
-        let mut block = found.or_missing("block")?;
-        block.hide_inactive_number();
-        Ok(block)
+        found.or_missing("block")
     }
 
     /// Returns the block of the board of this type, as [`App::block`] reaches it: a
@@ -231,7 +225,6 @@ impl App {
                 },
             )
             .await?;
-        block.hide_inactive_number();
         log_notification(notification, ChangeAction::Add, &block.id);
         self.tell(Changes::in_workspace(&container.workspace_id).changed([block.clone()]));
         Ok(())
@@ -285,7 +278,6 @@ impl App {
             })
             .await?;
         blocks.clone_from_slice(&stored);
-        hide_inactive_numbers(blocks);
         // Told before the answer: the client of the write has heard of every block then.
         self.tell_now(Changes::in_workspace(&container.workspace_id).changed(stored))
             .await;
@@ -366,7 +358,7 @@ impl App {
                 None => store.patch_block(&block_id, &patch, &modified_by).await?,
             })
         };
-        let mut block = if whole_body_cards.is_empty() {
+        let block = if whole_body_cards.is_empty() {
             self.write_blocks(vec![old_block.container_id], whole_body_cards, write)
                 .await?
         } else {
@@ -374,7 +366,6 @@ impl App {
                 .write_whole_over(self, whole_body_cards, over, write)
                 .await?
         };
-        block.hide_inactive_number();
         log_notification(notification, ChangeAction::Update, &block.id);
         self.tell(Changes::in_workspace(&container.workspace_id).changed([block.clone()]));
         Ok(block)
@@ -465,11 +456,7 @@ impl App {
     ///
     /// Returns the store's error if the trash cannot be read.
     pub async fn deleted_block(&self, block_id: &str) -> Result<Option<DeletedBlock>, AppError> {
-        let mut deleted = self.store().get_deleted_block(block_id).await.found()?;
-        if let Some(deleted) = &mut deleted {
-            deleted.block.hide_inactive_number();
-        }
-        Ok(deleted)
+        self.store().get_deleted_block(block_id).await.found()
     }
 
     /// Returns the blocks of the deletion a block of the trash went with, which restoring
@@ -480,14 +467,12 @@ impl App {
     ///
     /// Returns the store's error if the trash cannot be read.
     pub async fn deletion(&self, block_id: &str) -> Result<Vec<Block>, AppError> {
-        let mut blocks = self
+        Ok(self
             .store()
             .get_deletion(block_id)
             .await
             .found()?
-            .unwrap_or_default();
-        hide_inactive_numbers(&mut blocks);
-        Ok(blocks)
+            .unwrap_or_default())
     }
 
     /// Returns who deleted a block of the trash: the user whose deletion put it there,
@@ -507,9 +492,7 @@ impl App {
     ///
     /// Returns the store's error if the blocks cannot be read.
     pub async fn blocks_below(&self, block_id: &str) -> Result<Vec<Block>, AppError> {
-        let mut blocks = self.store().get_blocks_below(block_id).await?;
-        hide_inactive_numbers(&mut blocks);
-        Ok(blocks)
+        Ok(self.store().get_blocks_below(block_id).await?)
     }
 
     /// Returns the earlier versions of a comment's body, the first first.
@@ -547,8 +530,7 @@ impl App {
                 .undelete_block_family(block_id, modified_by)
                 .await
         };
-        let mut restored = restored.or_missing("block")?;
-        hide_inactive_numbers(&mut restored);
+        let restored = restored.or_missing("block")?;
         let block = restored
             .iter()
             .find(|each| each.id == block_id)
@@ -563,13 +545,6 @@ impl App {
             .filter(|each| each.id == block_id || each.block_type == BlockType::Card);
         self.tell(Changes::in_workspace(&container.workspace_id).changed(told));
         Ok(block)
-    }
-}
-
-/// Hides stored card numbers on blocks that do not currently take one (card templates).
-pub(super) fn hide_inactive_numbers(blocks: &mut [Block]) {
-    for block in blocks {
-        block.hide_inactive_number();
     }
 }
 

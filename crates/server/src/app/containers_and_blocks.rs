@@ -52,7 +52,6 @@ impl App {
                 .recheck_access(self, AccessScope::containers(made))
                 .await;
         }
-        super::blocks::hide_inactive_numbers(&mut created.blocks);
         self.announce_created(&created, &members).await;
 
         for container in &created.containers {

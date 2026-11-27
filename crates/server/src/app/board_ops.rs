@@ -14,7 +14,7 @@ use fvoci_model::{
 };
 use serde_json::{Value, json};
 
-use super::blocks::{ChangeAction, hide_inactive_numbers, log_notification};
+use super::blocks::{ChangeAction, log_notification};
 use super::board_parts::{
     ATTACH_DENIED, CREATE_VIEW_DENIED, DUPLICATE_VIEW_DENIED, MOVE_VIEW_DENIED,
 };
@@ -93,7 +93,7 @@ impl App {
                 .commit_card_duplicate(board_id, blocks, &staged_files, user_id)
                 .await
         };
-        let mut stored = match committed {
+        let stored = match committed {
             Ok(stored) => {
                 for place in written_places {
                     place.settled_in_transaction();
@@ -107,7 +107,6 @@ impl App {
                 return Err(error.into());
             }
         };
-        hide_inactive_numbers(&mut stored);
         let root = stored
             .first()
             .ok_or_else(|| AppError::not_found("card"))?
@@ -135,14 +134,12 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<CardMovesResult, AppError> {
         let container = self.container(board_id).await?;
-        let (mut view, mut updated_blocks) = {
+        let (view, updated_blocks) = {
             let _structure = self.collab().changing_structure(self, board_id).await;
             self.store_telling(notification)
                 .move_cards_in_view(board_id, view_id, request, user_id)
                 .await?
         };
-        view.hide_inactive_number();
-        hide_inactive_numbers(&mut updated_blocks);
         let mut cards = Vec::with_capacity(updated_blocks.len());
         for block in &updated_blocks {
             cards.push(self.card_of_block(block).await?);
@@ -252,12 +249,11 @@ impl App {
         if !card_ids.iter().all(|card_id| is_id(card_id)) {
             return Err(not_found());
         }
-        let mut blocks = self
+        let blocks = self
             .store()
             .get_blocks_by_ids(card_ids)
             .await
             .or_missing("card")?;
-        hide_inactive_numbers(&mut blocks);
         let mut by_id: HashMap<String, Block> = blocks
             .into_iter()
             .filter(|block| block.container_id == board_id && block.block_type == BlockType::Card)
@@ -283,13 +279,12 @@ impl App {
         user_id: &str,
     ) -> Result<RestoredCards, AppError> {
         let container = self.container(board_id).await?;
-        let mut restored = {
+        let restored = {
             let _structure = self.collab().changing_structure(self, board_id).await;
             self.store()
                 .batch_restore_cards(board_id, card_ids, user_id)
                 .await?
         };
-        hide_inactive_numbers(&mut restored);
         let mut cards = Vec::new();
         for block in &restored {
             if block.block_type == BlockType::Card {
