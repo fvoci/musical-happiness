@@ -226,7 +226,7 @@ impl App {
     }
 
     /// Changes the property values of the cards of `batch` on `board_id` alike, all or
-    /// none in one transaction, each as [`App::patch_card`] changes one: the values and
+    /// none in one transaction, each as `App::patch_card` changes one: the values and
     /// what the board allows of them are checked alike, and whom a card is newly given
     /// to is told as `notification` says. Returns the cards as they are now, in the
     /// order of `batch`; listeners and webhooks are told in the background.

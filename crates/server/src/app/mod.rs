@@ -17,6 +17,7 @@ mod body_markdown;
 mod body_versions;
 mod caller;
 mod card_filters;
+mod card_writes;
 mod cards;
 mod category;
 mod category_containers;
@@ -74,6 +75,7 @@ pub use board_parts::{
     ATTACH_DENIED, ATTACHMENTS_DENIED, CREATE_VIEW_DENIED, DUPLICATE_VIEW_DENIED, MOVE_VIEW_DENIED,
     VIEWS_DENIED,
 };
+pub use card_writes::{CREATE_CARD_DENIED, NewCardRequest, PATCH_CARD_DENIED};
 pub use comments::is_comment_on;
 pub(crate) use download::download;
 pub use mail::UnsentMail;

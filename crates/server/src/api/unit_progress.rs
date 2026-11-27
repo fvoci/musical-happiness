@@ -164,6 +164,24 @@ pub(super) async fn progress_to_record(
     Ok(ProgressToRecord { on, change })
 }
 
+/// Checks `update`, the progress of the caller in the course `course_id`, as
+/// [`progress_to_record`] checks the progress a body says: for what records as
+/// `putUnitProgress` does. Nothing is written.
+///
+/// # Errors
+///
+/// As `putUnitProgress` answers, but for the unit.
+pub(super) async fn progress_update_to_record(
+    ws: &InWorkspace,
+    course_id: &str,
+    update: &UnitProgressUpdate,
+) -> Result<ProgressToRecord, AppError> {
+    let on = ws.app.reach(&ws.caller.user_id, course_id).await?;
+    require_progress_recorder(&on)?;
+    let change = update.check_request()?;
+    Ok(ProgressToRecord { on, change })
+}
+
 /// Records `progress` on the unit `unit_id` of the course it was checked in.
 ///
 /// # Errors

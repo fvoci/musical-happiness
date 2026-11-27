@@ -255,6 +255,45 @@ async fn handle_create_unit(
     Ok(created(&create_unit_from(&ws, &course_id, &body).await?))
 }
 
+/// Makes the unit or chapter `new` describes in the course `course_id`, as `createUnit`
+/// does with the body it read: for what writes as the route does.
+///
+/// # Errors
+///
+/// As `createUnit` answers.
+pub(super) async fn create_unit_with(
+    ws: &InWorkspace,
+    course_id: &str,
+    new: &NewUnit,
+) -> Result<Unit, AppError> {
+    let on = ws.app.reach(&ws.caller.user_id, course_id).await?;
+    let unit = ws.app.create_unit(&on, new).await?;
+    tracing::debug!(course_id, unit_id = %unit.id, user_id = on.user_id(), "CreateUnit");
+    Ok(unit)
+}
+
+/// Changes the unit or chapter `unit_id` of the course `course_id` as `patch` says, as
+/// `patchUnit` does with the body it read: for what writes as the route does.
+///
+/// # Errors
+///
+/// As `patchUnit` answers.
+pub(super) async fn patch_unit_with(
+    ws: &InWorkspace,
+    course_id: &str,
+    unit_id: &str,
+    patch: UnitPatch,
+) -> Result<Unit, AppError> {
+    let editing = ContainerPermission::ManageCards;
+    let (on, unit) = unit_reached(ws, course_id, unit_id, editing, PATCH_UNIT_DENIED).await?;
+    let patched = ws
+        .app
+        .patch_unit(&on, &unit, patch, ws.caller.agent())
+        .await?;
+    tracing::debug!(course_id, unit_id, user_id = on.user_id(), "PatchUnit");
+    Ok(patched)
+}
+
 /// Makes the unit or chapter `body` describes, as `createUnit` takes it, in the course
 /// `course_id`.
 ///

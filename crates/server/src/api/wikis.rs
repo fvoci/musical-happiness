@@ -232,6 +232,45 @@ async fn handle_create_page(
     Ok(created(&create_page_from(&ws, &wiki_id, &body).await?))
 }
 
+/// Makes the page `new` describes in the wiki `wiki_id`, as `createPage` does with the
+/// body it read: for what writes as the route does.
+///
+/// # Errors
+///
+/// As `createPage` answers.
+pub(super) async fn create_page_with(
+    ws: &InWorkspace,
+    wiki_id: &str,
+    new: &NewPage,
+) -> Result<Page, AppError> {
+    let on = ws.app.reach(&ws.caller.user_id, wiki_id).await?;
+    let page = ws.app.create_page(&on, new).await?;
+    tracing::debug!(wiki_id, page_id = %page.id, user_id = on.user_id(), "CreatePage");
+    Ok(page)
+}
+
+/// Changes the page `page_id` of the wiki `wiki_id` as `patch` says, as `patchPage` does
+/// with the body it read: for what writes as the route does.
+///
+/// # Errors
+///
+/// As `patchPage` answers.
+pub(super) async fn patch_page_with(
+    ws: &InWorkspace,
+    wiki_id: &str,
+    page_id: &str,
+    patch: PagePatch,
+) -> Result<Page, AppError> {
+    let editing = ContainerPermission::ManageCards;
+    let (on, page) = page_reached(ws, wiki_id, page_id, editing, PATCH_PAGE_DENIED).await?;
+    let patched = ws
+        .app
+        .patch_page(&on, &page, patch, ws.caller.agent())
+        .await?;
+    tracing::debug!(wiki_id, page_id, user_id = on.user_id(), "PatchPage");
+    Ok(patched)
+}
+
 /// Makes the page `body` describes, as `createPage` takes it, in the wiki `wiki_id`.
 ///
 /// # Errors
