@@ -16,12 +16,13 @@ mod http_credentials;
 pub mod metrics;
 pub mod permissions;
 pub mod problems;
+pub mod realtime;
 pub mod scheduler;
 pub mod search;
 pub mod storage;
 pub mod web;
 pub mod webhook;
-pub mod ws;
+mod ws;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -769,14 +770,14 @@ async fn handle_websocket(
     // to make the server buffer it, and closes the connection (a text message past
     // the limit of a command too, once it is read: `Hub::serve`).
     let limit = api::WEBSOCKET_MESSAGE_LIMIT.max(app.collab().frame_bytes());
-    // Readers by a public link are counted by where they come from (`ws/readers.rs`).
+    // Readers by a public link are counted by where they come from (`realtime/readers.rs`).
     let address = client.and_then(|axum::Extension(ClientAddress(address))| address);
     upgrade
         .max_message_size(limit)
         .max_frame_size(limit)
         .on_upgrade(move |socket| async move {
             // Boxed: what serves a connection holds its whole state, which is large.
-            Box::pin(app.ws().serve(&app, socket, identity, address)).await;
+            Box::pin(ws::serve(&app, socket, identity, address)).await;
         })
 }
 
@@ -792,7 +793,7 @@ async fn handle_websocket(
 async fn websocket_identity(
     app: &App,
     headers: &HeaderMap,
-) -> Result<Option<ws::Identity>, AppError> {
+) -> Result<Option<realtime::Identity>, AppError> {
     let auth = app.authenticator();
     if http_credentials::foreign_origin(auth.origins(), headers).is_some() {
         tracing::debug!("a websocket handshake from another origin was refused");
@@ -812,11 +813,11 @@ async fn websocket_identity(
         // Sent on purpose: it is a session's, or the handshake is refused.
         Some(Credential::Bearer(token)) => {
             let session = auth.find_session(&token).await?;
-            Ok(Some(ws::Identity { session, token }))
+            Ok(Some(realtime::Identity { session, token }))
         }
         Some(Credential::Cookie(token)) if from_a_browser => {
             match auth.find_session(&token).await {
-                Ok(session) => Ok(Some(ws::Identity { session, token })),
+                Ok(session) => Ok(Some(realtime::Identity { session, token })),
                 // A cookie that outlived its session: the page may still follow a shared
                 // board.
                 Err(error) if error.kind() == ErrorKind::Unauthorized => Ok(None),

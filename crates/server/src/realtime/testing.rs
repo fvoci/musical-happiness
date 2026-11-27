@@ -102,7 +102,7 @@ impl Hub {
 
 impl Hub {
     /// Has the connections closed after `limit` of sending nothing, in place of the
-    /// ninety seconds of `ws/inbound.rs`: those open now from their next wait on.
+    /// ninety seconds of `realtime/quiet.rs`: those open now from their next wait on.
     pub fn set_quiet_limit(&self, limit: std::time::Duration) {
         self.inner.quiet_limit.set(limit);
     }
@@ -128,7 +128,7 @@ impl AtWork {
 
 /// A connection that read a command and has not carried it out yet.
 #[derive(Debug)]
-pub(super) struct Working(watch::Sender<usize>);
+pub(crate) struct Working(watch::Sender<usize>);
 
 impl Drop for Working {
     fn drop(&mut self) {

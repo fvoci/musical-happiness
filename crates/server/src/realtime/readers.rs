@@ -100,12 +100,14 @@ mod tests {
     fn read(listeners: &mut Listeners, id: ListenerId, container_id: &str) {
         assert!(listeners.admits_reader(id, container_id, LIMITS));
         let listener = listeners.by_id.get_mut(&id).expect("the listener");
-        listener.shared_containers.push(crate::ws::ReadPermit {
-            container: container_id.to_owned(),
-            token: String::new(),
-            workspace: String::new(),
-            blocks: Vec::new(),
-        });
+        listener
+            .shared_containers
+            .push(crate::realtime::ReadPermit {
+                container: container_id.to_owned(),
+                token: String::new(),
+                workspace: String::new(),
+                blocks: Vec::new(),
+            });
     }
 
     #[test]

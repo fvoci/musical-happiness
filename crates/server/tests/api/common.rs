@@ -16,7 +16,7 @@ use fvoci_server::app::App;
 use fvoci_server::collab::worker::WorkerCommand;
 use fvoci_server::config::Configuration;
 use fvoci_server::config::collab::CollabSettings;
-use fvoci_server::ws::Hub;
+use fvoci_server::realtime::Hub;
 use fvoci_server::{Server, TlsFiles};
 use fvoci_store::Store;
 use fvoci_store::testing::{TableOwner, TestDatabase};

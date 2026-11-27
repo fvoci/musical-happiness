@@ -23,7 +23,7 @@ pub(super) fn add_listener_from(
 fn add_listener_reading(
     listeners: &mut Listeners,
     user_id: &str,
-) -> (ListenerId, mpsc::Receiver<Utf8Bytes>) {
+) -> (ListenerId, mpsc::Receiver<Bytes>) {
     let (outbox, inbox) = mpsc::channel(8);
     listeners.next_id += 1;
     let id = listeners.next_id;
@@ -182,7 +182,7 @@ fn a_workspace_in_the_trash_is_followed_by_nobody() {
     assert_eq!(workspace_listeners(&listeners, "kept"), [one]);
     for hears in [&mut one_hears, &mut other_hears] {
         let told: serde_json::Value =
-            serde_json::from_str(&hears.try_recv().expect("told")).expect("JSON");
+            serde_json::from_slice(&hears.try_recv().expect("told")).expect("JSON");
         assert_eq!(
             told,
             serde_json::json!({

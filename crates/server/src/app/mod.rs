@@ -163,10 +163,10 @@ use crate::collab::Collab;
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
+use crate::realtime::Hub;
 use crate::search::Search;
 use crate::storage::FileBackend;
 use crate::webhook::Webhook;
-use crate::ws::Hub;
 
 /// The shared state of the server. Cloning is cheap; every clone is the same server.
 ///

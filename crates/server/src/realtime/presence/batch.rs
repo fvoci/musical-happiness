@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::time::Duration;
 
-use axum::extract::ws::Utf8Bytes;
+use bytes::Bytes;
 
 use fvoci_model::WorkspaceRole;
 use tokio::time::Instant;
@@ -154,7 +154,7 @@ enum Looked {
 impl Hub {
     /// Sends the connection its board's roster as it changes, until the connection
     /// ends (it never returns).
-    pub(in crate::ws) async fn presence_loop(&self, app: &App, id: ListenerId) -> Infallible {
+    pub(in crate::realtime) async fn presence_loop(&self, app: &App, id: ListenerId) -> Infallible {
         let mut ticks = tokio::time::interval(BATCH);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut reader = Reader::default();
@@ -283,7 +283,7 @@ impl Hub {
         id: ListenerId,
         batch: &Batch,
         looked: &Looked,
-        roster: Option<&Utf8Bytes>,
+        roster: Option<&Bytes>,
     ) -> Option<usize> {
         let mut listeners = self.listeners();
         let listener = listeners.by_id.get_mut(&id)?;

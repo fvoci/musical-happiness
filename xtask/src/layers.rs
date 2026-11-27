@@ -5,14 +5,7 @@
 //! `tokio`, `serde`). The step reads the sources of [`CRATES`]; what it sees and what it
 //! cannot see is said at [`scan::read_source`].
 //!
-//! What breaks the rule today is listed in [`EXCEPTIONS`], by file and by what is named.
-//! A use that is not listed fails the step, and so does a line whose use is gone, until
-//! the line is removed.
-//!
-//! The step holds the code to the list; it cannot tell a line that was added by hand
-//! from one that was there. By hand a line is removed, its count lowered, or moved
-//! with its code to the file the code went to. An added line or a raised count shows
-//! in the diff of the list, and whoever merges looks for it there.
+//! Every use that breaks the rule fails the step; there is no list of uses let pass.
 
 mod scan;
 mod walk;
@@ -113,6 +106,7 @@ pub(crate) const LAYERS: &[Layer] = &[
             "fvoci_server::config",
             "fvoci_server::error",
             "fvoci_server::permissions",
+            "fvoci_server::realtime",
             "fvoci_server::scheduler",
             "fvoci_server::search",
             "fvoci_server::storage",
@@ -236,9 +230,6 @@ const UNLAYERED_ROOTS: [&str; 3] = ["std", "core", "alloc"];
 /// What a use of something in no layer that a layer may not name is said to name.
 const NO_LAYER_NAME: &str = "no layer";
 
-/// The file of the uses that break the rule and are still there.
-pub(crate) const EXCEPTIONS: &str = "xtask/exceptions/layers.txt";
-
 /// Code of one layer that names another layer it may not name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Violation {
@@ -251,46 +242,35 @@ struct Violation {
     named: String,
 }
 
-/// The step: reads the sources and compares what breaks the rule with the list.
+/// The step: reads the sources and says each use that breaks the rule.
 ///
 /// # Errors
 ///
-/// Fails if a source cannot be read, or if the uses that break the rule are not exactly
-/// the listed ones.
+/// Fails if a source cannot be read, or if any use breaks the rule.
 pub(crate) fn run(root: &Path) -> Result<()> {
     let sources = Sources::read(root)?;
-    let path = root.join(EXCEPTIONS);
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let listed = parse_exceptions(&text).with_context(|| format!("reading {EXCEPTIONS}"))?;
     let mut problems = undecided_dependencies(root)?;
     problems.extend(sources.stale_layers());
     problems.extend(sources.refused());
-    problems.extend(judge(&sources.violations(), &listed));
+    problems.extend(judge(&sources.violations()));
     if problems.is_empty() {
-        steps::say(&format!(
-            "    no layer names another against the rule; {} listed exceptions remain",
-            listed.values().sum::<usize>()
-        ));
+        steps::say("    no layer names another against the rule");
         return Ok(());
     }
     for problem in &problems {
         steps::say(&format!("    {problem}"));
     }
     steps::say(
-        "    a use that is not listed goes to a layer that may name it, and the line of a \
-         use that is gone is removed; a line moves only with its code, to another file",
+        "    what is named goes to a layer that may name it, or the layer asks one that may \
+         name it for what it needs",
     );
-    bail!(
-        "{} differences between the code and {EXCEPTIONS}",
-        problems.len()
-    )
+    bail!("{} uses break the rule of the layers", problems.len())
 }
 
 /// What the sources of the workspace name.
 #[derive(Debug, Default)]
 struct Sources {
-    /// Each file, as the list and the messages write it, with what it names.
+    /// Each file, as the messages write it, with what it names.
     files: Vec<(String, Vec<Reference>)>,
     /// The modules that were read, those written inside a file included.
     modules: BTreeSet<String>,
@@ -649,85 +629,29 @@ fn layer_of(path: &str) -> Option<&'static Layer> {
         .map(|(layer, _)| layer)
 }
 
-/// Reads the list: a line is a file, what it names, and how many times, separated by
-/// spaces. Empty lines and lines that start with `#` are skipped.
-fn parse_exceptions(text: &str) -> Result<BTreeMap<(String, String), usize>> {
-    let mut listed = BTreeMap::new();
-    for (index, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        let [file, named, count] = fields[..] else {
-            bail!(
-                "line {}: expected `file named count`, found `{line}`",
-                index + 1
-            );
-        };
-        let count: usize = count
-            .parse()
-            .ok()
-            .filter(|count| *count > 0)
-            .with_context(|| format!("line {}: `{count}` is no count", index + 1))?;
-        if listed
-            .insert((file.to_owned(), named.to_owned()), count)
-            .is_some()
-        {
-            bail!("line {}: {file} {named} is listed twice", index + 1);
-        }
-    }
-    Ok(listed)
-}
-
-/// Compares what the code does with what the list allows. Each line of the answer is
-/// one difference: a use the list does not have, or a listed use the code no longer has.
-fn judge(violations: &[Violation], listed: &BTreeMap<(String, String), usize>) -> Vec<String> {
-    let mut found: BTreeMap<(String, String), Vec<&Violation>> = BTreeMap::new();
+/// Says each use that breaks the rule, once for every file and what it names, with
+/// the lines it is named on.
+fn judge(violations: &[Violation]) -> Vec<String> {
+    let mut found: BTreeMap<(&str, &str), Vec<&Violation>> = BTreeMap::new();
     for violation in violations {
         found
-            .entry((violation.file.clone(), violation.named.clone()))
+            .entry((violation.file.as_str(), violation.named.as_str()))
             .or_default()
             .push(violation);
     }
-    let mut problems = Vec::new();
-    for ((file, named), uses) in &found {
-        let allowed = listed
-            .get(&(file.clone(), named.clone()))
-            .copied()
-            .unwrap_or(0);
-        let Some(first) = uses.first().filter(|_| uses.len() > allowed) else {
-            continue;
-        };
-        let lines: Vec<String> = uses.iter().map(|used| used.line.to_string()).collect();
-        let counted = if allowed == 0 {
-            String::new()
-        } else {
-            format!(" ({} times, listed {allowed})", uses.len())
-        };
-        problems.push(format!(
-            "{file}:{}: {} names {}: {named}{counted}",
-            lines.join(","),
-            first.from,
-            first.to,
-        ));
-    }
-    for ((file, named), allowed) in listed {
-        let now = found
-            .get(&(file.clone(), named.clone()))
-            .map_or(0, Vec::len);
-        if now < *allowed {
-            let fix = if now == 0 {
-                "remove its line".to_owned()
-            } else {
-                format!("lower its count to {now}")
-            };
-            problems.push(format!(
-                "{EXCEPTIONS}: {file} names {named} {now} times, listed {allowed}: {fix}"
-            ));
-        }
-    }
-    problems
+    found
+        .into_iter()
+        .filter_map(|((file, named), uses)| {
+            let first = uses.first()?;
+            let lines: Vec<String> = uses.iter().map(|used| used.line.to_string()).collect();
+            Some(format!(
+                "{file}:{}: {} names {}: {named}",
+                lines.join(","),
+                first.from,
+                first.to,
+            ))
+        })
+        .collect()
 }
 
 #[cfg(test)]
