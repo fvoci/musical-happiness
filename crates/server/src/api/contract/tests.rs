@@ -554,6 +554,7 @@ const ORDERS: &[(&str, &str)] = &[
     ),
     ("getApiTokens", "the newest first"),
     ("getBoardViews", "Oldest first"),
+    ("getCardActivity", "the newest first"),
     ("getCardAttachments", "Oldest first"),
     ("getCardBodyVersions", "The newest first"),
     ("getCardCommentVersions", "the first one first"),

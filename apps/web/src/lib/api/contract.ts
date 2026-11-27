@@ -3233,6 +3233,49 @@ export interface paths {
         patch: operations["patchCard"];
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/cards/{cardId}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The activity of a card
+         * @description What was done to the card, the newest first: its making (new, a copy, from a
+         *     template, by an import, or as the next of a card that repeats), each change of its
+         *     title, of the value of a property, of its parent card and of whether it is a
+         *     template, and its coming back from the trash. Its body is not: its versions say what
+         *     it was (`getCardBodyVersions`); nor are its comments, its attachments, or what a copy
+         *     or an import wrote over a card that was there.
+         *
+         *     A line says what changed as the card held it: a title as it was written, the value
+         *     of a property as the card stores it (the identifier of an option or of a person, a
+         *     date value), the parent card by its identifier (`null` for the top of the board),
+         *     whether it was a template; the names are the client's to read now, so that what was
+         *     renamed since reads as it is called now and what is gone reads as gone. Who did it
+         *     is `actorId`, and `actorTokenName` the name of the personal API token an agent did it
+         *     through; both are `null` for what the server did itself and once the account is
+         *     erased. The same person changing the same thing again within five minutes, with
+         *     nobody else's change of it between, changes their line (`updatedAt`) rather than
+         *     adding one, and changing it back to what it was takes the line away. A card keeps
+         *     its 500 newest lines; they stay while it is in the trash and go with it for good.
+         *
+         *     For the members of the card's board, whatever their role; to a user who is no
+         *     member of it there is no such card, and a card in the trash is not there (404). Not
+         *     for a reader by the board's read token (`/shared`).
+         *
+         *     A personal API token is taken, of either scope (`read` or `write`).
+         */
+        get: operations["getCardActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions": {
         parameters: {
             query?: never;
@@ -7490,6 +7533,53 @@ export interface components {
              */
             readAt: number;
         };
+        /** @description One line of a card's activity. */
+        CardEvent: {
+            /**
+             * @description Who did it; `null` for nobody the server names: a copy made by the server, or
+             *     an account erased since.
+             */
+            actorId: string | null;
+            /**
+             * @description The name of the personal API token an agent did it through, as the token was
+             *     called then; `null` for a person's own doing, and once the token's owner is
+             *     erased.
+             */
+            actorTokenName: string | null;
+            /** @description What it became, as `before` says it. */
+            after: unknown;
+            /**
+             * @description What it was: the title, the value of the property as the card held it (`null`
+             *     for none), the parent card's identifier (`null` for the top of the board), or
+             *     whether the card was a template. `null` for `created` and `restored`.
+             */
+            before: unknown;
+            /**
+             * Format: int64
+             * @description When it was done, in milliseconds since the Unix epoch.
+             */
+            createdAt: number;
+            /** @description The line's identifier. */
+            id: string;
+            /** @description What was done. */
+            kind: components["schemas"]["CardEventKind"];
+            /**
+             * @description The property whose value changed, for `property`; `null` otherwise. It may be a
+             *     property the board no longer has.
+             */
+            propertyId: string | null;
+            /**
+             * Format: int64
+             * @description When it was last done again: the same person changing the same thing again
+             *     within five minutes changes the line rather than adding one.
+             */
+            updatedAt: number;
+        };
+        /**
+         * @description What was done to a card.
+         * @enum {string}
+         */
+        CardEventKind: "created" | "title" | "property" | "parent" | "template" | "restored";
         /** @description Request body for moving one or more cards within a board view (`card-moves`). */
         CardMovesRequest: {
             /**
@@ -16179,6 +16269,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCardActivity: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
+                page?: number;
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The lines, the newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardEvent"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

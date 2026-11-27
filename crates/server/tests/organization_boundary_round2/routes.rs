@@ -178,6 +178,7 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/containers/{containerId}/uploads", "createUpload"),
     ("GET", "/cards/{cardId}", "getCard"),
     ("PATCH", "/cards/{cardId}", "patchCard"),
+    ("GET", "/cards/{cardId}/activity", "getCardActivity"),
     (
         "GET",
         "/cards/{cardId}/body-versions",

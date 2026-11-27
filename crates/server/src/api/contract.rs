@@ -315,6 +315,8 @@ const SCHEMAS: &[(&str, Members)] = &[
             "complexBlocks",
         ]),
     ),
+    ("CardEvent", Members::All),
+    ("CardEventKind", Members::AsWritten),
     ("CardPreview", Members::All),
     ("CardsOfPage", Members::AsWritten),
     ("CompactCard", Members::All),
