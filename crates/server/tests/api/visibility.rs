@@ -25,6 +25,8 @@ struct Hidden {
     /// text that is no identifier.
     board: [String; 3],
     card: [String; 3],
+    /// A card of the board in its trash.
+    trashed_card: [String; 3],
     file: [String; 3],
     category: [String; 3],
     owner: [String; 3],
@@ -67,6 +69,16 @@ impl Hidden {
             &[block(BlockType::Attachment, &card.id)],
         )
         .await;
+        let mut created =
+            crate::blocks::insert(&th.client, &board.id, &[block(BlockType::Card, "")]).await;
+        let trashed_card = created.pop().expect("the card is created");
+        th.client
+            .post(
+                &format!("{TEST_WS}/boards/{}/cards/batch-delete", board.id),
+                &json!({"cardIds": [trashed_card.id]}),
+            )
+            .await
+            .check_no_content();
 
         let part = Part::bytes(b"hidden".to_vec()).file_name("hidden.txt");
         let request = th
@@ -166,6 +178,7 @@ impl Hidden {
             own_category: own_category.id,
             board: [board.id, new_id(), "no-board".to_owned()],
             card: [card.id, new_id(), "no-card".to_owned()],
+            trashed_card: [trashed_card.id, new_id(), "no-card".to_owned()],
             file: [
                 file,
                 format!("{}.txt", fvoci_server::auth::secret::new_secret()),
@@ -576,9 +589,14 @@ fn reaction_to(container: &str, block: &str) -> String {
 /// places where one part of a request passes every check and the other part must not
 /// be given away by the answer.
 fn mixed_cases() -> Vec<Case> {
-    let case = |method: Method,
-                path: fn(&Hidden, usize) -> String,
-                body: fn(&Hidden, usize) -> Value| Case { method, path, body };
+    let mut cases = mixed_card_cases();
+    cases.extend(mixed_place_cases());
+    cases
+}
+
+/// Of [`mixed_cases`], a hidden card, file or trashed card through the asker's own
+/// board.
+fn mixed_card_cases() -> Vec<Case> {
     vec![
         // A hidden card through the asker's own board, alone and with the asker's own.
         case(
@@ -626,6 +644,12 @@ fn mixed_cases() -> Vec<Case> {
             |h, _| format!("{TEST_WS}/boards/{}/cards/batch-restore", h.own_board),
             |h, i| json!({"cardIds": [h.card[i]]}),
         ),
+        // A card in the trash of a hidden board, through the asker's own board.
+        case(
+            Method::POST,
+            |h, _| format!("{TEST_WS}/boards/{}/cards/batch-restore", h.own_board),
+            |h, i| json!({"cardIds": [h.trashed_card[i]]}),
+        ),
         // A file of a hidden board attached to the asker's own card.
         case(
             Method::POST,
@@ -637,6 +661,13 @@ fn mixed_cases() -> Vec<Case> {
             },
             |h, i| json!({"fileId": h.file[i], "title": "x"}),
         ),
+    ]
+}
+
+/// Of [`mixed_cases`], a hidden board in the asker's own category, somebody's category
+/// named anew, and a file of a hidden board through the asker's own board.
+fn mixed_place_cases() -> Vec<Case> {
+    vec![
         // A hidden board in the asker's own category.
         case(
             Method::POST,

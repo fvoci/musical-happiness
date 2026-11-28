@@ -331,7 +331,7 @@ async fn a_relation_value_of_a_block_that_is_no_card_does_not_stop_a_copy() {
         ..Block::default()
     };
     th.app
-        .insert_block(
+        .insert_block_unchecked(
             &mut odd,
             &th.client.me().await.id,
             fvoci_server::app::ChangeNotification::Suppress,

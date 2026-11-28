@@ -546,6 +546,17 @@ pub async fn write_the_record_before_the_baseline(db_type: DbType, database_conn
 }
 
 impl Store {
+    /// A handle to the same database whose writes of blocks note nothing to tell
+    /// anybody, and make nobody watch anything, not even their writer: for a fixture
+    /// that sets the scene of a test, whose writes are nobody's words.
+    #[must_use]
+    pub fn telling_nobody(&self) -> Self {
+        Self {
+            noting: crate::db::Noting::Nobody,
+            ..self.clone()
+        }
+    }
+
     /// What the idle connections of a PostgreSQL store carry of an organization, read
     /// past the store's own transactions: for each connection the settings `fvoci.org`
     /// and `fvoci.system` as it has them, empty for none. Empty on SQLite.

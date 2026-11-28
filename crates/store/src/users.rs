@@ -19,7 +19,7 @@ use crate::error::{StoreError, Taken};
 use crate::password_reset;
 use crate::person_names;
 use crate::sessions::{self, PasswordSet, SessionsEnded};
-use crate::{directory, members, users_by_id};
+use crate::{directory, members};
 
 /// The columns of a user, in the order [`User::from_row`] reads them.
 pub(crate) const USER_COLUMNS: &str = concat!(
@@ -118,9 +118,12 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if none of the users exists and
     /// [`StoreError::NotAllFound`] unless exactly one user is found per identifier.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn get_users_list(&self, user_ids: &[String]) -> Result<Vec<User>, StoreError> {
-        self.with_conn(async |scope| users_by_id::users_by_ids(scope, user_ids, |_, _| ()).await)
-            .await
+        self.with_conn(async |scope| {
+            crate::users_by_id::users_by_ids(scope, user_ids, |_, _| ()).await
+        })
+        .await
     }
 
     /// Returns the user with the given email address, unless deleted.
@@ -385,6 +388,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn get_users_by_workspace(&self) -> Result<Vec<User>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_users(scope);

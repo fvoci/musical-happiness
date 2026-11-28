@@ -25,7 +25,7 @@ impl App {
     /// Returns `denial` as [`Reached::require`] does, not found `parent_what` for a parent
     /// that is not of the container or is gone by the time the comment is written, a bad
     /// request for a text that names a file the container does not have, and what
-    /// [`App::insert_block`] returns.
+    /// `App::insert_block` returns.
     pub async fn create_comment(
         &self,
         on: &Reached,
@@ -70,7 +70,7 @@ impl App {
     /// Returns the refusal of [`Reached::require_on_comment`] (`denial` for the author),
     /// not found for a block that is no comment of the container, a bad request for a
     /// text that names a file the container does not have, and what
-    /// [`App::patch_block`] returns.
+    /// `App::patch_block` returns.
     pub async fn patch_comment(
         &self,
         on: &Reached,
@@ -101,7 +101,7 @@ impl App {
     /// # Errors
     ///
     /// Returns the first refusal, not found for a block that is no comment of the
-    /// container, and what [`App::delete_block`] returns.
+    /// container, and what `App::delete_block` returns.
     pub async fn delete_comment(
         &self,
         on: &Reached,
@@ -125,8 +125,10 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns not found unless the trash has that comment on `parent` at the top of a
-    /// deletion, the first refusal, and what [`App::undelete_block`] returns.
+    /// Returns `denial` for who may not comment on the container, before the trash is
+    /// looked in; not found unless the trash has that comment on `parent` at the top of
+    /// a deletion; the first refusal of what goes back; and what
+    /// `App::undelete_block` returns.
     pub async fn restore_comment(
         &self,
         on: &Reached,
@@ -134,6 +136,9 @@ impl App {
         comment_id: &str,
         denial: &str,
     ) -> Result<Block, AppError> {
+        // Asked first, as every write of a comment asks: what is in the trash is not
+        // told apart for who may not comment there.
+        on.require(ContainerPermission::CommentCards, denial)?;
         let deletion = self.deletion(comment_id).await?;
         let Some((top, below)) = deletion
             .split_first()

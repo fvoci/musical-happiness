@@ -933,7 +933,7 @@ async fn make_space_changes(space: &Space) -> (String, String) {
     };
     space
         .app
-        .insert_block(&mut card, &space.owner_id, ChangeNotification::Suppress)
+        .insert_block_unchecked(&mut card, &space.owner_id, ChangeNotification::Suppress)
         .await
         .expect("the owner's change");
     assert!(
@@ -1068,7 +1068,7 @@ async fn write_in_the_diary(in_space: &App, space: &Space) {
         ..fvoci_model::DiaryEntryPatch::default()
     };
     in_space
-        .patch_block(
+        .patch_block_unchecked(
             &space.entry.id,
             &mood.into_block_patch(),
             &space.owner_id,
@@ -1093,7 +1093,7 @@ async fn write_in_the_diary(in_space: &App, space: &Space) {
         ..fvoci_model::BlockPatch::default()
     };
     in_space
-        .patch_block(
+        .patch_block_unchecked(
             &created.id,
             &unit_patch,
             &space.owner_id,
@@ -1139,7 +1139,7 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
         ..Block::default()
     };
     in_space
-        .insert_block(&mut secret, &space.owner_id, ChangeNotification::Suppress)
+        .insert_block_unchecked(&mut secret, &space.owner_id, ChangeNotification::Suppress)
         .await
         .expect("a card of the space");
     write_in_the_diary(&in_space, &space).await;
@@ -1148,7 +1148,7 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
         ..fvoci_model::BlockPatch::default()
     };
     in_space
-        .patch_block(
+        .patch_block_unchecked(
             &secret.id,
             &patch,
             &space.owner_id,
@@ -1157,7 +1157,7 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
         .await
         .expect("the card is changed");
     in_space
-        .delete_block(&secret.id, &space.owner_id, ChangeNotification::Suppress)
+        .delete_block_unchecked(&secret.id, &space.owner_id, ChangeNotification::Suppress)
         .await
         .expect("the card is deleted");
     assert!(in_space.finish_background(Duration::from_secs(5)).await);
@@ -1173,7 +1173,7 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
         ..Block::default()
     };
     hooked
-        .insert_block(
+        .insert_block_unchecked(
             &mut open,
             &ts.client.me().await.id,
             ChangeNotification::Suppress,
@@ -1425,7 +1425,7 @@ async fn told_of_a_change(space: &Space, socket: &mut super::common::WebSocket) 
     };
     space
         .app
-        .insert_block(&mut card, &space.owner_id, ChangeNotification::Suppress)
+        .insert_block_unchecked(&mut card, &space.owner_id, ChangeNotification::Suppress)
         .await
         .expect("the owner's change");
     let mood = fvoci_model::DiaryEntryPatch {
@@ -1434,7 +1434,7 @@ async fn told_of_a_change(space: &Space, socket: &mut super::common::WebSocket) 
     };
     space
         .app
-        .patch_block(
+        .patch_block_unchecked(
             &space.entry.id,
             &mood.into_block_patch(),
             &space.owner_id,

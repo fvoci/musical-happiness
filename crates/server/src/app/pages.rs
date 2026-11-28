@@ -1,6 +1,6 @@
 //! The pages of a wiki: their tree, making one, moving one, and the trash of them. A
-//! page is a block, and is changed and deleted as one ([`App::patch_block`],
-//! [`App::delete_block`]).
+//! page is a block, and is changed and deleted as one (`App::patch_block`,
+//! `App::delete_block`).
 
 use fvoci_model::{
     Block, BlockError, BlockType, Container, DeletedPage, NewPage, Page, PageDuplicate, PageMove,
@@ -107,7 +107,7 @@ impl App {
     ///
     /// Returns [`PATCH_PAGE_DENIED`] as [`Reached::require`] does, a not-found error for
     /// a block that is no page of the wiki, a bad request if the patch's shape is refused
-    /// or its body names a file the wiki does not have, and what [`App::patch_block_as`]
+    /// or its body names a file the wiki does not have, and what `App::patch_block_as`
     /// returns.
     pub async fn patch_page(
         &self,
@@ -212,6 +212,8 @@ impl App {
         let mut copies: Vec<Block> = std::iter::once(first).chain(below).collect();
         self.give_copies_their_files(wiki_id, &mut copies).await;
         log_notification(ChangeNotification::Send, ChangeAction::Add, page_id);
+        // The copy answered with the files it was given; one deleted meanwhile, with
+        // every copy below it, is no longer there to answer.
         let page = copies
             .first()
             .cloned()
@@ -272,12 +274,12 @@ impl App {
 
     /// Deletes a page of the wiki `on` reached, for an editor of it, with every page
     /// below it and the comments on them, as any block is deleted
-    /// ([`App::delete_block`]).
+    /// (`App::delete_block`).
     ///
     /// # Errors
     ///
     /// Returns [`DELETE_PAGE_DENIED`] as [`Reached::require`] does, a not-found error for
-    /// a block that is no page of the wiki, and what [`App::delete_block`] returns.
+    /// a block that is no page of the wiki, and what `App::delete_block` returns.
     pub async fn delete_page(&self, on: &Reached, page: &Block) -> Result<(), AppError> {
         editing_page(on, page, DELETE_PAGE_DENIED)?;
         self.delete_block(&page.id, on.user_id(), ChangeNotification::Send)

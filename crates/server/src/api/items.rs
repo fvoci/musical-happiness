@@ -19,7 +19,7 @@ use super::card_comments::card_on_board;
 use super::cards::card_reached;
 use super::comments::CommentParentKind;
 use super::courses::content_unit_reached;
-use super::delegated::{Admits, Wall};
+use super::delegated::{Admits, NotAWall, Wall};
 use super::diaries::entry_reached;
 use super::wikis::page_reached;
 use super::workspace::{InCourse, InDiary, InWiki, InWorkspace};
@@ -213,16 +213,8 @@ where
     }
 }
 
-// No `Wall` of an entry: a token never reaches a diary. A compile-time check, as the
-// two impls below are ambiguous for a type that is a `Wall`.
-const _: () = {
-    trait NotAWall<Which> {
-        const CHECKED: () = ();
-    }
-    impl<T: ?Sized> NotAWall<()> for T {}
-    impl<T: Wall> NotAWall<u8> for T {}
-    let () = <ItemOf<EntryItem> as NotAWall<_>>::CHECKED;
-};
+// No `Wall` of an entry: a token never reaches a diary.
+const _: () = <ItemOf<EntryItem> as NotAWall<_>>::CHECKED;
 
 /// A card of a board. Its body's versions are named by the card alone
 /// (`/cards/{cardId}`), whose board is the one the card is on; its comments by the

@@ -1,19 +1,11 @@
-//! Boards and blocks created and deleted together.
+//! Boards and blocks created together.
 
-use std::collections::HashMap;
+use fvoci_model::{Container, ContainerMember, ContainersAndBlocks};
+use fvoci_store::{NewContainers, StoreError};
 
-use fvoci_model::{ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks};
-
-use super::{App, Changes, Former};
-use crate::collab::{AccessScope, Deletion};
+use super::{App, Changes};
+use crate::collab::AccessScope;
 use crate::error::AppError;
-use crate::permissions::ContainerScope;
-
-/// Who read a board the request did not list: nobody (the store refused it).
-const NOBODY: Former<'static> = Former {
-    members: &[],
-    scope: ContainerScope::InvitedOnly,
-};
 
 impl App {
     /// Stores boards and their blocks, identifiers included, tells the boards' members
@@ -32,9 +24,10 @@ impl App {
         mut created: ContainersAndBlocks,
         user_id: &str,
     ) -> Result<ContainersAndBlocks, AppError> {
-        for (index, container) in created.containers.iter().enumerate() {
-            self.require_makes(container)
-                .map_err(|error| error.under(&format!("/containers/{index}")))?;
+        // Where a refusal points is where the board's request named it: the boards are
+        // asked for one at a time (`createBoard`), not as a list.
+        for container in &created.containers {
+            self.require_makes(container)?;
         }
         let members = {
             let _structure = self
@@ -42,16 +35,12 @@ impl App {
                 .changing_structures(self, created.containers.iter().map(|c| c.id.as_str()))
                 .await;
             self.store()
-                .create_containers_and_blocks_with_admin(&mut created, user_id)
-                .await?
+                .create_containers(NewContainers::whole(&mut created), user_id)
+                .await
+                .map_err(StoreError::from)?
         };
 
-        if !created.containers.is_empty() {
-            let made = created.containers.iter().map(|container| &container.id);
-            self.collab()
-                .recheck_access(self, AccessScope::containers(made))
-                .await;
-        }
+        self.recheck_made(&created.containers).await;
         self.announce_created(&created, &members).await;
 
         for container in &created.containers {
@@ -67,6 +56,18 @@ impl App {
         Ok(created)
     }
 
+    /// Has the rooms of the boards `containers`, made just now, ask again who may be in
+    /// them, before the write that made them answers.
+    pub(crate) async fn recheck_made(&self, containers: &[Container]) {
+        if containers.is_empty() {
+            return;
+        }
+        let made = containers.iter().map(|container| &container.id);
+        self.collab()
+            .recheck_access(self, AccessScope::containers(made))
+            .await;
+    }
+
     /// Tells the boards' members and the webhooks about boards and blocks that were
     /// stored together, and about the memberships made with them, before answering.
     pub(crate) async fn announce_created(
@@ -80,97 +81,8 @@ impl App {
             .first()
             .map_or("", |container| container.workspace_id.as_str());
         let changes = Changes::in_workspace(workspace_id)
-            .made(created.containers.clone(), members.to_vec())
+            .made(created.containers.iter().cloned(), members.iter().cloned())
             .changed(created.blocks.iter().cloned());
         self.tell_now(changes).await;
-    }
-
-    /// Deletes blocks and boards, all or none, and tells the boards' members.
-    ///
-    /// # Errors
-    ///
-    /// Returns a bad request if no board is listed, a not-found error if a board or
-    /// block does not exist, or the store's error.
-    pub async fn delete_containers_and_blocks(
-        &self,
-        request: &DeleteContainersAndBlocks,
-        user_id: &str,
-    ) -> Result<(), AppError> {
-        let Some(first_container_id) = request.containers.first() else {
-            return Err(AppError::bad_request(
-                fvoci_model::ContainersAndBlocksError::NoContainers,
-            ));
-        };
-        let workspace_id = self
-            .store()
-            .get_container(first_container_id)
-            .await?
-            .workspace_id;
-
-        // The memberships go with the boards, so who is told is who was a member; and
-        // the blocks are gone afterwards, so which board each was on is read first.
-        let mut readers_before = HashMap::with_capacity(request.containers.len());
-        for container_id in &request.containers {
-            let members = self
-                .store()
-                .effective_container_members(container_id)
-                .await?;
-            let scope = ContainerScope::of(&self.store().get_container(container_id).await?);
-            readers_before.insert(container_id.as_str(), (members, scope));
-        }
-        let mut deleted_blocks = Vec::with_capacity(request.blocks.len());
-        for block_id in &request.blocks {
-            let block = self.store().get_block(block_id).await?;
-            deleted_blocks.push((block.id, block.container_id, block.block_type));
-        }
-
-        let (removed, by) = (request.clone(), user_id.to_owned());
-        self.collab()
-            .remove(
-                self,
-                Deletion::Containers(removed.containers.clone()),
-                async move |app| {
-                    Ok(app
-                        .store()
-                        .delete_containers_and_blocks(&removed, &by)
-                        .await?)
-                },
-            )
-            .await?;
-
-        if !request.containers.is_empty() {
-            self.collab()
-                .recheck_access(self, AccessScope::containers(&request.containers))
-                .await;
-        }
-        let former = |container_id: &str| {
-            readers_before
-                .get(container_id)
-                .map_or(NOBODY, |(members, scope)| Former {
-                    members,
-                    scope: *scope,
-                })
-        };
-        for (block_id, container_id, block_type) in &deleted_blocks {
-            // A block of a board the request does not list was refused by the store.
-            self.ws()
-                .broadcast_block_delete_with_container(
-                    &workspace_id,
-                    block_id,
-                    container_id,
-                    *block_type,
-                    former(container_id),
-                )
-                .await;
-        }
-        for container_id in &request.containers {
-            self.ws()
-                .broadcast_container_delete(&workspace_id, container_id, former(container_id))
-                .await;
-            // The board's sharing went with it; so does whoever followed it by its link,
-            // as with `deleteContainer`.
-            self.ws().end_readers_of_container(container_id);
-        }
-        Ok(())
     }
 }

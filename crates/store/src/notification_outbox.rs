@@ -117,6 +117,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn waiting_notification_events(&self) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
             let sql = scope.sql("SELECT COUNT(*) FROM notification_outbox");

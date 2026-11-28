@@ -47,7 +47,7 @@ impl App {
     /// says: one that is suppressed tells nobody whom it newly names. A handle an
     /// agent writes through ([`App::writing_for`]) tells of the write as the agent's.
     pub(super) fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
-        let store = match &self.agent {
+        let store = match &self.reach.agent {
             Some(delegation) => self.store().by_agent(delegation.by_agent()),
             None => self.store().clone(),
         };
@@ -107,7 +107,7 @@ impl App {
         // The handle finds the blocks of the boards it reaches only, in the one read.
         let found = self
             .store()
-            .get_block_within(block_id, self.workspace.as_deref(), self.kinds)
+            .get_block_within(block_id, self.reach.workspace.as_deref(), self.reach.kinds)
             .await;
         found.or_missing("block")
     }
@@ -142,7 +142,7 @@ impl App {
     ///
     /// Returns a not-found error naming the type unless the trash has such a deletion of
     /// the block, and the errors of [`App::undelete_block`].
-    pub async fn undelete_block_of_board(
+    pub(super) async fn undelete_block_of_board(
         &self,
         board_id: &str,
         block_id: &str,
@@ -199,7 +199,7 @@ impl App {
     ///
     /// Returns a not-found error if the block's board does not exist and
     /// a bad request if the title or the fields are too large.
-    pub async fn insert_block(
+    pub(super) async fn insert_block(
         &self,
         block: &mut Block,
         modified_by: &str,
@@ -241,7 +241,7 @@ impl App {
     /// Returns a bad request if the blocks belong to more than one board or a title or
     /// the fields of a block are too large, and a not-found error if the board does not
     /// exist.
-    pub async fn insert_blocks(
+    pub(super) async fn insert_blocks(
         &self,
         blocks: &mut [Block],
         modified_by: &str,
@@ -294,7 +294,7 @@ impl App {
     ///
     /// Returns a not-found error if the block or its board does not exist and
     /// a bad request if the patched title or fields are too large.
-    pub async fn patch_block(
+    pub(super) async fn patch_block(
         &self,
         block_id: &str,
         patch: &BlockPatch,
@@ -313,7 +313,7 @@ impl App {
     /// # Errors
     ///
     /// As [`App::patch_block`], and 409 `room_has_active_editors` for an agent.
-    pub async fn patch_block_as(
+    pub(super) async fn patch_block_as(
         &self,
         block_id: &str,
         patch: &BlockPatch,
@@ -384,7 +384,7 @@ impl App {
     /// (an identifier listed twice counts as missing), a bad request if a
     /// patched title or the patched fields are too large, and an internal error if
     /// there are fewer patches than identifiers.
-    pub async fn patch_blocks(
+    pub(super) async fn patch_blocks(
         &self,
         workspace_id: &str,
         batch: &BlockPatchBatch,
@@ -422,7 +422,7 @@ impl App {
     /// # Errors
     ///
     /// Returns a not-found error if the block or its board does not exist.
-    pub async fn delete_block(
+    pub(super) async fn delete_block(
         &self,
         block_id: &str,
         modified_by: &str,
@@ -516,7 +516,7 @@ impl App {
     /// exist. Returns a conflict error if a card cannot be restored under its live parent
     /// (for example, because the parent became a template or the subtree would exceed
     /// [`fvoci_model::MAX_CARD_DEPTH`]).
-    pub async fn undelete_block(
+    pub(super) async fn undelete_block(
         &self,
         block_id: &str,
         modified_by: &str,
@@ -545,6 +545,105 @@ impl App {
             .filter(|each| each.id == block_id || each.block_type == BlockType::Card);
         self.tell(Changes::in_workspace(&container.workspace_id).changed(told));
         Ok(block)
+    }
+}
+
+/// The raw writes of blocks, which ask nobody whether they may: for the fixtures of the
+/// integration tests, which set the scene a request then meets. A route writes a block
+/// through what it reached ([`super::Reached`]), never through these.
+#[cfg(feature = "test-util")]
+impl App {
+    /// `App::insert_block`, which only the logic layer calls otherwise.
+    ///
+    /// # Errors
+    ///
+    /// What `App::insert_block` returns.
+    #[doc(hidden)]
+    pub async fn insert_block_unchecked(
+        &self,
+        block: &mut Block,
+        modified_by: &str,
+        notification: ChangeNotification,
+    ) -> Result<(), AppError> {
+        self.insert_block(block, modified_by, notification).await
+    }
+
+    /// `App::insert_blocks`, which only the logic layer calls otherwise.
+    ///
+    /// # Errors
+    ///
+    /// What `App::insert_blocks` returns.
+    #[doc(hidden)]
+    pub async fn insert_blocks_unchecked(
+        &self,
+        blocks: &mut [Block],
+        modified_by: &str,
+        notification: ChangeNotification,
+    ) -> Result<(), AppError> {
+        self.insert_blocks(blocks, modified_by, notification).await
+    }
+
+    /// `App::patch_block`, which only the logic layer calls otherwise.
+    ///
+    /// # Errors
+    ///
+    /// What `App::patch_block` returns.
+    #[doc(hidden)]
+    pub async fn patch_block_unchecked(
+        &self,
+        block_id: &str,
+        patch: &BlockPatch,
+        modified_by: &str,
+        notification: ChangeNotification,
+    ) -> Result<Block, AppError> {
+        self.patch_block(block_id, patch, modified_by, notification)
+            .await
+    }
+
+    /// `App::patch_blocks`, which only the logic layer calls otherwise.
+    ///
+    /// # Errors
+    ///
+    /// What `App::patch_blocks` returns.
+    #[doc(hidden)]
+    pub async fn patch_blocks_unchecked(
+        &self,
+        workspace_id: &str,
+        batch: &BlockPatchBatch,
+        modified_by: &str,
+        notification: ChangeNotification,
+    ) -> Result<(), AppError> {
+        self.patch_blocks(workspace_id, batch, modified_by, notification)
+            .await
+    }
+
+    /// `App::delete_block`, which only the logic layer calls otherwise.
+    ///
+    /// # Errors
+    ///
+    /// What `App::delete_block` returns.
+    #[doc(hidden)]
+    pub async fn delete_block_unchecked(
+        &self,
+        block_id: &str,
+        modified_by: &str,
+        notification: ChangeNotification,
+    ) -> Result<(), AppError> {
+        self.delete_block(block_id, modified_by, notification).await
+    }
+
+    /// `App::undelete_block`, which only the logic layer calls otherwise.
+    ///
+    /// # Errors
+    ///
+    /// What `App::undelete_block` returns.
+    #[doc(hidden)]
+    pub async fn undelete_block_unchecked(
+        &self,
+        block_id: &str,
+        modified_by: &str,
+    ) -> Result<Block, AppError> {
+        self.undelete_block(block_id, modified_by).await
     }
 }
 

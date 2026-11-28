@@ -126,9 +126,7 @@ impl App {
         user_id: &str,
         membership: CreatorMembership,
     ) -> Result<Container, AppError> {
-        if !container.id.is_empty() {
-            return Err(AppError::bad_request("new board cannot have an ID").with_field("id"));
-        }
+        refuse_named_id(&container)?;
         self.require_makes(&container)?;
         container.id = new_id();
 
@@ -531,5 +529,15 @@ impl App {
                     .await;
             }
         }
+    }
+}
+
+/// Refuses a new board that names its own identifier: the server gives it one, however
+/// the board is made.
+pub(super) fn refuse_named_id(container: &Container) -> Result<(), AppError> {
+    if container.id.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::bad_request("new board cannot have an ID").with_field("id"))
     }
 }
