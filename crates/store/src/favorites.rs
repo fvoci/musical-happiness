@@ -11,7 +11,7 @@
 use fvoci_model::{FavoriteKind, MAX_FAVORITES};
 
 use crate::Store;
-use crate::db::{FromRow, Id, Row, Scope, SqlFragment};
+use crate::db::{FromRow, Id, LockRank, Row, RowLock, Scope, SqlFragment};
 use crate::error::StoreError;
 
 /// A star as it is stored: what it is on, and nothing of what that is called.
@@ -79,7 +79,8 @@ impl Store {
     /// Puts a star of `user_id` on `target_id` in the workspace, after their others; one
     /// that is there stays as it is. Past [`MAX_FAVORITES`] in the workspace nothing is
     /// put. What the target is, and whether the user reads it, is for the caller to have
-    /// asked.
+    /// asked. Two put at once are put one after the other ([`hold_stars_of`]), so that
+    /// neither is put twice nor past the limit.
     ///
     /// # Errors
     ///
@@ -92,6 +93,7 @@ impl Store {
         now: i64,
     ) -> Result<FavoriteAdded, StoreError> {
         self.transaction(async |scope| {
+            hold_stars_of(scope, workspace_id, user_id).await?;
             let mut sql = scope.sql("SELECT workspace_id FROM favorites WHERE user_id = ");
             sql.bind(Id(user_id))
                 .push_bind(" AND target_id = ", Id(&favorite.target_id));
@@ -183,6 +185,33 @@ impl Store {
         })
         .await
     }
+}
+
+/// Holds what a write of the stars of `user_id` in the workspace writes under: the
+/// workspace, against its deletion, and their membership of it, against another such
+/// write meanwhile, in the order of their ranks. Only PostgreSQL has rows to hold: on
+/// SQLite a transaction that writes holds the whole database.
+async fn hold_stars_of(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM workspaces WHERE id = ");
+    sql.bind(Id(workspace_id));
+    scope
+        .hold(LockRank::Workspace, workspace_id, sql, RowLock::KeyShare)
+        .await?;
+    let mut sql = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id));
+    scope
+        .hold(
+            LockRank::WorkspaceMembers,
+            &format!("{workspace_id}:{user_id}"),
+            sql,
+            RowLock::NoKeyUpdate,
+        )
+        .await
 }
 
 /// Takes the stars that are on what is gone for good: no block nor container is there

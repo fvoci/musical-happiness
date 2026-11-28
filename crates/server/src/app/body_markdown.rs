@@ -23,6 +23,7 @@ use super::caller::Caller;
 use super::import::markdown::{
     AssetResolver, ExternalOnlyResolver, ResolvedTarget, blocks_to_body, fvoci_markdown_to_blocks,
 };
+use super::references::MAX_REFERENCE_IDS;
 use crate::collab::Appender;
 use crate::error::{AppError, Reason};
 pub(crate) use write::{Names, body_to_markdown};
@@ -236,9 +237,10 @@ impl App {
         let users: Vec<String> = users.into_iter().collect();
         names.users = self.names_seen_by(reader, &users).await?;
         // A view is named for whoever reads its board, as a reference is told of.
+        // As many as a body shows, a resolver's worth at a time.
         let views: Vec<String> = views.into_iter().filter(|id| is_id(id)).collect();
-        if !views.is_empty() {
-            for linked in self.resolve_references(reader.user_id, &views).await? {
+        for some in views.chunks(MAX_REFERENCE_IDS) {
+            for linked in self.resolve_references(reader.user_id, some).await? {
                 if linked.kind == LinkedKind::View {
                     let board = linked.container_title.unwrap_or_default();
                     names

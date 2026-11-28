@@ -100,6 +100,58 @@ async fn stars_keep_their_order_and_a_workspace_holds_a_hundred() {
     test.teardown().await;
 }
 
+/// Two stars put at once are put one after the other: the same one once, and none past
+/// the most a workspace keeps. Without that, on PostgreSQL, both would find no star
+/// there, and the second would fail on the first's key.
+#[tokio::test]
+async fn stars_put_at_once_are_put_once_and_never_past_the_most() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "hurried").await;
+    let workspace_id = test.workspace_id.clone();
+    common::works_in(store, &workspace_id, &user_id).await;
+
+    let one = on(FavoriteKind::Card);
+    let both = tokio::join!(
+        store.add_favorite(&workspace_id, &user_id, &one, 1),
+        store.add_favorite(&workspace_id, &user_id, &one, 1),
+    );
+    let both = (both.0.expect("put on"), both.1.expect("put on"));
+    assert!(
+        matches!(
+            both,
+            (FavoriteAdded::Added, FavoriteAdded::AlreadyThere)
+                | (FavoriteAdded::AlreadyThere, FavoriteAdded::Added)
+        ),
+        "{both:?}"
+    );
+    for at in 1..MAX_FAVORITES - 1 {
+        let at = i64::try_from(at).expect("a small number");
+        store
+            .add_favorite(&workspace_id, &user_id, &on(FavoriteKind::Page), at)
+            .await
+            .expect("put on");
+    }
+    let (last, past) = (on(FavoriteKind::Unit), on(FavoriteKind::Unit));
+    let both = tokio::join!(
+        store.add_favorite(&workspace_id, &user_id, &last, 200),
+        store.add_favorite(&workspace_id, &user_id, &past, 200),
+    );
+    let both = (both.0.expect("put on"), both.1.expect("asked"));
+    assert!(
+        matches!(
+            both,
+            (FavoriteAdded::Added, FavoriteAdded::Full)
+                | (FavoriteAdded::Full, FavoriteAdded::Added)
+        ),
+        "{both:?}"
+    );
+    assert_eq!(
+        starred(store, &user_id, &workspace_id).await.len(),
+        MAX_FAVORITES
+    );
+}
+
 #[tokio::test]
 async fn the_stars_go_with_the_users_leaving_the_workspace() {
     let test = common::setup().await;

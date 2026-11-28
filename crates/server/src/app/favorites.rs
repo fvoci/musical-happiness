@@ -16,6 +16,7 @@ use fvoci_model::{Container, Favorite, FavoriteKind, MAX_FAVORITES, is_id};
 use fvoci_store::{FavoriteAdded, StoredFavorite};
 
 use super::App;
+use super::references::MAX_REFERENCE_IDS;
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 
@@ -41,7 +42,13 @@ impl App {
         // Whether each container is one a star is kept on, or under: asked once each.
         let mut containers: HashMap<String, Option<Container>> = HashMap::new();
         let mut blocks: HashMap<String, Favorite> = HashMap::new();
-        for linked in self.resolve_references(user_id, &block_ids).await? {
+        // A list past the stars a workspace keeps (two put at once before they were
+        // held one after the other) is still read whole, a resolver's worth at a time.
+        let mut linked_blocks = Vec::with_capacity(block_ids.len());
+        for some in block_ids.chunks(MAX_REFERENCE_IDS) {
+            linked_blocks.extend(self.resolve_references(user_id, some).await?);
+        }
+        for linked in linked_blocks {
             if !containers.contains_key(&linked.container_id) {
                 let container = self
                     .favorite_container(user_id, &linked.container_id)

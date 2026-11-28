@@ -291,8 +291,9 @@ fn the_operators_webhooks_are_posted_from_one_place() {
 /// SQLite personal spaces and shared organizations cannot mix (`1.4.3 H-5`).
 #[test]
 fn system_queries_on_org_tables_scope_by_caller_or_open_organization() {
-    const SYSTEM_READERS: [&str; 9] = [
+    const SYSTEM_READERS: [&str; 10] = [
         "notifications.rs",
+        "notification_triage.rs",
         "time_entries.rs",
         "account_deletion.rs",
         "account_erasure.rs",
