@@ -1,0 +1,99 @@
+/**
+ * The boards the board views of bodies show (`embeddedBoards`): one store
+ * for each board however many views of it are shown, apart from the board
+ * open and the boards the workspace keeps; changed live as an open board is;
+ * kept a while after the last view of it goes, then closed. And what a
+ * reader chooses a view from.
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { boardsToShow, embeddedBoards, RELEASE_AFTER_MS, viewsOfBoard } from '$lib/state/index.ts';
+
+import { loadTemplates, openFirstBoard, settle, setup } from './support.ts';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** Lets the board read, and waits for it. */
+async function loaded(store: { status: string }): Promise<void> {
+  for (let turn = 0; turn < 20 && store.status !== 'ready'; turn += 1) await settle();
+}
+
+describe('the boards of the board views shown', () => {
+  it('is one store for each board, read once, and none of the board open', async () => {
+    const made = await openFirstBoard(setup(await loadTemplates()));
+    const { workspace, board: open } = made;
+    const boards = embeddedBoards(workspace);
+    const first = boards.hold(open.boardId);
+    const second = boards.hold(open.boardId);
+    expect(second.store).toBe(first.store);
+    expect(first.store).not.toBe(open);
+    await loaded(first.store);
+    expect(first.store.status).toBe('ready');
+    expect(first.store.realCards.map((card) => card.id).sort()).toEqual(
+      open.realCards.map((card) => card.id).sort(),
+    );
+    // The board open stays the board open, and is not closed with the views.
+    expect(workspace.board).toBe(open);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    first.release();
+    second.release();
+    vi.advanceTimersByTime(RELEASE_AFTER_MS);
+    expect(first.store.isClosed()).toBe(true);
+    expect(open.isClosed()).toBe(false);
+    expect(boards.boardIds).toEqual([]);
+  });
+
+  it('is kept a while after the last view of it goes, for a body drawn again', async () => {
+    const { workspace } = await openFirstBoard(setup(await loadTemplates()));
+    const boardId = boardsToShow(workspace)[1]?.id ?? '';
+    const boards = embeddedBoards(workspace);
+    const held = boards.hold(boardId);
+    await loaded(held.store);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    held.release();
+    held.release();
+    vi.advanceTimersByTime(RELEASE_AFTER_MS - 1);
+    const again = boards.hold(boardId);
+    expect(again.store).toBe(held.store);
+    vi.advanceTimersByTime(RELEASE_AFTER_MS);
+    expect(held.store.isClosed()).toBe(false);
+    again.release();
+    vi.advanceTimersByTime(RELEASE_AFTER_MS);
+    expect(held.store.isClosed()).toBe(true);
+    // Held after it was closed, a board is read anew.
+    vi.useRealTimers();
+    const later = boards.hold(boardId);
+    expect(later.store).not.toBe(held.store);
+    await loaded(later.store);
+    expect(later.store.status).toBe('ready');
+    later.release();
+  });
+
+  it('shows what other people change on the board, by itself', async () => {
+    const { workspace, other } = await openFirstBoard(setup(await loadTemplates()));
+    const boardId = boardsToShow(workspace)[1]?.id ?? '';
+    const held = embeddedBoards(workspace).hold(boardId);
+    await loaded(held.store);
+    const card = held.store.realCards[0];
+    if (!card) throw new Error('no card');
+    await other.patchCard(boardId, card.id, { title: 'Changed by someone else' });
+    await settle();
+    expect(held.store.card(card.id)?.title).toBe('Changed by someone else');
+    held.release();
+  });
+});
+
+describe('what a view to show is chosen from', () => {
+  it('is the boards of the workspace, and the views of the board chosen in its order', async () => {
+    const { workspace, board } = await openFirstBoard(setup(await loadTemplates()));
+    const shown = boardsToShow(workspace);
+    expect(shown.length).toBeGreaterThan(1);
+    expect(shown.every((each) => (each.kind ?? 'board') === 'board' && !each.isTemplate)).toBe(
+      true,
+    );
+    const views = await viewsOfBoard(workspace, board.boardId);
+    expect(views.map((view) => view.id)).toEqual(board.orderedViews.map((view) => view.id));
+  });
+});

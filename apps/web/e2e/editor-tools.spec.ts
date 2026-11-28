@@ -137,6 +137,7 @@ test('"/" offers the kinds of block, found by what is typed, Korean too', async 
     'Formula block',
     'Divider',
     'Table',
+    'Board view',
     'File or image',
   ]);
   await picture(page, 'slash-menu');

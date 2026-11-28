@@ -22,6 +22,7 @@ mod block_summaries;
 mod blocks;
 mod board_broadcasts;
 mod board_copies;
+mod board_view_bodies;
 mod board_views;
 mod boards;
 mod bodies;

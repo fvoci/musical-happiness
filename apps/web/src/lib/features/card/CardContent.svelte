@@ -20,6 +20,7 @@
   import { ancestorsOf } from '$lib/logic/card-hierarchy.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
   import {
+    embeddedBoards,
     whileHere,
     type BoardStore,
     type CardStore,
@@ -61,6 +62,7 @@
   let { board, view, card, frame, cardHref, onClose, onOpenCard, headerActions }: Props = $props();
 
   const references = $derived(bodyReferences(board, card.cardId));
+  const boardViews = $derived(embeddedBoards(board.workspace).host);
 
   // The body's room is asked for with the card's reading (`CardStore.load`): the
   // editor that shows its document is asked for with them, not once the card is read.
@@ -193,6 +195,7 @@
           container={board}
           {card}
           {references}
+          {boardViews}
           keep={() => keepVersion(cardVersions(board, card))}
         />
         {#if !summary.fields.isTemplate}

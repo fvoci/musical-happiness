@@ -41,14 +41,20 @@ export {
  * under. Version 2 added the two formula nodes, `inlineMath` and `blockMath`;
  * version 3 the `reference` to a card or a page; version 4 the `file` block;
  * version 5 the table and its rows and cells; version 6 the toggle (`details`,
- * its `detailsSummary` and `detailsContent`) and the `callout`.
+ * its `detailsSummary` and `detailsContent`) and the `callout`; version 7 the
+ * board view (`boardView`), a view of a board shown live in the body.
  */
-export const BODY_VERSION = 6;
+export const BODY_VERSION = 7;
 
 /** The largest body, as the bytes of its JSON in UTF-8 (`storedSize`). */
 export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_DEPTH = 60;
 export const MAX_NODES = 100_000;
+/**
+ * The most board views a body shows: each is a board to load and follow
+ * for whoever reads it (board-view.ts).
+ */
+export const MAX_BOARD_VIEWS = 10;
 /**
  * The longest source of a formula, in UTF-16 code units like every other
  * limit on text here. A formula is drawn on the main thread of whoever opens
@@ -100,10 +106,11 @@ const BLOCKS = [
 ] as const;
 const INLINE = ['text', 'hardBreak', 'mention', 'reference', 'inlineMath'] as const;
 /**
- * A table, a toggle and a callout stand in the document and in what a
- * toggle hides alone, so that no table is in another (`table.ts`).
+ * A table, a toggle, a callout and a board view stand in the document and
+ * in what a toggle hides alone, so that no table is in another (`table.ts`),
+ * and a board view, as wide as the page, is in no list, quote or cell.
  */
-const DOCUMENT_BLOCKS = [...BLOCKS, 'table', 'details', 'callout'] as const;
+const DOCUMENT_BLOCKS = [...BLOCKS, 'table', 'details', 'callout', 'boardView'] as const;
 /** The two parts of a toggle, in their order: the line it shows, and what it hides. */
 const DETAILS_PARTS = ['detailsSummary', 'detailsContent'] as const;
 /** A cell spans one column and one row unless it says more, at most a whole table. */
@@ -160,6 +167,8 @@ export const NODE_SPECS: Record<string, NodeSpec> = {
   detailsSummary: { attrs: {}, children: INLINE, minChildren: 0 },
   detailsContent: { attrs: {}, children: DOCUMENT_BLOCKS, minChildren: 1 },
   callout: { attrs: { tone: required(isOneOf(CALLOUT_TONES)) }, children: BLOCKS, minChildren: 1 },
+  // A board view names its view; what the view shows, and how, is read where it is shown.
+  boardView: { attrs: { viewId: required(isBlockId) }, children: [], minChildren: 0 },
   text: { attrs: {}, children: [], minChildren: 0 },
 };
 
@@ -241,17 +250,25 @@ const SHOWN_MENTION = { userId: required(isText(100)) };
  * drawn as a link that cannot be seen.
  */
 const SHOWN_REFERENCE = { id: required(isText(100)) };
+/**
+ * The attributes of a board view in a body that is only shown: the same
+ * reader gets every board view with an empty `viewId`, drawn as a view that
+ * cannot be seen.
+ */
+const SHOWN_BOARD_VIEW = { viewId: required(isText(100)) };
 
 /** The attributes a node of a body that is only shown may have, where they are not those it is written with. */
 const SHOWN_ATTRS: Record<string, Record<string, AttributeSpec>> = {
   mention: SHOWN_MENTION,
   reference: SHOWN_REFERENCE,
+  boardView: SHOWN_BOARD_VIEW,
 };
 
 export interface ValidateOptions {
   /**
    * The document is only shown, not written: a mention may name nobody
-   * (an empty `userId`) and a reference nothing (an empty `id`), and
+   * (an empty `userId`), a reference nothing (an empty `id`) and a board
+   * view no view (an empty `viewId`), and
    * U+0000, which only the server's store cannot
    * keep, is drawn as the letter it is.
    */
@@ -288,6 +305,37 @@ function checkTextMarks(marks: readonly unknown[], at: string): string[] {
   return problems;
 }
 
+/** A member of a node, read without trusting its shape. */
+function member(child: unknown, name: string): unknown {
+  return typeof child === 'object' && child !== null
+    ? (child as Record<string, unknown>)[name]
+    : undefined;
+}
+
+/** What is wrong with how many and which children a node of `type` holds, as a whole. */
+function contentProblems(
+  at: string,
+  type: string,
+  spec: NodeSpec,
+  children: readonly unknown[],
+  problems: string[],
+): void {
+  if (children.length < spec.minChildren)
+    problems.push(`${at}: needs at least ${spec.minChildren} child`);
+  if (children.length > 0 && spec.children.length === 0)
+    problems.push(`${at}: cannot have content`);
+  if (STARTS_WITH_PARAGRAPH.has(type) && member(children[0], 'type') !== 'paragraph') {
+    problems.push(`${at}: has to start with a paragraph`);
+  }
+  if (type === 'codeBlock' && children.some((child) => member(child, 'marks') !== undefined)) {
+    problems.push(`${at}: text in a code block has no marks`);
+  }
+  const parts = children.map((child) => member(child, 'type'));
+  if (type === 'details' && parts.join() !== DETAILS_PARTS.join()) {
+    problems.push(`${at}: has to hold a summary and then a content`);
+  }
+}
+
 /**
  * Everything that is wrong with a document; an empty list means the server
  * will take it. Checked are the kinds of nodes and marks, their attributes,
@@ -297,6 +345,7 @@ function checkTextMarks(marks: readonly unknown[], at: string): string[] {
 export function validateDoc(doc: unknown, options: ValidateOptions = {}): string[] {
   const problems: string[] = [];
   let count = 0;
+  let boardViews = 0;
 
   function visit(
     node: unknown,
@@ -332,6 +381,7 @@ export function validateDoc(doc: unknown, options: ValidateOptions = {}): string
     const before = problems.length;
     if (allowed && !allowed.includes(type))
       problems.push(`${at}: not allowed inside ${where || 'the root'}`);
+    if (type === 'boardView') boardViews += 1;
     for (const key of Object.keys(rest)) problems.push(`${at}: unknown member "${key}"`);
     const shownAttrs = options.shown ? SHOWN_ATTRS[type] : undefined;
     checkAttributes(at, attrs, shownAttrs ?? spec.attrs, problems);
@@ -358,24 +408,7 @@ export function validateDoc(doc: unknown, options: ValidateOptions = {}): string
       problems.push(`${at}: content is not a list`);
       return;
     }
-    if (children.length < spec.minChildren)
-      problems.push(`${at}: needs at least ${spec.minChildren} child`);
-    if (children.length > 0 && spec.children.length === 0)
-      problems.push(`${at}: cannot have content`);
-    const member = (child: unknown, name: string): unknown =>
-      typeof child === 'object' && child !== null
-        ? (child as Record<string, unknown>)[name]
-        : undefined;
-    if (STARTS_WITH_PARAGRAPH.has(type) && member(children[0], 'type') !== 'paragraph') {
-      problems.push(`${at}: has to start with a paragraph`);
-    }
-    if (type === 'codeBlock' && children.some((child) => member(child, 'marks') !== undefined)) {
-      problems.push(`${at}: text in a code block has no marks`);
-    }
-    const parts = (children as unknown[]).map((child) => member(child, 'type'));
-    if (type === 'details' && parts.join() !== DETAILS_PARTS.join()) {
-      problems.push(`${at}: has to hold a summary and then a content`);
-    }
+    contentProblems(at, type, spec, children, problems);
     (children as unknown[]).forEach((child, index) => {
       visit(child, `${at}[${index}]`, depth + 1, spec.children);
     });
@@ -386,6 +419,9 @@ export function validateDoc(doc: unknown, options: ValidateOptions = {}): string
   }
 
   visit(doc, '', 1, ['doc']);
+  // Counted over the whole document once all else of it is allowed, as the server counts.
+  if (problems.length === 0 && boardViews > MAX_BOARD_VIEWS)
+    problems.push(`more than ${MAX_BOARD_VIEWS} board views`);
   if (problems.length === 0 && !options.shown && holdsNul(doc))
     problems.push('a text or a name holds U+0000');
   return problems;
