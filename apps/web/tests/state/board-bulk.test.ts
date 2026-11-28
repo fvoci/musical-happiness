@@ -178,6 +178,38 @@ describe('setting one value on many cards', () => {
     expect([statusOf(board, c1), await stored()]).toEqual(['todo', 'todo']);
   });
 
+  it('undoes a change made over a refused one to what the server sent of the card meanwhile', async () => {
+    const { board, api, backend, other, workspace, c1 } = await opened();
+    const gate = held();
+    const batch = api.batchPatchCards.bind(api);
+    let calls = 0;
+    vi.spyOn(api, 'batchPatchCards').mockImplementation(async (...args) => {
+      calls += 1;
+      if (calls > 1) return batch(...args);
+      await gate.promise;
+      throw new BackendError(500);
+    });
+    vi.spyOn(workspace, 'report').mockImplementation(() => undefined);
+    const stored = async (): Promise<unknown> =>
+      (await backend.card(board.boardId, c1)).fields.properties[STATUS];
+    // To doing, which waits and is refused; meanwhile someone else stores doing,
+    // and then to done, over it.
+    const first = setCardsProperty(board, [c1], STATUS, 'doing');
+    const before = board.card(c1)?.updatedAt ?? 0;
+    vi.setSystemTime(before + 1_000);
+    await other.patchCard(board.boardId, c1, { updatedProperties: { [STATUS]: 'doing' } });
+    vi.useRealTimers();
+    await settle();
+    const second = setCardsProperty(board, [c1], STATUS, 'done');
+    gate.release();
+    await Promise.all([first, second]);
+    expect([statusOf(board, c1), await stored()]).toEqual(['done', 'done']);
+
+    // Doing was stored by the other: undo gives back that, not to do.
+    await workspace.undoLast();
+    expect([statusOf(board, c1), await stored()]).toEqual(['doing', 'doing']);
+  });
+
   it('undoes a change made over one that was stored to that one, and is sent after it', async () => {
     const { board, api, backend, workspace, c1 } = await opened();
     const gate = held();

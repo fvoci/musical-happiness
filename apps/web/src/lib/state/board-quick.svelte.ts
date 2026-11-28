@@ -80,12 +80,17 @@ export class QuickFilterChoices {
     this.#watch = createSubscriber((update) => {
       // Nothing heard storage while nobody asked: another tab may have changed it since.
       this.#drop(null);
-      return on(window, 'storage', (event) => {
+      const off = on(window, 'storage', (event) => {
         if (!this.#follows(event)) return;
         this.#renote(event.key);
         this.#drop(event.key);
         update();
       });
+      // Nor will anything hear it now: what is asked meanwhile is read from storage.
+      return () => {
+        off();
+        this.#drop(null);
+      };
     });
   }
 
@@ -150,7 +155,8 @@ export class QuickFilterChoices {
    * cleared): the boards noted with them on this visit are noted again, as
    * when they change here. A card made before then is one the chips judge;
    * one made after is the reader's still. A board on a visit not yet noted
-   * is noted when its row is shown.
+   * is noted when its row is shown. Storage cleared changes no chips that it
+   * did not take (`#unkept`): their board is not noted again.
    */
   #renote(key: string | null): void {
     for (const [boardId, held] of this.#boards) {
@@ -159,9 +165,15 @@ export class QuickFilterChoices {
         this.#boards.delete(boardId);
         continue;
       }
-      const ours = key === null || key.endsWith(`:${boardId}`);
+      const ours = key === null ? !this.#unkeptOn(boardId) : key.endsWith(`:${boardId}`);
       if (ours && this.#noted.get(board)?.visit === board.visit) this.#note(board);
     }
+  }
+
+  /** Whether chips of `boardId` are among those storage did not take. */
+  #unkeptOn(boardId: string): boolean {
+    for (const key of this.#unkept) if (key.endsWith(`:${boardId}`)) return true;
+    return false;
   }
 
   /** Whether a change of storage, made by another tab, is of chips kept here. */

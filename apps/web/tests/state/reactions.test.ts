@@ -335,6 +335,59 @@ describe('the reactions told while a read of them is under way', () => {
   });
 });
 
+describe('the reactions told of a block the page does not show', () => {
+  /** The page of `made` shown, its comments read once `gate` is let go. */
+  async function shown(made: Awaited<ReturnType<typeof aPage>>, gate?: Promise<void>) {
+    await made.workspace.load();
+    const store = new WikiStore(made.workspace, made.wikiId);
+    await store.load();
+    if (gate) answeredLate(made.backend.wiki, 'comments', gate);
+    const comments = store.showPage(made.pageId)?.comments;
+    if (!comments) throw new Error('no page shown');
+    return { store, comments };
+  }
+  const told: Reaction[] = [{ emoji: '👍', userIds: ['someone'] }];
+
+  it('are kept while the comments are read, and forgotten once they are, if no comment is it', async () => {
+    const made = await aPage();
+    const gate = held();
+    const { store, comments } = await shown(made, gate.promise);
+    comments.receiveReactions('elsewhere', told);
+    comments.receiveReactions(made.commentId, told);
+    expect(comments.reactionsOf('elsewhere')).toEqual(told);
+    gate.release();
+    await settle();
+    expect(comments.status).toBe('ready');
+    expect(comments.reactionsOf('elsewhere')).toEqual([]);
+    expect(comments.reactionsOf(made.commentId)).toEqual(told);
+    store.close();
+  });
+
+  it('are not kept once the comments failed to be read', async () => {
+    const made = await aPage();
+    vi.spyOn(made.backend.wiki, 'comments').mockRejectedValueOnce(new BackendError(500));
+    vi.spyOn(made.workspace, 'report').mockImplementation(() => undefined);
+    const { store, comments } = await shown(made);
+    await settle();
+    expect(comments.status).toBe('failed');
+    comments.receiveReactions('elsewhere', told);
+    expect(comments.reactionsOf('elsewhere')).toEqual([]);
+    store.close();
+  });
+
+  it('by a toggle answered once the page is closed are not told', async () => {
+    const made = await aPage();
+    const { store, comments } = await shown(made);
+    await settle();
+    made.backend.latency = 20;
+    const adding = comments.toggleReaction(made.commentId, '🚀');
+    comments.close();
+    await adding;
+    expect(comments.reactionsOf(made.commentId)).toEqual([]);
+    store.close();
+  });
+});
+
 describe('the reactions of the card shown', () => {
   it('are read again with the card when the reader comes back, and ride on no card of the board', async () => {
     const { board, backend } = await openFirstBoard();

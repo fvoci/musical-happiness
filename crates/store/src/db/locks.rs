@@ -136,6 +136,19 @@ pub(crate) enum RowLock {
 }
 
 impl RowLock {
+    /// Where the lock stands by what it waits for, on PostgreSQL: each waits for all
+    /// that those weaker than it wait for, and more (`KEY SHARE` for an `UPDATE` alone,
+    /// `UPDATE` for any).
+    #[cfg(debug_assertions)]
+    const fn strength(self) -> u8 {
+        match self {
+            Self::KeyShare => 0,
+            Self::Share => 1,
+            Self::NoKeyUpdate => 2,
+            Self::Update => 3,
+        }
+    }
+
     /// This lock on the rows of `table` alone (`OF table`), a table or an alias of the
     /// statement's join.
     ///
@@ -211,8 +224,9 @@ impl Scope<'_> {
         key: &str,
         lock: impl Into<Locking>,
     ) -> LockClause {
-        self.record_lock(rank, key);
-        lock.into().in_dialect(self.dialect(), Locking::clause)
+        let lock = lock.into();
+        self.record_lock(rank, key, lock.lock);
+        lock.in_dialect(self.dialect(), Locking::clause)
     }
 
     /// The clause by which the statement it ends holds the rows it reads under `lock`,
@@ -225,10 +239,11 @@ impl Scope<'_> {
         keys: impl IntoIterator<Item = &'k str>,
         lock: impl Into<Locking>,
     ) -> LockClause {
+        let lock = lock.into();
         for key in keys {
-            self.record_lock(rank, key);
+            self.record_lock(rank, key, lock.lock);
         }
-        lock.into().in_dialect(self.dialect(), Locking::clause)
+        lock.in_dialect(self.dialect(), Locking::clause)
     }
 
     /// The clause by which the statement it ends holds, under `lock`, the rows it reads
@@ -284,12 +299,13 @@ impl Scope<'_> {
         mut sql: Sql,
         lock: impl Into<Locking>,
     ) -> Result<Option<T>, StoreError> {
-        sql.push_lock(lock.into().in_dialect(self.dialect(), Locking::clause));
+        let lock = lock.into();
+        sql.push_lock(lock.in_dialect(self.dialect(), Locking::clause));
         let Some(row) = self.fetch_optional(sql).await? else {
             return Ok(None);
         };
         let key: String = FromRow::from_row(&row)?;
-        self.record_lock(rank, &key);
+        self.record_lock(rank, &key, lock.lock);
         T::from_row(&row).map(Some)
     }
 }
@@ -373,44 +389,110 @@ const fn pass_under(rank: LockRank) -> Option<LockRank> {
     }
 }
 
+/// A lock a transaction took, as the check of their order records it.
+#[cfg(debug_assertions)]
+#[derive(Debug)]
+pub(super) struct TakenLock {
+    pub(super) rank: LockRank,
+    pub(super) key: String,
+    pub(super) lock: RowLock,
+}
+
+#[cfg(debug_assertions)]
+impl TakenLock {
+    /// The rank, key and strength of the lock.
+    #[cfg(test)]
+    pub(super) fn parts(&self) -> (LockRank, &str, RowLock) {
+        (self.rank, &self.key, self.lock)
+    }
+}
+
 /// Records the lock of `key` at `rank`, asserting that it comes after what `locks` holds:
 /// a deeper rank than the last lock, or the same rank and a greater key (any key for
 /// [`LockRank::WorkspaceMembers`]). A new pass ([`pass_under`]) is checked against the
 /// previous pass under the same lock, and nothing recorded is forgotten: what each pass
 /// takes is checked within it, and a lock that is not a new pass against the last.
-/// Nothing is a new pass once [`LockRank::Users`] is held.
+/// Nothing is a new pass once [`LockRank::Users`] is held. A lock held already is
+/// taken again as [`strengthen`] says.
 #[cfg(debug_assertions)]
-pub(super) fn push_checked_lock(locks: &mut Vec<(LockRank, String)>, rank: LockRank, key: &str) {
-    if locks.iter().any(|(r, k)| *r == rank && k == key) {
+pub(super) fn push_checked_lock(
+    locks: &mut Vec<TakenLock>,
+    rank: LockRank,
+    key: &str,
+    lock: RowLock,
+) {
+    if let Some(at) = locks
+        .iter()
+        .position(|taken| taken.rank == rank && taken.key == key)
+    {
+        strengthen(locks, at, lock);
         return;
     }
-    let holds_users = locks.iter().any(|(r, _)| *r >= LockRank::Users);
+    let taken = TakenLock {
+        rank,
+        key: key.to_owned(),
+        lock,
+    };
+    let holds_users = locks.iter().any(|taken| taken.rank >= LockRank::Users);
     if !holds_users
         && let Some(under) = pass_under(rank)
-        && let Some(start) = locks.iter().rposition(|(r, _)| *r == under)
+        && let Some(start) = locks.iter().rposition(|taken| taken.rank == under)
     {
         if rank == LockRank::Organization {
-            locks.push((rank, key.to_owned()));
+            locks.push(taken);
             return;
         }
-        if let Some((_, previous)) = locks[start + 1..].iter().rev().find(|(r, _)| *r == rank) {
+        if let Some(previous) = locks[start + 1..]
+            .iter()
+            .rev()
+            .find(|taken| taken.rank == rank)
+        {
             debug_assert!(
-                previous.as_str() < key,
-                "out-of-order {rank:?} pass: after ({rank:?}, {previous:?}), acquiring ({rank:?}, {key:?}); all={locks:?}",
+                previous.key.as_str() < key,
+                "out-of-order {rank:?} pass: after ({rank:?}, {:?}), acquiring ({rank:?}, {key:?}); all={locks:?}",
+                previous.key,
             );
-            locks.push((rank, key.to_owned()));
+            locks.push(taken);
             return;
         }
     }
-    if let Some((last_rank, last_key)) = locks.last() {
+    if let Some(last) = locks.last() {
         debug_assert!(
-            rank > *last_rank
-                || (rank == *last_rank
-                    && (rank == LockRank::WorkspaceMembers || last_key.as_str() < key)),
-            "lock rank violation: holding ({last_rank:?}, {last_key:?}), acquiring ({rank:?}, {key:?}); all={locks:?}",
+            rank > last.rank
+                || (rank == last.rank
+                    && (rank == LockRank::WorkspaceMembers || last.key.as_str() < key)),
+            "lock rank violation: holding ({:?}, {:?}), acquiring ({rank:?}, {key:?}); all={locks:?}",
+            last.rank,
+            last.key,
         );
     }
-    locks.push((rank, key.to_owned()));
+    locks.push(taken);
+}
+
+/// Takes the lock `locks[at]` again as `lock`. One no stronger than it waits for
+/// nobody. A stronger one waits for whoever holds the row more weakly, as a new lock of
+/// the row would: so nothing taken since may come after it in the order, a deeper rank
+/// or a greater key of its own (any key for [`LockRank::WorkspaceMembers`]).
+#[cfg(debug_assertions)]
+fn strengthen(locks: &mut [TakenLock], at: usize, lock: RowLock) {
+    let held = &locks[at];
+    if lock.strength() <= held.lock.strength() {
+        return;
+    }
+    let since = locks[at + 1..].iter().find(|later| {
+        later.rank > held.rank
+            || (later.rank == held.rank
+                && held.rank != LockRank::WorkspaceMembers
+                && later.key > held.key)
+    });
+    debug_assert!(
+        since.is_none(),
+        "lock strength upgrade violation: holding ({:?}, {:?}) as {:?} and since then {since:?}, acquiring it as {lock:?}; all={locks:?}",
+        held.rank,
+        held.key,
+        held.lock,
+    );
+    locks[at].lock = lock;
 }
 
 #[cfg(test)]
@@ -509,7 +591,9 @@ mod tests {
         ApiToken, Block, Container, CourseItem, DeletedContainers, Instance, Invitation, LinkTurn,
         Organization, PendingProvider, Provider, Session, Users, Workspace, WorkspaceMembers,
     };
-    use super::{LockClause, LockRank, Locking, RowLock, check_clause, push_checked_lock};
+    use super::{
+        LockClause, LockRank, Locking, RowLock, TakenLock, check_clause, push_checked_lock,
+    };
 
     /// A statement of `text` as the scope starts one.
     fn statement(text: &str) -> Sql {
@@ -605,13 +689,108 @@ mod tests {
         take(&[(Session, "s"), (Users, "u")]);
     }
 
-    /// Records `sequence` in its order, as a transaction takes its locks.
-    fn take(sequence: &[(LockRank, &str)]) -> Vec<(LockRank, String)> {
+    /// Records `sequence` in its order, as a transaction takes its locks, each as a
+    /// change of its row holds it.
+    fn take(sequence: &[(LockRank, &str)]) -> Vec<TakenLock> {
+        let held: Vec<(LockRank, &str, RowLock)> = sequence
+            .iter()
+            .map(|(rank, key)| (*rank, *key, RowLock::NoKeyUpdate))
+            .collect();
+        take_as(&held)
+    }
+
+    /// Records `sequence` in its order, each lock as strong as it says.
+    fn take_as(sequence: &[(LockRank, &str, RowLock)]) -> Vec<TakenLock> {
         let mut locks = Vec::new();
-        for (rank, key) in sequence {
-            push_checked_lock(&mut locks, *rank, key);
+        for (rank, key, lock) in sequence {
+            push_checked_lock(&mut locks, *rank, key, *lock);
         }
         locks
+    }
+
+    #[test]
+    fn a_lock_is_made_stronger_while_nothing_after_it_is_held() {
+        let locks = take_as(&[
+            (Organization, "o", RowLock::Update),
+            (Container, "a", RowLock::KeyShare),
+            (Container, "a", RowLock::Share),
+            (Container, "a", RowLock::NoKeyUpdate),
+            (Container, "a", RowLock::Update),
+            // Nothing deeper, nor a greater key, came since the first lock of the row.
+            (Organization, "o", RowLock::Update),
+            (Block, "b", RowLock::Update),
+        ]);
+        let taken: Vec<_> = locks.iter().map(TakenLock::parts).collect();
+        assert_eq!(
+            taken,
+            [
+                (Organization, "o", RowLock::Update),
+                (Container, "a", RowLock::Update),
+                (Block, "b", RowLock::Update),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lock_no_stronger_is_taken_again_after_deeper_ones() {
+        // As each deletion of a board holds again what its write held before.
+        let locks = take_as(&[
+            (Container, "a", RowLock::Update),
+            (Container, "b", RowLock::Update),
+            (Block, "x", RowLock::Update),
+            (Container, "a", RowLock::Update),
+            (Block, "x", RowLock::Update),
+            (Container, "b", RowLock::NoKeyUpdate),
+            (Container, "a", RowLock::KeyShare),
+        ]);
+        let taken: Vec<_> = locks.iter().map(TakenLock::parts).collect();
+        assert_eq!(
+            taken,
+            [
+                (Container, "a", RowLock::Update),
+                (Container, "b", RowLock::Update),
+                (Block, "x", RowLock::Update),
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "lock strength upgrade violation")]
+    fn a_board_is_not_held_for_its_deletion_once_its_blocks_are() {
+        take_as(&[
+            (Container, "a", RowLock::NoKeyUpdate),
+            (Block, "x", RowLock::Update),
+            (Container, "a", RowLock::Update),
+        ]);
+    }
+
+    #[test]
+    #[should_panic(expected = "lock strength upgrade violation")]
+    fn a_board_is_not_held_more_strongly_once_a_later_board_is() {
+        take_as(&[
+            (Container, "a", RowLock::NoKeyUpdate),
+            (Container, "b", RowLock::NoKeyUpdate),
+            (Container, "a", RowLock::Update),
+        ]);
+    }
+
+    #[test]
+    #[should_panic(expected = "lock strength upgrade violation")]
+    fn a_shared_row_is_not_taken_for_a_change_after_deeper_ones() {
+        take_as(&[
+            (Workspace, "w", RowLock::KeyShare),
+            (Container, "c", RowLock::NoKeyUpdate),
+            (Workspace, "w", RowLock::Share),
+        ]);
+    }
+
+    #[test]
+    fn members_are_made_stronger_whatever_their_keys() {
+        take_as(&[
+            (WorkspaceMembers, "w:b", RowLock::Share),
+            (WorkspaceMembers, "w:a", RowLock::Share),
+            (WorkspaceMembers, "w:b", RowLock::Update),
+        ]);
     }
 
     #[test]

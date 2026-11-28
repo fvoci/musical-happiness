@@ -1,8 +1,9 @@
 //! The reactions to the blocks in the trash: they go into the trash with the block, in
 //! its JSON of `deleted_blocks` (under [`KEY`]), and come back with it. A reaction of
-//! one whose account is no longer in use, or who left the organization
-//! ([`forget_reactions_of_organization`]), comes back to nothing, even when that is
-//! under way as the block comes back ([`KeptReactions::make_again`]).
+//! one whose account is no longer in use, or who left the organization, a member of it
+//! or a guest of its last workspace ([`forget_reactions_of_organization`]), comes back to
+//! nothing, even when that is under way as the block comes back
+//! ([`KeptReactions::make_again`]).
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -96,7 +97,8 @@ impl KeptReactions {
     }
 
     /// Makes again the reactions kept, of those whose accounts are in use and, on
-    /// PostgreSQL, still members of the block's organization; the blocks are back among
+    /// PostgreSQL, still in the block's organization: members of it, or guests of one of
+    /// its workspaces, who are in no `organization_members`. The blocks are back among
     /// the blocks. One made since stays as it is.
     ///
     /// Each account is held first, in the order of their identifiers
@@ -128,25 +130,29 @@ impl KeptReactions {
                 }
                 let mut sql = scope.sql(if postgres {
                     "INSERT INTO reactions (org_id, block_id, user_id, emoji, created_at) \
-                     SELECT b.org_id, b.id, om.user_id, "
+                     SELECT b.org_id, b.id, "
                 } else {
                     "INSERT INTO reactions (block_id, user_id, emoji, created_at) SELECT b.id, "
                 });
-                if !postgres {
-                    sql.bind(Id(&reaction.user_id)).push(", ");
-                }
-                sql.bind(reaction.emoji.as_str())
+                sql.bind(Id(&reaction.user_id))
+                    .push_bind(", ", reaction.emoji.as_str())
                     .push_bind(", ", reaction.created_at)
-                    .push(" FROM blocks AS b");
+                    .push_bind(" FROM blocks AS b WHERE b.id = ", Id(block_id));
                 if postgres {
                     sql.push(
-                        " JOIN organization_members AS om ON om.org_id = b.org_id \
-                         AND om.user_id = ",
+                        " AND (EXISTS (SELECT 1 FROM organization_members AS om \
+                         WHERE om.org_id = b.org_id AND om.user_id = ",
                     )
-                    .bind(Id(&reaction.user_id));
+                    .bind(Id(&reaction.user_id))
+                    .push(
+                        ") OR EXISTS (SELECT 1 FROM workspace_members AS wm \
+                         JOIN workspaces AS w ON w.id = wm.workspace_id AND wm.org_id = w.org_id \
+                         WHERE w.org_id = b.org_id AND wm.user_id = ",
+                    )
+                    .bind(Id(&reaction.user_id))
+                    .push("))");
                 }
-                sql.push_bind(" WHERE b.id = ", Id(block_id))
-                    .push(" ON CONFLICT DO NOTHING");
+                sql.push(" ON CONFLICT DO NOTHING");
                 scope.execute(sql).await?;
             }
         }

@@ -109,9 +109,16 @@ function show(store: BoardStore, changed: ReadonlyMap<string, CardSummary>): voi
 }
 
 /**
+ * Whether the server sent `card` anew since the writes were shown (`since`,
+ * its `updatedAt` then): it then shows what was stored.
+ */
+function sentAnew(card: CardSummary, since: ReadonlyMap<string, number>): boolean {
+  return card.updatedAt !== since.get(card.id);
+}
+
+/**
  * The cards that still show what `writes` put on them, shown again as before;
- * not one that the server sent anew since (`since`, its `updatedAt` as the
- * writes were shown), which shows what was stored.
+ * not one that the server sent anew since ({@link sentAnew}).
  */
 function takeBack(
   store: BoardStore,
@@ -121,7 +128,7 @@ function takeBack(
   const changed = new Map<string, CardSummary>();
   for (const write of writes) {
     const shown = store.card(write.cardId);
-    if (!shown || shown.updatedAt !== since.get(shown.id)) continue;
+    if (!shown || sentAnew(shown, since)) continue;
     const own: CardPropertiesPatch = {};
     const restore = valuesOf(write.restore);
     for (const [id, value] of valuesOf(write.patch)) {
@@ -188,7 +195,12 @@ async function after(earlier: readonly Writing[], writes: readonly CardWrite[]):
   }
 }
 
-/** Sends the batches of `writes`: what is answered is shown, what is refused taken back. Says which cards were refused. */
+/**
+ * Sends the batches of `writes`: what is answered is shown, what is refused
+ * taken back. Says which cards were refused and still show what the refused
+ * batch wrote: one the server sent anew meanwhile ({@link sentAnew}) is not
+ * named, so that a batch after it takes back to what the server sent.
+ */
 async function sendAll(
   store: BoardStore,
   writes: readonly CardWrite[],
@@ -206,7 +218,10 @@ async function sendAll(
     }
     const batch = batches[at] ?? [];
     takeBack(store, batch, since);
-    for (const write of batch) refused.add(write.cardId);
+    for (const write of batch) {
+      const shown = store.card(write.cardId);
+      if (!shown || !sentAnew(shown, since)) refused.add(write.cardId);
+    }
     // What a backend throws is a `BackendError`, or the error of a failed reading.
     error ??= answer.reason as Error;
   });

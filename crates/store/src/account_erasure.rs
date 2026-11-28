@@ -840,7 +840,7 @@ async fn remove_organization<'c>(
     let workspaces: Vec<String> = scope.all(sql).await?;
     let mut removed = Purged::default();
     for workspace_id in &workspaces {
-        scope.record_lock(LockRank::Workspace, workspace_id);
+        scope.record_lock(LockRank::Workspace, workspace_id, RowLock::Update);
         let of_workspace = org_admin::remove_workspace(scope, held_org, workspace_id).await?;
         removed.records += of_workspace.records;
         removed.files.extend(of_workspace.files);

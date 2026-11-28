@@ -1,12 +1,15 @@
 //! Reactions to blocks: there once and gone when taken off, at most twenty emoji on a
 //! block, nothing of the block written, into the trash with it and back (also one added
-//! as the block goes, and those of cards that go and come back together), and gone with
-//! whoever leaves the organization or is on the way out of their account.
+//! as the block goes, those of cards that go and come back together, and those of a
+//! workspace's guests), and gone with whoever leaves the organization, is no longer a
+//! guest of any of its workspaces, or is on the way out of their account.
 
 use std::collections::HashMap;
 
-use fvoci_model::{Block, BlockType, Emoji, REACTION_KINDS_PER_BLOCK, Reaction, new_id};
-use fvoci_store::{DbType, Departure, Reacted, Store, StoreError};
+use fvoci_model::{
+    Block, BlockType, Emoji, REACTION_KINDS_PER_BLOCK, Reaction, WorkspaceRole, new_id,
+};
+use fvoci_store::{DbType, Departure, MembershipChange, Reacted, Store, StoreError, Tenant};
 
 use crate::common::{self, TestStore, db_type};
 use crate::lock_gate::{Gate, ended};
@@ -26,7 +29,13 @@ fn reaction(text: &str, user_ids: &[&str]) -> Reaction {
 /// A card on a board of a workspace that the users work in, and a comment on it.
 async fn card_and_comment(store: &Store, users: &[&str]) -> (Block, Block) {
     let workspace_id = common::workspace_of(store, users).await;
-    let boards = common::create_test_boards(store, &workspace_id, users[0], 1).await;
+    card_and_comment_in(store, &workspace_id, users[0]).await
+}
+
+/// A card on a board of the workspace `workspace_id` that `user_id` makes, and a
+/// comment on it.
+async fn card_and_comment_in(store: &Store, workspace_id: &str, user_id: &str) -> (Block, Block) {
+    let boards = common::create_test_boards(store, workspace_id, user_id, 1).await;
     let card = Block {
         id: new_id(),
         container_id: boards[0].id.clone(),
@@ -41,7 +50,7 @@ async fn card_and_comment(store: &Store, users: &[&str]) -> (Block, Block) {
         ..Block::default()
     };
     let mut blocks = [card, comment];
-    common::insert_blocks(store, &mut blocks, users[0]).await;
+    common::insert_blocks(store, &mut blocks, user_id).await;
     let [card, comment] = blocks;
     (card, comment)
 }
@@ -395,11 +404,12 @@ async fn reactions_come_back_of_those_still_here_alone() {
     .expect("the account is asked to go");
     let postgres = db_type() == DbType::Postgres;
     if postgres {
-        test.execute_unchecked(&format!(
-            "DELETE FROM organization_members WHERE user_id = '{gone}'"
-        ))
-        .await
-        .expect("out of the organization");
+        // Out of the organization and its workspaces, as a leaving takes them.
+        for table in ["workspace_members", "organization_members"] {
+            test.execute_unchecked(&format!("DELETE FROM {table} WHERE user_id = '{gone}'"))
+                .await
+                .expect("out of the organization");
+        }
     }
     test.undelete_block(&card.id, &ann)
         .await
@@ -410,6 +420,56 @@ async fn reactions_come_back_of_those_still_here_alone() {
         vec![&ann, &gone]
     };
     assert_eq!(reactions(&test, &card.id).await, [reaction("👍", &back)]);
+    test.teardown().await;
+}
+
+/// A guest of a workspace is in no `organization_members`: their reaction comes back
+/// with its block while they are a guest. Removed from the last workspace of the
+/// organization they were a guest of, they take their reactions along, those the trash
+/// keeps too, as a leaving does.
+#[tokio::test]
+async fn a_guests_reactions_come_back_while_they_are_one() {
+    let test = common::setup().await;
+    let ann = common::user(&test, "ann").await;
+    let outside = test.scoped(Tenant::Unset);
+    let guest = common::user(&outside, "guest").await;
+    let leaving = common::user(&outside, "leaving").await;
+    let workspace_id = common::workspace_of(&test, &[&ann]).await;
+    let (card, comment) = card_and_comment_in(&test, &workspace_id, &ann).await;
+    for user in [&guest, &leaving] {
+        test.add_workspace_member(&workspace_id, user, WorkspaceRole::Guest)
+            .await
+            .expect("a guest");
+    }
+    for user in [&ann, &guest, &leaving] {
+        react(&test, &card.id, user, "👍").await;
+        react(&test, &comment.id, user, "🎉").await;
+    }
+    test.delete_block(&comment.id, &ann)
+        .await
+        .expect("to the trash");
+
+    let removed = test
+        .remove_workspace_member(&workspace_id, &leaving, &ann)
+        .await
+        .expect("asked");
+    assert!(
+        matches!(removed, MembershipChange::Done { .. }),
+        "{removed:?}"
+    );
+    assert_eq!(
+        reactions(&test, &card.id).await,
+        [reaction("👍", &[&ann, &guest])],
+        "a reaction to a block still there goes with them"
+    );
+    test.undelete_block(&comment.id, &ann)
+        .await
+        .expect("out of the trash");
+    assert_eq!(
+        reactions(&test, &comment.id).await,
+        [reaction("🎉", &[&ann, &guest])],
+        "the guest's comes back, and none of whoever is no longer one"
+    );
     test.teardown().await;
 }
 

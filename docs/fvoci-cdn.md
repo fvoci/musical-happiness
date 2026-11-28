@@ -179,7 +179,7 @@ Cloudflare의 기본 동작([출처](https://developers.cloudflare.com/cache/con
 | Proxy Write Timeout | 30초. 넘으면 `524`. 조정할 수 없다. | 위 두 문서 |
 
 - 파일과 가져올 아카이브는 부분(`upload_part_bytes`, 기본 8 MiB)으로 나눠 오므로 Cloudflare의 요청 본문 한도는 부분 하나에만 걸린다. `upload_part_bytes`를 플랜 한도보다 작게 둔다. 그러면 `max_file_bytes`와 `max_import_bytes`는 100 MB를 넘겨도 된다.
-- 남는 것은 시간이다. 업로드를 마치는 요청이나 아카이브 가져오기의 처리가 125초를 넘기면 `524`로 끝난다. 그런 배포는 그 요청을 프록시를 거치지 않는 DNS-only 호스트 이름으로 보내거나, Enterprise에서 Proxy Read Timeout을 올린다. Cloudflare 문서도 같은 방법을 든다.
+- 남는 것은 시간이다. 업로드를 마치는 요청이나 아카이브 가져오기의 처리가 기본 타임아웃인 125초를 넘기면 `524`로 끝난다. Cloudflare 문서가 드는 방법처럼 그 요청만 DNS-only 호스트 이름으로 보낼 수는 없다. `https://` `server_url`에서 브라우저의 세션 쿠키는 그 호스트에만 붙는 `__Host-fvoci_session`이고, 바꾸는 요청은 `Origin`을 `server_url`과 맞춰 본다. 그런 배포는 `server_url`의 호스트 자체를 Cloudflare 프록시 밖에 두거나(DNS-only, 또는 오리진 앞 리버스 프록시로 바로), Enterprise에서 Proxy Read Timeout을 올린다.
 - 한도를 올려도 아주 큰 업로드는 크기 한도에 닿기 전에 연결 타임아웃이나 read timeout으로 실패할 수 있다고 Cloudflare 문서가 적고 있다.
 
 ### 4.4 Rate limiting rule 예시

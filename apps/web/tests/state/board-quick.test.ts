@@ -5,7 +5,7 @@
  * shows with them, between its filter and its search.
  */
 import { tick } from 'svelte';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { QuickFilterId } from '$lib/logic/quick-filter.ts';
 import { createCard, type BoardView, type Card, type Container } from '$lib/logic/wire.ts';
@@ -156,6 +156,19 @@ describe('the chips of a board', () => {
     localStorage.clear();
   });
 
+  it('are read from storage once no board shows them, though nothing shows them again', async () => {
+    const choices = new QuickFilterChoices(() => localStorage);
+    const stop = watched(() => {
+      choices.chosen('board-1', 'me');
+    });
+    choices.toggle(boardOf('board-1'), 'mine', 'me');
+    stop();
+    await tick();
+    localStorage.setItem(quickFiltersKey('me', 'board-1'), '["overdue"]');
+    expect(choices.chosen('board-1', 'me')).toEqual(['overdue']);
+    localStorage.clear();
+  });
+
   it('that storage did not take stay on for the visit as a board is shown again', async () => {
     const blocked = new QuickFilterChoices(() => {
       throw new Error('storage is blocked');
@@ -239,6 +252,31 @@ describe('the cards the reader made', () => {
     tell(null);
     expect(choices.made(other, 'me')(cardOf('theirs-morning'))).toBe(false);
     expect(choices.made(board, 'me')(cardOf('afternoon'))).toBe(false);
+    stop();
+    localStorage.clear();
+  });
+
+  it('are not counted anew as another tab clears storage, on a board whose chips it did not take', () => {
+    const choices = new QuickFilterChoices(() => localStorage);
+    const board = { ...boardOf('board-1', [cardOf('old')]) };
+    const other = { ...boardOf('board-2', []) };
+    choices.opened(other);
+    const stop = watched(() => {
+      choices.chosen('board-1', 'me');
+    });
+    const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    choices.toggle(board, 'mine', 'me');
+    full.mockRestore();
+    board.realCards = [cardOf('old'), cardOf('morning')];
+    other.realCards = [cardOf('theirs-morning')];
+    window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: localStorage }));
+    // Its chips are on as they were: a card made since they changed is the reader's still.
+    expect(choices.chosen('board-1', 'me')).toEqual(['mine']);
+    expect(choices.made(board, 'me')(cardOf('morning'))).toBe(true);
+    // The other board's chips were in storage, and are gone with it.
+    expect(choices.made(other, 'me')(cardOf('theirs-morning'))).toBe(false);
     stop();
     localStorage.clear();
   });

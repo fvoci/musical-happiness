@@ -145,6 +145,7 @@ export class CommentThreadStore {
     if (this.#closed) return;
     this.#comments = this.#reactionsTaken(comments, mark);
     this.status = 'ready';
+    this.#forgetStrangers();
   }
 
   /** Snapshots what an external async re-read starts from, taken before it is asked. */
@@ -176,6 +177,7 @@ export class CommentThreadStore {
     void this.#host.workspace.learnUsers(authorIds(comments));
     this.#comments = reread(this.#comments, comments, beforeIds);
     this.status = 'ready';
+    this.#forgetStrangers();
   }
 
   currentIds(): string[] {
@@ -335,13 +337,15 @@ export class CommentThreadStore {
 
   /**
    * `reactionsChanged`: the block's reactions as they are now, if it is this
-   * block or one of its comments. Until the comments are read, any block's
-   * are kept: a comment not yet read may be one of them.
+   * block or one of its comments. While the comments are read, any block's
+   * are kept: a comment not yet read may be one of them. Once they are read,
+   * or failed to be, those of other blocks go (a read asked later carries
+   * them).
    */
   receiveReactions(blockId: string, reactions: readonly Reaction[]): void {
     if (this.#closed) return;
-    const known = blockId === this.#host.parentId || this.comment(blockId) !== undefined;
-    if (!known && this.status === 'ready') return;
+    const settled = this.status === 'ready' || this.status === 'failed';
+    if (settled && !this.#knows(blockId)) return;
     this.#tellNow(blockId, reactions);
   }
 
@@ -371,7 +375,9 @@ export class CommentThreadStore {
     try {
       await turn;
       // Kept until a message or a read asked after it tells the reactions as they are now.
-      this.#tellNow(blockId, withMine(this.#told.get(blockId) ?? [], emoji, me, toggle.present));
+      if (!this.#isClosed()) {
+        this.#tellNow(blockId, withMine(this.#told.get(blockId) ?? [], emoji, me, toggle.present));
+      }
     } catch (error) {
       if (!this.#isClosed()) workspace.report('save', error);
     } finally {
@@ -402,6 +408,21 @@ export class CommentThreadStore {
   #tellRead(blockId: string, reactions: readonly Reaction[], mark: number): void {
     if ((this.#toldAt.get(blockId) ?? 0) > mark) return;
     this.#tell(blockId, reactions);
+  }
+
+  /** Whether `blockId` is this block or one of its comments shown. */
+  #knows(blockId: string): boolean {
+    return blockId === this.#host.parentId || this.comment(blockId) !== undefined;
+  }
+
+  /** Forgets what was told of blocks the comments read are not, kept while they were read. */
+  #forgetStrangers(): void {
+    for (const blockId of [...this.#told.keys()]) {
+      if (!this.#knows(blockId)) this.#told.delete(blockId);
+    }
+    for (const blockId of [...this.#toldAt.keys()]) {
+      if (!this.#knows(blockId)) this.#toldAt.delete(blockId);
+    }
   }
 
   #tell(blockId: string, reactions: readonly Reaction[]): void {

@@ -127,6 +127,20 @@ describe('a long press of a finger', () => {
     expect(count()).toBe(2);
   });
 
+  it('taken over by the browser keeps its menu, and no click of a key that follows', () => {
+    vi.useFakeTimers();
+    const { word, button, count } = comment();
+    finger(word, 'pointerdown');
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    finger(word, 'pointercancel');
+    expect(finger(word, 'contextmenu')).toBe(false);
+    // Enter on the button: a click with no press before it.
+    expect(button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(
+      true,
+    );
+    expect(count()).toBe(1);
+  });
+
   it('on a link or a button inside leaves them as they are', () => {
     vi.useFakeTimers();
     const { link, button, count } = comment();

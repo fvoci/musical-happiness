@@ -859,6 +859,21 @@ pub(crate) async fn lock_container_for_deletion(
     Ok(held.is_some())
 }
 
+/// Takes the lock of [`lock_container_for_deletion`] on the boards `container_ids`, in
+/// the order of their identifiers, as [`lock_containers`] does. For a write that
+/// deletes more than one board, before it holds anything under them: a board's lock
+/// made stronger once its blocks are held, or a later board, waits for those who hold
+/// it more weakly while they may wait for what this write holds.
+pub(crate) async fn lock_containers_for_deletion(
+    scope: &mut Scope<'_>,
+    container_ids: &BTreeSet<&str>,
+) -> Result<(), StoreError> {
+    for container_id in container_ids {
+        lock_container_for_deletion(scope, container_id).await?;
+    }
+    Ok(())
+}
+
 /// Takes the lock of [`lock_container`] on several boards, in the order of their
 /// identifiers whatever order they are given in: two writes that span the same boards
 /// then queue up instead of each holding what the other waits for. For a write that

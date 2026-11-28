@@ -88,6 +88,7 @@ async fn a_statement_that_runs_past_its_time_is_stopped_and_the_connection_serve
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn a_lock_is_recorded_as_it_is_taken_and_its_clause_is_the_dialects() {
+    use super::locks::TakenLock;
     use super::{Dialect, LockRank, RowLock};
     use crate::Store;
     use crate::testing::TestDatabase;
@@ -101,7 +102,8 @@ async fn a_lock_is_recorded_as_it_is_taken_and_its_clause_is_the_dialects() {
     let ran = store
         .with_conn(async |scope| {
             let clause = scope.row_lock(LockRank::Container, "c", RowLock::Update);
-            assert_eq!(scope.locks, [(LockRank::Container, "c".to_owned())]);
+            let taken: Vec<_> = scope.locks.iter().map(TakenLock::parts).collect();
+            assert_eq!(taken, [(LockRank::Container, "c", RowLock::Update)]);
             let mut sql = scope.sql("SELECT 1");
             sql.push_lock(clause);
             let written = match scope.dialect() {
@@ -129,12 +131,13 @@ async fn a_lock_is_recorded_as_it_is_taken_and_its_clause_is_the_dialects() {
                 .first_held(LockRank::WorkspaceMembers, one, RowLock::Share)
                 .await?;
             assert_eq!(found, Some(("w:u".to_owned(), 7)));
+            let taken: Vec<_> = scope.locks.iter().map(TakenLock::parts).collect();
             assert_eq!(
-                scope.locks,
+                taken,
                 [
-                    (LockRank::Container, "c".to_owned()),
-                    (LockRank::Block, "b".to_owned()),
-                    (LockRank::WorkspaceMembers, "w:u".to_owned()),
+                    (LockRank::Container, "c", RowLock::Update),
+                    (LockRank::Block, "b", RowLock::Update),
+                    (LockRank::WorkspaceMembers, "w:u", RowLock::Share),
                 ]
             );
             Ok(())
