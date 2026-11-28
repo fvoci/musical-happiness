@@ -84,9 +84,7 @@ test('a board view is put in from the slash menu and shows its view, linked to t
   await expect(page).toHaveURL(new RegExp(`/boards/${board.id}/${view.id}$`));
 });
 
-test('a pasted address of a view is a link until it is taken as a board view', async ({
-  page,
-}) => {
+test('a pasted address of a view is a link until it is taken as a board view', async ({ page }) => {
   const body = await newPage(page);
   const { workspaceId, board, view } = await firstView(page);
   const address = new URL(`/w/${workspaceId}/boards/${board.id}/${view.id}`, page.url()).href;
