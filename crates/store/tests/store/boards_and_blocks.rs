@@ -9,7 +9,7 @@ use fvoci_model::{
 };
 use fvoci_model::{DuplicateAs, PublicContainers};
 use fvoci_store::{
-    BlockFilter, CopyChanges, CopyTitles, Creator, NewBodyFiles, NewContainers, Store, StoreError,
+    BlockFilter, CopyChanges, CopyTitles, Creator, NewContainers, Store, StoreError,
 };
 
 use crate::common;
@@ -167,9 +167,7 @@ async fn create_containers_and_blocks() {
         };
 
         test.create_containers(
-            NewContainers::whole(&mut new_bab)
-                .body_files(NewBodyFiles::Recorded)
-                .creator(Creator::Nobody),
+            NewContainers::whole(&mut new_bab).creator(Creator::Nobody),
             &user_id,
         )
         .await
@@ -254,9 +252,7 @@ async fn create_containers_and_blocks() {
 
         let error = test
             .create_containers(
-                NewContainers::whole(&mut new_bab)
-                    .body_files(NewBodyFiles::Recorded)
-                    .creator(Creator::Nobody),
+                NewContainers::whole(&mut new_bab).creator(Creator::Nobody),
                 &user_id,
             )
             .await
@@ -323,9 +319,7 @@ async fn create_containers_and_blocks() {
 
         let error = test
             .create_containers(
-                NewContainers::whole(&mut new_bab)
-                    .body_files(NewBodyFiles::Recorded)
-                    .creator(Creator::Nobody),
+                NewContainers::whole(&mut new_bab).creator(Creator::Nobody),
                 &user_id,
             )
             .await
@@ -492,9 +486,7 @@ async fn duplicate_container() {
     };
 
     test.create_containers(
-        NewContainers::whole(&mut new_bab)
-            .body_files(NewBodyFiles::Recorded)
-            .creator(Creator::Nobody),
+        NewContainers::whole(&mut new_bab).creator(Creator::Nobody),
         &user_id,
     )
     .await
@@ -609,9 +601,7 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
         ],
     };
     test.create_containers(
-        NewContainers::whole(&mut source)
-            .body_files(NewBodyFiles::Recorded)
-            .creator(Creator::Nobody),
+        NewContainers::whole(&mut source).creator(Creator::Nobody),
         &author,
     )
     .await
@@ -1016,9 +1006,7 @@ async fn create_containers_and_blocks_accepts_a_block_listed_before_its_parent()
         ],
     };
     test.create_containers(
-        NewContainers::whole(&mut new_bab)
-            .body_files(NewBodyFiles::Recorded)
-            .creator(Creator::Nobody),
+        NewContainers::whole(&mut new_bab).creator(Creator::Nobody),
         &user_id,
     )
     .await

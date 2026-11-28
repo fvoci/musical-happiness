@@ -106,7 +106,7 @@ impl Store {
     }
 
     /// Returns the subscriptions of a user to blocks of the boards of a workspace,
-    /// oldest first, as [`Store::get_subscriptions`] orders them.
+    /// oldest first, and by block of those as old.
     ///
     /// # Errors
     ///
@@ -132,7 +132,7 @@ impl Store {
     }
 
     /// Returns the subscriptions of a user, with the board or the wiki of each
-    /// block, oldest first as [`Store::get_subscriptions`] orders them: of the boards and
+    /// block, oldest first and by block of those as old: of the boards and
     /// the wikis of `workspace_id` alone, if there is one.
     ///
     /// # Errors

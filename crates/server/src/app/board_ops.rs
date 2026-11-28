@@ -207,7 +207,7 @@ impl App {
     ///
     /// Returns a not-found error for a card that is not on the board (also one of
     /// another board, or a block of another type), a bad request for a template of the
-    /// board's cards, and the errors of [`App::patch_blocks`].
+    /// board's cards, and the errors of `App::patch_blocks`.
     pub async fn patch_cards(
         &self,
         board_id: &str,

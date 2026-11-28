@@ -112,7 +112,7 @@ impl App {
     ///
     /// Returns a bad request if the patch is not valid (an icon of more than one
     /// grapheme), an internal error if the patched block is no card, and otherwise the
-    /// errors of [`App::patch_block_as`] with the message prefixed by `cannot patch
+    /// errors of `App::patch_block_as` with the message prefixed by `cannot patch
     /// card {id}`; written by `user_id`, or by an agent through a token of theirs.
     pub(in crate::app) async fn patch_card(
         &self,

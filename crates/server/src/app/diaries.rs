@@ -1,6 +1,6 @@
 //! The diaries of a user's own space: making one, the entry of a day, the days that
 //! are written, and the trash of a diary's entries. An entry is a block, and is changed
-//! and deleted as one ([`App::patch_block`], [`App::delete_block`]); its day is not
+//! and deleted as one (`App::patch_block`, `App::delete_block`); its day is not
 //! changed at all.
 
 use fvoci_model::{
