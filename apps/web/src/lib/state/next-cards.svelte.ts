@@ -1,9 +1,9 @@
 /**
  * The next cards that completing cards that repeat makes (`logic/recurrence.ts`):
  * which next card a change made, how its undo takes that card back (its next
- * card goes first, then the completed card repeats again; a next card done
- * already stays, and the chain goes on from it), and the notice that tells
- * the one who made it, with a way to undo it.
+ * card stops repeating and goes first, then the completed card repeats again;
+ * a next card done already stays, and the chain goes on from it), and the
+ * notice that tells the one who made it, with a way to undo it.
  */
 import type { Recurrence } from '../logic/recurrence.ts';
 import { cardRecurredTo, cardRecurrence, type Card } from '../logic/wire.ts';
@@ -32,19 +32,28 @@ export function nextMadeBy(
   return { nextId, recurrence };
 }
 
+/** Nothing, for a card that is gone; any other error as it is. */
+function absent(error: unknown): undefined {
+  if (isBackendError(error) && error.status === 404) return undefined;
+  throw error;
+}
+
 /**
  * Takes back a next card in the undo of the change that made it, before the
  * completed card repeats again, and says whether it may: a next card done
  * already (it names a next of its own) stays, and the chain goes on from it;
- * one gone already is gone.
+ * one gone already is gone. It stops repeating before it goes, so that the
+ * trash gives back no second chain.
  */
 export async function takeBackNext(store: BoardStore, nextId: string): Promise<boolean> {
   const { backend } = store.workspace;
-  const next = await backend.card(store.boardId, nextId).catch((error: unknown) => {
-    if (isBackendError(error) && error.status === 404) return undefined;
-    throw error;
-  });
+  const next = await backend.card(store.boardId, nextId).catch(absent);
   if (next && cardRecurredTo(next)) return false;
+  if (next && cardRecurrence(next)) {
+    await backend
+      .patchCard(store.boardId, nextId, { recurrence: null }, { quiet: true })
+      .catch(absent);
+  }
   await deleteCardForUndo(store, nextId);
   store.cards = store.cards.filter((card) => card.id !== nextId);
   return true;
