@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use fvoci_model::{BlockType, ContainerKind, NotificationKind, SearchKind};
+use fvoci_model::{BlockType, ContainerKind, NotificationFilter, NotificationKind, SearchKind};
 
 use crate::Store;
 use crate::blocks::Paging;
@@ -37,7 +37,10 @@ impl NotificationReader<'_> {
     /// open, by the one rule of it ([`crate::directory::SessionTaken::opened_by`]):
     /// organizations that people work in that require their SSO provider, and personal
     /// spaces whose account has a password that this session has not confirmed.
-    async fn closed_organizations(self, scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
+    pub(crate) async fn closed_organizations(
+        self,
+        scope: &mut Scope<'_>,
+    ) -> Result<Vec<String>, StoreError> {
         let mut sql = scope.sql([
             "SELECT DISTINCT n.org_id, o.kind, p.id, ",
             HAS_PASSWORD,
@@ -63,7 +66,7 @@ impl NotificationReader<'_> {
     /// ([`NotificationReader::closed_organizations`]): for a statement on
     /// `notifications`, with no other name for the table, whose text ends at
     /// `recipient_id = `.
-    fn push_theirs(self, closed: &[String], sql: &mut Sql) {
+    pub(crate) fn push_theirs(self, closed: &[String], sql: &mut Sql) {
         sql.bind(Id(self.user_id));
         if !closed.is_empty() {
             sql.push(" AND org_id NOT IN (")
@@ -103,6 +106,9 @@ pub struct StoredNotification {
     pub people: i64,
     /// When its reader read it; 0 until then, and since the latest of it.
     pub read_at: i64,
+    /// When its reader put it away (`notification_triage.rs`); 0 while it is in the
+    /// inbox, and since the latest of it.
+    pub archived_at: i64,
 }
 
 /// Where a card or a page a notification is about is now, and what it is called.
@@ -135,13 +141,15 @@ pub struct ContainerNotificationPlace {
     pub workspace_id: String,
 }
 
-const NOTIFICATION_COLUMNS: &str = "id, org_id, kind, source_id, block_id, container_id, \
-     actor_id, created_at, updated_at, times, doers, read_at, actor_token_name";
+pub(crate) const NOTIFICATION_COLUMNS: &str = "id, org_id, kind, source_id, block_id, \
+     container_id, actor_id, created_at, updated_at, times, doers, read_at, actor_token_name, \
+     archived_at";
 
 impl Store {
-    /// A page of the notifications of a reader, of every organization their session
-    /// opens, the newest first. What each is about is named and no more: whether the
-    /// user reads it is for the caller to ask, of each.
+    /// A page of the notifications of a reader's inbox (those not put away), of every
+    /// organization their session opens, the newest first. What each is about is named
+    /// and no more: whether the user reads it is for the caller to ask, of each.
+    /// [`Store::notifications_found`] lists them otherwise.
     ///
     /// # Errors
     ///
@@ -151,19 +159,7 @@ impl Store {
         reader: NotificationReader<'_>,
         paging: Paging,
     ) -> Result<Vec<StoredNotification>, StoreError> {
-        self.system()
-            .with_conn(async |scope| {
-                let closed = reader.closed_organizations(scope).await?;
-                let mut sql = scope.sql([
-                    "SELECT ",
-                    NOTIFICATION_COLUMNS,
-                    " FROM notifications WHERE recipient_id = ",
-                ]);
-                reader.push_theirs(&closed, &mut sql);
-                sql.push(" ORDER BY updated_at DESC, id DESC")
-                    .push_page(paging);
-                scope.all(sql).await
-            })
+        self.notifications_found(reader, NotificationFilter::INBOX, paging)
             .await
     }
 
@@ -455,6 +451,7 @@ impl FromRow for StoredNotification {
             people: people_of(&row.text(10)?),
             read_at: row.int(11)?,
             actor_token_name: row.opt_text(12)?,
+            archived_at: row.int(13)?,
         })
     }
 }

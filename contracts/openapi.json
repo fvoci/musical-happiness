@@ -5207,6 +5207,11 @@
       "Notification": {
         "description": "One thing a person was told.",
         "properties": {
+          "archivedAt": {
+            "description": "When its reader put it away (`archiveNotification`); 0 while it is in the\ninbox, and again once more of it happens. One put away is read.",
+            "format": "int64",
+            "type": "integer"
+          },
           "createdAt": {
             "description": "When it was made: when the first of it happened.",
             "format": "int64",
@@ -5239,6 +5244,7 @@
           }
         },
         "required": [
+          "archivedAt",
           "createdAt",
           "id",
           "readAt",
@@ -10392,7 +10398,7 @@
     },
     "/api/v1/notifications": {
       "get": {
-        "description": "One page of what the user of the session was told, in every organization the\nsession opens, the newest first (by `updatedAt`): that somebody mentioned them in a\ncard, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or\ncommented on a card, a page or a unit they watch (`comment`; one named in that comment\nis told of the mention alone). Nobody is told of their own doing, nor of anything in a\nuser's own space, nor of a kind they switched off (`notifyMentions`,\n`notifyAssignments`, `notifyComments` of `patchUserSettings`): what is off is not made\nat all.\n\nWhoever writes a card, a page or a unit, is given a card, or comments on one watches\nit (`createSubscription`), until they end that (`deleteSubscription`). What happens to\none card, page or unit, of one kind, within an hour of the first of it, is one\nnotification: `times` and `people` count it, `actorId` and `commentId` say the\nlatest, and it is unread again. One person makes a hundred new ones for another\nwithin an hour at most; past that, what they do joins only those there.\n\nA notification is made only for somebody who reads the card, page or unit at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, or they left the container or the workspace) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nWhat an organization that takes only sessions made through its provider told the\nuser is left out for a session made otherwise, as `getMyMemberships` leaves its\nboards out: it is not listed, not counted, and not marked as read by such a\nsession, and it is there again for a session made through the provider.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
+        "description": "One page of what the user of the session was told, in every organization the\nsession opens, the newest first (by `updatedAt`): that somebody mentioned them in a\ncard, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or\ncommented on a card, a page or a unit they watch (`comment`; one named in that comment\nis told of the mention alone). Nobody is told of their own doing, nor of anything in a\nuser's own space, nor of a kind they switched off (`notifyMentions`,\n`notifyAssignments`, `notifyComments` of `patchUserSettings`): what is off is not made\nat all.\n\nWhoever writes a card, a page or a unit, is given a card, or comments on one watches\nit (`createSubscription`), until they end that (`deleteSubscription`). What happens to\none card, page or unit, of one kind, within an hour of the first of it, is one\nnotification: `times` and `people` count it, `actorId` and `commentId` say the\nlatest, and it is unread again. One person makes a hundred new ones for another\nwithin an hour at most; past that, what they do joins only those there.\n\nA notification is made only for somebody who reads the card, page or unit at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, or they left the container or the workspace) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nThe inbox is listed (those put away left out) unless `archived` asks for the archive:\nwhat the user put away (`archiveNotification`), read. `unread` and `kind` narrow\neither.\n\nWhat an organization that takes only sessions made through its provider told the\nuser is left out for a session made otherwise, as `getMyMemberships` leaves its\nboards out: it is not listed, not counted, and not marked as read by such a\nsession, and it is there again for a session made through the provider.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
         "operationId": "getNotifications",
         "parameters": [
           {
@@ -10416,6 +10422,43 @@
               "maximum": 1000,
               "minimum": 1,
               "type": "integer"
+            }
+          },
+          {
+            "description": "`true` lists only the notifications not read; `false`, or left out, every one. Anything else is 400.",
+            "in": "query",
+            "name": "unread",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Lists only the notifications of this kind (`mention`, `assignment`, ...), and of them only those whose `subject` the user reads now: one that says nothing says no kind either, and a page may hold fewer than `perPage` while more follow. Left out, every kind. Anything else is 400.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "description": "What a notification tells of.",
+              "enum": [
+                "mention",
+                "assignment",
+                "comment",
+                "review_due",
+                "meeting_upcoming",
+                "due_soon",
+                "added_to_container"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` lists the notifications put away (`archiveNotification`) in place of those of the inbox; `false`, or left out, the inbox. Anything else is 400.",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -10445,6 +10488,31 @@
           }
         },
         "summary": "The notifications of the user",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/archive": {
+      "post": {
+        "description": "Puts away every notification of the user of the session that was read and is in the\ninbox, in every organization the session opens (`getNotifications`); those not read\nstay. Those of an organization the session does not open stay as they are.",
+        "operationId": "archiveReadNotifications",
+        "responses": {
+          "204": {
+            "description": "They are put away."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put away every notification that was read",
         "tags": [
           "notifications"
         ]
@@ -10519,6 +10587,76 @@
         ]
       }
     },
+    "/api/v1/notifications/{notificationId}/archive": {
+      "delete": {
+        "description": "Brings one notification of the user of the session back into the inbox; it stays\nread. One in the inbox stays there. 404 as for `unreadNotification`.",
+        "operationId": "unarchiveNotification",
+        "parameters": [
+          {
+            "description": "The identifier of the notification: one of the user of the session.",
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "It is in the inbox."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take a notification out of the archive",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "post": {
+        "description": "Puts one notification of the user of the session away, out of the inbox and into\nthe archive (`getNotifications` with `archived=true`): one that was not read is read\nwith it, and one put away stays put away since when it was. One whose `subject` is\n`null` is put away as any other. More of it within the hour brings it back into the\ninbox, unread. 404 as for `unreadNotification`.",
+        "operationId": "archiveNotification",
+        "parameters": [
+          {
+            "description": "The identifier of the notification: one of the user of the session.",
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "It is put away."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put a notification away",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
     "/api/v1/notifications/{notificationId}/read": {
       "post": {
         "description": "Marks one notification of the user of the session as read; one that was read stays\nread since when it was. 404 for a notification of somebody else, as for one that\nis not there, and for one of an organization the session does not open\n(`getNotifications`).",
@@ -10550,6 +10688,42 @@
           }
         },
         "summary": "Mark a notification as read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/{notificationId}/unread": {
+      "post": {
+        "description": "Marks one notification of the user of the session as not read, as more of it would:\nit is counted again (`getUnreadNotifications`), and one that was put away\n(`archiveNotification`) is back in the inbox. 404 for a notification of somebody\nelse, as for one that is not there, and for one of an organization the session does\nnot open (`getNotifications`).",
+        "operationId": "unreadNotification",
+        "parameters": [
+          {
+            "description": "The identifier of the notification: one of the user of the session.",
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "It is unread."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Mark a notification as unread",
         "tags": [
           "notifications"
         ]

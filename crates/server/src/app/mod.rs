@@ -45,6 +45,7 @@ mod limits;
 mod list_page;
 mod loose_objects;
 mod mail;
+mod notification_triage;
 mod notifications;
 mod oidc;
 mod oidc_account;

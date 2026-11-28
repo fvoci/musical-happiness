@@ -70,6 +70,7 @@ mod members;
 mod memberships_everywhere;
 mod notification_noting;
 mod notification_outbox;
+mod notification_triage;
 mod notifications;
 mod observe;
 mod oidc;

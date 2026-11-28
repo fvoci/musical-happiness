@@ -3,7 +3,7 @@
 //! The handlers read their parameters themselves; these types only say, in a handler's
 //! `params(...)`, which ones it reads.
 
-use fvoci_model::TimeEntryKind;
+use fvoci_model::{NotificationKind, TimeEntryKind};
 use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
 use utoipa::openapi::schema::{KnownFormat, ObjectBuilder, Schema, SchemaFormat, Type};
 use utoipa::openapi::{RefOr, Required};
@@ -137,6 +137,9 @@ parameter!(AllBlocks: Query "all", String, False, "Any value that is not empty a
 parameter!(OneBlockId: Query "blockId", String, False, "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.");
 parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the blocks below the block of this identifier.");
 parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type, written as the blocks have it.");
+parameter!(UnreadOnly: Query "unread", bool, False, "`true` lists only the notifications not read; `false`, or left out, every one. Anything else is 400.");
+parameter!(NotificationKindOnly: Query "kind", NotificationKind, False, "Lists only the notifications of this kind (`mention`, `assignment`, ...), and of them only those whose `subject` the user reads now: one that says nothing says no kind either, and a page may hold fewer than `perPage` while more follow. Left out, every kind. Anything else is 400.");
+parameter!(ArchivedOnly: Query "archived", bool, False, "`true` lists the notifications put away (`archiveNotification`) in place of those of the inbox; `false`, or left out, the inbox. Anything else is 400.");
 parameter!(ReadThrough: Query "through", i64, False, "The time, in milliseconds, up to which the notifications are read: those whose latest happened later (`updatedAt`) stay unread. Left out, now.");
 parameter!(Page: Query "page", u32, False, "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.");
 parameter!(PerPage: Query "perPage", PerPageCount, False, "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.");

@@ -624,6 +624,10 @@ export interface paths {
          *     `null`, and nothing says what it was about, where or by whom. Such a one is still
          *     listed, and counted while unread.
          *
+         *     The inbox is listed (those put away left out) unless `archived` asks for the archive:
+         *     what the user put away (`archiveNotification`), read. `unread` and `kind` narrow
+         *     either.
+         *
          *     What an organization that takes only sessions made through its provider told the
          *     user is left out for a session made otherwise, as `getMyMemberships` leaves its
          *     boards out: it is not listed, not counted, and not marked as read by such a
@@ -635,6 +639,28 @@ export interface paths {
         get: operations["getNotifications"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put away every notification that was read
+         * @description Puts away every notification of the user of the session that was read and is in the
+         *     inbox, in every organization the session opens (`getNotifications`); those not read
+         *     stay. Those of an organization the session does not open stay as they are.
+         */
+        post: operations["archiveReadNotifications"];
         delete?: never;
         options?: never;
         head?: never;
@@ -686,6 +712,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/{notificationId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put a notification away
+         * @description Puts one notification of the user of the session away, out of the inbox and into
+         *     the archive (`getNotifications` with `archived=true`): one that was not read is read
+         *     with it, and one put away stays put away since when it was. One whose `subject` is
+         *     `null` is put away as any other. More of it within the hour brings it back into the
+         *     inbox, unread. 404 as for `unreadNotification`.
+         */
+        post: operations["archiveNotification"];
+        /**
+         * Take a notification out of the archive
+         * @description Brings one notification of the user of the session back into the inbox; it stays
+         *     read. One in the inbox stays there. 404 as for `unreadNotification`.
+         */
+        delete: operations["unarchiveNotification"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications/{notificationId}/read": {
         parameters: {
             query?: never;
@@ -703,6 +758,30 @@ export interface paths {
          *     (`getNotifications`).
          */
         post: operations["readNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notificationId}/unread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a notification as unread
+         * @description Marks one notification of the user of the session as not read, as more of it would:
+         *     it is counted again (`getUnreadNotifications`), and one that was put away
+         *     (`archiveNotification`) is back in the inbox. 404 for a notification of somebody
+         *     else, as for one that is not there, and for one of an organization the session does
+         *     not open (`getNotifications`).
+         */
+        post: operations["unreadNotification"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9672,6 +9751,12 @@ export interface components {
         Notification: {
             /**
              * Format: int64
+             * @description When its reader put it away (`archiveNotification`); 0 while it is in the
+             *     inbox, and again once more of it happens. One put away is read.
+             */
+            archivedAt: number;
+            /**
+             * Format: int64
              * @description When it was made: when the first of it happened.
              */
             createdAt: number;
@@ -12259,6 +12344,12 @@ export interface operations {
                 page?: number;
                 /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
+                /** @description `true` lists only the notifications not read; `false`, or left out, every one. Anything else is 400. */
+                unread?: boolean;
+                /** @description Lists only the notifications of this kind (`mention`, `assignment`, ...), and of them only those whose `subject` the user reads now: one that says nothing says no kind either, and a page may hold fewer than `perPage` while more follow. Left out, every kind. Anything else is 400. */
+                kind?: "mention" | "assignment" | "comment" | "review_due" | "meeting_upcoming" | "due_soon" | "added_to_container";
+                /** @description `true` lists the notifications put away (`archiveNotification`) in place of those of the inbox; `false`, or left out, the inbox. Anything else is 400. */
+                archived?: boolean;
             };
             header?: never;
             path?: never;
@@ -12274,6 +12365,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Notification"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    archiveReadNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description They are put away. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -12345,6 +12463,66 @@ export interface operations {
             };
         };
     };
+    archiveNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the notification: one of the user of the session. */
+                notificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description It is put away. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unarchiveNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the notification: one of the user of the session. */
+                notificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description It is in the inbox. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     readNotification: {
         parameters: {
             query?: never;
@@ -12358,6 +12536,36 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description It is read. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unreadNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the notification: one of the user of the session. */
+                notificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description It is unread. */
             204: {
                 headers: {
                     [name: string]: unknown;

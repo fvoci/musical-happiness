@@ -189,8 +189,8 @@ pub use invitation::{
 pub use linked::{LinkedBlock, LinkedKind};
 pub use name::{Named, required_name};
 pub use notification::{
-    Notification, NotificationKind, NotificationSubject, UnknownNotificationKind,
-    UnreadNotifications,
+    Notification, NotificationFilter, NotificationKind, NotificationSubject,
+    UnknownNotificationKind, UnreadNotifications,
 };
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,

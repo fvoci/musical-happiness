@@ -545,6 +545,12 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // nothing of an organization the session does not open is marked.
     "readNotification",
     "readNotifications",
+    // Sorting the inbox, as marking it read: nothing of an organization the session
+    // does not open is marked unread, put away or taken back (the same test).
+    "archiveNotification",
+    "archiveReadNotifications",
+    "unarchiveNotification",
+    "unreadNotification",
     "ready",
     "register",
     "requestAccountDeletion",

@@ -111,6 +111,7 @@ mod metrics;
 mod metrics_accounts;
 mod metrics_listener;
 mod metrics_outcomes;
+mod notification_triage;
 mod notifications;
 mod notifications_isolation;
 mod notifications_reach;

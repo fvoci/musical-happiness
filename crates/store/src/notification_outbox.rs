@@ -128,7 +128,8 @@ impl Store {
     /// Tells the person of `event` at `now`: takes its row off the list and, in the
     /// same transaction, joins it to the line the person has of the same card or page
     /// and kind, made within [`NotificationLimits::same_within_millis`] (unless that
-    /// line counted its doer's doing of its source already), or makes a new line,
+    /// line counted its doer's doing of its source already), which makes that line
+    /// unread and brings it back into the inbox if it was put away, or makes a new line,
     /// unless its doer made [`NotificationLimits::most_made_by_one`] for the person
     /// already. Where the person then has more than
     /// [`NotificationLimits::most_of_a_person`], the oldest go, those that were read
@@ -173,7 +174,7 @@ impl Store {
                     Dialect::Sqlite => scope.sql("UPDATE notifications SET updated_at = MAX("),
                 };
                 sql.bind(now)
-                    .push(", updated_at + 1), times = times + 1, read_at = 0, actor_id = ")
+                    .push(", updated_at + 1), times = times + 1, read_at = 0, archived_at = 0, actor_id = ")
                     .bind(OptId(&event.actor_id))
                     .push_bind(
                         ", actor_token_name = ",

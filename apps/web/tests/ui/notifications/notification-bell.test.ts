@@ -21,6 +21,7 @@ const told = (id: string, updatedAt: number, readAt = 0): Notification => ({
   createdAt: updatedAt,
   updatedAt,
   readAt,
+  archivedAt: 0,
   subject: {
     kind: 'mention',
     actorId: '',
@@ -63,6 +64,10 @@ function mount(initial: Notification[]) {
       );
       return Promise.resolve();
     }),
+    markUnread: vi.fn<Notifications['markUnread']>(() => Promise.resolve()),
+    archive: vi.fn<Notifications['archive']>(() => Promise.resolve()),
+    unarchive: vi.fn<Notifications['unarchive']>(() => Promise.resolve()),
+    archiveRead: vi.fn<Notifications['archiveRead']>(() => Promise.resolve()),
   } satisfies Notifications;
   const inbox = new NotificationInbox(
     notifications,

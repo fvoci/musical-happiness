@@ -333,6 +333,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
                 "createdAt": before.created_at,
                 "updatedAt": before.updated_at,
                 "readAt": 0,
+                "archivedAt": 0,
                 "subject": null,
             }),
             "nothing but that there was one"

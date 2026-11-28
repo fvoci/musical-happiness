@@ -9,7 +9,7 @@ pub(crate) struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-pub(crate) const STEPS: [Step; 2] = [
+pub(crate) const STEPS: [Step; 3] = [
     Step {
         version: 1,
         description: "baseline",
@@ -21,5 +21,11 @@ pub(crate) const STEPS: [Step; 2] = [
         description: "favorites",
         sqlite: include_str!("../../schema/sqlite/0002_favorites.sql"),
         postgres: include_str!("../../schema/postgres/0002_favorites.sql"),
+    },
+    Step {
+        version: 3,
+        description: "notification archive",
+        sqlite: include_str!("../../schema/sqlite/0003_notification_archive.sql"),
+        postgres: include_str!("../../schema/postgres/0003_notification_archive.sql"),
     },
 ];
