@@ -11,6 +11,7 @@
   import CardBacklinks from '$lib/features/card/CardBacklinks.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
   import CardComments from '$lib/features/card/CardComments.svelte';
+  import CommentReactions from '$lib/features/card/CommentReactions.svelte';
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
   import UnitNotesPanel from '$lib/features/course/UnitNotesPanel.svelte';
   import UnitReviewsPanel from '$lib/features/course/UnitReviewsPanel.svelte';
@@ -48,6 +49,7 @@
   />
 </div>
 {#if unit.status === 'ready'}
+  <CommentReactions reactions={unit.comments} blockId={unit.unitId} />
   <UnitReviewsPanel course={store} unitId={unit.unitId} {openings} />
   <UnitNotesPanel course={store} unitId={unit.unitId} />
 {/if}
@@ -56,6 +58,7 @@
   <CardComments
     board={unit.comments}
     card={unit.comments}
+    reactions={unit.comments}
     readVersions={(commentId: string) => unit.comments.commentVersions(commentId)}
     heading="h2"
   />

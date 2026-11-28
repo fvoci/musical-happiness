@@ -146,6 +146,8 @@ pub(super) const REACHED_BY_ITEM: &[&str] = &[
     "deleteCardComment",
     "restoreCardComment",
     "getCardCommentVersions",
+    "addReaction",
+    "removeReaction",
     "createCardAttachment",
     "getCardAttachments",
     "deleteCardAttachment",

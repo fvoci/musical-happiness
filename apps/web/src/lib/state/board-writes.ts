@@ -248,7 +248,12 @@ export function patchCardOrStored(
     {
       send: () => backend.patchCard(store.boardId, cardId, patch, quiet ? { quiet } : undefined),
       read: async () => {
-        const { body: _body, ...card } = await backend.card(store.boardId, cardId);
+        // Its reactions are the open card's, read with it there.
+        const {
+          body: _body,
+          reactions: _reactions,
+          ...card
+        } = await backend.card(store.boardId, cardId);
         return card;
       },
       own,

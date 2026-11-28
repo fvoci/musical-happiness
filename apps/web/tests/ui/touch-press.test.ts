@@ -1,11 +1,12 @@
 /**
  * A finger's press that opens something from a body (touch-press.ts): kept
  * from the browser and the editor while the body is not being written, left
- * as it is while it is, and for a mouse.
+ * as it is while it is, and for a mouse. A long press on a comment
+ * (`longPress`), but not on a link or a control inside it.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { keepTouchFromText } from '$lib/editor/touch-press.ts';
+import { keepTouchFromText, LONG_PRESS_MS, longPress } from '$lib/editor/touch-press.ts';
 
 /** A body with a control in a part of it that is not text, as a block or a chip is drawn. */
 function bodyWithControl(): { text: HTMLElement; control: HTMLElement } {
@@ -58,5 +59,68 @@ describe('a press on a control in a body', () => {
     document.body.append(control);
     keepTouchFromText(control);
     expect(press(control, 'touch')).toBe(true);
+  });
+});
+
+describe('a long press of a finger', () => {
+  /** A comment with a word and a link in it, and how often it was pressed long. */
+  function comment(): {
+    word: HTMLElement;
+    link: HTMLElement;
+    button: HTMLElement;
+    count: () => number;
+  } {
+    const element = document.createElement('li');
+    const word = document.createElement('span');
+    const link = document.createElement('a');
+    link.href = 'https://example.com/';
+    const button = document.createElement('button');
+    element.append(word, link, button);
+    document.body.append(element);
+    let pressed = 0;
+    longPress(() => (pressed += 1))(element);
+    return { word, link, button, count: () => pressed };
+  }
+
+  /** A finger's event of `type` on `target`: whether it was left to the browser. */
+  function finger(target: HTMLElement, type: string): boolean {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    for (const [name, value] of Object.entries({
+      pointerType: 'touch',
+      isPrimary: true,
+      clientX: 0,
+      clientY: 0,
+    })) {
+      Object.defineProperty(event, name, { value });
+    }
+    return target.dispatchEvent(event);
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('on the comment answers it, and keeps the click that ends it from what was pressed', () => {
+    vi.useFakeTimers();
+    const { word, count } = comment();
+    finger(word, 'pointerdown');
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    expect(count()).toBe(1);
+    expect(finger(word, 'contextmenu')).toBe(false);
+    finger(word, 'pointerup');
+    expect(finger(word, 'click')).toBe(false);
+  });
+
+  it('on a link or a button inside leaves them as they are', () => {
+    vi.useFakeTimers();
+    const { link, button, count } = comment();
+    for (const target of [link, button]) {
+      finger(target, 'pointerdown');
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+      expect(finger(target, 'contextmenu')).toBe(true);
+      finger(target, 'pointerup');
+      expect(finger(target, 'click')).toBe(true);
+    }
+    expect(count()).toBe(0);
   });
 });

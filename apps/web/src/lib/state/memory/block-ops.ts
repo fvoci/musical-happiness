@@ -18,6 +18,7 @@ import type {
   ViewDraft,
 } from '../backend.ts';
 import { applyCardPatch, applyViewPatch } from '../patches.ts';
+import type { WithReactions } from '../reaction-types.ts';
 
 import { checkedComment, checkedWhole, flushCard } from './bodies.ts';
 import { writtenWhole } from './body-versions.ts';
@@ -32,6 +33,7 @@ import {
 } from './container-ops.ts';
 import { noteComment } from './notifications.ts';
 import { checkRelations } from './references.ts';
+import { withMemoryReactions } from './reactions.ts';
 import { fail } from './refuse.ts';
 import { attachmentOf, commentOf, copy, detailOf, scramble, summaryOf, viewOf } from './shapes.ts';
 import { mayManageCards } from './trash.ts';
@@ -92,14 +94,15 @@ export function patchMemoryView(
   return { before: viewOf(stored), after: viewOf(view) };
 }
 
+/** The card as `getCard` answers it: with its body and its reactions. */
 export function readMemoryCard(
   ctx: MemoryContainerContext,
   boardId: string,
   cardId: string,
-): CardDetail {
+): WithReactions<CardDetail> {
   memberRole(ctx.world, ctx.userId, boardId);
   const card = flushCard(ctx.world, blockInBoard(ctx.world, boardId, cardId, 'card') as StoredCard);
-  return withLastComment(ctx.world, detailOf(card));
+  return withMemoryReactions(ctx.world, withLastComment(ctx.world, detailOf(card)));
 }
 
 export function createMemoryCard(
@@ -156,15 +159,16 @@ export function writeMemoryCardBody(
   return withLastComment(ctx.world, detailOf(card));
 }
 
+/** The comments of the card as `getCardComments` lists them: each with its reactions. */
 export function listMemoryComments(
   ctx: MemoryContainerContext,
   boardId: string,
   cardId: string,
-): Comment[] {
+): WithReactions<Comment>[] {
   memberRole(ctx.world, ctx.userId, boardId);
   blockInBoard(ctx.world, boardId, cardId, 'card');
   return scramble(ctx.world.childrenOf(cardId).filter((block) => block.type === 'comment')).map(
-    commentOf,
+    (block) => withMemoryReactions(ctx.world, commentOf(block)),
   );
 }
 

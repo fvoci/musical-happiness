@@ -95,6 +95,17 @@
         "summary"
       ]
     },
+    "reactionsChanged": {
+      "members": {
+        "type": "string",
+        "workspaceId": "string",
+        "containerId": "string",
+        "blockId": "string",
+        "reactions": [
+          "#Reaction"
+        ]
+      }
+    },
     "containerMemberChanged": {
       "members": {
         "type": "string",

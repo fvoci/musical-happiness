@@ -4,6 +4,9 @@ use serde_json::json;
 
 use super::{Case, files};
 
+/// 👍 as a path gives it.
+const THUMBS_UP: &str = "%F0%9F%91%8D";
+
 pub(super) async fn exercise(case: &mut Case) {
     let workspace = case.workspace.clone();
     case.present("getWorkspace", &[], &workspace).await;
@@ -660,7 +663,23 @@ async fn card_comments(case: &mut Case, board: &str, card: &str) {
         .await
         .value();
     let comment = case.remember(&made, "id");
+    // Answered with an emoji, the card and the comment are read with who answered: the
+    // founder alone.
+    let reacted_to = |block| {
+        [
+            ("containerId", board),
+            ("blockId", block),
+            ("emoji", THUMBS_UP),
+        ]
+    };
+    for block in [card, comment.as_str()] {
+        case.run("addReaction", &reacted_to(block), json!({})).await;
+    }
     case.present("getCardComments", of_card, &comment).await;
+    for block in [card, comment.as_str()] {
+        case.run("removeReaction", &reacted_to(block), json!({}))
+            .await;
+    }
     let of_comment = &[
         ("boardId", board),
         ("cardId", card),

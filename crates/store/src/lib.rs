@@ -88,6 +88,7 @@ mod pages;
 mod password_reset;
 mod person_names;
 mod public_links;
+mod reactions;
 mod schema;
 mod search_docs;
 mod search_outbox;
@@ -189,6 +190,7 @@ pub use org_leaving::{Departure, DepartureRefused, MemberRemoval, RemovalRefused
 pub use pages::Written;
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use person_names::ChangedName;
+pub use reactions::Reacted;
 pub use schema::SchemaCheck;
 pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};

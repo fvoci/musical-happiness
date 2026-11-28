@@ -2,7 +2,7 @@
 //! restoring them, and what one said before.
 
 use axum::body::Bytes;
-use fvoci_model::{Block, Body, BodyChange, CommentVersion};
+use fvoci_model::{Block, Body, BodyChange, CommentVersion, CommentWithReactions};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -69,15 +69,20 @@ pub(crate) struct UnitCommentPatch {
 /// The comments on a unit
 ///
 /// Every comment on the unit, oldest first, as blocks of the `type` `comment` whose
-/// parent is the unit. For who reads the course: its members, and of an open course
-/// whoever works in the workspace. A chapter or a unit in the trash is not there (404).
+/// parent is the unit, each with its `reactions` where it has any. For who reads the
+/// course: its members, and of an open course whoever works in the workspace. A
+/// chapter or a unit in the trash is not there (404).
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments",
     operation_id = "getUnitComments",
     tag = tag::COURSES,
     params(MemberWorkspaceId, CourseId, UnitId),
-    responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
+    responses((
+        status = 200,
+        description = "The comments, oldest first.",
+        body = Vec<CommentWithReactions>,
+    )),
 )]
 async fn handle_get_unit_comments(
     Delegated(unit, ..): Delegated<Read, ItemOf<UnitItem>>,

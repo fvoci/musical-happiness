@@ -388,17 +388,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .set_public_link(&board_id, PublicLinkChange::On, &new_id(), &user_id)
         .await
         .expect("the board is shared");
-    store
-        .create_subscription(Subscription {
-            block_type: BlockType::Card,
-            block_id: comment.parent_id.clone(),
-            user_id: user_id.clone(),
-            notified_at: 0,
-            created_at: 0,
-            deleted_at: None,
-        })
-        .await
-        .expect("a subscription is stored");
+    watched_and_reacted(store, &comment, &user_id).await;
     let category = Category {
         id: new_id(),
         name: "a category".to_owned(),
@@ -441,6 +431,25 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     common::sign_in_under_way(store, username).await;
     a_link_for_a_guest(store, &board, &user_id).await;
     (card.id, user_id)
+}
+
+/// The user watches the comment's card, and reacts to the comment.
+async fn watched_and_reacted(store: &Store, comment: &fvoci_model::Block, user_id: &str) {
+    store
+        .create_subscription(Subscription {
+            block_type: BlockType::Card,
+            block_id: comment.parent_id.clone(),
+            user_id: user_id.to_owned(),
+            notified_at: 0,
+            created_at: 0,
+            deleted_at: None,
+        })
+        .await
+        .expect("a subscription is stored");
+    store
+        .add_reaction(&comment.id, user_id, &"👍".parse().expect("an emoji"))
+        .await
+        .expect("a reaction is stored");
 }
 
 /// A personal API token of the user that reaches the workspace, which they work in.

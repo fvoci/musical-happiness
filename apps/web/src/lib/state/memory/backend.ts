@@ -60,6 +60,7 @@ import {
   type WorkspaceInfo,
   type WorkspaceToday,
 } from '../backend.ts';
+import type { WithReactions } from '../reaction-types.ts';
 import { BlockTurns } from '../write.ts';
 
 import { changeName, keepSettings, settingsOf } from './account.ts';
@@ -82,6 +83,7 @@ import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryReferences } from './references.ts';
 import { fail } from './refuse.ts';
+import { MemoryReactions } from './reactions.ts';
 import { storeScreenState } from './screen-state.ts';
 import { searchBoardsOf } from './search.ts';
 import { visibleTemplates } from './seed-templates.ts';
@@ -111,6 +113,7 @@ export class MemoryBackend implements Backend {
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
   readonly notifications = new MemoryNotifications(this, () => this.#enter('notifications'));
   readonly watches = new MemoryWatches(this, () => this.#enter('watches'));
+  readonly reactions = new MemoryReactions(this, () => this.#enter('reactions'));
   readonly time = new MemoryTime(this, () => this.#enter('time'));
   readonly #categories = new MemoryCategories(this, (method, workspaceId) =>
     this.#enterWorkspace(method, workspaceId),
@@ -145,10 +148,7 @@ export class MemoryBackend implements Backend {
     await pause(this.latency);
     if (signal?.aborted) throw new BackendError(0, { detail: 'the call was given up' });
     const failure = this.#failures.get(method);
-    if (failure) {
-      this.#failures.delete(method);
-      throw failure;
-    }
+    if (failure && this.#failures.delete(method)) throw failure;
   }
 
   async me(): Promise<User> {
@@ -388,7 +388,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('cardPreviews');
     return blockOps.listMemoryCardPreviews(this, boardId);
   }
-  async card(boardId: string, cardId: string): Promise<CardDetail> {
+  async card(boardId: string, cardId: string): Promise<WithReactions<CardDetail>> {
     await this.#enter('card');
     return blockOps.readMemoryCard(this, boardId, cardId);
   }
@@ -424,7 +424,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('writeCardBody');
     return blockOps.writeMemoryCardBody(this, boardId, cardId, write);
   }
-  async comments(boardId: string, cardId: string): Promise<Comment[]> {
+  async comments(boardId: string, cardId: string): Promise<WithReactions<Comment>[]> {
     await this.#enter('comments');
     return blockOps.listMemoryComments(this, boardId, cardId);
   }
