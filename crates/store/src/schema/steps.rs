@@ -17,15 +17,15 @@ pub(crate) const STEPS: [Step; 3] = [
         postgres: include_str!("../../schema/postgres/0001_baseline.sql"),
     },
     Step {
-        version: 2,
+        version: 4,
         description: "favorites",
-        sqlite: include_str!("../../schema/sqlite/0002_favorites.sql"),
-        postgres: include_str!("../../schema/postgres/0002_favorites.sql"),
+        sqlite: include_str!("../../schema/sqlite/0004_favorites.sql"),
+        postgres: include_str!("../../schema/postgres/0004_favorites.sql"),
     },
     Step {
-        version: 3,
+        version: 5,
         description: "notification archive",
-        sqlite: include_str!("../../schema/sqlite/0003_notification_archive.sql"),
-        postgres: include_str!("../../schema/postgres/0003_notification_archive.sql"),
+        sqlite: include_str!("../../schema/sqlite/0005_notification_archive.sql"),
+        postgres: include_str!("../../schema/postgres/0005_notification_archive.sql"),
     },
 ];
