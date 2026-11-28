@@ -69,6 +69,7 @@ import * as boardAuth from './board-authority.ts';
 import { batchPatchMemoryCards } from './card-batch.ts';
 import { openMemoryRoom } from './bodies.ts';
 import { MemoryBodyVersions } from './body-versions.ts';
+import { MemoryCardActivity } from './card-activity.ts';
 import { MemoryCategories } from './categories.ts';
 import { versionsOf } from './comments.ts';
 import { memberFileUrl, memberRole, memoryPermissionsOf } from './container-access.ts';
@@ -87,7 +88,7 @@ import { MemoryReactions } from './reactions.ts';
 import { storeScreenState } from './screen-state.ts';
 import { searchBoardsOf } from './search.ts';
 import { visibleTemplates } from './seed-templates.ts';
-import { copy, LIMITS, memberOf, scramble } from './shapes.ts';
+import { copy, LIMITS, memberOf } from './shapes.ts';
 import * as spaces from './spaces.ts';
 import { MemoryTime } from './time.ts';
 import { deletedCardsOf, deletedContainersOf } from './trash.ts';
@@ -108,6 +109,7 @@ export class MemoryBackend implements Backend {
   readonly diary = new MemoryDiaries(this);
   readonly course = new MemoryCourses(this);
   readonly bodyVersions: MemoryBodyVersions;
+  readonly cardActivity = new MemoryCardActivity(this, () => this.#enter('cardActivity'));
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
@@ -294,8 +296,7 @@ export class MemoryBackend implements Backend {
   }
   async members(id: string): Promise<ContainerMember[]> {
     await this.#enter('members');
-    containerOps.containerInWorld(this.world, id, 'shared');
-    return scramble(this.world.members.get(id) ?? []).map(copy);
+    return containerOps.memoryMembers(this, id);
   }
   async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('addMember');
@@ -311,8 +312,7 @@ export class MemoryBackend implements Backend {
   }
   async publicLink(id: string): Promise<PublicLink> {
     await this.#enter('publicLink');
-    containerOps.containerInWorld(this.world, id, 'shared');
-    return copy(this.world.publicLinks.get(id) ?? { enabled: false, token: '' });
+    return containerOps.memoryPublicLink(this, id);
   }
   async setPublicLink(id: string, change: PublicLinkChange): Promise<PublicLink> {
     await this.#enter('setPublicLink');

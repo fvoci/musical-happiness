@@ -73,7 +73,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 14] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 52] = [
+pub(crate) const ORG_TABLES: [&str; 53] = [
     "api_token_workspaces",
     "audit_log",
     "blocks",
@@ -84,6 +84,7 @@ pub(crate) const ORG_TABLES: [&str; 52] = [
     "body_versions",
     "card_assignees",
     "card_due_notices",
+    "card_events",
     "categories",
     "category_containers",
     "comment_versions",

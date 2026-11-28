@@ -359,15 +359,28 @@ impl App {
             })
         };
         let block = if whole_body_cards.is_empty() {
-            self.write_blocks(vec![old_block.container_id], whole_body_cards, write)
-                .await?
+            self.write_blocks(
+                vec![old_block.container_id.clone()],
+                whole_body_cards,
+                write,
+            )
+            .await?
         } else {
             self.collab()
                 .write_whole_over(self, whole_body_cards, over, write)
                 .await?
         };
         log_notification(notification, ChangeAction::Update, &block.id);
-        self.tell(Changes::in_workspace(&container.workspace_id).changed([block.clone()]));
+        // The next card completing it made, told after it.
+        let made = cards_made_after(
+            std::slice::from_ref(&old_block),
+            std::slice::from_ref(&block),
+        );
+        self.tell(
+            Changes::in_workspace(&container.workspace_id)
+                .changed([block.clone()])
+                .reread(made),
+        );
         Ok(block)
     }
 
@@ -412,8 +425,43 @@ impl App {
             log_notification(notification, ChangeAction::Update, block_id);
         }
         // Read again as they are told: one deleted meanwhile is not told of.
-        self.tell(Changes::in_workspace(workspace_id).reread(batch.block_ids.clone()));
+        let told = Changes::in_workspace(workspace_id).reread(batch.block_ids.clone());
+        self.tell_with_next_cards(workspace_id, told, blocks);
         Ok(())
+    }
+
+    /// Tells of `told` in the background and then, where cards of `before` repeat, of
+    /// the next cards that completing them made: after the cards they follow, read as
+    /// they are told.
+    fn tell_with_next_cards(&self, workspace_id: &str, told: Changes, before: Vec<Block>) {
+        let repeating: Vec<String> = before
+            .iter()
+            .filter(|block| block.fields.contains_key(fvoci_model::RECURRENCE_FIELD))
+            .map(|block| block.id.clone())
+            .collect();
+        if repeating.is_empty() {
+            self.tell(told);
+            return;
+        }
+        let (app, workspace_id) = (self.clone(), workspace_id.to_owned());
+        self.spawn_background(async move {
+            app.tell_now(told).await;
+            let mut after = Vec::with_capacity(repeating.len());
+            for block_id in &repeating {
+                match app.store().get_block(block_id).await {
+                    Ok(block) => after.push(block),
+                    // Deleted meanwhile: its next card, if it made one, is not told of.
+                    Err(error) if error.is_not_found() => {}
+                    Err(error) => {
+                        tracing::error!(%error, block_id, "cannot read a completed card to tell of its next");
+                        return;
+                    }
+                }
+            }
+            let made = cards_made_after(&before, &after);
+            app.tell_now(Changes::in_workspace(&workspace_id).reread(made))
+                .await;
+        });
     }
 
     /// Deletes a block and everything below it; websocket listeners are told in the
@@ -656,4 +704,25 @@ pub(super) fn log_notification(
     if notification == ChangeNotification::Send {
         tracing::debug!(action = action.as_str(), block_id, "Block change event");
     }
+}
+
+/// The cards that changes made after the cards they completed: of each card of `after`
+/// that is of `before` too, the next card it names (`recurredTo`) where it named
+/// another, or none, before.
+pub(super) fn cards_made_after(before: &[Block], after: &[Block]) -> Vec<String> {
+    let next_of = |block: &Block| {
+        block
+            .fields
+            .get(fvoci_model::RECURRED_TO_FIELD)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    after
+        .iter()
+        .filter_map(|card| {
+            let next = next_of(card)?;
+            let was = before.iter().find(|old| old.id == card.id)?;
+            (next_of(was).as_deref() != Some(next.as_str())).then_some(next)
+        })
+        .collect()
 }

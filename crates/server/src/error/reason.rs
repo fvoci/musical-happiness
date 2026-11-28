@@ -263,6 +263,8 @@ reasons! {
     PageTooDeep => "page_too_deep", "Page too deep";
     /// A card, or a sub-card below it, would be deeper on its board than the limit.
     CardTooDeep => "card_too_deep", "Card too deep";
+    /// A card is to repeat on a board without a rule of done or a due date property.
+    RecurrenceNeedsBoardRules => "recurrence_needs_board_rules", "The board does not let cards repeat";
     /// The wiki would have more pages than the organization's limit.
     TooManyPages => "too_many_pages", "Too many pages in the wiki";
     /// The day of the diary has an entry: one that would come back from the trash finds

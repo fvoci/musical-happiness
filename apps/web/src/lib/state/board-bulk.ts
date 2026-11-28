@@ -13,6 +13,10 @@
  * cards are read again, and when they hold what was written, that reading
  * is the answer.
  *
+ * A card that repeats and is made done makes its next card on the server: the
+ * one who did it is told (`NextCardNotices`), and undo makes it repeat again
+ * and takes the next card away, as it does for a single card.
+ *
  * Undo gives each card back its own value. The route sets one value on all
  * the cards it names, so undo sends one request for each value the cards had
  * (no value at all is one of them); each is a value set, not a change, and
@@ -37,6 +41,12 @@ import { withCardProperty } from './board-parts.ts';
 import { performBoardAction } from './board-sync.ts';
 import type { BoardStore } from './board.svelte.ts';
 import { sameValue } from './inverse-values.ts';
+import {
+  giveBackNextCards,
+  nextCardNotices,
+  noteNextCards,
+  type MadeNext,
+} from './next-cards.svelte.ts';
 import { applyCardPatch, cardPatches, isEmptyCardPatch } from './patches.ts';
 
 /** A card's part of a batch: the values to show and send, and those to show again if it fails. */
@@ -292,15 +302,27 @@ export async function setCardsProperty(
   const backward = (): CardWrite[] =>
     forward.map(({ cardId, patch, restore }) => ({ cardId, patch: restore, restore: patch }));
   let said = false;
-  await performBoardAction(
+  /** The next cards the last redo made, by the card it completed. */
+  const made = new Map<string, MadeNext>();
+  const performing = performBoardAction(
     store,
     async () => {
+      const before = new Map(forward.map(({ cardId }) => [cardId, store.card(cardId)]));
       await writeCards(store, forward, said);
       said = true;
+      noteNextCards(store, before, made);
     },
-    () => writeCards(store, backward(), true),
+    async () => {
+      await writeCards(store, backward(), true);
+      await giveBackNextCards(store, made);
+    },
     'changeProperty',
   );
+  const checkpoint = store.workspace.undo.currentCheckpoint;
+  await performing;
+  if (made.size > 0) {
+    void nextCardNotices(store.workspace).say(store, [...made.values()], checkpoint);
+  }
 }
 
 /** Clears `propertyId` on the cards of `cardIds`, as one step of the history. */

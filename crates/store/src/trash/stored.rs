@@ -157,6 +157,7 @@ pub(crate) async fn undelete_block(
     if !restored.iter().any(|block| block.id == block_id) {
         return Err(block_not_in_trash());
     }
+    crate::card_events::note_restored(scope, &restored, user_id, now).await?;
     let order = parents_first(&restored);
     let mut slots: Vec<Option<Block>> = restored.into_iter().map(Some).collect();
     let ordered: Vec<Block> = order

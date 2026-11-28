@@ -16,10 +16,9 @@
 <script lang="ts">
   import { parseDate, type DateValue as PickedDay } from '@internationalized/date';
   import type { DateRange as PickedRange } from 'bits-ui';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, untrack, type Snippet } from 'svelte';
 
   import { isComposing } from '$lib/keys.ts';
-  import type { Snippet } from 'svelte';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -88,6 +87,8 @@
      */
     mixed?: boolean;
     onChange?: (value: StoredDateValue | undefined) => void;
+    /** More of the picker, under its switches (how a card repeats). */
+    extra?: Snippet | undefined;
   }
 
   let {
@@ -104,6 +105,7 @@
     returnFocus,
     mixed = false,
     onChange,
+    extra,
   }: Props = $props();
 
   const zone = $derived(regional.timeZone);
@@ -465,6 +467,10 @@
           bind:checked={() => timeOn, toggleTime}
         />
       </label>
+      {#if extra}
+        <hr class="border-border" />
+        {@render extra()}
+      {/if}
       <hr class="border-border" />
       <div class="flex justify-between gap-1">
         <Button

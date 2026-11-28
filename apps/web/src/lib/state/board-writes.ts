@@ -243,6 +243,7 @@ export function patchCardOrStored(
       parentId: card.parentId,
       title: card.title,
       icon: card.fields.icon,
+      recurrence: card.fields.recurrence ?? null,
       updatedProperties: card.fields.properties,
     }),
     {

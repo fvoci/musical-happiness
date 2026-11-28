@@ -93,6 +93,8 @@ export class SharedBackend implements Backend {
   };
   /** Nobody is told anything through a public link. */
   readonly notifications = undefined;
+  /** What was done to a card is for the board's members, not a reader by the link. */
+  readonly cardActivity = undefined;
   readonly watches = undefined;
   /** A reaction names who reacted, which a reader by the link is not told. */
   readonly reactions = undefined;
