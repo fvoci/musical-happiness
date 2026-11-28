@@ -203,13 +203,23 @@ img.ProseMirror-separator {
   font-weight: 500;
 }
 .doc-body details.doc-details {
-  padding-inline-start: var(--details-gutter);
+  /*
+   * The page's own toggle, read: its whole summary is what a finger opens it
+   * by, the chevron's gutter with it, at least a finger's height.
+   */
+  --summary-pad: max(0px, calc((var(--spacing-touch) - var(--line-body) * 1em) / 2));
 }
 .doc-body details.doc-details > summary {
   position: relative;
   display: block;
+  min-height: var(--spacing-touch);
+  padding-block: var(--summary-pad);
+  padding-inline-start: var(--details-gutter);
   list-style: none;
   cursor: pointer;
+}
+.doc-body details.doc-details > .doc-details-content {
+  padding-inline-start: var(--details-gutter);
 }
 .doc-body details.doc-details > summary::-webkit-details-marker {
   display: none;
@@ -222,8 +232,8 @@ img.ProseMirror-separator {
   --chevron: 0.45em;
   content: '';
   position: absolute;
-  inset-inline-start: calc(var(--details-gutter) / -2 - var(--chevron) / 2 - 0.08em);
-  inset-block-start: calc((var(--line-body) * 1em - var(--chevron)) / 2);
+  inset-inline-start: calc(var(--details-gutter) / 2 - var(--chevron) / 2 - 0.08em);
+  inset-block-start: calc(var(--summary-pad) + (var(--line-body) * 1em - var(--chevron)) / 2);
   width: var(--chevron);
   height: var(--chevron);
   border-block-start: 2px solid var(--muted-foreground);

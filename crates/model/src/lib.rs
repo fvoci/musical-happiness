@@ -103,8 +103,8 @@ pub use board_ops::{
     extract_card_due_point, is_card_done,
 };
 pub use body::{
-    BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
-    BodySummary, TaskCount,
+    BODY_MAX_BOARD_VIEWS, BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body,
+    BodyChange, BodyError, BodySummary, TaskCount,
 };
 pub use body_markdown::{ComplexBlock, ComplexBlockReason};
 pub use body_version::{

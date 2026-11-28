@@ -1,13 +1,17 @@
 /**
- * The toggles and callouts of `contracts/ydoc-vectors.json`, written by
- * hand (see `cases.ts` for the sections).
+ * The toggles, callouts and board views of `contracts/ydoc-vectors.json`,
+ * written by hand (see `cases.ts` for the sections).
  *
  * A toggle that does not hold its two parts in their order, or what it
  * hides without a block, fails the editor's schema: every editor deletes
  * it whole, and so does the server. There is nothing of a toggle to mend,
  * as there is of a table: a toggle two people emptied together goes. A
  * callout of a tone not on the list fits the editor's schema, which checks
- * no value; only the server's rules refuse it.
+ * no value; only the server's rules refuse it. So does a board view that
+ * names no view; one where only a block of a quote, a callout or a line
+ * stands fails the schema, and what holds it goes. (An eleventh board view
+ * is past a limit of the body, which a repair does not mend: the update that
+ * makes it is refused.)
  */
 import * as Y from 'yjs';
 
@@ -29,6 +33,14 @@ const callout = (tone: AttributeValue | undefined, ...children: RawNode[]): RawN
 const quote = (...children: RawNode[]): RawNode => ({ element: 'blockquote', children });
 const cell = (...children: RawNode[]): RawNode => ({ element: 'tableCell', children });
 const row = (...children: RawNode[]): RawNode => ({ element: 'tableRow', children });
+const view = (viewId: AttributeValue, ...children: RawNode[]): RawNode => ({
+  element: 'boardView',
+  attrs: { viewId },
+  children,
+});
+/** The identifier of the `n`th view. */
+const viewNumber = (n: number): string =>
+  `01930000-0000-7000-8000-${(0xc001 + n).toString(16).padStart(12, '0')}`;
 
 /** The element at a path of indexes below a fragment. */
 function at(parent: Y.XmlFragment, ...indexes: number[]): Y.XmlElement {
@@ -68,6 +80,8 @@ export const DETAILS_REFUSED: RawCase[] = [
     name: 'a callout of a tone not on the list, in a toggle',
     root: [toggle('s', callout('INFO', line('p')), line('kept'))],
   },
+  { name: 'a board view of a view that is no identifier', root: [line('a'), view('table-1')] },
+  { name: 'a board view without its view', root: [{ element: 'boardView' }, line('a')] },
 ];
 
 export const DETAILS_REPAIRS: RawCase[] = [
@@ -97,6 +111,22 @@ export const DETAILS_REPAIRS: RawCase[] = [
     root: [line('a'), callout('warn', { element: 'table', children: [row(cell(line('x')))] })],
   },
   { name: 'a callout with nothing in it', root: [line('a'), callout('tip')] },
+  {
+    name: 'a board view in a callout: the callout goes',
+    root: [line('a'), callout('info', view(viewNumber(0)))],
+  },
+  {
+    name: 'a board view in a quote: the quote goes',
+    root: [line('a'), quote(view(viewNumber(0)))],
+  },
+  {
+    name: 'a board view in a line: the line goes',
+    root: [line('a'), { element: 'paragraph', children: [view(viewNumber(0))] }],
+  },
+  {
+    name: 'a board view holding a line: it goes, and the board view in the toggle stays',
+    root: [view(viewNumber(0), line('x')), toggle('s', view(viewNumber(1)))],
+  },
   {
     name: 'a toggle whose second part is a paragraph, in a toggle: the inner one goes',
     root: [toggle('outer', line('kept'), details(summary(text('in')), line('loose')))],

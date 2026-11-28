@@ -821,7 +821,7 @@
       },
       "Body": {
         "additionalProperties": true,
-        "description": "A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 6, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes.",
+        "description": "A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 7, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes.",
         "type": "object"
       },
       "BodyVersion": {
@@ -1792,7 +1792,9 @@
           "cell_with_blocks",
           "uneven_table",
           "unwritten_formula",
-          "heading_with_break"
+          "heading_with_break",
+          "markup_in_summary",
+          "board_view"
         ],
         "type": "string"
       },
@@ -3969,6 +3971,10 @@
             "$ref": "#/components/schemas/ContainerKind",
             "description": "Whether that is a board, a wiki or a course."
           },
+          "containerTitle": {
+            "description": "The title of its board: told of a view alone, whose board a board view names.",
+            "type": "string"
+          },
           "icon": {
             "description": "Its icon, at most one grapheme; empty for none.",
             "type": "string"
@@ -3993,6 +3999,10 @@
           "title": {
             "description": "Its title; empty for one without.",
             "type": "string"
+          },
+          "viewType": {
+            "$ref": "#/components/schemas/ViewType",
+            "description": "How a view shows its cards: told of a view alone."
           }
         },
         "required": [
@@ -4040,11 +4050,12 @@
         "type": "object"
       },
       "LinkedKind": {
-        "description": "What a reference may name: a card of a board, a page of a wiki or a unit of a course.",
+        "description": "What a reference may name: a card of a board, a page of a wiki or a unit of a course;\nand the view of a board a board view shows, which no reference names.",
         "enum": [
           "card",
           "page",
-          "unit"
+          "unit",
+          "view"
         ],
         "type": "string"
       },
@@ -24315,7 +24326,7 @@
     },
     "/api/v1/w/{workspaceId}/references/resolve": {
       "post": {
-        "description": "A body names a card, a page or a unit by its identifier alone (the node `reference`),\nand no body, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards, pages and units\nof this workspace on a board, a wiki or a course the user reads (as `getCard`,\n`getPage` and `getUnit` ask), each once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card, a page or a unit the user does not read, or a block that is none\nof those (such as a chapter of a course).\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "A body names a card, a page or a unit by its identifier alone (the node `reference`),\nand no body, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards, pages and units\nof this workspace on a board, a wiki or a course the user reads (as `getCard`,\n`getPage` and `getUnit` ask), each once, in the order they were first named.\n\nA board view of a body (the node `boardView`) names a view of a board by its\nidentifier alone too: a view of a board the user reads is told of with `kind` `view`,\nits title, its board (`containerId`, `containerTitle`) and how it shows its cards\n(`viewType`), as a private board's view is told to its members alone.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card, a page, a unit or a view the user does not read, or a block that\nis none of those (such as a chapter of a course).\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "resolveReferences",
         "parameters": [
           {
