@@ -21,7 +21,7 @@ import type { BoardStore } from './board.svelte.ts';
 import type { CommentEdit } from './card-parts.ts';
 import { CollaborativeBodyState, SAVING_SHOWN } from './collab-body.svelte.ts';
 import { CommentThreadStore, type ThreadReactions } from './comment-thread.svelte.ts';
-import type { Reaction } from './reaction-types.ts';
+import type { Reaction, WithReactions } from './reaction-types.ts';
 import { byCreation } from './order.ts';
 import { UploadKept, type Transfer } from './transfers.svelte.ts';
 import { authorIds } from './user-names.ts';
@@ -158,10 +158,9 @@ export class CardStore {
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
       if (this.#closed) return;
-      const { reactions, ...detail } = read;
-      this.#takeDetail(detail);
-      this.#commentThread.takeReactions(reactions);
-      void this.board.workspace.learnUsers(authorIds([detail, ...comments]));
+      this.#takeDetail(read);
+      this.#commentThread.takeReactions(read.reactions);
+      void this.board.workspace.learnUsers(authorIds([read, ...comments]));
       this.#commentThread.setInitial(comments);
       this.#attachments = attachments;
       this.status = 'ready';
@@ -181,8 +180,9 @@ export class CardStore {
     this.#bodyUploads.giveUp();
   }
 
-  #takeDetail(detail: CardDetail): void {
-    const { body, ...summary } = detail;
+  /** Takes the card as read; its reactions, if the read carried them, are the thread's. */
+  #takeDetail(detail: WithReactions<CardDetail>): void {
+    const { body, reactions: _reactions, ...summary } = detail;
     this.#readAt = detail.updatedAt;
     this.missing = false;
     this.board.receiveCard(summary);
@@ -238,6 +238,7 @@ export class CardStore {
         }
         if (!back && detail.updatedAt <= this.#readAt) return;
         this.#takeDetail(detail);
+        this.#commentThread.takeReactions(detail.reactions);
       })
       .catch(() => undefined);
   }
@@ -272,11 +273,15 @@ export class CardStore {
     const commentsBefore = this.#commentThread.snapshotRead();
     const attachmentsBefore = this.#attachments.map((attachment) => attachment.id);
     try {
-      const [comments, attachments] = await Promise.all([
+      // The card too, for its reactions: one changes nothing of the card, so no
+      // newer card is heard of when the reader comes back.
+      const [read, comments, attachments] = await Promise.all([
+        this.#backend.card(this.#boardId, this.cardId),
         this.#backend.comments(this.#boardId, this.cardId),
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
       if (this.#isClosed() || reading !== this.#refreshing) return;
+      this.#commentThread.takeReactions(read.reactions);
       this.#commentThread.mergeRead(
         comments,
         commentsBefore.beforeIds,

@@ -8,7 +8,7 @@
 import type { Reaction, Reactions, WithReactions } from '../reaction-types.ts';
 import { REACTION_KINDS_PER_BLOCK } from '../reaction-types.ts';
 
-import { memoryPermissionsOf } from './container-access.ts';
+import { memberRole, memoryPermissionsOf } from './container-access.ts';
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
 
@@ -36,18 +36,19 @@ function react(
   emoji: string,
   present: boolean,
 ): void {
+  // The container first, as the server reaches it: not there (a diary is not), not
+  // read (404), or not commented on (403); then the block of it.
   const container = world.containers.get(where.containerId);
-  const block = world.blocks.get(where.blockId);
-  if (
-    container?.workspaceId !== where.workspaceId ||
-    container.kind === 'diary' ||
-    block?.containerId !== container.id ||
-    !REACTED_TO.has(block.type)
-  ) {
-    fail(404, 'block not found');
+  if (container?.workspaceId !== where.workspaceId || container.kind === 'diary') {
+    fail(404, 'board not found');
   }
+  memberRole(world, userId, container.id, 'any');
   if (!memoryPermissionsOf(world, userId, container.id).canComment) {
-    fail(403, 'access denied to comment');
+    fail(403, 'access denied to react in the container');
+  }
+  const block = world.blocks.get(where.blockId);
+  if (block?.containerId !== container.id || !REACTED_TO.has(block.type)) {
+    fail(404, 'block not found');
   }
   const reactions = reactionsIn(world, block.id);
   const found = reactions.find((reaction) => reaction.emoji === emoji);

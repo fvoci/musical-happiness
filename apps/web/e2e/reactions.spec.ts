@@ -82,7 +82,12 @@ test('a comment and a page are answered with an emoji, taken off, and followed',
   await expect(thumbs).toHaveAccessibleName(/^👍 1: you/);
 
   const name = await reactedElsewhere(page, place, commentId, '👍');
-  await expect(thumbs).toHaveAccessibleName(new RegExp(`^👍 2: you and ${name}`));
+  // The reader's own shows at once, before it is saved, and the other's may be saved
+  // first: who was saved first is named first, the other with their handle, maybe.
+  const them = String.raw`${name}(?: \(@[^)]+\))?`;
+  await expect(thumbs).toHaveAccessibleName(
+    new RegExp(`^👍 2: (?:you and ${them}|${them} and you)`),
+  );
   await thumbs.click();
   await expect(thumbs).toHaveAttribute('aria-pressed', 'false');
   await expect(thumbs).toHaveAccessibleName(new RegExp(`^👍 1: ${name}`));

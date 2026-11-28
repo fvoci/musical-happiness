@@ -11,7 +11,7 @@ import type { MemberRole } from '$lib/logic/wire.ts';
 import { BackendError, WikiStore, type Change } from '$lib/state/index.ts';
 import { withMine, type Reaction } from '$lib/state/reaction-types.ts';
 
-import { settle, setup, text } from './support.ts';
+import { openFirstBoard, settle, setup, text } from './support.ts';
 
 const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
   try {
@@ -86,6 +86,8 @@ describe('reactions in memory', () => {
     const theirs = made.other.reactions;
     const mine = made.backend.reactions;
     expect((await rejection(theirs.add(...at, made.commentId, '👍'))).status).toBe(403);
+    // Who may not comment is told so before the block is looked for, as by the server.
+    expect((await rejection(theirs.add(...at, 'nothing', '👍'))).status).toBe(403);
     const animals = Array.from({ length: 21 }, (_, at) => String.fromCodePoint(0x1f400 + at));
     for (const animal of animals.slice(0, 20)) await mine.add(...at, made.pageId, animal);
     const refused = await rejection(mine.add(...at, made.pageId, animals[20] ?? ''));
@@ -171,5 +173,28 @@ describe('the reactions of the page shown', () => {
     expect(comments.reactionsOf(made.commentId).map((one) => one.emoji)).toEqual(['👍']);
     expect(comments.comments[0]).not.toHaveProperty('reactions');
     store.close();
+  });
+});
+
+describe('the reactions of the card shown', () => {
+  it('are read again with the card when the reader comes back, and ride on no card of the board', async () => {
+    const { board, backend } = await openFirstBoard();
+    const made = await backend.createCard(board.boardId, { title: 'Mine' });
+    backend.world.reactions.set(made.id, [{ emoji: '🎉', userIds: ['someone-elsewhere'] }]);
+    const card = await board.showCard(made.id);
+    await settle();
+    expect(card.reactions.reactionsOf(made.id).map((one) => one.emoji)).toEqual(['🎉']);
+    expect(board.card(made.id)).not.toHaveProperty('reactions');
+
+    // Added while the reader was away: nobody told them, and the card is as it was.
+    const before = board.card(made.id)?.updatedAt;
+    backend.world.reactions.set(made.id, [
+      { emoji: '🎉', userIds: ['someone-elsewhere'] },
+      { emoji: '👀', userIds: ['someone-elsewhere'] },
+    ]);
+    await card.refresh();
+    expect(card.reactions.reactionsOf(made.id).map((one) => one.emoji)).toEqual(['🎉', '👀']);
+    expect(board.card(made.id)?.updatedAt).toBe(before);
+    expect(board.card(made.id)).not.toHaveProperty('reactions');
   });
 });
