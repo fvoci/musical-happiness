@@ -214,6 +214,54 @@ async fn a_board_is_exported_as_its_cards_and_their_table() {
     ts.teardown().await;
 }
 
+/// A board's options and files are no cards: only its relations are asked for the cards
+/// they name, by their links, and the table calls each by its title.
+#[tokio::test]
+async fn a_board_names_its_related_cards_and_takes_options_and_files_for_none() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board: Container = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/boards"),
+            &json!({
+                "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Plan",
+                "cardProperties": [
+                    {"id": "tags", "name": "Tags", "type": "multiSelect",
+                     "options": [{"id": "urgent", "label": "Urgent", "color": "default"}]},
+                    {"id": "docs", "name": "Docs", "type": "file"},
+                    {"id": "after", "name": "After", "type": "relation"},
+                ],
+            }),
+        )
+        .await
+        .created_json();
+    let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
+    let file = uploaded_id(&upload(&ts.client, &board.id, "brief.txt", b"the brief\n").await);
+    let first: Card = ts
+        .client
+        .post(
+            &cards,
+            &json!({"title": "First", "properties": {"tags": ["urgent"], "docs": [file]}}),
+        )
+        .await
+        .created_json();
+    ts.client
+        .post(
+            &cards,
+            &json!({"title": "Second", "properties": {"after": [{"card": first.id}]}}),
+        )
+        .await
+        .check_created();
+
+    let response = exported(&ts.client, &board.id).await;
+    response.check_ok();
+    assert_eq!(
+        entries(&response)["Plan/board.csv"],
+        "\u{feff}Number,Title,Tags,Docs,After\r\n1,First,Urgent,brief.txt,\r\n2,Second,,,First\r\n"
+    );
+    ts.teardown().await;
+}
+
 /// A course is its chapters' folders of their units, each unit with its amount and its
 /// day; and a page or a unit read with `format=markdown` has its body in Markdown in
 /// place of it, as a card has.

@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{Card, CardPropertyDefinition, PropertyType};
+use fvoci_model::{Card, CardPropertyDefinition, PropertyType, is_id, relation_link_card};
 use serde_json::Value;
 
 use super::super::export::utc;
@@ -97,7 +97,7 @@ fn cell(card: &Card, property: &CardPropertyDefinition, names: &CellNames) -> St
         PropertyType::CreatedBy => called(vec![card.created_by.as_str()], &names.users),
         PropertyType::UpdatedBy => called(vec![card.modified_by.as_str()], &names.users),
         PropertyType::File => called(texts(value), &names.files),
-        PropertyType::Relation => called(texts(value), &names.cards),
+        PropertyType::Relation => called(related_cards(value), &names.cards),
         PropertyType::CreatedTime => utc(card.created_at),
         PropertyType::UpdatedTime => utc(card.updated_at),
         PropertyType::Date => date(value),
@@ -112,6 +112,19 @@ fn cell(card: &Card, property: &CardPropertyDefinition, names: &CellNames) -> St
             _ => String::new(),
         },
     }
+}
+
+/// The cards a relation value names: those of its links (`{card, kind, lagDays}`, as
+/// they are stored), or of identifiers in their place; what names no card is no card.
+pub(super) fn related_cards(value: &Value) -> Vec<&str> {
+    let Value::Array(links) = value else {
+        return Vec::new();
+    };
+    links
+        .iter()
+        .filter_map(|link| relation_link_card(link).or_else(|| link.as_str()))
+        .filter(|id| is_id(id))
+        .collect()
 }
 
 /// The texts of a value: itself, or those of a list.

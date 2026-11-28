@@ -17,18 +17,19 @@ mod board_csv;
 mod layout;
 mod names;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::sync::Arc;
 
 use fvoci_model::{
     Block, BlockType, Card, Container, ContainerKind, ENTRY_DATE_FIELD, ENTRY_MOOD_FIELD,
     ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, FileRecord, PAGE_ICON_FIELD, PropertyType,
-    UNIT_AMOUNT_FIELD, UNIT_AMOUNT_UNIT_FIELD, UNIT_SCHEDULED_DATE_FIELD,
+    UNIT_AMOUNT_FIELD, UNIT_AMOUNT_UNIT_FIELD, UNIT_SCHEDULED_DATE_FIELD, is_id,
+    relation_property_ids,
 };
 use serde_json::Value;
 
-use self::board_csv::{CellNames, board_csv};
+use self::board_csv::{CellNames, board_csv, related_cards};
 use self::layout::{Placed, layout};
 use self::names::{Folder, front_matter, name_of};
 use super::App;
@@ -58,7 +59,11 @@ impl App {
         let attachments = attachments_of(&entries, &blocks);
         let records = self.store().get_files_of_container(&container.id).await?;
         let files = file_places(&root, &entries, &attachments, &records);
-        let places = Arc::new(self.export_places(reader, &entries, &files).await?);
+        let relations = relation_property_ids(&container.card_properties);
+        let places = Arc::new(
+            self.export_places(reader, &entries, &files, &relations)
+                .await?,
+        );
 
         let path = self.new_export_file("zip").await?;
         let mut writer = ArchiveWriter::create(path.path()).await?;
@@ -100,12 +105,14 @@ impl App {
     }
 
     /// What the export holds and where (its files, its pages, cards and units), and the
-    /// titles of what else the bodies refer to that `reader` reads.
+    /// titles of what else the bodies and the cards' `relations` refer to that `reader`
+    /// reads.
     async fn export_places(
         &self,
         reader: MarkdownReader<'_>,
         entries: &[Placed<'_>],
         files: &[(String, Vec<String>)],
+        relations: &HashSet<&str>,
     ) -> Result<ExportPlaces, AppError> {
         let mut places = ExportPlaces {
             files: files.iter().cloned().collect(),
@@ -121,7 +128,7 @@ impl App {
             if let Some(body) = &one.block.body {
                 references_in(body.document(), &mut outside);
             }
-            relations_in(one.block, &mut outside);
+            relations_in(one.block, relations, &mut outside);
         }
         outside.retain(|id| !places.blocks.contains_key(id));
         let outside: Vec<String> = outside.into_iter().collect();
@@ -328,11 +335,12 @@ fn fields_of(block: &Block, title: &str) -> Vec<(&'static str, String)> {
     fields
 }
 
-/// The identifiers the references of a body's document name.
+/// The identifiers the references of a body's document name; what names nothing by an
+/// identifier is asked of no one.
 fn references_in(node: &Value, into: &mut BTreeSet<String>) {
     if node.get("type").and_then(Value::as_str) == Some("reference")
         && let Some(id) = node.pointer("/attrs/id").and_then(Value::as_str)
-        && !id.is_empty()
+        && is_id(id)
     {
         into.insert(id.to_owned());
     }
@@ -343,17 +351,18 @@ fn references_in(node: &Value, into: &mut BTreeSet<String>) {
     }
 }
 
-/// The cards a card's relations name (every list of identifiers among its properties
-/// is asked for: what is no card is no title).
-fn relations_in(block: &Block, into: &mut BTreeSet<String>) {
+/// The cards a card's relations name: the values of the board's `relations` alone, of
+/// which an option or a file is none.
+fn relations_in(block: &Block, relations: &HashSet<&str>, into: &mut BTreeSet<String>) {
     if block.block_type != BlockType::Card {
         return;
     }
-    if let Some(Value::Object(properties)) = block.fields.get("properties") {
-        for value in properties.values() {
-            if let Value::Array(values) = value {
-                into.extend(values.iter().filter_map(Value::as_str).map(str::to_owned));
-            }
+    let Some(Value::Object(properties)) = block.fields.get("properties") else {
+        return;
+    };
+    for (id, value) in properties {
+        if relations.contains(id.as_str()) {
+            into.extend(related_cards(value).into_iter().map(str::to_owned));
         }
     }
 }
