@@ -306,10 +306,13 @@ test.describe('the two rows', () => {
     for (const name of ['views', 'properties', 'group', 'filter', 'sort', 'search']) {
       await expect(tool(page, name)).toBeVisible();
     }
-    // No tabs, and every tool of a board has its own button in the row: "…" holds only the file.
+    // No tabs, and every tool of a board has its own button in the row: "…" holds only the files.
     await expect(header(page).getByRole('link')).toHaveCount(0);
     await tool(page, 'more').click();
-    await expect(page.getByRole('menuitem')).toHaveText(['Export to CSV']);
+    await expect(page.getByRole('menuitem')).toHaveText([
+      'Export to CSV',
+      'Export to a calendar (.ics)',
+    ]);
     await page.keyboard.press('Escape');
     await expect(tool(page, 'views')).toHaveText('Status board');
     expect(await cut()).toBe(false);
@@ -1345,9 +1348,12 @@ test.describe('a board the reader may only look at', () => {
       await expect(tool(page, name)).toHaveCount(0);
     }
     await expect(page.getByTestId('new-card')).toHaveCount(0);
-    // "…" saves the view as a file, which changes nothing of it, and holds nothing else.
+    // "…" saves the view as files, which changes nothing of it, and holds nothing else.
     await tool(page, 'more').click();
-    await expect(page.getByRole('menuitem')).toHaveText(['Export to CSV']);
+    await expect(page.getByRole('menuitem')).toHaveText([
+      'Export to CSV',
+      'Export to a calendar (.ics)',
+    ]);
     await page.keyboard.press('Escape');
 
     await showView(page, 'By subject');
@@ -1659,6 +1665,36 @@ test.describe('the file of a view', () => {
     expect(lines.find((line) => line.startsWith('"Launch"'))).toMatch(/,4,"TRUE"$/);
   });
 
+  test('"…" saves the dated cards the view shows as a calendar, each linked to its card', async ({
+    page,
+  }) => {
+    await open(page);
+    await showView(page, 'Task table');
+    await tool(page, 'more').click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('menuitem', { name: 'Export to a calendar (.ics)' }).click(),
+    ]);
+    const saved = test.info().outputPath(download.suggestedFilename());
+    await download.saveAs(saved);
+    expect(download.suggestedFilename().replaceAll('_', ' ')).toBe(
+      'Project schedule - Task table.ics',
+    );
+    const text = readFileSync(saved, 'utf8');
+    expect(text.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\n')).toBe(true);
+    expect(text.endsWith('END:VCALENDAR\r\n')).toBe(true);
+    const events = text.split('BEGIN:VEVENT\r\n').slice(1);
+    expect(events.length).toBeGreaterThan(0);
+    const origin = new URL(page.url()).origin;
+    for (const event of events) {
+      // A day is a date, a moment a time in UTC; each event leads back to its card.
+      expect(event).toMatch(/^UID:[^\r]+@fvoci\r\n/);
+      expect(event).toMatch(/\r\nDTSTART(;VALUE=DATE:\d{8}|:\d{8}T\d{6}Z)\r\n/);
+      expect(event).toMatch(/\r\nSUMMARY:[^\r]+\r\n/);
+      expect(event).toContain(`\r\nURL:${origin}/`);
+    }
+  });
+
   test('the file has the cards the search leaves, in the order of the view', async ({ page }) => {
     await open(page);
     await showView(page, 'Task table');
@@ -1726,5 +1762,8 @@ test.describe('the file of a view', () => {
     // A reader of a public link gets no "…" at all: nothing in it is theirs to do.
     await expect(tool(page, 'more')).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: 'Export to CSV' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Export to a calendar (.ics)' })).toHaveCount(
+      0,
+    );
   });
 });
