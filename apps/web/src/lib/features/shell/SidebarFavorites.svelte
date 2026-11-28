@@ -37,8 +37,10 @@
   const favorites = $derived(workspaceFavorites(workspace));
   let folded = $state(false);
 
+  // Read for the reader and workspace of now, and again as they change (from none, or another).
   $effect(() => {
     const shown = favorites;
+    if (shown.scope === undefined) return;
     untrack(() => void shown.read());
   });
 

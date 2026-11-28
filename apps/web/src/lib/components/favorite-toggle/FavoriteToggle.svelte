@@ -21,8 +21,10 @@
 
   let { stars, targetId }: Props = $props();
 
+  // Read for the reader and workspace of now, and again as they change (from none, or another).
   $effect(() => {
     const shown = stars;
+    if (shown.scope === undefined) return;
     untrack(() => void shown.read());
   });
 

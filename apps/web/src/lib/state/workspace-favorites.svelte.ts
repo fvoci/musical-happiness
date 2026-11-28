@@ -6,7 +6,8 @@
  * another of the reader's devices (`favorites`), a container that goes, or a
  * connection that comes back (`resync`) reads the list again. Nothing of it is
  * kept past the workspace: a list read for one reader or workspace is never
- * shown for another.
+ * shown for another, and whoever shows it reads it again for the reader and
+ * workspace of now (`scope`): entered from a page of none, or from another.
  */
 import { SvelteMap } from 'svelte/reactivity';
 
@@ -56,6 +57,15 @@ export class WorkspaceFavorites {
   /** Whether stars are kept here: not through a public link, nor before the workspace is entered. */
   get available(): boolean {
     return this.#where() !== undefined;
+  }
+
+  /**
+   * For whom and where the stars are now (`<workspace>/<reader>`), undefined
+   * where none are kept: what shows them reads them again as it changes.
+   */
+  get scope(): string | undefined {
+    const where = this.#where();
+    return where && keyOf(where);
   }
 
   /** The stars, in their order; empty until they are read. */
@@ -158,17 +168,21 @@ export class WorkspaceFavorites {
     return done;
   }
 
-  /** Follows the reader's changes: what changes the list, or may have, reads it again. */
+  /**
+   * Follows the reader's changes: what changes the list, or may have, reads it
+   * again; also where the list held is of another workspace than the one now.
+   */
   #follow(): void {
     if (this.#stopSelf) return;
     this.#stopSelf = this.#workspace.backend.watchSelf((change) => {
       const where = this.#where();
-      if (!where || this.#held?.key !== keyOf(where)) return;
+      if (!where) return;
+      const held = this.#held?.key === keyOf(where) ? this.#held : undefined;
       const again =
         change.kind === 'resync' ||
         (change.kind === 'favorites' && change.workspaceId === where.workspaceId) ||
         (change.kind === 'containerDeleted' &&
-          this.#held.list.some((favorite) => favorite.containerId === change.containerId));
+          held?.list.some((favorite) => favorite.containerId === change.containerId) === true);
       if (again) void this.#readFor(where);
     });
   }

@@ -13,6 +13,7 @@
   const starred = new SvelteSet<string>(['starred']);
 
   const stars: ReaderStars = {
+    scope: 'story/reader',
     has: (targetId) => (unread ? undefined : starred.has(targetId)),
     read: () => Promise.resolve(),
     toggle: (targetId) => {

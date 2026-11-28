@@ -86,6 +86,34 @@ describe('the reader’s stars', () => {
     });
   });
 
+  it('is of the workspace entered, and hears a change of its stars before it read them', async () => {
+    const { workspace, board, backend } = await openFirstBoard();
+    const stars = workspaceFavorites(workspace);
+    await stars.read();
+    await stars.toggle(board.boardId);
+    const first = workspace.info;
+    const firstScope = stars.scope;
+    expect(firstScope).toBeDefined();
+
+    // Another workspace entered: none of the first's stars, until its own are read.
+    const list = vi.spyOn(backend.favorites, 'list').mockResolvedValueOnce([]);
+    workspace.info = { id: 'other-workspace', title: 'Other' };
+    expect(stars.scope).not.toBe(firstScope);
+    expect([stars.list, stars.has(board.boardId)]).toEqual([[], undefined]);
+    await stars.read();
+    expect(list).toHaveBeenLastCalledWith('other-workspace');
+    expect(stars.has(board.boardId)).toBe(false);
+    list.mockRestore();
+
+    // Back in the first, whose list is not held: a change of its stars reads it.
+    workspace.info = first;
+    expect(stars.scope).toBe(firstScope);
+    await backend.favorites.unstar(first?.id ?? '', board.boardId);
+    await settle();
+    expect(stars.has(board.boardId)).toBe(false);
+    expect(stars.list).toEqual([]);
+  });
+
   it('reads the list again when the stars change on another device', async () => {
     const { workspace, board, backend } = await openFirstBoard();
     const stars = workspaceFavorites(workspace);

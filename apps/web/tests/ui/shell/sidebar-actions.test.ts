@@ -37,6 +37,7 @@ describe('the menu of a container of the sidebar', () => {
   it('stars a board, a wiki or a course first, once the stars are read, and never a diary', () => {
     const starred = new Set<string>();
     const stars: ReaderStars = {
+      scope: 'w/me',
       has: (id) => starred.has(id),
       read: () => Promise.resolve(),
       toggle: () => Promise.resolve(),
