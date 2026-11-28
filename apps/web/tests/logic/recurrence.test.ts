@@ -6,8 +6,10 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { addDays, parseCalendarDate, type CalendarDate } from '$lib/logic/dates.ts';
 import {
   choiceOf,
+  handedOn,
   nextDueValue,
   notDoneValue,
   readRecurrence,
@@ -19,11 +21,30 @@ import type { DoneRule, PropertyTemplate } from '$lib/logic/wire.ts';
 /** 2027-01-15 12:00 UTC: the 16th already at UTC+14. */
 const NOON = Date.UTC(2027, 0, 15, 12);
 
-const every = (count: number, unit: Recurrence['unit'], anchor: Recurrence['anchor'] = 'due') => ({
-  every: count,
-  unit,
-  anchor,
-});
+const every = (
+  count: number,
+  unit: Recurrence['unit'],
+  anchor: Recurrence['anchor'] = 'due',
+): Recurrence => ({ every: count, unit, anchor });
+
+const day = (text: string): CalendarDate => parseCalendarDate(text) ?? expect.fail(text);
+
+/** The due dates of the `count` cards after one due `first`, each done `early` days before it is due. */
+function chain(start: Recurrence, first: string, count: number, early: number): string[] {
+  let recurrence = start;
+  let due = { from: first };
+  const dues: string[] = [];
+  for (let step = 0; step < count; step += 1) {
+    const today = Date.parse(`${addDays(day(due.from), -early)}T12:00:00Z`);
+    const following = handedOn(recurrence, due, 'UTC');
+    const next = nextDueValue(recurrence, due, today, 'UTC');
+    if (typeof next?.from !== 'string') expect.fail(`a date after ${due.from}`);
+    due = { from: next.from };
+    recurrence = following;
+    dues.push(due.from);
+  }
+  return dues;
+}
 
 describe('the next due date of a card that repeats', () => {
   it('steps from the due date, past the days gone by', () => {
@@ -56,6 +77,35 @@ describe('the next due date of a card that repeats', () => {
     expect(nextDueValue(every(1, 'year'), { from: '2028-02-29' }, NOON, 'UTC')).toEqual({
       from: '2029-02-28',
     });
+  });
+
+  it('keeps the end of the month and the 29th of February along a chain', () => {
+    for (const early of [0, 3]) {
+      expect(chain(every(1, 'month'), '2026-01-31', 4, early)).toEqual([
+        '2026-02-28',
+        '2026-03-31',
+        '2026-04-30',
+        '2026-05-31',
+      ]);
+      expect(chain(every(1, 'year'), '2024-02-29', 4, early)).toEqual([
+        '2025-02-28',
+        '2026-02-28',
+        '2027-02-28',
+        '2028-02-29',
+      ]);
+    }
+    const monthly = every(1, 'month');
+    const second = handedOn(monthly, { from: '2026-01-31' }, 'UTC');
+    expect(second).toEqual({ ...monthly, from: '2026-01-31' });
+    expect(handedOn(second, { from: '2026-02-28' }, 'UTC')).toEqual(second);
+    expect(handedOn(every(1, 'month', 'done'), { from: '2026-01-31' }, 'UTC')).toEqual(
+      every(1, 'month', 'done'),
+    );
+    // A first date after the due date counts for none: the due date's own is.
+    const ahead = { ...monthly, from: day('2026-06-30') };
+    const end = Date.UTC(2026, 0, 31, 12);
+    expect(nextDueValue(ahead, { from: '2026-01-31' }, end, 'UTC')).toEqual({ from: '2026-02-28' });
+    expect(handedOn(ahead, { from: '2026-01-31' }, 'UTC')).toEqual(second);
   });
 
   it('counts from the day it is done, in the completer’s zone', () => {
@@ -93,12 +143,18 @@ describe('how a card repeats', () => {
     expect(readRecurrence({ every: 2, unit: 'week', anchor: 'done' })).toEqual(
       every(2, 'week', 'done'),
     );
+    expect(readRecurrence({ every: 1, unit: 'month', anchor: 'due', from: '2026-01-31' })).toEqual({
+      ...every(1, 'month'),
+      from: '2026-01-31',
+    });
     for (const wrong of [
       { every: 0, unit: 'day', anchor: 'due' },
       { every: 366, unit: 'day', anchor: 'due' },
       { every: 1.5, unit: 'day', anchor: 'due' },
       { every: 1, unit: 'hour', anchor: 'due' },
       { every: 1, unit: 'day', anchor: 'start' },
+      { every: 1, unit: 'day', anchor: 'due', from: '2026-02-30' },
+      { every: 1, unit: 'day', anchor: 'due', from: 20260131 },
       'weekly',
       null,
     ]) {
@@ -124,10 +180,15 @@ describe('how a card repeats', () => {
       options: [
         { id: 'done', label: 'Done', color: 'green' },
         { id: 'todo', label: 'To do', color: 'blue' },
+        { id: 'doing', label: 'Doing', color: 'yellow' },
       ],
     };
     const rule: DoneRule = { kind: 'option', propertyId: 's', optionIds: ['done'] };
     expect(notDoneValue(status, rule, 'done')).toBe('todo');
+    expect(notDoneValue(status, rule, 'done', 'doing')).toBe('doing');
+    for (const gone of ['gone', 'done', ['doing']]) {
+      expect(notDoneValue(status, rule, 'done', gone)).toBe('todo');
+    }
     const tags = { ...status, type: 'multiSelect' } as PropertyTemplate;
     expect(notDoneValue(tags, rule, ['todo', 'done'])).toEqual(['todo']);
     expect(notDoneValue(tags, rule, ['done'])).toBeUndefined();

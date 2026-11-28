@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import type { CalendarDate } from '$lib/logic/dates.ts';
 import { isBackendError } from '$lib/state/backend.ts';
 
 import { setup, STATUS } from './support.ts';
@@ -71,8 +72,9 @@ describe('a card that repeats, in memory', () => {
     const next = await backend.card(boardId, nextId ?? '');
     expect(next.title).toBe('Water');
     expect(next.number).toBe(card.number === undefined ? undefined : card.number + 1);
-    expect(next.fields.recurrence).toEqual(weekly);
-    expect(next.fields.properties).toEqual({ [STATUS]: 'todo', [DUE]: { from: '2027-01-22' } });
+    expect(next.fields.recurrence).toEqual({ ...weekly, from: '2027-01-15' });
+    // As it was before it was done, due a week on.
+    expect(next.fields.properties).toEqual({ [STATUS]: 'doing', [DUE]: { from: '2027-01-22' } });
     expect(next.body?.content?.[0]?.content?.[0]?.attrs?.checked).toBe(false);
 
     await backend.patchCard(boardId, card.id, { updatedProperties: { [STATUS]: 'todo' } });
@@ -113,6 +115,38 @@ describe('a card that repeats, in memory', () => {
     expect(done.fields.recurredTo).toBeDefined();
     expect(undone.fields.recurredTo).toBeUndefined();
     expect(undone.fields.recurrence).toEqual(weekly);
+  });
+
+  it('counts a chain from its first card, until how or when it is due changes', async () => {
+    const { backend, boardId } = await chores();
+    const monthly = { every: 1, unit: 'month', anchor: 'due' } as const;
+    let card = await backend.createCard(boardId, {
+      title: 'Pay the rent',
+      properties: { [STATUS]: 'todo', [DUE]: { from: '2027-01-31' } },
+      recurrence: monthly,
+    });
+    const dues: unknown[] = [];
+    for (let step = 0; step < 4; step += 1) {
+      const done = await backend.patchCard(boardId, card.id, {
+        updatedProperties: { [STATUS]: 'done' },
+      });
+      card = await backend.card(boardId, done.fields.recurredTo ?? '');
+      dues.push(card.fields.properties[DUE]);
+      expect(card.fields.recurrence).toEqual({ ...monthly, from: '2027-01-31' });
+    }
+    expect(dues).toEqual(
+      ['2027-02-28', '2027-03-31', '2027-04-30', '2027-05-31'].map((from) => ({ from })),
+    );
+    const renamed = await backend.patchCard(boardId, card.id, { title: 'Pay it' });
+    expect(renamed.fields.recurrence).toEqual({ ...monthly, from: '2027-01-31' });
+    const moved = await backend.patchCard(boardId, card.id, {
+      updatedProperties: { [DUE]: { from: '2027-06-01' } },
+    });
+    expect(moved.fields.recurrence).toEqual(monthly);
+    const other = await backend.patchCard(boardId, card.id, {
+      recurrence: { ...monthly, every: 2, from: '2027-01-31' as CalendarDate },
+    });
+    expect(other.fields.recurrence).toEqual({ ...monthly, every: 2 });
   });
 
   it('makes its next card when it is moved to the column of done', async () => {

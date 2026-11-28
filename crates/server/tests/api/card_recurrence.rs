@@ -21,6 +21,12 @@ pub(crate) fn weekly() -> Value {
     json!({"every": 1, "unit": "week", "anchor": "due"})
 }
 
+/// How the next card of one due on the 15th of January 2099 that repeats weekly does:
+/// counted from that due date, the first of its chain.
+fn weekly_from_the_15th() -> Value {
+    json!({"every": 1, "unit": "week", "anchor": "due", "from": "2099-01-15"})
+}
+
 /// A board of the test workspace with a status (`todo`, `done`) and a due date, `done`
 /// its rule of done and `due` the due date it names: its cards may repeat.
 pub(crate) async fn chores(client: &Client) -> String {
@@ -132,7 +138,7 @@ async fn completing_a_card_that_repeats_makes_and_announces_the_next() {
     assert_eq!(told["block"]["title"], "water", "{told}");
 
     let next: Value = th.client.get(&card_path(&next_id)).await.ok_json();
-    assert_eq!(next["recurrence"], weekly(), "{next}");
+    assert_eq!(next["recurrence"], weekly_from_the_15th(), "{next}");
     assert_eq!(
         next["properties"],
         json!({STATUS: "todo", DUE: {"from": "2099-01-22"}}),
@@ -196,7 +202,7 @@ async fn completing_cards_that_repeat_at_once_tells_of_each_next_after_them() {
     }
     for id in &next {
         let made: Value = th.client.get(&card_path(id)).await.ok_json();
-        assert_eq!(made["recurrence"], weekly(), "{made}");
+        assert_eq!(made["recurrence"], weekly_from_the_15th(), "{made}");
         assert_eq!(
             made["properties"][DUE],
             json!({"from": "2099-01-22"}),

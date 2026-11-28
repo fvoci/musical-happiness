@@ -7062,6 +7062,11 @@
             "minimum": 1,
             "type": "integer"
           },
+          "from": {
+            "description": "The due date of the first card of the chain this card is of, which every step\nof a recurrence counted from the due date is counted from: the server hands it\nto the next card, and takes it away when how the card repeats is changed or\nits due date is. None for the first card; a date after the card's due date\ncounts for none.",
+            "format": "date",
+            "type": "string"
+          },
           "unit": {
             "$ref": "#/components/schemas/RecurrenceUnit",
             "description": "The unit."

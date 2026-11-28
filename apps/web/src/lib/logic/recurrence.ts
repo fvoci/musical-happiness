@@ -10,7 +10,9 @@
  * in-memory backend follows with these functions: a month on from the 31st
  * is the last day of a shorter month, each step counted from the first date,
  * so that the 31st of January is the 30th of April three months on and the
- * 31st of May four.
+ * 31st of May four. The next cards of one counted from the due date are a
+ * chain whose steps are all counted from the due date of its first (`from`),
+ * which the server hands on, so that it keeps the ends of months.
  */
 import { wallTimeOf, instantOfWallTime, occurrenceOf } from './date-entry.ts';
 import {
@@ -32,6 +34,12 @@ export interface Recurrence {
   every: number;
   unit: RecurrenceUnit;
   anchor: RecurrenceAnchor;
+  /**
+   * The due date of the first card of the chain, which the steps are counted
+   * from: the server's, handed to each next card and taken away when how the
+   * card repeats or its due date is changed. None for the first card.
+   */
+  from?: CalendarDate;
 }
 
 /** The most units one step may span. */
@@ -42,14 +50,22 @@ export const RECURRENCE_UNITS: readonly RecurrenceUnit[] = ['day', 'week', 'mont
 /** A recurrence as a card's fields hold it; undefined for anything else. */
 export function readRecurrence(value: unknown): Recurrence | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const { every, unit, anchor } = value as Record<string, unknown>;
+  const { every, unit, anchor, from } = value as Record<string, unknown>;
   if (typeof every !== 'number' || !Number.isInteger(every)) return undefined;
   if (every < 1 || every > MOST_PERIODS) return undefined;
   if (!RECURRENCE_UNITS.includes(unit as RecurrenceUnit)) return undefined;
   if (anchor !== 'due' && anchor !== 'done') return undefined;
-  return { every, unit: unit as RecurrenceUnit, anchor };
+  const first = typeof from === 'string' ? parseCalendarDate(from) : undefined;
+  if (from !== undefined && !first) return undefined;
+  return { every, unit: unit as RecurrenceUnit, anchor, ...(first ? { from: first } : {}) };
 }
 
+/** The same rule, as the first card of a chain has it. */
+export function anew({ every, unit, anchor }: Recurrence): Recurrence {
+  return { every, unit, anchor };
+}
+
+/** Whether both repeat alike, wherever their chains are counted from. */
 export function sameRecurrence(first?: Recurrence, second?: Recurrence): boolean {
   return (
     first?.every === second?.every &&
@@ -126,17 +142,23 @@ export function isDoneValue(rule: DoneRule, value: PropertyValue | undefined): b
 }
 
 /**
- * The value of the rule's property the next card starts with, not done: of a
- * choice of one, the first option that is not done; of several, those chosen
- * but the done ones; of a checkbox, none.
+ * The value of the rule's property the next card starts with, not done, from
+ * the completed card's (`current`) and the one it had before it was done
+ * (`before`): of a choice of one, the option it was in if that is one and not
+ * done, else the first that is not done; of several, those chosen but the
+ * done ones; of a checkbox, none.
  */
 export function notDoneValue(
   property: PropertyTemplate,
   rule: DoneRule,
   current: PropertyValue | undefined,
+  before?: PropertyValue,
 ): PropertyValue | undefined {
   const done = (id: string): boolean => rule.kind === 'option' && rule.optionIds.includes(id);
-  if (property.type === 'select') return property.options.find((opt) => !done(opt.id))?.id;
+  if (property.type === 'select') {
+    const was = property.options.find((opt) => opt.id === before && !done(opt.id));
+    return (was ?? property.options.find((opt) => !done(opt.id)))?.id;
+  }
   if (property.type === 'multiSelect') {
     const kept = (Array.isArray(current) ? current : []).filter(
       (id): id is string => typeof id === 'string' && !done(id),
@@ -204,11 +226,44 @@ function firstAfter(
   return undefined;
 }
 
+function storedDue(due: PropertyValue | undefined): Partial<StoredDateValue> {
+  return typeof due === 'object' && !Array.isArray(due) ? due : {};
+}
+
+/** The day a due value begins on in `timeZone`: its first date, or the day of its time. */
+function dayOf(due: PropertyValue | undefined, timeZone: string): CalendarDate | undefined {
+  const { from } = storedDue(due);
+  if (typeof from === 'string') return parseCalendarDate(from);
+  return typeof from === 'number' ? wallTimeOf(from, timeZone).date : undefined;
+}
+
+/** What the steps after a card due `old` count from: its chain's first, unless that is after it. */
+function originOf(recurrence: Recurrence, old: CalendarDate): CalendarDate {
+  return recurrence.from !== undefined && recurrence.from <= old ? recurrence.from : old;
+}
+
+/**
+ * How the next card repeats, after a card due `due` (in `timeZone`'s days),
+ * as the server hands it on: counted from the due date, from the first date
+ * of the chain, `due`'s own for its first card; from the day it is done, from
+ * nothing.
+ */
+export function handedOn(
+  recurrence: Recurrence,
+  due: PropertyValue | undefined,
+  timeZone: string,
+): Recurrence {
+  const old = recurrence.anchor === 'due' ? dayOf(due, timeZone) : undefined;
+  return { ...anew(recurrence), ...(old ? { from: originOf(recurrence, old) } : {}) };
+}
+
 /**
  * The due value of the next card, as the server gives it: of the kind the
  * completed card's is (a date, a range, a time), moved on as the anchor says;
- * a range keeps its length, a time its time of day in `timeZone`. Without a
- * due date, one step after today. Undefined past the year 9999.
+ * a range keeps its length, a time its time of day in `timeZone`. Counted from
+ * the due date, it is after the completed card's too, a whole number of steps
+ * after the first date of the chain. Without a due date, one step after
+ * today. Undefined past the year 9999.
  */
 export function nextDueValue(
   recurrence: Recurrence,
@@ -217,12 +272,11 @@ export function nextDueValue(
   timeZone: string,
 ): StoredDateValue | undefined {
   const today = dateOfInstant(now, timeZone);
-  const nextDate = (from: CalendarDate): CalendarDate | undefined =>
+  const nextDate = (old: CalendarDate): CalendarDate | undefined =>
     recurrence.anchor === 'due'
-      ? firstAfter(recurrence, from, today)
+      ? firstAfter(recurrence, originOf(recurrence, old), today > old ? today : old)
       : stepsAfter(today, recurrence, 1);
-  const stored =
-    typeof due === 'object' && !Array.isArray(due) ? (due as Partial<StoredDateValue>) : {};
+  const stored = storedDue(due);
   if (typeof stored.from === 'string') {
     const old = parseCalendarDate(stored.from);
     const next = old && nextDate(old);

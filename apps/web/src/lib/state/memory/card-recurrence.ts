@@ -5,13 +5,17 @@
  * but for a copy, which drops it); the next card is named by the server
  * alone (`recurredTo`); the change that makes a card that repeats done makes
  * its next one, not done, due one period on in the completer's day, with its
- * tasks unchecked, and hands it the recurrence. A template does not repeat.
+ * tasks unchecked, and hands it the recurrence with the first date of its
+ * chain, which a change of how the card repeats or of its due date takes
+ * away. A template does not repeat.
  */
 import type { DocNode } from '../../editor/schema.ts';
 import { valuesOfCopy } from '../../logic/dependencies.ts';
 import {
+  anew,
   boardLetsCardsRepeat,
   duePropertyOf,
+  handedOn,
   isDoneValue,
   nextDueValue,
   notDoneValue,
@@ -60,6 +64,21 @@ export function settleNewCard(board: Container, card: StoredCard, quiet: boolean
 export interface NextCard {
   id: string;
   recurrence: Recurrence;
+  /** The value of the rule's property before the card was done. */
+  before?: PropertyValue;
+}
+
+/**
+ * How a changed card repeats (`sent`), as for the first date of its chain:
+ * the one it had while it repeats as it did, the one a change gives back to a
+ * card that did not repeat (an undone completion), none once how it repeats
+ * or its due date is changed.
+ */
+function chained(had: Recurrence | undefined, sent: Recurrence, dueChanged: boolean): Recurrence {
+  if (dueChanged) return anew(sent);
+  if (!had) return sent;
+  if (!sameRecurrence(had, sent)) return anew(sent);
+  return { ...anew(sent), ...(had.from ? { from: had.from } : {}) };
 }
 
 /**
@@ -76,15 +95,22 @@ export function settleCardChange(
 ): NextCard | undefined {
   if (before.fields.recurredTo) after.fields.recurredTo = before.fields.recurredTo;
   else delete after.fields.recurredTo;
-  const recurrence = cardRecurrence(after);
-  if (!recurrence) return undefined;
-  if (!sameRecurrence(cardRecurrence(before), recurrence)) {
+  const sent = cardRecurrence(after);
+  if (!sent) return undefined;
+  const had = cardRecurrence(before);
+  if (!sameRecurrence(had, sent)) {
     if (!boardLetsCardsRepeat(board)) {
       refuseOrDrop(after, false);
       return undefined;
     }
     delete after.fields.recurredTo;
   }
+  const due = duePropertyOf(board);
+  const dueChanged =
+    due !== undefined &&
+    JSON.stringify(cardProperty(before, due.id)) !== JSON.stringify(cardProperty(after, due.id));
+  const recurrence = chained(had, sent, dueChanged);
+  after.fields.recurrence = recurrence;
   const rule = board.doneWhen;
   if (after.fields.isTemplate || !rule || !boardLetsCardsRepeat(board)) return undefined;
   const done = (card: StoredCard): boolean =>
@@ -93,7 +119,7 @@ export function settleCardChange(
   const id = ctx.world.newId();
   delete after.fields.recurrence;
   after.fields.recurredTo = id;
-  return { id, recurrence };
+  return { id, recurrence, before: cardProperty(before, rule.propertyId) };
 }
 
 function unchecked(node: DocNode): DocNode {
@@ -123,14 +149,17 @@ export function makeNextCard(
   );
   const values = valuesOfCopy(completed, board.cardProperties, onBoard);
   /** The values the next card starts with anew: none where it is undefined. */
-  const anew: Record<string, PropertyValue | undefined> = {};
+  const fresh: Record<string, PropertyValue | undefined> = {};
   const rule = board.doneWhen;
   const ruled = rule && board.cardProperties.find((prop) => prop.id === rule.propertyId);
-  if (rule && ruled) anew[rule.propertyId] = notDoneValue(ruled, rule, values[rule.propertyId]);
+  if (rule && ruled) {
+    fresh[rule.propertyId] = notDoneValue(ruled, rule, values[rule.propertyId], next.before);
+  }
   const due = duePropertyOf(board);
-  if (due) anew[due.id] = nextDueValue(next.recurrence, values[due.id], world.now(), timeZone);
+  if (due) fresh[due.id] = nextDueValue(next.recurrence, values[due.id], world.now(), timeZone);
+  const recurrence = handedOn(next.recurrence, due && values[due.id], timeZone);
   const properties = Object.fromEntries(
-    Object.entries({ ...values, ...anew }).filter(
+    Object.entries({ ...values, ...fresh }).filter(
       (entry): entry is [string, PropertyValue] => entry[1] !== undefined,
     ),
   );
@@ -141,7 +170,7 @@ export function makeNextCard(
     icon: completed.fields.icon ?? '',
     isTemplate: false,
     properties,
-    recurrence: copy(next.recurrence),
+    recurrence,
   };
   block.body = completed.body ? unchecked(copy(completed.body)) : null;
   numberBlock(world, block);

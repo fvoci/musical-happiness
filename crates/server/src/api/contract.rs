@@ -317,7 +317,7 @@ const SCHEMAS: &[(&str, Members)] = &[
             "recurredTo",
         ]),
     ),
-    ("Recurrence", Members::All),
+    ("Recurrence", Members::AllBut(&["from"])),
     ("RecurrenceAnchor", Members::AsWritten),
     ("RecurrenceUnit", Members::AsWritten),
     ("CardEvent", Members::All),

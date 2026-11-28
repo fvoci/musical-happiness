@@ -11,11 +11,13 @@
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
+    anew,
     choiceOf,
     MOST_PERIODS,
     RECURRENCE_CHOICES,
     RECURRENCE_UNITS,
     recurrenceOfChoice,
+    sameRecurrence,
     type Recurrence,
     type RecurrenceAnchor,
     type RecurrenceChoice,
@@ -54,11 +56,12 @@
     const picked = (event.currentTarget as HTMLSelectElement).value as RecurrenceChoice;
     ownOpen = picked === 'custom';
     const next = recurrenceOfChoice(picked, recurrence);
-    if (JSON.stringify(next) !== JSON.stringify(recurrence)) onChange(next);
+    if (!sameRecurrence(next, recurrence)) onChange(next);
   }
 
+  /** Repeating otherwise, the card starts a chain of its own. */
   function change(part: Partial<Recurrence>): void {
-    if (recurrence) onChange({ ...recurrence, ...part });
+    if (recurrence) onChange({ ...anew(recurrence), ...part });
   }
 
   function setEvery(event: Event): void {

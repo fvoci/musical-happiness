@@ -10381,6 +10381,15 @@ export interface components {
              * @description How many units apart: from 1 to 365.
              */
             every: number;
+            /**
+             * Format: date
+             * @description The due date of the first card of the chain this card is of, which every step
+             *     of a recurrence counted from the due date is counted from: the server hands it
+             *     to the next card, and takes it away when how the card repeats is changed or
+             *     its due date is. None for the first card; a date after the card's due date
+             *     counts for none.
+             */
+            from?: string;
             /** @description The unit. */
             unit: components["schemas"]["RecurrenceUnit"];
         };

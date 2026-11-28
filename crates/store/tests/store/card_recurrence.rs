@@ -19,6 +19,9 @@ use crate::common::{self, TestStore};
 /// 2027-01-15 12:00 UTC: the 16th already at UTC+14.
 const NOON: i64 = 1_800_014_400_000;
 
+/// 2024-01-01 12:00 UTC, before every due date of the chains.
+const NEW_YEAR: i64 = 1_704_110_400_000;
+
 const STATUS: &str = "status";
 const DUE: &str = "due";
 const TODO: &str = "todo";
@@ -141,8 +144,32 @@ async fn block(store: &Store, id: &str) -> Block {
 }
 
 fn at_noon(store: &Store) {
-    let now = Arc::new(AtomicI64::new(NOON));
+    at(store, NOON);
+}
+
+fn at(store: &Store, millis: i64) {
+    let now = Arc::new(AtomicI64::new(millis));
     store.clock().set_source(move || now.load(Ordering::SeqCst));
+}
+
+/// A change of the due date to `day` and of how the card repeats to every `unit`.
+fn due_and_repeat(day: &str, unit: &str) -> BlockPatch {
+    let mut patch = BlockPatch::default();
+    patch
+        .property_changes
+        .updated
+        .insert(DUE.to_owned(), json!({"from": day}));
+    patch.updated_fields.insert(
+        "recurrence".to_owned(),
+        json!({"every": 1, "unit": unit, "anchor": "due"}),
+    );
+    patch
+}
+
+/// The card the completed one names as its next.
+async fn next_of(store: &Store, completed: &Block) -> Block {
+    let id = completed.fields["recurredTo"].as_str().expect("named");
+    block(store, id).await
 }
 
 #[tokio::test]
@@ -165,12 +192,16 @@ async fn completing_a_card_that_repeats_makes_the_next_one() {
     assert_eq!(next.parent_id, card.parent_id);
     assert_eq!(next.created_by, user);
     assert_eq!(next.number, Some(2), "a card of its own");
-    assert_eq!(next.fields["recurrence"], weekly());
+    assert_eq!(
+        next.fields["recurrence"],
+        json!({"every": 1, "unit": "week", "anchor": "due", "from": "2027-01-15"}),
+        "counted from the due date of the first card"
+    );
     assert_eq!(next.fields.get("recurredTo"), None);
     assert_eq!(
         next.fields["properties"],
-        json!({STATUS: TODO, DUE: {"from": "2027-01-22"}}),
-        "not done, due a week on"
+        json!({STATUS: DOING, DUE: {"from": "2027-01-22"}}),
+        "as it was before it was done, due a week on"
     );
     let body = next.body.as_ref().expect("the body is copied");
     assert_eq!((body.tasks().total, body.tasks().done), (1, 0));
@@ -194,6 +225,123 @@ async fn completing_a_card_that_repeats_makes_the_next_one() {
             .collect::<Vec<_>>(),
         [(CardEventKind::Created, Some(user.as_str()))]
     );
+    test.teardown().await;
+}
+
+/// The next cards of a chain are counted from the due date of its first: a chain from
+/// the 31st keeps the ends of the months, and one from the 29th of February comes back
+/// to it in a leap year.
+#[tokio::test]
+async fn a_chain_of_next_cards_keeps_the_end_of_the_month_and_the_29th_of_february() {
+    let test = common::setup().await;
+    at(&test, NEW_YEAR);
+    let user = common::user(&test, "gardener").await;
+    let board_id = board(&test, &user).await;
+    for (unit, first, dues) in [
+        (
+            "month",
+            "2026-01-31",
+            ["2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31"],
+        ),
+        (
+            "year",
+            "2024-02-29",
+            ["2025-02-28", "2026-02-28", "2027-02-28", "2028-02-29"],
+        ),
+    ] {
+        let card = chore(&test, &board_id, &user).await;
+        let mut card = set(&test, &card, &due_and_repeat(first, unit), &user).await;
+        assert_eq!(card.fields["recurrence"].get("from"), None, "the first");
+        for due in dues {
+            let completed = set(&test, &card, &set_status(DONE), &user).await;
+            card = next_of(&test, &completed).await;
+            assert_eq!(
+                card.fields["properties"][DUE],
+                json!({"from": due}),
+                "{unit}"
+            );
+            assert_eq!(card.fields["recurrence"]["from"], json!(first));
+        }
+    }
+    test.teardown().await;
+}
+
+/// The first date of a chain stays through any change but of how the card repeats or
+/// of its due date, and an undone completion gives it back.
+#[tokio::test]
+async fn a_chain_starts_anew_when_how_the_card_repeats_or_its_due_date_changes() {
+    let test = common::setup().await;
+    at_noon(&test);
+    let user = common::user(&test, "gardener").await;
+    let board_id = board(&test, &user).await;
+    let first = chore(&test, &board_id, &user).await;
+    let first = set(&test, &first, &set_status(DONE), &user).await;
+    let second = next_of(&test, &first).await;
+    let chained = json!({"every": 1, "unit": "week", "anchor": "due", "from": "2027-01-15"});
+    assert_eq!(second.fields["recurrence"], chained);
+
+    let mut renamed = BlockPatch::default();
+    renamed.title = Some("water the ferns".to_owned());
+    let mut same_rule = BlockPatch::default();
+    same_rule
+        .updated_fields
+        .insert("recurrence".to_owned(), weekly());
+    for patch in [renamed, same_rule] {
+        let kept = set(&test, &second, &patch, &user).await;
+        assert_eq!(kept.fields["recurrence"], chained, "{patch:?}");
+    }
+
+    let done = set(&test, &second, &set_status(DONE), &user).await;
+    let third = next_of(&test, &done).await;
+    let mut undo = set_status(DOING);
+    undo.updated_fields
+        .insert("recurrence".to_owned(), chained.clone());
+    let undone = set(&test, &done, &undo, &user).await;
+    assert_eq!(undone.fields["recurrence"], chained, "given back");
+
+    let mut moved = BlockPatch::default();
+    moved
+        .property_changes
+        .updated
+        .insert(DUE.to_owned(), json!({"from": "2027-02-01"}));
+    let moved = set(&test, &undone, &moved, &user).await;
+    assert_eq!(moved.fields["recurrence"], weekly(), "a new due date");
+    let mut fortnightly = BlockPatch::default();
+    fortnightly.updated_fields.insert(
+        "recurrence".to_owned(),
+        json!({"every": 2, "unit": "week", "anchor": "due", "from": "2027-01-15"}),
+    );
+    let changed = set(&test, &third, &fortnightly, &user).await;
+    assert_eq!(
+        changed.fields["recurrence"],
+        json!({"every": 2, "unit": "week", "anchor": "due"}),
+        "a new rule"
+    );
+    test.teardown().await;
+}
+
+/// A card done already makes no other next card, whatever else is changed on it.
+#[tokio::test]
+async fn a_done_card_changed_again_makes_no_other_next_card() {
+    let test = common::setup().await;
+    at_noon(&test);
+    let user = common::user(&test, "gardener").await;
+    let board_id = board(&test, &user).await;
+    let card = chore(&test, &board_id, &user).await;
+    let completed = set(&test, &card, &set_status(DONE), &user).await;
+    let mut renamed = BlockPatch::default();
+    renamed.title = Some("water the ferns".to_owned());
+    let mut moved = BlockPatch::default();
+    moved
+        .property_changes
+        .updated
+        .insert(DUE.to_owned(), json!({"from": "2027-02-01"}));
+    for patch in [renamed, set_status(DONE), moved] {
+        let changed = set(&test, &completed, &patch, &user).await;
+        assert_eq!(changed.fields["recurredTo"], completed.fields["recurredTo"]);
+        assert_eq!(changed.fields.get("recurrence"), None, "{patch:?}");
+    }
+    assert_eq!(cards(&test, &board_id).await.len(), 2);
     test.teardown().await;
 }
 

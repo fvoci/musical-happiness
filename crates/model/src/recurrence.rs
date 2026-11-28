@@ -7,6 +7,11 @@
 //! of the next (`recurredTo`), which the server alone writes. Setting how it repeats
 //! again (undoing the completion sends it back) clears that link, so a card completed,
 //! reopened and completed again makes one next card.
+//!
+//! Counted from the due date, the next cards of one card are a chain whose steps are
+//! all counted from the due date of its first card ([`Recurrence::from`]), so that a
+//! chain from the 31st keeps the ends of months, and one from the 29th of February
+//! comes back to it in a leap year.
 
 use jiff::civil::Date;
 use jiff::{Span, Timestamp, Unit};
@@ -41,6 +46,18 @@ pub struct Recurrence {
     pub unit: RecurrenceUnit,
     /// What the next due date is counted from.
     pub anchor: RecurrenceAnchor,
+    /// The due date of the first card of the chain this card is of, which every step
+    /// of a recurrence counted from the due date is counted from: the server hands it
+    /// to the next card, and takes it away when how the card repeats is changed or
+    /// its due date is. None for the first card; a date after the card's due date
+    /// counts for none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "date_text_of"
+    )]
+    #[schema(value_type = Option<String>, format = Date, nullable = false)]
+    pub from: Option<Date>,
 }
 
 /// The unit a card repeats by.
@@ -76,26 +93,49 @@ struct RecurrenceShape {
     every: u16,
     unit: RecurrenceUnit,
     anchor: RecurrenceAnchor,
+    #[serde(default)]
+    from: Option<String>,
 }
 
-/// The error of a [`Recurrence`] out of its range.
+/// Why JSON is no [`Recurrence`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("a card repeats every 1 to 365 days, weeks, months or years")]
-pub struct RecurrenceOutOfRange;
+pub enum InvalidRecurrence {
+    /// `every` is out of its range.
+    #[error("a card repeats every 1 to 365 days, weeks, months or years")]
+    OutOfRange,
+    /// `from` is no day of the calendar.
+    #[error("a chain of cards that repeat counts from a calendar date, YYYY-MM-DD")]
+    NotADate,
+}
 
 impl TryFrom<RecurrenceShape> for Recurrence {
-    type Error = RecurrenceOutOfRange;
+    type Error = InvalidRecurrence;
 
     fn try_from(shape: RecurrenceShape) -> Result<Self, Self::Error> {
-        if (1..=MOST_PERIODS).contains(&shape.every) {
-            Ok(Self {
-                every: shape.every,
-                unit: shape.unit,
-                anchor: shape.anchor,
-            })
-        } else {
-            Err(RecurrenceOutOfRange)
+        if !(1..=MOST_PERIODS).contains(&shape.every) {
+            return Err(InvalidRecurrence::OutOfRange);
         }
+        let from = match shape.from {
+            Some(text) if is_calendar_date(&text) => {
+                Some(text.parse().map_err(|_| InvalidRecurrence::NotADate)?)
+            }
+            Some(_) => return Err(InvalidRecurrence::NotADate),
+            None => None,
+        };
+        Ok(Self {
+            every: shape.every,
+            unit: shape.unit,
+            anchor: shape.anchor,
+            from,
+        })
+    }
+}
+
+/// Writes the first date of a chain as a date value does.
+fn date_text_of<S: serde::Serializer>(from: &Option<Date>, out: S) -> Result<S::Ok, S::Error> {
+    match from {
+        Some(date) => out.collect_str(date),
+        None => out.serialize_none(),
     }
 }
 
@@ -112,11 +152,45 @@ impl Recurrence {
     /// The recurrence as a card's fields hold it.
     #[must_use]
     pub fn to_value(self) -> Value {
-        json!({
+        let mut value = json!({
             "every": self.every,
             "unit": self.unit,
             "anchor": self.anchor,
-        })
+        });
+        if let Some(from) = self.from {
+            value["from"] = Value::from(from.to_string());
+        }
+        value
+    }
+
+    /// Whether `other` repeats as this does, wherever its chain is counted from.
+    #[must_use]
+    pub fn same_rule(self, other: Self) -> bool {
+        (self.every, self.unit, self.anchor) == (other.every, other.unit, other.anchor)
+    }
+
+    /// The same rule, as the first card of a chain has it.
+    #[must_use]
+    pub const fn anew(self) -> Self {
+        Self { from: None, ..self }
+    }
+
+    /// How the next card repeats, after a card due `due` (in `time_zone`'s days):
+    /// counted from the due date, from the first date of the chain, which is `due`'s
+    /// own for the first card of one; counted from the day it is done, from nothing.
+    #[must_use]
+    pub fn handed_on(self, due: Option<&Value>, time_zone: &TimeZone) -> Self {
+        let from = match self.anchor {
+            RecurrenceAnchor::Due => day_of(due, &zone_of(time_zone)).map(|old| self.origin(old)),
+            RecurrenceAnchor::Done => None,
+        };
+        Self { from, ..self }
+    }
+
+    /// The date the steps of a card due `old` are counted from: its chain's first,
+    /// unless that is after `old`, which counts for none.
+    fn origin(self, old: Date) -> Date {
+        self.from.filter(|from| *from <= old).unwrap_or(old)
     }
 
     /// `count` steps of the recurrence.
@@ -163,9 +237,11 @@ impl Recurrence {
     /// The due value of the next card: of the kind the completed card's is (a date, a
     /// range of dates, a time), moved on as [`RecurrenceAnchor`] says; a range keeps its
     /// length, a time its time of day in `time_zone`. Today and the day of a time are
-    /// those of `time_zone`, UTC where the settings leave the zone to the device. A
-    /// card without a due date has its next one step after today. `None` past the
-    /// years a date may have.
+    /// those of `time_zone`, UTC where the settings leave the zone to the device.
+    /// Counted from the due date, it is after the completed card's too, a whole number
+    /// of steps after the first date of the chain ([`Recurrence::from`]). A card
+    /// without a due date has its next one step after today. `None` past the years a
+    /// date may have.
     #[must_use]
     pub fn next_due(
         self,
@@ -173,15 +249,12 @@ impl Recurrence {
         now_millis: i64,
         time_zone: &TimeZone,
     ) -> Option<Value> {
-        let zone = time_zone
-            .name()
-            .and_then(|name| jiff::tz::TimeZoneDatabase::bundled().get(name).ok())
-            .unwrap_or(jiff::tz::TimeZone::UTC);
+        let zone = zone_of(time_zone);
         let today = zone
             .to_datetime(Timestamp::from_millisecond(now_millis).ok()?)
             .date();
-        let next_date = |from: Date| match self.anchor {
-            RecurrenceAnchor::Due => self.first_after(from, today),
+        let next_date = |old: Date| match self.anchor {
+            RecurrenceAnchor::Due => self.first_after(self.origin(old), today.max(old)),
             RecurrenceAnchor::Done => today.checked_add(self.periods(1)?).ok(),
         };
         let due = due.and_then(Value::as_object);
@@ -222,6 +295,27 @@ impl Recurrence {
     }
 }
 
+/// The zone of the settings' time zone: UTC where they leave it to the device.
+fn zone_of(time_zone: &TimeZone) -> jiff::tz::TimeZone {
+    time_zone
+        .name()
+        .and_then(|name| jiff::tz::TimeZoneDatabase::bundled().get(name).ok())
+        .unwrap_or(jiff::tz::TimeZone::UTC)
+}
+
+/// The day a due value begins on in `zone`: its first date, or the day of its time.
+fn day_of(due: Option<&Value>, zone: &jiff::tz::TimeZone) -> Option<Date> {
+    let from = due.and_then(Value::as_object)?.get("from")?;
+    if let Some(day) = from.as_str() {
+        return day.parse().ok();
+    }
+    let millis = from.as_i64()?;
+    Some(
+        zone.to_datetime(Timestamp::from_millisecond(millis).ok()?)
+            .date(),
+    )
+}
+
 /// A date as a date value writes it, if it is one a date value may have.
 fn date_text(date: Date) -> Option<String> {
     let text = date.to_string();
@@ -244,22 +338,32 @@ pub(crate) fn is_recurred_to_value(value: &Value) -> bool {
 }
 
 /// The value of the property of the rule of done (`definition`) that the next card
-/// starts with, not done: for a choice of one, the first option that is not done; for
-/// a choice of several, what was chosen but the options that are done; for a checkbox,
-/// none. `None` for no value.
+/// starts with, not done, from the completed card's (`current`) and the one it had
+/// before it was done (`before`): for a choice of one, the option it was in if that is
+/// one of the property's and not done, else the first that is not done; for a choice
+/// of several, what was chosen but the options that are done; for a checkbox, none.
+/// `None` for no value.
 #[must_use]
 pub fn not_done_value(
     definition: &CardPropertyDefinition,
     done_when: &DoneWhen,
     current: Option<&Value>,
+    before: Option<&Value>,
 ) -> Option<Value> {
     let is_done = |id: &str| done_when.option_ids.iter().any(|done| done == id);
+    let open = |id: &str| !is_done(id) && definition.options.iter().any(|option| option.id == id);
     match definition.property_type {
-        PropertyType::Select => definition
-            .options
-            .iter()
-            .find(|option| !is_done(&option.id))
-            .map(|option| Value::from(option.id.as_str())),
+        PropertyType::Select => before
+            .and_then(Value::as_str)
+            .filter(|id| open(id))
+            .or_else(|| {
+                definition
+                    .options
+                    .iter()
+                    .map(|option| option.id.as_str())
+                    .find(|id| !is_done(id))
+            })
+            .map(Value::from),
         PropertyType::MultiSelect => {
             let kept: Vec<Value> = current
                 .and_then(Value::as_array)
@@ -308,6 +412,7 @@ mod tests {
             every,
             unit,
             anchor,
+            from: None,
         }
     }
 
@@ -378,6 +483,70 @@ mod tests {
             next(monthly, &due, "2026-04-29"),
             json!({"from": "2026-04-30"})
         );
+    }
+
+    /// The due dates of the `count` cards after one due `first`, each completed
+    /// `early` days before it is due.
+    fn chain(recurrence: Recurrence, first: &str, count: usize, early: i64) -> Vec<String> {
+        let (mut recurrence, mut due) = (recurrence, json!({"from": first}));
+        let mut dues = Vec::new();
+        for _ in 0..count {
+            let day: Date = due["from"]
+                .as_str()
+                .expect("a date")
+                .parse()
+                .expect("a date");
+            let today = day.checked_sub(Span::new().days(early)).expect("a day");
+            let following = recurrence.handed_on(Some(&due), &utc());
+            due = next(recurrence, &due, &today.to_string());
+            recurrence = following;
+            dues.push(due["from"].as_str().expect("a date").to_owned());
+        }
+        dues
+    }
+
+    #[test]
+    fn a_chain_keeps_the_end_of_the_month_and_the_29th_of_february() {
+        use RecurrenceAnchor::Due;
+        use RecurrenceUnit::{Month, Year};
+        for early in [0, 3] {
+            assert_eq!(
+                chain(every(1, Month, Due), "2026-01-31", 4, early),
+                ["2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31"],
+                "completed {early} days early"
+            );
+            assert_eq!(
+                chain(every(1, Year, Due), "2024-02-29", 4, early),
+                ["2025-02-28", "2026-02-28", "2027-02-28", "2028-02-29"],
+                "completed {early} days early"
+            );
+        }
+        let monthly = every(1, Month, Due);
+        let second = monthly.handed_on(Some(&json!({"from": "2026-01-31"})), &utc());
+        assert_eq!(second.from, Some(jiff::civil::date(2026, 1, 31)));
+        assert_eq!(
+            second.handed_on(Some(&json!({"from": "2026-02-28"})), &utc()),
+            second,
+            "the first date of the chain stays"
+        );
+        assert_eq!(
+            every(1, Month, RecurrenceAnchor::Done)
+                .handed_on(Some(&json!({"from": "2026-01-31"})), &utc())
+                .from,
+            None,
+            "counted from the day it is done, a chain counts from nothing"
+        );
+        // A first date after the due date counts for none: the due date's own is.
+        let ahead = Recurrence {
+            from: Some(jiff::civil::date(2026, 6, 30)),
+            ..monthly
+        };
+        let due = json!({"from": "2026-01-31"});
+        assert_eq!(
+            next(ahead, &due, "2026-01-31"),
+            json!({"from": "2026-02-28"})
+        );
+        assert_eq!(ahead.handed_on(Some(&due), &utc()), second);
     }
 
     #[test]
@@ -509,6 +678,24 @@ mod tests {
         }
         let weekly = every(1, RecurrenceUnit::Week, RecurrenceAnchor::Due);
         assert_eq!(read(weekly.to_value()), Some(weekly));
+        let chained = Recurrence {
+            from: Some(jiff::civil::date(2026, 1, 31)),
+            ..weekly
+        };
+        let written = json!({"every": 1, "unit": "week", "anchor": "due", "from": "2026-01-31"});
+        assert_eq!(chained.to_value(), written);
+        assert_eq!(serde_json::to_value(chained).ok(), Some(written.clone()));
+        assert_eq!(read(written), Some(chained));
+        assert_eq!(serde_json::to_value(weekly).ok(), Some(weekly.to_value()));
+        for refused in ["2026-02-30", "0000-01-01", "2026-1-31", "yesterday"] {
+            let value = json!({"every": 1, "unit": "week", "anchor": "due", "from": refused});
+            assert_eq!(read(value), None, "{refused}");
+        }
+        assert!(
+            chained.same_rule(weekly)
+                && !chained.same_rule(every(2, RecurrenceUnit::Week, RecurrenceAnchor::Due))
+        );
+        assert_eq!(chained.anew(), weekly);
     }
 
     #[test]
@@ -529,21 +716,39 @@ mod tests {
             option_ids: vec![done.to_owned()],
         };
         assert_eq!(
-            not_done_value(&status, &rule, Some(&json!(done))),
+            not_done_value(&status, &rule, Some(&json!(done)), None),
             Some(json!(todo)),
             "the first option that is not done"
         );
+        assert_eq!(
+            not_done_value(&status, &rule, Some(&json!(done)), Some(&json!(doing))),
+            Some(json!(doing)),
+            "the option it was in before it was done"
+        );
+        for gone in [json!("o-gone"), json!(done), json!(7)] {
+            assert_eq!(
+                not_done_value(&status, &rule, Some(&json!(done)), Some(&gone)),
+                Some(json!(todo)),
+                "{gone} is no option to go back to"
+            );
+        }
         let tags = CardPropertyDefinition {
             property_type: PropertyType::MultiSelect,
             ..status
         };
         assert_eq!(
-            not_done_value(&tags, &rule, Some(&json!([doing, done]))),
+            not_done_value(&tags, &rule, Some(&json!([doing, done])), None),
             Some(json!([doing]))
         );
-        assert_eq!(not_done_value(&tags, &rule, Some(&json!([done]))), None);
+        assert_eq!(
+            not_done_value(&tags, &rule, Some(&json!([done])), None),
+            None
+        );
         let check = CardPropertyDefinition::new("check", "Done", PropertyType::Checkbox);
-        assert_eq!(not_done_value(&check, &rule, Some(&json!("true"))), None);
+        assert_eq!(
+            not_done_value(&check, &rule, Some(&json!("true")), None),
+            None
+        );
     }
 
     #[test]

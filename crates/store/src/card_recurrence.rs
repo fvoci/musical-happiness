@@ -15,7 +15,10 @@
 //! to a new card and keeps the new card's identifier: the next card has the completed
 //! one's title, icon, parent card, values and body, its value of the rule of done set
 //! back ([`fvoci_model::not_done_value`]), its task items unchecked and its due date
-//! moved on in the completer's time zone. It is made by the completer, and nobody is
+//! moved on in the completer's time zone, counted from the first date of the chain
+//! (`Recurrence::from`), which it is handed too. A change of how a card repeats or of
+//! its due date starts a chain anew; a write that gives a recurrence back to a card
+//! that has none (an undone completion) gives back its chain. It is made by the completer, and nobody is
 //! told of whom it names: they were told of the card it follows. Its making is a line
 //! of its activity (`created`). A template does not repeat; the next card is not made
 //! where the board has lost its rules since.
@@ -42,6 +45,8 @@ pub(crate) struct NextCard {
     id: String,
     /// How it repeats: as the completed card did.
     recurrence: Recurrence,
+    /// The value of the property of the rule of done before the card was done.
+    before: Option<Value>,
     /// The board of both, as the write read it.
     board: Container,
 }
@@ -138,7 +143,8 @@ pub(crate) async fn settle_change(
         return Ok(None);
     };
     let board = containers::get_container(scope, &block.container_id).await?;
-    if Recurrence::of_fields(&existing.fields) != Some(recurrence) {
+    let had = Recurrence::of_fields(&existing.fields);
+    if had.is_none_or(|had| !had.same_rule(recurrence)) {
         if !repeats_on(&board) {
             refuse_or_drop(block, telling)?;
             return Ok(None);
@@ -146,6 +152,13 @@ pub(crate) async fn settle_change(
         // Set again, it repeats anew: whatever card it made before is another's.
         block.fields.remove(RECURRED_TO_FIELD);
     }
+    let due_changed = board
+        .effective_due_date_property_id()
+        .is_some_and(|due| values_of(existing).get(due) != values_of(block).get(due));
+    let recurrence = chained(had, recurrence, due_changed);
+    block
+        .fields
+        .insert(RECURRENCE_FIELD.to_owned(), recurrence.to_value());
     if block.is_template() || !repeats_on(&board) {
         return Ok(None);
     }
@@ -159,6 +172,10 @@ pub(crate) async fn settle_change(
     if done(existing) || !done(block) {
         return Ok(None);
     }
+    let before = board
+        .done_when
+        .as_ref()
+        .and_then(|rule| values_of(existing).get(&rule.property_id).cloned());
     let id = new_id();
     block.fields.remove(RECURRENCE_FIELD);
     block
@@ -167,8 +184,25 @@ pub(crate) async fn settle_change(
     Ok(Some(NextCard {
         id,
         recurrence,
+        before,
         board,
     }))
+}
+
+/// How a changed card repeats (`sent`), as for the first date of its chain: the one it
+/// had while it repeats as it did (`had`), the one a write gives back to a card that
+/// did not repeat (an undone completion), and none once how it repeats or its due
+/// date is changed.
+fn chained(had: Option<Recurrence>, sent: Recurrence, due_changed: bool) -> Recurrence {
+    match had {
+        _ if due_changed => sent.anew(),
+        Some(had) if had.same_rule(sent) => Recurrence {
+            from: had.from,
+            ..sent
+        },
+        Some(_) => sent.anew(),
+        None => sent,
+    }
 }
 
 /// Makes the card that follows `completed`, as [`settle_change`] planned it, by
@@ -186,6 +220,7 @@ pub(crate) async fn make_next(
     let NextCard {
         id,
         recurrence,
+        before,
         board,
     } = next;
     let time_zone = time_zone_of(scope, user_id).await?;
@@ -196,12 +231,15 @@ pub(crate) async fn make_next(
             .iter()
             .find(|definition| definition.id == rule.property_id)
     {
-        match not_done_value(definition, rule, values.get(&rule.property_id)) {
+        let current = values.get(&rule.property_id);
+        match not_done_value(definition, rule, current, before.as_ref()) {
             Some(value) => values.insert(rule.property_id.clone(), value),
             None => values.remove(&rule.property_id),
         };
     }
+    let mut handed = recurrence.anew();
     if let Some(due) = board.effective_due_date_property_id() {
+        handed = recurrence.handed_on(values.get(due), &time_zone);
         match recurrence.next_due(values.get(due), scope.now_millis(), &time_zone) {
             Some(value) => values.insert(due.to_owned(), value),
             None => values.remove(due),
@@ -212,7 +250,7 @@ pub(crate) async fn make_next(
         fields.insert("icon".to_owned(), icon.clone());
     }
     fields.insert("properties".to_owned(), Value::Object(values));
-    fields.insert(RECURRENCE_FIELD.to_owned(), recurrence.to_value());
+    fields.insert(RECURRENCE_FIELD.to_owned(), handed.to_value());
     let mut cards = [Block {
         id,
         container_id: completed.container_id.clone(),

@@ -222,8 +222,8 @@ pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, point
 pub use public_containers::PublicContainers;
 pub use public_link::{PublicLink, PublicLinkChange};
 pub use recurrence::{
-    MOST_PERIODS, RECURRED_TO_FIELD, RECURRENCE_FIELD, Recurrence, RecurrenceAnchor,
-    RecurrenceOutOfRange, RecurrenceUnit, not_done_value, with_tasks_unchecked,
+    InvalidRecurrence, MOST_PERIODS, RECURRED_TO_FIELD, RECURRENCE_FIELD, Recurrence,
+    RecurrenceAnchor, RecurrenceUnit, not_done_value, with_tasks_unchecked,
 };
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
