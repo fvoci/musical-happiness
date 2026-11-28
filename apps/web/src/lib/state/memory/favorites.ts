@@ -109,12 +109,11 @@ export class MemoryFavorites implements Favorites {
     await this.#enter();
     checkWorkspace(this.#asker.world, this.#asker.userId, workspaceId);
     const ids = this.#ids(workspaceId);
-    if (ids.includes(targetId)) {
-      this.#keep(
-        workspaceId,
-        ids.filter((id) => id !== targetId),
-      );
-    }
+    if (!ids.includes(targetId)) fail(404, 'favorite not found');
+    this.#keep(
+      workspaceId,
+      ids.filter((id) => id !== targetId),
+    );
   }
 
   async reorder(workspaceId: string, targetIds: readonly string[]): Promise<void> {

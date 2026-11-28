@@ -91,15 +91,15 @@ async fn stars_are_listed_in_their_order_with_what_they_are_on_now() {
         .delete(&format!("{TEST_WS}/favorites/{card}"))
         .await
         .check_no_content();
-    // Taken off again, or off nothing: the same answer.
+    // Taken off again, or off nothing: no star there, one answer.
     client
         .delete(&format!("{TEST_WS}/favorites/{card}"))
         .await
-        .check_no_content();
+        .check_not_found();
     client
         .delete(&format!("{TEST_WS}/favorites/not-an-id"))
         .await
-        .check_no_content();
+        .check_not_found();
     assert_eq!(
         starred(client, TEST_WS).await,
         std::slice::from_ref(&board.id)

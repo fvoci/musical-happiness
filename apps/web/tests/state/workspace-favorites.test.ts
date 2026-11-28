@@ -53,6 +53,21 @@ describe('the reader’s stars', () => {
     expect(workspace.problems).toHaveLength(1);
   });
 
+  it('takes a star off that is off already, as another tab took it, without a word', async () => {
+    const { workspace, board, backend } = await openFirstBoard();
+    const stars = workspaceFavorites(workspace);
+    await stars.read();
+    await stars.toggle(board.boardId);
+    // Taken off in another tab just before: the server has none to take off.
+    const unstar = backend.favorites.unstar.bind(backend.favorites);
+    vi.spyOn(backend.favorites, 'unstar').mockImplementationOnce(async (where, targetId) => {
+      await unstar(where, targetId);
+      return unstar(where, targetId);
+    });
+    await stars.toggle(board.boardId);
+    expect([stars.has(board.boardId), stars.list, workspace.problems]).toEqual([false, [], []]);
+  });
+
   it('refuses what is nothing, and a star past the most a workspace keeps', async () => {
     const { workspace, board, backend } = await openFirstBoard();
     const workspaceId = workspace.info?.id ?? '';

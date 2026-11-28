@@ -76,8 +76,9 @@ async fn handle_put_favorite(
 
 /// Take a star off
 ///
-/// Takes the star of the user of the session off what it is on; the answer is the same
-/// whether there was one, whatever the identifier names. The user's connections to the
+/// Takes the star of the user of the session off what it is on. 404 where they have no
+/// star on it in this workspace, whatever the identifier names (taken off already, in
+/// another workspace, or nothing): one answer for all. The user's connections to the
 /// workspace are told where one went (`favoritesChanged`). A session alone: a personal
 /// API token is refused.
 #[utoipa::path(

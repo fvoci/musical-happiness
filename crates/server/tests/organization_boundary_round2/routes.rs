@@ -198,6 +198,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/cards/{cardId}/body-versions/{version}/restore",
         "restoreCardBodyVersion",
     ),
+    // A person's stars in the workspace: theirs alone, of what they read there.
+    ("GET", "/favorites", "getFavorites"),
+    ("PUT", "/favorites/{targetId}", "putFavorite"),
+    ("DELETE", "/favorites/{targetId}", "deleteFavorite"),
+    ("PUT", "/favorite-order", "reorderFavorites"),
     ("POST", "/categories", "createCategory"),
     ("GET", "/categories", "getCategories"),
     ("DELETE", "/categories/{categoryId}", "deleteCategory"),
@@ -776,6 +781,7 @@ fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
         "reorderCategories"
         | "reorderCategoryContainers"
         | "getWorkspaceUsersById"
+        | "reorderFavorites"
         | "resolveReferences" => json!([]),
         "importArchive" => json!({"uploadId": "missing-upload"}),
         "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
@@ -786,11 +792,12 @@ fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
 
 /// The operations of `WORKSPACE_ROUTES` that answer a guest of a workspace that has
 /// nothing for them with an empty list: the boards, the wikis and the containers of any
-/// kind the guest is on, what
+/// kind the guest is on, their stars, what
 /// the references of no body name, what a reference of the guest may name, and what a
 /// search of their bodies finds.
 const EMPTY_FOR_A_GUEST: &[&str] = &[
     "getWorkspaceBoards",
+    "getFavorites",
     "listWorkspaceContainers",
     "getWikis",
     "getCourses",
@@ -891,6 +898,9 @@ pub(super) async fn compare_workspace_routes(
             hidden.status == StatusCode::OK
                 && answer(&hidden).1.as_array().map(Vec::len) == Some(1)
                 && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "reorderFavorites" && asker == Asker::Guest {
+            // The guest's own stars, none here: an order of none is theirs to write.
+            hidden.status == StatusCode::NO_CONTENT && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "getWorkspaceUsersById" && asker == Asker::Guest {
             // The workspace is there for its guest, and the empty list is refused.
             hidden.status == StatusCode::BAD_REQUEST && absent.status == StatusCode::NOT_FOUND
@@ -1342,6 +1352,7 @@ impl Items<'_> {
             .replace("{cardId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{attachmentId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{blockId}", &pick(&self.card.id, UNKNOWN_ID))
+            .replace("{targetId}", &pick(&self.card.id, UNKNOWN_ID))
             .replace("{wikiId}", &pick(&self.page.container_id, UNKNOWN_ID))
             .replace("{pageId}", &pick(&self.page.id, UNKNOWN_ID))
             .replace("{commentId}", &pick(comment_id, UNKNOWN_ID))

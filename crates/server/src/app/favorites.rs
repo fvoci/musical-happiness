@@ -114,26 +114,27 @@ impl App {
         }
     }
 
-    /// Takes the star of `user_id` off `target_id`, if there is one: the answer is the
-    /// same whether there was.
+    /// Takes the star of `user_id` off `target_id`.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the statement fails.
+    /// Returns a not-found error where the user has no star on it in the workspace,
+    /// whatever the identifier names, and the store's error if the statement fails.
     pub async fn remove_favorite(
         &self,
         user_id: &str,
         workspace_id: &str,
         target_id: &str,
     ) -> Result<(), AppError> {
-        if is_id(target_id)
-            && self
+        if !is_id(target_id)
+            || !self
                 .store()
                 .remove_favorite(workspace_id, user_id, target_id)
                 .await?
         {
-            self.ws().favorites_changed(workspace_id, user_id).await;
+            return Err(AppError::not_found("favorite"));
         }
+        self.ws().favorites_changed(workspace_id, user_id).await;
         Ok(())
     }
 

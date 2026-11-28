@@ -11,6 +11,7 @@
 import { SvelteMap } from 'svelte/reactivity';
 
 import type { Favorite } from './favorite-types.ts';
+import { isBackendError } from './problems.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /** Whose list, and where. */
@@ -89,7 +90,11 @@ export class WorkspaceFavorites {
     return this.#readFor(where);
   }
 
-  /** Puts a star on it, or takes it off; a refusal puts it back as it was, and says why. */
+  /**
+   * Puts a star on it, or takes it off; a refusal puts it back as it was, and
+   * says why. A star taken off already (in another tab, say) is off: the
+   * server's 404 says so.
+   */
   async toggle(targetId: string): Promise<void> {
     const where = this.#where();
     const favorites = this.#workspace.backend.favorites;
@@ -100,6 +105,10 @@ export class WorkspaceFavorites {
       if (starred) await favorites.unstar(where.workspaceId, targetId);
       else await favorites.star(where.workspaceId, targetId);
     } catch (error) {
+      if (starred && isBackendError(error) && error.status === 404) {
+        await this.#readFor(where);
+        return;
+      }
       this.#switched.delete(targetId);
       this.#workspace.report('save', error);
       return;
