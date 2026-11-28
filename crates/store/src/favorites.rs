@@ -79,7 +79,7 @@ impl Store {
     /// Puts a star of `user_id` on `target_id` in the workspace, after their others; one
     /// that is there stays as it is. Past [`MAX_FAVORITES`] in the workspace nothing is
     /// put. What the target is, and whether the user reads it, is for the caller to have
-    /// asked. Two put at once are put one after the other ([`hold_stars_of`]), so that
+    /// asked. Two put at once are put one after the other (`hold_stars_of`), so that
     /// neither is put twice nor past the limit.
     ///
     /// # Errors
