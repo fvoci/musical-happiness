@@ -21,7 +21,7 @@ import { m } from '$lib/i18n/paraglide/messages.js';
 import type { Container } from '$lib/logic/wire.ts';
 import { copyPlaces, type Category, type Workspace } from '$lib/state/index.ts';
 
-import { exportAction } from './container-export.ts';
+import { exportActions } from './container-export.ts';
 import { categoryOrderAfterStep, moveToEnd } from './sidebar-logic.ts';
 
 /**
@@ -145,7 +145,7 @@ export function containerActions(
       },
     }));
   const unjoined = container.id === menus.containerId && menus.openContainerJoinable === true;
-  const saving = unjoined ? [] : [exportAction(workspace, container, moves.length > 0)];
+  const saving = unjoined ? [] : exportActions(workspace, container, moves.length > 0);
   if (menus.guest) return saving;
   const hasOtherWorkspace = copyPlaces(workspace.workspaces, container.workspaceId).length > 0;
   return [

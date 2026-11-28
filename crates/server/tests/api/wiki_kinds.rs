@@ -97,10 +97,11 @@ const REACHED: &[(&str, Reaches)] = &[
     ("putCategoryContainer", Reaches::EVERY),
     ("hideContainer", Reaches::EVERY),
     ("unhideContainer", Reaches::EVERY),
-    // A copy of it whole, and its archive.
+    // A copy of it whole, and its archive, and its Markdown.
     ("duplicateContainer", Reaches::COPIED),
     ("copyContainerToWorkspace", Reaches::COPIED),
     ("exportContainerArchive", Reaches::EVERY),
+    ("exportContainerMarkdown", Reaches::EVERY),
     // What a board holds.
     ("reorderCardProperties", Reaches::BOARDS),
     ("createBoardView", Reaches::BOARDS),

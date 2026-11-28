@@ -448,3 +448,83 @@ fn a_toggle_or_a_table_in_a_callout_is_read_as_its_parts() {
         )]
     );
 }
+
+#[test]
+fn a_link_of_an_export_goes_from_the_folder_of_its_file() {
+    use super::relative;
+    let path = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| (*part).to_owned())
+            .collect::<Vec<_>>()
+    };
+    let to = path(&["Wiki", "files", "a b.png"]);
+    assert_eq!(relative(&path(&["Wiki"]), &to), "files/a b.png");
+    assert_eq!(
+        relative(&path(&["Wiki", "One", "Two"]), &to),
+        "../../files/a b.png"
+    );
+    assert_eq!(
+        relative(&path(&["Wiki"]), &path(&["Wiki", "One", "Two.md"])),
+        "One/Two.md"
+    );
+    assert_eq!(
+        relative(&path(&["Wiki", "One"]), &path(&["Wiki", "One.md"])),
+        "../One.md"
+    );
+}
+
+#[test]
+fn an_export_links_what_it_holds_and_names_the_rest_in_plain_text() {
+    use std::sync::Arc;
+
+    use super::{ExportPlaces, Exported};
+    const PAGE: &str = "0190a5b4-0000-7000-8000-000000000003";
+    const UNSEEN: &str = "0190a5b4-0000-7000-8000-000000000004";
+    let folder = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| (*part).to_owned())
+            .collect::<Vec<_>>()
+    };
+    let mut places = ExportPlaces::default();
+    places
+        .files
+        .insert("f1.png".to_owned(), folder(&["Wiki", "files", "moon.png"]));
+    places.blocks.insert(
+        PAGE.to_owned(),
+        (
+            folder(&["Wiki", "Guide", "Setup.md"]),
+            "Setup [one]".to_owned(),
+        ),
+    );
+    places
+        .titles
+        .insert(CARD.to_owned(), "A card *elsewhere*".to_owned());
+    let mut names = Names::default();
+    names.users.insert(PERSON.to_owned(), "Kim".to_owned());
+    names.export = Some(Exported {
+        from: folder(&["Wiki"]),
+        places: Arc::new(places),
+    });
+    let body = doc(&json!([
+        {"type": "paragraph", "content": [
+            {"type": "reference", "attrs": {"id": PAGE}},
+            text(" "),
+            {"type": "reference", "attrs": {"id": CARD}},
+            text(" "),
+            {"type": "reference", "attrs": {"id": UNSEEN}},
+            text(" "),
+            {"type": "mention", "attrs": {"userId": PERSON}},
+        ]},
+        {"type": "image", "attrs": {"fileId": "f1.png", "alt": "moon"}},
+    ]));
+    let written = body_to_markdown(body.document(), &names).markdown;
+    assert_eq!(
+        written,
+        format!(
+            "[Setup \\[one\\]](<Guide/Setup.md>) A card \\*elsewhere\\* [[{UNSEEN}]] @Kim\n\n\
+             ![moon](<files/moon.png>)"
+        )
+    );
+}

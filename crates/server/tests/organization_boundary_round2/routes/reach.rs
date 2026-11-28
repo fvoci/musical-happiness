@@ -92,6 +92,7 @@ pub(super) const REACHED_BY_ITEM: &[&str] = &[
     "getContainer",
     "patchContainer",
     "exportContainerArchive",
+    "exportContainerMarkdown",
     "createCard",
     "getCards",
     "getCardByNumber",

@@ -336,6 +336,7 @@
               <FavoriteToggle stars={workspaceFavorites(workspace)} targetId={page.pageId} />
             {/if}
             <PageMenu
+              {workspace}
               page={shown}
               href={router.href({ ...router.route, pageId: page.pageId })}
               onVersions={() => {

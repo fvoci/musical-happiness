@@ -5905,12 +5905,23 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The page's body; `null` for a page without one."
+                "description": "The page's body; `null` for a page without one, and where it is read in Markdown\n(`bodyMarkdown`)."
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "bodyMarkdown": {
+            "description": "The body in Markdown, as `getPage` with `format=markdown` gives it in place of\n`body`, left out otherwise; written as a card's `bodyMarkdown` is.",
+            "type": "string"
+          },
+          "complexBlocks": {
+            "description": "With `bodyMarkdown`: the blocks it does not hold as they are, in the order of\nthe body.",
+            "items": {
+              "$ref": "#/components/schemas/ComplexBlock"
+            },
+            "type": "array"
           },
           "createdAt": {
             "description": "Creation time in milliseconds since the Unix epoch.",
@@ -5920,6 +5931,10 @@
           "createdBy": {
             "description": "The identifier of the user who made the page.",
             "type": "string"
+          },
+          "hasComplexBlocks": {
+            "description": "With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as\nthey are (`complexBlocks`).",
+            "type": "boolean"
           },
           "icon": {
             "description": "The page's icon, at most one grapheme; empty for none.",
@@ -5957,8 +5972,11 @@
         },
         "required": [
           "body",
+          "bodyMarkdown",
+          "complexBlocks",
           "createdAt",
           "createdBy",
+          "hasComplexBlocks",
           "icon",
           "id",
           "modifiedBy",
@@ -8223,12 +8241,23 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The unit's body; `null` for a unit without one, and always `null` for a chapter."
+                "description": "The unit's body; `null` for a unit without one, always `null` for a chapter, and\n`null` where it is read in Markdown (`bodyMarkdown`)."
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "bodyMarkdown": {
+            "description": "The body in Markdown, as `getUnit` with `format=markdown` gives it in place of\n`body`, left out otherwise; written as a card's `bodyMarkdown` is.",
+            "type": "string"
+          },
+          "complexBlocks": {
+            "description": "With `bodyMarkdown`: the blocks it does not hold as they are, in the order of\nthe body.",
+            "items": {
+              "$ref": "#/components/schemas/ComplexBlock"
+            },
+            "type": "array"
           },
           "courseId": {
             "description": "The identifier of the course it is of.",
@@ -8242,6 +8271,10 @@
           "createdBy": {
             "description": "The identifier of the user who made it.",
             "type": "string"
+          },
+          "hasComplexBlocks": {
+            "description": "With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as\nthey are (`complexBlocks`).",
+            "type": "boolean"
           },
           "id": {
             "description": "The unit's or chapter's identifier.",
@@ -8284,9 +8317,12 @@
           "amount",
           "amountUnit",
           "body",
+          "bodyMarkdown",
+          "complexBlocks",
           "courseId",
           "createdAt",
           "createdBy",
+          "hasComplexBlocks",
           "id",
           "kind",
           "modifiedBy",
@@ -16765,7 +16801,7 @@
             }
           },
           {
-            "description": "`markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
+            "description": "`markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
             "in": "query",
             "name": "format",
             "required": false,
@@ -19158,6 +19194,76 @@
         "summary": "Leave a board",
         "tags": [
           "members"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/markdown/export": {
+      "get": {
+        "description": "A ZIP of Markdown files of the container, for another tool to read, offered as a\ndownload with its length, for those `exportContainerArchive` gives the archive to\n(a diary to its owner alone, as every route of one), and under its limits (one\nexport at a time, `max_concurrent_exports`, `export_stall_seconds`). A session\nalone: a personal API token is refused.\n\nThe ZIP holds a folder of the container's name, and in it a `.md` file for each\npage of a wiki (in folders as its tree has them: a page with pages below it has a\nfolder of its name beside its file), each card of a board but its templates\n(`cards/<number>-<title>.md`, and all of them in `board.csv`), each unit of a course\n(a chapter is a folder of its units), and each entry of a diary\n(`entries/<YYYY-MM-DD>.md`); and the files their bodies show and the attachments of\nthe cards in `files/`, named as they were uploaded. A name is one any system takes,\nand one of its own in its folder (` (2)` after a second). A file starts with its\nfront matter in YAML (`title`, `created`, `updated` in UTC, and a card's `number`\nand `attachments`, a page's `icon`, a unit's `amount`, `amountUnit` and\n`scheduledDate`, an entry's `date`, `mood`, `weather` and `place`), then its title\nas a heading and its body in Markdown as `getCard` writes one with `format=markdown`,\nbut that a file, a page, a card or a unit the ZIP holds is linked where it is (a\nrelative link), a person is named in plain text (`@name`), and what else a reference\nnames is its title where the user reads it, `[[id]]` where not. Comments, the trash\nand the versions of bodies are not in it.",
+        "operationId": "exportContainerMarkdown",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board, the wiki, the diary or the course.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The ZIP of Markdown files.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "`attachment; filename=markdown-YYYY-MM-DD.zip`, for the day (UTC).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The size of the ZIP in bytes.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Export a board, a wiki, a course or a diary as Markdown",
+        "tags": [
+          "archives"
         ]
       }
     },
@@ -21733,6 +21839,15 @@
             "in": "path",
             "name": "unitId",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
+            "in": "query",
+            "name": "format",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -26373,6 +26488,15 @@
             "in": "path",
             "name": "pageId",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
+            "in": "query",
+            "name": "format",
+            "required": false,
             "schema": {
               "type": "string"
             }

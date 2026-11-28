@@ -86,6 +86,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/containers/{containerId}/archive/export",
         "exportContainerArchive",
     ),
+    (
+        "GET",
+        "/containers/{containerId}/markdown/export",
+        "exportContainerMarkdown",
+    ),
     ("POST", "/boards/{boardId}/cards", "createCard"),
     ("GET", "/boards/{boardId}/cards", "getCards"),
     (

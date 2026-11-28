@@ -15,8 +15,9 @@ use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::cards::{BodyFormatValue, BodyQuery};
 use super::contract::params::Page as PageNumber;
-use super::contract::params::{MemberWorkspaceId, PageId, PerPage, WikiId};
+use super::contract::params::{BodyFormat, MemberWorkspaceId, PageId, PerPage, WikiId};
 use super::contract::tag;
 use super::query::{PagingQuery, QueryParams};
 use super::workspace::{InWiki, InWorkspace};
@@ -257,12 +258,13 @@ pub(super) async fn create_page_from(
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}",
     operation_id = "getPage",
     tag = tag::WIKIS,
-    params(MemberWorkspaceId, WikiId, PageId),
+    params(MemberWorkspaceId, WikiId, PageId, BodyFormat),
     responses((status = 200, description = "The page.", body = Page)),
 )]
 async fn handle_get_page(
     Delegated(InWiki(ws), ..): Delegated<Read, InWiki>,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
+    QueryParams(query): QueryParams<BodyQuery>,
 ) -> ApiResult {
     let block = page_with_permission(
         &ws,
@@ -272,7 +274,13 @@ async fn handle_get_page(
         READ_DENIED,
     )
     .await?;
-    Ok(json_response(&Page::from(block)))
+    let mut page = Page::from(block);
+    if query.format == BodyFormatValue::Markdown {
+        ws.app
+            .put_page_in_markdown(ws.markdown_reader(), &mut page)
+            .await?;
+    }
+    Ok(json_response(&page))
 }
 
 /// Change a page

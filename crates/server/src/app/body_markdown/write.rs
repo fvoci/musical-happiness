@@ -9,6 +9,7 @@
 //! body's, and is not written.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use fvoci_model::{ComplexBlock, ComplexBlockReason};
 use serde_json::Value;
@@ -23,6 +24,62 @@ pub(crate) struct Names {
     pub(crate) files: HashMap<String, String>,
     /// The names people are shown by, by their identifiers.
     pub(crate) users: HashMap<String, String>,
+    /// Set where the body is written into an export of Markdown files
+    /// (`export_markdown`): its files and the pages, cards and units it holds are
+    /// linked where the export puts them, a person is named in plain text, and what
+    /// else a reference names is called by its title where the reader reads it.
+    pub(crate) export: Option<Exported>,
+}
+
+/// The path from a file in the folder `from` to the file `to`, both from the root of an
+/// export: out of the folders `to` is not in, then down into those it is.
+pub(crate) fn relative(from: &[String], to: &[String]) -> String {
+    let (folders, _) = to
+        .split_last()
+        .map_or((to, None), |(name, folders)| (folders, Some(name)));
+    let common = from
+        .iter()
+        .zip(folders)
+        .take_while(|(one, other)| one == other)
+        .count();
+    let mut path = "../".repeat(from.len() - common);
+    path.push_str(&to[common..].join("/"));
+    path
+}
+
+/// Where an export of Markdown files puts what a body names, and where the body is.
+#[derive(Debug, Clone)]
+pub(crate) struct Exported {
+    /// The folders of the file the body is written to, from the root of the export.
+    pub(crate) from: Vec<String>,
+    /// What the export holds, and the titles of what else the reader reads.
+    pub(crate) places: Arc<ExportPlaces>,
+}
+
+/// What an export of Markdown files holds, by identifier: where each is, from the root
+/// of the export.
+#[derive(Debug, Default)]
+pub(crate) struct ExportPlaces {
+    /// The files, by their stored names (a body's `fileId`).
+    pub(crate) files: HashMap<String, Vec<String>>,
+    /// The pages, cards and units, and their titles.
+    pub(crate) blocks: HashMap<String, (Vec<String>, String)>,
+    /// The titles of what a reference names that the reader reads and the export does
+    /// not hold.
+    pub(crate) titles: HashMap<String, String>,
+}
+
+impl Exported {
+    /// The link from the body's file to `to`, in `<…>` so that a space or a parenthesis
+    /// of a name ends no link.
+    fn link(&self, to: &[String]) -> String {
+        format!("<{}>", relative(&self.from, to))
+    }
+
+    /// The link to a file the export holds.
+    fn file(&self, id: &str) -> Option<String> {
+        self.places.files.get(id).map(|to| self.link(to))
+    }
 }
 
 /// A body in Markdown.
@@ -148,17 +205,21 @@ impl Writer<'_> {
             "bulletList" | "taskList" | "orderedList" => self.list(node, path, marker),
             "codeBlock" => code_block(node),
             "horizontalRule" => "---".to_owned(),
-            "image" => format!(
-                "![{}]({FILE_SCHEME}{})",
-                escape(attr_text(node, "alt"), Line::Inside, Within::Paragraph),
-                attr_text(node, "fileId")
-            ),
+            "image" => {
+                let id = attr_text(node, "fileId");
+                format!(
+                    "![{}]({})",
+                    escape(attr_text(node, "alt"), Line::Inside, Within::Paragraph),
+                    self.file_link(id)
+                )
+            }
             "file" => {
                 let id = attr_text(node, "fileId");
                 let name = self.names.files.get(id).map_or(id, String::as_str);
                 format!(
-                    "[{}]({FILE_SCHEME}{id})",
-                    escape(name, Line::Inside, Within::Paragraph)
+                    "[{}]({})",
+                    escape(name, Line::Inside, Within::Paragraph),
+                    self.file_link(id)
                 )
             }
             "blockMath" => {
@@ -344,18 +405,50 @@ impl Writer<'_> {
         out
     }
 
+    /// Where a file is linked: where the export puts it, or by its identifier.
+    fn file_link(&self, id: &str) -> String {
+        self.names
+            .export
+            .as_ref()
+            .and_then(|exported| exported.file(id))
+            .unwrap_or_else(|| format!("{FILE_SCHEME}{id}"))
+    }
+
+    /// A reference: `[[id]]`, or in an export a link to what it names where the export
+    /// holds it, and its title where the reader reads it elsewhere.
+    fn reference(&self, id: &str) -> String {
+        let Some(exported) = &self.names.export else {
+            return format!("[[{id}]]");
+        };
+        if let Some((to, title)) = exported.places.blocks.get(id) {
+            return format!(
+                "[{}]({})",
+                escape(title, Line::Inside, Within::Paragraph),
+                exported.link(to)
+            );
+        }
+        match exported.places.titles.get(id) {
+            Some(title) => escape(title, Line::Inside, Within::Paragraph),
+            None => format!("[[{id}]]"),
+        }
+    }
+
     fn inline_node(&mut self, node: &Value, path: &str) -> String {
         match kind(node) {
             "mention" => {
                 let id = attr_text(node, "userId");
                 // Who is not seen is named by the identifier alone.
                 let name = self.names.users.get(id).map_or("", String::as_str);
+                if self.names.export.is_some() {
+                    let shown = if name.is_empty() { id } else { name };
+                    return format!("@{}", escape(shown, Line::Inside, Within::Paragraph));
+                }
                 format!(
                     "@[{}]({USER_SCHEME}{id})",
                     escape(name, Line::Inside, Within::Paragraph)
                 )
             }
-            "reference" => format!("[[{}]]", attr_text(node, "id")),
+            "reference" => self.reference(attr_text(node, "id")),
             "inlineMath" => {
                 let latex = attr_text(node, "latex");
                 if !inline_formula_is_written(latex) {

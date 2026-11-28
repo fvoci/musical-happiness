@@ -45,10 +45,12 @@ pub(super) enum BodyFormatValue {
     Markdown,
 }
 
+/// The query of what is read with its body as `format` says (`getCard`, `getPage`,
+/// `getUnit`).
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct CardQuery {
-    format: BodyFormatValue,
+pub(super) struct BodyQuery {
+    pub(super) format: BodyFormatValue,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -486,7 +488,7 @@ pub(super) async fn patch_card_from(
 async fn handle_get_card(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, card_id)): Path<(String, String)>,
-    QueryParams(query): QueryParams<CardQuery>,
+    QueryParams(query): QueryParams<BodyQuery>,
 ) -> ApiResult {
     Ok(json_response(
         &card_read(&ws, &card_id, query.format).await?,

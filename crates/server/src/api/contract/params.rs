@@ -117,7 +117,7 @@ parameter!(OidcCode: Query "code", String, False, "The authorization code the pr
 parameter!(OidcError: Query "error", String, False, "The provider's code of why it did not let the person sign in.");
 parameter!(SharedReadToken: Query "readToken", String, True, "The read token of the board, as `getPublicLink` answers it while the board's public link is enabled.");
 parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.");
-parameter!(BodyFormat: Query "format", String, False, "`markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).");
+parameter!(BodyFormat: Query "format", String, False, "`markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).");
 parameter!(CardText: Query "q", String, False, "Only the cards whose title holds this text, whatever the case of its letters; `#12` the card of that number.");
 parameter!(CardParent: Query "parentId", String, False, "`root` gives only the top-level cards, a card's identifier only the cards right below it.");
 parameter!(CardAssignee: Query "assigneeId", String, False, "Only the cards a property that gives them to people (`person`, `multiPerson`) gives to this user; `me` is the caller.");

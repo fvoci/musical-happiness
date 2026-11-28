@@ -35,6 +35,7 @@ describe('the menu of a container of the sidebar', () => {
   it('of a board, a wiki and a diary has what each is, in its words', () => {
     expect(menuOf('board').map((line) => line.split(':')[0])).toEqual([
       'export',
+      'export-markdown',
       'duplicate',
       'template-from-board',
       'hide',
@@ -42,17 +43,20 @@ describe('the menu of a container of the sidebar', () => {
     ]);
     expect(menuOf('wiki').map((line) => line.split(':')[0])).toEqual([
       'export',
+      'export-markdown',
       'duplicate',
       'hide',
       'delete',
     ]);
     expect(menuOf('diary')).toEqual([
-      'export: Export the diary',
+      'export: As a .fvoci archive',
+      'export-markdown: As Markdown (.zip)',
       'hide: Hide diary',
       'delete: Delete diary',
     ]);
     expect(menuOf('course')).toEqual([
-      'export: Export the course',
+      'export: As a .fvoci archive',
+      'export-markdown: As Markdown (.zip)',
       'duplicate: Duplicate course',
       'hide: Hide course',
       'delete: Delete course',

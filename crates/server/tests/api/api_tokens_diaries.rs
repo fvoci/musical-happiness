@@ -191,6 +191,7 @@ async fn a_token_given_the_own_space_is_refused_by_the_routes_of_a_person_and_of
         agent.get(&entry).await,
         agent.get(&format!("{entry}/body-versions")).await,
         agent.get(&format!("{container}/archive/export")).await,
+        agent.get(&format!("{container}/markdown/export")).await,
         agent.get(&format!("{ws}/archive/export")).await,
         agent
             .post(&format!("{ws}/archive/import"), &json!({}))

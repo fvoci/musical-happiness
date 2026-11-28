@@ -4098,6 +4098,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/markdown/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a board, a wiki, a course or a diary as Markdown
+         * @description A ZIP of Markdown files of the container, for another tool to read, offered as a
+         *     download with its length, for those `exportContainerArchive` gives the archive to
+         *     (a diary to its owner alone, as every route of one), and under its limits (one
+         *     export at a time, `max_concurrent_exports`, `export_stall_seconds`). A session
+         *     alone: a personal API token is refused.
+         *
+         *     The ZIP holds a folder of the container's name, and in it a `.md` file for each
+         *     page of a wiki (in folders as its tree has them: a page with pages below it has a
+         *     folder of its name beside its file), each card of a board but its templates
+         *     (`cards/<number>-<title>.md`, and all of them in `board.csv`), each unit of a course
+         *     (a chapter is a folder of its units), and each entry of a diary
+         *     (`entries/<YYYY-MM-DD>.md`); and the files their bodies show and the attachments of
+         *     the cards in `files/`, named as they were uploaded. A name is one any system takes,
+         *     and one of its own in its folder (` (2)` after a second). A file starts with its
+         *     front matter in YAML (`title`, `created`, `updated` in UTC, and a card's `number`
+         *     and `attachments`, a page's `icon`, a unit's `amount`, `amountUnit` and
+         *     `scheduledDate`, an entry's `date`, `mood`, `weather` and `place`), then its title
+         *     as a heading and its body in Markdown as `getCard` writes one with `format=markdown`,
+         *     but that a file, a page, a card or a unit the ZIP holds is linked where it is (a
+         *     relative link), a person is named in plain text (`@name`), and what else a reference
+         *     names is its title where the user reads it, `[[id]]` where not. Comments, the trash
+         *     and the versions of bodies are not in it.
+         */
+        get: operations["exportContainerMarkdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/containers/{containerId}/members": {
         parameters: {
             query?: never;
@@ -10137,12 +10178,27 @@ export interface components {
         Page: {
             body: components["schemas"]["Body"] | null;
             /**
+             * @description The body in Markdown, as `getPage` with `format=markdown` gives it in place of
+             *     `body`, left out otherwise; written as a card's `bodyMarkdown` is.
+             */
+            bodyMarkdown: string;
+            /**
+             * @description With `bodyMarkdown`: the blocks it does not hold as they are, in the order of
+             *     the body.
+             */
+            complexBlocks: components["schemas"]["ComplexBlock"][];
+            /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
             createdAt: number;
             /** @description The identifier of the user who made the page. */
             createdBy: string;
+            /**
+             * @description With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as
+             *     they are (`complexBlocks`).
+             */
+            hasComplexBlocks: boolean;
             /** @description The page's icon, at most one grapheme; empty for none. */
             icon: string;
             /** @description The page's identifier. */
@@ -11031,6 +11087,16 @@ export interface components {
             amount: number | null;
             amountUnit: components["schemas"]["AmountUnit"] | null;
             body: components["schemas"]["Body"] | null;
+            /**
+             * @description The body in Markdown, as `getUnit` with `format=markdown` gives it in place of
+             *     `body`, left out otherwise; written as a card's `bodyMarkdown` is.
+             */
+            bodyMarkdown: string;
+            /**
+             * @description With `bodyMarkdown`: the blocks it does not hold as they are, in the order of
+             *     the body.
+             */
+            complexBlocks: components["schemas"]["ComplexBlock"][];
             /** @description The identifier of the course it is of. */
             courseId: string;
             /**
@@ -11040,6 +11106,11 @@ export interface components {
             createdAt: number;
             /** @description The identifier of the user who made it. */
             createdBy: string;
+            /**
+             * @description With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as
+             *     they are (`complexBlocks`).
+             */
+            hasComplexBlocks: boolean;
             /** @description The unit's or chapter's identifier. */
             id: string;
             /** @description Whether this entry is a `unit` or a `chapter`. */
@@ -16441,7 +16512,7 @@ export interface operations {
     getCard: {
         parameters: {
             query?: {
-                /** @description `markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
+                /** @description `markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
                 format?: string;
             };
             header?: never;
@@ -17911,6 +17982,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    exportContainerMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board, the wiki, the diary or the course. */
+                containerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ZIP of Markdown files. */
+            200: {
+                headers: {
+                    /** @description `attachment; filename=markdown-YYYY-MM-DD.zip`, for the day (UTC). */
+                    "Content-Disposition"?: string;
+                    /** @description The size of the ZIP in bytes. */
+                    "Content-Length"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -19449,7 +19558,10 @@ export interface operations {
     };
     getUnit: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
+                format?: string;
+            };
             header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
@@ -22294,7 +22406,10 @@ export interface operations {
     };
     getPage: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
+                format?: string;
+            };
             header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */

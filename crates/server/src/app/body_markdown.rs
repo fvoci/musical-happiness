@@ -8,10 +8,12 @@
 mod tests;
 mod write;
 
+pub(super) use write::{ExportPlaces, Exported, relative};
+
 use std::collections::{BTreeSet, HashMap};
 
 use fvoci_model::{
-    Body, BodyChange, Card, ComplexBlock, RefusalReason, Refusals, WorkspaceRole, is_id,
+    Body, BodyChange, Card, ComplexBlock, Page, RefusalReason, Refusals, Unit, WorkspaceRole, is_id,
 };
 use serde_json::Value;
 
@@ -90,6 +92,18 @@ pub struct BodyInMarkdown {
     /// body that has any is not written whole from its Markdown
     /// (`complex_blocks_use_append`).
     pub complex_blocks: Vec<ComplexBlock>,
+}
+
+impl BodyInMarkdown {
+    /// `bodyMarkdown`, `hasComplexBlocks` and `complexBlocks` of what is read with
+    /// `format=markdown`.
+    fn into_members(self) -> (Option<String>, Option<bool>, Option<Vec<ComplexBlock>>) {
+        (
+            Some(self.markdown),
+            Some(!self.complex_blocks.is_empty()),
+            Some(self.complex_blocks),
+        )
+    }
 }
 
 /// Reads Markdown into a body, `None` for Markdown that says nothing.
@@ -199,24 +213,41 @@ impl App {
                 names.files.insert(file_id, record.name);
             }
         }
-        let users: Vec<String> = users.into_iter().filter(|id| is_id(id)).collect();
-        if !users.is_empty() {
-            let found = self
-                .users_in_workspace(reader.user_id, reader.workspace_id, reader.role, &users)
-                .await?;
-            names.users = found
-                .into_iter()
-                .map(|user| {
-                    let shown = if user.display_name.is_empty() {
-                        user.username
-                    } else {
-                        user.display_name
-                    };
-                    (user.id, shown)
-                })
-                .collect::<HashMap<_, _>>();
-        }
+        let users: Vec<String> = users.into_iter().collect();
+        names.users = self.names_seen_by(reader, &users).await?;
         Ok(names)
+    }
+
+    /// The names `reader` sees the people `user_ids` by in the workspace, by their
+    /// identifiers: whom the reader does not see there (another organization's account,
+    /// an identifier of nobody) is left out.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the people cannot be read.
+    pub(super) async fn names_seen_by(
+        &self,
+        reader: MarkdownReader<'_>,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, String>, AppError> {
+        let users: Vec<String> = user_ids.iter().filter(|id| is_id(id)).cloned().collect();
+        if users.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let found = self
+            .users_in_workspace(reader.user_id, reader.workspace_id, reader.role, &users)
+            .await?;
+        Ok(found
+            .into_iter()
+            .map(|user| {
+                let shown = if user.display_name.is_empty() {
+                    user.username
+                } else {
+                    user.display_name
+                };
+                (user.id, shown)
+            })
+            .collect())
     }
 
     /// `body`, a body of the board `container_id` (a card's, a page's, a unit's or a
@@ -245,6 +276,28 @@ impl App {
         })
     }
 
+    /// `body`, of the container `container_id`, in Markdown as an export of Markdown
+    /// files writes it (`export_markdown`), where `exported` says: what the export
+    /// holds linked where it is, the people in plain text.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if a file or a person cannot be read.
+    pub(super) async fn body_in_exported_markdown(
+        &self,
+        reader: MarkdownReader<'_>,
+        container_id: &str,
+        body: Option<&Body>,
+        exported: Exported,
+    ) -> Result<String, AppError> {
+        let Some(body) = body else {
+            return Ok(String::new());
+        };
+        let mut names = self.names_in(reader, container_id, body.document()).await?;
+        names.export = Some(exported);
+        Ok(body_to_markdown(body.document(), &names).markdown)
+    }
+
     /// Gives `card` its body in Markdown as `reader` reads it, in place of the body,
     /// with the blocks the Markdown does not hold as they are.
     ///
@@ -256,13 +309,78 @@ impl App {
         reader: MarkdownReader<'_>,
         card: &mut Card,
     ) -> Result<(), AppError> {
-        let body = card.body.take();
+        card.body = None;
+        let body = self.body_now(&card.id).await?;
         let written = self
             .body_in_markdown(reader, &card.board_id, body.as_ref())
             .await?;
-        card.has_complex_blocks = Some(!written.complex_blocks.is_empty());
-        card.complex_blocks = Some(written.complex_blocks);
-        card.body_markdown = Some(written.markdown);
+        (
+            card.body_markdown,
+            card.has_complex_blocks,
+            card.complex_blocks,
+        ) = written.into_members();
+        Ok(())
+    }
+
+    /// The body of the block `block_id` as it is now: what its room holds that is not
+    /// written yet is written first, so that what is taken out in Markdown is what the
+    /// editors show.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of writing the room's body, and the store's.
+    async fn body_now(&self, block_id: &str) -> Result<Option<Body>, AppError> {
+        self.collab()
+            .write_bodies(self, &[block_id.to_owned()])
+            .await?;
+        Ok(self.block(block_id).await?.body)
+    }
+
+    /// Gives `page` its body in Markdown as `reader` reads it, in place of the body, as
+    /// [`App::put_card_in_markdown`] does a card's.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if a file or a person cannot be read.
+    pub async fn put_page_in_markdown(
+        &self,
+        reader: MarkdownReader<'_>,
+        page: &mut Page,
+    ) -> Result<(), AppError> {
+        page.body = None;
+        let body = self.body_now(&page.id).await?;
+        let written = self
+            .body_in_markdown(reader, &page.wiki_id, body.as_ref())
+            .await?;
+        (
+            page.body_markdown,
+            page.has_complex_blocks,
+            page.complex_blocks,
+        ) = written.into_members();
+        Ok(())
+    }
+
+    /// Gives `unit` its body in Markdown as `reader` reads it, in place of the body, as
+    /// [`App::put_card_in_markdown`] does a card's.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if a file or a person cannot be read.
+    pub async fn put_unit_in_markdown(
+        &self,
+        reader: MarkdownReader<'_>,
+        unit: &mut Unit,
+    ) -> Result<(), AppError> {
+        unit.body = None;
+        let body = self.body_now(&unit.id).await?;
+        let written = self
+            .body_in_markdown(reader, &unit.course_id, body.as_ref())
+            .await?;
+        (
+            unit.body_markdown,
+            unit.has_complex_blocks,
+            unit.complex_blocks,
+        ) = written.into_members();
         Ok(())
     }
 

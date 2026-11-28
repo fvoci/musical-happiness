@@ -16,8 +16,9 @@ use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::cards::{BodyFormatValue, BodyQuery};
 use super::contract::params::Page as PageNumber;
-use super::contract::params::{CourseId, MemberWorkspaceId, PerPage, UnitId};
+use super::contract::params::{BodyFormat, CourseId, MemberWorkspaceId, PerPage, UnitId};
 use super::contract::tag;
 use super::query::{PagingQuery, QueryParams};
 use super::workspace::{InCourse, InWorkspace};
@@ -282,12 +283,13 @@ pub(super) async fn create_unit_from(
     path = "/w/{workspaceId}/courses/{courseId}/units/{unitId}",
     operation_id = "getUnit",
     tag = tag::COURSES,
-    params(MemberWorkspaceId, CourseId, UnitId),
+    params(MemberWorkspaceId, CourseId, UnitId, BodyFormat),
     responses((status = 200, description = "The unit or chapter.", body = Unit)),
 )]
 async fn handle_get_unit(
     Delegated(InCourse(ws), ..): Delegated<Read, InCourse>,
     Path((_, course_id, unit_id)): Path<(String, String, String)>,
+    QueryParams(query): QueryParams<BodyQuery>,
 ) -> ApiResult {
     let block = unit_with_permission(
         &ws,
@@ -297,7 +299,13 @@ async fn handle_get_unit(
         READ_DENIED,
     )
     .await?;
-    Ok(json_response(&Unit::from(block)))
+    let mut unit = Unit::from(block);
+    if query.format == BodyFormatValue::Markdown {
+        ws.app
+            .put_unit_in_markdown(ws.markdown_reader(), &mut unit)
+            .await?;
+    }
+    Ok(json_response(&unit))
 }
 
 /// Change a unit or chapter

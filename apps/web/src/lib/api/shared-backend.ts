@@ -95,6 +95,8 @@ export class SharedBackend implements Backend {
   readonly notifications = undefined;
   readonly watches = undefined;
   readonly favorites = undefined;
+  /** Nothing is taken out in Markdown through a public link: the board is read where it is. */
+  readonly markdown = undefined;
   /** Personal time tracking is strictly owner-only and never available on public links. */
   readonly time = undefined;
   /** No search through a public link: the board is all there is to read. */

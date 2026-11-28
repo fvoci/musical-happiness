@@ -241,11 +241,17 @@ fn container_ops() -> Vec<Op> {
     ]
 }
 
-/// The operations of its sharing, its files, its place in the sidebar and what names
-/// what is on it.
+/// The operations of its export in Markdown, its sharing, its files, its place in the
+/// sidebar and what names what is on it.
 fn holding_ops() -> Vec<Op> {
     use Body::{File, Json, None};
     vec![
+        op(
+            "container: Markdown export",
+            Method::GET,
+            "/containers/{c}/markdown/export",
+            None,
+        ),
         op(
             "public-link: get",
             Method::GET,
@@ -1314,6 +1320,7 @@ fn assert_open_unjoined_board_rows(board: &[(&str, Vec<String>)], unjoined: usiz
         "cards: trash",
         "board: duplicate",
         "board: export",
+        "container: Markdown export",
     ] {
         assert_eq!(
             row_of(board, row)[unjoined],
@@ -1731,6 +1738,7 @@ async fn course_template_and_diary_routes_match_the_role_matrix() {
         "views: list",
         "views: get",
         "board: export",
+        "container: Markdown export",
     ] {
         assert_eq!(
             row_of(&template, read_row)[unjoined],

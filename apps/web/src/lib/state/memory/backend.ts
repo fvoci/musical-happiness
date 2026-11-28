@@ -76,6 +76,7 @@ import { MemoryDiaries } from './diaries.ts';
 import { MemoryFileVersions } from './file-versions.ts';
 import { MemoryFavorites } from './favorites.ts';
 import { readableBlob, readableFile, storeUpload } from './files.ts';
+import { MemoryMarkdowns } from './markdowns.ts';
 import { MemoryNotifications } from './notifications.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
@@ -111,6 +112,7 @@ export class MemoryBackend implements Backend {
   readonly notifications = new MemoryNotifications(this, () => this.#enter('notifications'));
   readonly watches = new MemoryWatches(this, () => this.#enter('watches'));
   readonly favorites = new MemoryFavorites(this, () => this.#enter('favorites'));
+  readonly markdown = new MemoryMarkdowns(this, (signal) => this.#enter('markdown', signal));
   readonly time = new MemoryTime(this, () => this.#enter('time'));
   readonly #categories = new MemoryCategories(this, (method, workspaceId) =>
     this.#enterWorkspace(method, workspaceId),
