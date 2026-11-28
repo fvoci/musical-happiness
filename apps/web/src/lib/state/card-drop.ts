@@ -143,7 +143,9 @@ async function undoCardDrop(
   }
   if (plan.needsGroupChange && plan.groupBy) {
     for (const [id, prev] of plan.prevValues) {
-      const next = made.get(id);
+      // Its next card goes first: the card repeats again only once it is gone.
+      const planned = made.get(id);
+      const next = planned && (await takeBackNext(board, planned.nextId)) ? planned : undefined;
       const updated = await board.workspace.backend.patchCard(
         board.boardId,
         id,
@@ -156,7 +158,6 @@ async function undoCardDrop(
         { quiet: true },
       );
       board.receiveCard(updated);
-      if (next) await takeBackNext(board, next.nextId);
     }
   }
 }

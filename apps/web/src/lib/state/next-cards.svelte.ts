@@ -1,12 +1,14 @@
 /**
  * The next cards that completing cards that repeat makes (`logic/recurrence.ts`):
- * which next card a change made, how its undo takes that card back (the
- * completed card repeats again and its next card goes), and the notice that
- * tells the one who made it, with a way to undo it.
+ * which next card a change made, how its undo takes that card back (its next
+ * card goes first, then the completed card repeats again; a next card done
+ * already stays, and the chain goes on from it), and the notice that tells
+ * the one who made it, with a way to undo it.
  */
 import type { Recurrence } from '../logic/recurrence.ts';
 import { cardRecurredTo, cardRecurrence, type Card } from '../logic/wire.ts';
 
+import { isBackendError } from './backend.ts';
 import { deleteCardForUndo } from './board-sync.ts';
 import type { BoardStore } from './board.svelte.ts';
 import type { Workspace } from './workspace.svelte.ts';
@@ -30,10 +32,22 @@ export function nextMadeBy(
   return { nextId, recurrence };
 }
 
-/** Takes back a next card, in the undo of the change that made it; one gone already is gone. */
-export async function takeBackNext(store: BoardStore, nextId: string): Promise<void> {
+/**
+ * Takes back a next card in the undo of the change that made it, before the
+ * completed card repeats again, and says whether it may: a next card done
+ * already (it names a next of its own) stays, and the chain goes on from it;
+ * one gone already is gone.
+ */
+export async function takeBackNext(store: BoardStore, nextId: string): Promise<boolean> {
+  const { backend } = store.workspace;
+  const next = await backend.card(store.boardId, nextId).catch((error: unknown) => {
+    if (isBackendError(error) && error.status === 404) return undefined;
+    throw error;
+  });
+  if (next && cardRecurredTo(next)) return false;
   await deleteCardForUndo(store, nextId);
   store.cards = store.cards.filter((card) => card.id !== nextId);
+  return true;
 }
 
 /** Notes in `made` the next cards the cards of `before`, as the board shows them now, name since: by the card completed. */
@@ -50,19 +64,19 @@ export function noteNextCards(
 }
 
 /**
- * In the undo of a change of several cards: each completed card of `made`
- * repeats again and its next card goes. A card gone by then is left out.
+ * In the undo of a change of several cards: the next card of each completed
+ * card of `made` goes, and then it repeats again (`takeBackNext`). A card gone
+ * by then is left out.
  */
 export async function giveBackNextCards(
   store: BoardStore,
   made: ReadonlyMap<string, MadeNext>,
 ): Promise<void> {
   for (const [cardId, next] of made) {
-    if (!store.card(cardId)) continue;
+    if (!store.card(cardId) || !(await takeBackNext(store, next.nextId))) continue;
     const { backend } = store.workspace;
     const patch = { recurrence: next.recurrence };
     store.receiveCard(await backend.patchCard(store.boardId, cardId, patch, { quiet: true }));
-    await takeBackNext(store, next.nextId);
   }
 }
 

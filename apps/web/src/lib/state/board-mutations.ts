@@ -43,10 +43,10 @@ export async function changeBoardCard(
       said = true;
     },
     async () => {
-      const next = made;
+      // Its next card goes first: the card repeats again only once it is gone.
+      const next = made && (await takeBackNext(store, made.nextId)) ? made : undefined;
       const repeat = next ? { recurrence: next.recurrence } : {};
       await cardWrites.write(cardId, { ...backward, ...repeat }, forward, true);
-      if (next) await takeBackNext(store, next.nextId);
     },
     description,
     groupId,

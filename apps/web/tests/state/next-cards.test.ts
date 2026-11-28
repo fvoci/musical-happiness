@@ -113,6 +113,36 @@ describe('the next card of a card that repeats, on a board', () => {
     }
   });
 
+  it('goes before the card repeats again, and stays once it was done by then', async () => {
+    const { backend, board, card, waters, workspace } = await chores();
+    await board.setCardProperty(card.id, STATUS, 'done');
+    const calls: string[] = [];
+    const patching = backend.patchCard.bind(backend);
+    const deleting = backend.batchDeleteCards.bind(backend);
+    backend.patchCard = async (...args) => {
+      if (args[2].recurrence) calls.push('repeat');
+      return patching(...args);
+    };
+    backend.batchDeleteCards = async (...args) => {
+      calls.push('delete');
+      return deleting(...args);
+    };
+    await workspace.undoLast();
+    expect(calls).toEqual(['delete', 'repeat']);
+
+    // Done by another before the undo: the chain goes on from it.
+    await workspace.redoLast();
+    const nextId = cardRecurredTo(board.card(card.id) ?? card) ?? '';
+    await backend.patchCard(board.boardId, nextId, { updatedProperties: { [STATUS]: 'done' } });
+    calls.length = 0;
+    await workspace.undoLast();
+    expect(calls).toEqual([]);
+    const undone = board.card(card.id);
+    expect(undone && cardProperty(undone, STATUS)).toBe('todo');
+    expect(undone && cardRecurrence(undone)).toBeUndefined();
+    expect(await waters()).toHaveLength(3);
+  });
+
   it('leaves the history alone once a later change came', async () => {
     const { board, card, waters, notices } = await chores();
     await board.setCardProperty(card.id, STATUS, 'done');
