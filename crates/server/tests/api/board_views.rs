@@ -2,7 +2,7 @@
 //! views listed, read, changed, deleted and restored, and none of it reaching a block
 //! that is no view, or a view of another board.
 
-use fvoci_model::{Block, BlockType, BoardViewWrite, Container, ContainerVisibility};
+use fvoci_model::{Block, BlockType, BoardViewWrite, Container, ContainerVisibility, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -136,6 +136,82 @@ async fn a_board_whose_first_view_is_refused_is_not_made() {
     ts.teardown().await;
 }
 
+/// However a board starts (empty, scaffolded or with its first view), a request that
+/// names the board's identifier is refused at `/id`, and a kind it may not make there is
+/// refused at `/kind`, where the request names it: no board is made.
+#[tokio::test]
+async fn every_start_of_a_board_refuses_alike() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let boards = format!("{TEST_WS}/boards");
+    let before: Vec<Value> = ts.client.get(&boards).await.ok_json();
+    let starts = [
+        json!({}),
+        json!({"scaffold": true}),
+        json!({"firstView": {"title": "View", "viewType": "board"}}),
+    ];
+    for start in &starts {
+        let asked = |member: Value| {
+            let mut board = json!({"title": "Refused", "visibility": "private"});
+            let object = board.as_object_mut().expect("an object");
+            object.extend(start.as_object().expect("an object").clone());
+            object.extend(member.as_object().expect("an object").clone());
+            board
+        };
+        let response = ts
+            .client
+            .post(&boards, &asked(json!({"id": new_id()})))
+            .await;
+        response.check_error(StatusCode::BAD_REQUEST, "new board cannot have an ID");
+        assert_eq!(response.refused_at(), "/id", "{start}: {}", response.text());
+
+        let response = ts
+            .client
+            .post(&boards, &asked(json!({"kind": "wiki"})))
+            .await;
+        response.check_bad_request();
+        assert_eq!(
+            response.refused_at(),
+            "/kind",
+            "{start}: {}",
+            response.text()
+        );
+    }
+    let after: Vec<Value> = ts.client.get(&boards).await.ok_json();
+    assert_eq!(after.len(), before.len(), "no board was made");
+
+    ts.teardown().await;
+}
+
+/// A view keeps its type: a patch that takes `viewType` away is refused at the member
+/// that names it, and the view stays as it was.
+#[tokio::test]
+async fn a_view_keeps_its_type() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerVisibility::Open)
+        .await;
+    let view = add_view(&ts.client, &board.id, "View").await;
+    let path = format!("{}/{}", views_of(&board.id), view.id);
+    let response = ts
+        .client
+        .patch(
+            &path,
+            &json!({"title": "Typeless", "deletedFields": ["filter", "viewType"]}),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(
+        response.refused_at(),
+        "/deletedFields/1",
+        "{}",
+        response.text()
+    );
+    let read: Block = ts.client.get(&path).await.ok_json();
+    assert_eq!(read, view, "nothing of the patch is written");
+
+    ts.teardown().await;
+}
+
 /// A view is read, changed, deleted and restored by its board's path; a change from a
 /// time it was read before it last changed is refused and changes nothing.
 #[tokio::test]
@@ -155,14 +231,14 @@ async fn a_view_is_read_changed_deleted_and_restored() {
             &path,
             &json!({
                 "title": "Renamed", "updatedFields": {"hiddenGroups": ["a"]},
-                "deletedFields": ["viewType"], "readAt": view.updated_at,
+                "deletedFields": ["order"], "readAt": view.updated_at,
             }),
         )
         .await
         .ok_json();
     assert_eq!(patched.title, "Renamed");
     assert_eq!(patched.fields["hiddenGroups"], json!(["a"]));
-    assert!(!patched.fields.contains_key("viewType"), "{patched:?}");
+    assert!(!patched.fields.contains_key("order"), "{patched:?}");
     assert_eq!(patched.modified_by, ts.client.me().await.id);
     assert_eq!(ts.client.get(&path).await.ok_json::<Block>(), patched);
     let stale = ts

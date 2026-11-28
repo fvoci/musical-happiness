@@ -18,7 +18,6 @@ mod account_erasure;
 mod accounts;
 mod api_tokens;
 mod audit;
-mod block_copies;
 mod block_derived;
 mod blocks;
 mod board_ops;
@@ -146,7 +145,9 @@ pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
 pub use containers::{ContainerAccessFacts, Joined, MemberChange};
-pub use containers_and_blocks::{StreamBatch, StreamCreateError};
+pub use containers_and_blocks::{
+    Creator, NewBlocks, NewContainers, StreamBatch, StreamCreateError,
+};
 pub use course_exams::{
     ExamPublishError, ExamScoreOutcome, ExamViewer, MIN_SCORER_DELTA_TO_REPUBLISH,
     MIN_SCORERS_TO_PUBLISH,
@@ -328,7 +329,7 @@ pub struct PoolStatus {
 pub struct Store {
     inner: Arc<Inner>,
     tenant: Tenant,
-    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`], [`Store::quietly`]).
+    /// Whom what this handle writes notes to be told ([`Store::quietly`]).
     noting: db::Noting,
     /// The agent this handle writes for ([`Store::by_agent`]); `None` for a person.
     agent: Option<Arc<body_versions::AgentOfHandle>>,
@@ -466,17 +467,6 @@ impl Store {
     pub fn by_agent(&self, agent: ByAgent<'_>) -> Self {
         Self {
             agent: Some(Arc::new(body_versions::AgentOfHandle::of(agent))),
-            ..self.clone()
-        }
-    }
-
-    /// A handle to the same database whose writes of blocks note nothing to tell
-    /// anybody, and make nobody watch anything: for a write that is not its writer's
-    /// own words (a version of a body brought back).
-    #[must_use]
-    pub fn telling_nobody(&self) -> Self {
-        Self {
-            noting: db::Noting::Nobody,
             ..self.clone()
         }
     }

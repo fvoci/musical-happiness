@@ -25,6 +25,7 @@ impl Store {
     /// [`StoreError::InvalidId`] if the workspace's identifier is not one, and
     /// [`StoreError::Database`] if the statement fails, as it does when a workspace with the
     /// identifier exists.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn create_workspace(&self, workspace: &Workspace) -> Result<(), StoreError> {
         self.with_write_conn(async |scope| {
             let org = scope.org()?;

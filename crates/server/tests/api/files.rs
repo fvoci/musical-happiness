@@ -790,7 +790,7 @@ async fn attached_unchecked<const N: usize>(
             ..Block::default()
         };
         ts.app
-            .insert_block(
+            .insert_block_unchecked(
                 &mut attachment,
                 &user_id,
                 fvoci_server::app::ChangeNotification::Suppress,

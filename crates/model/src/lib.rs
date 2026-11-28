@@ -137,9 +137,9 @@ pub use container::{
 };
 pub use container_teams::{ContainerTeam, ContainerTeamRole};
 pub use containers_and_blocks::{
-    ContainersAndBlocks, ContainersAndBlocksError, DeleteContainersAndBlocks,
-    PatchContainersAndBlocks, Renewed, generate_containers_and_blocks_ids,
-    renew_containers_and_blocks_ids, renew_containers_and_blocks_ids_told,
+    ContainersAndBlocks, ContainersAndBlocksError, DeleteContainersAndBlocks, Renewed,
+    generate_containers_and_blocks_ids, renew_containers_and_blocks_ids,
+    renew_containers_and_blocks_ids_told,
 };
 pub use course_exam::{
     COURSE_EXAM_DESCRIPTION_MAX_CHARS, COURSE_EXAM_MAX_SCORE_LIMIT, COURSE_EXAM_TITLE_MAX_CHARS,

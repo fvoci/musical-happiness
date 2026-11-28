@@ -380,9 +380,11 @@ pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[CardPrope
 }
 
 /// Leaves out of the relation values of copied blocks of a board what names no card of
-/// the board, in the trash or out of it, and of the rest what is past
-/// [`fvoci_model::RELATION_LIMIT`]: copies of cards stored before the rules may name
-/// cards that are gone for good, or blocks that are no cards.
+/// the board, in the trash or out of it, nor a card among `blocks`, and of the rest what
+/// is past [`fvoci_model::RELATION_LIMIT`]: copies of cards stored before the rules may
+/// name cards that are gone for good, or blocks that are no cards. A copy that names
+/// another copy (a sub-card of the card copied with it) keeps it, before the copies are
+/// stored as after.
 pub(crate) async fn keep_cards_of_board(
     scope: &mut Scope<'_>,
     blocks: &mut [Block],
@@ -408,6 +410,11 @@ pub(crate) async fn keep_cards_of_board(
     }
     let named: Vec<&str> = named.iter().map(String::as_str).collect();
     let types = types_on_board(scope, board_id, &named).await?;
+    let copied: HashSet<String> = blocks
+        .iter()
+        .filter(|block| block.block_type == BlockType::Card)
+        .map(|block| block.id.clone())
+        .collect();
     for block in blocks.iter_mut() {
         let Some(Value::Object(values)) = block.fields.get_mut("properties") else {
             continue;
@@ -415,8 +422,9 @@ pub(crate) async fn keep_cards_of_board(
         for property in &relations {
             if let Some(Value::Array(items)) = values.get_mut(*property) {
                 items.retain(|item| {
-                    relation_link_card(item)
-                        .is_some_and(|id| types.get(id) == Some(&BlockType::Card))
+                    relation_link_card(item).is_some_and(|id| {
+                        types.get(id) == Some(&BlockType::Card) || copied.contains(id)
+                    })
                 });
                 items.truncate(RELATION_LIMIT);
             }

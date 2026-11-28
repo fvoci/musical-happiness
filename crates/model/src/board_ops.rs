@@ -340,6 +340,28 @@ pub struct BoardViewPatch {
     pub read_at: Option<i64>,
 }
 
+impl BoardViewPatch {
+    /// Checks the shape of the patch as a request sends it: a view keeps its
+    /// `viewType`, which it is made with, whatever else is taken from it.
+    ///
+    /// # Errors
+    ///
+    /// Returns every member of `deletedFields` that names `viewType`.
+    pub fn check_request(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        for (index, field) in self.deleted_fields.iter().enumerate() {
+            if field == "viewType" {
+                refused.refuse_at(
+                    format!("/deletedFields/{index}"),
+                    RefusalReason::Invalid,
+                    "a view keeps its viewType",
+                );
+            }
+        }
+        refused.into_result()
+    }
+}
+
 impl From<BoardViewPatch> for BlockPatch {
     fn from(patch: BoardViewPatch) -> Self {
         Self {

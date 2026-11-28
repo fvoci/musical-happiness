@@ -436,7 +436,9 @@ pub(crate) enum Noting {
     /// Nobody, as its writer asked: what is written was said before (a copy, a change
     /// taken back or made again). Its writer watches what it writes new all the same.
     Quietly,
-    /// Nobody: what is written is no person's own words.
+    /// Nobody, and nobody comes to watch what is written: for the fixtures of tests
+    /// (`Store::telling_nobody`).
+    #[cfg(feature = "test-util")]
     Nobody,
 }
 

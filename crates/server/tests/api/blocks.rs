@@ -413,7 +413,7 @@ async fn app_insert_block_success_scenario() {
     let mut block = new_block(&board.id, BlockType::Card, "A card");
 
     th.app
-        .insert_block(&mut block, &th.stranger().await, ChangeNotification::Send)
+        .insert_block_unchecked(&mut block, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("the block is inserted");
 
@@ -446,7 +446,7 @@ async fn app_insert_block_error_scenario() {
     );
     let error = th
         .app
-        .insert_block(
+        .insert_block_unchecked(
             &mut too_long,
             &th.stranger().await,
             ChangeNotification::Send,
@@ -462,7 +462,7 @@ async fn app_insert_block_error_scenario() {
     let mut homeless = new_block("no-such-board", BlockType::Card, "");
     let error = th
         .app
-        .insert_block(
+        .insert_block_unchecked(
             &mut homeless,
             &th.stranger().await,
             ChangeNotification::Send,
@@ -482,7 +482,7 @@ async fn app_patch_blocks_success_scenario() {
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "old")).await;
 
     th.app
-        .patch_blocks(
+        .patch_blocks_unchecked(
             TEST_WORKSPACE_ID,
             &batch(&[(&block, "new title")]),
             &th.stranger().await,
@@ -508,7 +508,7 @@ async fn app_patch_blocks_error_scenario() {
 
     let error = th
         .app
-        .patch_blocks(
+        .patch_blocks_unchecked(
             TEST_WORKSPACE_ID,
             &batch(&[(&block, "new title"), (&missing, "new title")]),
             &th.stranger().await,
@@ -532,7 +532,7 @@ async fn app_delete_block_success_scenario() {
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "")).await;
 
     th.app
-        .delete_block(&block.id, &th.stranger().await, ChangeNotification::Send)
+        .delete_block_unchecked(&block.id, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("the block is deleted");
 
@@ -564,7 +564,7 @@ async fn app_delete_block_error_scenario() {
 
     let error = th
         .app
-        .delete_block(
+        .delete_block_unchecked(
             "no-such-block",
             &th.stranger().await,
             ChangeNotification::Send,
@@ -584,13 +584,13 @@ async fn app_undelete_block_success_scenario() {
     let board = create_board_in_store(&th, ContainerVisibility::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "back")).await;
     th.app
-        .delete_block(&block.id, &th.stranger().await, ChangeNotification::Send)
+        .delete_block_unchecked(&block.id, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("the block is deleted");
 
     let undeleted = th
         .app
-        .undelete_block(&block.id, &th.stranger().await)
+        .undelete_block_unchecked(&block.id, &th.stranger().await)
         .await
         .expect("the block is undeleted");
     assert_eq!(undeleted.id, block.id, "the restored block is returned");
@@ -613,7 +613,7 @@ async fn app_undelete_block_that_is_not_in_the_trash() {
     for block_id in [UNKNOWN_ID, "no-such-block", block.id.as_str()] {
         let error = th
             .app
-            .undelete_block(block_id, &th.stranger().await)
+            .undelete_block_unchecked(block_id, &th.stranger().await)
             .await
             .expect_err("nothing to restore");
         assert!(error.is_not_found(), "{block_id}: {error:?}");
@@ -632,7 +632,7 @@ async fn app_insert_blocks_success_scenario() {
     let mut blocks = vec![new_block(&board.id, BlockType::Card, "A card")];
 
     th.app
-        .insert_blocks(&mut blocks, &th.stranger().await, ChangeNotification::Send)
+        .insert_blocks_unchecked(&mut blocks, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("the blocks are inserted");
 
@@ -649,7 +649,7 @@ async fn app_insert_blocks_success_scenario() {
     );
 
     th.app
-        .insert_blocks(&mut [], &th.stranger().await, ChangeNotification::Send)
+        .insert_blocks_unchecked(&mut [], &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("no blocks are no error");
 
@@ -671,7 +671,7 @@ async fn app_insert_blocks_error_scenario() {
     )];
     let error = th
         .app
-        .insert_blocks(
+        .insert_blocks_unchecked(
             &mut too_long,
             &th.stranger().await,
             ChangeNotification::Send,
@@ -686,7 +686,7 @@ async fn app_insert_blocks_error_scenario() {
     ];
     let error = th
         .app
-        .insert_blocks(&mut mixed, &th.stranger().await, ChangeNotification::Send)
+        .insert_blocks_unchecked(&mut mixed, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect_err("two boards in one call");
     assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");

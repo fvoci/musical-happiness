@@ -28,7 +28,7 @@ impl App {
     /// # Errors
     ///
     /// Returns [`VIEWS_DENIED`] as [`Reached::require`] does, not found for a block that
-    /// is no view of the board, and what [`App::patch_block`] returns.
+    /// is no view of the board, and what `App::patch_block` returns.
     pub async fn patch_view(
         &self,
         on: &Reached,
@@ -49,7 +49,7 @@ impl App {
     /// # Errors
     ///
     /// Returns [`VIEWS_DENIED`] as [`Reached::require`] does, not found for a block that
-    /// is no view of the board, and what [`App::delete_block`] returns.
+    /// is no view of the board, and what `App::delete_block` returns.
     pub async fn delete_view(
         &self,
         on: &Reached,
@@ -68,7 +68,7 @@ impl App {
     /// # Errors
     ///
     /// Returns [`VIEWS_DENIED`] as [`Reached::require`] does, and what
-    /// [`App::undelete_block_of_board`] returns.
+    /// `App::undelete_block_of_board` returns.
     pub async fn restore_view(&self, on: &Reached, view_id: &str) -> Result<Block, AppError> {
         on.require(ContainerPermission::ManageCards, VIEWS_DENIED)?;
         let (board_id, user_id) = (on.container_id(), on.user_id());
@@ -83,7 +83,7 @@ impl App {
     ///
     /// Returns [`ATTACHMENTS_DENIED`] as [`Reached::require`] does, not found for a card
     /// that is not of the board or an attachment that is not of the card, and what
-    /// [`App::delete_block`] returns.
+    /// `App::delete_block` returns.
     pub async fn delete_card_attachment(
         &self,
         on: &Reached,
@@ -111,7 +111,7 @@ impl App {
     /// # Errors
     ///
     /// Returns [`ATTACHMENTS_DENIED`] as [`Reached::require`] does, not found for a card
-    /// that is not of the board, and what [`App::undelete_block_of_board`] returns.
+    /// that is not of the board, and what `App::undelete_block_of_board` returns.
     pub async fn restore_card_attachment(
         &self,
         on: &Reached,

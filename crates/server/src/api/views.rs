@@ -131,6 +131,7 @@ async fn handle_patch_board_view(
         .block_of_board(&board_id, &view_id, BlockType::View)
         .await?;
     let patch: BoardViewPatch = decode_object(&body)?;
+    patch.check_request()?;
     // The store names what it refuses as a block has it; the patch has it under another
     // name.
     let view = ws

@@ -23,7 +23,7 @@ use super::contract::params::{
     MemberWorkspaceId, Page, PerPage, UserId, UserSearch, WorkerWorkspaceId, WorkspaceId,
 };
 use super::contract::tag;
-use super::delegated::{Admits, Wall, sessions_only};
+use super::delegated::{Admits, NotAWall, Wall, sessions_only};
 use super::query::{PagingQuery, QueryParams};
 use super::session::caller_of;
 use super::{ApiResult, MAX_USER_IDS, RequiredSession, decode_json, json_response};
@@ -345,6 +345,13 @@ session_wall!(
     /// wikis and courses. Diaries are not there to it.
     InCopied => COPIED
 );
+
+// No `Wall` of these: no token gets through a wall that a diary is behind, or that
+// works on the people of a container or copies it whole, however their declarations
+// are changed.
+const _: () = <InDiary as NotAWall<_>>::CHECKED;
+const _: () = <InShared as NotAWall<_>>::CHECKED;
+const _: () = <InCopied as NotAWall<_>>::CHECKED;
 
 delegable_wall!(
     /// A workspace as an operation enters it that is the same for every container kind
