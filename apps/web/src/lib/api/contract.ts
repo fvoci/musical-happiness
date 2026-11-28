@@ -624,6 +624,10 @@ export interface paths {
          *     `null`, and nothing says what it was about, where or by whom. Such a one is still
          *     listed, and counted while unread.
          *
+         *     The inbox is listed (those put away left out) unless `archived` asks for the archive:
+         *     what the user put away (`archiveNotification`), read. `unread` and `kind` narrow
+         *     either.
+         *
          *     What an organization that takes only sessions made through its provider told the
          *     user is left out for a session made otherwise, as `getMyMemberships` leaves its
          *     boards out: it is not listed, not counted, and not marked as read by such a
@@ -635,6 +639,28 @@ export interface paths {
         get: operations["getNotifications"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put away every notification that was read
+         * @description Puts away every notification of the user of the session that was read and is in the
+         *     inbox, in every organization the session opens (`getNotifications`); those not read
+         *     stay. Those of an organization the session does not open stay as they are.
+         */
+        post: operations["archiveReadNotifications"];
         delete?: never;
         options?: never;
         head?: never;
@@ -686,6 +712,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/{notificationId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put a notification away
+         * @description Puts one notification of the user of the session away, out of the inbox and into
+         *     the archive (`getNotifications` with `archived=true`): one that was not read is read
+         *     with it, and one put away stays put away since when it was. One whose `subject` is
+         *     `null` is put away as any other. More of it within the hour brings it back into the
+         *     inbox, unread. 404 as for `unreadNotification`.
+         */
+        post: operations["archiveNotification"];
+        /**
+         * Take a notification out of the archive
+         * @description Brings one notification of the user of the session back into the inbox; it stays
+         *     read. One in the inbox stays there. 404 as for `unreadNotification`.
+         */
+        delete: operations["unarchiveNotification"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications/{notificationId}/read": {
         parameters: {
             query?: never;
@@ -703,6 +758,30 @@ export interface paths {
          *     (`getNotifications`).
          */
         post: operations["readNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notificationId}/unread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a notification as unread
+         * @description Marks one notification of the user of the session as not read, as more of it would:
+         *     it is counted again (`getUnreadNotifications`), and one that was put away
+         *     (`archiveNotification`) is back in the inbox. 404 for a notification of somebody
+         *     else, as for one that is not there, and for one of an organization the session does
+         *     not open (`getNotifications`).
+         */
+        post: operations["unreadNotification"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4112,6 +4191,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/markdown/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a board, a wiki, a course or a diary as Markdown
+         * @description A ZIP of Markdown files of the container, for another tool to read, offered as a
+         *     download with its length, for those `exportContainerArchive` gives the archive to
+         *     (a diary to its owner alone, as every route of one), and under its limits (one
+         *     export at a time, `max_concurrent_exports`, `export_stall_seconds`). A session
+         *     alone: a personal API token is refused.
+         *
+         *     The ZIP holds a folder of the container's name, and in it a `.md` file for each
+         *     page of a wiki (in folders as its tree has them: a page with pages below it has a
+         *     folder of its name beside its file), each card of a board but its templates
+         *     (`cards/<number>-<title>.md`, and all of them in `board.csv`), each unit of a course
+         *     (a chapter is a folder of its units), and each entry of a diary
+         *     (`entries/<YYYY-MM-DD>.md`); and the files their bodies show and the attachments of
+         *     the cards in `files/`, named as they were uploaded. A name is one any system takes,
+         *     and one of its own in its folder (` (2)` after a second). A file starts with its
+         *     front matter in YAML (`title`, `created`, `updated` in UTC, and a card's `number`
+         *     and `attachments`, a page's `icon`, a unit's `amount`, `amountUnit` and
+         *     `scheduledDate`, an entry's `date`, `mood`, `weather` and `place`), then its title
+         *     as a heading and its body in Markdown as `getCard` writes one with `format=markdown`,
+         *     but that a file, a page, a card or a unit the ZIP holds is linked where it is (a
+         *     relative link), a person is named in plain text (`@name`), and what else a reference
+         *     names is its title where the user reads it, `[[id]]` where not. Comments, the trash
+         *     and the versions of bodies are not in it.
+         */
+        get: operations["exportContainerMarkdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/containers/{containerId}/members": {
         parameters: {
             query?: never;
@@ -5626,6 +5746,93 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/favorite-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put the favorites in order
+         * @description Puts the stars of the user of the session in the workspace in the order of the body,
+         *     a list of what they are on by identifier: those it names first, as it names them,
+         *     and the others after them in the order they had. An identifier of no star of theirs
+         *     is passed over. 400 for more than 100 identifiers, and for an entry of no form of
+         *     one. The user's connections to the workspace are told (`favoritesChanged`). A
+         *     session alone: a personal API token is refused.
+         */
+        put: operations["reorderFavorites"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The user's favorites
+         * @description The stars of the user of the session in the workspace, in their order (as
+         *     `reorderFavorites` put them, a new one after the others): on boards, wikis and
+         *     courses, and on cards, pages and units of them. Each is asked again whether the user
+         *     reads what it is on, as every route to it asks, and is listed with that as it is
+         *     now: its title, its icon and where it is. What they do not read now is left out, and
+         *     nothing says that it was there: what is in the trash, what is of a board they left
+         *     or that went private, what is gone; once it is there to them again, so is its star.
+         *     Nobody else's stars are listed anywhere, to anybody. A user has at most 100 in a
+         *     workspace. A session alone: a personal API token is refused.
+         */
+        get: operations["getFavorites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/favorites/{targetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put a star on something
+         * @description Puts a star of the user of the session on a board, a wiki or a course of the
+         *     workspace they read, or on a card, a page or a unit of one, after their other stars;
+         *     the server finds which it is. One that is there stays where it is. 404 for what the
+         *     user does not read, for a diary and an entry of one, for a template, and for an
+         *     identifier of nothing, all alike. Past 100 in the workspace it is 400 with the reason
+         *     `too_many_favorites`. The user's connections to the workspace are told
+         *     (`favoritesChanged`). A session alone: a personal API token is refused.
+         */
+        put: operations["putFavorite"];
+        post?: never;
+        /**
+         * Take a star off
+         * @description Takes the star of the user of the session off what it is on. 404 where they have no
+         *     star on it in this workspace, whatever the identifier names (taken off already, in
+         *     another workspace, or nothing): one answer for all. The user's connections to the
+         *     workspace are told where one went (`favoritesChanged`). A session alone: a personal
+         *     API token is refused.
+         */
+        delete: operations["deleteFavorite"];
         options?: never;
         head?: never;
         patch?: never;
@@ -8692,6 +8899,35 @@ export interface components {
              */
             workspaceId: string;
         };
+        /**
+         * @description A star as its person is shown it now: what it is on, what that is called, and where
+         *     it is.
+         */
+        Favorite: {
+            /** @description The board, wiki or course it is, or is of. */
+            containerId: string;
+            /** @description What that container is. */
+            containerKind: components["schemas"]["ContainerKind"];
+            /** @description Its icon, at most one grapheme; empty for none. */
+            icon: string;
+            /** @description What that is. */
+            kind: components["schemas"]["FavoriteKind"];
+            /**
+             * Format: int32
+             * @description A card's number on its board, as `Card.number` gives it; absent for anything
+             *     else.
+             */
+            number?: number | null;
+            /** @description The identifier of what the star is on. */
+            targetId: string;
+            /** @description Its title as it is now; empty for one without. */
+            title: string;
+        };
+        /**
+         * @description What a star is on.
+         * @enum {string}
+         */
+        FavoriteKind: "container" | "card" | "page" | "unit";
         /** @description A form with one file. */
         FileForm: {
             /**
@@ -9747,6 +9983,12 @@ export interface components {
         Notification: {
             /**
              * Format: int64
+             * @description When its reader put it away (`archiveNotification`); 0 while it is in the
+             *     inbox, and again once more of it happens. One put away is read.
+             */
+            archivedAt: number;
+            /**
+             * Format: int64
              * @description When it was made: when the first of it happened.
              */
             createdAt: number;
@@ -10126,12 +10368,27 @@ export interface components {
         Page: {
             body: components["schemas"]["Body"] | null;
             /**
+             * @description The body in Markdown, as `getPage` with `format=markdown` gives it in place of
+             *     `body`, left out otherwise; written as a card's `bodyMarkdown` is.
+             */
+            bodyMarkdown: string;
+            /**
+             * @description With `bodyMarkdown`: the blocks it does not hold as they are, in the order of
+             *     the body.
+             */
+            complexBlocks: components["schemas"]["ComplexBlock"][];
+            /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
              */
             createdAt: number;
             /** @description The identifier of the user who made the page. */
             createdBy: string;
+            /**
+             * @description With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as
+             *     they are (`complexBlocks`).
+             */
+            hasComplexBlocks: boolean;
             /** @description The page's icon, at most one grapheme; empty for none. */
             icon: string;
             /** @description The page's identifier. */
@@ -11069,6 +11326,16 @@ export interface components {
             amount: number | null;
             amountUnit: components["schemas"]["AmountUnit"] | null;
             body: components["schemas"]["Body"] | null;
+            /**
+             * @description The body in Markdown, as `getUnit` with `format=markdown` gives it in place of
+             *     `body`, left out otherwise; written as a card's `bodyMarkdown` is.
+             */
+            bodyMarkdown: string;
+            /**
+             * @description With `bodyMarkdown`: the blocks it does not hold as they are, in the order of
+             *     the body.
+             */
+            complexBlocks: components["schemas"]["ComplexBlock"][];
             /** @description The identifier of the course it is of. */
             courseId: string;
             /**
@@ -11078,6 +11345,11 @@ export interface components {
             createdAt: number;
             /** @description The identifier of the user who made it. */
             createdBy: string;
+            /**
+             * @description With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as
+             *     they are (`complexBlocks`).
+             */
+            hasComplexBlocks: boolean;
             /** @description The unit's or chapter's identifier. */
             id: string;
             /** @description Whether this entry is a `unit` or a `chapter`. */
@@ -12391,6 +12663,12 @@ export interface operations {
                 page?: number;
                 /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
+                /** @description `true` lists only the notifications not read; `false`, or left out, every one. Anything else is 400. */
+                unread?: boolean;
+                /** @description Lists only the notifications of this kind (`mention`, `assignment`, ...), and of them only those whose `subject` the user reads now: one that says nothing says no kind either, and a page may hold fewer than `perPage` while more follow. Left out, every kind. Anything else is 400. */
+                kind?: "mention" | "assignment" | "comment" | "review_due" | "meeting_upcoming" | "due_soon" | "added_to_container";
+                /** @description `true` lists the notifications put away (`archiveNotification`) in place of those of the inbox; `false`, or left out, the inbox. Anything else is 400. */
+                archived?: boolean;
             };
             header?: never;
             path?: never;
@@ -12406,6 +12684,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Notification"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    archiveReadNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description They are put away. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -12477,6 +12782,66 @@ export interface operations {
             };
         };
     };
+    archiveNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the notification: one of the user of the session. */
+                notificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description It is put away. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unarchiveNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the notification: one of the user of the session. */
+                notificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description It is in the inbox. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     readNotification: {
         parameters: {
             query?: never;
@@ -12490,6 +12855,36 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description It is read. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unreadNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the notification: one of the user of the session. */
+                notificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description It is unread. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -16364,7 +16759,7 @@ export interface operations {
     getCard: {
         parameters: {
             query?: {
-                /** @description `markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
+                /** @description `markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
                 format?: string;
             };
             header?: never;
@@ -17957,6 +18352,44 @@ export interface operations {
             };
         };
     };
+    exportContainerMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board, the wiki, the diary or the course. */
+                containerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ZIP of Markdown files. */
+            200: {
+                headers: {
+                    /** @description `attachment; filename=markdown-YYYY-MM-DD.zip`, for the day (UTC). */
+                    "Content-Disposition"?: string;
+                    /** @description The size of the ZIP in bytes. */
+                    "Content-Length"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getMembers: {
         parameters: {
             query?: never;
@@ -19483,7 +19916,10 @@ export interface operations {
     };
     getUnit: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
+                format?: string;
+            };
             header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
@@ -20798,6 +21234,136 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeletedDiaryEntry"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reorderFavorites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description They are in that order. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getFavorites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The favorites, in the user's order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Favorite"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putFavorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is. */
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The star is on it. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteFavorite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is. */
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description There is no star on it. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -22198,7 +22764,10 @@ export interface operations {
     };
     getPage: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400). */
+                format?: string;
+            };
             header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */

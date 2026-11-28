@@ -245,6 +245,7 @@ async fn evict_from_organization<'c>(
     let mut left = LeftFrom::default();
     account_erasure::leave_every_workspace(scope, user_id, actor, &mut left).await?;
     account_erasure::leave_organization(scope, held_org, user_id).await?;
+    crate::favorites::forget_user_in_organization(scope, user_id).await?;
     // A workspace they were in by a joining alone is one they left too.
     left.left.extend(joined);
     left.left.sort_unstable();

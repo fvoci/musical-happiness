@@ -333,6 +333,38 @@ async fn told_and_to_be_told(store: &Store, board_id: &str, user_id: &str) {
     );
 }
 
+/// The board in a category of the user's (`categories`, `category_containers`), and a
+/// star of theirs on it (`favorites`).
+async fn filed_and_starred(store: &Store, workspace_id: &str, user_id: &str, board_id: &str) {
+    let category = Category {
+        id: new_id(),
+        name: "a category".to_owned(),
+        user_id: user_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
+        ..Category::default()
+    };
+    store
+        .create_category(&category)
+        .await
+        .expect("a category is stored");
+    store
+        .add_update_category_container(user_id, &category.id, &[board_id.to_owned()])
+        .await
+        .expect("the board is filed");
+    store
+        .add_favorite(
+            workspace_id,
+            user_id,
+            &fvoci_store::StoredFavorite {
+                target_id: board_id.to_owned(),
+                kind: fvoci_model::FavoriteKind::Container,
+            },
+            0,
+        )
+        .await
+        .expect("a star is put on the board");
+}
+
 /// Stores, through `store`, something in every table of an organization: a workspace, a
 /// board with a member and the record of a change of its roles, a card and a comment
 /// whose text was changed, files, a public link, a subscription, a category with the board in
@@ -389,21 +421,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("the board is shared");
     watched_and_reacted(store, &comment, &user_id).await;
-    let category = Category {
-        id: new_id(),
-        name: "a category".to_owned(),
-        user_id: user_id.clone(),
-        workspace_id: board.workspace_id.clone(),
-        ..Category::default()
-    };
-    store
-        .create_category(&category)
-        .await
-        .expect("a category is stored");
-    store
-        .add_update_category_container(&user_id, &category.id, std::slice::from_ref(&board_id))
-        .await
-        .expect("the board is filed");
+    filed_and_starred(store, &board.workspace_id, &user_id, &board_id).await;
     in_the_files(store, &user_id, &board_id, username).await;
     a_body_edited_together(store, &board_id, &user_id).await;
     a_team_on_board(store, &board, &user_id).await;

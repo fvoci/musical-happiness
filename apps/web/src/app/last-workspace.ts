@@ -8,6 +8,8 @@
  */
 import { QUICK_FILTERS_KEY, quickFilters } from '$lib/state/board-quick.svelte.ts';
 
+import { forgetRecentPlaces } from './recent-places.ts';
+
 const KEY = 'fvoci:last-workspace:';
 
 export function lastWorkspace(userId: string): string | undefined {
@@ -57,10 +59,12 @@ export function rememberPlace(userId: string, workspaceId: string, boardId: stri
 
 /**
  * Clears unscoped UI state in `localStorage` on sign-out while preserving per-user workspace memory.
- * The quick filters go too, from storage and from the page: they narrow what the next reader sees.
+ * The quick filters go too, from storage and from the page: they narrow what the next reader sees;
+ * and what each reader opened last, which the search starts with (`recent-places.ts`).
  */
 export function forgetUnscoped(): void {
   quickFilters.forget();
+  forgetRecentPlaces();
   try {
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('fvoci.calendar.scale.') || key.startsWith(QUICK_FILTERS_KEY)) {
@@ -75,6 +79,7 @@ export function forgetUnscoped(): void {
 /** Forgets every account-scoped identifier kept on this browser for `userId` (on account deletion). */
 export function forgetUser(userId: string): void {
   if (!userId) return;
+  forgetRecentPlaces();
   try {
     for (const key of Object.keys(localStorage)) {
       if (

@@ -427,7 +427,7 @@ impl Store {
 ///
 /// `meeting_attendance` and `course_meetings` (`presenter_id`, `host_id`) are intentionally
 /// excluded: shared study meeting history stays under the erased user's tombstone identifier.
-const PERSONAL_DELETES: [&str; 21] = [
+const PERSONAL_DELETES: [&str; 22] = [
     "DELETE FROM notifications WHERE recipient_id = ",
     "DELETE FROM notification_outbox WHERE recipient_id = ",
     "DELETE FROM card_due_notices WHERE user_id = ",
@@ -445,6 +445,7 @@ const PERSONAL_DELETES: [&str; 21] = [
     "DELETE FROM reactions WHERE user_id = ",
     "DELETE FROM category_containers WHERE user_id = ",
     "DELETE FROM categories WHERE user_id = ",
+    "DELETE FROM favorites WHERE user_id = ",
     "DELETE FROM unit_progress WHERE user_id = ",
     "DELETE FROM exam_scores WHERE user_id = ",
     "DELETE FROM unit_reviews WHERE user_id = ",

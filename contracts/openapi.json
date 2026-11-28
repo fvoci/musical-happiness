@@ -3353,6 +3353,63 @@
         ],
         "type": "object"
       },
+      "Favorite": {
+        "description": "A star as its person is shown it now: what it is on, what that is called, and where\nit is.",
+        "properties": {
+          "containerId": {
+            "description": "The board, wiki or course it is, or is of.",
+            "type": "string"
+          },
+          "containerKind": {
+            "$ref": "#/components/schemas/ContainerKind",
+            "description": "What that container is."
+          },
+          "icon": {
+            "description": "Its icon, at most one grapheme; empty for none.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FavoriteKind",
+            "description": "What that is."
+          },
+          "number": {
+            "description": "A card's number on its board, as `Card.number` gives it; absent for anything\nelse.",
+            "format": "int32",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "targetId": {
+            "description": "The identifier of what the star is on.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Its title as it is now; empty for one without.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "containerId",
+          "containerKind",
+          "icon",
+          "kind",
+          "targetId",
+          "title"
+        ],
+        "type": "object"
+      },
+      "FavoriteKind": {
+        "description": "What a star is on.",
+        "enum": [
+          "container",
+          "card",
+          "page",
+          "unit"
+        ],
+        "type": "string"
+      },
       "FileForm": {
         "description": "A form with one file.",
         "properties": {
@@ -5300,6 +5357,11 @@
       "Notification": {
         "description": "One thing a person was told.",
         "properties": {
+          "archivedAt": {
+            "description": "When its reader put it away (`archiveNotification`); 0 while it is in the\ninbox, and again once more of it happens. One put away is read.",
+            "format": "int64",
+            "type": "integer"
+          },
           "createdAt": {
             "description": "When it was made: when the first of it happened.",
             "format": "int64",
@@ -5332,6 +5394,7 @@
           }
         },
         "required": [
+          "archivedAt",
           "createdAt",
           "id",
           "readAt",
@@ -5992,12 +6055,23 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The page's body; `null` for a page without one."
+                "description": "The page's body; `null` for a page without one, and where it is read in Markdown\n(`bodyMarkdown`)."
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "bodyMarkdown": {
+            "description": "The body in Markdown, as `getPage` with `format=markdown` gives it in place of\n`body`, left out otherwise; written as a card's `bodyMarkdown` is.",
+            "type": "string"
+          },
+          "complexBlocks": {
+            "description": "With `bodyMarkdown`: the blocks it does not hold as they are, in the order of\nthe body.",
+            "items": {
+              "$ref": "#/components/schemas/ComplexBlock"
+            },
+            "type": "array"
           },
           "createdAt": {
             "description": "Creation time in milliseconds since the Unix epoch.",
@@ -6007,6 +6081,10 @@
           "createdBy": {
             "description": "The identifier of the user who made the page.",
             "type": "string"
+          },
+          "hasComplexBlocks": {
+            "description": "With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as\nthey are (`complexBlocks`).",
+            "type": "boolean"
           },
           "icon": {
             "description": "The page's icon, at most one grapheme; empty for none.",
@@ -6044,8 +6122,11 @@
         },
         "required": [
           "body",
+          "bodyMarkdown",
+          "complexBlocks",
           "createdAt",
           "createdBy",
+          "hasComplexBlocks",
           "icon",
           "id",
           "modifiedBy",
@@ -6957,6 +7038,11 @@
             "reason": "too_many_organizations",
             "title": "Too many organizations made",
             "type": "/problems/too-many-organizations"
+          },
+          {
+            "reason": "too_many_favorites",
+            "title": "Too many favorites in the workspace",
+            "type": "/problems/too-many-favorites"
           },
           {
             "reason": "too_many_reactions",
@@ -8406,12 +8492,23 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The unit's body; `null` for a unit without one, and always `null` for a chapter."
+                "description": "The unit's body; `null` for a unit without one, always `null` for a chapter, and\n`null` where it is read in Markdown (`bodyMarkdown`)."
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "bodyMarkdown": {
+            "description": "The body in Markdown, as `getUnit` with `format=markdown` gives it in place of\n`body`, left out otherwise; written as a card's `bodyMarkdown` is.",
+            "type": "string"
+          },
+          "complexBlocks": {
+            "description": "With `bodyMarkdown`: the blocks it does not hold as they are, in the order of\nthe body.",
+            "items": {
+              "$ref": "#/components/schemas/ComplexBlock"
+            },
+            "type": "array"
           },
           "courseId": {
             "description": "The identifier of the course it is of.",
@@ -8425,6 +8522,10 @@
           "createdBy": {
             "description": "The identifier of the user who made it.",
             "type": "string"
+          },
+          "hasComplexBlocks": {
+            "description": "With `bodyMarkdown`: whether the body has blocks its Markdown does not hold as\nthey are (`complexBlocks`).",
+            "type": "boolean"
           },
           "id": {
             "description": "The unit's or chapter's identifier.",
@@ -8467,9 +8568,12 @@
           "amount",
           "amountUnit",
           "body",
+          "bodyMarkdown",
+          "complexBlocks",
           "courseId",
           "createdAt",
           "createdBy",
+          "hasComplexBlocks",
           "id",
           "kind",
           "modifiedBy",
@@ -10602,7 +10706,7 @@
     },
     "/api/v1/notifications": {
       "get": {
-        "description": "One page of what the user of the session was told, in every organization the\nsession opens, the newest first (by `updatedAt`): that somebody mentioned them in a\ncard, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or\ncommented on a card, a page or a unit they watch (`comment`; one named in that comment\nis told of the mention alone). Nobody is told of their own doing, nor of anything in a\nuser's own space, nor of a kind they switched off (`notifyMentions`,\n`notifyAssignments`, `notifyComments` of `patchUserSettings`): what is off is not made\nat all.\n\nWhoever writes a card, a page or a unit, is given a card, or comments on one watches\nit (`createSubscription`), until they end that (`deleteSubscription`). What happens to\none card, page or unit, of one kind, within an hour of the first of it, is one\nnotification: `times` and `people` count it, `actorId` and `commentId` say the\nlatest, and it is unread again. One person makes a hundred new ones for another\nwithin an hour at most; past that, what they do joins only those there.\n\nA notification is made only for somebody who reads the card, page or unit at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, or they left the container or the workspace) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nWhat an organization that takes only sessions made through its provider told the\nuser is left out for a session made otherwise, as `getMyMemberships` leaves its\nboards out: it is not listed, not counted, and not marked as read by such a\nsession, and it is there again for a session made through the provider.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
+        "description": "One page of what the user of the session was told, in every organization the\nsession opens, the newest first (by `updatedAt`): that somebody mentioned them in a\ncard, a page, a unit or a comment (`mention`), gave them a card (`assignment`), or\ncommented on a card, a page or a unit they watch (`comment`; one named in that comment\nis told of the mention alone). Nobody is told of their own doing, nor of anything in a\nuser's own space, nor of a kind they switched off (`notifyMentions`,\n`notifyAssignments`, `notifyComments` of `patchUserSettings`): what is off is not made\nat all.\n\nWhoever writes a card, a page or a unit, is given a card, or comments on one watches\nit (`createSubscription`), until they end that (`deleteSubscription`). What happens to\none card, page or unit, of one kind, within an hour of the first of it, is one\nnotification: `times` and `people` count it, `actorId` and `commentId` say the\nlatest, and it is unread again. One person makes a hundred new ones for another\nwithin an hour at most; past that, what they do joins only those there.\n\nA notification is made only for somebody who reads the card, page or unit at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, or they left the container or the workspace) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nThe inbox is listed (those put away left out) unless `archived` asks for the archive:\nwhat the user put away (`archiveNotification`), read. `unread` and `kind` narrow\neither.\n\nWhat an organization that takes only sessions made through its provider told the\nuser is left out for a session made otherwise, as `getMyMemberships` leaves its\nboards out: it is not listed, not counted, and not marked as read by such a\nsession, and it is there again for a session made through the provider.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
         "operationId": "getNotifications",
         "parameters": [
           {
@@ -10626,6 +10730,43 @@
               "maximum": 1000,
               "minimum": 1,
               "type": "integer"
+            }
+          },
+          {
+            "description": "`true` lists only the notifications not read; `false`, or left out, every one. Anything else is 400.",
+            "in": "query",
+            "name": "unread",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Lists only the notifications of this kind (`mention`, `assignment`, ...), and of them only those whose `subject` the user reads now: one that says nothing says no kind either, and a page may hold fewer than `perPage` while more follow. Left out, every kind. Anything else is 400.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "description": "What a notification tells of.",
+              "enum": [
+                "mention",
+                "assignment",
+                "comment",
+                "review_due",
+                "meeting_upcoming",
+                "due_soon",
+                "added_to_container"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` lists the notifications put away (`archiveNotification`) in place of those of the inbox; `false`, or left out, the inbox. Anything else is 400.",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -10655,6 +10796,31 @@
           }
         },
         "summary": "The notifications of the user",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/archive": {
+      "post": {
+        "description": "Puts away every notification of the user of the session that was read and is in the\ninbox, in every organization the session opens (`getNotifications`); those not read\nstay. Those of an organization the session does not open stay as they are.",
+        "operationId": "archiveReadNotifications",
+        "responses": {
+          "204": {
+            "description": "They are put away."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put away every notification that was read",
         "tags": [
           "notifications"
         ]
@@ -10729,6 +10895,76 @@
         ]
       }
     },
+    "/api/v1/notifications/{notificationId}/archive": {
+      "delete": {
+        "description": "Brings one notification of the user of the session back into the inbox; it stays\nread. One in the inbox stays there. 404 as for `unreadNotification`.",
+        "operationId": "unarchiveNotification",
+        "parameters": [
+          {
+            "description": "The identifier of the notification: one of the user of the session.",
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "It is in the inbox."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take a notification out of the archive",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "post": {
+        "description": "Puts one notification of the user of the session away, out of the inbox and into\nthe archive (`getNotifications` with `archived=true`): one that was not read is read\nwith it, and one put away stays put away since when it was. One whose `subject` is\n`null` is put away as any other. More of it within the hour brings it back into the\ninbox, unread. 404 as for `unreadNotification`.",
+        "operationId": "archiveNotification",
+        "parameters": [
+          {
+            "description": "The identifier of the notification: one of the user of the session.",
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "It is put away."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put a notification away",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
     "/api/v1/notifications/{notificationId}/read": {
       "post": {
         "description": "Marks one notification of the user of the session as read; one that was read stays\nread since when it was. 404 for a notification of somebody else, as for one that\nis not there, and for one of an organization the session does not open\n(`getNotifications`).",
@@ -10760,6 +10996,42 @@
           }
         },
         "summary": "Mark a notification as read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/{notificationId}/unread": {
+      "post": {
+        "description": "Marks one notification of the user of the session as not read, as more of it would:\nit is counted again (`getUnreadNotifications`), and one that was put away\n(`archiveNotification`) is back in the inbox. 404 for a notification of somebody\nelse, as for one that is not there, and for one of an organization the session does\nnot open (`getNotifications`).",
+        "operationId": "unreadNotification",
+        "parameters": [
+          {
+            "description": "The identifier of the notification: one of the user of the session.",
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "It is unread."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Mark a notification as unread",
         "tags": [
           "notifications"
         ]
@@ -16801,7 +17073,7 @@
             }
           },
           {
-            "description": "`markdown` gives the card's body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
+            "description": "`markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
             "in": "query",
             "name": "format",
             "required": false,
@@ -19402,6 +19674,76 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/markdown/export": {
+      "get": {
+        "description": "A ZIP of Markdown files of the container, for another tool to read, offered as a\ndownload with its length, for those `exportContainerArchive` gives the archive to\n(a diary to its owner alone, as every route of one), and under its limits (one\nexport at a time, `max_concurrent_exports`, `export_stall_seconds`). A session\nalone: a personal API token is refused.\n\nThe ZIP holds a folder of the container's name, and in it a `.md` file for each\npage of a wiki (in folders as its tree has them: a page with pages below it has a\nfolder of its name beside its file), each card of a board but its templates\n(`cards/<number>-<title>.md`, and all of them in `board.csv`), each unit of a course\n(a chapter is a folder of its units), and each entry of a diary\n(`entries/<YYYY-MM-DD>.md`); and the files their bodies show and the attachments of\nthe cards in `files/`, named as they were uploaded. A name is one any system takes,\nand one of its own in its folder (` (2)` after a second). A file starts with its\nfront matter in YAML (`title`, `created`, `updated` in UTC, and a card's `number`\nand `attachments`, a page's `icon`, a unit's `amount`, `amountUnit` and\n`scheduledDate`, an entry's `date`, `mood`, `weather` and `place`), then its title\nas a heading and its body in Markdown as `getCard` writes one with `format=markdown`,\nbut that a file, a page, a card or a unit the ZIP holds is linked where it is (a\nrelative link), a person is named in plain text (`@name`), and what else a reference\nnames is its title where the user reads it, `[[id]]` where not. Comments, the trash\nand the versions of bodies are not in it.",
+        "operationId": "exportContainerMarkdown",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board, the wiki, the diary or the course.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The ZIP of Markdown files.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "`attachment; filename=markdown-YYYY-MM-DD.zip`, for the day (UTC).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The size of the ZIP in bytes.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Export a board, a wiki, a course or a diary as Markdown",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/containers/{containerId}/members": {
       "get": {
         "description": "For the board's members and the workspace's administrators. Who left the workspace\nis not listed, whatever role they had on the board. By the identifier of the user: a\nmembership has no time of its own, so this is not the order in which the users came\nto the board.",
@@ -21977,6 +22319,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "`markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -24212,6 +24563,189 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/favorite-order": {
+      "put": {
+        "description": "Puts the stars of the user of the session in the workspace in the order of the body,\na list of what they are on by identifier: those it names first, as it names them,\nand the others after them in the order they had. An identifier of no star of theirs\nis passed over. 400 for more than 100 identifiers, and for an entry of no form of\none. The user's connections to the workspace are told (`favoritesChanged`). A\nsession alone: a personal API token is refused.",
+        "operationId": "reorderFavorites",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "They are in that order."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put the favorites in order",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/favorites": {
+      "get": {
+        "description": "The stars of the user of the session in the workspace, in their order (as\n`reorderFavorites` put them, a new one after the others): on boards, wikis and\ncourses, and on cards, pages and units of them. Each is asked again whether the user\nreads what it is on, as every route to it asks, and is listed with that as it is\nnow: its title, its icon and where it is. What they do not read now is left out, and\nnothing says that it was there: what is in the trash, what is of a board they left\nor that went private, what is gone; once it is there to them again, so is its star.\nNobody else's stars are listed anywhere, to anybody. A user has at most 100 in a\nworkspace. A session alone: a personal API token is refused.",
+        "operationId": "getFavorites",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Favorite"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The favorites, in the user's order."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The user's favorites",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/favorites/{targetId}": {
+      "delete": {
+        "description": "Takes the star of the user of the session off what it is on. 404 where they have no\nstar on it in this workspace, whatever the identifier names (taken off already, in\nanother workspace, or nothing): one answer for all. The user's connections to the\nworkspace are told where one went (`favoritesChanged`). A session alone: a personal\nAPI token is refused.",
+        "operationId": "deleteFavorite",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "There is no star on it."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take a star off",
+        "tags": [
+          "sidebar"
+        ]
+      },
+      "put": {
+        "description": "Puts a star of the user of the session on a board, a wiki or a course of the\nworkspace they read, or on a card, a page or a unit of one, after their other stars;\nthe server finds which it is. One that is there stays where it is. 404 for what the\nuser does not read, for a diary and an entry of one, for a template, and for an\nidentifier of nothing, all alike. Past 100 in the workspace it is 400 with the reason\n`too_many_favorites`. The user's connections to the workspace are told\n(`favoritesChanged`). A session alone: a personal API token is refused.",
+        "operationId": "putFavorite",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of what the star is on: a board, a wiki or a course, or a card, a page or a unit of one. A diary and an entry of one are 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The star is on it."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put a star on something",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/guest-invitations": {
       "put": {
         "description": "Turns on or off whether guests are invited to the boards of the workspace, and\nanswers the workspace. Turning it off revokes the links that invite guests, which\ndo not come back when it is turned on again, and while it is off none is made.\nWho is a guest already stays one. Only the workspace's administrators: anybody else who\nworks there is refused (403).\n\nA guest of the workspace is told that it is not there (404).",
@@ -26431,6 +26965,15 @@
             "in": "path",
             "name": "pageId",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`markdown` gives the body in Markdown (`bodyMarkdown`, with `hasComplexBlocks` and `complexBlocks`) in place of `body`; `json`, or left out, gives `body`. Any other value is refused (400).",
+            "in": "query",
+            "name": "format",
+            "required": false,
             "schema": {
               "type": "string"
             }

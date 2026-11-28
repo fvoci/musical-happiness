@@ -74,6 +74,9 @@ async fn a_page_is_made_read_changed_and_deleted() {
             modified_by: me,
             created_at: page.created_at,
             updated_at: page.created_at,
+            body_markdown: None,
+            has_complex_blocks: None,
+            complex_blocks: None,
         }
     );
     assert!(!page.order.is_empty() && page.created_at > 0, "{page:?}");

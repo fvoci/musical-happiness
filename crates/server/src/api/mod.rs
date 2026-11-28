@@ -32,6 +32,7 @@ mod diaries;
 mod diary_versions;
 mod email_change;
 mod email_verification;
+mod favorites;
 mod file_leases;
 mod file_versions;
 mod files;
@@ -171,6 +172,7 @@ fn routes() -> Routes {
         .merge(today::routes())
         .merge(trash::routes())
         .merge(categories::routes())
+        .merge(favorites::routes())
         .merge(config::routes())
         .merge(files::routes())
         .merge(file_versions::routes())

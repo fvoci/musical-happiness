@@ -42,6 +42,8 @@ export type Change =
   | { kind: 'user'; userId: string }
   /** What the reader was told changed: whoever shows it reads it again. */
   | { kind: 'notifications' }
+  /** The reader's stars in the workspace changed, here or elsewhere: whoever shows them reads them again. */
+  | { kind: 'favorites'; workspaceId: string }
   /** Somebody's workspace role changed (`admin`, `member`, `guest`, or `''` on removal). */
   | { kind: 'workspaceRole'; workspaceId: string; userId: string; role: string }
   /**

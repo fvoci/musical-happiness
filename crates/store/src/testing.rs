@@ -472,7 +472,7 @@ pub const GLOBAL_TABLES: [&str; 14] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 53] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 54] = crate::schema::ORG_TABLES;
 
 /// Takes away again, as the owner of the schema `database_connection` connects to, what
 /// the migrations after the baseline made, newest first: the schema is the baseline's.
@@ -494,8 +494,10 @@ pub async fn undo_the_migrations_after_the_baseline(db_type: DbType, database_co
 
 /// The statements of [`crate::schema::UNDONE_FOR_TESTS`], in their order.
 async fn undo_after_the_baseline(scope: &mut crate::db::Scope<'_>) -> Result<(), StoreError> {
-    for (_, undo) in crate::schema::UNDONE_FOR_TESTS {
-        scope.execute(scope.sql(undo)).await?;
+    for (_, statements) in crate::schema::UNDONE_FOR_TESTS {
+        for statement in statements {
+            scope.execute(scope.sql(*statement)).await?;
+        }
     }
     Ok(())
 }

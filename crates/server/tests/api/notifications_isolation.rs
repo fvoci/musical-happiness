@@ -489,6 +489,25 @@ async fn a_session_its_organization_does_not_take_reaches_nothing_it_was_told_th
         .post("/notifications/read", &Value::Null)
         .await
         .check_no_content();
+    for path in ["unread", "archive"] {
+        th.client2
+            .post(
+                &format!("/notifications/{}/{path}", open[0].id),
+                &Value::Null,
+            )
+            .await
+            .check_error(reqwest::StatusCode::NOT_FOUND, "notification not found");
+    }
+    th.client2
+        .delete(&format!("/notifications/{}/archive", open[0].id))
+        .await
+        .check_error(reqwest::StatusCode::NOT_FOUND, "notification not found");
+    let archived: Vec<Notification> = th
+        .client2
+        .get("/notifications?archived=true")
+        .await
+        .ok_json();
+    assert_eq!(archived, [], "nothing is in the archive either");
 
     // Through the provider it is there, and not read: the password session marked
     // nothing.
@@ -497,6 +516,20 @@ async fn a_session_its_organization_does_not_take_reaches_nothing_it_was_told_th
     assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{theirs:?}");
     assert_eq!(theirs[0].read_at, 0, "as it was");
     assert_eq!(unread(&through).await, 1);
+    // Read through the provider, it is put away by no other session.
+    through
+        .post(
+            &format!("/notifications/{}/read", theirs[0].id),
+            &Value::Null,
+        )
+        .await
+        .check_no_content();
+    th.client2
+        .post("/notifications/archive", &Value::Null)
+        .await
+        .check_no_content();
+    let still = told(&th, &through).await;
+    assert_eq!((still.len(), still[0].archived_at), (1, 0), "{still:?}");
     th.teardown().await;
     fake.stop();
 }

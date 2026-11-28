@@ -16,6 +16,8 @@ pub(super) const REFUSED_IN_REACH: [StatusCode; 3] = [
 /// is what the path names (a board, a card, an upload, a user), or the operation.
 pub(super) const REACHED_BY_ITEM: &[&str] = &[
     "getReferencesTo",
+    "putFavorite",
+    "deleteFavorite",
     "createBoard",
     "createWiki",
     "getPageTree",
@@ -90,6 +92,7 @@ pub(super) const REACHED_BY_ITEM: &[&str] = &[
     "getContainer",
     "patchContainer",
     "exportContainerArchive",
+    "exportContainerMarkdown",
     "createCard",
     "getCards",
     "getCardByNumber",

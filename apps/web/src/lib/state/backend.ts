@@ -26,6 +26,8 @@ import type { OfBodies } from './references.ts';
 import type { TrashReads } from './trash-reads.ts';
 import type { ReactionsOfBackend, WithReactions } from './reaction-types.ts';
 import type { WatchesOfBackend } from './watch-types.ts';
+import type { FavoritesOfBackend } from './favorite-types.ts';
+import type { MarkdownOfBackend } from './markdown-types.ts';
 import type { ChangeListener } from './changes.ts';
 import type { ContentSearchOfBackend } from './content-search.ts';
 import type { Category, CategoryDraft, CategoryPatch } from './category-types.ts';
@@ -266,6 +268,8 @@ export interface Backend
     ContentSearchOfBackend,
     NotificationsOfBackend,
     WatchesOfBackend,
+    FavoritesOfBackend,
+    MarkdownOfBackend,
     ReactionsOfBackend,
     TimeOfBackend,
     VersionsOfFiles,

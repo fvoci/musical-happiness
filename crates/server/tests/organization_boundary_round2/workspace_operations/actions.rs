@@ -32,6 +32,7 @@ pub(super) async fn exercise(case: &mut Case) {
     )
     .await;
     categories(case, &board).await;
+    stars(case, &board).await;
     let audited = people(case, &board).await;
     subscriptions(case, &card).await;
     files::exercise(case, &board, &card).await;
@@ -746,6 +747,15 @@ async fn categories(case: &mut Case, board: &str) {
         .value();
     assert_eq!(reordered, json!(order), "categories are reordered");
     case.run("deleteCategory", at, json!({})).await;
+}
+
+/// The founder's stars: one put on the board, listed, put in order and taken off.
+async fn stars(case: &mut Case, board: &str) {
+    let at = &[("targetId", board)];
+    case.run("putFavorite", at, json!({})).await;
+    case.present("getFavorites", &[], board).await;
+    case.run("reorderFavorites", &[], json!([board])).await;
+    case.run("deleteFavorite", at, json!({})).await;
 }
 
 async fn people(case: &mut Case, board: &str) -> String {

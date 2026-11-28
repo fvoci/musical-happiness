@@ -338,6 +338,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CommentWithReactions", Members::AllBut(&["reactions"])),
     ("Reaction", Members::All),
     ("DeletedItem", Members::AllBut(&["kind"])),
+    ("Favorite", Members::AllBut(&["number"])),
+    ("FavoriteKind", Members::AsWritten),
     ("FileRecord", Members::All),
     ("ListedFile", Members::All),
     ("FileLease", Members::All),

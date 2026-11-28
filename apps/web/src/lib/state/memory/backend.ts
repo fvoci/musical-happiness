@@ -71,14 +71,15 @@ import { openMemoryRoom } from './bodies.ts';
 import { MemoryBodyVersions } from './body-versions.ts';
 import { MemoryCardActivity } from './card-activity.ts';
 import { MemoryCategories } from './categories.ts';
-import { versionsOf } from './comments.ts';
-import { memberFileUrl, memberRole, memoryPermissionsOf } from './container-access.ts';
+import { memberFileUrl, memoryPermissionsOf } from './container-access.ts';
 import * as containerOps from './container-ops.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { MemoryCourses } from './courses.ts';
 import { MemoryDiaries } from './diaries.ts';
 import { MemoryFileVersions } from './file-versions.ts';
-import { readableBlob, readableFile, storeUpload } from './files.ts';
+import { MemoryFavorites } from './favorites.ts';
+import { fileDetailsOf, readableBlob, storeUpload } from './files.ts';
+import { MemoryMarkdowns } from './markdowns.ts';
 import { MemoryNotifications } from './notifications.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
@@ -115,6 +116,8 @@ export class MemoryBackend implements Backend {
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
   readonly notifications = new MemoryNotifications(this, () => this.#enter('notifications'));
   readonly watches = new MemoryWatches(this, () => this.#enter('watches'));
+  readonly favorites = new MemoryFavorites(this, () => this.#enter('favorites'));
+  readonly markdown = new MemoryMarkdowns(this, (signal) => this.#enter('markdown', signal));
   readonly reactions = new MemoryReactions(this, () => this.#enter('reactions'));
   readonly time = new MemoryTime(this, () => this.#enter('time'));
   readonly #categories = new MemoryCategories(this, (method, workspaceId) =>
@@ -446,8 +449,7 @@ export class MemoryBackend implements Backend {
   }
   async commentVersions(b: string, c: string, _cardId: string): Promise<CommentVersion[]> {
     await this.#enter('commentVersions');
-    memberRole(this.world, this.userId, b);
-    return versionsOf(this.world, b, c);
+    return boardAuth.memoryCommentVersions(this, b, c);
   }
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     await this.#enter('attachments');
@@ -481,8 +483,7 @@ export class MemoryBackend implements Backend {
   }
   async fileDetails(id: string, fileId: string): Promise<FileDetails> {
     await this.#enter('fileDetails');
-    const { name, size } = readableFile(this.world, this.userId, id, fileId);
-    return { name, size };
+    return fileDetailsOf(this.world, this.userId, id, fileId);
   }
   fileUrl(id: string, fileId: string): string | undefined {
     return memberFileUrl(this.world, this.userId, id, fileId);

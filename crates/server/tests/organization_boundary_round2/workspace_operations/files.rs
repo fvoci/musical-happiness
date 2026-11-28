@@ -178,6 +178,14 @@ async fn archives(case: &mut Case, board: &str) {
     );
     check_archive(case, &archive.body);
     check_archive(case, &all.body);
+    let markdown = case
+        .run("exportContainerMarkdown", &[("boardId", board)], json!({}))
+        .await;
+    assert!(
+        markdown.body.starts_with(b"PK"),
+        "a board's Markdown is a ZIP"
+    );
+    check_archive(case, &markdown.body);
     let upload = case
         .run(
             "createImportUpload",

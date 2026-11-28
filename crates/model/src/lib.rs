@@ -32,6 +32,7 @@ mod course_schedule;
 mod date_value;
 mod deleted_item;
 mod diary;
+mod favorite;
 mod file_lease;
 mod file_version;
 mod files;
@@ -180,6 +181,7 @@ pub use diary::{
     ParseMonthDayError, ParseMoodError, entry_body_updated_at, entry_date, entry_mood,
     is_empty_entry,
 };
+pub use favorite::{Favorite, FavoriteKind, MAX_FAVORITES, UnknownFavoriteKind};
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
 pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};
 pub use files::{FileKey, FileRecord, ListedFile, is_storage_path};
@@ -191,8 +193,8 @@ pub use invitation::{
 pub use linked::{LinkedBlock, LinkedKind};
 pub use name::{Named, required_name};
 pub use notification::{
-    Notification, NotificationKind, NotificationSubject, UnknownNotificationKind,
-    UnreadNotifications,
+    Notification, NotificationFilter, NotificationKind, NotificationSubject,
+    UnknownNotificationKind, UnreadNotifications,
 };
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,

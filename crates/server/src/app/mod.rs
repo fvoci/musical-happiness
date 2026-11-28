@@ -36,6 +36,8 @@ mod doomed;
 mod download;
 mod email_change;
 mod export;
+mod export_markdown;
+mod favorites;
 mod file_leases;
 mod file_name;
 mod file_versions;
@@ -48,6 +50,7 @@ mod limits;
 mod list_page;
 mod loose_objects;
 mod mail;
+mod notification_triage;
 mod notifications;
 mod oidc;
 mod oidc_account;
@@ -135,6 +138,7 @@ pub use diaries::{
     UNDELETE_ENTRY_DENIED,
 };
 pub use export::ExportedArchive;
+pub(crate) use export::utc_day;
 pub(crate) use file_name::check_file_name;
 pub(crate) use files::FILE;
 pub use housekeeping::TrashPurged;

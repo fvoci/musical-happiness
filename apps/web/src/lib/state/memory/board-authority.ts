@@ -15,6 +15,7 @@ import type {
   CardMovesOutput,
   CardSummary,
   Comment,
+  CommentVersion,
   ViewDraft,
 } from '../backend.ts';
 import { droppedCardOrder } from '../card-order.ts';
@@ -25,7 +26,7 @@ import { blockInBoard, createMemoryCard, withLastComment } from './block-ops.ts'
 import { flushCard } from './bodies.ts';
 import { noteCardChanged, noteCardsRestored } from './card-activity.ts';
 import { makeNextCard, settleCardChange } from './card-recurrence.ts';
-import { mayRemoveComments, roleOn } from './comments.ts';
+import { mayRemoveComments, roleOn, versionsOf } from './comments.ts';
 import { memberRole } from './container-access.ts';
 import {
   containerInWorld,
@@ -422,6 +423,16 @@ export function restoreMemoryComment(
   if (!comment) fail(404, 'no such comment');
   tellBlocks(ctx.world, boardId, restored);
   return commentOf(comment);
+}
+
+/** The earlier texts of a comment of the board, for a member of it. */
+export function memoryCommentVersions(
+  ctx: MemoryContainerContext,
+  boardId: string,
+  commentId: string,
+): CommentVersion[] {
+  memberRole(ctx.world, ctx.userId, boardId);
+  return versionsOf(ctx.world, boardId, commentId);
 }
 
 /**

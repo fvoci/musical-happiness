@@ -61,7 +61,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 51] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 52] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -116,6 +116,8 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 51] = [
     "restoreUnitComment",
     // The member's subscription is to the card, by its own identifier.
     "deleteSubscription",
+    // The sweep may take a star off the card before it puts one on.
+    "deleteFavorite",
     // The upload asked of is done with by then, or was never begun in parts.
     "completeUpload",
     "putUploadPart",
@@ -225,6 +227,7 @@ impl Named {
             .replace("{cardId}", &self.card)
             .replace("{attachmentId}", &self.attachment)
             .replace("{blockId}", &self.card)
+            .replace("{targetId}", &self.card)
             .replace("{wikiId}", &self.wiki)
             .replace("{pageId}", &self.page)
             .replace("{commentId}", comment)

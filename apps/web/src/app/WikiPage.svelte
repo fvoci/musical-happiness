@@ -36,6 +36,7 @@
   import CardComments from '$lib/features/card/CardComments.svelte';
   import CommentReactions from '$lib/features/card/CommentReactions.svelte';
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
+  import FavoriteToggle from '$lib/components/favorite-toggle/FavoriteToggle.svelte';
   import WatchToggle from '$lib/features/card/WatchToggle.svelte';
   import PageMenu from '$lib/features/wiki/PageMenu.svelte';
   import TrashDialog from '$lib/features/shell/TrashDialog.svelte';
@@ -57,6 +58,7 @@
     type WikiLooks,
     type WikiPage,
     type Workspace,
+    workspaceFavorites,
   } from '$lib/state/index.ts';
 
   import { Button } from '$lib/ui/button/index.js';
@@ -337,7 +339,11 @@
           {@const shown = wiki.page(page.pageId) ?? page.meta}
           {#if shown}
             <WatchToggle {workspace} blockId={page.pageId} kind="page" />
+            {#if !wiki.container?.isTemplate}
+              <FavoriteToggle stars={workspaceFavorites(workspace)} targetId={page.pageId} />
+            {/if}
             <PageMenu
+              {workspace}
               page={shown}
               href={router.href({ ...router.route, pageId: page.pageId })}
               onVersions={() => {

@@ -241,11 +241,17 @@ fn container_ops() -> Vec<Op> {
     ]
 }
 
-/// The operations of its sharing, its files, its place in the sidebar and what names
-/// what is on it.
+/// The operations of its export in Markdown, its sharing, its files, its place in the
+/// sidebar and what names what is on it.
 fn holding_ops() -> Vec<Op> {
     use Body::{File, Json, None};
     vec![
+        op(
+            "container: Markdown export",
+            Method::GET,
+            "/containers/{c}/markdown/export",
+            None,
+        ),
         op(
             "public-link: get",
             Method::GET,
@@ -315,6 +321,13 @@ fn holding_ops() -> Vec<Op> {
             "sidebar: unhide",
             Method::PUT,
             "/categories/{category}/containers/{c}/unhide",
+            None,
+        ),
+        op("favorites: star it", Method::PUT, "/favorites/{c}", None),
+        op(
+            "favorites: star a block",
+            Method::PUT,
+            "/favorites/{p}",
             None,
         ),
         op("references: to", Method::GET, "/references/to/{p}", None),
@@ -1243,13 +1256,15 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
     }
     // What is not a change of the wiki: joining it, leaving it (who reads it may leave
     // it, and leaving a container one is no member of changes nothing, 204), and what
-    // the reader keeps of it in their own sidebar and trash.
+    // the reader keeps of it in their own sidebar, stars and trash.
     let not_a_change = [
         "members: join",
         "members: leave",
         "sidebar: category",
         "sidebar: hide",
         "sidebar: unhide",
+        "favorites: star it",
+        "favorites: star a block",
         "trash: list",
     ];
     for (row, cells) in &wiki {
@@ -1311,6 +1326,7 @@ fn assert_open_unjoined_board_rows(board: &[(&str, Vec<String>)], unjoined: usiz
         "cards: trash",
         "board: duplicate",
         "board: export",
+        "container: Markdown export",
     ] {
         assert_eq!(
             row_of(board, row)[unjoined],
@@ -1694,6 +1710,15 @@ async fn course_template_and_diary_routes_match_the_role_matrix() {
     // On a template, every column except `member@open` matches a board; on `member@open`
     // joining is refused (403) while reading, duplicating and exporting are allowed.
     for (row, of_template) in &template {
+        // No star goes on a template, nor on what is in one (`app/favorites.rs`): it is as
+        // nothing is, to every role.
+        if row.starts_with("favorites:") {
+            assert!(
+                of_template.iter().all(|told| told.starts_with("404")),
+                "{row} on a template: {of_template:?}"
+            );
+            continue;
+        }
         let of_board = row_of(&board, row);
         for (idx, (col_name, _, _)) in COLUMNS.iter().enumerate() {
             if idx != unjoined {
@@ -1719,6 +1744,7 @@ async fn course_template_and_diary_routes_match_the_role_matrix() {
         "views: list",
         "views: get",
         "board: export",
+        "container: Markdown export",
     ] {
         assert_eq!(
             row_of(&template, read_row)[unjoined],

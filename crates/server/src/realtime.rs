@@ -14,6 +14,7 @@
 mod block_message;
 mod connection;
 mod delivery;
+mod favorites;
 mod notifications;
 mod presence;
 pub(crate) mod quiet;
