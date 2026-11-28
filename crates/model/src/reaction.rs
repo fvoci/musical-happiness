@@ -23,10 +23,11 @@ pub const EMOJI_MAX_SCALARS: usize = 8;
 /// One emoji, as a reaction names it: one grapheme of at most [`EMOJI_MAX_SCALARS`]
 /// scalar values that has the shape of an emoji. Only [`FromStr`] makes one.
 ///
-/// The server takes the shape alone, not a list: a pictograph with its variation
-/// selector and skin tone, joined to others by zero-width joiners (`👩🏽‍💻`), a flag
-/// of two regional indicators (`🇰🇷`) or of tags (`🏴󠁧󠁢󠁳󠁣󠁴󠁿`), or a keycap (`#️⃣`). Letters,
-/// digits, spaces and control characters on their own are none.
+/// The server takes the shape alone, not a list: a pictograph with the selector of the
+/// emoji's look and its skin tone, joined to others by zero-width joiners (`👩🏽‍💻`), a
+/// flag of two regional indicators (`🇰🇷`) or of a region's 3 to 6 tags (`🏴󠁧󠁢󠁳󠁣󠁴󠁿`), or a
+/// keycap (`#️⃣`). Letters, digits, spaces and control characters on their own are none,
+/// and so is the text's look of an emoji.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Emoji(String);
@@ -147,8 +148,6 @@ with_reactions!(
 const JOINER: char = '\u{200D}';
 /// The variation selector that asks for the emoji's look.
 const EMOJI_LOOK: char = '\u{FE0F}';
-/// The variation selector that asks for the text's look.
-const TEXT_LOOK: char = '\u{FE0E}';
 /// The mark that makes a digit, `#` or `*` a keycap.
 const KEYCAP: char = '\u{20E3}';
 /// The black flag that tags make the flag of a region (`🏴󠁧󠁢󠁳󠁣󠁴󠁿`).
@@ -175,8 +174,10 @@ fn has_the_shape_of_an_emoji(scalars: &[char]) -> bool {
 
 /// How many scalars at the start of `scalars` make one part of an emoji, `None` if
 /// they make none: a flag of two regional indicators; a keycap; or a pictograph (or a
-/// skin tone alone) with its variation selector, its skin tone and, on the black flag,
-/// the tags of a region.
+/// skin tone alone) with the selector of the emoji's look, its skin tone and, on the
+/// black flag, the tags of a region. The selector of the text's look (U+FE0E) is no
+/// part: what it asks for is no emoji, and the same pictograph would be answered
+/// with twice, once in each look.
 fn part_length(scalars: &[char]) -> Option<usize> {
     match scalars {
         [first, second, ..] if is_regional_indicator(*first) && is_regional_indicator(*second) => {
@@ -186,7 +187,7 @@ fn part_length(scalars: &[char]) -> Option<usize> {
         [key, KEYCAP, ..] if is_keycap_base(*key) => Some(2),
         [base, ..] if is_pictograph(*base) || is_skin_tone(*base) => {
             let mut taken = 1;
-            if matches!(scalars.get(taken), Some(&(EMOJI_LOOK | TEXT_LOOK))) {
+            if scalars.get(taken) == Some(&EMOJI_LOOK) {
                 taken += 1;
             }
             if scalars.get(taken).copied().is_some_and(is_skin_tone) && !is_skin_tone(*base) {
@@ -196,13 +197,14 @@ fn part_length(scalars: &[char]) -> Option<usize> {
                 }
             }
             if *base == TAGGED_FLAG && scalars.get(taken).copied().is_some_and(is_tag) {
-                while scalars.get(taken).copied().is_some_and(is_tag) {
-                    taken += 1;
-                }
-                if scalars.get(taken) != Some(&CANCEL_TAG) {
+                let tags = scalars[taken..]
+                    .iter()
+                    .take_while(|&&scalar| is_tag(scalar))
+                    .count();
+                if !REGION_TAGS.contains(&tags) || scalars.get(taken + tags) != Some(&CANCEL_TAG) {
                     return None;
                 }
-                taken += 1;
+                taken += tags + 1;
             }
             Some(taken)
         }
@@ -222,9 +224,15 @@ fn is_keycap_base(scalar: char) -> bool {
     scalar.is_ascii_digit() || scalar == '#' || scalar == '*'
 }
 
-/// The tags that spell a region after the black flag, without the one that ends them.
+/// How many tags spell a region after the black flag: a subdivision's code of ISO
+/// 3166-2 without its hyphen (`gbsct` for Scotland), from 3 to 6 letters and digits.
+const REGION_TAGS: std::ops::RangeInclusive<usize> = 3..=6;
+
+/// The tags that spell a region after the black flag, without the one that ends them:
+/// the tag forms of the small letters and the digits alone, so that no other text
+/// rides unseen in a flag.
 fn is_tag(scalar: char) -> bool {
-    ('\u{E0020}'..='\u{E007E}').contains(&scalar)
+    matches!(scalar, '\u{E0030}'..='\u{E0039}' | '\u{E0061}'..='\u{E007A}')
 }
 
 /// Whether the scalar is a pictograph an emoji is made of: the blocks of Unicode's
@@ -338,6 +346,12 @@ mod tests {
             ("\u{FE0F}", ParseEmojiError::NotAnEmoji),
             ("🇰", ParseEmojiError::NotAnEmoji),
             ("🏴\u{E0067}\u{E0062}", ParseEmojiError::NotAnEmoji),
+            // The text's look of an emoji; tags that are no small letter or digit, and
+            // too few of them.
+            ("👍\u{FE0E}", ParseEmojiError::NotAnEmoji),
+            ("🏴\u{E0020}\u{E007F}", ParseEmojiError::NotAnEmoji),
+            ("🏴\u{E0041}\u{E007F}", ParseEmojiError::NotAnEmoji),
+            ("🏴\u{E0067}\u{E0062}\u{E007F}", ParseEmojiError::NotAnEmoji),
             ("👍\u{0301}", ParseEmojiError::NotAnEmoji),
             ("👩🏻‍❤️‍💋‍👨🏼", ParseEmojiError::TooLong),
         ] {
