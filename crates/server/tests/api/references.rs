@@ -453,7 +453,7 @@ async fn what_is_of_another_organization_is_resolved_as_nothing() {
         .create_page(&wiki.id, &new_page, PageLimits::default(), &owner)
         .await
         .expect("their page is stored")
-        .page;
+        .first;
 
     let their_ids = [card.id.as_str(), page.id.as_str(), their_board.as_str()];
     check_as_nothing(&th.client, TEST_WS, &their_ids, &here.card, "another's").await;

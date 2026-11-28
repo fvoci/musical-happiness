@@ -22,7 +22,7 @@ use super::container_copies::{counted_as, titles_in};
 use super::loose_objects::WrittenPlace;
 use super::pages::refused_without_member;
 use super::templates::{TEMPLATE_MARKS, changes_of_copy};
-use super::{App, MAX_REFERENCE_IDS};
+use super::{App, Changes, MAX_REFERENCE_IDS};
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 use crate::metrics::{ContainerWork, CourseSource};
@@ -679,5 +679,5 @@ fn announce_workspace_copy(
                 .await;
         }
     });
-    target_app.announce_blocks(target_ws_id, block_ids);
+    target_app.tell(Changes::in_workspace(target_ws_id).reread(block_ids));
 }

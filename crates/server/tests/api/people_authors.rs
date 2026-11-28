@@ -221,7 +221,7 @@ async fn versioned_page(th: &TestServer, wiki_id: &str, owner: &str, leaver: &st
         )
         .await
         .expect("a page")
-        .page;
+        .first;
     for (writer, text) in [(leaver, "An earlier version"), (owner, "Current")] {
         let patch = BlockPatch {
             body: BodyChange::Set(body(text)),

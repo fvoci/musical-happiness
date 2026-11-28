@@ -21,6 +21,7 @@ mod card_writes;
 mod cards;
 mod category;
 mod category_containers;
+mod changes;
 mod comments;
 mod container_copies;
 mod container_members;
@@ -77,6 +78,7 @@ pub use board_parts::{
     VIEWS_DENIED,
 };
 pub use card_writes::{CREATE_CARD_DENIED, NewCardRequest, PATCH_CARD_DENIED};
+pub(crate) use changes::Changes;
 pub use comments::is_comment_on;
 pub(crate) use download::download;
 pub use mail::UnsentMail;
@@ -103,6 +105,7 @@ mod templates;
 mod time_entries;
 mod today;
 mod trash;
+mod tree;
 mod unit_progress;
 mod unit_reviews;
 mod uploads;

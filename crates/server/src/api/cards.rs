@@ -25,8 +25,9 @@ use super::workspace::InWorkspace;
 use super::{Delegated, Read, Write};
 
 use super::body_versions::{
-    get_body_version, keep_body_version, list_body_versions, restore_body_version,
+    body_version_of, body_versions_of, keep_body_version_of, restore_body_version_of,
 };
+use super::items::{CardItem, ItemOf};
 use super::{ApiResult, BLOCK_FIELDS, TRUE, created, json_response};
 use super::{decode_with_document, require_container_permission, require_permission_through};
 use crate::app::{
@@ -607,19 +608,9 @@ pub(super) async fn card_by_number_read(
     responses((status = 200, description = "The versions, the newest first.", body = Vec<BodyVersion>)),
 )]
 async fn handle_get_card_body_versions(
-    Delegated(ws, ..): Delegated<Read, InWorkspace>,
-    Path((_, card_id)): Path<(String, String)>,
+    Delegated(card, ..): Delegated<Read, ItemOf<CardItem>>,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    let card = card_with_permission(
-        &ws.app,
-        user_id,
-        &card_id,
-        ContainerPermission::View,
-        "access denied to fetch card",
-    )
-    .await?;
-    list_body_versions(&ws.app, &card.id).await
+    body_versions_of(card).await
 }
 
 /// Keep a card's body as a version now
@@ -647,22 +638,8 @@ async fn handle_get_card_body_versions(
     params(MemberWorkspaceId, CardId),
     responses((status = 200, description = "What became of the body.", body = KeptBodyVersion)),
 )]
-async fn handle_keep_card_body_version(
-    ws: InWorkspace,
-    Path((_, card_id)): Path<(String, String)>,
-) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    let card = card_with_permission(
-        &ws.app,
-        user_id,
-        &card_id,
-        ContainerPermission::ManageCards,
-        "access denied to keep a version of the card's body",
-    )
-    .await?;
-    let kept = keep_body_version(&ws.app, &card.id).await?;
-    tracing::debug!(card_id = %card.id, user_id, outcome = ?kept.outcome, "KeepCardBodyVersion");
-    Ok(json_response(&kept))
+async fn handle_keep_card_body_version(card: ItemOf<CardItem>) -> ApiResult {
+    keep_body_version_of(card).await
 }
 
 /// A version kept of a card's body
@@ -679,19 +656,9 @@ async fn handle_keep_card_body_version(
     responses((status = 200, description = "The version.", body = BodyVersionContent)),
 )]
 async fn handle_get_card_body_version(
-    Delegated(ws, ..): Delegated<Read, InWorkspace>,
-    Path((_, card_id, version)): Path<(String, String, String)>,
+    Delegated(card, ..): Delegated<Read, ItemOf<CardItem>>,
 ) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    let card = card_with_permission(
-        &ws.app,
-        user_id,
-        &card_id,
-        ContainerPermission::View,
-        "access denied to fetch card",
-    )
-    .await?;
-    get_body_version(&ws.app, &card.id, &version).await
+    body_version_of(card).await
 }
 
 /// Go back to a version of a card's body
@@ -713,26 +680,6 @@ async fn handle_get_card_body_version(
     params(MemberWorkspaceId, CardId, BodyVersionNumber),
     responses((status = 200, description = "The card as it is now.", body = Card)),
 )]
-async fn handle_restore_card_body_version(
-    ws: InWorkspace,
-    Path((_, card_id, version)): Path<(String, String, String)>,
-) -> ApiResult {
-    let user_id = ws.caller.user_id.as_str();
-    let card = card_with_permission(
-        &ws.app,
-        user_id,
-        &card_id,
-        ContainerPermission::ManageCards,
-        "access denied to restore a version of the card's body",
-    )
-    .await?;
-    let block = restore_body_version(&ws.app, &card, &version, user_id).await?;
-    let restored = ws.app.card_of_block(&block).await?;
-    tracing::debug!(
-        board_id = %restored.board_id,
-        card_id = %restored.id,
-        user_id,
-        "RestoreCardBodyVersion"
-    );
-    Ok(json_response(&restored))
+async fn handle_restore_card_body_version(card: ItemOf<CardItem>) -> ApiResult {
+    restore_body_version_of(card).await
 }

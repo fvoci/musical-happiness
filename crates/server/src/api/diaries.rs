@@ -165,7 +165,7 @@ pub(super) async fn entry_with_permission(
 
 /// The diary as the caller reached it and its entry, as [`entry_with_permission`] finds
 /// them: for a route that writes the entry, which the diary's [`Reached`] is asked for.
-async fn entry_reached(
+pub(super) async fn entry_reached(
     ws: &InWorkspace,
     diary_id: &str,
     entry_id: &str,

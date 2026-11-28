@@ -15,7 +15,7 @@ use std::io::{BufWriter, Write as _};
 use std::path::Path;
 
 use futures_util::StreamExt as _;
-use fvoci_model::{ArchiveHeader, Container, ContainerKind};
+use fvoci_model::{ArchiveHeader, Block, Container, ContainerKind};
 use serde::Serialize;
 use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
@@ -186,7 +186,10 @@ impl App {
         container: &Container,
         workspace_id: &str,
     ) -> Result<(), AppError> {
-        let blocks = self.blocks_for_container(&container.id).await?;
+        // An archive line is a block as the contract has it, which shows no number a
+        // card template keeps.
+        let stored = self.blocks_for_container(&container.id).await?;
+        let blocks: Vec<Block> = stored.into_iter().map(Block::outward).collect();
         // Two blocks may name the same file: it is written once, as an entry of an
         // archive has a name of its own.
         let mut files = Vec::new();
