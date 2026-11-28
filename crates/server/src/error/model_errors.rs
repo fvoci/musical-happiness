@@ -16,6 +16,7 @@ impl From<BlockError> for AppError {
             BlockError::BodyNotAllowed
             | BlockError::BodyFileNotOfContainer
             | BlockError::FileBlockInComment
+            | BlockError::BoardViewNotAllowed
             | BlockError::BodyTooLarge => Self::bad_request(error).with_field("body"),
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
             BlockError::InvalidCardField { .. }

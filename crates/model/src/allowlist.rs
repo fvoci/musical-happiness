@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 
 use serde_json::{Map, Value};
 
-use crate::body::{BODY_MAX_DEPTH, BODY_MAX_NODES, BodyError};
+use crate::body::{BODY_MAX_BOARD_VIEWS, BODY_MAX_DEPTH, BODY_MAX_NODES, BodyError};
 use crate::id::is_id;
 use crate::table_grid::{TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, TableGrid};
 
@@ -37,9 +37,10 @@ const BLOCKS: [&str; 11] = [
 ];
 
 /// The nodes that stand in the document itself and in the content of a toggle: the
-/// blocks, a table, a toggle and a callout. None of these stands anywhere else, so that
-/// no table is in another: a cell holds blocks, and so does a list entry in a cell, a
-/// quote and a callout.
+/// blocks, a table, a toggle, a callout and a board view. None of these stands anywhere
+/// else, so that no table is in another: a cell holds blocks, and so does a list entry
+/// in a cell, a quote and a callout; and a board view, as wide as the page, is in none
+/// of them.
 const DOCUMENT_BLOCKS: [&str; BLOCKS.len() + DOCUMENT_ONLY.len()] = {
     let mut nodes = [""; BLOCKS.len() + DOCUMENT_ONLY.len()];
     let mut at = 0;
@@ -55,7 +56,7 @@ const DOCUMENT_BLOCKS: [&str; BLOCKS.len() + DOCUMENT_ONLY.len()] = {
 };
 
 /// The nodes that stand only where [`DOCUMENT_BLOCKS`] do.
-const DOCUMENT_ONLY: [&str; 3] = ["table", "details", "callout"];
+const DOCUMENT_ONLY: [&str; 4] = ["table", "details", "callout", "boardView"];
 
 /// The two parts of a toggle, in their order: the line it shows, and what it hides.
 const DETAILS_PARTS: [&str; 2] = ["detailsSummary", "detailsContent"];
@@ -189,6 +190,9 @@ const REFERENCE: &[Attribute] = &[required("id", Rule::Id)];
 const MATH: &[Attribute] = &[required("latex", Rule::NonEmptyText(LATEX_MAX))];
 const LINK: &[Attribute] = &[required("href", Rule::Href)];
 const CALLOUT: &[Attribute] = &[required("tone", Rule::OneOf(CALLOUT_TONES))];
+/// A board view names the view of a board it shows, and nothing else: what the view
+/// shows, and how, is the view's, read where the body is shown.
+const BOARD_VIEW: &[Attribute] = &[required("viewId", Rule::Id)];
 
 /// The kind of node of this name, if it is on the list.
 fn node_spec(name: &str) -> Option<NodeSpec> {
@@ -215,6 +219,7 @@ fn node_spec(name: &str) -> Option<NodeSpec> {
         "mention" => node(MENTION, LEAF, 0),
         "reference" => node(REFERENCE, LEAF, 0),
         "inlineMath" | "blockMath" => node(MATH, LEAF, 0),
+        "boardView" => node(BOARD_VIEW, LEAF, 0),
         _ => return None,
     })
 }
@@ -341,13 +346,20 @@ pub(crate) fn check(document: &Value) -> Result<(), BodyError> {
         return Err(BodyError::NotADocument);
     }
     let mut walk = Walk::default();
-    walk.node(document, 1, &["doc"])
+    walk.node(document, 1, &["doc"])?;
+    // Counted over the whole document, after all else: a document refused for its nodes,
+    // its depth or a node is refused for that first, as the rooms of the server count.
+    if walk.board_views > BODY_MAX_BOARD_VIEWS {
+        return Err(BodyError::TooManyBoardViews);
+    }
+    Ok(())
 }
 
-/// A walk over a document: how many nodes it has seen, and where it is.
+/// A walk over a document: how many nodes and board views it has seen, and where it is.
 #[derive(Debug, Default)]
 struct Walk {
     nodes: usize,
+    board_views: usize,
     /// The index of each node on the way down from the document.
     path: Vec<usize>,
 }
@@ -400,6 +412,9 @@ impl Walk {
         };
         if !allowed.contains(&name) {
             return Err(self.invalid("node may not stand here"));
+        }
+        if name == "boardView" {
+            self.board_views += 1;
         }
         check_attributes(members.get("attrs"), spec.attrs)
             .map_err(|problem| self.invalid(problem))?;

@@ -16,7 +16,12 @@
   import UnitReviewsPanel from '$lib/features/course/UnitReviewsPanel.svelte';
   import type { UnitOpenings } from '$lib/features/course/unit-openings.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { CourseStore, UnitStore, Workspace } from '$lib/state/index.ts';
+  import {
+    embeddedBoards,
+    type CourseStore,
+    type UnitStore,
+    type Workspace,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   interface Props {
@@ -38,6 +43,7 @@
     of="unit"
     testId="unit-body"
     references={bodyReferences(store, unit.unitId)}
+    boardViews={embeddedBoards(workspace).host}
     keep={() => keepVersion(unitVersions(unit))}
   />
 </div>

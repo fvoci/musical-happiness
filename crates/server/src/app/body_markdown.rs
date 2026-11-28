@@ -11,7 +11,7 @@ mod write;
 use std::collections::{BTreeSet, HashMap};
 
 use fvoci_model::{
-    Body, BodyChange, Card, ComplexBlock, RefusalReason, Refusals, WorkspaceRole, is_id,
+    Body, BodyChange, Card, ComplexBlock, LinkedKind, RefusalReason, Refusals, WorkspaceRole, is_id,
 };
 use serde_json::Value;
 
@@ -29,6 +29,9 @@ const FILE_SCHEME: &str = "fvoci-file://";
 
 /// The scheme a person is named by, in a mention.
 const USER_SCHEME: &str = "fvoci-user://";
+
+/// The scheme the view of a board view is named by: written, never read back.
+const VIEW_SCHEME: &str = "fvoci-view://";
 
 /// How deep Markdown may nest.
 const MAX_DEPTH: usize = 16;
@@ -117,7 +120,7 @@ pub(crate) fn comment_text_of_markdown(markdown: &str, field: &str) -> Result<Bo
 }
 
 /// The identifiers a document names, of files and of people.
-fn named_in(document: &Value, files: &mut BTreeSet<String>, users: &mut BTreeSet<String>) {
+fn named_in(document: &Value, named: &mut Named) {
     let attr = |name: &str| {
         document
             .get("attrs")
@@ -126,8 +129,9 @@ fn named_in(document: &Value, files: &mut BTreeSet<String>, users: &mut BTreeSet
             .map(str::to_owned)
     };
     match document.get("type").and_then(Value::as_str) {
-        Some("file") => files.extend(attr("fileId")),
-        Some("mention") => users.extend(attr("userId")),
+        Some("file") => named.files.extend(attr("fileId")),
+        Some("mention") => named.users.extend(attr("userId")),
+        Some("boardView") => named.views.extend(attr("viewId")),
         _ => {}
     }
     for child in document
@@ -136,8 +140,16 @@ fn named_in(document: &Value, files: &mut BTreeSet<String>, users: &mut BTreeSet
         .into_iter()
         .flatten()
     {
-        named_in(child, files, users);
+        named_in(child, named);
     }
+}
+
+/// What a body names by identifier, that its Markdown calls by a name.
+#[derive(Debug, Default)]
+struct Named {
+    files: BTreeSet<String>,
+    users: BTreeSet<String>,
+    views: BTreeSet<String>,
 }
 
 /// The body `markdown` writes whole over `current`, the body of a card: Markdown
@@ -180,19 +192,26 @@ pub struct MarkdownReader<'a> {
 }
 
 impl App {
-    /// What the Markdown of a body of the board `container_id` calls the files and
-    /// the people it names, for `reader`: the files by their names on the board, the
-    /// people by the names they are shown by to the reader in the workspace. Whom the
-    /// reader does not see there (another organization's account, an identifier of
-    /// nobody) has no name, and is told of by the identifier the body holds.
+    /// What the Markdown of a body of the board `container_id` calls the files, the
+    /// people and the views it names, for `reader`: the files by their names on the
+    /// board, the people by the names they are shown by to the reader in the workspace,
+    /// the views by their boards' titles and theirs. Whom the reader does not see there
+    /// (another organization's account, an identifier of nobody) has no name, and is
+    /// told of by the identifier the body holds; a view the reader does not read is a
+    /// board view, unnamed.
     async fn names_in(
         &self,
         reader: MarkdownReader<'_>,
         container_id: &str,
         document: &Value,
     ) -> Result<Names, AppError> {
-        let (mut files, mut users) = (BTreeSet::new(), BTreeSet::new());
-        named_in(document, &mut files, &mut users);
+        let mut asked = Named::default();
+        named_in(document, &mut asked);
+        let Named {
+            files,
+            users,
+            views,
+        } = asked;
         let mut names = Names::default();
         for file_id in files {
             if let Some(record) = self.file_record(container_id, &file_id).await? {
@@ -215,6 +234,18 @@ impl App {
                     (user.id, shown)
                 })
                 .collect::<HashMap<_, _>>();
+        }
+        // A view is named for whoever reads its board, as a reference is told of.
+        let views: Vec<String> = views.into_iter().filter(|id| is_id(id)).collect();
+        if !views.is_empty() {
+            for linked in self.resolve_references(reader.user_id, &views).await? {
+                if linked.kind == LinkedKind::View {
+                    let board = linked.container_title.unwrap_or_default();
+                    names
+                        .views
+                        .insert(linked.id, format!("{board} / {}", linked.title));
+                }
+            }
         }
         Ok(names)
     }

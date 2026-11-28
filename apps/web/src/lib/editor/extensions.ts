@@ -36,6 +36,7 @@ import {
   type Trigger,
 } from '@tiptap/suggestion';
 
+import { BoardView, type BoardViewOptions } from './board-view.ts';
 import { Callout } from './callout.ts';
 import { Details, DetailsContent, DetailsSummary } from './details.ts';
 import { BodyCodeBlock } from './diagram-block.ts';
@@ -310,6 +311,8 @@ export interface BodyExtensionOptions {
   emoji?: EmojiOptions;
   /** Without it references are drawn as what the reader may not see, and `[[` offers nothing. */
   reference?: Partial<ReferenceOptions>;
+  /** Without it board views are drawn as views the reader may not see (board-view.ts). */
+  boardView?: BoardViewOptions;
 }
 
 /** Every extension of the body editor. The nodes and marks are exactly those of schema.ts. */
@@ -343,6 +346,7 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     DetailsSummary,
     DetailsContent,
     Callout,
+    BoardView.configure(options.boardView ?? {}),
     // Marks
     Bold,
     Italic,

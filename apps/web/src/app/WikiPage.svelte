@@ -46,6 +46,7 @@
   import { holdSaveKey } from '$lib/editor/save-key.ts';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
+    embeddedBoards,
     pageTrash,
     referenceTitles,
     whileHere,
@@ -296,6 +297,7 @@
               of="page"
               testId="page-body"
               references={bodyReferences(wiki, page.pageId)}
+              boardViews={embeddedBoards(workspace).host}
               keep={() => keepVersion(pageVersions(page))}
             />
           </div>

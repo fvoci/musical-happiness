@@ -68,9 +68,10 @@ const TONE: Attribute = Attribute {
 };
 
 /// Every kind of node the editor's schema has, with its attributes in the schema's order.
-pub(crate) const NODES: [(&str, &[Attribute]); 27] = [
+pub(crate) const NODES: [(&str, &[Attribute]); 28] = [
     ("blockMath", &[plain("latex")]),
     ("blockquote", &[]),
+    ("boardView", &[plain("viewId")]),
     ("bulletList", &[]),
     ("callout", &[TONE]),
     ("codeBlock", &[plain("language")]),
@@ -155,7 +156,7 @@ pub(crate) enum Place {
     /// Nowhere: the document itself.
     Document,
     /// Among the blocks of the document, a quote, a list entry, a cell, a callout or
-    /// what a toggle hides.
+    /// what a toggle hides (a board view only in the document and a toggle).
     Block,
     /// In a toggle: its summary, or what it hides.
     DetailsPart,
