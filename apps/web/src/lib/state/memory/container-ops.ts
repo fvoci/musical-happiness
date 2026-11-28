@@ -406,6 +406,18 @@ export function setMemoryMemberRole(
   return copy(member);
 }
 
+/** The members of a shared container, in no order. */
+export function memoryMembers(ctx: MemoryContainerContext, id: string): ContainerMember[] {
+  containerInWorld(ctx.world, id, 'shared');
+  return scramble(ctx.world.members.get(id) ?? []).map(copy);
+}
+
+/** The public link of a shared container: off, without a token, until it is set. */
+export function memoryPublicLink(ctx: MemoryContainerContext, id: string): PublicLink {
+  containerInWorld(ctx.world, id, 'shared');
+  return copy(ctx.world.publicLinks.get(id) ?? { enabled: false, token: '' });
+}
+
 export function removeMemoryMember(ctx: MemoryContainerContext, id: string, userId: string): void {
   containerInWorld(ctx.world, id, 'shared');
   const members = ctx.world.members.get(id) ?? [];

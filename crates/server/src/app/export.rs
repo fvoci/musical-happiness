@@ -15,7 +15,7 @@ use std::io::{BufWriter, Write as _};
 use std::path::Path;
 
 use futures_util::StreamExt as _;
-use fvoci_model::{ArchiveHeader, Container, ContainerKind};
+use fvoci_model::{ArchiveHeader, Block, Container, ContainerKind};
 use serde::Serialize;
 use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
@@ -25,7 +25,7 @@ use super::container_copies::counted_as;
 use super::doomed::Doomed;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
-use crate::error::AppError;
+use crate::error::{AppError, OrMissing};
 use crate::metrics::ContainerWork;
 
 /// The archive format version this server writes. An archive's lines carry when each
@@ -186,7 +186,10 @@ impl App {
         container: &Container,
         workspace_id: &str,
     ) -> Result<(), AppError> {
-        let blocks = self.blocks_for_container(&container.id).await?;
+        // An archive line is a block as the contract has it, which shows no number a
+        // card template keeps.
+        let stored = self.blocks_for_container(&container.id).await?;
+        let blocks: Vec<Block> = stored.into_iter().map(Block::outward).collect();
         // Two blocks may name the same file: it is written once, as an entry of an
         // archive has a name of its own.
         let mut files = Vec::new();
@@ -278,12 +281,10 @@ impl App {
         container_id: &str,
         filename: &str,
     ) -> Result<bool, AppError> {
-        let mut stream = match self.open_stored_file(container_id, filename).await {
-            Ok(Some(stream)) => stream,
-            // Gone between the lookup and the read, as when it is collected meanwhile.
-            Ok(None) => return Ok(false),
-            Err(error) if error.is_not_found() => return Ok(false),
-            Err(error) => return Err(error),
+        let opened = self.open_stored_file(container_id, filename).await;
+        // Gone between the lookup and the read, as when it is collected meanwhile.
+        let Some(mut stream) = opened.found()?.flatten() else {
+            return Ok(false);
         };
         writer
             .start_entry(&format!("{container_id}/{filename}"))

@@ -445,7 +445,7 @@ async fn a_card_template_of_a_board_has_no_document() {
         )
         .await
         .expect("the page is made")
-        .page
+        .first
         .id;
 
     let mut found: Vec<String> = store

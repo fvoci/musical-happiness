@@ -134,27 +134,58 @@ async fn handle_batch_patch_cards(
 }
 
 /// What `batchPatchCards` does with `body` on the board `board_id`: the cards as they
-/// are after it, in the order of `cardIds`. The MCP server's `save_cards` does it too.
+/// are after it, in the order of `cardIds`.
 ///
 /// # Errors
 ///
 /// As `batchPatchCards` answers.
-pub(super) async fn batch_patch_cards_from(
+async fn batch_patch_cards_from(
     ws: &InWorkspace,
     board_id: &str,
     body: &Bytes,
     notification: ChangeNotification,
 ) -> Result<Vec<Card>, AppError> {
-    let user_id = ws.caller.user_id.as_str();
+    // Asked before the body is read, as every route asks.
+    may_patch_cards(ws, board_id).await?;
+    let batch: CardBatchPatch = decode_object(body)?;
+    patch_cards_asked(ws, board_id, &batch, notification).await
+}
+
+/// Patches the cards `batch` names on the board `board_id`, as `batchPatchCards` does
+/// with the body it read: for what writes as the route does (the MCP server's
+/// `save_cards`).
+///
+/// # Errors
+///
+/// As `batchPatchCards` answers.
+pub(super) async fn batch_patch_cards_with(
+    ws: &InWorkspace,
+    board_id: &str,
+    batch: &CardBatchPatch,
+    notification: ChangeNotification,
+) -> Result<Vec<Card>, AppError> {
+    may_patch_cards(ws, board_id).await?;
+    patch_cards_asked(ws, board_id, batch, notification).await
+}
+
+async fn may_patch_cards(ws: &InWorkspace, board_id: &str) -> Result<(), AppError> {
     require_container_permission(
         &ws.app,
-        user_id,
+        &ws.caller.user_id,
         board_id,
         ContainerPermission::ManageCards,
         "access denied to patch cards",
     )
-    .await?;
-    let batch: CardBatchPatch = decode_object(body)?;
+    .await
+}
+
+/// [`batch_patch_cards_with`] once its caller may patch the board's cards.
+async fn patch_cards_asked(
+    ws: &InWorkspace,
+    board_id: &str,
+    batch: &CardBatchPatch,
+    notification: ChangeNotification,
+) -> Result<Vec<Card>, AppError> {
     if batch.card_ids.len() > MAX_CARD_BATCH {
         return Err(AppError::bad_request(format_args!(
             "at most {MAX_CARD_BATCH} cards are patched at once"
@@ -166,7 +197,7 @@ pub(super) async fn batch_patch_cards_from(
     // The store names what it refuses as a block has it; the batch has it under another
     // name, as `patchCard` does.
     ws.app
-        .patch_cards(board_id, &batch, user_id, notification)
+        .patch_cards(board_id, batch, &ws.caller.user_id, notification)
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))
 }

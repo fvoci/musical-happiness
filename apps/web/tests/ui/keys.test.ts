@@ -5,6 +5,7 @@ import { closesPlace } from '$lib/editor/place-state.ts';
 import { SaveKey } from '$lib/editor/save-key.ts';
 import {
   isApplePlatform,
+  isLetterKey,
   isSaveKey,
   primaryModifier,
   shortcutKeys,
@@ -112,3 +113,16 @@ for (const [platform, apple] of [
     });
   });
 }
+
+describe('the key of a letter', () => {
+  it('is its letter on a Latin layout, and where it is on another', () => {
+    const press = (init: KeyboardEventInit): boolean =>
+      isLetterKey(new KeyboardEvent('keydown', init), 'x');
+    expect(press({ key: 'x', code: 'KeyX' })).toBe(true);
+    expect(press({ key: 'X', code: 'KeyX' })).toBe(true);
+    expect(press({ key: 'ㅌ', code: 'KeyX' })).toBe(true);
+    expect(press({ key: 'x', code: 'KeyB' })).toBe(true);
+    expect(press({ key: 'q', code: 'KeyX' })).toBe(false);
+    expect(press({ key: 'ㅌ', code: 'KeyT' })).toBe(false);
+  });
+});

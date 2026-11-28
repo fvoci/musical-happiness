@@ -31,6 +31,7 @@ import {
   type CardMovesInput,
   type CardMovesOutput,
   type CardPatch,
+  type CardPropertiesPatch,
   type CardSummary,
   type CardTelling,
   type Category,
@@ -64,6 +65,7 @@ import { BlockTurns } from '../write.ts';
 import { changeName, keepSettings, settingsOf } from './account.ts';
 import * as blockOps from './block-ops.ts';
 import * as boardAuth from './board-authority.ts';
+import { batchPatchMemoryCards } from './card-batch.ts';
 import { openMemoryRoom } from './bodies.ts';
 import { MemoryBodyVersions } from './body-versions.ts';
 import { MemoryCardActivity } from './card-activity.ts';
@@ -81,15 +83,15 @@ import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryReferences } from './references.ts';
 import { fail } from './refuse.ts';
-import { nextScreenState } from './screen-state.ts';
+import { storeScreenState } from './screen-state.ts';
 import { searchBoardsOf } from './search.ts';
 import { visibleTemplates } from './seed-templates.ts';
-import { copy, LIMITS, memberOf, scramble } from './shapes.ts';
+import { copy, LIMITS, memberOf } from './shapes.ts';
 import * as spaces from './spaces.ts';
 import { MemoryTime } from './time.ts';
-import { deletedCardsOf, deletedContainersOf, mayManageCards } from './trash.ts';
+import { deletedCardsOf, deletedContainersOf } from './trash.ts';
 import { MemoryWatches } from './unit-watch.ts';
-import { usersAmong, usersFound, usersNamed } from './users.ts';
+import { usersAmong, usersMatching, usersNamed } from './users.ts';
 import { MemoryWikis } from './wikis.ts';
 import type { World } from './world.ts';
 
@@ -181,7 +183,7 @@ export class MemoryBackend implements Backend {
   }
   async searchUsers(workspaceId: string, query: string): Promise<User[]> {
     await this.#enter('searchUsers');
-    return usersFound(await this.users(workspaceId), query);
+    return usersMatching(await this.users(workspaceId), query);
   }
   async settings(): Promise<AccountSettings> {
     await this.#enter('settings');
@@ -197,8 +199,7 @@ export class MemoryBackend implements Backend {
   }
   async patchScreenState(updated: Record<string, string>, deleted: string[] = []): Promise<void> {
     await this.#enter('patchScreenState');
-    const current = this.world.screenState.get(this.userId) ?? {};
-    this.world.screenState.set(this.userId, nextScreenState(current, updated, deleted));
+    storeScreenState(this.world, this.userId, updated, deleted);
   }
   async boards(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('boards', workspaceId);
@@ -295,8 +296,7 @@ export class MemoryBackend implements Backend {
   }
   async members(id: string): Promise<ContainerMember[]> {
     await this.#enter('members');
-    containerOps.containerInWorld(this.world, id, 'shared');
-    return scramble(this.world.members.get(id) ?? []).map(copy);
+    return containerOps.memoryMembers(this, id);
   }
   async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('addMember');
@@ -312,8 +312,7 @@ export class MemoryBackend implements Backend {
   }
   async publicLink(id: string): Promise<PublicLink> {
     await this.#enter('publicLink');
-    containerOps.containerInWorld(this.world, id, 'shared');
-    return copy(this.world.publicLinks.get(id) ?? { enabled: false, token: '' });
+    return containerOps.memoryPublicLink(this, id);
   }
   async setPublicLink(id: string, change: PublicLinkChange): Promise<PublicLink> {
     await this.#enter('setPublicLink');
@@ -405,6 +404,10 @@ export class MemoryBackend implements Backend {
     await this.#enter('moveViewCards');
     return boardAuth.moveMemoryViewCards(this, b, v, move);
   }
+  async batchPatchCards(b: string, ids: readonly string[], p: CardPropertiesPatch) {
+    await this.#enter('batchPatchCards');
+    return batchPatchMemoryCards(this, b, ids, p);
+  }
   async batchDeleteCards(boardId: string, cardIds: readonly string[]): Promise<void> {
     await this.#enter('batchDeleteCards');
     boardAuth.batchDeleteMemoryCards(this, boardId, cardIds);
@@ -464,8 +467,7 @@ export class MemoryBackend implements Backend {
   }
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
     await this.#enter('deletedCards');
-    mayManageCards(this.world, this.userId, boardId, 'access denied to the trash of the board');
-    return deletedCardsOf(this.world, boardId, paging);
+    return deletedCardsOf(this.world, this.userId, boardId, paging);
   }
 
   async upload(id: string, file: File, options: UploadOptions = {}): Promise<UploadedFile> {

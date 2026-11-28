@@ -153,7 +153,6 @@ pub use course_exams::{
     MIN_SCORERS_TO_PUBLISH,
 };
 pub use course_meetings::{MeetingNotificationPlace, MeetingNotified};
-pub use courses::{UnitRestore, UnitWrite};
 pub use db::Dialect;
 pub use diaries::{DiaryMade, EntryMade};
 pub use directory::{
@@ -189,9 +188,7 @@ pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unl
 pub use oidc_pending::{Applied, Binding, PendingProvider, PendingSettings, Trial, Tried};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use org_leaving::{Departure, DepartureRefused, MemberRemoval, RemovalRefused};
-pub use page_copies::PageCopies;
-pub use page_trash::PageRestore;
-pub use pages::PageWrite;
+pub use pages::Written;
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use person_names::ChangedName;
 pub use schema::SchemaCheck;

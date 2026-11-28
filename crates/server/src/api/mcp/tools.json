@@ -582,7 +582,7 @@
             ]
           },
           "recurrence": {
-            "description": "How the card repeats: `{\"every\": 1, \"unit\": \"week\", \"anchor\": \"due\"}` (`every`\n1 to 365; `unit` `day`, `week`, `month` or `year`; counted from the due date,\n`due`, or from the day it is completed, `done`); `null` makes it stop. When a\ncard that repeats is completed, the server makes the next card, due one period\non. Only on a board with a rule of done and a due date property\n(`recurrence_needs_board_rules`). Left out, a card that is changed keeps its own.",
+            "description": "How the card repeats: `{\"every\": 1, \"unit\": \"week\", \"anchor\": \"due\"}` (`every`\n1 to 365; `unit` `day`, `week`, `month` or `year`; counted from the due date,\n`due`, or from the day it is completed, `done`); `null` makes it stop. When a\ncard that repeats is completed, the server makes the next card, due one period\non. Only on a board with a rule of done and a named due date property\n(`recurrence_needs_board_rules`). Left out, a card that is changed keeps its own.",
             "oneOf": [
               {
                 "description": "How a card repeats.",

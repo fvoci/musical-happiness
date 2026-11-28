@@ -26,6 +26,7 @@
   import { isComposing } from '$lib/keys.ts';
   import OptionChip from '$lib/components/option-chip/OptionChip.svelte';
   import PickList from '$lib/components/pick-list/PickList.svelte';
+  import type { Snippet } from 'svelte';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -48,6 +49,16 @@
     placeholder: string;
     presentation?: Presentation;
     startOpen?: boolean;
+    /**
+     * Draws what opens the picker, in place of the value: a button of the bar
+     * of a selection. `props` are spread on it, before its own attributes.
+     */
+    opener?: Snippet<[{ props: Record<string, unknown> }]>;
+    /**
+     * The value stands for several cards whose values differ: none is shown
+     * as chosen, and clearing is offered all the same (it clears them all).
+     */
+    mixed?: boolean;
     /** One identifier (or `''`) for a select, a list for a multi-select. */
     onChange?: (value: string | string[]) => void;
   }
@@ -61,6 +72,8 @@
     placeholder,
     presentation = 'popover',
     startOpen = false,
+    opener,
+    mixed = false,
     onChange,
     onCreateOption,
     onRenameOption,
@@ -170,15 +183,19 @@
     }}
   >
     {#snippet trigger({ props }: { props: Record<string, unknown> })}
-      <button
-        {...props}
-        type="button"
-        data-slot="property-select"
-        class="flex min-h-8 w-full min-w-0 flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left hover:bg-muted aria-expanded:bg-muted roomy:min-h-touch"
-      >
-        <span class="sr-only">{name}</span>
-        {@render labels()}
-      </button>
+      {#if opener}
+        {@render opener({ props })}
+      {:else}
+        <button
+          {...props}
+          type="button"
+          data-slot="property-select"
+          class="flex min-h-8 w-full min-w-0 flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left hover:bg-muted aria-expanded:bg-muted roomy:min-h-touch"
+        >
+          <span class="sr-only">{name}</span>
+          {@render labels()}
+        </button>
+      {/if}
     {/snippet}
 
     {#if editing}
@@ -321,7 +338,7 @@
             {/if}
           {/snippet}
         </PickList>
-        {#if chosen.length > 0}
+        {#if chosen.length > 0 || mixed}
           <Button
             variant="ghost"
             class="justify-start group-data-[presentation=sheet]/surface:min-h-touch"

@@ -2644,8 +2644,9 @@ export interface paths {
          *     have a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`
          *     (depth > 3 with reason `card_too_deep` and `limit: 3`).
          *
-         *     `recurrence` makes the card repeat, only on a board with a `doneWhen` and a due date
-         *     property: elsewhere 400 at `/recurrence` with reason `recurrence_needs_board_rules`.
+         *     `recurrence` makes the card repeat, only on a board with a `doneWhen` and a
+         *     `dueDatePropertyId`: elsewhere 400 at `/recurrence` with reason
+         *     `recurrence_needs_board_rules`.
          *     A template keeps its recurrence and makes no next card.
          *
          *     The value of a card relation property (of the `type` `relation`) is `null` or a list

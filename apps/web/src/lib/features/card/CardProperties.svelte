@@ -15,6 +15,8 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { PropertyValue, type PropertyUser } from '$lib/components/properties/index.ts';
+  import { referrersOf } from '$lib/components/properties/kinds/referrers.ts';
+  import ReverseRelations from '$lib/components/properties/kinds/ReverseRelations.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import RecurrenceFields from '$lib/components/recurrence/RecurrenceFields.svelte';
   import BoardDueRules from '$lib/components/board-rules/BoardDueRules.svelte';
@@ -163,6 +165,12 @@
             onDeleteOption={options.onDeleteOption}
             dateExtra={template.id === dueId ? repeatFields : undefined}
           />
+          {#if template.type === 'relation'}
+            <ReverseRelations
+              referrers={referrersOf(board.cardsById.values(), template.id, card.id)}
+              {onOpenCard}
+            />
+          {/if}
         </dd>
       </div>
     {/each}

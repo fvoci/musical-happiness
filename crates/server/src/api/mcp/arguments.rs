@@ -367,16 +367,6 @@ pub(super) enum OutlineEntry {
     Chapter,
 }
 
-impl OutlineEntry {
-    /// The word `createUnit` takes for it.
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Unit => "unit",
-            Self::Chapter => "chapter",
-        }
-    }
-}
-
 /// The caller's own progress on a unit.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

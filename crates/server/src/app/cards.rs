@@ -44,7 +44,7 @@ impl App {
     /// Returns a not-found error if the board does not exist and
     /// a bad request if the title or the properties are too large, both
     /// with the message prefixed by `cannot create card`.
-    pub async fn create_card(
+    pub(in crate::app) async fn create_card(
         &self,
         card: Card,
         board_id: &str,
@@ -114,7 +114,7 @@ impl App {
     /// grapheme), an internal error if the patched block is no card, and otherwise the
     /// errors of [`App::patch_block_as`] with the message prefixed by `cannot patch
     /// card {id}`; written by `user_id`, or by an agent through a token of theirs.
-    pub async fn patch_card(
+    pub(in crate::app) async fn patch_card(
         &self,
         patch: &CardPatch,
         card_id: &str,
