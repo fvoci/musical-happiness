@@ -28,7 +28,7 @@ use crate::trash;
 use crate::workspace_membership;
 
 /// Message sent from a streaming block producer into [`Store::create_containers`]
-/// ([`NewBlocks::Streamed`]).
+/// ([`NewContainers::streamed`]).
 ///
 /// The producer must send [`StreamBatch::Done`] once all batches have been emitted; if the
 /// channel closes without [`StreamBatch::Done`] (e.g., because the producer task panicked),
@@ -83,9 +83,9 @@ pub struct NewContainers<'a, E = Infallible> {
     schedules: &'a [(usize, ValidatedCourseSchedule)],
 }
 
-/// The blocks of [`NewContainers`].
+/// The blocks of [`NewContainers`], which its constructors choose.
 #[derive(Debug)]
-pub enum NewBlocks<'a, E> {
+pub(crate) enum NewBlocks<'a, E> {
     /// All of them at once, inserted or updated as [`Store::insert_block`] does each,
     /// parents first wherever in the list they are, and left as they were stored.
     Whole(&'a mut Vec<Block>),
@@ -535,6 +535,9 @@ pub(crate) async fn delete_containers_and_blocks(
             });
         }
     }
+    // Every block of the boards before the first goes: each then holds what it holds.
+    let ids: Vec<&str> = container_ids.iter().copied().collect();
+    trash::hold_blocks_of_containers(scope, &ids).await?;
     for container_id in &request.containers {
         trash::delete_container(scope, container_id, user_id).await?;
     }

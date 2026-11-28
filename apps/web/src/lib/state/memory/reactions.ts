@@ -1,14 +1,17 @@
 /**
  * Reactions in the in-memory backend (`Backend.reactions`), as the server
  * keeps them: a member from the commenter's role up answers a comment, a
- * card, a page or a unit with an emoji, at most 20 different emoji on a
- * block; a diary is not there. The container's readers are told the block's
+ * card, a page or a unit with one emoji (`emojiRefusal`, asked before
+ * anything else), at most 20 different emoji on a block; a diary is not
+ * there. The container's readers are told the block's
  * reactions as they are now (`reactions`). Nothing of the block changes.
  */
+import { BackendError, problemOf } from '../backend.ts';
 import type { Reaction, Reactions, WithReactions } from '../reaction-types.ts';
 import { REACTION_KINDS_PER_BLOCK } from '../reaction-types.ts';
 
 import { memberRole, memoryPermissionsOf } from './container-access.ts';
+import { emojiRefusal } from './emoji.ts';
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
 
@@ -36,7 +39,15 @@ function react(
   emoji: string,
   present: boolean,
 ): void {
-  // The container first, as the server reaches it: not there (a diary is not), not
+  // The emoji of the path first, as the server reads it.
+  const refusal = emojiRefusal(emoji);
+  if (refusal !== undefined) {
+    throw new BackendError(400, {
+      ...problemOf(400, refusal),
+      errors: [{ parameter: 'emoji', detail: refusal, reason: 'invalid' }],
+    });
+  }
+  // Then the container, as the server reaches it: not there (a diary is not), not
   // read (404), or not commented on (403); then the block of it.
   const container = world.containers.get(where.containerId);
   if (container?.workspaceId !== where.workspaceId || container.kind === 'diary') {

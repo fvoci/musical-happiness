@@ -1,13 +1,15 @@
 //! Reactions to blocks: there once and gone when taken off, at most twenty emoji on a
-//! block, nothing of the block written, into the trash with it and back, and gone with
-//! whoever leaves the organization.
+//! block, nothing of the block written, into the trash with it and back (also one added
+//! as the block goes, and those of cards that go and come back together), and gone with
+//! whoever leaves the organization or is on the way out of their account.
 
 use std::collections::HashMap;
 
 use fvoci_model::{Block, BlockType, Emoji, REACTION_KINDS_PER_BLOCK, Reaction, new_id};
-use fvoci_store::{Departure, Reacted, Store, StoreError};
+use fvoci_store::{DbType, Departure, Reacted, Store, StoreError};
 
-use crate::common::{self, TestStore};
+use crate::common::{self, TestStore, db_type};
+use crate::lock_gate::{Gate, ended};
 
 fn emoji(text: &str) -> Emoji {
     text.parse().expect("an emoji")
@@ -323,6 +325,143 @@ async fn whoever_leaves_the_organization_takes_their_reactions_along() {
     assert_eq!(
         reactions(&test, &comment.id).await,
         [reaction("🚀", &[&founder])]
+    );
+    test.teardown().await;
+}
+
+/// A reaction added while its block is going into the trash waits for it and then finds
+/// no block; the trash keeps what was there, and nothing is lost on the way back.
+/// PostgreSQL only: SQLite takes one write at a time.
+#[tokio::test]
+async fn a_reaction_added_as_the_block_goes_into_the_trash_is_not_lost() {
+    if db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let ann = common::user(&test, "ann").await;
+    let bob = common::user(&test, "bob").await;
+    let (card, comment) = card_and_comment(&test, &[&ann, &bob]).await;
+    react(&test, &comment.id, &ann, "👍").await;
+
+    // The deletion stops once it read what goes to the trash, before it writes there.
+    let mut gate = Gate::before(&test, "INSERT", "deleted_blocks", "true").await;
+    let second = gate.second_store(&test).await;
+    let (first, deleter) = (test.store.clone(), ann.clone());
+    let card_id = card.id.clone();
+    let deleting = tokio::spawn(async move { first.delete_block(&card_id, &deleter).await });
+    let holder = gate.stopped(&deleting).await;
+    let (comment_id, adder) = (comment.id.clone(), bob.clone());
+    let reacting =
+        tokio::spawn(async move { second.add_reaction(&comment_id, &adder, &emoji("🎉")).await });
+    gate.waits_for(holder, &reacting).await;
+    gate.open().await;
+
+    ended(deleting).await.expect("to the trash");
+    let reacted = ended(reacting).await;
+    assert!(
+        matches!(reacted, Err(StoreError::NotFound(_))),
+        "the block is gone by then: {reacted:?}"
+    );
+    test.undelete_block(&card.id, &ann)
+        .await
+        .expect("out of the trash");
+    assert_eq!(
+        reactions(&test, &comment.id).await,
+        [reaction("👍", &[&ann])]
+    );
+    test.teardown().await;
+}
+
+/// The reaction of an account that is asked to be deleted does not come back with its
+/// block, as such an account adds none; and on PostgreSQL neither does that of one who
+/// is no longer in the organization of the block.
+#[tokio::test]
+async fn reactions_come_back_of_those_still_here_alone() {
+    let test = common::setup().await;
+    let ann = common::user(&test, "ann").await;
+    let going = common::user(&test, "going").await;
+    let gone = common::user(&test, "gone").await;
+    let (card, _) = card_and_comment(&test, &[&ann, &going, &gone]).await;
+    for user in [&ann, &going, &gone] {
+        react(&test, &card.id, user, "👍").await;
+    }
+    test.delete_block(&card.id, &ann)
+        .await
+        .expect("to the trash");
+    test.execute_unchecked(&format!(
+        "UPDATE users SET deleted_at = 1 WHERE id = '{going}'"
+    ))
+    .await
+    .expect("the account is asked to go");
+    let postgres = db_type() == DbType::Postgres;
+    if postgres {
+        test.execute_unchecked(&format!(
+            "DELETE FROM organization_members WHERE user_id = '{gone}'"
+        ))
+        .await
+        .expect("out of the organization");
+    }
+    test.undelete_block(&card.id, &ann)
+        .await
+        .expect("out of the trash");
+    let back: Vec<&str> = if postgres {
+        vec![&ann]
+    } else {
+        vec![&ann, &gone]
+    };
+    assert_eq!(reactions(&test, &card.id).await, [reaction("👍", &back)]);
+    test.teardown().await;
+}
+
+/// Cards that go into the trash together, and come back together, bring back the
+/// reactions of all: in whatever order they are named, each block and each account is
+/// held once, in the order of their identifiers.
+#[tokio::test]
+async fn cards_that_go_and_come_back_together_keep_their_reactions() {
+    let test = common::setup().await;
+    let ann = common::user(&test, "ann").await;
+    let bob = common::user(&test, "bob").await;
+    let (first, _) = card_and_comment(&test, &[&ann, &bob]).await;
+    let second = Block {
+        id: new_id(),
+        container_id: first.container_id.clone(),
+        block_type: BlockType::Card,
+        ..Block::default()
+    };
+    let mut cards = [second];
+    common::insert_blocks(&test, &mut cards, &ann).await;
+    let [second] = cards;
+    let (low, high) = if first.id < second.id {
+        (&first, &second)
+    } else {
+        (&second, &first)
+    };
+    let (earlier, later) = if ann < bob {
+        (&ann, &bob)
+    } else {
+        (&bob, &ann)
+    };
+    // The card held first is answered by the account held last, and the other way round.
+    react(&test, &low.id, later, "👍").await;
+    react(&test, &high.id, earlier, "🎉").await;
+
+    let board = &first.container_id;
+    test.batch_delete_cards(board, &[high.id.clone(), low.id.clone()], &ann)
+        .await
+        .expect("both to the trash");
+    assert_eq!(rows(&test).await, 0);
+    test.batch_restore_cards(board, &[low.id.clone(), high.id.clone()], &ann)
+        .await
+        .expect("both out of the trash");
+    assert_eq!(
+        (
+            reactions(&test, &low.id).await,
+            reactions(&test, &high.id).await,
+        ),
+        (
+            vec![reaction("👍", &[later])],
+            vec![reaction("🎉", &[earlier])],
+        )
     );
     test.teardown().await;
 }

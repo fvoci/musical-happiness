@@ -85,10 +85,19 @@
   });
   $effect(() => editing.watch());
 
-  /** The bar of the selection went: the focus goes to the first cell of a row it names, through the grid. */
+  /**
+   * The bar of the selection went: the focus goes to the first cell of a row
+   * it names, through the grid. Where its Delete left no row, to the cell that
+   * adds one, else to the headings.
+   */
   function backToGrid(cardIds: readonly string[], deleted: boolean): void {
-    const rows = [...(table.scroller?.querySelectorAll<HTMLElement>('[data-card]') ?? [])];
-    const cell = cardAfter(rows, cardIds, deleted)?.querySelector<HTMLElement>('[data-cell]');
+    const scroller = table.scroller;
+    if (!scroller) return;
+    const rows = [...scroller.querySelectorAll<HTMLElement>('[data-card]')];
+    const cell =
+      cardAfter(rows, cardIds, deleted)?.querySelector<HTMLElement>('[data-cell]') ??
+      scroller.querySelector<HTMLElement>('[data-cell][data-kind="add"]') ??
+      scroller.querySelector<HTMLElement>('[data-cell][data-kind="header"]');
     if (cell) grid.focus(cell);
   }
 

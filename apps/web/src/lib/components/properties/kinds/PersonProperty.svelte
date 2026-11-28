@@ -42,6 +42,11 @@
      */
     opener?: Snippet<[{ props: Record<string, unknown> }]>;
     /**
+     * Where the focus goes once the picker closes, in place of an `opener`
+     * that is not to be seen (`PickerSurface`); its own otherwise.
+     */
+    returnFocus?: () => HTMLElement | null | undefined;
+    /**
      * The value stands for several cards whose values differ: none is shown
      * as chosen, and clearing is offered all the same (it clears them all).
      */
@@ -61,6 +66,7 @@
     presentation = 'popover',
     startOpen = false,
     opener,
+    returnFocus,
     mixed = false,
     onChange,
   }: Props = $props();
@@ -122,6 +128,7 @@
     bind:open
     {presentation}
     title={name}
+    {returnFocus}
     onOpenChange={(next) => {
       if (!next) search = '';
     }}

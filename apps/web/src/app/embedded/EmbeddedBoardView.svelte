@@ -142,7 +142,8 @@
         {#if summaryOf(view.fields.viewType) === 'columns'}
           <EmbeddedColumns {host} cards={shown} />
         {:else if summaryOf(view.fields.viewType) === 'days'}
-          <EmbeddedDays {host} cards={shown} {today} />
+          <!-- A calendar picks its fifty from all: the days still to come may be past the first fifty. -->
+          <EmbeddedDays {host} cards={filtered} {today} />
         {:else}
           <EmbeddedRows {host} cards={shown} />
         {/if}

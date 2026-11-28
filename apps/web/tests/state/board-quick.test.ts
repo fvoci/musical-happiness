@@ -4,8 +4,10 @@
  * the cards the reader made since the chips changed; and the cards a view
  * shows with them, between its filter and its search.
  */
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import type { QuickFilterId } from '$lib/logic/quick-filter.ts';
 import { createCard, type BoardView, type Card, type Container } from '$lib/logic/wire.ts';
 import {
   QUICK_FILTERS_KEY,
@@ -21,6 +23,8 @@ import {
   type BoardCardsSource,
 } from '$lib/state/board-parts.ts';
 import { forgetUnscoped, forgetUser } from '../../src/app/last-workspace.ts';
+
+import { watched } from './watched.svelte.ts';
 
 /** A storage of its own, as `localStorage` is. */
 function memoryStorage(): Storage {
@@ -132,6 +136,44 @@ describe('the chips of a board', () => {
     localStorage.clear();
   });
 
+  it('are read again as a board is shown again, after another tab changed them while none was', async () => {
+    const choices = new QuickFilterChoices(() => localStorage);
+    const key = quickFiltersKey('me', 'board-1');
+    let seen: readonly QuickFilterId[] = [];
+    const show = (): (() => void) =>
+      watched(() => {
+        seen = choices.chosen('board-1', 'me');
+      });
+    let stop = show();
+    choices.toggle(boardOf('board-1'), 'mine', 'me');
+    stop();
+    // The last board shown goes: nothing here listens to storage.
+    await tick();
+    localStorage.setItem(key, '["overdue"]');
+    stop = show();
+    expect(seen).toEqual(['overdue']);
+    stop();
+    localStorage.clear();
+  });
+
+  it('that storage did not take stay on for the visit as a board is shown again', async () => {
+    const blocked = new QuickFilterChoices(() => {
+      throw new Error('storage is blocked');
+    });
+    let seen: readonly QuickFilterId[] = [];
+    const show = (): (() => void) =>
+      watched(() => {
+        seen = blocked.chosen('board-1', 'me');
+      });
+    let stop = show();
+    blocked.toggle(boardOf('board-1'), 'overdue', 'me');
+    stop();
+    await tick();
+    stop = show();
+    expect(seen).toEqual(['overdue']);
+    stop();
+  });
+
   it('of one account go with it, and those of another stay', () => {
     localStorage.setItem(quickFiltersKey('user-1', 'a'), '["mine"]');
     localStorage.setItem(quickFiltersKey('user-2', 'a'), '["overdue"]');
@@ -168,6 +210,59 @@ describe('the cards the reader made', () => {
     expect(choices.made(board, 'me')(cardOf('morning'))).toBe(false);
     board.realCards = [...board.realCards, cardOf('afternoon')];
     expect(choices.made(board, 'me')(cardOf('afternoon'))).toBe(true);
+  });
+
+  it('are counted anew as another tab changes the chips of the board, and of no other', () => {
+    const choices = new QuickFilterChoices(() => localStorage);
+    const board = { ...boardOf('board-1', [cardOf('old')]) };
+    const other = { ...boardOf('board-2', []) };
+    choices.opened(board);
+    choices.opened(other);
+    board.realCards = [cardOf('old'), cardOf('morning')];
+    other.realCards = [cardOf('theirs-morning')];
+    const stop = watched(() => {
+      choices.chosen('board-1', 'me');
+    });
+    const tell = (key: string | null): void => {
+      window.dispatchEvent(new StorageEvent('storage', { key, storageArea: localStorage }));
+    };
+    expect(choices.made(board, 'me')(cardOf('morning'))).toBe(true);
+    localStorage.setItem(quickFiltersKey('me', 'board-1'), '["overdue"]');
+    tell(quickFiltersKey('me', 'board-1'));
+    // Made before the other tab's change: the chips judge it.
+    expect(choices.made(board, 'me')(cardOf('morning'))).toBe(false);
+    board.realCards = [...board.realCards, cardOf('afternoon')];
+    expect(choices.made(board, 'me')(cardOf('afternoon'))).toBe(true);
+    // The other board's chips did not change.
+    expect(choices.made(other, 'me')(cardOf('theirs-morning'))).toBe(true);
+    // Storage cleared changes the chips of every board.
+    tell(null);
+    expect(choices.made(other, 'me')(cardOf('theirs-morning'))).toBe(false);
+    expect(choices.made(board, 'me')(cardOf('afternoon'))).toBe(false);
+    stop();
+    localStorage.clear();
+  });
+
+  it('are counted on the visit their row is shown: another tab changing the chips before is no note', () => {
+    const choices = new QuickFilterChoices(() => localStorage);
+    const board = { ...boardOf('board-1', []) };
+    choices.opened(board);
+    const stop = watched(() => {
+      choices.chosen('board-1', 'me');
+    });
+    // Another visit, its cards not in yet, when the other tab changes the chips.
+    board.visit = 2;
+    board.realCards = [cardOf('old')];
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: quickFiltersKey('me', 'board-1'),
+        storageArea: localStorage,
+      }),
+    );
+    board.realCards = [cardOf('old'), cardOf('loaded')];
+    choices.opened(board);
+    expect(choices.made(board, 'me')(cardOf('loaded'))).toBe(false);
+    stop();
   });
 
   it('are counted once a visit: the row shown again is no change, another visit is', () => {

@@ -6,7 +6,8 @@
  * A signed-in reader's are kept in this browser's storage under their
  * account and the board (`fvoci:quick-filters:<user>:<board>`), as the names
  * of the chips and nothing else; another tab that changes them is followed
- * here. They are forgotten when the reader signs out and when their account
+ * here, and what it changed while no board was shown here is read again when
+ * one is. They are forgotten when the reader signs out and when their account
  * goes (src/app/last-workspace.ts). A reader who is not signed in (a public
  * link, whose reader has an empty identifier) neither reads nor writes
  * storage: their chips last for the visit, as anyone's do in a browser
@@ -16,9 +17,9 @@
  * chips change again or the board is opened again (`made`), so that it does
  * not vanish as it is made because it is nobody's yet or has no due date. It
  * is not given values to meet them, as a view's filter gives a new card. The
- * cards there before are noted when the chips change and when the row of
- * chips is first shown on a visit to the board; the cards a view shows read
- * that note and never write it.
+ * cards there before are noted when the chips change (here or in another
+ * tab) and when the row of chips is first shown on a visit to the board; the
+ * cards a view shows read that note and never write it.
  */
 import { on } from 'svelte/events';
 import { createSubscriber } from 'svelte/reactivity';
@@ -63,16 +64,29 @@ export class QuickFilterChoices {
   readonly #storage: () => Storage | undefined;
   readonly #watch: () => void;
   readonly #noted = new WeakMap<VisitedBoard, Noted>();
+  /** The boards noted last, by board: those another tab's change of their chips notes again. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+  readonly #boards = new Map<string, WeakRef<VisitedBoard>>();
+  /**
+   * The keys of chips that storage did not take (none, full or blocked):
+   * they are this page's alone, and stay on for the visit though storage is
+   * read again.
+   */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+  readonly #unkept = new Set<string>();
 
   constructor(storage: () => Storage | undefined = () => globalThis.localStorage) {
     this.#storage = storage;
-    this.#watch = createSubscriber((update) =>
-      on(window, 'storage', (event) => {
+    this.#watch = createSubscriber((update) => {
+      // Nothing heard storage while nobody asked: another tab may have changed it since.
+      this.#drop(null);
+      return on(window, 'storage', (event) => {
         if (!this.#follows(event)) return;
+        this.#renote(event.key);
         this.#drop(event.key);
         update();
-      }),
-    );
+      });
+    });
   }
 
   /** The chips `readerId` turned on for a board, in the order they were. */
@@ -115,6 +129,7 @@ export class QuickFilterChoices {
   /** Forgets every chip of this page, as the reader leaves it (signs out). */
   forget(): void {
     this.#chosen = {};
+    this.#unkept.clear();
   }
 
   #set(board: VisitedBoard, chosen: readonly QuickFilterId[], readerId: string | undefined): void {
@@ -127,6 +142,26 @@ export class QuickFilterChoices {
   #note(board: VisitedBoard): void {
     const ids = Object.fromEntries(board.realCards.map((card) => [card.id, true] as const));
     this.#noted.set(board, { visit: board.visit, ids });
+    this.#boards.set(board.boardId, new WeakRef(board));
+  }
+
+  /**
+   * Another tab changed the chips of `key` (all of storage's, when it was
+   * cleared): the boards noted with them on this visit are noted again, as
+   * when they change here. A card made before then is one the chips judge;
+   * one made after is the reader's still. A board on a visit not yet noted
+   * is noted when its row is shown.
+   */
+  #renote(key: string | null): void {
+    for (const [boardId, held] of this.#boards) {
+      const board = held.deref();
+      if (!board) {
+        this.#boards.delete(boardId);
+        continue;
+      }
+      const ours = key === null || key.endsWith(`:${boardId}`);
+      if (ours && this.#noted.get(board)?.visit === board.visit) this.#note(board);
+    }
   }
 
   /** Whether a change of storage, made by another tab, is of chips kept here. */
@@ -139,13 +174,17 @@ export class QuickFilterChoices {
     return event.key === null || event.key.startsWith(QUICK_FILTERS_KEY);
   }
 
-  /** Lets go of the chips of `key` (all of storage's, when it was cleared), to be read again. */
+  /**
+   * Lets go of the chips of `key`, to be read again; of all of storage's when
+   * `key` is null, but for those storage did not take. Another tab that
+   * changed `key` has what it wrote taken here.
+   */
   #drop(key: string | null): void {
-    this.#chosen = Object.fromEntries(
-      Object.entries(this.#chosen).filter(([kept]) =>
-        key === null ? !kept.startsWith(QUICK_FILTERS_KEY) : kept !== key,
-      ),
-    );
+    if (key !== null) this.#unkept.delete(key);
+    const gone = (kept: string): boolean =>
+      key === null ? kept.startsWith(QUICK_FILTERS_KEY) && !this.#unkept.has(kept) : kept === key;
+    if (!Object.keys(this.#chosen).some(gone)) return;
+    this.#chosen = Object.fromEntries(Object.entries(this.#chosen).filter(([kept]) => !gone(kept)));
   }
 
   #read(key: string): QuickFilterId[] {
@@ -162,11 +201,16 @@ export class QuickFilterChoices {
   #keep(key: string, chosen: readonly QuickFilterId[]): void {
     try {
       const storage = this.#storage();
-      if (chosen.length === 0) storage?.removeItem(key);
-      else storage?.setItem(key, JSON.stringify(chosen));
+      if (storage) {
+        if (chosen.length === 0) storage.removeItem(key);
+        else storage.setItem(key, JSON.stringify(chosen));
+        this.#unkept.delete(key);
+        return;
+      }
     } catch {
       // Without storage the chips stay on for the visit.
     }
+    this.#unkept.add(key);
   }
 }
 

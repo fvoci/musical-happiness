@@ -6,7 +6,9 @@
  *
  * The cards show the value at once. When the request is refused nothing was
  * stored, and every card that still shows what it wrote is shown again as it
- * was; a card that something else changed meanwhile keeps that change. An
+ * was; a card that something else changed meanwhile keeps that change, and
+ * so does one of which a newer version came from the server (its `updatedAt`
+ * is not the one it had when the value was shown), whatever it holds. An
  * answer that was lost (status 0) may have been stored all the same: the
  * cards are read again, and when they hold what was written, that reading
  * is the answer.
@@ -18,7 +20,9 @@
  *
  * A batch made over another one under way on the same cards waits for its
  * answer before it is sent; where that one was refused, what the later one
- * gives back is what was stored, not the value refused (`overRefused`).
+ * gives back is what was stored, not the value refused (`overRefused`). A
+ * card that shows the value only because a batch under way put it there is
+ * part of the later one all the same: that batch may yet be refused.
  *
  * These writes do not go through the store's writes of single cards: a
  * version of a card that arrives while one is under way is shown, and the
@@ -94,12 +98,20 @@ function show(store: BoardStore, changed: ReadonlyMap<string, CardSummary>): voi
   store.cards = store.cards.map((card) => changed.get(card.id) ?? card);
 }
 
-/** The cards that still show what `writes` put on them, shown again as before. */
-function takeBack(store: BoardStore, writes: readonly CardWrite[]): void {
+/**
+ * The cards that still show what `writes` put on them, shown again as before;
+ * not one that the server sent anew since (`since`, its `updatedAt` as the
+ * writes were shown), which shows what was stored.
+ */
+function takeBack(
+  store: BoardStore,
+  writes: readonly CardWrite[],
+  since: ReadonlyMap<string, number>,
+): void {
   const changed = new Map<string, CardSummary>();
   for (const write of writes) {
     const shown = store.card(write.cardId);
-    if (!shown) continue;
+    if (!shown || shown.updatedAt !== since.get(shown.id)) continue;
     const own: CardPropertiesPatch = {};
     const restore = valuesOf(write.restore);
     for (const [id, value] of valuesOf(write.patch)) {
@@ -171,6 +183,7 @@ async function sendAll(
   store: BoardStore,
   writes: readonly CardWrite[],
   quiet: boolean,
+  since: ReadonlyMap<string, number>,
 ): Promise<{ refused: Set<string>; error?: Error }> {
   const batches = batchesOf(writes);
   const answers = await Promise.allSettled(batches.map((batch) => send(store, batch, quiet)));
@@ -182,7 +195,7 @@ async function sendAll(
       return;
     }
     const batch = batches[at] ?? [];
-    takeBack(store, batch);
+    takeBack(store, batch, since);
     for (const write of batch) refused.add(write.cardId);
     // What a backend throws is a `BackendError`, or the error of a failed reading.
     error ??= answer.reason as Error;
@@ -202,9 +215,12 @@ async function writeCards(
 ): Promise<void> {
   const present = writes.filter((write) => store.card(write.cardId) !== undefined);
   const shown = new Map<string, CardSummary>();
+  const since = new Map<string, number>();
   for (const write of present) {
     const card = store.card(write.cardId);
-    if (card) shown.set(card.id, applyCardPatch(card, write.patch));
+    if (!card) continue;
+    shown.set(card.id, applyCardPatch(card, write.patch));
+    since.set(card.id, card.updatedAt);
   }
   show(store, shown);
 
@@ -223,7 +239,7 @@ async function writeCards(
   let refused: ReadonlySet<string> = new Set();
   try {
     await after(earlier, present);
-    const sent = await sendAll(store, present, quiet);
+    const sent = await sendAll(store, present, quiet, since);
     refused = sent.refused;
     if (sent.error) throw sent.error;
   } finally {
@@ -232,12 +248,24 @@ async function writeCards(
   }
 }
 
+/** The cards of the store on which a batch under way writes `propertyId`. */
+function writingProperty(store: BoardStore, propertyId: string): Set<string> {
+  const cards = new Set<string>();
+  for (const one of underWay.get(store) ?? []) {
+    for (const write of one.writes)
+      if (valuesOf(write.patch).has(propertyId)) cards.add(write.cardId);
+  }
+  return cards;
+}
+
 /**
  * Sets `propertyId` to `value` on the cards of `cardIds` (an empty value
  * clears it), as one step of the history. The cards that have that value
  * already, templates and cards that are not there are left out; when none
- * is left, nothing is done. The server takes at most `CARD_BATCH_LIMIT`
- * cards in one request: more are refused, and nothing changes.
+ * is left, nothing is done. A card that shows the value as a batch under way
+ * writes it is not left out, since that one may be refused. The server takes
+ * at most `CARD_BATCH_LIMIT` cards in one request: more are refused, and
+ * nothing changes.
  */
 export async function setCardsProperty(
   store: BoardStore,
@@ -246,11 +274,18 @@ export async function setCardsProperty(
   value: PropertyValue | undefined,
 ): Promise<void> {
   const forward: CardWrite[] = [];
+  const pending = writingProperty(store, propertyId);
   for (const cardId of new Set(cardIds)) {
     const card = store.card(cardId);
     if (!card || card.fields.isTemplate) continue;
     const [patch, restore] = cardPatches(withCardProperty(card, propertyId, value), card);
     if (!isEmptyCardPatch(patch)) forward.push({ cardId, patch, restore });
+    else if (pending.has(cardId)) {
+      // The value it shows is that batch's: sent again, it gives back that value until
+      // that batch is refused, and then what was stored (`overRefused`).
+      const shown = patchOf(new Map([[propertyId, card.fields.properties[propertyId]]]));
+      forward.push({ cardId, patch: shown, restore: shown });
+    }
   }
   if (forward.length === 0) return;
   // Read when undone: a batch refused under this one may have corrected what it gives back.

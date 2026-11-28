@@ -53,10 +53,13 @@ export function longPress(onLongPress: () => void): (element: HTMLElement) => ()
       origin = undefined;
     };
     const down = (event: PointerEvent): void => {
-      if (event.pointerType !== 'touch' || !event.isPrimary) return;
+      if (!event.isPrimary) return;
+      // Another press: a long one before it that ended in no click (the finger was taken
+      // over) keeps no click from this one, on a link or with a mouse either.
+      fired = false;
+      if (event.pointerType !== 'touch') return;
       if (event.target instanceof Element && event.target.closest(PRESSED_ON_ITS_OWN)) return;
       stop();
-      fired = false;
       origin = { x: event.clientX, y: event.clientY };
       timer = setTimeout(() => {
         stop();

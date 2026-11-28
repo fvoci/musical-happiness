@@ -2,7 +2,8 @@
  * A finger's press that opens something from a body (touch-press.ts): kept
  * from the browser and the editor while the body is not being written, left
  * as it is while it is, and for a mouse. A long press on a comment
- * (`longPress`), but not on a link or a control inside it.
+ * (`longPress`), but not on a link or a control inside it, and that keeps
+ * the click of no press after it.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -83,10 +84,10 @@ describe('a long press of a finger', () => {
   }
 
   /** A finger's event of `type` on `target`: whether it was left to the browser. */
-  function finger(target: HTMLElement, type: string): boolean {
+  function finger(target: HTMLElement, type: string, pointerType = 'touch'): boolean {
     const event = new Event(type, { bubbles: true, cancelable: true });
     for (const [name, value] of Object.entries({
-      pointerType: 'touch',
+      pointerType,
       isPrimary: true,
       clientX: 0,
       clientY: 0,
@@ -109,6 +110,21 @@ describe('a long press of a finger', () => {
     expect(finger(word, 'contextmenu')).toBe(false);
     finger(word, 'pointerup');
     expect(finger(word, 'click')).toBe(false);
+  });
+
+  it('that ended in no click keeps none from the next press, on a link or with a mouse', () => {
+    vi.useFakeTimers();
+    const { word, link, count } = comment();
+    for (const pointer of ['touch', 'mouse']) {
+      finger(word, 'pointerdown');
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+      // The browser takes the finger over: no click ends the press.
+      finger(word, 'pointercancel');
+      finger(link, 'pointerdown', pointer);
+      finger(link, 'pointerup', pointer);
+      expect(finger(link, 'click', pointer)).toBe(true);
+    }
+    expect(count()).toBe(2);
   });
 
   it('on a link or a button inside leaves them as they are', () => {

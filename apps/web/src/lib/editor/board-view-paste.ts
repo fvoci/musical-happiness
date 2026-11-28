@@ -10,7 +10,8 @@
  * than ten, over no selection and not in code. Anything done meanwhile (a
  * letter typed, the caret moved, another's change of the text) keeps the
  * link and takes the list away: what would be replaced must still be the
- * address, where it was pasted.
+ * address, where it was pasted; and the link stays when a board view can no
+ * longer be put there as it is chosen (another filled the body meanwhile).
  */
 import type { Editor } from '@tiptap/core';
 import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
@@ -124,6 +125,9 @@ class Offer {
   #take(view: EditorView, pasted: Pasted, way: string): void {
     this.close(view);
     if (way !== EMBED || !standing(view.state, pasted)) return;
+    // Another's board views may have filled the body meanwhile: the address then stays,
+    // since the chain would take it away and put nothing in its place.
+    if (!canPutBoardView(view.state.doc, view.state.selection)) return;
     this.#editor
       .chain()
       .focus()

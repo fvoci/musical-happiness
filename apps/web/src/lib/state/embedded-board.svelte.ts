@@ -12,7 +12,9 @@
  * board does (`watchContainer`: a card changed by anyone, the view's filter
  * changed on the board), and is closed `RELEASE_AFTER_MS` after the last view
  * of it is let go. A body drawn anew (an editor made again, a body read and
- * then edited) holds it again meanwhile, and nothing is loaded twice.
+ * then edited) holds it again meanwhile, and nothing is loaded twice; but a
+ * store whose reading failed (the network, the server) is read again when a
+ * view of it is held again, while one of a board that is gone is not.
  *
  * What draws and puts in a board view (`host`) is the app's: it is set for the
  * workspace by src/app/embedded/BoardViewHost.svelte, and read by the bodies that may
@@ -60,6 +62,8 @@ export class EmbeddedBoards {
       held = { store, holders: 0, closing: undefined };
       this.#held.set(boardId, held);
       void store.load();
+    } else if (held.store.status === 'failed' && !held.store.missing) {
+      void held.store.load();
     }
     clearTimeout(held.closing);
     held.closing = undefined;

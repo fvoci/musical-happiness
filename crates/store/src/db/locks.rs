@@ -1,12 +1,13 @@
 //! Row locks: how a statement holds what it reads, the rank each lock is taken at, and
 //! compile-time witnesses of what a transaction holds.
 //!
-//! A statement holds rows only through [`Scope::row_lock`], [`Scope::hold`] and
-//! [`Scope::first_held`], which record the lock at its rank as they take it: a debug
-//! build asserts that a transaction takes its locks in the order of [`LockRank`]. A
-//! statement that skips what others hold ([`Scope::skipping_held`]) waits for nobody
-//! and is not recorded, nor are the locks no rank fits ([`Scope::unranked_row_lock`],
-//! [`Unranked`]). Their clause is a [`LockClause`], which only [`Sql::push_lock`] takes.
+//! A statement holds rows only through [`Scope::row_lock`], [`Scope::rows_lock`],
+//! [`Scope::hold`] and [`Scope::first_held`], which record the lock at its rank as they
+//! take it: a debug build asserts that a transaction takes its locks in the order of
+//! [`LockRank`]. A statement that skips what others hold ([`Scope::skipping_held`])
+//! waits for nobody and is not recorded, nor are the locks no rank fits
+//! ([`Scope::unranked_row_lock`], [`Unranked`]). Their clause is a [`LockClause`], which
+//! only [`Sql::push_lock`] takes.
 //!
 //! No other module of the crate writes a locking clause: `cargo xtask check` refuses one
 //! in a literal ("layers"), and a debug build one in a statement that no
@@ -100,13 +101,15 @@ fn without_comments(text: &str) -> String {
 pub(crate) enum Unranked {
     /// The marks of a board's files (`file_refs::hold_marks`), taken only under the
     /// board, held live ([`LockRank::Container`]) or in its trash
-    /// ([`LockRank::DeletedContainers`]). A copy of a board marks the files of the new
-    /// board before it holds the membership of whoever makes it
-    /// (`members::hold_creator`); a board that comes back from the trash marks its files
-    /// after the members it reads (`members::has_acting_admin`). What a copy marks are
-    /// rows it made itself, and the files of a board in the trash are written only under
-    /// its trash. They can have a rank of their own once boards are made and copied in
-    /// one order.
+    /// ([`LockRank::DeletedContainers`]). Boards made whole, by a copy or an import
+    /// (`containers_and_blocks::create_containers`), mark their files before the
+    /// membership of whoever makes them is held (`members::hold_creator`), as a rank
+    /// before [`LockRank::WorkspaceMembers`] would have them do. What keeps them from
+    /// that rank is a board that comes back from the trash: it marks its files after
+    /// the members it reads (`members::has_acting_admin`). The two orders meet at no
+    /// row: what boards made whole mark are rows they made themselves, and the files of
+    /// a board in the trash are written only under its trash. The rank is theirs once a
+    /// board that comes back marks its files before it reads its members.
     MarksOfBoardFiles,
     /// The link a registration was made by (`signups::hold_link_of`), held to give its
     /// use back: after the account that a sign-in through a provider signs in, and,
@@ -209,6 +212,22 @@ impl Scope<'_> {
         lock: impl Into<Locking>,
     ) -> LockClause {
         self.record_lock(rank, key);
+        lock.into().in_dialect(self.dialect(), Locking::clause)
+    }
+
+    /// The clause by which the statement it ends holds the rows it reads under `lock`,
+    /// each recorded as taken at `rank` under its own key, in the order of `keys`: the
+    /// order the statement takes them in, which its `ORDER BY` is to give. On
+    /// PostgreSQL; on SQLite, nothing.
+    pub(crate) fn rows_lock<'k>(
+        &mut self,
+        rank: LockRank,
+        keys: impl IntoIterator<Item = &'k str>,
+        lock: impl Into<Locking>,
+    ) -> LockClause {
+        for key in keys {
+            self.record_lock(rank, key);
+        }
         lock.into().in_dialect(self.dialect(), Locking::clause)
     }
 

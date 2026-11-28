@@ -9,6 +9,9 @@
  * comments, by block: a comment changed or told again carries none, and keeps
  * its own. What the reader toggles shows at once and goes back if refused;
  * the reader's toggles of one emoji on one block are sent one after another.
+ * A read carries the reactions as they were when it was answered: those of a
+ * block told since it was asked (a message, a toggle answered) are newer, and
+ * it leaves them as they are (`reactionsMark`).
  */
 import { SvelteMap } from 'svelte/reactivity';
 
@@ -62,6 +65,16 @@ interface Toggle {
   readonly present: boolean;
 }
 
+/** What a read of the comments starts from, taken as it is asked (`snapshotRead`). */
+export interface ReadSnapshot {
+  /** The comments shown. */
+  readonly beforeIds: readonly string[];
+  /** How often each comment was deleted here. */
+  readonly deletedBefore: ReadonlyMap<string, number>;
+  /** Where the reactions told stood (`reactionsMark`). */
+  readonly mark: number;
+}
+
 /** What a screen shows and toggles of the reactions to a block and its comments. */
 export type ThreadReactions = Pick<
   CommentThreadStore,
@@ -84,6 +97,11 @@ export class CommentThreadStore {
   readonly #toggles = new SvelteMap<string, readonly Toggle[]>();
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
   readonly #turns = new Map<string, Promise<unknown>>();
+  /** How many times reactions were told as they are now: by a message, or a toggle answered. */
+  #toldCount = 0;
+  /** By block, the count when its reactions were last told so. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+  readonly #toldAt = new Map<string, number>();
 
   constructor(host: CommentThreadHost) {
     this.#host = host;
@@ -119,43 +137,42 @@ export class CommentThreadStore {
     return this.#host.role() !== '' || Boolean(this.#host.joinable?.());
   }
 
-  /** Replaces the comments directly from a parallel initial read (e.g. `CardStore.load`). */
-  setInitial(comments: WithReactions<Comment>[]): void {
+  /**
+   * Replaces the comments directly from a parallel initial read (e.g.
+   * `CardStore.load`), asked at `mark` (`reactionsMark`).
+   */
+  setInitial(comments: WithReactions<Comment>[], mark: number): void {
     if (this.#closed) return;
-    this.#comments = this.#reactionsTaken(comments);
+    this.#comments = this.#reactionsTaken(comments, mark);
     this.status = 'ready';
   }
 
-  /** Snapshots current comment IDs and deletion counters before an external async re-read. */
-  snapshotRead(): { beforeIds: string[]; deletedBefore: ReadonlyMap<string, number> } {
+  /** Snapshots what an external async re-read starts from, taken before it is asked. */
+  snapshotRead(): ReadSnapshot {
     return {
       beforeIds: this.#comments.map((comment) => comment.id),
       // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
       deletedBefore: new Map(this.#deleted),
+      mark: this.#toldCount,
     };
   }
 
   /** Merges re-read comments into what is shown (e.g. `CardStore.refresh`), reconciling restored IDs. */
-  mergeRead(
-    read: readonly WithReactions<Comment>[],
-    beforeIds: readonly string[],
-    deletedBefore: ReadonlyMap<string, number> = this.#deleted,
-  ): void {
+  mergeRead(read: readonly WithReactions<Comment>[], before: ReadSnapshot): void {
     if (this.#closed) return;
-    this.#applyRead(read, beforeIds, deletedBefore);
+    this.#applyRead(read, before);
   }
 
-  #applyRead(
-    read: readonly WithReactions<Comment>[],
-    beforeIds: readonly string[],
-    deletedBefore: ReadonlyMap<string, number>,
-  ): void {
+  #applyRead(read: readonly WithReactions<Comment>[], before: ReadSnapshot): void {
+    const { beforeIds, deletedBefore, mark } = before;
     for (const comment of read) {
       if (deletedBefore.get(comment.id) === this.#deleted.get(comment.id)) {
         this.#deleted.delete(comment.id);
       }
     }
-    const comments = this.#reactionsTaken(read).filter((comment) => !this.#deleted.has(comment.id));
+    const comments = this.#reactionsTaken(read, mark).filter(
+      (comment) => !this.#deleted.has(comment.id),
+    );
     void this.#host.workspace.learnUsers(authorIds(comments));
     this.#comments = reread(this.#comments, comments, beforeIds);
     this.status = 'ready';
@@ -179,12 +196,12 @@ export class CommentThreadStore {
     const first = kind === 'first';
     this.#readings += 1;
     const reading = this.#readings;
-    const { beforeIds, deletedBefore } = this.snapshotRead();
+    const before = this.snapshotRead();
     if (first || this.status === 'failed') this.status = 'loading';
     try {
       const read = await this.#host.api.list();
       if (this.#closed || reading !== this.#readings) return;
-      this.#applyRead(read, beforeIds, deletedBefore);
+      this.#applyRead(read, before);
     } catch (error) {
       if (this.#closed || reading !== this.#readings) return;
       if (isBackendError(error) && error.status === 401) {
@@ -302,17 +319,30 @@ export class CommentThreadStore {
     return reactions;
   }
 
-  /** The reactions a read of the block itself carried (`getCard`, `getPage`, `getUnit`). */
-  takeReactions(reactions: readonly Reaction[] | undefined): void {
-    if (this.#closed) return;
-    this.#tell(this.#host.parentId, reactions ?? []);
+  /**
+   * Where the reactions told stand: taken before a read is asked, and given
+   * with what it carried, so that it does not put older reactions over newer.
+   */
+  reactionsMark(): number {
+    return this.#toldCount;
   }
 
-  /** `reactionsChanged`: the block's reactions as they are now, if it is this block or one of its comments. */
+  /** The reactions a read of the block itself carried (`getCard`, `getPage`, `getUnit`), asked at `mark`. */
+  takeReactions(reactions: readonly Reaction[] | undefined, mark: number): void {
+    if (this.#closed) return;
+    this.#tellRead(this.#host.parentId, reactions ?? [], mark);
+  }
+
+  /**
+   * `reactionsChanged`: the block's reactions as they are now, if it is this
+   * block or one of its comments. Until the comments are read, any block's
+   * are kept: a comment not yet read may be one of them.
+   */
   receiveReactions(blockId: string, reactions: readonly Reaction[]): void {
     if (this.#closed) return;
-    if (blockId !== this.#host.parentId && !this.comment(blockId)) return;
-    this.#tell(blockId, reactions);
+    const known = blockId === this.#host.parentId || this.comment(blockId) !== undefined;
+    if (!known && this.status === 'ready') return;
+    this.#tellNow(blockId, reactions);
   }
 
   /** Adds the reader's `emoji` to the block, or takes it off if it is there. */
@@ -340,8 +370,8 @@ export class CommentThreadStore {
     this.#turns.set(key, settled);
     try {
       await turn;
-      // Kept until a message or a read tells the reactions as they are now.
-      this.#tell(blockId, withMine(this.#told.get(blockId) ?? [], emoji, me, toggle.present));
+      // Kept until a message or a read asked after it tells the reactions as they are now.
+      this.#tellNow(blockId, withMine(this.#told.get(blockId) ?? [], emoji, me, toggle.present));
     } catch (error) {
       if (!this.#isClosed()) workspace.report('save', error);
     } finally {
@@ -353,12 +383,25 @@ export class CommentThreadStore {
     }
   }
 
-  /** The comments read without their reactions, which are kept by block. */
-  #reactionsTaken(read: readonly WithReactions<Comment>[]): Comment[] {
+  /** The comments read without their reactions, which are kept by block; the read was asked at `mark`. */
+  #reactionsTaken(read: readonly WithReactions<Comment>[], mark: number): Comment[] {
     return read.map(({ reactions, ...comment }) => {
-      this.#tell(comment.id, reactions ?? []);
+      this.#tellRead(comment.id, reactions ?? [], mark);
       return comment;
     });
+  }
+
+  /** The block's reactions as they are now: newer than those of any read asked before. */
+  #tellNow(blockId: string, reactions: readonly Reaction[]): void {
+    this.#toldCount += 1;
+    this.#toldAt.set(blockId, this.#toldCount);
+    this.#tell(blockId, reactions);
+  }
+
+  /** The block's reactions as a read asked at `mark` carried them, unless they were told since. */
+  #tellRead(blockId: string, reactions: readonly Reaction[], mark: number): void {
+    if ((this.#toldAt.get(blockId) ?? 0) > mark) return;
+    this.#tell(blockId, reactions);
   }
 
   #tell(blockId: string, reactions: readonly Reaction[]): void {

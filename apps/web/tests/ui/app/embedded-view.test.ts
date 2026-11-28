@@ -3,7 +3,7 @@
  * its cards as the view shows them, the one line for a view the reader may
  * not see or that is gone, at most fifty cards and a link to all of them,
  * a checkbox changed in place by who may change cards; and the days of a
- * calendar's summary.
+ * calendar's summary, of all its cards.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -108,6 +108,45 @@ describe('a view shown in a body', () => {
     await fireEvent.click(box);
     await waitFor(() => {
       expect(box.getAttribute('aria-checked')).not.toBe(before);
+    });
+  });
+});
+
+describe('a calendar shown in a body', () => {
+  it('lists the days still to come of all its cards, not of the first fifty alone', async () => {
+    const made = setup();
+    const boardId = [...made.world.blocks.values()].find((one) => one.type === 'card')?.containerId;
+    if (!boardId) throw new Error('the seed has no board');
+    for (let at = 0; at <= EMBEDDED_CARDS; at += 1) {
+      await made.backend.createCard(boardId, { title: `Old ${String(at)}` });
+    }
+    // Every card began long ago, but the last one in the view's order: today.
+    const old = Date.parse('2020-01-01T12:00:00Z');
+    const cards = [...made.world.blocks.values()].filter(
+      (block) => block.containerId === boardId && block.type === 'card',
+    );
+    for (const card of cards) made.world.blocks.set(card.id, { ...card, createdAt: old });
+    const now = await made.backend.createCard(boardId, { title: 'Today' });
+    const [template] = await made.backend.views(boardId);
+    if (!template) throw new Error('the board has no view');
+    const calendar = await made.backend.createView(boardId, {
+      title: 'Calendar',
+      fields: {
+        ...template.fields,
+        viewType: 'calendar',
+        groupBy: undefined,
+        cardOrder: [...cards.map((card) => card.id), now.id],
+      },
+    });
+    const { workspace } = await openFirstBoard(made);
+    render(EmbeddedView, { workspace, router: new Router(''), viewId: calendar.id, onOpenCard });
+    const days = await screen.findByTestId('embedded-days');
+    await waitFor(() => {
+      expect(
+        within(days)
+          .getAllByTestId('embedded-card')
+          .map((link) => link.textContent.trim()),
+      ).toEqual(['Today']);
     });
   });
 });
