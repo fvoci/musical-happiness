@@ -1340,6 +1340,8 @@ async fn hear_the_account_changes(
         .expect("the test server's organization");
     ws.notifications_changed(user_id, &[&org_id]).await;
     contract_check.hear(socket, "notificationsChanged").await;
+    ws.favorites_changed(ROOT_WORKSPACE_ID, user_id).await;
+    contract_check.hear(socket, "favoritesChanged").await;
     ws.broadcast_person_change(ROOT_WORKSPACE_ID, user_id).await;
     contract_check.hear(socket, "userChanged").await;
 }
