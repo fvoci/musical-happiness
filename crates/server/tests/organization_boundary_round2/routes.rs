@@ -24,7 +24,7 @@ use reach::{REACHED_BY_ITEM, REFUSED_IN_REACH};
 
 // Method, path suffix, operation ID: every operation under `/w/{workspaceId}`, also
 // compared against the published contract. A parameter of the path is filled in with an
-// identifier of nothing; `{partNumber}` with 1.
+// identifier of nothing; `{partNumber}` with 1, `{emoji}` with 👍.
 pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "", "getWorkspace"),
     (
@@ -97,6 +97,16 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "POST",
         "/containers/{containerId}/duplicate",
         "duplicateContainer",
+    ),
+    (
+        "PUT",
+        "/containers/{containerId}/blocks/{blockId}/reactions/{emoji}",
+        "addReaction",
+    ),
+    (
+        "DELETE",
+        "/containers/{containerId}/blocks/{blockId}/reactions/{emoji}",
+        "removeReaction",
     ),
     ("POST", "/containers/{containerId}/files", "uploadFile"),
     ("GET", "/containers/{containerId}/files/{fileId}", "getFile"),
@@ -718,10 +728,15 @@ fn the_workspace_route_inventory_covers_every_operation_in_the_contract() {
     );
 }
 
+/// 👍 as a path gives it: the emoji of a reaction, which is no identifier.
+pub(super) const THUMBS_UP: &str = "%F0%9F%91%8D";
+
 /// A suffix of `WORKSPACE_ROUTES` with every parameter filled in with an identifier of
-/// nothing, and a part number with 1.
+/// nothing, a part number with 1, and an emoji with 👍.
 pub(super) fn fill_with_nothing(suffix: &str) -> String {
-    let mut filled = suffix.replace("{partNumber}", "1");
+    let mut filled = suffix
+        .replace("{partNumber}", "1")
+        .replace("{emoji}", THUMBS_UP);
     while let Some(start) = filled.find('{') {
         let end = filled[start..].find('}').expect("a parameter ends") + start;
         filled.replace_range(start..=end, UNKNOWN_ID);
@@ -1381,6 +1396,8 @@ impl Items<'_> {
             .replace("{number}", &pick(&number, "999999"))
             .replace("{leaseId}", UNKNOWN_ID)
             .replace("{categoryId}", &pick(self.category, UNKNOWN_ID))
+            // An emoji is one, of something or of nothing.
+            .replace("{emoji}", THUMBS_UP)
     }
 }
 
