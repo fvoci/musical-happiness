@@ -4,8 +4,10 @@
  * latest first, at most `RECENT_KEPT`. What they are called is read when they
  * are shown, as the reader may read them then: what they may not, or what is
  * gone, is left out. No diary, and no entry of one, is kept: what a diary
- * holds is never shown at the head of the search. Signing out forgets them
- * all at once (`forgetUnscoped`).
+ * holds is never shown at the head of the search, and nothing that is no
+ * identifier (from an address made by hand, say) is kept or read: it would
+ * have the server refuse what is asked with it. Signing out, or a session
+ * that is over, forgets them all at once (`forgetUnscoped`, `App`).
  */
 import type { Favorite, FavoriteKind, Workspace } from '$lib/state/index.ts';
 
@@ -24,10 +26,20 @@ export interface RecentPlace {
 
 const KINDS: ReadonlySet<string> = new Set<FavoriteKind>(['container', 'card', 'page', 'unit']);
 
+/** An identifier as the server takes one: a UUID in small letters, not the nil one. */
+const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const NIL = '00000000-0000-0000-0000-000000000000';
+
 function isRecent(value: unknown): value is RecentPlace {
   if (typeof value !== 'object' || value === null) return false;
   const { id, kind } = value as Record<string, unknown>;
-  return typeof id === 'string' && id !== '' && typeof kind === 'string' && KINDS.has(kind);
+  return (
+    typeof id === 'string' &&
+    ID.test(id) &&
+    id !== NIL &&
+    typeof kind === 'string' &&
+    KINDS.has(kind)
+  );
 }
 
 const keyOf = (userId: string, workspaceId: string): string => `${KEY}${userId}:${workspaceId}`;
@@ -43,8 +55,9 @@ export function recentPlaces(userId: string, workspaceId: string): RecentPlace[]
   }
 }
 
-/** Keeps the place as the latest opened. */
+/** Keeps the place as the latest opened; what is no place is not kept. */
 export function rememberRecent(userId: string, workspaceId: string, place: RecentPlace): void {
+  if (!isRecent(place)) return;
   const kept = recentPlaces(userId, workspaceId).filter((one) => one.id !== place.id);
   const latest = [{ id: place.id, kind: place.kind }, ...kept].slice(0, RECENT_KEPT);
   try {

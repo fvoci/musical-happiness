@@ -75,6 +75,8 @@
   const favorites = $derived(workspaceFavorites(workspace));
   /** What the reader opened last here, read each time the search opens. */
   let recents = $state.raw<readonly Favorite[]>([]);
+  /** Which opening of the search the places read last are of: an earlier one's are not shown. */
+  let recentsTurn = 0;
 
   /** Where the focus goes back to: where it was, or the page where that is gone. */
   function returnTo(): HTMLElement | undefined {
@@ -109,8 +111,10 @@
     open = true;
     void favorites.read();
     recents = [];
+    const turn = ++recentsTurn;
     void shownRecents(workspace).then((shown) => {
-      if (open) recents = shown;
+      // Not those of an opening before, nor of the workspace left meanwhile.
+      if (open && turn === recentsTurn && workspace.info?.id === workspaceId) recents = shown;
     });
     return true;
   }

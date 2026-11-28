@@ -47,6 +47,7 @@
   import { resendLink, startBackend } from './backend.ts';
   import { forgetInviteToken } from '$lib/fragment-token.ts';
   import { forgetUnscoped, forgetUser, lastWorkspace } from './last-workspace.ts';
+  import { forgetRecentPlaces } from './recent-places.ts';
   import {
     browserLocale,
     currentLocale,
@@ -157,6 +158,11 @@
     return () => {
       workspace?.close();
     };
+  });
+
+  // A session that is over (401) forgets what was opened last, as signing out does.
+  $effect(() => {
+    if (workspace?.status === 'signedOut') forgetRecentPlaces();
   });
 
   // Leaving a board screen for any non-board route parks the open board immediately (§1.4.1).
