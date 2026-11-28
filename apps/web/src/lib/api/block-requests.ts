@@ -28,6 +28,7 @@ import {
   type ViewDraft,
 } from '../state/backend.ts';
 import { pagesTogether } from '../state/page-reads.ts';
+import type { WithReactions } from '../state/reaction-types.ts';
 import type { BlockTurns } from '../state/write.ts';
 
 import {
@@ -44,6 +45,7 @@ import {
   type Schemas,
 } from './convert.ts';
 import type { RequestOptions } from './http.ts';
+import { withReactions } from './reactions.ts';
 import type { WorkspacePath } from './requests.ts';
 
 type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
@@ -216,12 +218,15 @@ export class ServerBlocks {
     );
   }
 
-  async card(boardId: string, cardId: string): Promise<CardDetail> {
-    const card = await this.#inWorkspace<Schemas['Card']>('/cards/{cardId}', { cardId, boardId });
+  async card(boardId: string, cardId: string): Promise<WithReactions<CardDetail>> {
+    const card = await this.#inWorkspace<Schemas['CardWithReactions']>('/cards/{cardId}', {
+      cardId,
+      boardId,
+    });
     if (card.boardId !== boardId) {
       throw new BackendError(404, { detail: 'no such card on this board' });
     }
-    return cardDetailOf(card);
+    return withReactions(cardDetailOf(card), card);
   }
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
@@ -307,12 +312,12 @@ export class ServerBlocks {
     );
   }
 
-  async comments(boardId: string, cardId: string): Promise<Comment[]> {
-    const blocks = await this.#inWorkspace<Schemas['Block'][]>(
+  async comments(boardId: string, cardId: string): Promise<WithReactions<Comment>[]> {
+    const blocks = await this.#inWorkspace<Schemas['CommentWithReactions'][]>(
       '/boards/{boardId}/cards/{cardId}/comments',
       { boardId, cardId },
     );
-    return blocks.map(commentOf);
+    return blocks.map((block) => withReactions(commentOf(block), block));
   }
 
   async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {

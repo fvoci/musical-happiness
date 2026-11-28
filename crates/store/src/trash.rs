@@ -7,17 +7,20 @@
 //!
 //! Blocks that go with one deletion share a `deletion_id` and come back together: a
 //! card with what is on it, a board with all its blocks. A block takes the subscriptions
-//! to it into the trash and brings them back (`watchers.rs`). A board takes its
+//! to it (`watchers.rs`) and the reactions to it (`reactions.rs`) into the trash and
+//! brings them back. A board takes its
 //! memberships, its file records and the places users filed it under into the trash and
 //! brings them back; its sharing ends with the deletion.
 //!
 //! What has been in the trash for longer than the retention period is removed for good
 //! by [`Store::purge_trash`], and what people were told of it with it (`told.rs`).
 
+mod reactions;
 mod stored;
 mod told;
 mod watchers;
 
+pub(crate) use reactions::forget_reactions_of_organization;
 pub(crate) use watchers::{
     forget_watcher_of_container, forget_watcher_of_organization, forget_watcher_of_workspace,
 };
@@ -548,13 +551,19 @@ pub(crate) fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreErr
     block_from_value(row.json(index, "block")?)
 }
 
-/// Reads a block and the subscriptions it kept in the trash from one JSON parse.
-fn block_and_watchers_from_json(
-    row: &Row,
-    index: usize,
-) -> Result<(Block, Vec<watchers::StoredWatcher>), StoreError> {
+/// What a block of the trash keeps beside itself, to make again when it comes back.
+struct KeptWith {
+    watchers: Vec<watchers::StoredWatcher>,
+    reactions: Vec<reactions::StoredReaction>,
+}
+
+/// Reads a block and what it kept in the trash beside it from one JSON parse.
+fn block_and_kept_from_json(row: &Row, index: usize) -> Result<(Block, KeptWith), StoreError> {
     let mut value = row.json(index, "block")?;
-    let kept = watchers::take_kept(&mut value)?;
+    let kept = KeptWith {
+        watchers: watchers::take_kept(&mut value)?,
+        reactions: reactions::take_kept(&mut value)?,
+    };
     Ok((block_from_value(value)?, kept))
 }
 
@@ -721,6 +730,7 @@ async fn put_blocks_in_trash(
     }
     let ids: Vec<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
     let mut watchers = watchers::watchers_of(scope, &ids).await?;
+    let mut reactions = reactions::reactions_of(scope, &ids).await?;
     for chunk in blocks.chunks(TRASH_INSERT_BATCH) {
         let mut sql = scope.sql(
             "INSERT INTO deleted_blocks \
@@ -732,7 +742,8 @@ async fn put_blocks_in_trash(
                 deleted_at: Some(deleted_at),
                 ..block.clone()
             };
-            let stored = watchers::with_watchers(&in_trash, watchers.remove(&block.id))?;
+            let mut stored = watchers::with_watchers(&in_trash, watchers.remove(&block.id))?;
+            reactions::keep(&mut stored, reactions.remove(&block.id))?;
             sql.push(if index == 0 { "(" } else { ", (" })
                 .bind(Id(&block.id))
                 .push_bind(", ", Id(&block.container_id))
@@ -751,7 +762,7 @@ async fn put_blocks_in_trash(
 
 /// Takes the blocks of one deletion out of the trash and puts them back among the
 /// blocks, marked as modified by `user_id` at `now`, each as `adjust` leaves it, with
-/// the subscriptions they kept. Returns them.
+/// the subscriptions and the reactions they kept. Returns them.
 pub(crate) async fn take_blocks_out_of_trash(
     scope: &mut Scope<'_>,
     deletion_id: &str,
@@ -765,8 +776,8 @@ pub(crate) async fn take_blocks_out_of_trash(
     let mut restored: Vec<Block> = Vec::with_capacity(rows.len());
     let mut kept = Vec::with_capacity(rows.len());
     for row in &rows {
-        let (block, watchers) = block_and_watchers_from_json(row, 0)?;
-        kept.push((block.id.clone(), watchers));
+        let (block, kept_with) = block_and_kept_from_json(row, 0)?;
+        kept.push((block.id.clone(), kept_with));
         restored.push(block);
     }
     let mut known_users = KnownUsers::default();
@@ -785,8 +796,9 @@ pub(crate) async fn take_blocks_out_of_trash(
     for index in parents_first(&restored) {
         blocks::insert_block_row(scope, &restored[index], NewBodyFiles::Unchecked).await?;
     }
-    for (block_id, watchers) in &kept {
-        watchers::watch_again(scope, block_id, watchers).await?;
+    for (block_id, kept_with) in &kept {
+        watchers::watch_again(scope, block_id, &kept_with.watchers).await?;
+        reactions::react_again(scope, block_id, &kept_with.reactions).await?;
     }
     let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));

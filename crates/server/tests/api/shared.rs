@@ -62,7 +62,8 @@ async fn fixture() -> Fixture {
         )
         .await
         .check_ok();
-    ts.client2
+    let comment: Value = ts
+        .client2
         .post(
             &format!("{TEST_WS}/boards/{}/cards/{card_id}/comments", board.id),
             &json!({"body": {"type": "doc", "content": [
@@ -70,7 +71,21 @@ async fn fixture() -> Fixture {
             ]}}),
         )
         .await
-        .check_created();
+        .created_json();
+    // Both answer the card and the comment: a reaction names who reacted, which a
+    // reader by the link is not told.
+    let comment_id = comment["id"].as_str().expect("an identifier");
+    for client in [&ts.client, &ts.client2] {
+        for block in [card_id.as_str(), comment_id] {
+            let reaction = format!(
+                "{TEST_WS}/containers/{}/blocks/{block}/reactions/%F0%9F%91%8D",
+                board.id
+            );
+            Client::send(client.request(Method::PUT, &reaction))
+                .await
+                .check_no_content();
+        }
+    }
     let file_id = upload(&ts.client, &board.id).await;
     let sharing: PublicLink = ts
         .client

@@ -92,6 +92,10 @@ const REACHED: &[(&str, Reaches)] = &[
     ("deleteUpload", Reaches::EVERY),
     // Whoever writes a card or a page watches it, and may stop.
     ("deleteSubscription", Reaches::LINKED),
+    // Who may comment answers a card, a page, a unit or a comment with an emoji; a
+    // diary's entries are their owner's.
+    ("addReaction", Reaches::SHARED),
+    ("removeReaction", Reaches::SHARED),
     // Its place in the sidebar.
     ("setContainerCategory", Reaches::EVERY),
     ("putCategoryContainer", Reaches::EVERY),
@@ -705,7 +709,8 @@ impl World {
             .replace("{version}", "1")
             // The board's card is its first.
             .replace("{number}", "1")
-            .replace("{leaseId}", "no-lease");
+            .replace("{leaseId}", "no-lease")
+            .replace("{emoji}", "%F0%9F%91%8D");
         // The one operation of the table that asks its query for something.
         let path = if operation == "getDiaryDays" {
             format!("{path}?from=2026-11-01&to=2026-11-30")

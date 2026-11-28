@@ -2,7 +2,7 @@
 //! what one said before.
 
 use axum::body::Bytes;
-use fvoci_model::{Block, Body, BodyChange, CommentVersion};
+use fvoci_model::{Block, Body, BodyChange, CommentVersion, CommentWithReactions};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -69,17 +69,21 @@ pub(crate) struct PageCommentPatch {
 /// The comments on a page
 ///
 /// Every comment on the page, oldest first, as blocks of the `type` `comment` whose
-/// parent is the page; each says who wrote it (`createdBy`), and one whose text was
-/// changed when that last happened (`editedAt`). For who reads the wiki: its members,
-/// and of an open wiki whoever works in the workspace. A page in the trash is not
-/// there (404).
+/// parent is the page; each says who wrote it (`createdBy`), one whose text was
+/// changed when that last happened (`editedAt`), and one that has `reactions` who
+/// answered it with which emoji. For who reads the wiki: its members, and of an open
+/// wiki whoever works in the workspace. A page in the trash is not there (404).
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments",
     operation_id = "getPageComments",
     tag = tag::WIKIS,
     params(MemberWorkspaceId, WikiId, PageId),
-    responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
+    responses((
+        status = 200,
+        description = "The comments, oldest first.",
+        body = Vec<CommentWithReactions>,
+    )),
 )]
 async fn handle_get_page_comments(
     Delegated(page, ..): Delegated<Read, ItemOf<PageItem>>,

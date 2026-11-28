@@ -87,6 +87,9 @@ export function applyBoardChange(internals: BoardSyncInternals, change: Change):
         }
       }
       break;
+    case 'reactions':
+      store.openCard?.receiveReactions(change.blockId, change.reactions);
+      break;
     case 'blocksDeleted': {
       const gone = new Set(change.blockIds);
       for (const id of change.blockIds) {

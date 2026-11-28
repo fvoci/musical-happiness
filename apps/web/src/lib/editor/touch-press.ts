@@ -24,3 +24,73 @@ export function keepTouchFromText(element: HTMLElement): void {
     }
   });
 }
+
+/** How long a finger rests on an element before the press is a long one, in milliseconds. */
+export const LONG_PRESS_MS = 500;
+/** How far the finger may move meanwhile, in pixels: further, and it scrolls. */
+const LONG_PRESS_SLOP = 10;
+/**
+ * What a long press inside the element keeps doing what it does: a link (the
+ * browser's own menu of it), a button, a field, a text being written.
+ */
+const PRESSED_ON_ITS_OWN = 'a, button, input, select, textarea, [contenteditable="true"]';
+
+/**
+ * An attachment: a finger that rests on the element (a comment) for
+ * `LONG_PRESS_MS` calls `onLongPress`, in place of the browser's own menu of
+ * the press. The click that ends the press is kept from what was pressed. A
+ * finger that moves scrolls as before; a mouse and a pen press as before; and
+ * so does a finger on a link or a control inside (`PRESSED_ON_ITS_OWN`).
+ */
+export function longPress(onLongPress: () => void): (element: HTMLElement) => () => void {
+  return (element) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let origin: { x: number; y: number } | undefined;
+    let fired = false;
+    const stop = (): void => {
+      clearTimeout(timer);
+      timer = undefined;
+      origin = undefined;
+    };
+    const down = (event: PointerEvent): void => {
+      if (event.pointerType !== 'touch' || !event.isPrimary) return;
+      if (event.target instanceof Element && event.target.closest(PRESSED_ON_ITS_OWN)) return;
+      stop();
+      fired = false;
+      origin = { x: event.clientX, y: event.clientY };
+      timer = setTimeout(() => {
+        stop();
+        fired = true;
+        onLongPress();
+      }, LONG_PRESS_MS);
+    };
+    const move = (event: PointerEvent): void => {
+      if (!origin) return;
+      if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > LONG_PRESS_SLOP) stop();
+    };
+    const menu = (event: Event): void => {
+      if (timer !== undefined || fired) event.preventDefault();
+    };
+    const click = (event: Event): void => {
+      if (!fired) return;
+      fired = false;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    element.addEventListener('pointerdown', down);
+    element.addEventListener('pointermove', move);
+    element.addEventListener('pointerup', stop);
+    element.addEventListener('pointercancel', stop);
+    element.addEventListener('contextmenu', menu);
+    element.addEventListener('click', click, true);
+    return () => {
+      stop();
+      element.removeEventListener('pointerdown', down);
+      element.removeEventListener('pointermove', move);
+      element.removeEventListener('pointerup', stop);
+      element.removeEventListener('pointercancel', stop);
+      element.removeEventListener('contextmenu', menu);
+      element.removeEventListener('click', click, true);
+    };
+  };
+}

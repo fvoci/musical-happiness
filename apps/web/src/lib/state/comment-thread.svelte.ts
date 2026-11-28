@@ -4,7 +4,14 @@
  * tracks deleted comment IDs across concurrent reads and out-of-order live
  * echoes, handles optimistic-concurrency 409 conflicts (`editComment`), and
  * wires undo/redo for `deleteComment`.
+ *
+ * It keeps the reactions to the block and to its comments apart from the
+ * comments, by block: a comment changed or told again carries none, and keeps
+ * its own. What the reader toggles shows at once and goes back if refused;
+ * the reader's toggles of one emoji on one block are sent one after another.
  */
+import { SvelteMap } from 'svelte/reactivity';
+
 import type { DocNode } from '../editor/schema.ts';
 import type { MemberRole } from '../logic/wire.ts';
 
@@ -18,12 +25,13 @@ import {
 import { canChangeComment } from './board-parts.ts';
 import type { CommentEdit } from './card-parts.ts';
 import { byCreation } from './order.ts';
+import { hasReacted, withMine, type Reaction, type WithReactions } from './reaction-types.ts';
 import { authorIds } from './user-names.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
 
 export interface CommentThreadApi {
-  list(): Promise<Comment[]>;
+  list(): Promise<WithReactions<Comment>[]>;
   create(body: DocNode): Promise<Comment>;
   patch(commentId: string, write: { body: DocNode; readAt: number }): Promise<Comment>;
   remove(commentId: string): Promise<void>;
@@ -34,6 +42,8 @@ export interface CommentThreadApi {
 export interface CommentThreadHost {
   readonly workspace: Workspace;
   readonly parentId: string;
+  /** The container of the block, which its reactions are asked under. */
+  readonly containerId: string;
   role(): MemberRole;
   permissions?: () => ContainerPermissions;
   joinable?: () => boolean;
@@ -41,8 +51,22 @@ export interface CommentThreadHost {
   onCommented?: () => void;
   onDeleting?: (commentId: string) => void;
   onConflict?: () => Promise<void>;
+  /** A write as the reader, who may have to join the container first. */
+  joined?: <T>(write: () => Promise<T>) => Promise<T>;
   readonly api: CommentThreadApi;
 }
+
+/** A toggle of the reader's not yet answered: the emoji there (`present`) or not. */
+interface Toggle {
+  readonly emoji: string;
+  readonly present: boolean;
+}
+
+/** What a screen shows and toggles of the reactions to a block and its comments. */
+export type ThreadReactions = Pick<
+  CommentThreadStore,
+  'workspace' | 'canReact' | 'reactionsOf' | 'toggleReaction'
+>;
 
 export class CommentThreadStore {
   readonly #host: CommentThreadHost;
@@ -54,6 +78,12 @@ export class CommentThreadStore {
   readonly #deleted = new Map<string, number>();
   #readings = 0;
   #closed = false;
+  /** The reactions as last read or told, by block. */
+  readonly #told = new SvelteMap<string, readonly Reaction[]>();
+  /** The reader's toggles not yet answered, by block, in the order made. */
+  readonly #toggles = new SvelteMap<string, readonly Toggle[]>();
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+  readonly #turns = new Map<string, Promise<unknown>>();
 
   constructor(host: CommentThreadHost) {
     this.#host = host;
@@ -90,9 +120,9 @@ export class CommentThreadStore {
   }
 
   /** Replaces the comments directly from a parallel initial read (e.g. `CardStore.load`). */
-  setInitial(comments: Comment[]): void {
+  setInitial(comments: WithReactions<Comment>[]): void {
     if (this.#closed) return;
-    this.#comments = comments;
+    this.#comments = this.#reactionsTaken(comments);
     this.status = 'ready';
   }
 
@@ -107,7 +137,7 @@ export class CommentThreadStore {
 
   /** Merges re-read comments into what is shown (e.g. `CardStore.refresh`), reconciling restored IDs. */
   mergeRead(
-    read: readonly Comment[],
+    read: readonly WithReactions<Comment>[],
     beforeIds: readonly string[],
     deletedBefore: ReadonlyMap<string, number> = this.#deleted,
   ): void {
@@ -116,7 +146,7 @@ export class CommentThreadStore {
   }
 
   #applyRead(
-    read: readonly Comment[],
+    read: readonly WithReactions<Comment>[],
     beforeIds: readonly string[],
     deletedBefore: ReadonlyMap<string, number>,
   ): void {
@@ -125,7 +155,7 @@ export class CommentThreadStore {
         this.#deleted.delete(comment.id);
       }
     }
-    const comments = read.filter((comment) => !this.#deleted.has(comment.id));
+    const comments = this.#reactionsTaken(read).filter((comment) => !this.#deleted.has(comment.id));
     void this.#host.workspace.learnUsers(authorIds(comments));
     this.#comments = reread(this.#comments, comments, beforeIds);
     this.status = 'ready';
@@ -252,6 +282,102 @@ export class CommentThreadStore {
     } catch (error) {
       this.#host.workspace.report('save', error);
     }
+  }
+
+  // ---------------------------------------------------------- reactions
+
+  /** Whether the reader may react: who may comment, where the backend keeps reactions. */
+  get canReact(): boolean {
+    return this.canComment && this.#host.workspace.backend.reactions !== undefined;
+  }
+
+  /** The reactions to the block or one of its comments, with the reader's toggles not yet answered. */
+  reactionsOf(blockId: string): readonly Reaction[] {
+    const me = this.#host.workspace.me?.id;
+    let reactions = this.#told.get(blockId) ?? [];
+    if (me === undefined) return reactions;
+    for (const toggle of this.#toggles.get(blockId) ?? []) {
+      reactions = withMine(reactions, toggle.emoji, me, toggle.present);
+    }
+    return reactions;
+  }
+
+  /** The reactions a read of the block itself carried (`getCard`, `getPage`, `getUnit`). */
+  takeReactions(reactions: readonly Reaction[] | undefined): void {
+    if (this.#closed) return;
+    this.#tell(this.#host.parentId, reactions ?? []);
+  }
+
+  /** `reactionsChanged`: the block's reactions as they are now, if it is this block or one of its comments. */
+  receiveReactions(blockId: string, reactions: readonly Reaction[]): void {
+    if (this.#closed) return;
+    if (blockId !== this.#host.parentId && !this.comment(blockId)) return;
+    this.#tell(blockId, reactions);
+  }
+
+  /** Adds the reader's `emoji` to the block, or takes it off if it is there. */
+  async toggleReaction(blockId: string, emoji: string): Promise<void> {
+    const workspace = this.#host.workspace;
+    const [me, workspaceId, reactions] = [
+      workspace.me?.id,
+      workspace.info?.id,
+      workspace.backend.reactions,
+    ];
+    if (me === undefined || workspaceId === undefined || !reactions || this.#isClosed()) return;
+    const toggle: Toggle = { emoji, present: !hasReacted(this.reactionsOf(blockId), emoji, me) };
+    this.#setToggles(blockId, [...(this.#toggles.get(blockId) ?? []), toggle]);
+    const { containerId } = this.#host;
+    const send = (): Promise<void> =>
+      toggle.present
+        ? reactions.add(workspaceId, containerId, blockId, emoji)
+        : reactions.remove(workspaceId, containerId, blockId, emoji);
+    const joined = this.#host.joined;
+    const key = `${blockId} ${emoji}`;
+    const turn = (this.#turns.get(key) ?? Promise.resolve()).then(() =>
+      joined ? joined(send) : send(),
+    );
+    const settled = turn.catch(() => undefined);
+    this.#turns.set(key, settled);
+    try {
+      await turn;
+      // Kept until a message or a read tells the reactions as they are now.
+      this.#tell(blockId, withMine(this.#told.get(blockId) ?? [], emoji, me, toggle.present));
+    } catch (error) {
+      if (!this.#isClosed()) workspace.report('save', error);
+    } finally {
+      this.#setToggles(
+        blockId,
+        (this.#toggles.get(blockId) ?? []).filter((made) => made !== toggle),
+      );
+      if (this.#turns.get(key) === settled) this.#turns.delete(key);
+    }
+  }
+
+  /** The comments read without their reactions, which are kept by block. */
+  #reactionsTaken(read: readonly WithReactions<Comment>[]): Comment[] {
+    return read.map(({ reactions, ...comment }) => {
+      this.#tell(comment.id, reactions ?? []);
+      return comment;
+    });
+  }
+
+  #tell(blockId: string, reactions: readonly Reaction[]): void {
+    if (reactions.length === 0) {
+      this.#told.delete(blockId);
+      return;
+    }
+    this.#told.set(blockId, reactions);
+    void this.#host.workspace.learnUsers(reactions.flatMap((reaction) => reaction.userIds));
+  }
+
+  #setToggles(blockId: string, toggles: readonly Toggle[]): void {
+    if (toggles.length === 0) this.#toggles.delete(blockId);
+    else this.#toggles.set(blockId, toggles);
+  }
+
+  /** Whether the thread was closed, asked after a wait. */
+  #isClosed(): boolean {
+    return this.#closed;
   }
 
   async commentVersions(commentId: string): Promise<CommentVersion[]> {
