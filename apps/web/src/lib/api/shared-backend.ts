@@ -96,6 +96,8 @@ export class SharedBackend implements Backend {
   /** What was done to a card is for the board's members, not a reader by the link. */
   readonly cardActivity = undefined;
   readonly watches = undefined;
+  /** A reaction names who reacted, which a reader by the link is not told. */
+  readonly reactions = undefined;
   /** Personal time tracking is strictly owner-only and never available on public links. */
   readonly time = undefined;
   /** No search through a public link: the board is all there is to read. */

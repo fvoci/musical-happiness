@@ -26,7 +26,8 @@ use crate::error::AppError;
 /// server (`postMcp`), which a token of either scope is sent to and whose tools each ask
 /// for their own; as a test of the sources holds it. The contract says it of each of
 /// them.
-pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 77] = [
+pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 79] = [
+    ("addReaction", ApiTokenScope::Write),
     ("appendCardMarkdown", ApiTokenScope::Write),
     ("batchPatchCards", ApiTokenScope::Write),
     ("completeUpload", ApiTokenScope::Write),
@@ -99,6 +100,7 @@ pub(crate) const TOKEN_OPERATIONS: [(&str, ApiTokenScope); 77] = [
     ("postMcp", ApiTokenScope::Read),
     ("putUnitProgress", ApiTokenScope::Write),
     ("putUploadPart", ApiTokenScope::Write),
+    ("removeReaction", ApiTokenScope::Write),
     ("resolveReferences", ApiTokenScope::Read),
     ("searchReferences", ApiTokenScope::Read),
     ("searchWorkspaceBoards", ApiTokenScope::Read),

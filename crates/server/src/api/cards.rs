@@ -3,8 +3,8 @@
 use axum::body::Bytes;
 use axum::extract::Path;
 use fvoci_model::{
-    Block, BlockType, BodyVersion, BodyVersionContent, Card, CardPatch, CompactCard,
-    KeptBodyVersion,
+    Block, BlockType, BodyVersion, BodyVersionContent, Card, CardPatch, CardWithReactions,
+    CompactCard, KeptBodyVersion,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -488,24 +488,33 @@ pub(super) async fn patch_card_as(
 
 /// A card
 ///
-/// For the members of the card's board. To a user who is no member of it there is no
-/// such card.
+/// For the members of the card's board, with its `reactions` where it has any. To a
+/// user who is no member of it there is no such card.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/cards/{cardId}",
     operation_id = "getCard",
     tag = tag::CARDS,
     params(MemberWorkspaceId, CardId, BodyFormat),
-    responses((status = 200, description = "The card.", body = Card)),
+    responses((status = 200, description = "The card.", body = CardWithReactions)),
 )]
 async fn handle_get_card(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, card_id)): Path<(String, String)>,
     QueryParams(query): QueryParams<CardQuery>,
 ) -> ApiResult {
-    Ok(json_response(
-        &card_read(&ws, &card_id, query.format).await?,
-    ))
+    let card = card_read(&ws, &card_id, query.format).await?;
+    Ok(json_response(&with_its_reactions(&ws, card).await?))
+}
+
+/// The card with the reactions to it, as `getCard` gives it.
+///
+/// # Errors
+///
+/// Returns the store's error.
+async fn with_its_reactions(ws: &InWorkspace, card: Card) -> Result<CardWithReactions, AppError> {
+    let reactions = ws.app.reactions_to(&card.id).await?;
+    Ok(CardWithReactions { card, reactions })
 }
 
 /// The card `card_id`, with its body as `format` says, as `getCard` gives it.
@@ -552,15 +561,14 @@ pub(super) async fn card_read(
     operation_id = "getCardByNumber",
     tag = tag::CARDS,
     params(MemberWorkspaceId, BoardId, CardNumber),
-    responses((status = 200, description = "The card.", body = Card)),
+    responses((status = 200, description = "The card.", body = CardWithReactions)),
 )]
 async fn handle_get_card_by_number(
     Delegated(ws, ..): Delegated<Read, InWorkspace>,
     Path((_, board_id, number)): Path<(String, String, String)>,
 ) -> ApiResult {
-    Ok(json_response(
-        &card_by_number_read(&ws, &board_id, &number).await?,
-    ))
+    let card = card_by_number_read(&ws, &board_id, &number).await?;
+    Ok(json_response(&with_its_reactions(&ws, card).await?))
 }
 
 /// The card of the board `board_id` that has `number`, as `getCardByNumber` gives it.

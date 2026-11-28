@@ -55,6 +55,7 @@ mod page_versions;
 mod password_reset;
 mod public_links;
 mod query;
+mod reactions;
 mod recovery;
 mod references;
 mod search;
@@ -190,6 +191,7 @@ fn routes() -> Routes {
         .merge(search::routes())
         .merge(content_search::routes())
         .merge(public_links::routes())
+        .merge(reactions::routes())
         .merge(subscriptions::routes())
         .merge(templates::routes())
         .merge(time_entries::routes())

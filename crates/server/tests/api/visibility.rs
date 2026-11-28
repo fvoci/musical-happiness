@@ -347,6 +347,17 @@ fn content_cases() -> Vec<Case> {
             },
             |_, _| json!({"body": {"type": "doc", "content": [{"type": "paragraph"}]}}),
         ),
+        // A reaction to its card, added and taken off.
+        case(
+            Method::PUT,
+            |h, i| reaction_to(&h.board[i], &h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::DELETE,
+            |h, i| reaction_to(&h.board[i], &h.card[i]),
+            no_body,
+        ),
         case(
             Method::GET,
             |h, i| {
@@ -549,6 +560,11 @@ fn view_and_attachment_cases() -> Vec<Case> {
     ]
 }
 
+/// The path of the reaction 👍 to the block of the container.
+fn reaction_to(container: &str, block: &str) -> String {
+    format!("{TEST_WS}/containers/{container}/blocks/{block}/reactions/%F0%9F%91%8D")
+}
+
 /// Requests that name something of the asker's own together with something hidden: the
 /// places where one part of a request passes every check and the other part must not
 /// be given away by the answer.
@@ -581,6 +597,11 @@ fn mixed_cases() -> Vec<Case> {
                     h.own_board, h.card[i]
                 )
             },
+            no_body,
+        ),
+        case(
+            Method::PUT,
+            |h, i| reaction_to(&h.own_board, &h.card[i]),
             no_body,
         ),
         case(

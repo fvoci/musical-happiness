@@ -51,6 +51,7 @@ mod person_name;
 mod problem;
 mod public_containers;
 mod public_link;
+mod reaction;
 mod recurrence;
 mod refusal;
 mod relation;
@@ -221,6 +222,10 @@ pub use person_name::{
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use public_containers::PublicContainers;
 pub use public_link::{PublicLink, PublicLinkChange};
+pub use reaction::{
+    CardWithReactions, CommentWithReactions, EMOJI_MAX_SCALARS, Emoji, PageWithReactions,
+    ParseEmojiError, REACTION_KINDS_PER_BLOCK, Reaction, UnitWithReactions,
+};
 pub use recurrence::{
     InvalidRecurrence, MOST_PERIODS, RECURRED_TO_FIELD, RECURRENCE_FIELD, Recurrence,
     RecurrenceAnchor, RecurrenceUnit, not_done_value, with_tasks_unchecked,

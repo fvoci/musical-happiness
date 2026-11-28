@@ -280,6 +280,8 @@ reasons! {
     TooManyChapters => "too_many_chapters", "Too many chapters in the course";
     /// The account made as many organizations, which are in use, as one account may.
     TooManyOrganizations => "too_many_organizations", "Too many organizations made";
+    /// The block is answered with as many different emoji as a block may.
+    TooManyReactions => "too_many_reactions", "Too many emoji on the block";
 }
 
 impl Reason {

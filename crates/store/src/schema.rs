@@ -28,7 +28,7 @@ pub(crate) use self::inspect::{
     SchemaState, may_change, refuse_unrecorded_schemas, state, ungranted_tables, whereabouts,
 };
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) use self::steps::UNDONE_AFTER_THE_BASELINE;
+pub(crate) use self::steps::UNDONE_FOR_TESTS;
 pub(crate) use self::steps::{STEPS, Step};
 use crate::db::{Dialect, Param};
 use crate::error::StoreError;
@@ -73,7 +73,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 14] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 52] = [
+pub(crate) const ORG_TABLES: [&str; 53] = [
     "api_token_workspaces",
     "audit_log",
     "blocks",
@@ -114,6 +114,7 @@ pub(crate) const ORG_TABLES: [&str; 52] = [
     "organization_members",
     "organizations",
     "public_links",
+    "reactions",
     "search_outbox",
     "subscriptions",
     "team_members",
@@ -137,6 +138,11 @@ const A_SCHEMA_TABLE: &str = "blocks";
 
 /// Applies the migrations the database does not have yet.
 ///
+/// SQLite's migrator holds no lock while it applies them, as PostgreSQL's holds one: of
+/// two openings at once, the second may take up a migration that the first is
+/// applying, and fail when the database has it. It reads the record again then, and
+/// goes on from where the first is.
+///
 /// # Errors
 ///
 /// Returns [`StoreError::Schema`] with the reason if the database holds this server's
@@ -147,11 +153,30 @@ pub(crate) async fn migrate(store: &Store, steps: &[Step]) -> Result<(), StoreEr
     store.with_conn(inspect::refuse_unrecorded_schemas).await?;
 
     let migrator = migrator(store.dialect(), steps);
-    let result = match &store.inner.pool {
-        Pool::Sqlite(pool) => migrator.run(pool).await,
-        Pool::Postgres(pool) => migrator.run(pool).await,
-    };
-    result.map_err(|error| match error {
+    let mut tries = steps.len();
+    loop {
+        let result = match &store.inner.pool {
+            Pool::Sqlite(pool) => migrator.run(pool).await,
+            Pool::Postgres(pool) => migrator.run(pool).await,
+        };
+        let Err(error) = result else {
+            return Ok(());
+        };
+        tries = tries.saturating_sub(1);
+        if store.dialect() == Dialect::Sqlite {
+            match state(store, steps).await? {
+                SchemaState::Current => return Ok(()),
+                SchemaState::Behind if tries > 0 => continue,
+                _ => {}
+            }
+        }
+        return Err(migrate_error(error));
+    }
+}
+
+/// What a failure of the migrator is to the store.
+fn migrate_error(error: MigrateError) -> StoreError {
+    match error {
         MigrateError::Execute(error) | MigrateError::ExecuteMigration(error, _) => {
             StoreError::Database(error)
         }
@@ -164,15 +189,16 @@ pub(crate) async fn migrate(store: &Store, steps: &[Step]) -> Result<(), StoreEr
              database was created by a different build"
         )),
         other => StoreError::Schema(other.to_string()),
-    })
+    }
 }
 
 /// Replaces the record of a database that the last server before the baseline brought
 /// up to date ([`SchemaState::BeforeBaseline`]) with the record of the baseline. Its
 /// schema is the baseline's already: no statement changes it, and a server that serves
 /// the database meanwhile goes on serving it. Of two that do it at once, the second
-/// finds it done: the record is locked (PostgreSQL) or the database is (SQLite's
-/// `BEGIN IMMEDIATE`), and read again under the lock.
+/// finds it done, the baseline's record first in the record, and the first maybe gone
+/// on to the migrations after it: the record is locked (PostgreSQL) or the database is
+/// (SQLite's `BEGIN IMMEDIATE`), and read again under the lock.
 ///
 /// # Errors
 ///
@@ -203,7 +229,7 @@ pub(crate) async fn re_anchor(store: &Store, steps: &[Step]) -> Result<(), Store
                 scope.execute(lock).await?;
             }
             let recorded = inspect::record(scope).await?;
-            if recorded == anchored {
+            if recorded.first() == anchored.first() {
                 return Ok(());
             }
             match inspect::before_baseline(scope, &recorded).await? {
@@ -251,16 +277,6 @@ const RE_ANCHOR_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '10s'";
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) fn record_before_the_baseline(dialect: Dialect) -> &'static [(i64, &'static str)] {
     pre_baseline::record(dialect)
-}
-
-/// The record this server writes of its migrations, oldest first: each version with the
-/// SHA-384 of its file, in lowercase hexadecimal.
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) fn record_of_this_server(dialect: Dialect) -> Vec<(i64, String)> {
-    migrator(dialect, &STEPS)
-        .iter()
-        .map(|migration| (migration.version, inspect::hexadecimal(&migration.checksum)))
-        .collect()
 }
 
 /// The migrator of the migrations `steps`.
@@ -434,47 +450,43 @@ mod tests {
         }
     }
 
-    /// Every migration after the baseline can be taken away by the tests that make a
-    /// database as the last server before the baseline left it, the newest first.
+    /// Every migration after the baseline can be taken away again for the tests that
+    /// make a database the one the last server before the baseline left: each has its
+    /// statement, newest first, and nothing else has one.
     #[test]
     fn every_migration_after_the_baseline_is_undone_for_the_tests() {
         let mut after: Vec<i64> = STEPS.iter().skip(1).map(|step| step.version).collect();
         after.reverse();
-        let undone: Vec<i64> = UNDONE_AFTER_THE_BASELINE
+        let undone: Vec<i64> = UNDONE_FOR_TESTS
             .iter()
             .map(|(version, _)| *version)
             .collect();
-        assert_eq!(undone, after);
+        assert_eq!(undone, after, "UNDONE_FOR_TESTS, newest first");
     }
 
-    /// The version of a migration of a later server: the one after this server's last.
-    fn the_version_after_this_servers() -> i64 {
-        STEPS.last().map_or(1, |step| step.version + 1)
+    /// The baseline alone: the migrations of a server that has none after it.
+    fn the_baseline() -> [Step; 1] {
+        let [baseline, ..] = &STEPS;
+        [Step {
+            version: baseline.version,
+            description: baseline.description,
+            sqlite: baseline.sqlite,
+            postgres: baseline.postgres,
+        }]
     }
 
-    /// This server's migrations, and one after them as a later server has one.
-    fn this_servers_and_one_more() -> Vec<Step> {
-        let mut steps: Vec<Step> = STEPS
-            .iter()
-            .map(|step| Step {
-                version: step.version,
-                description: step.description,
-                sqlite: step.sqlite,
-                postgres: step.postgres,
-            })
-            .collect();
-        steps.push(Step {
-            version: the_version_after_this_servers(),
-            description: "after this server's",
-            sqlite: "CREATE TABLE after_the_baseline (id INTEGER PRIMARY KEY);",
-            postgres: "CREATE TABLE after_the_baseline (id BIGINT PRIMARY KEY);",
-        });
-        steps
-    }
-
-    /// The versions of this server's migrations, oldest first.
-    fn this_servers_versions() -> Vec<i64> {
-        STEPS.iter().map(|step| step.version).collect()
+    /// The baseline, and a migration after it as a later server has one.
+    fn baseline_and_one_more() -> [Step; 2] {
+        let [baseline] = the_baseline();
+        [
+            baseline,
+            Step {
+                version: 2,
+                description: "after the baseline",
+                sqlite: "CREATE TABLE after_the_baseline (id INTEGER PRIMARY KEY);",
+                postgres: "CREATE TABLE after_the_baseline (id BIGINT PRIMARY KEY);",
+            },
+        ]
     }
 
     /// The bytes of lowercase hexadecimal, as the record before the baseline has them.
@@ -492,7 +504,7 @@ mod tests {
             .await
             .expect("the database opens");
         store
-            .migrate_with(&STEPS[..1])
+            .migrate_with(&the_baseline())
             .await
             .expect("the baseline is applied");
         store
@@ -536,16 +548,14 @@ mod tests {
     /// server's start nor `--migrate` leaves it behind until the next.
     #[tokio::test]
     async fn a_database_before_the_baseline_takes_the_migrations_after_it_at_once() {
-        let steps = this_servers_and_one_more();
+        let steps = baseline_and_one_more();
         let store = before_the_baseline().await;
         assert_eq!(
             store.check_schema().await.expect("the record is read"),
             SchemaCheck::BeforeBaseline
         );
         store.migrate_with(&steps).await.expect("migrated");
-        let mut all = this_servers_versions();
-        all.push(the_version_after_this_servers());
-        assert_eq!(recorded_versions(&store).await, all);
+        assert_eq!(recorded_versions(&store).await, [1, 2]);
         assert_eq!(
             state(&store, &steps).await.expect("the record is read"),
             SchemaState::Current
@@ -567,7 +577,7 @@ mod tests {
     /// it says: those change tables, and are applied under the server's lock.
     #[tokio::test]
     async fn the_record_replaced_alone_leaves_the_migrations_after_the_baseline() {
-        let steps = this_servers_and_one_more();
+        let steps = baseline_and_one_more();
         let store = before_the_baseline().await;
         assert_eq!(
             store.re_anchor_with(&steps).await.expect("replaced"),
@@ -575,9 +585,12 @@ mod tests {
         );
         assert_eq!(recorded_versions(&store).await, [1]);
         assert_eq!(
-            store.re_anchor_with(&STEPS[..1]).await.expect("read again"),
+            store
+                .re_anchor_with(&the_baseline())
+                .await
+                .expect("read again"),
             SchemaCheck::Current,
-            "the baseline's: nothing is left of it"
+            "a server without the migration after it: nothing is left"
         );
         store.close().await;
     }

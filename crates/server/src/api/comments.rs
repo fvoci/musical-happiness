@@ -5,7 +5,9 @@
 use axum::body::Bytes;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use fvoci_model::{Block, BlockType, Body, BodyChange, RefusalReason, Refusals};
+use fvoci_model::{
+    Block, BlockType, Body, BodyChange, CommentWithReactions, RefusalReason, Refusals,
+};
 use serde::de::DeserializeOwned;
 
 use super::delegated::{Admits, Wall};
@@ -126,11 +128,36 @@ pub(super) async fn comments_of<K: CommentParentKind>(
     Ok(comments)
 }
 
-/// The comments on the item a route names, as [`comments_of`] reads them.
+/// The comments on the item a route names, as [`comments_of`] reads them, each with the
+/// reactions to it: the members' lists (`getCardComments` and the others; the MCP tools
+/// and a public link's reader read none).
 pub(super) async fn list_comments_of<K: CommentParentKind>(item: ItemOf<K>) -> ApiResult {
+    let comments = comments_of::<K>(&item.ws, &item.path).await?;
     Ok(json_response(
-        &comments_of::<K>(&item.ws, &item.path).await?,
+        &with_their_reactions(&item.ws, comments).await?,
     ))
+}
+
+/// The comments, each with the reactions to it.
+///
+/// # Errors
+///
+/// Returns the store's error.
+async fn with_their_reactions(
+    ws: &InWorkspace,
+    comments: Vec<Block>,
+) -> Result<Vec<CommentWithReactions>, AppError> {
+    let mut reactions = {
+        let ids: Vec<&str> = comments.iter().map(|comment| comment.id.as_str()).collect();
+        ws.app.reactions_of(&ids).await?
+    };
+    Ok(comments
+        .into_iter()
+        .map(|comment| CommentWithReactions {
+            reactions: reactions.remove(&comment.id).unwrap_or_default(),
+            comment,
+        })
+        .collect())
 }
 
 /// Writes a comment on the item the commenter was admitted to from the request's body,

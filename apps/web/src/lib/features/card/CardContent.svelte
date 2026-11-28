@@ -36,6 +36,7 @@
   import CardBacklinks from './CardBacklinks.svelte';
   import CardBody from './CardBody.svelte';
   import CardComments from './CardComments.svelte';
+  import CommentReactions from './CommentReactions.svelte';
   import CardHeader from './CardHeader.svelte';
   import CardParentBar from './CardParentBar.svelte';
   import CardProperties from './CardProperties.svelte';
@@ -198,6 +199,7 @@
           {boardViews}
           keep={() => keepVersion(cardVersions(board, card))}
         />
+        <CommentReactions reactions={card.reactions} blockId={card.cardId} />
         {#if !summary.fields.isTemplate}
           <SubcardsSection {board} card={summary} {onOpenCard} />
         {/if}
@@ -206,7 +208,7 @@
         {#if board.workspace.backend.cardActivity}
           <CardActivity {board} card={summary} />
         {/if}
-        <CardComments {board} {card} {readVersions} />
+        <CardComments {board} {card} {readVersions} reactions={card.reactions} />
       {:else if card.status === 'failed'}
         <p class="border-t pt-5 text-muted-foreground" role="alert">{m.app_problem_load()}</p>
       {:else}

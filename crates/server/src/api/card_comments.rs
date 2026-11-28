@@ -2,7 +2,7 @@
 //! and restoring comments, and reading earlier comment versions.
 
 use axum::body::Bytes;
-use fvoci_model::{Block, BlockType, Body, BodyChange, CommentVersion};
+use fvoci_model::{Block, BlockType, Body, BodyChange, CommentVersion, CommentWithReactions};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -94,15 +94,20 @@ pub(crate) struct CardCommentPatch {
 /// The comments on a card
 ///
 /// Every comment on the card, oldest first, as blocks of the `type` `comment` whose
-/// parent is the card. For who reads the board: its members, and of an open board
-/// whoever works in the workspace. A card in the trash is not there (404).
+/// parent is the card, each with its `reactions` where it has any. For who reads the
+/// board: its members, and of an open board whoever works in the workspace. A card in
+/// the trash is not there (404).
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments",
     operation_id = "getCardComments",
     tag = tag::CARDS,
     params(MemberWorkspaceId, BoardId, CardId),
-    responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
+    responses((
+        status = 200,
+        description = "The comments, oldest first.",
+        body = Vec<CommentWithReactions>,
+    )),
 )]
 async fn handle_get_card_comments(
     Delegated(card, ..): Delegated<Read, ItemOf<CardItem>>,
