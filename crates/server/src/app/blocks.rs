@@ -607,8 +607,9 @@ pub(super) fn log_notification(
     }
 }
 
-/// The cards that changes made after the cards they completed: of each card of `after`,
-/// the next card it names (`recurredTo`) where it named another, or none, `before`.
+/// The cards that changes made after the cards they completed: of each card of `after`
+/// that is of `before` too, the next card it names (`recurredTo`) where it named
+/// another, or none, before.
 pub(super) fn cards_made_after(before: &[Block], after: &[Block]) -> Vec<String> {
     let next_of = |block: &Block| {
         block
@@ -621,11 +622,8 @@ pub(super) fn cards_made_after(before: &[Block], after: &[Block]) -> Vec<String>
         .iter()
         .filter_map(|card| {
             let next = next_of(card)?;
-            let was = before
-                .iter()
-                .find(|old| old.id == card.id)
-                .and_then(next_of);
-            (was.as_deref() != Some(next.as_str())).then_some(next)
+            let was = before.iter().find(|old| old.id == card.id)?;
+            (next_of(was).as_deref() != Some(next.as_str())).then_some(next)
         })
         .collect()
 }

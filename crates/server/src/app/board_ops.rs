@@ -139,9 +139,9 @@ impl App {
             request.group_property_id.as_deref() == Some(rule.property_id.as_str())
         });
         let before = if completes {
-            self.store().get_blocks_by_ids(&request.card_ids).await?
+            Some(self.store().get_blocks_by_ids(&request.card_ids).await?)
         } else {
-            Vec::new()
+            None
         };
         let (view, updated_blocks) = {
             let _structure = self.collab().changing_structure(self, board_id).await;
@@ -156,7 +156,8 @@ impl App {
         }
         log_notification(notification, ChangeAction::Update, &view.id);
         // The view before the cards it moved, and the next cards after the cards they follow.
-        let made = super::blocks::cards_made_after(&before, &updated_blocks);
+        let made = before
+            .map_or_default(|before| super::blocks::cards_made_after(&before, &updated_blocks));
         let told = std::iter::once(view.clone()).chain(updated_blocks);
         self.tell(
             Changes::in_workspace(&container.workspace_id)
