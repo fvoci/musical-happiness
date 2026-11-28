@@ -76,10 +76,7 @@
      * of a selection. `props` are spread on it, before its own attributes.
      */
     opener?: Snippet<[{ props: Record<string, unknown> }]>;
-    /**
-     * Where the focus goes once the picker closes, in place of an `opener`
-     * that is not to be seen (`PickerSurface`); its own otherwise.
-     */
+    /** Where the focus goes once the picker closes, for an `opener` not to be seen. */
     returnFocus?: () => HTMLElement | null | undefined;
     /**
      * The value stands for several cards whose values differ: none is shown
