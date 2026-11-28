@@ -16,7 +16,9 @@ CREATE TABLE reactions (
     CONSTRAINT reactions_emoji_check CHECK (((char_length(emoji) >= 1) AND (char_length(emoji) <= 16)))
 );
 
-ALTER TABLE reactions ADD CONSTRAINT reactions_pkey PRIMARY KEY (org_id, block_id, user_id, emoji);
+-- The block first: every read and write asks by it, as of body_versions; the key holds
+-- the block's foreign key too.
+ALTER TABLE reactions ADD CONSTRAINT reactions_pkey PRIMARY KEY (block_id, org_id, user_id, emoji);
 
 CREATE INDEX reactions_user_id_idx ON reactions USING btree (user_id);
 
