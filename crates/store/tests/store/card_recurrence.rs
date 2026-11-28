@@ -521,8 +521,7 @@ async fn a_copy_repeats_anew_and_the_server_alone_names_the_next_card() {
     let board_id = board(&test, &user).await;
     let card = chore(&test, &board_id, &user).await;
     let completed = set(&test, &card, &set_status(DONE), &user).await;
-    let copies = test
-        .duplicate_block(&board_id, &card.id, &user, DuplicateAs::Copy)
+    let copies = common::duplicate_card(&test, &board_id, &card.id, &user, DuplicateAs::Copy)
         .await
         .expect("the completed card is copied");
     assert_eq!(

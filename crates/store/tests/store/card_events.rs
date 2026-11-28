@@ -314,8 +314,7 @@ async fn a_copy_is_made_and_says_nothing_of_the_changes_of_its_source() {
     let board_id = board(&test, &[&maker]).await;
     let card = new_card(&test, &board_id, "card", &maker).await;
     patch(&test, &card, &note("a value"), &maker).await;
-    let copies = test
-        .duplicate_block(&board_id, &card.id, &maker, DuplicateAs::Copy)
+    let copies = common::duplicate_card(&test, &board_id, &card.id, &maker, DuplicateAs::Copy)
         .await
         .expect("the card is copied");
     let copy_lines = lines(&test, &copies[0]).await;
