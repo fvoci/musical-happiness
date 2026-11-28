@@ -1,10 +1,13 @@
 /**
  * A card that repeats, and the activity of a card, end to end on the
  * in-memory backend. On a board with a rule of done that names its due date
- * (the project schedule: Status, Period), a card is set to repeat weekly
+ * (the project schedule, given Status is Done and Period: the seed's boards
+ * have no rules in memory), a card is set to repeat weekly
  * under its due date; made done in its open dialog, it tells "Made the next
  * card #N", and the notice's undo makes it not done and repeating again and
- * takes the next card away, the dialog still open. Its activity is folded
+ * takes the next card away, the dialog still open. On a board that names no
+ * due date the repeat is off and says why, and the board's manager names it
+ * right there, under the date. Its activity is folded
  * until it is opened, and then says what was done, two rows a line, under a
  * header button 44px tall on a phone.
  */
@@ -24,6 +27,11 @@ interface DevBackend {
     boardId: string,
     cardId: string,
   ): Promise<{ fields: { recurrence?: unknown; recurredTo?: string } }>;
+  container(id: string): Promise<{
+    dueDatePropertyId?: string | null;
+    cardProperties: { id: string; name: string; options: { id: string; label: string }[] }[];
+  }>;
+  patchContainer(id: string, patch: object): Promise<unknown>;
 }
 
 interface Place {
@@ -83,6 +91,25 @@ async function closePicker(page: Page): Promise<void> {
   await expect(sheet).toHaveCount(0);
 }
 
+/** Gives the board its rule of done (Status is Done) and, when `named`, Period as its due date. */
+async function ruleTheBoard(page: Page, place: Place, named: boolean): Promise<void> {
+  await page.evaluate(
+    async ({ boardId, named }) => {
+      const { backend } = (window as unknown as { fvociDev: { backend: DevBackend } }).fvociDev;
+      const board = await backend.container(boardId);
+      const status = board.cardProperties.find((prop) => prop.name === 'Status');
+      const done = status?.options.find((option) => option.label === 'Done');
+      const period = board.cardProperties.find((prop) => prop.name === 'Period');
+      if (!status || !done || !period) throw new Error('the board has no Status, Done or Period');
+      await backend.patchContainer(boardId, {
+        doneWhen: { kind: 'option', propertyId: status.id, optionIds: [done.id] },
+        dueDatePropertyId: named ? period.id : null,
+      });
+    },
+    { boardId: place.boardId, named },
+  );
+}
+
 /** How the card repeats, as the backend has it. */
 function recurrenceOf(page: Page, place: Place): Promise<unknown> {
   return page.evaluate(
@@ -114,6 +141,7 @@ test('a card set to repeat tells of its next card when it is done, and the undo 
   page,
 }, info) => {
   const place = await openCard(page, info);
+  await ruleTheBoard(page, place, true);
 
   // Weekly, chosen under the due date.
   await property(page, 'Period').locator('[data-slot="property-date"]').click();
@@ -139,6 +167,33 @@ test('a card set to repeat tells of its next card when it is done, and the undo 
   await expect(status.locator('dd')).not.toContainText('Done');
   await expect.poll(() => namesakes(page, place)).toBe(1);
   await expect.poll(() => recurrenceOf(page, place)).toEqual(WEEKLY);
+});
+
+test('a board that names no due date says why its cards do not repeat, and names it there', async ({
+  page,
+}, info) => {
+  const place = await openCard(page, info);
+  await ruleTheBoard(page, place, false);
+
+  await property(page, 'Period').locator('[data-slot="property-date"]').click();
+  const repeat = page.locator('[data-slot="recurrence"] select').first();
+  await expect(repeat).toBeDisabled();
+  await expect(page.locator('[data-slot="recurrence-needs-rules"]')).toBeVisible();
+  const rules = page.getByTestId('board-today-rules');
+  await rules.getByTestId('board-due-date-property').selectOption({ label: 'Period' });
+
+  await expect(repeat).toBeEnabled();
+  await expect(rules).toHaveCount(0);
+  const named = await page.evaluate(
+    async ({ boardId }) =>
+      (
+        await (
+          window as unknown as { fvociDev: { backend: DevBackend } }
+        ).fvociDev.backend.container(boardId)
+      ).dueDatePropertyId,
+    place,
+  );
+  expect(named).toBeTruthy();
 });
 
 test('the activity of a card is read when it is opened, two rows a line', async ({
