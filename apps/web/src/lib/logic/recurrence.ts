@@ -1,5 +1,5 @@
 /**
- * Cards that repeat (`Card.fields.recurrence`): every `every` days, weeks,
+ * Cards that repeat (a card's `recurrence`): every `every` days, weeks,
  * months or years, counted from the due date (`due`) or from the day the
  * card is done (`done`). Made done, a card that repeats hands its recurrence
  * to a next card the server makes, due one period on, and names it
@@ -101,11 +101,17 @@ export function duePropertyOf(board: Container): PropertyTemplate | undefined {
   return dates.find((prop) => prop.id === board.dueDatePropertyId) ?? dates[0];
 }
 
-/** Whether a card of `board` may repeat: it has a rule of done of a property it has, and a due date. */
+/**
+ * Whether a card of `board` may repeat: it has a rule of done of a property
+ * it has, and names one of its date properties as its due date (the first
+ * one it falls back to without a name is not enough).
+ */
 export function boardLetsCardsRepeat(board: Container): boolean {
   const rule = board.doneWhen;
   return (
-    duePropertyOf(board) !== undefined &&
+    board.cardProperties.some(
+      (prop) => prop.type === 'date' && prop.id !== '' && prop.id === board.dueDatePropertyId,
+    ) &&
     rule !== null &&
     rule !== undefined &&
     board.cardProperties.some((prop) => prop.id === rule.propertyId)

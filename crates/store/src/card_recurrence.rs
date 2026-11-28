@@ -2,8 +2,9 @@
 //! members of its recurrence before the row is stored, and the write that completes a
 //! card that repeats makes the next card in the same transaction.
 //!
-//! A card repeats on a board that has a rule of done whose property it has, and a due
-//! date property. Setting a recurrence on a card of another board is refused
+//! A card repeats on a board that has a rule of done whose property it has, and names
+//! one of its date properties as its due date (`dueDatePropertyId`; the first date
+//! property the board falls back to without one is not enough). Setting a recurrence on a card of another board is refused
 //! ([`BlockError::RecurrenceNeedsBoardRules`]), but for a write that tells nobody (a
 //! copy, an import), which drops it: a copy never fails over it. The identifier of the
 //! next card (`recurredTo`) is the server's: what a write sends is replaced by what is
@@ -20,8 +21,9 @@
 //! where the board has lost its rules since.
 
 use fvoci_model::{
-    Block, BlockError, BlockType, Container, JsonMap, RECURRED_TO_FIELD, RECURRENCE_FIELD,
-    Recurrence, TimeZone, is_card_done, new_id, not_done_value, with_tasks_unchecked,
+    Block, BlockError, BlockType, Container, JsonMap, PropertyType, RECURRED_TO_FIELD,
+    RECURRENCE_FIELD, Recurrence, TimeZone, is_card_done, new_id, not_done_value,
+    with_tasks_unchecked,
 };
 use serde_json::Value;
 
@@ -45,9 +47,14 @@ pub(crate) struct NextCard {
 }
 
 /// Whether cards of `board` may repeat: it has a rule of done whose property it has,
-/// and a due date property.
+/// and names a date property of its own as its due date.
 fn repeats_on(board: &Container) -> bool {
-    board.effective_due_date_property_id().is_some()
+    let named_due = board.due_date_property_id.as_deref().is_some_and(|due| {
+        board.card_properties.iter().any(|definition| {
+            definition.id == due && definition.property_type == PropertyType::Date
+        })
+    });
+    named_due
         && board.done_when.as_ref().is_some_and(|rule| {
             board
                 .card_properties

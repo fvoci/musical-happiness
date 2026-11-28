@@ -298,6 +298,7 @@ export {
   type TrashStatus,
 } from './trash.svelte.ts';
 export { nextCardNotices, type NextCardNotice } from './next-cards.svelte.ts';
+export { setBoardDoneRule, setBoardDueProperty } from './board-rules.ts';
 export {
   TimeTracker,
   timeTracker,

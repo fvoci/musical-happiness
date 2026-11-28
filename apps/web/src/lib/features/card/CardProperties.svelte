@@ -8,7 +8,8 @@
   the list a property can be added. Both change the board for every card. On
   a board the reader may not edit, names and values are only shown.
 
-  The picker of the due date also says how the card repeats.
+  The picker of the due date also says how the card repeats, and on a board
+  that does not let cards repeat yet, holds the board's settings that do.
 -->
 <script lang="ts">
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
@@ -16,6 +17,7 @@
   import { PropertyValue, type PropertyUser } from '$lib/components/properties/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import RecurrenceFields from '$lib/components/recurrence/RecurrenceFields.svelte';
+  import BoardDueRules from '$lib/components/board-rules/BoardDueRules.svelte';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import { orderingRelations } from '$lib/logic/gantt.ts';
@@ -25,10 +27,16 @@
     cardRecurrence,
     withCardRecurrence,
     type BoardView,
+    type DoneRule,
     type PropertyType,
     type PropertyValue as StoredValue,
   } from '$lib/logic/wire.ts';
-  import type { BoardStore, CardSummary } from '$lib/state/index.ts';
+  import {
+    setBoardDoneRule,
+    setBoardDueProperty,
+    type BoardStore,
+    type CardSummary,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { propertyTypeIcon } from './icons.ts';
@@ -94,6 +102,20 @@
     allowed={repeatable}
     onChange={setRecurrence}
   />
+  {#if !repeatable && board.canManageProperties && board.board && !board.board.isTemplate}
+    <!-- The board's settings that let it, for who may set them. -->
+    <BoardDueRules
+      properties={board.board.cardProperties}
+      dueDatePropertyId={board.board.dueDatePropertyId}
+      doneWhen={board.board.doneWhen}
+      onDueProperty={(propertyId: string | undefined) => {
+        setBoardDueProperty(board, propertyId);
+      }}
+      onDoneRule={(rule: DoneRule | undefined) => {
+        setBoardDoneRule(board, rule);
+      }}
+    />
+  {/if}
 {/snippet}
 
 <section aria-label={m['ViewHeader.properties']()} data-testid="card-properties">

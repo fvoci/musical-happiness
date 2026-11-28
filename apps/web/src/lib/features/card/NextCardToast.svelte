@@ -3,7 +3,7 @@
   who completed it: "Made the next card #12 · Undo". Undo takes back the
   change that completed it (the card is not done and repeats again, and the
   next card goes) while it is the change to undo. It goes by itself after a
-  while.
+  while. Pressed over an open card, it leaves the card open (`CardDialog`).
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
@@ -36,6 +36,7 @@
     role="status"
     aria-live="polite"
     data-testid="next-card-toast"
+    data-next-card-toast
   >
     <div
       class="pointer-events-auto flex max-w-md items-center gap-1 rounded-lg border bg-popover py-1 pr-1 pl-3 text-sm text-popover-foreground shadow-md"

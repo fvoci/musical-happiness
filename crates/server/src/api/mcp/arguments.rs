@@ -309,7 +309,7 @@ pub(super) struct SaveCardArguments {
     /// 1 to 365; `unit` `day`, `week`, `month` or `year`; counted from the due date,
     /// `due`, or from the day it is completed, `done`); `null` makes it stop. When a
     /// card that repeats is completed, the server makes the next card, due one period
-    /// on. Only on a board with a rule of done and a due date property
+    /// on. Only on a board with a rule of done and a named due date property
     /// (`recurrence_needs_board_rules`). Left out, a card that is changed keeps its own.
     #[serde(default, deserialize_with = "given_or_null")]
     #[schema(value_type = Option<RecurrenceShape>, inline)]

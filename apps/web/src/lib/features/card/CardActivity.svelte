@@ -65,6 +65,7 @@
   async function readOn(): Promise<void> {
     if (reading) return;
     reading = true;
+    const askedAt = card.updatedAt;
     const found = await read(pages);
     reading = false;
     if (!found) return;
@@ -72,6 +73,8 @@
     const known = new Set(lines.map((line) => line.id));
     lines = [...lines, ...found.filter((line) => !known.has(line.id))];
     more = found.length === ACTIVITY_PAGE;
+    // A change that came while the first page was read is read again.
+    if (pages === 1 && card.updatedAt !== askedAt) void readFirst(card.updatedAt);
   }
 
   /** The change of the card the first page was last asked to be read anew for. */
@@ -147,14 +150,18 @@
       <ol class="flex flex-col gap-3">
         {#each lines as line (line.id)}
           <li class="flex min-w-0 flex-col gap-0.5 text-sm" data-kind={line.kind}>
-            <p class="flex min-w-0 flex-wrap items-center gap-x-2 text-muted-foreground">
+            <p class="flex min-w-0 items-center gap-x-2 text-muted-foreground">
               <span class="min-w-0 truncate font-medium text-foreground">{nameOf(line)}</span>
               {#if line.actorTokenName}
-                <span class="rounded-sm bg-muted px-1 text-xs font-medium" data-slot="agent-badge">
+                <span
+                  class="min-w-0 truncate rounded-sm bg-muted px-1 text-xs font-medium"
+                  data-slot="agent-badge"
+                >
                   {m.agent_badge({ name: line.actorTokenName })}
                 </span>
               {/if}
               <time
+                class="shrink-0"
                 datetime={new Date(line.updatedAt).toISOString()}
                 title={displayDateTime(line.updatedAt, context)}
               >

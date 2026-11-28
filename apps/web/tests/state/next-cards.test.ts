@@ -15,7 +15,7 @@ import { settle, setup, STATUS } from './support.ts';
 const DUE = 'due';
 const weekly = { every: 1, unit: 'week', anchor: 'due' } as const;
 
-/** The small board with a due date and `done` as its rule of done, open, with a card that repeats. */
+/** The small board with a due date it names and `done` as its rule of done, open, with a card that repeats. */
 async function chores() {
   const made = setup();
   const found = [...made.world.containers.values()].find((board) => board.title === 'Small');
@@ -23,6 +23,7 @@ async function chores() {
   await made.backend.patchContainer(found.id, {
     updatedCardProperties: [{ id: DUE, name: 'Due', type: 'date', options: [] }],
     doneWhen: { kind: 'option', propertyId: STATUS, optionIds: ['done'] },
+    dueDatePropertyId: DUE,
   });
   await made.workspace.load();
   const board = await made.workspace.openBoard(found.id);

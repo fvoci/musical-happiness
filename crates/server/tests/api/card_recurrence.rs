@@ -22,7 +22,7 @@ pub(crate) fn weekly() -> Value {
 }
 
 /// A board of the test workspace with a status (`todo`, `done`) and a due date, `done`
-/// its rule of done: its cards may repeat.
+/// its rule of done and `due` the due date it names: its cards may repeat.
 pub(crate) async fn chores(client: &Client) -> String {
     chores_ruled(
         client,
@@ -31,7 +31,7 @@ pub(crate) async fn chores(client: &Client) -> String {
     .await
 }
 
-/// The same board, `done_when` its rule of done.
+/// The same board, `done_when` its rule of done; with one, it names `due` as its due date.
 async fn chores_ruled(client: &Client, done_when: Option<Value>) -> String {
     let mut board = json!({
         "workspaceId": TEST_WORKSPACE_ID, "visibility": "private", "title": "Chores",
@@ -44,6 +44,7 @@ async fn chores_ruled(client: &Client, done_when: Option<Value>) -> String {
     });
     if let Some(rule) = done_when {
         board["doneWhen"] = rule;
+        board["dueDatePropertyId"] = json!(DUE);
     }
     let made: Value = client
         .post(&format!("{TEST_WS}/boards"), &board)

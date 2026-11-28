@@ -14,14 +14,22 @@ import { setup, STATUS } from './support.ts';
 const DUE = 'due';
 const weekly = { every: 1, unit: 'week', anchor: 'due' } as const;
 
-/** The small world, its board given a due date and `done` as its rule of done when `rules`. */
+/**
+ * The small world, its board given a date property, named as its due date
+ * with `done` as its rule of done when `rules`.
+ */
 async function chores(rules = true) {
   const made = setup();
   const board = [...made.world.containers.values()].find((c) => c.title === 'Small');
   if (!board) throw new Error('the seed has no such board');
   await made.backend.patchContainer(board.id, {
     updatedCardProperties: [{ id: DUE, name: 'Due', type: 'date', options: [] }],
-    ...(rules ? { doneWhen: { kind: 'option', propertyId: STATUS, optionIds: ['done'] } } : {}),
+    ...(rules
+      ? {
+          doneWhen: { kind: 'option', propertyId: STATUS, optionIds: ['done'] },
+          dueDatePropertyId: DUE,
+        }
+      : {}),
   });
   let now = Date.UTC(2027, 0, 15, 12);
   made.world.useClock(() => now);
@@ -82,6 +90,11 @@ describe('a card that repeats, in memory', () => {
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.reason).toBe('recurrence_needs_board_rules');
     const card = await backend.createCard(boardId, { title: 'Sweep' });
+    await expect(backend.patchCard(boardId, card.id, { recurrence: weekly })).rejects.toThrow();
+    // A rule of done and a date property the board falls back to, unnamed, are not enough.
+    await backend.patchContainer(boardId, {
+      doneWhen: { kind: 'option', propertyId: STATUS, optionIds: ['done'] },
+    });
     await expect(backend.patchCard(boardId, card.id, { recurrence: weekly })).rejects.toThrow();
 
     const ruled = await chores();

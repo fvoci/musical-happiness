@@ -327,7 +327,8 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
         }
         Reason::RecurrenceNeedsBoardRules => {
             "Status 400. The card is to repeat (`recurrence`) on a board that has no rule of \
-             done (`doneWhen`) or no due date property: the board's settings give it both. \
+             done (`doneWhen`) or names no date property as its due date \
+             (`dueDatePropertyId`): the board's settings give it both. \
              `errors` names `/recurrence`. Nothing was changed."
         }
         Reason::TooManyPages => {

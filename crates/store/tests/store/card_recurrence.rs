@@ -1,15 +1,15 @@
 //! Cards that repeat: completing one makes the next in the same write, once; the next
 //! starts not done, due one period on in the completer's day, with its tasks unchecked;
-//! only a board with a rule of done and a due date property lets a card repeat, and a
-//! template does not.
+//! only a board with a rule of done that names a due date property lets a card repeat,
+//! and a template does not. The next card shows the completed one's files.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, Body, CardEventKind, CardPropertyDefinition,
-    Container, ContainerVisibility, DoneWhen, DuplicateAs, PropertyColor, PropertyOption,
-    PropertyType, UserSettingsPatch, new_id,
+    Container, ContainerVisibility, DoneWhen, DuplicateAs, FileRecord, PropertyColor,
+    PropertyOption, PropertyType, UserSettingsPatch, new_id,
 };
 use fvoci_store::{BlockFilter, Paging, Previews, Store, StoreError};
 use serde_json::{Value, json};
@@ -38,17 +38,26 @@ fn status() -> CardPropertyDefinition {
     }
 }
 
-/// A board on which cards repeat: a status whose `done` is done, and a due date.
-async fn board(test: &TestStore, user_id: &str) -> String {
-    let rule = DoneWhen {
+/// The rule of done of the boards: a status whose `done` is done.
+fn done_rule() -> DoneWhen {
+    DoneWhen {
         property_id: STATUS.to_owned(),
         option_ids: vec![DONE.to_owned()],
-    };
-    board_ruled(test, user_id, Some(rule)).await
+    }
 }
 
-/// The same properties and `done_when` as the rule of done.
-async fn board_ruled(test: &TestStore, user_id: &str, done_when: Option<DoneWhen>) -> String {
+/// A board on which cards repeat: a status whose `done` is done, and a due date it names.
+async fn board(test: &TestStore, user_id: &str) -> String {
+    board_ruled(test, user_id, Some(done_rule()), Some(DUE)).await
+}
+
+/// The same properties, `done_when` as the rule of done and `due` as the due date it names.
+async fn board_ruled(
+    test: &TestStore,
+    user_id: &str,
+    done_when: Option<DoneWhen>,
+    due: Option<&str>,
+) -> String {
     let workspace_id = common::workspace_of(test, &[user_id]).await;
     let mut board = Container {
         id: new_id(),
@@ -60,6 +69,7 @@ async fn board_ruled(test: &TestStore, user_id: &str, done_when: Option<DoneWhen
             CardPropertyDefinition::new(DUE, "Due", PropertyType::Date),
         ],
         done_when,
+        due_date_property_id: due.map(str::to_owned),
         ..Container::default()
     };
     test.insert_container(&mut board, user_id)
@@ -278,7 +288,26 @@ async fn a_card_repeats_only_on_a_board_with_rules_and_never_as_a_template() {
     let test = common::setup().await;
     at_noon(&test);
     let user = common::user(&test, "gardener").await;
-    let bare = board_ruled(&test, &user, None).await;
+    // A date property it falls back to, without naming it, is not enough.
+    let unnamed = board_ruled(&test, &user, Some(done_rule()), None).await;
+    let mut unnamed_card = Block {
+        id: new_id(),
+        container_id: unnamed,
+        block_type: BlockType::Card,
+        title: "dust".to_owned(),
+        ..Block::default()
+    };
+    unnamed_card
+        .fields
+        .insert("recurrence".to_owned(), weekly());
+    assert!(matches!(
+        test.insert_block(&mut unnamed_card, &user).await,
+        Err(StoreError::InvalidBlock {
+            source: BlockError::RecurrenceNeedsBoardRules,
+            ..
+        })
+    ));
+    let bare = board_ruled(&test, &user, None, Some(DUE)).await;
     let mut card = Block {
         id: new_id(),
         container_id: bare.clone(),
@@ -358,4 +387,65 @@ async fn a_copy_repeats_anew_and_the_server_alone_names_the_next_card() {
     let kept = set(&test, &card, &forged, &user).await;
     assert_eq!(kept.fields["recurredTo"], completed.fields["recurredTo"]);
     test.teardown().await;
+}
+
+/// The next card's body shows the completed card's files, of the same board: they stay
+/// while it shows them, also once the completed card is gone for good.
+#[tokio::test]
+async fn the_files_of_the_next_body_outlive_the_completed_card() {
+    let test = common::setup().await;
+    let user = common::user(&test, "gardener").await;
+    let board_id = board(&test, &user).await;
+    let file = FileRecord {
+        id: new_id(),
+        container_id: board_id.clone(),
+        stored_name: "7fern.png".to_owned(),
+        path: format!("boards/{board_id}/7fern.png"),
+        created_at: 1,
+        ..FileRecord::default()
+    };
+    test.save_file_record(&file)
+        .await
+        .expect("the file is stored");
+    let body = Body::from_stored(json!({"type": "doc", "content": [
+        {"type": "image", "attrs": {"fileId": "7fern.png"}}
+    ]}));
+    let mut card = Block {
+        id: new_id(),
+        container_id: board_id.clone(),
+        block_type: BlockType::Card,
+        title: "photograph the fern".to_owned(),
+        body: Some(body.clone()),
+        ..Block::default()
+    };
+    card.fields
+        .insert("properties".to_owned(), json!({STATUS: TODO}));
+    card.fields.insert("recurrence".to_owned(), weekly());
+    test.insert_block(&mut card, &user)
+        .await
+        .expect("the card is stored");
+    let completed = set(&test, &card, &set_status(DONE), &user).await;
+    let next_id = completed.fields["recurredTo"]
+        .as_str()
+        .expect("the next card")
+        .to_owned();
+    assert_eq!(block(&test, &next_id).await.body, Some(body.clone()));
+
+    test.delete_block(&card.id, &user)
+        .await
+        .expect("the completed card is trashed");
+    let system = test.system();
+    system
+        .purge_trash(i64::MAX)
+        .await
+        .expect("the trash is emptied");
+    let collected = system
+        .collect_unreferenced_files(i64::MAX)
+        .await
+        .expect("the unreferenced files are collected");
+    assert!(
+        collected.is_empty(),
+        "the next card keeps it: {collected:?}"
+    );
+    assert_eq!(block(&test, &next_id).await.body, Some(body));
 }

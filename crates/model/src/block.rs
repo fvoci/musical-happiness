@@ -427,8 +427,8 @@ pub enum BlockError {
     /// A card that has sub-cards is turned into a template card.
     #[error("a card with sub-cards cannot become a template")]
     TemplateCardHasChildren,
-    /// A card is to repeat on a board without a rule of done or a due date property.
-    #[error("a card repeats on a board with a rule of done and a due date property")]
+    /// A card is to repeat on a board without a rule of done or a named due date property.
+    #[error("a card repeats on a board with a rule of done and a named due date property")]
     RecurrenceNeedsBoardRules,
     /// A card, or a sub-card below it, would be deeper on its board than the limit.
     #[error("the card would be deeper on its board than {limit}")]
