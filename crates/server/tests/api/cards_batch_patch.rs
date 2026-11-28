@@ -208,6 +208,10 @@ async fn a_batch_changes_no_card_when_one_is_refused() {
     ts.teardown().await;
 }
 
+/// Of a notification, the card or page, the kind, who did it, through which token, and
+/// how many times.
+type Told = (String, String, String, Option<String>, i64);
+
 /// A person who gives cards by a batch tells whom they newly give each to as
 /// `patchCard` tells of one: B of the two cards of the batch and of the one given alone,
 /// each as A's doing; nobody of a card given to them before, of a card A gives
@@ -246,24 +250,33 @@ async fn a_person_tells_of_the_cards_given_in_a_batch_as_of_one_given_alone() {
     give_in_batch(&batch, &[&cards[3]], &a.id).await;
     give_in_batch(&format!("{batch}?disableNotify=true"), &[&cards[4]], &b.id).await;
 
-    let as_told = |told: &[fvoci_model::Notification]| -> Vec<(String, String, Option<String>)> {
-        told.iter()
+    // Of each card, which kind by whom, and how many times: a card given again within the
+    // hour would be told as a second time of the same notification.
+    let as_told = |told: &[fvoci_model::Notification]| -> Vec<Told> {
+        let mut told: Vec<Told> = told
+            .iter()
             .filter_map(|told| told.subject.as_ref())
             .map(|subject| {
                 (
+                    subject.block_id.clone(),
                     subject.kind.as_str().to_owned(),
                     subject.actor_id.clone(),
                     subject.agent_token_name.clone(),
+                    subject.times,
                 )
             })
-            .collect()
+            .collect();
+        told.sort();
+        told
     };
+    let once = |card: &Card| -> Told {
+        let a = a.id.clone();
+        (card.id.clone(), "assignment".to_owned(), a, None, 1)
+    };
+    let mut expected = vec![once(&cards[0]), once(&cards[1]), once(&cards[2])];
+    expected.sort();
     let bs = told(&th, &th.client2).await;
-    assert_eq!(
-        as_told(&bs),
-        vec![("assignment".to_owned(), a.id.clone(), None); 3],
-        "{bs:?}"
-    );
+    assert_eq!(as_told(&bs), expected, "{bs:?}");
     let theirs = told(&th, &th.client).await;
     assert_eq!(as_told(&theirs), Vec::new(), "{theirs:?}");
 
