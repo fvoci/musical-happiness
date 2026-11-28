@@ -45,7 +45,8 @@ export interface Conversion {
  * - `ordered-task-list`: a numbered task list lost its numbers.
  * - `code-language-dropped`: the language of a code block was not a plain tag.
  * - `toggle`: a toggle (`<details>`) in a quote, a list entry or a callout,
- *   where none stands, became its summary's line and then what it hides.
+ *   where none stands, became its summary's line and then what it hides; one
+ *   in 28 others (`MAX_TOGGLES`) became the lines it is written in, as text.
  * - `callout`: a GitHub alert (`> [!NOTE]`) in a quote, a list entry or a
  *   callout became a quote of what it says.
  */
@@ -68,12 +69,48 @@ export const NOTE_KINDS = [
 /** How the text is read: GitHub's Markdown, a single line break a line break. */
 const READING = { gfm: true, breaks: true } as const;
 
+/**
+ * How many toggles one may be in: 28, and a line of text in the innermost is
+ * as deep as a body goes (`MAX_DEPTH`, each toggle two levels). One deeper
+ * is its lines as text, read no further.
+ */
+export const MAX_TOGGLES = 28;
+
+/** The letters the named character references Markdown is written with stand for. */
+const NAMED: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: '\u00a0',
+};
+
+/**
+ * Text with its character references read (`&lt;`, `&#32;`, `&#x3C;`), as
+ * Markdown reads them outside code: the server writes a summary's `<` so. A
+ * reference that names no letter stays as it is.
+ */
+export function withReferencesRead(text: string): string {
+  return text.replace(/&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z]+);/g, (whole, name: string) => {
+    if (!name.startsWith('#')) return NAMED[name] ?? whole;
+    const code =
+      name[1] === 'x' || name[1] === 'X'
+        ? Number.parseInt(name.slice(2), 16)
+        : Number(name.slice(1));
+    const valid = code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff);
+    return valid ? String.fromCodePoint(code) : '\ufffd';
+  });
+}
+
 export type NoteKind = (typeof NOTE_KINDS)[number];
 
 class Converter {
   readonly notes: ConversionNotes = {};
   /** How many quotes, list entries and callouts the blocks read now are in. */
   #inside = 0;
+  /** How many toggles the blocks read now are in. */
+  #toggles = 0;
 
   /** What `read` gives, read as inside one more quote or list entry. */
   #within<T>(read: () => T): T {
@@ -101,9 +138,9 @@ class Converter {
         case 'text':
         case 'escape': {
           const inner = (token as Tokens.Text).tokens;
-          nodes.push(
-            ...(inner ? this.inline(inner, marks) : this.text(token.text as string, marks)),
-          );
+          const written = token.text as string;
+          const text = token.type === 'text' ? withReferencesRead(written) : written;
+          nodes.push(...(inner ? this.inline(inner, marks) : this.text(text, marks)));
           break;
         }
         case 'strong':
@@ -132,12 +169,10 @@ class Converter {
         case 'link': {
           const link = token as Tokens.Link;
           if (link.title) this.note('link-title-dropped');
-          if (isAllowedHref(link.href)) {
+          const href = withReferencesRead(link.href);
+          if (isAllowedHref(href)) {
             nodes.push(
-              ...this.inline(
-                link.tokens,
-                withMark(marks, { type: 'link', attrs: { href: link.href } }),
-              ),
+              ...this.inline(link.tokens, withMark(marks, { type: 'link', attrs: { href } })),
             );
           } else {
             this.note('link-dropped');
@@ -273,15 +308,29 @@ class Converter {
    */
   #details(tokens: readonly Token[], start: number, nodes: DocNode[]): number {
     const run = detailsRun(tokens, start);
+    if (this.#toggles >= MAX_TOGGLES) {
+      this.note('toggle');
+      for (const line of run.raw.split(/\r\n?|\n/)) {
+        if (line.trim() !== '')
+          nodes.push({ type: 'paragraph', content: this.text(line.trim(), []) });
+      }
+      return start + run.length - 1;
+    }
     const { summary, body } = detailsParts(run.raw);
     const line = this.inline(marked.Lexer.lexInline(summary, READING), []);
+    this.#toggles += 1;
+    let hidden: DocNode[];
+    try {
+      hidden = this.blocks(marked.lexer(body, READING));
+    } finally {
+      this.#toggles -= 1;
+    }
     if (this.#inside > 0) {
       this.note('toggle');
       if (line.length > 0) nodes.push({ type: 'paragraph', content: line });
-      nodes.push(...this.blocks(marked.lexer(body, READING)));
+      nodes.push(...hidden);
     } else {
       // What a toggle hides may be what the document holds: a table, a callout, a toggle.
-      const hidden = this.blocks(marked.lexer(body, READING));
       nodes.push({
         type: 'details',
         content: [

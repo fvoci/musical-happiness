@@ -79,6 +79,8 @@ export const toggle = (summary: DocNode[], ...content: DocNode[]): DocNode => ({
     { type: 'detailsContent', content },
   ],
 });
+/** A board view: a view of a board, shown live in the body. */
+export const boardView = (viewId: string): DocNode => ({ type: 'boardView', attrs: { viewId } });
 export const callout = (tone: string, ...content: DocNode[]): DocNode => ({
   type: 'callout',
   attrs: { tone },
@@ -381,6 +383,12 @@ export const HAND_MADE: Record<string, DocNode> = {
     callout('info', paragraph(text('A note.'))),
     callout('warn', heading(3, text('Careful')), bullets(item(paragraph(text('one'))))),
     callout('danger', paragraph()),
+  ),
+  'board views': doc(
+    paragraph(text('Before the views')),
+    boardView('01930000-0000-7000-8000-0000000b0001'),
+    toggle([text('Hidden views')], boardView('01930000-0000-7000-8000-0000000b0002')),
+    paragraph(text('After them')),
   ),
 };
 

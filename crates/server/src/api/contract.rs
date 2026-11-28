@@ -435,7 +435,10 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Page", Members::All),
     ("PageWithReactions", Members::AllBut(&["reactions"])),
     ("PageNode", Members::All),
-    ("LinkedBlock", Members::AllBut(&["number"])),
+    (
+        "LinkedBlock",
+        Members::AllBut(&["number", "containerTitle", "viewType"]),
+    ),
     ("WorkspaceRoleChange", Members::All),
     // What a request carries.
     ("AcceptInvitation", Members::Only(&["token"])),

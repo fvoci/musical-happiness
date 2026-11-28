@@ -59,6 +59,7 @@ const DOCUMENT_BLOCKS: &[&str] = &[
     "table",
     "details",
     "callout",
+    "boardView",
 ];
 /// The parts of a toggle, in the order it holds them.
 const DETAILS_PARTS: &[&str] = &["detailsSummary", "detailsContent"];
@@ -118,6 +119,7 @@ const _: () = assert!(
 );
 const MENTION_ATTRS: &[AttrSpec] = &[req("userId", AttrRule::Id)];
 const REFERENCE_ATTRS: &[AttrSpec] = &[req("id", AttrRule::Id)];
+const BOARD_VIEW_ATTRS: &[AttrSpec] = &[req("viewId", AttrRule::Id)];
 const MATH_ATTRS: &[AttrSpec] = &[req("latex", AttrRule::NonEmptyText(LATEX_MAX))];
 const CALLOUT_ATTRS: &[AttrSpec] = &[req(
     "tone",
@@ -165,6 +167,7 @@ fn node_spec(kind: &str) -> Option<NodeSpec> {
         "details" => node_spec_def(&[], DETAILS_PARTS, DETAILS_PARTS.len()),
         "detailsContent" => node_spec_def(&[], DOCUMENT_BLOCKS, 1),
         "callout" => node_spec_def(CALLOUT_ATTRS, BLOCKS, 1),
+        "boardView" => node_spec_def(BOARD_VIEW_ATTRS, LEAF, 0),
         _ => return None,
     })
 }
@@ -224,6 +227,7 @@ fn canonical_block_entry(node: &Value) -> Option<BlockEntry> {
         json_bytes: u32::try_from(bytes).ok()?,
         is_empty_paragraph,
         has_empty_row_text: false,
+        board_views: u32::try_from(files.board_views).ok()?,
     };
     Some(BlockEntry {
         summary,
@@ -232,11 +236,13 @@ fn canonical_block_entry(node: &Value) -> Option<BlockEntry> {
 }
 
 /// Collects deduplicated document-order `fileId`s for one top-level block with zero
-/// allocation when a block contains no `image` or `file` nodes.
+/// allocation when a block contains no `image` or `file` nodes, and counts its board
+/// views.
 #[derive(Default)]
 struct FileCollector<'a> {
     ids: Vec<String>,
     seen: HashSet<&'a str>,
+    board_views: usize,
 }
 
 impl<'a> FileCollector<'a> {
@@ -269,6 +275,9 @@ fn count_element<'a>(
     }
     let spec = node_spec(kind)?;
     let schema_attrs = schema::node_attributes(kind)?;
+    if kind == "boardView" {
+        files.board_views += 1;
+    }
     let given_attrs = match check_attrs_match(members.get("attrs"), spec.attrs) {
         AttrsCheck::Invalid => return None,
         AttrsCheck::Absent => None,

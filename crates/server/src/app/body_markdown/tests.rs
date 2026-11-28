@@ -369,7 +369,7 @@ fn toggles_and_callouts_come_back_the_same() {
     ]));
     let markdown = check_round_trip(&body);
     assert!(
-        markdown.starts_with("<details>\n<summary>Why **this** \\<now>?</summary>\n\nBecause."),
+        markdown.starts_with("<details>\n<summary>Why **this** &lt;now&gt;?</summary>\n\nBecause."),
         "{markdown}"
     );
     for alert in [
@@ -447,4 +447,80 @@ fn a_toggle_or_a_table_in_a_callout_is_read_as_its_parts() {
             ])
         )]
     );
+}
+
+/// The line between `<summary>` and `</summary>` of the first toggle of `markdown`.
+fn summary_line(markdown: &str) -> &str {
+    let start = markdown.find("<summary>").expect("a summary") + "<summary>".len();
+    let end = markdown.rfind("</summary>").expect("the end of a summary");
+    &markdown[start..end]
+}
+
+/// A summary is in a block of HTML, which a renderer passes on as it is: none of its
+/// letters is markup there, and the summary still comes back the same.
+#[test]
+fn the_markup_of_a_summary_is_written_as_character_references() {
+    let link = json!([{"type": "link", "attrs": {"href": "https://example.com/?a=1&b=<2>"}}]);
+    let plain_link = json!([{"type": "link", "attrs": {"href": "https://example.com/?a=1&b=2"}}]);
+    let injected = "<script>alert(1)</script><img src=x onerror=alert(1)> a & b > c &amp;";
+    let body = doc(&json!([toggle(
+        &[
+            text(injected),
+            marked(" here", &plain_link),
+            json!({"type": "mention", "attrs": {"userId": PERSON}}),
+        ],
+        &json!([paragraph(&[text("hidden")])]),
+    )]));
+    let mut names = Names::default();
+    names
+        .users
+        .insert(PERSON.to_owned(), "<b>Kim</b> & co".to_owned());
+    let written = body_to_markdown(body.document(), &names);
+    assert_eq!(written.complex, [], "all is held: {}", written.markdown);
+    let summary = summary_line(&written.markdown);
+    assert!(
+        !summary.contains(['<', '>']),
+        "no tag in the summary: {summary}"
+    );
+    assert!(
+        summary.starts_with("&lt;script&gt;alert(1)&lt;/script&gt;&lt;img"),
+        "{summary}"
+    );
+    check_round_trip(&body);
+
+    // What a character reference cannot be read back in is named, and written without
+    // markup all the same.
+    for (summary, reason) in [
+        (marked("</summary>", &json!([{"type": "code"}])), "code"),
+        (
+            json!({"type": "inlineMath", "attrs": {"latex": "a<b"}}),
+            "formula",
+        ),
+        (marked("there", &link), "link"),
+    ] {
+        let body = doc(&json!([toggle(
+            &[text("a "), summary, text(" b")],
+            &json!([paragraph(&[text("hidden")])]),
+        )]));
+        let written = body_to_markdown(body.document(), &Names::default());
+        assert_eq!(
+            written.complex,
+            [fvoci_model::ComplexBlock {
+                path: "/content/0/content/0".to_owned(),
+                reason: ComplexBlockReason::MarkupInSummary,
+            }],
+            "{reason}: {}",
+            written.markdown
+        );
+        let summary = summary_line(&written.markdown);
+        assert!(!summary.contains(['<', '>']), "{reason}: {summary}");
+        // What it hides stays hidden: the summary ends where it was written to.
+        let read = markdown_nodes(&written.markdown, "markdown").expect("read");
+        assert_eq!(read.len(), 1, "{reason}: {read:?}");
+        assert_eq!(
+            read[0]["content"][1],
+            json!({"type": "detailsContent", "content": [paragraph(&[text("hidden")])]}),
+            "{reason}"
+        );
+    }
 }

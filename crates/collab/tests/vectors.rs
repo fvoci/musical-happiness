@@ -261,12 +261,18 @@ fn toggle(summary: &str, hidden: &[Value]) -> Value {
 /// mended as one in the document.
 fn refused_toggles_and_callouts(a: Value) -> Vec<(&'static str, Left)> {
     vec![
-        ("a callout of a tone not on the list", left(1, 0, a)),
+        ("a callout of a tone not on the list", left(1, 0, a.clone())),
         ("a callout whose tone is a number", left(1, 0, Value::Null)),
         (
             "a callout of a tone not on the list, in a toggle",
             left(1, 0, doc(&[toggle("s", &[line("kept")])])),
         ),
+        // A board view that names no view goes, as an image without its file does.
+        (
+            "a board view of a view that is no identifier",
+            left(1, 0, a.clone()),
+        ),
+        ("a board view without its view", left(1, 0, a)),
         (
             "in a toggle, one adds a column while the other adds a row",
             left(

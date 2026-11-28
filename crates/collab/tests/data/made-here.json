@@ -318,6 +318,26 @@
       "update": "AQQBAAcBB2RlZmF1bHQDB2RldGFpbHMHAAEAAw5kZXRhaWxzQ29udGVudAcAAQEDCXBhcmFncmFwaEcBAQMOZGV0YWlsc1N1bW1hcnkA"
     },
     {
+      "name": "a board view",
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQVhZnRlckcBAAMJYm9hcmRWaWV3KAABBwZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDFHAQcDCXBhcmFncmFwaAcAAQkGBAABCgZiZWZvcmUA"
+    },
+    {
+      "name": "a board view alone",
+      "update": "AQIBAAcBB2RlZmF1bHQDCWJvYXJkVmlldygAAQAGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxAA=="
+    },
+    {
+      "name": "a board view in a toggle, and in a toggle in that",
+      "update": "AQ4BAAcBB2RlZmF1bHQDB2RldGFpbHMHAAEAAw5kZXRhaWxzQ29udGVudAcAAQEDB2RldGFpbHMHAAECAw5kZXRhaWxzQ29udGVudAcAAQMDCWJvYXJkVmlldygAAQQGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxRwEDAw5kZXRhaWxzU3VtbWFyeQcAAQYGBAABBwRNb3JlRwECAwlib2FyZFZpZXcoAAEMBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMUcBAQMOZGV0YWlsc1N1bW1hcnkHAAEOBgQAAQ8EUGxhbgA="
+    },
+    {
+      "name": "two board views of one view",
+      "update": "AQQBAAcBB2RlZmF1bHQDCWJvYXJkVmlldygAAQAGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxRwEAAwlib2FyZFZpZXcoAAECBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMQA="
+    },
+    {
+      "name": "ten board views",
+      "update": "ARQBAAcBB2RlZmF1bHQDCWJvYXJkVmlldygAAQAGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDBhRwEAAwlib2FyZFZpZXcoAAECBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwOUcBAgMJYm9hcmRWaWV3KAABBAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDhHAQQDCWJvYXJkVmlldygAAQYGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDA3RwEGAwlib2FyZFZpZXcoAAEIBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwNkcBCAMJYm9hcmRWaWV3KAABCgZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDVHAQoDCWJvYXJkVmlldygAAQwGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDA0RwEMAwlib2FyZFZpZXcoAAEOBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwM0cBDgMJYm9hcmRWaWV3KAABEAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDJHARADCWJvYXJkVmlldygAARIGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxAA=="
+    },
+    {
       "name": "a text of three runs: plain, bold, plain",
       "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQYgcGxhaW5GAQIEYm9sZARudWxsRAEIBGJvbGRGAQkEYm9sZAJ7fUQBDQZwbGFpbiAA"
     },
@@ -1371,6 +1391,42 @@
       },
       "name": "a callout of a tone not on the list, in a toggle",
       "update": "AQ0BAAcBB2RlZmF1bHQDB2RldGFpbHMHAAEAAw5kZXRhaWxzU3VtbWFyeQcAAQEGBAABAgFzhwEBAw5kZXRhaWxzQ29udGVudAcAAQQDB2NhbGxvdXQHAAEFAwlwYXJhZ3JhcGgHAAEGBgQAAQcBcCgAAQUEdG9uZQF3BElORk+HAQUDCXBhcmFncmFwaAcAAQoGBAABCwRrZXB0AQEBBQU="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "a",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a board view of a view that is no identifier",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwlib2FyZFZpZXcoAAEDBnZpZXdJZAF3B3RhYmxlLTEBAQEDAg=="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "a",
+                "type": "text"
+              }
+            ],
+            "type": "paragraph"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a board view without its view",
+      "update": "AQQBAAcBB2RlZmF1bHQDCWJvYXJkVmlld4cBAAMJcGFyYWdyYXBoBwABAQYEAAECAWEBAQEAAQ=="
     },
     {
       "json": {
@@ -2694,6 +2750,22 @@
     {
       "name": "a callout with nothing in it",
       "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwdjYWxsb3V0KAABAwR0b25lAXcDdGlwAQEBAwI="
+    },
+    {
+      "name": "a board view in a callout: the callout goes",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwdjYWxsb3V0BwABAwMJYm9hcmRWaWV3KAABBAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDEoAAEDBHRvbmUBdwRpbmZvAQEBAwQ="
+    },
+    {
+      "name": "a board view in a quote: the quote goes",
+      "update": "AQYBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwMJYm9hcmRWaWV3KAABBAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDEBAQEDAw=="
+    },
+    {
+      "name": "a board view in a line: the line goes",
+      "update": "AQYBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwlwYXJhZ3JhcGgHAAEDAwlib2FyZFZpZXcoAAEEBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMQEBAQMD"
+    },
+    {
+      "name": "a board view holding a line: it goes, and the board view in the toggle stays",
+      "update": "AQwBAAcBB2RlZmF1bHQDCWJvYXJkVmlldwcAAQADCXBhcmFncmFwaAcAAQEGBAABAgF4KAABAAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDGHAQADB2RldGFpbHMHAAEFAw5kZXRhaWxzU3VtbWFyeQcAAQYGBAABBwFzhwEGAw5kZXRhaWxzQ29udGVudAcAAQkDCWJvYXJkVmlldygAAQoGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAyAQEBAAU="
     },
     {
       "name": "a toggle whose second part is a paragraph, in a toggle: the inner one goes",
