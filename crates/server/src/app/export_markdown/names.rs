@@ -14,14 +14,16 @@ const NAME_CHARS: usize = 80;
 /// it would read as more than a name (`#` its fragment, `%` an escape).
 const NOT_IN_NAMES: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|', '#', '%'];
 
-/// The names Windows keeps for its devices, whatever their extension.
+/// The names Windows keeps for its devices, whatever follows the first dot
+/// (`CON.notes.md` is one).
 const DEVICES: &[&str] = &[
     "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
     "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
 ];
 
 /// Whether a character is one of format, invisible: a mark that turns the text
-/// (U+202E), a joiner, a byte order mark, a tag.
+/// (U+202E), a joiner, a byte order mark, a tag; or a separator of lines or paragraphs
+/// (U+2028, U+2029), which ends a line where a YAML or a Markdown reader reads one.
 pub(super) fn is_format(character: char) -> bool {
     matches!(
         character,
@@ -29,7 +31,7 @@ pub(super) fn is_format(character: char) -> bool {
             | '\u{061C}'
             | '\u{180E}'
             | '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}'
+            | '\u{2028}'..='\u{202E}'
             | '\u{2060}'..='\u{2064}'
             | '\u{2066}'..='\u{206F}'
             | '\u{FEFF}'
@@ -45,6 +47,11 @@ pub(super) fn is_format(character: char) -> bool {
 pub(super) fn name_of(title: &str, fallback: &str) -> String {
     let cleaned: String = title
         .chars()
+        // A separator of lines parts words, as a line break does.
+        .map(|character| match character {
+            '\u{2028}' | '\u{2029}' => ' ',
+            character => character,
+        })
         .filter(|character| !is_format(*character))
         .map(|character| {
             if character.is_control() || NOT_IN_NAMES.contains(&character) {
@@ -60,7 +67,8 @@ pub(super) fn name_of(title: &str, fallback: &str) -> String {
     if trimmed.is_empty() {
         return fallback.to_owned();
     }
-    if DEVICES.contains(&trimmed.to_lowercase().as_str()) {
+    let device = trimmed.split('.').next().unwrap_or_default().trim_end();
+    if DEVICES.contains(&device.to_lowercase().as_str()) {
         return format!("_{trimmed}");
     }
     trimmed.to_owned()
@@ -74,16 +82,43 @@ pub(super) struct Folder {
 }
 
 impl Folder {
+    /// A folder in which the names `reserved` are another's already: `files` at the top
+    /// of an export, for its files.
+    pub(super) fn reserving(reserved: &[&str]) -> Self {
+        Self {
+            taken: reserved.iter().map(|name| name.to_lowercase()).collect(),
+        }
+    }
+
     /// `stem` with `extension` (`.md`, or empty for a folder), made its own in the
     /// folder: ` (2)`, ` (3)` after the stem of one taken.
     pub(super) fn take(&mut self, stem: &str, extension: &str) -> String {
-        let mut name = format!("{stem}{extension}");
+        let stem = self.take_stem(stem, &[extension]);
+        format!("{stem}{extension}")
+    }
+
+    /// A stem of `stem` that is the folder's own with each of `extensions`, all at
+    /// once: a page's file (`.md`) and the folder beside it of what is below it (no
+    /// extension), neither of which may be another's (a page `Plan.md` beside a page
+    /// `Plan` would have a folder `Plan.md` beside a file of that name).
+    pub(super) fn take_stem(&mut self, stem: &str, extensions: &[&str]) -> String {
         let mut count = 1;
-        while !self.taken.insert(name.to_lowercase()) {
+        loop {
+            let candidate = if count == 1 {
+                stem.to_owned()
+            } else {
+                format!("{stem} ({count})")
+            };
+            let names: Vec<String> = extensions
+                .iter()
+                .map(|extension| format!("{candidate}{extension}").to_lowercase())
+                .collect();
+            if names.iter().all(|name| !self.taken.contains(name)) {
+                self.taken.extend(names);
+                return candidate;
+            }
             count += 1;
-            name = format!("{stem} ({count}){extension}");
         }
-        name
     }
 }
 
@@ -147,6 +182,10 @@ mod tests {
         assert_eq!(name_of("  \u{202E}gpj.exe  ", "untitled"), "gpj.exe");
         assert_eq!(name_of("tab\tand\u{0}null", "untitled"), "tab_and_null");
         assert_eq!(name_of("CON", "untitled"), "_CON");
+        assert_eq!(name_of("con.notes", "untitled"), "_con.notes");
+        assert_eq!(name_of("Nul .tar", "untitled"), "_Nul .tar");
+        assert_eq!(name_of("Console.notes", "untitled"), "Console.notes");
+        assert_eq!(name_of("one\u{2028}two\u{2029}", "untitled"), "one two");
         assert_eq!(name_of("", "untitled"), "untitled");
         assert_eq!(name_of(&"가".repeat(200), "x").chars().count(), NAME_CHARS);
     }
@@ -158,6 +197,12 @@ mod tests {
         assert_eq!(folder.take("plan", ".md"), "plan (2).md");
         assert_eq!(folder.take("Plan", ".md"), "Plan (3).md");
         assert_eq!(folder.take("Plan", ""), "Plan");
+        // A page's file and its folder are taken together, and neither is another's.
+        let mut folder = Folder::reserving(&["files"]);
+        assert_eq!(folder.take_stem("Plan", &[".md", ""]), "Plan");
+        assert_eq!(folder.take_stem("Plan.md", &[".md", ""]), "Plan.md (2)");
+        assert_eq!(folder.take_stem("Files", &[""]), "Files (2)");
+        assert_eq!(folder.take("files", ".md"), "files.md");
     }
 
     #[test]
@@ -175,6 +220,7 @@ mod tests {
             "---\ntitle: \"say \\\"hi\\\"\\n\\\\\"\nattachments: [\"../files/a.pdf\"]\n---\n\n"
         );
         assert_eq!(yaml_text("a\u{202E}b"), "\"a\\u202Eb\"");
+        assert_eq!(yaml_text("a\u{2028}b"), "\"a\\u2028b\"");
         assert_eq!(yaml_text("\u{E0001}"), "\"\\U000E0001\"");
         assert_eq!(name_of("Q#3 at 100%", "x"), "Q_3 at 100_");
     }

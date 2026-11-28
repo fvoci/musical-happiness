@@ -30,7 +30,7 @@ use fvoci_model::{
 use serde_json::Value;
 
 use self::board_csv::{CellNames, board_csv, related_cards};
-use self::layout::{Placed, layout};
+use self::layout::{FILES_FOLDER, Placed, layout};
 use self::names::{Folder, front_matter, name_of};
 use super::App;
 use super::body_markdown::{ExportPlaces, Exported, MarkdownReader, relative};
@@ -165,7 +165,8 @@ impl App {
                     .collect()
             });
         let mut text = front_matter(&fields_of(block, &one.title), &[("attachments", linked)]);
-        let heading = one.title.replace(['\n', '\r'], " ");
+        // A heading is one line: a separator of lines ends it as a line break does.
+        let heading = one.title.replace(['\n', '\r', '\u{2028}', '\u{2029}'], " ");
         if !heading.trim().is_empty() {
             let _ = write!(text, "# {}\n\n", heading.trim());
         }
@@ -292,7 +293,7 @@ fn file_places(
             _ => (name, String::new()),
         };
         let mut path = root.to_vec();
-        path.push("files".to_owned());
+        path.push(FILES_FOLDER.to_owned());
         path.push(folder.take(&name_of(stem, "file"), &extension));
         files.push((stored, path));
     }

@@ -11,6 +11,9 @@ use serde_json::Value;
 
 use super::names::{Folder, name_of};
 
+/// The folder at the top of an export that holds the files its bodies show.
+pub(super) const FILES_FOLDER: &str = "files";
+
 /// A file of the export: what it is of, and where it goes.
 #[derive(Debug)]
 pub(super) struct Placed<'a> {
@@ -124,7 +127,9 @@ fn tree<'a>(root: &[String], blocks: &'a [Block], types: &[BlockType]) -> Vec<Pl
         });
     }
     let mut placed = Vec::new();
-    let mut folders: HashMap<Vec<String>, Folder> = HashMap::new();
+    // The top holds the export's `files/` too: a page or a chapter there is not called so.
+    let mut folders: HashMap<Vec<String>, Folder> =
+        HashMap::from([(root.to_vec(), Folder::reserving(&[FILES_FOLDER]))]);
     let mut reached = HashSet::new();
     let top = below.get("").map_or_default(Vec::clone);
     let mut walk: Vec<(&Block, Vec<String>)> = top
@@ -137,13 +142,26 @@ fn tree<'a>(root: &[String], blocks: &'a [Block], types: &[BlockType]) -> Vec<Pl
             continue;
         }
         let chapter = node.block_type == BlockType::Chapter;
+        let children = below.get(node.id.as_str());
+        // What the node takes in its folder: a chapter its folder, a page its file and,
+        // with pages below it, the folder of them beside it.
+        let extensions: &[&str] = match (chapter, children.is_some()) {
+            (true, _) => &[""],
+            (false, true) => &[".md", ""],
+            (false, false) => &[".md"],
+        };
         let title = name_of(&node.title, fallback(node.block_type));
-        let name = folders
+        let stem = folders
             .entry(folder.clone())
             .or_default()
-            .take(&title, if chapter { "" } else { ".md" });
-        let inner = with(&folder, name.strip_suffix(".md").unwrap_or(&name));
-        if let Some(children) = below.get(node.id.as_str()) {
+            .take_stem(&title, extensions);
+        let name = if chapter {
+            stem.clone()
+        } else {
+            format!("{stem}.md")
+        };
+        let inner = with(&folder, &stem);
+        if let Some(children) = children {
             walk.extend(children.iter().rev().map(|child| (*child, inner.clone())));
         }
         if !chapter {
@@ -244,6 +262,39 @@ mod tests {
                 "Root/Loop.md",
                 "Root/Back.md",
             ]
+        );
+    }
+
+    #[test]
+    fn no_folder_is_called_as_a_file_beside_it_nor_as_the_files_of_the_export() {
+        let blocks = [
+            block("a", BlockType::Page, "", "Plan", "a"),
+            block("b", BlockType::Page, "a", "Step", "a"),
+            block("c", BlockType::Page, "", "Plan.md", "b"),
+            block("d", BlockType::Page, "c", "Sub", "a"),
+            block("e", BlockType::Page, "", "Files", "c"),
+            block("f", BlockType::Page, "e", "notes", "a"),
+            block("g", BlockType::Page, "", "files", "d"),
+        ];
+        assert_eq!(
+            paths(ContainerKind::Wiki, &blocks),
+            [
+                "Root/Plan.md",
+                "Root/Plan/Step.md",
+                "Root/Plan.md (2).md",
+                "Root/Plan.md (2)/Sub.md",
+                "Root/Files (2).md",
+                "Root/Files (2)/notes.md",
+                "Root/files.md",
+            ]
+        );
+        let course = [
+            block("ch", BlockType::Chapter, "", "files", "a"),
+            block("u", BlockType::Unit, "ch", "One", "a"),
+        ];
+        assert_eq!(
+            paths(ContainerKind::Course, &course),
+            ["Root/files (2)/One.md"]
         );
     }
 
