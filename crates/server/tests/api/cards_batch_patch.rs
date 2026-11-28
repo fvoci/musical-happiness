@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::boards::new_board;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS};
+use crate::notifications::{OWNER, board_with_owner, card_with, give, told};
 
 /// The path of the batch patch of the cards of `board_id`.
 pub(crate) fn batch_patch_of(board_id: &str) -> String {
@@ -205,4 +206,66 @@ async fn a_batch_changes_no_card_when_one_is_refused() {
     assert_eq!(read_card(&ts.client, &elsewhere.id).await, elsewhere);
 
     ts.teardown().await;
+}
+
+/// A person who gives cards by a batch tells whom they newly give each to as
+/// `patchCard` tells of one: B of the two cards of the batch and of the one given alone,
+/// each as A's doing; nobody of a card given to them before, of a card A gives
+/// themselves, nor of a batch that tells nobody (`disableNotify`).
+#[tokio::test]
+async fn a_person_tells_of_the_cards_given_in_a_batch_as_of_one_given_alone() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerVisibility::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let mut cards = Vec::new();
+    for _ in 0..5 {
+        cards.push(card_with(&th.client, &board.id, &Value::Null).await);
+    }
+    let batch = batch_patch_of(&board.id);
+    let give_in_batch = async |path: &str, given: &[&Card], to: &str| {
+        let ids: Vec<&str> = given.iter().map(|card| card.id.as_str()).collect();
+        th.client
+            .post(
+                path,
+                &json!({"cardIds": ids, "updatedProperties": {OWNER: to}}),
+            )
+            .await
+            .check_ok();
+    };
+
+    give_in_batch(&batch, &[&cards[0], &cards[1]], &b.id).await;
+    th.client
+        .patch(
+            &format!("{TEST_WS}/cards/{}", cards[2].id),
+            &json!({"updatedProperties": {OWNER: b.id}}),
+        )
+        .await
+        .check_ok();
+    give_in_batch(&batch, &[&cards[0], &cards[1], &cards[2]], &b.id).await;
+    give_in_batch(&batch, &[&cards[3]], &a.id).await;
+    give_in_batch(&format!("{batch}?disableNotify=true"), &[&cards[4]], &b.id).await;
+
+    let as_told = |told: &[fvoci_model::Notification]| -> Vec<(String, String, Option<String>)> {
+        told.iter()
+            .filter_map(|told| told.subject.as_ref())
+            .map(|subject| {
+                (
+                    subject.kind.as_str().to_owned(),
+                    subject.actor_id.clone(),
+                    subject.agent_token_name.clone(),
+                )
+            })
+            .collect()
+    };
+    let bs = told(&th, &th.client2).await;
+    assert_eq!(
+        as_told(&bs),
+        vec![("assignment".to_owned(), a.id.clone(), None); 3],
+        "{bs:?}"
+    );
+    let theirs = told(&th, &th.client).await;
+    assert_eq!(as_told(&theirs), Vec::new(), "{theirs:?}");
+
+    th.teardown().await;
 }

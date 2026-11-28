@@ -275,10 +275,11 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Refused`] for invalid/duplicate `card_ids` or a trashed
-    /// block belonging to another container, [`StoreError::NotFound`] if the board or any
-    /// requested card is not in the trash, and [`StoreError::NotRestorable`] if a card
-    /// cannot be restored.
+    /// Returns [`StoreError::Refused`] for invalid/duplicate `card_ids` or a block in the
+    /// board's trash that is no card, [`StoreError::NotFound`] if the board or any
+    /// requested card is not in the board's trash (one in another board's is none, as
+    /// one of no identifier is), and [`StoreError::NotRestorable`] if a card cannot be
+    /// restored.
     pub async fn batch_restore_cards(
         &self,
         board_id: &str,
@@ -724,25 +725,28 @@ async fn verify_live_board_cards_or_templates(
     Ok(())
 }
 
+/// Checks that each of `card_ids` names a card in the trash of `board_id`. A block in
+/// another board's trash is not found, as one of no identifier is: what is in a trash
+/// the caller may not see is not told apart from what is not there.
 async fn verify_trashed_board_cards(
     scope: &mut Scope<'_>,
     board_id: &str,
     card_ids: &[String],
 ) -> Result<(), StoreError> {
-    let mut sql =
-        scope.sql("SELECT id, container_id, block_type FROM deleted_blocks WHERE id IN (");
-    sql.bind_list(card_ids.iter().map(|id| Id(id))).push(")");
-    let rows = scope.fetch_all(sql).await?;
-    if rows.len() != card_ids.len() {
+    let mut sql = scope.sql("SELECT block_type FROM deleted_blocks WHERE container_id = ");
+    sql.bind(Id(board_id))
+        .push(" AND id IN (")
+        .bind_list(card_ids.iter().map(|id| Id(id)))
+        .push(")");
+    let types: Vec<String> = scope.all(sql).await?;
+    if types.len() != card_ids.len() {
         return Err(StoreError::NotAllFound {
             entity: "deleted card",
             ids: card_ids.to_vec(),
         });
     }
-    for row in &rows {
-        let container_id = row.id(1)?;
-        let block_type = row.text(2)?;
-        if container_id != board_id || (!block_type.is_empty() && block_type != "card") {
+    for block_type in &types {
+        if !block_type.is_empty() && block_type != "card" {
             let mut refused = Refusals::new();
             refused.refuse(
                 "cardIds",

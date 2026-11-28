@@ -23,9 +23,10 @@ impl App {
         mut created: ContainersAndBlocks,
         user_id: &str,
     ) -> Result<ContainersAndBlocks, AppError> {
-        for (index, container) in created.containers.iter().enumerate() {
-            self.require_makes(container)
-                .map_err(|error| error.under(&format!("/containers/{index}")))?;
+        // Where a refusal points is where the board's request named it: the boards are
+        // asked for one at a time (`createBoard`), not as a list.
+        for container in &created.containers {
+            self.require_makes(container)?;
         }
         let members = {
             let _structure = self
