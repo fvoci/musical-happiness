@@ -3,6 +3,7 @@
 //! (`reactionsChanged`). Nobody is notified of a reaction, and no webhook is told.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use fvoci_model::{Block, BlockType, Container, Emoji, REACTION_KINDS_PER_BLOCK, Reaction};
 use fvoci_store::Reacted;
@@ -99,25 +100,72 @@ impl App {
     }
 
     /// Tells the members of `container`, the block's, its reactions in the background,
-    /// as they are when they are told: what was read last is told last, so two changes
-    /// made one after the other leave every listener with the second.
+    /// as they are when they are told: what was read last of the block is told last, so
+    /// two changes made one after the other leave every listener with the second. The
+    /// blocks take their turns apart ([`TellingTurns`]).
     fn announce_reactions(&self, container: &Container, block: &Block) {
         let app = self.clone();
         let workspace_id = container.workspace_id.clone();
         let (container_id, block_id) = (container.id.clone(), block.id.clone());
         self.spawn_background(async move {
-            let _turn = app.inner.telling_reactions.lock().await;
-            let reactions = match app.reactions_to(&block_id).await {
-                Ok(reactions) => reactions,
-                Err(error) => {
-                    tracing::error!(%error, block_id, "cannot read reactions to tell them");
-                    return;
+            let turns = &app.inner.telling_reactions;
+            let turn = turns.of(&block_id);
+            {
+                let _held = turn.lock().await;
+                match app.reactions_to(&block_id).await {
+                    Ok(reactions) => {
+                        app.ws()
+                            .broadcast_reactions_change(
+                                &workspace_id,
+                                &container_id,
+                                &block_id,
+                                &reactions,
+                            )
+                            .await;
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, block_id, "cannot read reactions to tell them");
+                    }
                 }
-            };
-            app.ws()
-                .broadcast_reactions_change(&workspace_id, &container_id, &block_id, &reactions)
-                .await;
+            }
+            turns.done(&block_id, turn);
         });
+    }
+}
+
+/// The turns of telling the reactions to a block: one at a time for each block, so that
+/// what is read last is told last, and any number of blocks at once. A block is kept
+/// while a telling of it holds or waits for its turn.
+#[derive(Debug, Default)]
+pub(super) struct TellingTurns {
+    blocks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+}
+
+impl TellingTurns {
+    /// The turn of `block_id`, to wait for.
+    fn of(&self, block_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut blocks = self.blocks.lock().expect("the turns are not poisoned");
+        Arc::clone(blocks.entry(block_id.to_owned()).or_default())
+    }
+
+    /// Gives back `turn`, the turn of `block_id` that a telling took and let go of; the
+    /// block is forgotten if no other telling holds or waits for it (the table's and
+    /// this one are the only holders).
+    fn done(&self, block_id: &str, turn: Arc<tokio::sync::Mutex<()>>) {
+        let mut blocks = self.blocks.lock().expect("the turns are not poisoned");
+        if Arc::strong_count(&turn) == 2 {
+            blocks.remove(block_id);
+        }
+        drop(turn);
+    }
+
+    /// How many blocks are kept: none once every telling is done.
+    #[cfg(test)]
+    fn kept(&self) -> usize {
+        self.blocks
+            .lock()
+            .expect("the turns are not poisoned")
+            .len()
     }
 }
 
@@ -147,4 +195,26 @@ fn too_many_reactions() -> AppError {
     ))
     .with_reason(Reason::TooManyReactions)
     .with_limit(u64::try_from(REACTION_KINDS_PER_BLOCK).unwrap_or(u64::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TellingTurns;
+
+    #[tokio::test]
+    async fn a_block_takes_its_turns_one_at_a_time_and_is_forgotten_after() {
+        let turns = TellingTurns::default();
+        let first = turns.of("a");
+        let held = first.lock().await;
+        let second = turns.of("a");
+        assert!(second.try_lock().is_err(), "the block's next telling waits");
+        let other = turns.of("b");
+        assert!(other.try_lock().is_ok(), "another block's telling does not");
+        turns.done("b", other);
+        drop(held);
+        turns.done("a", first);
+        assert_eq!(turns.kept(), 1, "kept while a telling waits for it");
+        turns.done("a", second);
+        assert_eq!(turns.kept(), 0, "forgotten when every telling is done");
+    }
 }

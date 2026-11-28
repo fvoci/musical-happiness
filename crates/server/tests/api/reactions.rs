@@ -277,25 +277,34 @@ async fn pages_and_units_and_their_comments_take_reactions() {
 }
 
 /// A diary's entry is its owner's alone: its diary is not there to a reaction, as a
-/// container nobody has.
+/// container nobody has, to add one or take one off, by the owner or by their token
+/// that writes and was given the space.
 #[tokio::test]
 async fn a_diary_is_not_there_to_reactions() {
-    let (th, ws) = crate::diaries::in_a_space().await;
-    let diary = crate::diaries::a_diary(&th.client, &ws).await;
-    let entry = crate::diaries::written(&th.client, &diary, &json!({"date": "2026-11-21"})).await;
-    let diary_id = crate::diaries::last_of(&diary);
-    let entry_id = entry["id"].as_str().expect("an entry");
-    let there = put(&th.client, &reaction_in(&ws, diary_id, entry_id, THUMBS_UP)).await;
-    let nothing = put(
-        &th.client,
-        &reaction_in(&ws, UNKNOWN_ID, entry_id, THUMBS_UP),
-    )
-    .await;
-    assert_eq!(
-        (there.status, there.error_message()),
-        (nothing.status, nothing.error_message())
-    );
-    assert_eq!(there.status, StatusCode::NOT_FOUND);
+    let crate::api_tokens_diaries::Space {
+        th,
+        ws,
+        diary_id,
+        entry,
+        agent,
+        ..
+    } = crate::api_tokens_diaries::a_space_with_a_diary().await;
+    let entry_id = crate::diaries::last_of(&entry);
+    for (who, client) in [("the owner", &th.client), ("their token", &agent)] {
+        for method in [Method::PUT, Method::DELETE] {
+            let ask = async |container: &str| {
+                let path = reaction_in(&ws, container, entry_id, THUMBS_UP);
+                Client::send(client.request(method.clone(), &path)).await
+            };
+            let (there, nothing) = (ask(&diary_id).await, ask(UNKNOWN_ID).await);
+            assert_eq!(
+                (there.status, there.error_message()),
+                (nothing.status, nothing.error_message()),
+                "{who}: {method}"
+            );
+            assert_eq!(there.status, StatusCode::NOT_FOUND, "{who}: {method}");
+        }
+    }
     th.teardown().await;
 }
 
