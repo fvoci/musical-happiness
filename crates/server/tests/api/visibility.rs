@@ -577,9 +577,14 @@ fn reaction_to(container: &str, block: &str) -> String {
 /// places where one part of a request passes every check and the other part must not
 /// be given away by the answer.
 fn mixed_cases() -> Vec<Case> {
-    let case = |method: Method,
-                path: fn(&Hidden, usize) -> String,
-                body: fn(&Hidden, usize) -> Value| Case { method, path, body };
+    let mut cases = mixed_card_cases();
+    cases.extend(mixed_place_cases());
+    cases
+}
+
+/// Of [`mixed_cases`], a hidden card, file or trashed card through the asker's own
+/// board.
+fn mixed_card_cases() -> Vec<Case> {
     vec![
         // A hidden card through the asker's own board, alone and with the asker's own.
         case(
@@ -644,6 +649,13 @@ fn mixed_cases() -> Vec<Case> {
             },
             |h, i| json!({"fileId": h.file[i], "title": "x"}),
         ),
+    ]
+}
+
+/// Of [`mixed_cases`], a hidden board in the asker's own category, somebody's category
+/// named anew, and a file of a hidden board through the asker's own board.
+fn mixed_place_cases() -> Vec<Case> {
+    vec![
         // A hidden board in the asker's own category.
         case(
             Method::POST,
