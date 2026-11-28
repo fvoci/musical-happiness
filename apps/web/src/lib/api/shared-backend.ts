@@ -448,6 +448,7 @@ export class SharedBackend implements Backend {
   createCard: Backend['createCard'] = refused;
   duplicateCard: Backend['duplicateCard'] = refused;
   moveViewCards: Backend['moveViewCards'] = refused;
+  batchPatchCards: Backend['batchPatchCards'] = refused;
   batchDeleteCards: Backend['batchDeleteCards'] = refused;
   batchRestoreCards: Backend['batchRestoreCards'] = refused;
   patchCard: Backend['patchCard'] = refused;
