@@ -66,6 +66,7 @@ import * as blockOps from './block-ops.ts';
 import * as boardAuth from './board-authority.ts';
 import { openMemoryRoom } from './bodies.ts';
 import { MemoryBodyVersions } from './body-versions.ts';
+import { MemoryCardActivity } from './card-activity.ts';
 import { MemoryCategories } from './categories.ts';
 import { versionsOf } from './comments.ts';
 import { memberFileUrl, memberRole, memoryPermissionsOf } from './container-access.ts';
@@ -88,7 +89,7 @@ import * as spaces from './spaces.ts';
 import { MemoryTime } from './time.ts';
 import { deletedCardsOf, deletedContainersOf, mayManageCards } from './trash.ts';
 import { MemoryWatches } from './unit-watch.ts';
-import { userFound, usersAmong, usersNamed } from './users.ts';
+import { usersAmong, usersFound, usersNamed } from './users.ts';
 import { MemoryWikis } from './wikis.ts';
 import type { World } from './world.ts';
 
@@ -104,6 +105,7 @@ export class MemoryBackend implements Backend {
   readonly diary = new MemoryDiaries(this);
   readonly course = new MemoryCourses(this);
   readonly bodyVersions: MemoryBodyVersions;
+  readonly cardActivity = new MemoryCardActivity(this, () => this.#enter('cardActivity'));
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
@@ -179,11 +181,7 @@ export class MemoryBackend implements Backend {
   }
   async searchUsers(workspaceId: string, query: string): Promise<User[]> {
     await this.#enter('searchUsers');
-    const wanted = query.trim().toLowerCase();
-    return (await this.users(workspaceId))
-      .filter((u) => userFound(u, wanted))
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .slice(0, 10);
+    return usersFound(await this.users(workspaceId), query);
   }
   async settings(): Promise<AccountSettings> {
     await this.#enter('settings');

@@ -29,6 +29,15 @@ export function userFound(user: User, wanted: string): boolean {
   );
 }
 
+/** The first ten of `users` whose login name or name holds `query`, the oldest first. */
+export function usersFound(users: readonly User[], query: string): User[] {
+  const wanted = query.trim().toLowerCase();
+  return users
+    .filter((user) => userFound(user, wanted))
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(0, 10);
+}
+
 function listed(user: User): User {
   const { isAdmin: _isAdmin, ...rest } = copy(user);
   return rest;

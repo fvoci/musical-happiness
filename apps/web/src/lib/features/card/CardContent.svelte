@@ -30,6 +30,7 @@
   import { bodyReferences } from './body-references.ts';
   import BodyVersions from './BodyVersions.svelte';
   import { cardVersions, keepVersion, VersionsReading } from './body-versions.svelte.ts';
+  import CardActivity from './CardActivity.svelte';
   import CardAttachments from './CardAttachments.svelte';
   import CardBacklinks from './CardBacklinks.svelte';
   import CardBody from './CardBody.svelte';
@@ -199,6 +200,9 @@
         {/if}
         <CardBacklinks workspace={board.workspace} blockId={card.cardId} />
         <CardAttachments {board} {card} />
+        {#if board.workspace.backend.cardActivity}
+          <CardActivity {board} card={summary} />
+        {/if}
         <CardComments {board} {card} {readVersions} />
       {:else if card.status === 'failed'}
         <p class="border-t pt-5 text-muted-foreground" role="alert">{m.app_problem_load()}</p>

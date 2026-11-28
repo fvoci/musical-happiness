@@ -86,6 +86,7 @@ export type {
   BodyVersions,
   KeptBodyVersion,
 } from './body-versions.ts';
+export { ACTIVITY_PAGE, type CardActivityKind, type CardActivityLine } from './activity-types.ts';
 export { CardPreviews } from './card-previews.svelte.ts';
 export { type CommentEdit } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';
@@ -296,6 +297,7 @@ export {
   Trash,
   type TrashStatus,
 } from './trash.svelte.ts';
+export { nextCardNotices, type NextCardNotice } from './next-cards.svelte.ts';
 export {
   TimeTracker,
   timeTracker,

@@ -23,6 +23,8 @@ import { applyCardPatch } from '../patches.ts';
 
 import { blockInBoard, createMemoryCard, withLastComment } from './block-ops.ts';
 import { flushCard } from './bodies.ts';
+import { noteCardChanged, noteCardsRestored } from './card-activity.ts';
+import { makeNextCard, settleCardChange } from './card-recurrence.ts';
 import { mayRemoveComments, roleOn } from './comments.ts';
 import { memberRole } from './container-access.ts';
 import {
@@ -195,6 +197,7 @@ export function duplicateMemoryCard(
     properties: valuesOfCopy(summaryOf(source), board.cardProperties, onBoard),
     isTemplate: asTemplate ?? source.fields.isTemplate,
     body: copy(source.body),
+    ...(source.fields.recurrence ? { recurrence: copy(source.fields.recurrence) } : {}),
     quiet: true,
   });
   for (const attachment of ctx.world.childrenOf(cardId)) {
@@ -262,20 +265,23 @@ export function moveMemoryViewCards(
   view.updatedAt = ctx.world.now();
   view.modifiedBy = ctx.userId;
 
-  const updatedCards = applyMovedGroupProperty(ctx, board, movedCards, move);
+  const made: StoredCard[] = [];
+  const updatedCards = applyMovedGroupProperty(ctx, board, movedCards, move, made);
   tellBlocks(ctx.world, boardId, [view]);
-  if (updatedCards.length > 0) tellBlocks(ctx.world, boardId, updatedCards);
+  if (updatedCards.length > 0) tellBlocks(ctx.world, boardId, [...updatedCards, ...made]);
   return {
     view: viewOf(view),
     cards: updatedCards.map((c) => withLastComment(ctx.world, summaryOf(c))),
   };
 }
 
+/** Gives the moved cards the group's value; the next cards of those it makes done go to `made`. */
 function applyMovedGroupProperty(
   ctx: MemoryContainerContext,
   board: Container,
   movedCards: readonly StoredCard[],
   move: CardMovesInput,
+  made: StoredCard[],
 ): StoredCard[] {
   if (!move.groupPropertyId) return [];
   const prop = board.cardProperties.find((p) => p.id === move.groupPropertyId);
@@ -288,14 +294,17 @@ function applyMovedGroupProperty(
     (Array.isArray(groupVal) && groupVal.length === 0);
   const updatedCards: StoredCard[] = [];
   for (const card of movedCards) {
-    const next = applyCardPatch(
+    const moved = applyCardPatch(
       card,
       cleared ? { deletedProperties: [prop.id] } : { updatedProperties: { [prop.id]: groupVal } },
     );
-    next.updatedAt = ctx.world.now();
-    next.modifiedBy = ctx.userId;
-    ctx.world.blocks.set(card.id, next);
-    updatedCards.push(next);
+    const following = settleCardChange(ctx, board, card, moved);
+    moved.updatedAt = ctx.world.now();
+    moved.modifiedBy = ctx.userId;
+    ctx.world.blocks.set(card.id, moved);
+    noteCardChanged(ctx.world, card, moved, ctx.userId);
+    updatedCards.push(moved);
+    if (following) made.push(makeNextCard(ctx, board, moved, following));
   }
   return updatedCards;
 }
@@ -351,6 +360,7 @@ export function batchRestoreMemoryCards(
     );
     restoredBlocks.push(...restored);
   }
+  noteCardsRestored(ctx.world, restoredBlocks, ctx.userId);
   if (restoredBlocks.length > 0) tellBlocks(ctx.world, boardId, restoredBlocks);
   return restoredBlocks
     .filter((b): b is StoredCard => b.type === 'card')

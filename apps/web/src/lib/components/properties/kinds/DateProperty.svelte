@@ -16,7 +16,7 @@
 <script lang="ts">
   import { parseDate, type DateValue as PickedDay } from '@internationalized/date';
   import type { DateRange as PickedRange } from 'bits-ui';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, untrack, type Snippet } from 'svelte';
 
   import { isComposing } from '$lib/keys.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
@@ -72,6 +72,8 @@
     presentation?: Presentation;
     startOpen?: boolean;
     onChange?: (value: StoredDateValue | undefined) => void;
+    /** More of the picker, under its switches (how a card repeats). */
+    extra?: Snippet | undefined;
   }
 
   let {
@@ -85,6 +87,7 @@
     presentation = 'popover',
     startOpen = false,
     onChange,
+    extra,
   }: Props = $props();
 
   const zone = $derived(regional.timeZone);
@@ -436,6 +439,10 @@
           bind:checked={() => timeOn, toggleTime}
         />
       </label>
+      {#if extra}
+        <hr class="border-border" />
+        {@render extra()}
+      {/if}
       <hr class="border-border" />
       <div class="flex justify-between gap-1">
         <Button

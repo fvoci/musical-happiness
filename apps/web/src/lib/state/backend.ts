@@ -18,6 +18,7 @@ import type {
   Card,
 } from '../logic/wire.ts';
 
+import type { CardActivityOfBackend, RecurrenceChange, RecurrenceDraft } from './activity-types.ts';
 import type { PresenceOfContainers } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
 import type { VersionsOfFiles } from './file-versions.ts';
@@ -164,7 +165,7 @@ export interface Attachment extends Block {
 }
 
 /** What a card is made from. The server gives it its identifier and times. */
-export interface CardDraft {
+export interface CardDraft extends RecurrenceDraft {
   parentId?: string;
   title?: string;
   icon?: string;
@@ -187,7 +188,7 @@ export interface CardTelling {
   quiet?: boolean;
 }
 
-export interface CardPatch {
+export interface CardPatch extends RecurrenceChange {
   parentId?: string | null;
   title?: string;
   icon?: string;
@@ -257,6 +258,7 @@ export interface Backend
     TrashReads,
     PresenceOfContainers,
     OfBodies,
+    CardActivityOfBackend,
     WikisOfBackend,
     DiariesOfBackend,
     CoursesOfBackend,
