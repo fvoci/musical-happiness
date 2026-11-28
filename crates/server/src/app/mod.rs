@@ -208,6 +208,18 @@ pub struct App {
     inner: Arc<Inner>,
     store: Store,
     ws: Hub,
+    /// What of its organization this handle reaches, as the request it serves entered.
+    reach: Reach,
+    /// The immutable kind of this handle's organization, populated on entry or read at
+    /// most once per handle (`App::tell_webhooks`). Reset whenever [`App::scoped`]
+    /// changes the tenant.
+    org_kind: Arc<tokio::sync::OnceCell<OrgKind>>,
+}
+
+/// What of its organization a handle reaches, and as whom: narrowed as a request enters
+/// ([`App::in_workspace`], [`App::reaching`], [`App::capped_to`]), never widened.
+#[derive(Debug, Clone)]
+struct Reach {
     /// The workspace a request names in its path ([`App::in_workspace`]): what is of
     /// another workspace is not there for this handle. `None` reaches every workspace
     /// of the organization.
@@ -222,14 +234,57 @@ pub struct App {
     /// ([`App::capped_to`]): every kind for a person, and none of a diary for an agent
     /// by a token. It goes with the handle wherever it is scoped.
     allowed_kinds: ContainerKinds,
-    /// The immutable kind of this handle's organization, populated on entry or read at
-    /// most once per handle (`App::tell_webhooks`). Reset whenever [`App::scoped`]
-    /// changes the tenant.
-    org_kind: Arc<tokio::sync::OnceCell<OrgKind>>,
     /// The token an agent writes blocks through with this handle ([`App::writing_for`]);
     /// `None` for a person. Only the writes of blocks are told of as the agent's
     /// (`App::store_telling`): what the rooms of bodies write later is their editors'.
     agent: Option<Arc<crate::auth::api_token::Delegation>>,
+}
+
+impl Reach {
+    /// All of the organization, for nobody in particular: a handle no request entered.
+    fn everything() -> Self {
+        Self {
+            workspace: None,
+            known_actor: None,
+            kinds: ContainerKinds::EVERY,
+            allowed_kinds: ContainerKinds::EVERY,
+            agent: None,
+        }
+    }
+
+    /// The same, in another organization: no workspace of this one, and nobody found in
+    /// one; the kinds it may reach and the agent that writes go along.
+    fn elsewhere(&self) -> Self {
+        Self {
+            workspace: None,
+            known_actor: None,
+            ..self.clone()
+        }
+    }
+
+    /// The same, in `workspace_id` alone, where `known_actor` is who was found there.
+    fn in_workspace(
+        &self,
+        workspace_id: &str,
+        known_actor: Option<(String, String, crate::permissions::Actor)>,
+    ) -> Self {
+        Self {
+            workspace: Some(Arc::from(workspace_id)),
+            known_actor: known_actor.map(Arc::new),
+            ..self.clone()
+        }
+    }
+
+    /// Reaching containers of `kinds` alone, of those it may.
+    fn reaching(&mut self, kinds: ContainerKinds) {
+        self.kinds = kinds.intersection(self.allowed_kinds);
+    }
+
+    /// Never reaching more than `kinds`, whatever it is narrowed to after.
+    fn capped_to(&mut self, kinds: ContainerKinds) {
+        self.allowed_kinds = self.allowed_kinds.intersection(kinds);
+        self.kinds = self.kinds.intersection(kinds);
+    }
 }
 
 #[derive(Debug)]
@@ -354,11 +409,7 @@ impl App {
         Ok(Self {
             store,
             ws,
-            workspace: None,
-            known_actor: None,
-            kinds: ContainerKinds::EVERY,
-            allowed_kinds: ContainerKinds::EVERY,
-            agent: None,
+            reach: Reach::everything(),
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(config)),
@@ -486,12 +537,8 @@ impl App {
             inner: Arc::clone(&self.inner),
             ws,
             store,
-            workspace: None,
-            known_actor: None,
-            kinds: self.kinds,
-            allowed_kinds: self.allowed_kinds,
+            reach: self.reach.elsewhere(),
             org_kind: Arc::new(tokio::sync::OnceCell::new()),
-            agent: self.agent.clone(),
         }
     }
 
@@ -500,7 +547,7 @@ impl App {
     /// the token asks for that.
     #[must_use]
     pub(crate) fn writing_for(mut self, delegation: &crate::auth::api_token::Delegation) -> Self {
-        self.agent = Some(Arc::new(delegation.clone()));
+        self.reach.agent = Some(Arc::new(delegation.clone()));
         self
     }
 
@@ -522,22 +569,21 @@ impl App {
     /// reaches that much.
     #[must_use]
     pub fn reaching(mut self, kinds: ContainerKinds) -> Self {
-        self.kinds = kinds.intersection(self.allowed_kinds);
+        self.reach.reaching(kinds);
         self
     }
 
     /// The kinds of board this handle reaches ([`App::reaching`]).
     #[must_use]
     pub fn kinds(&self) -> ContainerKinds {
-        self.kinds
+        self.reach.kinds
     }
 
     /// The same handle, never reaching more than `kinds`, however it is narrowed or
     /// scoped after: for an agent, which reaches no diary.
     #[must_use]
     pub fn capped_to(mut self, kinds: ContainerKinds) -> Self {
-        self.allowed_kinds = self.allowed_kinds.intersection(kinds);
-        self.kinds = self.kinds.intersection(kinds);
+        self.reach.capped_to(kinds);
         self
     }
 
@@ -545,7 +591,7 @@ impl App {
     /// about every kind of container reaches.
     #[must_use]
     pub fn allowed_kinds(&self) -> ContainerKinds {
-        self.allowed_kinds
+        self.reach.allowed_kinds
     }
 
     /// The same handle, for a request that names the workspace in its path: a board of
@@ -554,8 +600,7 @@ impl App {
     #[must_use]
     pub fn in_workspace(&self, workspace_id: &str) -> Self {
         Self {
-            workspace: Some(Arc::from(workspace_id)),
-            known_actor: None,
+            reach: self.reach.in_workspace(workspace_id, None),
             ..self.clone()
         }
     }
@@ -570,13 +615,9 @@ impl App {
         user_id: &str,
         actor: crate::permissions::Actor,
     ) -> Self {
+        let known = (user_id.to_owned(), workspace_id.to_owned(), actor);
         Self {
-            workspace: Some(Arc::from(workspace_id)),
-            known_actor: Some(Arc::new((
-                user_id.to_owned(),
-                workspace_id.to_owned(),
-                actor,
-            ))),
+            reach: self.reach.in_workspace(workspace_id, Some(known)),
             ..self.clone()
         }
     }
@@ -585,7 +626,8 @@ impl App {
     /// handle is for one workspace ([`App::in_workspace`]) and that is another.
     #[must_use]
     pub fn reaches_workspace(&self, workspace_id: &str) -> bool {
-        self.workspace
+        self.reach
+            .workspace
             .as_deref()
             .is_none_or(|ours| ours == workspace_id)
     }
@@ -597,7 +639,7 @@ impl App {
     /// handle's kinds.
     #[must_use]
     pub fn reaches_container(&self, container: &fvoci_model::Container) -> bool {
-        self.kinds.holds(container.kind)
+        self.reach.kinds.holds(container.kind)
             && (container.is_builtin || self.reaches_workspace(&container.workspace_id))
     }
 

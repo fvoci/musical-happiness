@@ -1,6 +1,6 @@
 //! The chapters and units of a course: their outline, making one, moving one, and the
 //! trash of them. A unit or chapter is a block, and is changed and deleted as one
-//! ([`App::patch_block`], [`App::delete_block`]).
+//! (`App::patch_block`, `App::delete_block`).
 
 use fvoci_model::{
     Block, BlockError, BlockType, Container, CourseLimits, DeletedUnit, NewUnit, Unit, UnitKind,
@@ -121,7 +121,7 @@ impl App {
     /// Returns [`PATCH_UNIT_DENIED`] as [`Reached::require`] does, a not-found error for
     /// a block that is no unit or chapter of the course, a bad request for a body of a
     /// chapter, a patch whose shape is refused or a body that names a file the course
-    /// does not have, and what [`App::patch_block_as`] returns.
+    /// does not have, and what `App::patch_block_as` returns.
     pub async fn patch_unit(
         &self,
         on: &Reached,
@@ -179,12 +179,12 @@ impl App {
     }
 
     /// Deletes a unit or chapter of the course `on` reached, for an editor of it, as any
-    /// block is deleted ([`App::delete_block`]).
+    /// block is deleted (`App::delete_block`).
     ///
     /// # Errors
     ///
     /// Returns [`DELETE_UNIT_DENIED`] as [`Reached::require`] does, a not-found error for
-    /// a block that is no unit or chapter of the course, and what [`App::delete_block`]
+    /// a block that is no unit or chapter of the course, and what `App::delete_block`
     /// returns.
     pub async fn delete_unit(&self, on: &Reached, unit: &Block) -> Result<(), AppError> {
         editing_unit(on, unit, DELETE_UNIT_DENIED)?;

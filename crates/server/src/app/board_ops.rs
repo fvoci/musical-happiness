@@ -20,6 +20,7 @@ use super::board_parts::{
 };
 use super::changes::Changes;
 use super::container_copies::titles_in;
+use super::containers::refuse_named_id;
 use super::language::Language;
 use super::{App, ChangeNotification, Reached};
 use crate::collab::Deletion;
@@ -221,7 +222,7 @@ impl App {
     ///
     /// Returns a not-found error for a card that is not on the board (also one of
     /// another board, or a block of another type), a bad request for a template of the
-    /// board's cards, and the errors of [`App::patch_blocks`].
+    /// board's cards, and the errors of `App::patch_blocks`.
     pub async fn patch_cards(
         &self,
         board_id: &str,
@@ -286,7 +287,7 @@ impl App {
     /// # Errors
     ///
     /// Returns 400 for invalid/duplicate `card_ids`, 404 if the board or any requested
-    /// card is not in the trash, and 409 if a card cannot be restored.
+    /// card is not in the board's trash, and 409 if a card cannot be restored.
     pub async fn batch_restore_cards(
         &self,
         board_id: &str,
@@ -442,7 +443,9 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a bad request naming `/firstView` for a first view that is refused, and
+    /// Returns a bad request naming `/id` for a board that names its identifier, as
+    /// every way of making a board does, one naming `/firstView` for a first view that is
+    /// refused, and
     /// the errors of [`App::create_container_with_admin`] or
     /// [`App::create_containers_and_blocks_with_admin`].
     pub async fn create_board(
@@ -452,6 +455,7 @@ impl App {
         user_id: &str,
         accept_language: Option<&str>,
     ) -> Result<Container, AppError> {
+        refuse_named_id(&container)?;
         let view = match start {
             BoardStart::Empty => None,
             BoardStart::Scaffolded

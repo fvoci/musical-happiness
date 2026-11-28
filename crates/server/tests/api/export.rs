@@ -41,7 +41,7 @@ async fn cards_with_bodies(client: &Client, board_id: &str) -> Vec<serde_json::V
 /// left them: an attachment route takes only a file recorded on the board.
 async fn stored_as_they_are(ts: &TestServer, blocks: &mut [Block]) {
     ts.app
-        .insert_blocks(
+        .insert_blocks_unchecked(
             blocks,
             &ts.stranger().await,
             fvoci_server::app::ChangeNotification::Suppress,
@@ -478,7 +478,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
     // Another block shares the file, and a third has one that only it shows.
     let mut others = [attachment(&shared), attachment(&own)];
     ts.app
-        .insert_blocks(
+        .insert_blocks_unchecked(
             &mut others,
             &ts.stranger().await,
             fvoci_server::app::ChangeNotification::Send,

@@ -54,6 +54,7 @@ pub enum Joined {
 
 impl Joined {
     /// The membership as it is after joining.
+    #[cfg(any(test, feature = "test-util"))]
     pub fn into_member(self) -> ContainerMember {
         match self {
             Self::New(member) | Self::Raised(member) | Self::Already(member) => member,

@@ -160,7 +160,7 @@ async fn insert_card_block(th: &TestServer, board_id: &str, fields: Value) -> Bl
     };
     let user_id = th.client.me().await.id;
     th.app
-        .insert_block(&mut block, &user_id, ChangeNotification::Suppress)
+        .insert_block_unchecked(&mut block, &user_id, ChangeNotification::Suppress)
         .await
         .expect("card block is stored");
     block
@@ -201,7 +201,7 @@ async fn get_cards_fixture(th: &TestServer) -> Container {
             })
             .collect();
         th.app
-            .insert_blocks(&mut texts, &user_id, ChangeNotification::Suppress)
+            .insert_blocks_unchecked(&mut texts, &user_id, ChangeNotification::Suppress)
             .await
             .expect("the blocks below the card are stored");
     }
@@ -534,7 +534,7 @@ async fn app_get_cards_success_scenario() {
         })
         .collect();
     th.app
-        .insert_blocks(
+        .insert_blocks_unchecked(
             &mut blocks,
             &th.stranger().await,
             ChangeNotification::Suppress,
@@ -702,7 +702,7 @@ async fn app_get_card_success_scenario() {
     };
     let user_id = th.client.me().await.id;
     th.app
-        .insert_block(&mut block, &user_id, ChangeNotification::Suppress)
+        .insert_block_unchecked(&mut block, &user_id, ChangeNotification::Suppress)
         .await
         .expect("the card block is stored");
 
@@ -1072,7 +1072,7 @@ async fn get_cards_paging() {
         })
         .collect();
     th.app
-        .insert_blocks(
+        .insert_blocks_unchecked(
             &mut blocks,
             &th.stranger().await,
             ChangeNotification::Suppress,
@@ -1171,7 +1171,7 @@ async fn a_malformed_card_block_is_refused() {
         ..new_block(&board.id, &nulls.id, BlockType::Attachment)
     };
     th.app
-        .insert_block(
+        .insert_block_unchecked(
             &mut attachment,
             &th.stranger().await,
             ChangeNotification::Suppress,

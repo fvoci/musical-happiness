@@ -5,7 +5,7 @@
 //! goes into the trash takes the subscriptions to it along, and brings them back
 //! (`trash/watchers.rs`).
 
-use fvoci_model::{Subscriber, Subscription};
+use fvoci_model::Subscription;
 
 use crate::Store;
 use crate::db::{Dialect, FromRow, Id, Row, Scope, Sql};
@@ -94,6 +94,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn get_subscriptions(&self, user_id: &str) -> Result<Vec<Subscription>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
@@ -105,7 +106,7 @@ impl Store {
     }
 
     /// Returns the subscriptions of a user to blocks of the boards of a workspace,
-    /// oldest first, as [`Store::get_subscriptions`] orders them.
+    /// oldest first, and by block of those as old.
     ///
     /// # Errors
     ///
@@ -131,7 +132,7 @@ impl Store {
     }
 
     /// Returns the subscriptions of a user, with the board or the wiki of each
-    /// block, oldest first as [`Store::get_subscriptions`] orders them: of the boards and
+    /// block, oldest first and by block of those as old: of the boards and
     /// the wikis of `workspace_id` alone, if there is one.
     ///
     /// # Errors
@@ -177,10 +178,11 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn get_subscribers_for_block(
         &self,
         block_id: &str,
-    ) -> Result<Vec<Subscriber>, StoreError> {
+    ) -> Result<Vec<fvoci_model::Subscriber>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql =
                 scope.sql("SELECT user_id, notified_at FROM subscriptions WHERE block_id = ");
@@ -191,7 +193,7 @@ impl Store {
                 .await?
                 .iter()
                 .map(|row| {
-                    Ok(Subscriber {
+                    Ok(fvoci_model::Subscriber {
                         user_id: row.id(0)?,
                         notified_at: row.int(1)?,
                     })
@@ -206,6 +208,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn get_subscribers_count_for_block(&self, block_id: &str) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("SELECT COUNT(user_id) FROM subscriptions WHERE block_id = ");

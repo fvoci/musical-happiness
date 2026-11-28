@@ -138,6 +138,18 @@ pub(crate) trait Wall: Sized {
     ) -> impl Future<Output = Result<Self, AppError>> + Send;
 }
 
+/// What is no [`Wall`], checked as the program is compiled: `<T as NotAWall<_>>::CHECKED`
+/// names one constant for a type that is no wall, and is ambiguous, an error, for one
+/// that is. For an extractor that no token may get through, whatever is changed of it.
+pub(super) trait NotAWall<Which> {
+    /// Nothing; that it is one constant is the check.
+    const CHECKED: () = ();
+}
+
+impl<T> NotAWall<()> for T {}
+
+impl<T: Wall> NotAWall<u8> for T {}
+
 /// What a route does with what a token reaches, as [`Delegated`] says it.
 pub(crate) trait Needs: Send + Sync + 'static {
     /// The scope a token needs for it.

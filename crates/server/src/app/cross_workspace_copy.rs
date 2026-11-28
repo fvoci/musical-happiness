@@ -14,7 +14,7 @@ use fvoci_model::{
     Session, TEMPLATE_SCHEDULE_PROPERTY, ValidatedCourseSchedule, WorkspaceRole, add_days, is_id,
     renew_containers_and_blocks_ids_told,
 };
-use fvoci_store::{CopyChanges, StreamBatch, StreamCreateError};
+use fvoci_store::{CopyChanges, NewContainers, StreamBatch, StreamCreateError};
 use tokio::sync::mpsc;
 
 use super::accept_language::Reader;
@@ -462,12 +462,12 @@ async fn finish_workspace_copy(
     if kind == ContainerKind::Course {
         target_app.metrics().course_created(course_source);
     }
-    announce_workspace_copy(
-        target_app,
-        target_ws_id,
-        created_container.clone(),
-        block_ids,
-        members,
+    // As a copy within its workspace is told of: the board, its blocks read again (one
+    // deleted meanwhile is not told of), its memberships.
+    target_app.tell(
+        Changes::in_workspace(target_ws_id)
+            .made([created_container.clone()], members)
+            .reread(block_ids),
     );
     Ok(CopiedContainerResult {
         container: created_container,
@@ -625,13 +625,11 @@ async fn commit_copied_stream(
 
     let write_res = target_app
         .store()
-        .create_imported_containers_blocks_files_members_and_schedules_streamed(
-            containers,
-            staged_files,
-            &[],
-            schedules,
+        .create_containers(
+            NewContainers::streamed(containers, rx)
+                .recording(staged_files)
+                .with_schedules(schedules),
             user_id,
-            rx,
         )
         .await;
     let _ = producer.await;
@@ -660,26 +658,4 @@ async fn release_written_places(places: Vec<WrittenPlace>) {
     for place in places {
         place.give_up().await;
     }
-}
-
-fn announce_workspace_copy(
-    target_app: &App,
-    target_ws_id: &str,
-    container: Container,
-    block_ids: Vec<String>,
-    members: Vec<ContainerMember>,
-) {
-    let app = target_app.clone();
-    let ws_id = target_ws_id.to_owned();
-    target_app.spawn_background(async move {
-        app.ws()
-            .broadcast_container_change(&ws_id, &container)
-            .await;
-        for member in &members {
-            app.ws()
-                .broadcast_member_change(&ws_id, &member.container_id, member)
-                .await;
-        }
-    });
-    target_app.tell(Changes::in_workspace(target_ws_id).reread(block_ids));
 }
