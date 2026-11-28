@@ -423,6 +423,7 @@ fn board_ops() -> Vec<Op> {
             "/cards/{p}/body-versions",
             None,
         ),
+        op("cards: activity", Method::GET, "/cards/{p}/activity", None),
         op(
             "cards: keep version",
             Method::POST,

@@ -428,6 +428,11 @@ fn content_cases() -> Vec<Case> {
             |h, i| format!("{TEST_WS}/cards/{}", h.card[i]),
             title,
         ),
+        case(
+            Method::GET,
+            |h, i| format!("{TEST_WS}/cards/{}/activity", h.card[i]),
+            no_body,
+        ),
         // Its files.
         case(
             Method::GET,

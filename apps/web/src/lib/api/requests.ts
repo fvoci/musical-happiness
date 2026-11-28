@@ -15,6 +15,7 @@ import {
   type User,
 } from '../state/backend.ts';
 import type { ApiTokens } from '../state/api-tokens.ts';
+import type { CardActivity } from '../state/activity-types.ts';
 import type { BodyVersions } from '../state/body-versions.ts';
 import type { EmailChange } from '../state/email-change.ts';
 import type { FileVersions } from '../state/file-versions.ts';
@@ -24,6 +25,7 @@ import type { References } from '../state/references.ts';
 import { AccountRequests } from './account-requests.ts';
 import { ServerApiTokens } from './api-tokens.ts';
 import { ServerBodyVersions } from './body-versions.ts';
+import { ServerCardActivity } from './card-activity.ts';
 import { containerOf, userOf, type Schemas } from './convert.ts';
 import { ServerCourses } from './courses.ts';
 import { ServerDiaries } from './diaries.ts';
@@ -73,6 +75,7 @@ export class ServerRequests extends AccountRequests implements TrashReads {
   readonly course: ServerCourses;
   /** The versions kept of the bodies of cards. */
   readonly bodyVersions: BodyVersions;
+  readonly cardActivity: CardActivity;
   readonly fileVersions: FileVersions;
   /** What bodies name, as the reader may see it. */
   readonly references: References;
@@ -104,6 +107,9 @@ export class ServerRequests extends AccountRequests implements TrashReads {
     this.notifications = new ServerNotifications(http);
     this.time = new ServerTime(http);
     this.bodyVersions = new ServerBodyVersions((path, params, options) =>
+      this.inWorkspace(path, params, options),
+    );
+    this.cardActivity = new ServerCardActivity((path, params, options) =>
       this.inWorkspace(path, params, options),
     );
     this.fileVersions = new ServerFileVersions(

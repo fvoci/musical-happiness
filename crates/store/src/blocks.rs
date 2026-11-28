@@ -871,7 +871,9 @@ async fn insert_block_inner(
         block.created_at = now;
         block.edited_at = 0;
         crate::diaries::stamp_entry_body_time(block, None);
+        crate::card_recurrence::settle_new(scope, block, how.telling).await?;
         insert_block_row(scope, block, how.new_files).await?;
+        crate::card_events::note_created(scope, block, user_id).await?;
         notification_noting::note_named(scope, block, None, user_id, how.telling).await?;
     }
     Ok(named)

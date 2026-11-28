@@ -766,6 +766,7 @@ const MEMBER_READ_OPERATIONS: &[&str] = &[
     "getPageCommentVersions",
     "getPageBodyVersions",
     "getPageBodyVersion",
+    "getCardActivity",
     "getCardBodyVersions",
     "getCardBodyVersion",
     "getUpload",

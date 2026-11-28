@@ -250,9 +250,10 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
         }
     }
     ts.teardown().await;
-    // 77 since the reactions (addReaction, removeReaction) came, after the move.
+    // 77 since the reactions (addReaction, removeReaction) came, after the move, and 78
+    // with the activity of cards (getCardActivity).
     assert_eq!(
-        count, 77,
+        count, 78,
         "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));

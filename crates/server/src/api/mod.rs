@@ -13,6 +13,7 @@ mod auth;
 mod board_ops;
 mod body;
 mod body_versions;
+mod card_activity;
 mod card_comments;
 mod card_markdown;
 mod cards;
@@ -161,6 +162,7 @@ fn routes() -> Routes {
         .merge(board_ops::routes())
         .merge(views::routes())
         .merge(attachments::routes())
+        .merge(card_activity::routes())
         .merge(card_comments::routes())
         .merge(card_markdown::routes())
         .merge(lists::routes())

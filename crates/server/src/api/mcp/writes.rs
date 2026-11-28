@@ -4,18 +4,20 @@
 //! agent's, the agent's own, a body added to while people type) are the route's.
 
 use fvoci_model::{
-    ApiTokenScope, BlockError, Body, BodyChange, Card, CardPatch, ContainerKinds,
-    LastPositionChange, NewPage, NewUnit, PagePatch, Unit, UnitKind, UnitPatch, UnitProgressUpdate,
+    ApiTokenScope, BlockError, Body, BodyChange, Card, CardBatchPatch, CardPatch, CompactCard,
+    ContainerKinds, LastPositionChange, NewPage, NewUnit, PagePatch, Unit, UnitKind, UnitPatch,
+    UnitProgressUpdate,
 };
 use serde_json::{Value, json};
 
 use super::arguments::{
     ItemKind, OutlineEntry, PageOrUnit, PostCommentArguments, ProgressArguments, SaveCardArguments,
-    SavePageOrUnitArguments,
+    SaveCardsArguments, SavePageOrUnitArguments,
 };
 use super::reads::{card_in_markdown, listed_comment, page_in_markdown, to_json, unit_in_markdown};
 use super::tools::{Partly, ToolError, enter};
 use crate::api::access::require_container_permission;
+use crate::api::board_ops::batch_patch_cards_with;
 use crate::api::card_markdown::append_to_card;
 use crate::api::cards::{card_with_permission, create_card_with, patch_card_with};
 use crate::api::comments::{CommentParentKind, CommenterOf};
@@ -130,6 +132,7 @@ pub(super) async fn save_card(
         || arguments.parent_id.is_some()
         || arguments.properties.is_some()
         || arguments.deleted_properties.is_some()
+        || arguments.recurrence.is_some()
         || arguments.body_markdown.is_some();
     if arguments.read_at.is_some() && !writes_whole {
         return Err(ToolError::arguments(READ_AT_ALONE));
@@ -149,6 +152,33 @@ pub(super) async fn save_card(
             "boardId makes a card and cardId changes one: send one of them",
         )),
     }
+}
+
+pub(super) async fn save_cards(
+    app: &App,
+    caller: &Caller,
+    arguments: SaveCardsArguments,
+) -> Result<Value, ToolError> {
+    let ws = enter(
+        app,
+        caller,
+        &arguments.workspace_id,
+        ApiTokenScope::Write,
+        ContainerKinds::BOARDS,
+    )
+    .await?;
+    let batch = CardBatchPatch {
+        card_ids: arguments.card_ids,
+        updated_properties: arguments.properties.unwrap_or_default(),
+        deleted_properties: arguments.deleted_properties.unwrap_or_default(),
+    };
+    let cards: Vec<CompactCard> =
+        batch_patch_cards_with(&ws, &arguments.board_id, &batch, ChangeNotification::Send)
+            .await?
+            .into_iter()
+            .map(CompactCard::from)
+            .collect();
+    Ok(json!({ "cards": cards }))
 }
 
 /// Makes a card on the board `board_id`. Its body, if it has one, is checked before the
@@ -183,6 +213,7 @@ async fn new_card(
         icon: arguments.icon.unwrap_or_default(),
         parent_id: arguments.parent_id.unwrap_or_default(),
         properties: arguments.properties.unwrap_or_default(),
+        recurrence: arguments.recurrence.flatten(),
         ..Card::default()
     };
     let request = NewCardRequest {
@@ -236,6 +267,7 @@ async fn change_card(
         body: BodyChange::Keep,
         read_at: arguments.read_at,
         body_markdown: arguments.body_markdown,
+        recurrence: arguments.recurrence,
     };
     let mut done = Done::changing(card_id);
     if patch != CardPatch::default() {
