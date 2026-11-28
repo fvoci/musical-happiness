@@ -1,6 +1,6 @@
 //! Boards and blocks created together.
 
-use fvoci_model::{ContainerMember, ContainersAndBlocks};
+use fvoci_model::{Container, ContainerMember, ContainersAndBlocks};
 use fvoci_store::{NewContainers, StoreError};
 
 use super::{App, Changes};
@@ -40,12 +40,7 @@ impl App {
                 .map_err(StoreError::from)?
         };
 
-        if !created.containers.is_empty() {
-            let made = created.containers.iter().map(|container| &container.id);
-            self.collab()
-                .recheck_access(self, AccessScope::containers(made))
-                .await;
-        }
+        self.recheck_made(&created.containers).await;
         self.announce_created(&created, &members).await;
 
         for container in &created.containers {
@@ -59,6 +54,18 @@ impl App {
             }
         }
         Ok(created)
+    }
+
+    /// Has the rooms of the boards `containers`, made just now, ask again who may be in
+    /// them, before the write that made them answers.
+    pub(crate) async fn recheck_made(&self, containers: &[Container]) {
+        if containers.is_empty() {
+            return;
+        }
+        let made = containers.iter().map(|container| &container.id);
+        self.collab()
+            .recheck_access(self, AccessScope::containers(made))
+            .await;
     }
 
     /// Tells the boards' members and the webhooks about boards and blocks that were
