@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::api_tokens_diaries::{Space, a_space_with_a_diary};
 use crate::board_broadcasts::WorkspaceSocket;
+use crate::board_views::add_view;
 use crate::common::{Client, PASSWORD, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID};
 use crate::diaries::last_of;
 
@@ -60,12 +61,8 @@ async fn stars_are_listed_in_their_order_with_what_they_are_on_now() {
 
     // A view of the board, which a reference resolves for a board view to show, is
     // starred with its board alone.
-    let views: Vec<Value> = client
-        .get(&format!("{TEST_WS}/boards/{}/views", board.id))
-        .await
-        .ok_json();
-    let view = views[0]["id"].as_str().expect("the board's view");
-    star(client, TEST_WS, view).await.check_not_found();
+    let view = add_view(client, &board.id, "Plan").await;
+    star(client, TEST_WS, &view.id).await.check_not_found();
 
     let listed = favorites(client, TEST_WS).await;
     assert_eq!(listed.len(), 2, "{listed:?}");
