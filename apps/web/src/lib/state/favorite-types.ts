@@ -38,7 +38,7 @@ export interface Favorites {
    * among it; 400 `too_many_favorites` past `MAX_FAVORITES`.
    */
   star(workspaceId: string, targetId: string): Promise<void>;
-  /** Takes the star off; none there is no error. */
+  /** Takes the star off; 404 where none is on it (taken off in another tab, say). */
   unstar(workspaceId: string, targetId: string): Promise<void>;
   /** Puts the stars in the order of `targetIds`, the others after them. */
   reorder(workspaceId: string, targetIds: readonly string[]): Promise<void>;
