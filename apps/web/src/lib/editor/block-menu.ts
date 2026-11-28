@@ -2,8 +2,9 @@
  * What the slash menu offers (slash-menu.ts), in its order: the kinds of
  * block a line becomes or is wrapped in (three headings, a to-do list, a
  * bulleted and a numbered list, a quote, a toggle, a callout, a code block,
- * a formula on a line of its own, a divider), then a table, then a file or
- * an image where the body takes files. In a table, what changes the table comes first.
+ * a formula on a line of its own, a divider), then a table, then a board
+ * view where the body may show one, then a file or an image where the body
+ * takes files. In a table, what changes the table comes first.
  *
  * Each is offered only where it can be done (`editor.can()`): no heading
  * as the first line of a list entry, nothing a cell or a quote may not hold.
@@ -131,13 +132,21 @@ function fileEntry(): SlashEntry {
   };
 }
 
-/** Everything the slash menu offers where the reader is now. */
-export function slashEntries(editor: Editor, uploads: boolean): SlashEntry[] {
+/**
+ * Everything the slash menu offers where the reader is now. `boardViews`
+ * gives the entry of a board view where the body may show one (board-view.ts).
+ */
+export function slashEntries(
+  editor: Editor,
+  uploads: boolean,
+  boardViews?: (editor: Editor) => SlashEntry[],
+): SlashEntry[] {
   const tables = tableEntries(editor);
   const files = uploads ? [fileEntry()] : [];
+  const views = boardViews?.(editor) ?? [];
   // Outside a table its one entry makes one; inside, its entries change it, and come first.
   const inTable = tables.some((entry) => entry.value !== 'table');
   return inTable
     ? [...tables, ...blockEntries(editor), ...files]
-    : [...blockEntries(editor), ...tables, ...files];
+    : [...blockEntries(editor), ...tables, ...views, ...files];
 }

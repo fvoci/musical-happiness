@@ -7,6 +7,7 @@
  */
 export {
   BackendError,
+  CARD_BATCH_LIMIT,
   isBackendError,
   isConflict,
   isOwnSpace,
@@ -76,6 +77,7 @@ export type {
 } from './import-types.ts';
 export type { Registered } from './account-types.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
+export { clearCardsProperty, setCardsProperty } from './board-bulk.ts';
 export { addViewAtEnd, duplicateView, moveView } from './view-moves.ts';
 export { type Shareable } from './member-writes.ts';
 export { boardPresence } from './board-presence.svelte.ts';
@@ -267,6 +269,14 @@ export {
   ReferenceTitles,
   type ReferencePlaces,
 } from './reference-titles.svelte.ts';
+export {
+  boardsToShow,
+  embeddedBoards,
+  EmbeddedBoards,
+  viewsOfBoard,
+  RELEASE_AFTER_MS,
+  type HeldBoard,
+} from './embedded-board.svelte.ts';
 export type { LinkedBlock } from './references.ts';
 export { noteMembership, readerOf } from './memberships.svelte.ts';
 export {

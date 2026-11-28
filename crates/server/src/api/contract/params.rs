@@ -73,6 +73,9 @@ parameter!(UnitVersionNumber: Path "version", i64, True, "The number of the vers
 parameter!(MonthDayOfYear: Path "monthDay", String, True, "A month and a day without a year, as `11-21`: two digits each. `02-29` is a day of its own, which only leap years have. 400 for anything else.");
 parameter!(EntryVersionNumber: Path "version", i64, True, "The number of the version of the entry's body, as `getDiaryEntryBodyVersions` lists it.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
+parameter!(ReactedContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: its entries are its owner's alone.");
+parameter!(ReactedBlockId: Path "blockId", String, True, "The identifier of a comment, a card, a page or a unit of the container of the path. 404 for a block of another container, and for a block of any other type.");
+parameter!(ReactionEmoji: Path "emoji", String, True, "The emoji, percent-encoded as any text of a path is (`%F0%9F%91%8D` for 👍): one grapheme of at most 8 code points that has the shape of an emoji, as a pictograph with its variation selector and skin tone, joined to others by zero-width joiners, a flag or a keycap. 400 for any other text.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
 parameter!(ViewId: Path "viewId", String, True, "The identifier of the board view.");
 parameter!(AttachmentId: Path "attachmentId", String, True, "The identifier of the attachment: an attachment of the card of the path. 404 for an attachment of another card, and for a block that is no attachment.");

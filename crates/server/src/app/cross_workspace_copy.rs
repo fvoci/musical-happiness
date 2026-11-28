@@ -22,7 +22,7 @@ use super::container_copies::{counted_as, titles_in};
 use super::loose_objects::WrittenPlace;
 use super::pages::refused_without_member;
 use super::templates::{TEMPLATE_MARKS, changes_of_copy};
-use super::{App, MAX_REFERENCE_IDS};
+use super::{App, Changes, MAX_REFERENCE_IDS};
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 use crate::metrics::{ContainerWork, CourseSource};
@@ -308,11 +308,13 @@ impl App {
             .iter()
             .filter(|fid| !file_map.contains_key(fid.as_str()))
             .count();
+        // The bodies name the copies already: renewing the identifiers renamed them.
+        let copies: HashSet<String> = all_copies.into_values().collect();
         if let Err(error) = sanitize_copied_blocks(
             &mut blocks,
             &containers[0],
             &file_map,
-            &all_copies,
+            &copies,
             &snapshot.external_titles,
             &snapshot.member_names,
             &present_users,
@@ -679,5 +681,5 @@ fn announce_workspace_copy(
                 .await;
         }
     });
-    target_app.announce_blocks(target_ws_id, block_ids);
+    target_app.tell(Changes::in_workspace(target_ws_id).reread(block_ids));
 }

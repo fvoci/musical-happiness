@@ -193,6 +193,7 @@ fn deleting(doc: &Doc, writer: Option<u64>) -> Result<Repair, BodyError> {
     check_totals(DocTotals {
         blocks: survey.kept_blocks,
         nodes: survey.kept_nodes,
+        board_views: survey.kept_board_views,
         json_bytes: survey.kept_json_bytes,
         is_empty_doc: survey.only_empty_paragraph,
     })?;
@@ -287,6 +288,7 @@ fn deleting_with_cache(
     check_totals(DocTotals {
         blocks: survey.kept_blocks,
         nodes: survey.kept_nodes,
+        board_views: survey.kept_board_views,
         json_bytes: survey.kept_json_bytes,
         is_empty_doc: survey.only_empty_paragraph,
     })?;
@@ -491,6 +493,7 @@ struct KeptSurveyBlock {
 struct CachedRootSurvey {
     kept_blocks: usize,
     kept_nodes: u64,
+    kept_board_views: u64,
     kept_json_bytes: u64,
     only_empty_paragraph: bool,
     changes: Changes,
@@ -581,6 +584,9 @@ impl<T: ReadTxn> Survey<'_, T> {
             {
                 out.kept_blocks += 1;
                 out.kept_nodes = out.kept_nodes.saturating_add(u64::from(summary.nodes));
+                out.kept_board_views = out
+                    .kept_board_views
+                    .saturating_add(u64::from(summary.board_views));
                 out.kept_json_bytes = out
                     .kept_json_bytes
                     .saturating_add(u64::from(summary.json_bytes));
@@ -627,6 +633,9 @@ impl<T: ReadTxn> Survey<'_, T> {
                 let bytes = u64::try_from(summary.json_bytes).unwrap_or(u64::MAX);
                 out.kept_blocks += 1;
                 out.kept_nodes = out.kept_nodes.saturating_add(nodes);
+                out.kept_board_views = out
+                    .kept_board_views
+                    .saturating_add(u64::try_from(summary.board_views).unwrap_or(u64::MAX));
                 out.kept_json_bytes = out.kept_json_bytes.saturating_add(bytes);
                 out.only_empty_paragraph = out.kept_blocks == 1 && summary.is_empty_paragraph;
                 if let Some((id, element)) = elem {
@@ -640,6 +649,7 @@ impl<T: ReadTxn> Survey<'_, T> {
                                 json_bytes: u32::try_from(summary.json_bytes).unwrap_or(u32::MAX),
                                 is_empty_paragraph: summary.is_empty_paragraph,
                                 has_empty_row_text: false,
+                                board_views: u32::try_from(summary.board_views).unwrap_or(u32::MAX),
                             },
                             file_ids: summary.file_ids.into_boxed_slice(),
                         },

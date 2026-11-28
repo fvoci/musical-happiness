@@ -540,7 +540,7 @@ impl ScanAccum {
         };
         collect_block_references(&block, &self.relations, &mut self.referenced);
         if let Some(body) = &block.body {
-            for id in body.reference_ids() {
+            for id in body.linked_ids() {
                 self.body_refs.insert(id.to_owned());
             }
         }

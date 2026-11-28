@@ -369,7 +369,7 @@ fn toggles_and_callouts_come_back_the_same() {
     ]));
     let markdown = check_round_trip(&body);
     assert!(
-        markdown.starts_with("<details>\n<summary>Why **this** \\<now>?</summary>\n\nBecause."),
+        markdown.starts_with("<details>\n<summary>Why **this** &lt;now&gt;?</summary>\n\nBecause."),
         "{markdown}"
     );
     for alert in [
@@ -526,5 +526,124 @@ fn an_export_links_what_it_holds_and_names_the_rest_in_plain_text() {
             "[Setup \\[one\\]](<Guide/Setup.md>) A card \\*elsewhere\\* [[{UNSEEN}]] @Kim\n\n\
              ![moon](<files/moon.png>)"
         )
+    );
+}
+
+/// The line between `<summary>` and `</summary>` of the first toggle of `markdown`.
+fn summary_line(markdown: &str) -> &str {
+    let start = markdown.find("<summary>").expect("a summary") + "<summary>".len();
+    let end = markdown.rfind("</summary>").expect("the end of a summary");
+    &markdown[start..end]
+}
+
+/// A summary is in a block of HTML, which a renderer passes on as it is: none of its
+/// letters is markup there, and the summary still comes back the same.
+#[test]
+fn the_markup_of_a_summary_is_written_as_character_references() {
+    let link = json!([{"type": "link", "attrs": {"href": "https://example.com/?a=1&b=<2>"}}]);
+    let plain_link = json!([{"type": "link", "attrs": {"href": "https://example.com/?a=1&b=2"}}]);
+    let injected = "<script>alert(1)</script><img src=x onerror=alert(1)> a & b > c &amp;";
+    let body = doc(&json!([toggle(
+        &[
+            text(injected),
+            marked(" here", &plain_link),
+            json!({"type": "mention", "attrs": {"userId": PERSON}}),
+        ],
+        &json!([paragraph(&[text("hidden")])]),
+    )]));
+    let mut names = Names::default();
+    names
+        .users
+        .insert(PERSON.to_owned(), "<b>Kim</b> & co".to_owned());
+    let written = body_to_markdown(body.document(), &names);
+    assert_eq!(written.complex, [], "all is held: {}", written.markdown);
+    let summary = summary_line(&written.markdown);
+    assert!(
+        !summary.contains(['<', '>']),
+        "no tag in the summary: {summary}"
+    );
+    assert!(
+        summary.starts_with("&lt;script&gt;alert(1)&lt;/script&gt;&lt;img"),
+        "{summary}"
+    );
+    check_round_trip(&body);
+
+    // What a character reference cannot be read back in is named, and written without
+    // markup all the same.
+    for (summary, reason) in [
+        (marked("</summary>", &json!([{"type": "code"}])), "code"),
+        (
+            json!({"type": "inlineMath", "attrs": {"latex": "a<b"}}),
+            "formula",
+        ),
+        (marked("there", &link), "link"),
+    ] {
+        let body = doc(&json!([toggle(
+            &[text("a "), summary, text(" b")],
+            &json!([paragraph(&[text("hidden")])]),
+        )]));
+        let written = body_to_markdown(body.document(), &Names::default());
+        assert_eq!(
+            written.complex,
+            [fvoci_model::ComplexBlock {
+                path: "/content/0/content/0".to_owned(),
+                reason: ComplexBlockReason::MarkupInSummary,
+            }],
+            "{reason}: {}",
+            written.markdown
+        );
+        let summary = summary_line(&written.markdown);
+        assert!(!summary.contains(['<', '>']), "{reason}: {summary}");
+        // What it hides stays hidden: the summary ends where it was written to.
+        let read = markdown_nodes(&written.markdown, "markdown").expect("read");
+        assert_eq!(read.len(), 1, "{reason}: {read:?}");
+        assert_eq!(
+            read[0]["content"][1],
+            json!({"type": "detailsContent", "content": [paragraph(&[text("hidden")])]}),
+            "{reason}"
+        );
+    }
+}
+
+/// In an export, a reference and a person in a toggle's summary are written as the
+/// summary writes its letters: the link without `<…>`, nothing HTML reads as markup.
+#[test]
+fn an_export_writes_a_summary_without_markup() {
+    use std::sync::Arc;
+
+    use super::{ExportPlaces, Exported};
+    const PAGE: &str = "0190a5b4-0000-7000-8000-000000000003";
+    let folder = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| (*part).to_owned())
+            .collect::<Vec<_>>()
+    };
+    let mut places = ExportPlaces::default();
+    places.blocks.insert(
+        PAGE.to_owned(),
+        (folder(&["Wiki", "Q & A.md"]), "Q & A".to_owned()),
+    );
+    let mut names = Names::default();
+    names
+        .users
+        .insert(PERSON.to_owned(), "<b>Kim</b>".to_owned());
+    names.export = Some(Exported {
+        from: folder(&["Wiki"]),
+        places: Arc::new(places),
+    });
+    let body = doc(&json!([toggle(
+        &[
+            json!({"type": "reference", "attrs": {"id": PAGE}}),
+            text(" "),
+            json!({"type": "mention", "attrs": {"userId": PERSON}}),
+        ],
+        &json!([paragraph(&[text("hidden")])]),
+    )]));
+    let written = body_to_markdown(body.document(), &names).markdown;
+    let summary = summary_line(&written);
+    assert_eq!(
+        summary, "[Q &amp; A](Q%20&amp;%20A.md) @&lt;b&gt;Kim&lt;/b&gt;",
+        "{written}"
     );
 }

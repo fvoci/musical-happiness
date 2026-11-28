@@ -426,7 +426,7 @@ impl Store {
 ///
 /// `meeting_attendance` and `course_meetings` (`presenter_id`, `host_id`) are intentionally
 /// excluded: shared study meeting history stays under the erased user's tombstone identifier.
-const PERSONAL_DELETES: [&str; 21] = [
+const PERSONAL_DELETES: [&str; 22] = [
     "DELETE FROM notifications WHERE recipient_id = ",
     "DELETE FROM notification_outbox WHERE recipient_id = ",
     "DELETE FROM card_due_notices WHERE user_id = ",
@@ -441,6 +441,7 @@ const PERSONAL_DELETES: [&str; 21] = [
     "DELETE FROM user_client_state WHERE user_id = ",
     "DELETE FROM password_resets WHERE user_id = ",
     "DELETE FROM subscriptions WHERE user_id = ",
+    "DELETE FROM reactions WHERE user_id = ",
     "DELETE FROM category_containers WHERE user_id = ",
     "DELETE FROM categories WHERE user_id = ",
     "DELETE FROM favorites WHERE user_id = ",
@@ -746,7 +747,7 @@ async fn heir_in(
 
 /// Removes what the user still has in the scope's organization once they are out of
 /// its workspaces: a role left on a board of a workspace they had left before, what
-/// they follow there, the membership of the organization, and the links they made
+/// they follow there, their reactions there, the membership of the organization, and the links they made
 /// that nobody used. A link another was made like stays, and so do those made like it
 /// that were used and the registrations made by them, which the schema would take
 /// along: such a link lets nobody in, for its maker is no member of the organization.
@@ -784,6 +785,7 @@ pub(crate) async fn leave_organization<'c>(
     // and note writes (which hold `users`) so an in-flight write cannot insert an orphan
     // after we clear rows.
     crate::users::hold_user_for_cleanup(scope, user_id).await?;
+    crate::reactions::forget_user_in_organization(scope, user_id).await?;
     crate::unit_reviews::forget_user_in_organization(scope, user_id).await?;
     let mut due_sql = scope.sql("DELETE FROM card_due_notices WHERE user_id = ");
     due_sql

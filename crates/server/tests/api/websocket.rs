@@ -1250,6 +1250,13 @@ async fn messages_match_the_websocket_contract() {
     ws.broadcast_block_delete(ROOT_WORKSPACE_ID, &block.id, &board.id, block.block_type)
         .await;
     contract_check.hear(&mut socket, "blockChanged").await;
+    let reactions = [fvoci_model::Reaction {
+        emoji: "👍".parse().expect("an emoji"),
+        user_ids: vec![user1.id.clone()],
+    }];
+    ws.broadcast_reactions_change(ROOT_WORKSPACE_ID, &board.id, &block.id, &reactions)
+        .await;
+    contract_check.hear(&mut socket, "reactionsChanged").await;
     let admin = members
         .first()
         .expect("the board has its admin as a member");

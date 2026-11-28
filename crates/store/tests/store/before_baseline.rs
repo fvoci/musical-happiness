@@ -11,8 +11,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use fvoci_store::testing::connect_at_the_baseline;
-use fvoci_store::{DbType, SchemaCheck, Store, StoreError};
+use fvoci_store::{DbType, Store, StoreError};
 use sha2::{Digest as _, Sha384};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions as _, Connection as _, Row as _};
@@ -376,53 +375,49 @@ async fn brought_up_to_date() -> (String, fvoci_store::testing::TestDatabase) {
     (connection, database)
 }
 
-/// A database of its own brought up to the baseline and no further, by a store that is
-/// closed again.
+/// A database brought up to date and its migrations after the baseline taken away
+/// again: of the baseline alone, as the tests below make the one the last server before
+/// the baseline left.
 async fn at_the_baseline() -> (String, fvoci_store::testing::TestDatabase) {
-    let database = common::empty_database().await;
-    let connection = common::raw_connection(&database);
-    connect_at_the_baseline(common::db_type(), &connection)
-        .await
-        .close()
+    let (connection, database) = brought_up_to_date().await;
+    fvoci_store::testing::undo_the_migrations_after_the_baseline(common::db_type(), &connection)
         .await;
     (connection, database)
 }
 
-/// The record and the catalog of a database brought up to date: what a database before
-/// the baseline has once it is opened.
-async fn up_to_date() -> (Vec<Recorded>, String) {
+/// The record and the catalog of a database this server brought up to date from empty:
+/// what one before the baseline is to be once it is opened.
+async fn as_made_anew() -> (Vec<Recorded>, String) {
     let (connection, database) = brought_up_to_date().await;
-    let found = (record(&connection).await, catalog(&connection).await);
+    let made = (record(&connection).await, catalog(&connection).await);
     database.remove().await;
-    found
+    made
 }
 
-/// A database brought up to the baseline has the schema, and the rows, of one the last
-/// server before the baseline brought up to date.
+/// The baseline has the schema, and the rows, of a database the last server before the
+/// baseline brought up to date.
 #[tokio::test]
-async fn a_database_at_the_baseline_has_the_schema_before_the_baseline() {
+async fn the_baseline_has_the_schema_before_the_baseline() {
     let (connection, database) = at_the_baseline().await;
     assert_catalog_is_the_one_before_the_baseline(&catalog(&connection).await);
     database.remove().await;
 }
 
 /// A database brought up to date holds the record of the baseline first: migration 1,
-/// with the checksum of its file, and then the migrations after it, each applied.
+/// with the checksum of its file; then those after it, each applied, the versions going
+/// up.
 #[tokio::test]
 async fn a_database_brought_up_to_date_holds_the_record_of_the_baseline_first() {
     let (connection, database) = brought_up_to_date().await;
-    let found = record(&connection).await;
-    assert_eq!(found.first(), Some(&baseline_record()));
+    let recorded = record(&connection).await;
+    assert_eq!(recorded.first(), Some(&baseline_record()), "{recorded:?}");
     assert!(
-        found
-            .iter()
-            .zip(1..)
-            .all(|(row, version)| row.version == version && row.success),
-        "{found:?}"
+        recorded.iter().all(|row| row.success)
+            && recorded
+                .windows(2)
+                .all(|pair| pair[0].version < pair[1].version),
+        "{recorded:?}"
     );
-    let (at_baseline, at_baseline_database) = at_the_baseline().await;
-    assert_eq!(record(&at_baseline).await, [baseline_record()]);
-    at_baseline_database.remove().await;
     database.remove().await;
 }
 
@@ -471,30 +466,30 @@ async fn write_record(connection: &str, rows: &[Recorded]) {
     .await;
 }
 
-/// A database brought up to the baseline, with the record the last server before it
-/// wrote: as that server left it.
+/// A database brought up to date by the baseline, with the record the last server
+/// before it wrote: as that server left it.
 async fn left_before_the_baseline() -> (String, fvoci_store::testing::TestDatabase) {
     let (connection, database) = at_the_baseline().await;
     write_record(&connection, &record_before_the_baseline(common::db_type())).await;
     (connection, database)
 }
 
-/// Opening a database before the baseline replaces its record with the baseline's and
-/// applies the migrations after it, and nothing else: the record and the schema are
-/// those of a database brought up to date.
+/// Opening a database before the baseline replaces its record with the baseline's, and
+/// applies the migrations after it, and nothing else: its schema, its rows and its
+/// record are those of a database made anew.
 #[tokio::test]
-async fn opening_a_database_before_the_baseline_replaces_its_record_alone() {
+async fn a_database_before_the_baseline_once_opened_is_one_made_anew() {
     let (connection, database) = left_before_the_baseline().await;
     Store::connect(common::db_type(), &connection)
         .await
         .expect("the database before the baseline opens")
         .close()
         .await;
-    let (expected_record, expected_catalog) = up_to_date().await;
-    assert_eq!(record(&connection).await, expected_record);
+    let (record_anew, catalog_anew) = as_made_anew().await;
+    assert_eq!(record(&connection).await, record_anew);
     assert!(
-        catalog(&connection).await == expected_catalog,
-        "the schema is the one of a database brought up to date"
+        catalog(&connection).await == catalog_anew,
+        "the schema and the rows are those of a database made anew"
     );
     database.remove().await;
 }
@@ -503,28 +498,22 @@ async fn opening_a_database_before_the_baseline_replaces_its_record_alone() {
 /// there after it.
 #[tokio::test]
 async fn the_rows_of_a_database_before_the_baseline_are_kept() {
-    let database = common::empty_database().await;
-    let connection = common::raw_connection(&database);
-    let store = connect_at_the_baseline(common::db_type(), &connection).await;
-    let (org_id, workspace_id) = common::organization(&store, "").await;
-    let theirs = store.for_org(&org_id).expect("an identifier");
-    let user_id = common::user(&theirs, "kept").await;
-    let boards = common::create_test_boards(&theirs, &workspace_id, &user_id, 1).await;
-    store.close().await;
+    let test = common::setup().await;
+    let user_id = common::user(&test, "kept").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &user_id, 1).await;
+    let connection = test.database_connection();
+    fvoci_store::testing::undo_the_migrations_after_the_baseline(common::db_type(), &connection)
+        .await;
     write_record(&connection, &record_before_the_baseline(common::db_type())).await;
-    let store = Store::connect(common::db_type(), &connection)
-        .await
-        .expect("the database before the baseline opens");
+    let store = test.reconnect().await;
     let board = store
-        .for_org(&org_id)
-        .expect("an identifier")
         .get_container(&boards[0].id)
         .await
         .expect("the board is there");
     assert_eq!(board.title, boards[0].title);
-    assert_eq!(record(&connection).await, up_to_date().await.0);
+    assert_eq!(record(&connection).await, as_made_anew().await.0);
     store.close().await;
-    database.remove().await;
+    test.teardown().await;
 }
 
 /// A database opened again after its record was replaced is opened as it is: its record
@@ -549,37 +538,26 @@ async fn a_replaced_record_is_not_replaced_again() {
         .texts_unchecked("SELECT description FROM _sqlx_migrations")
         .await
         .expect("the record is read");
-    assert_eq!(descriptions.len(), up_to_date().await.0.len());
-    assert!(
-        descriptions.iter().all(|said| said == "replaced once"),
-        "{descriptions:?}"
+    assert_eq!(
+        descriptions,
+        vec!["replaced once"; as_made_anew().await.0.len()]
     );
     store.close().await;
     database.remove().await;
 }
 
-/// Two servers that replace the record of a database before the baseline at once both
-/// do, and the record is replaced once: the second finds it done under the lock. The
-/// migrations after the baseline are then the lock of the server's to keep apart, which
-/// a server holds before it migrates.
+/// Two servers that open a database before the baseline at once both open it, and the
+/// record is replaced once: the second finds it done under the lock.
 #[tokio::test]
 async fn two_openings_at_once_replace_the_record_once() {
     let (connection, database) = left_before_the_baseline().await;
     let (first, second) = tokio::join!(
-        Store::open(common::db_type(), &connection),
-        Store::open(common::db_type(), &connection),
+        Store::connect(common::db_type(), &connection),
+        Store::connect(common::db_type(), &connection),
     );
-    let (first, second) = (
-        first.expect("the first opens it"),
-        second.expect("the second opens it"),
-    );
-    let (one, other) = tokio::join!(first.re_anchor(), second.re_anchor());
-    let one = one.expect("the first replaces it");
-    assert_eq!(one, other.expect("the second finds it done"));
-    assert_ne!(one, SchemaCheck::BeforeBaseline);
-    assert_eq!(record(&connection).await, [baseline_record()]);
-    first.close().await;
-    second.close().await;
+    first.expect("the first opens it").close().await;
+    second.expect("the second opens it").close().await;
+    assert_eq!(record(&connection).await, as_made_anew().await.0);
     database.remove().await;
 }
 
@@ -623,7 +601,7 @@ async fn any_other_record_before_the_baseline_is_refused() {
         ),
     ];
     for (rows, more, said) in cases {
-        let (connection, database) = at_the_baseline().await;
+        let (connection, database) = brought_up_to_date().await;
         write_record(&connection, &rows).await;
         if let Some(sql) = more {
             common::execute_raw(&connection, sql).await;

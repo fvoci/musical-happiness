@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use fvoci_store::testing::{TableOwner, TestDatabase, leave_before_the_baseline};
+use fvoci_store::testing::{TableOwner, TestDatabase, write_the_record_before_the_baseline};
 use fvoci_store::{DbType, SYSTEM_ORG_ID, Store, StoreError};
 
 use crate::common;
@@ -106,7 +106,13 @@ async fn a_role_that_does_not_own_the_tables_leaves_the_record_before_the_baseli
         return;
     }
     let database = owned_apart(TableOwner::Role).await;
-    leave_before_the_baseline(database.db_type(), database.owner_database_connection()).await;
+    Store::connect(database.db_type(), database.owner_database_connection())
+        .await
+        .expect("the owner brings the schema up to date")
+        .close()
+        .await;
+    write_the_record_before_the_baseline(database.db_type(), database.owner_database_connection())
+        .await;
     let refused = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect_err("the server's role does not replace the record");

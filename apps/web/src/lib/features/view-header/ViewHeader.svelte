@@ -58,6 +58,7 @@
   import { conditionCount } from './filter-edit.ts';
   import FilterEditor from './FilterEditor.svelte';
   import PropertiesPanel from './PropertiesPanel.svelte';
+  import QuickFilters from './QuickFilters.svelte';
   import SortEditor from './SortEditor.svelte';
   import { asideTools, viewTitle, type Icon } from './texts.ts';
   import { saveViewCsv } from './view-csv.ts';
@@ -450,6 +451,8 @@
     {/if}
   </div>
 </div>
+
+<QuickFilters {board} />
 
 {#if canEdit && !row}
   <!--

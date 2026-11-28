@@ -53,14 +53,16 @@ impl FavoriteKind {
             Self::Unit => "unit",
         }
     }
-}
 
-impl From<LinkedKind> for FavoriteKind {
-    fn from(kind: LinkedKind) -> Self {
+    /// The kind of star of what a reference resolves to: a card, a page or a unit. None
+    /// for a view of a board, which is not starred apart from its board.
+    #[must_use]
+    pub const fn of_linked(kind: LinkedKind) -> Option<Self> {
         match kind {
-            LinkedKind::Card => Self::Card,
-            LinkedKind::Page => Self::Page,
-            LinkedKind::Unit => Self::Unit,
+            LinkedKind::Card => Some(Self::Card),
+            LinkedKind::Page => Some(Self::Page),
+            LinkedKind::Unit => Some(Self::Unit),
+            LinkedKind::View => None,
         }
     }
 }
@@ -129,18 +131,19 @@ impl Favorite {
         }
     }
 
-    /// The star on a card, a page or a unit, as a reference shows it now.
+    /// The star on a card, a page or a unit, as a reference shows it now; none on a view
+    /// ([`FavoriteKind::of_linked`]).
     #[must_use]
-    pub fn of_block(linked: LinkedBlock) -> Self {
-        Self {
+    pub fn of_block(linked: LinkedBlock) -> Option<Self> {
+        Some(Self {
             target_id: linked.id,
-            kind: linked.kind.into(),
+            kind: FavoriteKind::of_linked(linked.kind)?,
             title: linked.title,
             icon: linked.icon,
             number: linked.number,
             container_id: linked.container_id,
             container_kind: linked.container_kind,
-        }
+        })
     }
 }
 

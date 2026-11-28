@@ -199,7 +199,8 @@ export type FilterCondition =
   | 'endsWith'
   | 'notEndsWith'
   | 'isBefore'
-  | 'isAfter';
+  | 'isAfter'
+  | 'isWithin';
 
 export type FilterClause = {
   propertyId: string;

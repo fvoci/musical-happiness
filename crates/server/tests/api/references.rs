@@ -154,20 +154,17 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
     );
     assert_eq!(resolved(&th.client, TEST_WS, &[]).await.text(), "[]");
 
-    // A comment, a view and the board itself are no card and no page.
-    let others = [BlockType::Comment, BlockType::View].map(|block_type| Block {
+    // A comment and the board itself are no card, no page and no view (what a view is
+    // told as is board_view_bodies.rs's).
+    let others = [Block {
         container_id: mine.board.clone(),
-        parent_id: if block_type == BlockType::Comment {
-            mine.card.clone()
-        } else {
-            String::new()
-        },
-        block_type,
+        parent_id: mine.card.clone(),
+        block_type: BlockType::Comment,
         title: "neither".to_owned(),
         ..Block::default()
-    });
+    }];
     let stored = insert(&th.client, &mine.board, &others).await;
-    let neither = [&stored[0].id, &stored[1].id, &mine.board, &mine.wiki];
+    let neither = [&stored[0].id, &mine.board, &mine.wiki];
     let neither: Vec<&str> = neither.iter().map(|id| id.as_str()).collect();
     check_as_nothing(&th.client, TEST_WS, &neither, &mine.card, "neither").await;
 
@@ -453,7 +450,7 @@ async fn what_is_of_another_organization_is_resolved_as_nothing() {
         .create_page(&wiki.id, &new_page, PageLimits::default(), &owner)
         .await
         .expect("their page is stored")
-        .page;
+        .first;
 
     let their_ids = [card.id.as_str(), page.id.as_str(), their_board.as_str()];
     check_as_nothing(&th.client, TEST_WS, &their_ids, &here.card, "another's").await;

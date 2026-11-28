@@ -420,17 +420,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .set_public_link(&board_id, PublicLinkChange::On, &new_id(), &user_id)
         .await
         .expect("the board is shared");
-    store
-        .create_subscription(Subscription {
-            block_type: BlockType::Card,
-            block_id: comment.parent_id.clone(),
-            user_id: user_id.clone(),
-            notified_at: 0,
-            created_at: 0,
-            deleted_at: None,
-        })
-        .await
-        .expect("a subscription is stored");
+    watched_and_reacted(store, &comment, &user_id).await;
     filed_and_starred(store, &board.workspace_id, &user_id, &board_id).await;
     in_the_files(store, &user_id, &board_id, username).await;
     a_body_edited_together(store, &board_id, &user_id).await;
@@ -459,6 +449,25 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     common::sign_in_under_way(store, username).await;
     a_link_for_a_guest(store, &board, &user_id).await;
     (card.id, user_id)
+}
+
+/// The user watches the comment's card, and reacts to the comment.
+async fn watched_and_reacted(store: &Store, comment: &fvoci_model::Block, user_id: &str) {
+    store
+        .create_subscription(Subscription {
+            block_type: BlockType::Card,
+            block_id: comment.parent_id.clone(),
+            user_id: user_id.to_owned(),
+            notified_at: 0,
+            created_at: 0,
+            deleted_at: None,
+        })
+        .await
+        .expect("a subscription is stored");
+    store
+        .add_reaction(&comment.id, user_id, &"👍".parse().expect("an emoji"))
+        .await
+        .expect("a reaction is stored");
 }
 
 /// A personal API token of the user that reaches the workspace, which they work in.
@@ -800,7 +809,7 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
         )
         .await
         .expect("a unit is stored")
-        .unit;
+        .first;
     store
         .upsert_unit_progress(
             &course.id,

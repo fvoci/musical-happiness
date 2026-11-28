@@ -273,7 +273,7 @@ fn describe_the_rest(reason: Reason) -> &'static str {
 }
 
 /// The descriptions of the reasons of a diary: its one entry a day, and how many
-/// entries and diaries there may be.
+/// entries and diaries there may be; and of how many units, chapters and emoji.
 fn describe_diary(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::DayTaken => {
@@ -303,6 +303,10 @@ fn describe_diary(reason: Reason) -> Option<&'static str> {
             "Status 400. The course would have more chapters than a course may, which `limit` \
              tells (200; chapters in the trash are not counted): when a chapter is made, \
              restored or imported. Nothing was changed. Deleting chapters makes room."
+        }
+        Reason::TooManyReactions => {
+            "Status 400. The block has as many different emoji as a block may, which `limit` \
+             tells (20): when a reaction adds one it has not (`addReaction`). Nothing changed."
         }
         _ => return None,
     })

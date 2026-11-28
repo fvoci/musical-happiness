@@ -116,13 +116,15 @@ impl BlockType {
     }
 
     /// Checks that a block of this type may have `body`: only a type that has a body
-    /// ([`BlockType::has_body`]) has one, and a comment's has no file block.
+    /// ([`BlockType::has_body`]) has one, a comment's has no file block, and only a
+    /// card's, a page's and a unit's shows a board view ([`Self::shows_board_views`]).
     ///
     /// # Errors
     ///
     /// Returns [`BlockError::BodyNotAllowed`] for a body of a type without one,
-    /// [`BlockError::FileBlockInComment`] for a comment's body with a file block, and
-    /// [`BlockError::BodyTooLarge`] if the serialized body exceeds
+    /// [`BlockError::FileBlockInComment`] for a comment's body with a file block,
+    /// [`BlockError::BoardViewNotAllowed`] for a board view in the body of a comment or
+    /// an entry, and [`BlockError::BodyTooLarge`] if the serialized body exceeds
     /// [`crate::BODY_MAX_BYTES`].
     pub fn check_body(self, body: Option<&Body>) -> Result<(), BlockError> {
         let Some(body) = body else {
@@ -134,7 +136,18 @@ impl BlockType {
         if self == Self::Comment && body.has_file_blocks() {
             return Err(BlockError::FileBlockInComment);
         }
+        if !self.shows_board_views() && body.has_board_views() {
+            return Err(BlockError::BoardViewNotAllowed);
+        }
         body.check_size().map_err(|_| BlockError::BodyTooLarge)
+    }
+
+    /// Returns `true` for the types whose body may show a board view: a card, a page and
+    /// a unit. A comment is a line said beside one of them, and a diary is its writer's
+    /// own, whose entries show no board of the workspace.
+    #[must_use]
+    pub const fn shows_board_views(self) -> bool {
+        matches!(self, Self::Card | Self::Page | Self::Unit)
     }
 
     /// Returns `true` for the types a comment may be on: a card of a board, a page of
@@ -287,6 +300,10 @@ pub enum BlockError {
     /// A comment's body has a file block: files go in the body of a card or a page.
     #[error("a comment's body has no file block")]
     FileBlockInComment,
+    /// The body of a comment or a diary entry has a board view: a board view goes in the
+    /// body of a card, a page or a unit ([`BlockType::shows_board_views`]).
+    #[error("only the body of a card, a page or a unit shows a board view")]
+    BoardViewNotAllowed,
     /// The serialized body exceeds [`crate::BODY_MAX_BYTES`].
     #[error("{}", crate::BodyError::TooLarge)]
     BodyTooLarge,
@@ -674,13 +691,16 @@ impl Block {
         self.takes_number().then_some(self.number).flatten()
     }
 
-    /// Clears `number` when this block does not currently take one
-    /// ([`Self::takes_number`]), so responses and broadcasts never expose a preserved
-    /// card number on a template.
-    pub fn hide_inactive_number(&mut self) {
+    /// The block as it leaves the server: without a number it does not take now
+    /// ([`Self::takes_number`]). A card template keeps its number in storage, to have it
+    /// again once it is a card again; no response, broadcast, webhook or archive shows
+    /// it until then. Asked where a block leaves, not where it is read.
+    #[must_use]
+    pub fn outward(mut self) -> Self {
         if !self.takes_number() {
             self.number = None;
         }
+        self
     }
 
     /// Checks that the block may be stored.

@@ -18,6 +18,7 @@ mod favorites;
 mod notifications;
 mod presence;
 pub(crate) mod quiet;
+mod reactions;
 mod readers;
 mod subscriptions;
 

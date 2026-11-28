@@ -1,7 +1,8 @@
 <!--
   What the pane of the workspace shows, by the address: the board, wiki,
   course, diary, or personal/learning screen it names, SSO/password lock gates,
-  or not-found/loading states.
+  or not-found/loading states; and, for the bodies shown in it, what draws
+  their board views (BoardViewHost.svelte).
 -->
 <script lang="ts" module>
   import { LazyChunk } from '$lib/chunk-reload.svelte.ts';
@@ -31,6 +32,7 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import BoardPage from './BoardPage.svelte';
+  import BoardViewHost from './embedded/BoardViewHost.svelte';
   import { lastPlace, rememberPlace, TODAY_PLACE } from './last-workspace.ts';
   import { recentOfRoute, rememberRecent } from './recent-places.ts';
   import LazyView from './LazyView.svelte';
@@ -106,6 +108,9 @@
     if (workspace.entered === 'ready' && workspace.me) void syncDeviceTimeZone(workspace);
   });
 </script>
+
+<!-- What draws and puts in the board views of the bodies shown here. -->
+<BoardViewHost {workspace} {router} />
 
 {#if refused}
   <SignInNotice problem={refused} {onGoOn} {onOpenLinked} />

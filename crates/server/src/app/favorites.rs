@@ -51,8 +51,9 @@ impl App {
             if containers
                 .get(&linked.container_id)
                 .is_some_and(Option::is_some)
+                && let Some(favorite) = Favorite::of_block(linked)
             {
-                blocks.insert(linked.id.clone(), Favorite::of_block(linked));
+                blocks.insert(favorite.target_id.clone(), favorite);
             }
         }
         let mut shown = Vec::with_capacity(stored.len());
@@ -172,7 +173,8 @@ impl App {
     /// What `target_id` is, where the user may star it: a board, a wiki or a course of
     /// this handle's workspace they read, no template, or a card, a page or a unit of
     /// one, as a reference resolves it. `None` for anything else: a card of a template
-    /// is no more starred than the template is.
+    /// is no more starred than the template is, and a view no more than apart from its
+    /// board.
     async fn favorite_kind_of(
         &self,
         user_id: &str,
@@ -195,7 +197,7 @@ impl App {
         Ok(self
             .favorite_container(user_id, &linked.container_id)
             .await?
-            .map(|_| linked.kind.into()))
+            .and_then(|_| FavoriteKind::of_linked(linked.kind)))
     }
 
     /// The board, wiki or course, if it is of this handle's workspace, no template, and

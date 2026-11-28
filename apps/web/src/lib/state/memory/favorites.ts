@@ -68,6 +68,8 @@ export class MemoryFavorites implements Favorites {
       const linked = blocks.get(id);
       if (!linked) return this.#container(workspaceId, id) ?? [];
       const { kind, title, icon, number, containerId, containerKind } = linked;
+      // A view of a board is starred with its board, not apart from it.
+      if (kind === 'view') return [];
       return [
         {
           targetId: id,

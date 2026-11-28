@@ -34,6 +34,7 @@
   import CardBacklinks from '$lib/features/card/CardBacklinks.svelte';
   import CardBody from '$lib/features/card/CardBody.svelte';
   import CardComments from '$lib/features/card/CardComments.svelte';
+  import CommentReactions from '$lib/features/card/CommentReactions.svelte';
   import CommentComposer from '$lib/features/card/CommentComposer.svelte';
   import FavoriteToggle from '$lib/components/favorite-toggle/FavoriteToggle.svelte';
   import WatchToggle from '$lib/features/card/WatchToggle.svelte';
@@ -47,6 +48,7 @@
   import { holdSaveKey } from '$lib/editor/save-key.ts';
   import { firstPage, withDescendants } from '$lib/logic/page-tree.ts';
   import {
+    embeddedBoards,
     pageTrash,
     referenceTitles,
     whileHere,
@@ -298,9 +300,13 @@
               of="page"
               testId="page-body"
               references={bodyReferences(wiki, page.pageId)}
+              boardViews={embeddedBoards(workspace).host}
               keep={() => keepVersion(pageVersions(page))}
             />
           </div>
+          {#if page.status === 'ready'}
+            <CommentReactions reactions={page.comments} blockId={page.pageId} />
+          {/if}
           <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
           <CardBacklinks {workspace} blockId={page.pageId} of="page" heading="h2" />
           {@const comments = page.comments}
@@ -308,6 +314,7 @@
             <CardComments
               board={comments}
               card={comments}
+              reactions={comments}
               readVersions={(commentId: string) => comments.commentVersions(commentId)}
               heading="h2"
             />

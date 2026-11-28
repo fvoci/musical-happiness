@@ -821,7 +821,7 @@
       },
       "Body": {
         "additionalProperties": true,
-        "description": "A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 6, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes.",
+        "description": "A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 7, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes.",
         "type": "object"
       },
       "BodyVersion": {
@@ -1319,6 +1319,27 @@
         ],
         "type": "object"
       },
+      "CardWithReactions": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Card",
+            "description": "What is read, its members beside `reactions`."
+          },
+          {
+            "properties": {
+              "reactions": {
+                "description": "The reactions to it, the emoji it was first answered with first; left out\nwhere there are none.",
+                "items": {
+                  "$ref": "#/components/schemas/Reaction"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "A card as `getCard` reads it, and the reactions to it."
+      },
       "CardsOfPage": {
         "description": "The cards of a page of a board, whole or in short (`compact=true`).",
         "oneOf": [
@@ -1655,6 +1676,27 @@
         ],
         "type": "object"
       },
+      "CommentWithReactions": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Block",
+            "description": "What is read, its members beside `reactions`."
+          },
+          {
+            "properties": {
+              "reactions": {
+                "description": "The reactions to it, the emoji it was first answered with first; left out\nwhere there are none.",
+                "items": {
+                  "$ref": "#/components/schemas/Reaction"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "A comment as the comments of a card, a page or a unit list it: the block, and the\nreactions to it."
+      },
       "CompactCard": {
         "description": "A card in short, as a list gives it with `compact=true` (`getCards`): enough to tell\nthe cards apart and choose one to read.",
         "properties": {
@@ -1792,7 +1834,9 @@
           "cell_with_blocks",
           "uneven_table",
           "unwritten_formula",
-          "heading_with_break"
+          "heading_with_break",
+          "markup_in_summary",
+          "board_view"
         ],
         "type": "string"
       },
@@ -4026,6 +4070,10 @@
             "$ref": "#/components/schemas/ContainerKind",
             "description": "Whether that is a board, a wiki or a course."
           },
+          "containerTitle": {
+            "description": "The title of its board: told of a view alone, whose board a board view names.",
+            "type": "string"
+          },
           "icon": {
             "description": "Its icon, at most one grapheme; empty for none.",
             "type": "string"
@@ -4050,6 +4098,10 @@
           "title": {
             "description": "Its title; empty for one without.",
             "type": "string"
+          },
+          "viewType": {
+            "$ref": "#/components/schemas/ViewType",
+            "description": "How a view shows its cards: told of a view alone."
           }
         },
         "required": [
@@ -4097,11 +4149,12 @@
         "type": "object"
       },
       "LinkedKind": {
-        "description": "What a reference may name: a card of a board, a page of a wiki or a unit of a course.",
+        "description": "What a reference may name: a card of a board, a page of a wiki or a unit of a course;\nand the view of a board a board view shows, which no reference names.",
         "enum": [
           "card",
           "page",
-          "unit"
+          "unit",
+          "view"
         ],
         "type": "string"
       },
@@ -6125,6 +6178,27 @@
         },
         "type": "object"
       },
+      "PageWithReactions": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Page",
+            "description": "What is read, its members beside `reactions`."
+          },
+          {
+            "properties": {
+              "reactions": {
+                "description": "The reactions to it, the emoji it was first answered with first; left out\nwhere there are none.",
+                "items": {
+                  "$ref": "#/components/schemas/Reaction"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "A page as `getPage` reads it, and the reactions to it."
+      },
       "PatchUnitNote": {
         "additionalProperties": false,
         "description": "Request body for updating a personal note on a course unit.\n\nOmitted fields leave the stored value unchanged; `null` is refused.",
@@ -6867,6 +6941,11 @@
             "reason": "too_many_favorites",
             "title": "Too many favorites in the workspace",
             "type": "/problems/too-many-favorites"
+          },
+          {
+            "reason": "too_many_reactions",
+            "title": "Too many emoji on the block",
+            "type": "/problems/too-many-reactions"
           }
         ]
       },
@@ -6972,6 +7051,27 @@
         },
         "required": [
           "enabled"
+        ],
+        "type": "object"
+      },
+      "Reaction": {
+        "description": "Who answered a block with one emoji.",
+        "properties": {
+          "emoji": {
+            "description": "The emoji.",
+            "type": "string"
+          },
+          "userIds": {
+            "description": "Who answered with it, the first of them first; never empty.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "emoji",
+          "userIds"
         ],
         "type": "object"
       },
@@ -8714,6 +8814,27 @@
           "plannedDate"
         ],
         "type": "object"
+      },
+      "UnitWithReactions": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Unit",
+            "description": "What is read, its members beside `reactions`."
+          },
+          {
+            "properties": {
+              "reactions": {
+                "description": "The reactions to it, the emoji it was first answered with first; left out\nwhere there are none.",
+                "items": {
+                  "$ref": "#/components/schemas/Reaction"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "A unit or a chapter as `getUnit` reads it, and the reactions to it."
       },
       "UnlinkRequest": {
         "description": "A request to remove an identity from the account of the session.",
@@ -15128,7 +15249,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Card"
+                  "$ref": "#/components/schemas/CardWithReactions"
                 }
               }
             },
@@ -15440,7 +15561,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards/{cardId}/comments": {
       "get": {
-        "description": "Every comment on the card, oldest first, as blocks of the `type` `comment` whose\nparent is the card. For who reads the board: its members, and of an open board\nwhoever works in the workspace. A card in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "Every comment on the card, oldest first, as blocks of the `type` `comment` whose\nparent is the card, each with its `reactions` where it has any. For who reads the\nboard: its members, and of an open board whoever works in the workspace. A card in\nthe trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCardComments",
         "parameters": [
           {
@@ -15477,7 +15598,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Block"
+                    "$ref": "#/components/schemas/CommentWithReactions"
                   },
                   "type": "array"
                 }
@@ -16779,7 +16900,7 @@
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}": {
       "get": {
-        "description": "For the members of the card's board. To a user who is no member of it there is no\nsuch card.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "For the members of the card's board, with its `reactions` where it has any. To a\nuser who is no member of it there is no such card.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getCard",
         "parameters": [
           {
@@ -16815,7 +16936,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Card"
+                  "$ref": "#/components/schemas/CardWithReactions"
                 }
               }
             },
@@ -18123,6 +18244,132 @@
         "tags": [
           "archives"
         ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/blocks/{blockId}/reactions/{emoji}": {
+      "delete": {
+        "description": "Takes the user's reaction with the emoji off the block, for whom `addReaction`\ntakes it from. One that is not there is no error, and nothing changes. As adding\none, nothing of the block changes, and the members who read the container are told\nits reactions as they are now (`reactionsChanged`).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "operationId": "removeReaction",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: its entries are its owner's alone.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a comment, a card, a page or a unit of the container of the path. 404 for a block of another container, and for a block of any other type.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The emoji, percent-encoded as any text of a path is (`%F0%9F%91%8D` for 👍): one grapheme of at most 8 code points that has the shape of an emoji, as a pictograph with its variation selector and skin tone, joined to others by zero-width joiners, a flag or a keycap. 400 for any other text.",
+            "in": "path",
+            "name": "emoji",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The reaction is not there."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take a reaction off",
+        "tags": [
+          "boards"
+        ],
+        "x-fvoci-api-token": "write"
+      },
+      "put": {
+        "description": "Adds the user's reaction with the emoji to the block: a comment, a card, a page or a\nunit of a board, a wiki or a course. For its members from the commenter's role up\n(whoever reads an open board without joining it is refused with 403, as a viewer\nis); a diary's entries are their owner's alone, and a diary is not there (404). One\nthat is there already is no error, and nothing changes. A block has at most 20\ndifferent emoji: one more is 400 with the reason `too_many_reactions` and the\n`limit`, and nothing changes; anybody's emoji that is there is taken. Neither the\nblock's `updatedAt` nor who changed it last changes, and nobody is notified; the\nmembers who read the container are told the block's reactions as they are now\n(`reactionsChanged`).\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "operationId": "addReaction",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: its entries are its owner's alone.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a comment, a card, a page or a unit of the container of the path. 404 for a block of another container, and for a block of any other type.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The emoji, percent-encoded as any text of a path is (`%F0%9F%91%8D` for 👍): one grapheme of at most 8 code points that has the shape of an emoji, as a pictograph with its variation selector and skin tone, joined to others by zero-width joiners, a flag or a keycap. 400 for any other text.",
+            "in": "path",
+            "name": "emoji",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The reaction is there."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "React to a comment, a card, a page or a unit",
+        "tags": [
+          "boards"
+        ],
+        "x-fvoci-api-token": "write"
       }
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/copy-to-workspace": {
@@ -21813,7 +22060,7 @@
         ]
       },
       "get": {
-        "description": "The unit with its body, or the chapter (`body` is `null`), for whoever reads its\ncourse.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "The unit with its body, or the chapter (`body` is `null`), for whoever reads its\ncourse; a unit with its `reactions` where it has any.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnit",
         "parameters": [
           {
@@ -21858,7 +22105,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Unit"
+                  "$ref": "#/components/schemas/UnitWithReactions"
                 }
               }
             },
@@ -22221,7 +22468,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments": {
       "get": {
-        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit. For who reads the course: its members, and of an open course\nwhoever works in the workspace. A chapter or a unit in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit, each with its `reactions` where it has any. For who reads the\ncourse: its members, and of an open course whoever works in the workspace. A\nchapter or a unit in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnitComments",
         "parameters": [
           {
@@ -22258,7 +22505,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Block"
+                    "$ref": "#/components/schemas/CommentWithReactions"
                   },
                   "type": "array"
                 }
@@ -24849,7 +25096,7 @@
     },
     "/api/v1/w/{workspaceId}/references/resolve": {
       "post": {
-        "description": "A body names a card, a page or a unit by its identifier alone (the node `reference`),\nand no body, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards, pages and units\nof this workspace on a board, a wiki or a course the user reads (as `getCard`,\n`getPage` and `getUnit` ask), each once, in the order they were first named.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card, a page or a unit the user does not read, or a block that is none\nof those (such as a chapter of a course).\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "A body names a card, a page or a unit by its identifier alone (the node `reference`),\nand no body, however it is read, says what that is called: this does, for the user who\nasks and as things are now. Of the identifiers of the body, the cards, pages and units\nof this workspace on a board, a wiki or a course the user reads (as `getCard`,\n`getPage` and `getUnit` ask), each once, in the order they were first named.\n\nA board view of a body (the node `boardView`) names a view of a board by its\nidentifier alone too: a view of a board the user reads is told of with `kind` `view`,\nits title, its board (`containerId`, `containerTitle`) and how it shows its cards\n(`viewType`), as a private board's view is told to its members alone.\n\nWhatever else an identifier names is left out, and the answer does not tell why:\nnothing at all, something in the trash, something of another workspace or\norganization, a card, a page, a unit or a view the user does not read, or a block that\nis none of those (such as a chapter of a course).\nThe body names at most 100 identifiers (more is 400, as an entry that has not the\nform of an identifier is); an empty list answers an empty list.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "resolveReferences",
         "parameters": [
           {
@@ -26462,7 +26709,7 @@
         ]
       },
       "get": {
-        "description": "The page with its body, for the members of its wiki.\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "The page with its body, and its `reactions` where it has any, for the members of its\nwiki.\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPage",
         "parameters": [
           {
@@ -26507,7 +26754,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page"
+                  "$ref": "#/components/schemas/PageWithReactions"
                 }
               }
             },
@@ -26870,7 +27117,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments": {
       "get": {
-        "description": "Every comment on the page, oldest first, as blocks of the `type` `comment` whose\nparent is the page; each says who wrote it (`createdBy`), and one whose text was\nchanged when that last happened (`editedAt`). For who reads the wiki: its members,\nand of an open wiki whoever works in the workspace. A page in the trash is not\nthere (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "Every comment on the page, oldest first, as blocks of the `type` `comment` whose\nparent is the page; each says who wrote it (`createdBy`), one whose text was\nchanged when that last happened (`editedAt`), and one that has `reactions` who\nanswered it with which emoji. For who reads the wiki: its members, and of an open\nwiki whoever works in the workspace. A page in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPageComments",
         "parameters": [
           {
@@ -26907,7 +27154,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Block"
+                    "$ref": "#/components/schemas/CommentWithReactions"
                   },
                   "type": "array"
                 }

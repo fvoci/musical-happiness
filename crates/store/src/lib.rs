@@ -90,6 +90,7 @@ mod pages;
 mod password_reset;
 mod person_names;
 mod public_links;
+mod reactions;
 mod schema;
 mod search_docs;
 mod search_outbox;
@@ -153,7 +154,6 @@ pub use course_exams::{
     MIN_SCORERS_TO_PUBLISH,
 };
 pub use course_meetings::{MeetingNotificationPlace, MeetingNotified};
-pub use courses::{UnitRestore, UnitWrite};
 pub use db::Dialect;
 pub use diaries::{DiaryMade, EntryMade};
 pub use directory::{
@@ -190,11 +190,10 @@ pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unl
 pub use oidc_pending::{Applied, Binding, PendingProvider, PendingSettings, Trial, Tried};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use org_leaving::{Departure, DepartureRefused, MemberRemoval, RemovalRefused};
-pub use page_copies::PageCopies;
-pub use page_trash::PageRestore;
-pub use pages::PageWrite;
+pub use pages::Written;
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use person_names::ChangedName;
+pub use reactions::Reacted;
 pub use schema::SchemaCheck;
 pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};

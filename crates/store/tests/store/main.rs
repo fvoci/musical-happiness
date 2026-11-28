@@ -69,6 +69,7 @@ mod password_reset;
 mod person_names;
 mod provider_tokens;
 mod public_links;
+mod reactions;
 mod registration;
 mod restored_boards;
 mod search_outbox;

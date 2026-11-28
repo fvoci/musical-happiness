@@ -28,6 +28,7 @@ import type {
   CardMovesInput,
   CardMovesOutput,
   CardPatch,
+  CardPropertiesPatch,
   CardSummary,
   CardTelling,
   Category,
@@ -55,6 +56,7 @@ import { openRoomLater } from '../state/doc-opener.ts';
 import { BlockTurns } from '../state/write.ts';
 
 import { ServerBlocks } from './block-requests.ts';
+import { ServerBulk } from './bulk-requests.ts';
 import { ServerContainers } from './container-requests.ts';
 import { ClientConfig, ServerContentSearch } from './content-search.ts';
 import { settingsChangeOf, settingsOf, userOf, type Schemas } from './convert.ts';
@@ -74,6 +76,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   readonly #sidebar: ServerSidebar;
   readonly #containers: ServerContainers;
   readonly #blocks: ServerBlocks;
+  readonly #bulk: ServerBulk;
   readonly #transfers: ServerTransfers;
 
   constructor(basePath: string, http = new Http(basePath)) {
@@ -89,6 +92,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     ): Promise<T> => this.inWorkspace<T>(path, params, options, wsId);
     this.#sidebar = new ServerSidebar(http, this.#turns, () => this.currentUserId());
     this.#blocks = new ServerBlocks(inWorkspace, this.#turns);
+    this.#bulk = new ServerBulk(inWorkspace, this.#turns);
     this.#transfers = new ServerTransfers(http, this.#config);
     this.#containers = new ServerContainers({
       http,
@@ -325,6 +329,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     telling?: CardTelling,
   ): Promise<CardMovesOutput> {
     return this.#blocks.moveViewCards(boardId, viewId, move, telling);
+  }
+  batchPatchCards(b: string, ids: readonly string[], p: CardPropertiesPatch, t?: CardTelling) {
+    return this.#bulk.batchPatchCards(b, ids, p, t);
   }
   batchDeleteCards(boardId: string, cardIds: readonly string[]): Promise<void> {
     return this.#blocks.batchDeleteCards(boardId, cardIds);

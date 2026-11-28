@@ -454,7 +454,7 @@ async fn app_create_card_success_scenario() {
 
     let new_card = th
         .app
-        .create_card(card.clone(), &board.id, &user_id, ChangeNotification::Send)
+        .create_card_unchecked(card.clone(), &board.id, &user_id, ChangeNotification::Send)
         .await
         .expect("the card is created");
 
@@ -479,7 +479,7 @@ async fn app_create_card_error_scenario() {
     };
     let error = th
         .app
-        .create_card(too_long, &board.id, &user_id, ChangeNotification::Send)
+        .create_card_unchecked(too_long, &board.id, &user_id, ChangeNotification::Send)
         .await
         .expect_err("the title is too long");
     assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
@@ -493,7 +493,7 @@ async fn app_create_card_error_scenario() {
     for board_id in [UNKNOWN_ID, "no-such-board"] {
         let error = th
             .app
-            .create_card(
+            .create_card_unchecked(
                 Card::default(),
                 board_id,
                 &user_id,
@@ -607,7 +607,7 @@ async fn app_patch_card_success_scenario() {
     };
     let card = th
         .app
-        .create_card(card, &board.id, &user_id, ChangeNotification::Send)
+        .create_card_unchecked(card, &board.id, &user_id, ChangeNotification::Send)
         .await
         .expect("the card is created");
 
@@ -625,13 +625,7 @@ async fn app_patch_card_success_scenario() {
 
     let patched = th
         .app
-        .patch_card(
-            &card_patch,
-            &card.id,
-            &user_id,
-            ChangeNotification::Send,
-            None,
-        )
+        .patch_card_unchecked(&card_patch, &card.id, &user_id, ChangeNotification::Send)
         .await
         .expect("the card is patched");
 
@@ -650,12 +644,11 @@ async fn app_patch_card_error_scenario() {
     let card = &cards[0];
     let patch_card = async |patch: &CardPatch, card_id: &str| {
         th.app
-            .patch_card(
+            .patch_card_unchecked(
                 patch,
                 card_id,
                 &th.stranger().await,
                 ChangeNotification::Send,
-                None,
             )
             .await
             .expect_err("the patch is refused")

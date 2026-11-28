@@ -2930,8 +2930,9 @@ export interface paths {
         /**
          * The comments on a card
          * @description Every comment on the card, oldest first, as blocks of the `type` `comment` whose
-         *     parent is the card. For who reads the board: its members, and of an open board
-         *     whoever works in the workspace. A card in the trash is not there (404).
+         *     parent is the card, each with its `reactions` where it has any. For who reads the
+         *     board: its members, and of an open board whoever works in the workspace. A card in
+         *     the trash is not there (404).
          *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */
@@ -3281,8 +3282,8 @@ export interface paths {
         };
         /**
          * A card
-         * @description For the members of the card's board. To a user who is no member of it there is no
-         *     such card.
+         * @description For the members of the card's board, with its `reactions` where it has any. To a
+         *     user who is no member of it there is no such card.
          *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */
@@ -3727,6 +3728,46 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/blocks/{blockId}/reactions/{emoji}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * React to a comment, a card, a page or a unit
+         * @description Adds the user's reaction with the emoji to the block: a comment, a card, a page or a
+         *     unit of a board, a wiki or a course. For its members from the commenter's role up
+         *     (whoever reads an open board without joining it is refused with 403, as a viewer
+         *     is); a diary's entries are their owner's alone, and a diary is not there (404). One
+         *     that is there already is no error, and nothing changes. A block has at most 20
+         *     different emoji: one more is 400 with the reason `too_many_reactions` and the
+         *     `limit`, and nothing changes; anybody's emoji that is there is taken. Neither the
+         *     block's `updatedAt` nor who changed it last changes, and nobody is notified; the
+         *     members who read the container are told the block's reactions as they are now
+         *     (`reactionsChanged`).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
+         */
+        put: operations["addReaction"];
+        post?: never;
+        /**
+         * Take a reaction off
+         * @description Takes the user's reaction with the emoji off the block, for whom `addReaction`
+         *     takes it from. One that is not there is no error, and nothing changes. As adding
+         *     one, nothing of the block changes, and the members who read the container are told
+         *     its reactions as they are now (`reactionsChanged`).
+         *
+         *     A personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.
+         */
+        delete: operations["removeReaction"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4959,7 +5000,7 @@ export interface paths {
         /**
          * A unit or chapter
          * @description The unit with its body, or the chapter (`body` is `null`), for whoever reads its
-         *     course.
+         *     course; a unit with its `reactions` where it has any.
          *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */
@@ -5086,8 +5127,9 @@ export interface paths {
         /**
          * The comments on a unit
          * @description Every comment on the unit, oldest first, as blocks of the `type` `comment` whose
-         *     parent is the unit. For who reads the course: its members, and of an open course
-         *     whoever works in the workspace. A chapter or a unit in the trash is not there (404).
+         *     parent is the unit, each with its `reactions` where it has any. For who reads the
+         *     course: its members, and of an open course whoever works in the workspace. A
+         *     chapter or a unit in the trash is not there (404).
          *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */
@@ -6099,10 +6141,15 @@ export interface paths {
          *     of this workspace on a board, a wiki or a course the user reads (as `getCard`,
          *     `getPage` and `getUnit` ask), each once, in the order they were first named.
          *
+         *     A board view of a body (the node `boardView`) names a view of a board by its
+         *     identifier alone too: a view of a board the user reads is told of with `kind` `view`,
+         *     its title, its board (`containerId`, `containerTitle`) and how it shows its cards
+         *     (`viewType`), as a private board's view is told to its members alone.
+         *
          *     Whatever else an identifier names is left out, and the answer does not tell why:
          *     nothing at all, something in the trash, something of another workspace or
-         *     organization, a card, a page or a unit the user does not read, or a block that is none
-         *     of those (such as a chapter of a course).
+         *     organization, a card, a page, a unit or a view the user does not read, or a block that
+         *     is none of those (such as a chapter of a course).
          *     The body names at most 100 identifiers (more is 400, as an entry that has not the
          *     form of an identifier is); an empty list answers an empty list.
          *
@@ -6713,7 +6760,8 @@ export interface paths {
         };
         /**
          * A page
-         * @description The page with its body, for the members of its wiki.
+         * @description The page with its body, and its `reactions` where it has any, for the members of its
+         *     wiki.
          *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */
@@ -6836,10 +6884,10 @@ export interface paths {
         /**
          * The comments on a page
          * @description Every comment on the page, oldest first, as blocks of the `type` `comment` whose
-         *     parent is the page; each says who wrote it (`createdBy`), and one whose text was
-         *     changed when that last happened (`editedAt`). For who reads the wiki: its members,
-         *     and of an open wiki whoever works in the workspace. A page in the trash is not
-         *     there (404).
+         *     parent is the page; each says who wrote it (`createdBy`), one whose text was
+         *     changed when that last happened (`editedAt`), and one that has `reactions` who
+         *     answered it with which emoji. For who reads the wiki: its members, and of an open
+         *     wiki whoever works in the workspace. A page in the trash is not there (404).
          *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */
@@ -7468,7 +7516,7 @@ export interface components {
             /** @description The created, moved, or duplicated view block. */
             view: components["schemas"]["Block"];
         };
-        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 6, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
+        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of version 7, which the server and the web app share. At most 8 MiB as JSON, 60 levels deep and 100,000 nodes. */
         Body: {
             [key: string]: unknown;
         };
@@ -7794,6 +7842,14 @@ export interface components {
             /** @description The kind of values cards hold for this property. Left out in a request, `text`. */
             type: components["schemas"]["PropertyType"];
         };
+        /** @description A card as `getCard` reads it, and the reactions to it. */
+        CardWithReactions: components["schemas"]["Card"] & {
+            /**
+             * @description The reactions to it, the emoji it was first answered with first; left out
+             *     where there are none.
+             */
+            reactions?: components["schemas"]["Reaction"][];
+        };
         /** @description The cards of a page of a board, whole or in short (`compact=true`). */
         CardsOfPage: components["schemas"]["Card"][] | components["schemas"]["CompactCard"][];
         /** @description A sidebar category of one user in one workspace. */
@@ -7963,6 +8019,17 @@ export interface components {
             writtenBy: string;
         };
         /**
+         * @description A comment as the comments of a card, a page or a unit list it: the block, and the
+         *     reactions to it.
+         */
+        CommentWithReactions: components["schemas"]["Block"] & {
+            /**
+             * @description The reactions to it, the emoji it was first answered with first; left out
+             *     where there are none.
+             */
+            reactions?: components["schemas"]["Reaction"][];
+        };
+        /**
          * @description A card in short, as a list gives it with `compact=true` (`getCards`): enough to tell
          *     the cards apart and choose one to read.
          */
@@ -8040,7 +8107,7 @@ export interface components {
          * @description Why the Markdown of a body does not hold one of its blocks as it is.
          * @enum {string}
          */
-        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula" | "heading_with_break";
+        ComplexBlockReason: "merged_cell" | "cell_with_blocks" | "uneven_table" | "unwritten_formula" | "heading_with_break" | "markup_in_summary" | "board_view";
         ConfirmEmailChange: {
             /** @description The secret from the confirmation link's fragment. */
             token: string;
@@ -9123,6 +9190,8 @@ export interface components {
             containerId: string;
             /** @description Whether that is a board, a wiki or a course. */
             containerKind: components["schemas"]["ContainerKind"];
+            /** @description The title of its board: told of a view alone, whose board a board view names. */
+            containerTitle?: string;
             /** @description Its icon, at most one grapheme; empty for none. */
             icon: string;
             /** @description The identifier of the card, the page or the unit. */
@@ -9137,6 +9206,8 @@ export interface components {
             number?: number | null;
             /** @description Its title; empty for one without. */
             title: string;
+            /** @description How a view shows its cards: told of a view alone. */
+            viewType?: components["schemas"]["ViewType"];
         };
         /**
          * @description An identity tied to an account: who its owner is at a provider, by which they sign
@@ -9165,10 +9236,11 @@ export interface components {
             subject: string;
         };
         /**
-         * @description What a reference may name: a card of a board, a page of a wiki or a unit of a course.
+         * @description What a reference may name: a card of a board, a page of a wiki or a unit of a course;
+         *     and the view of a board a board view shows, which no reference names.
          * @enum {string}
          */
-        LinkedKind: "card" | "page" | "unit";
+        LinkedKind: "card" | "page" | "unit" | "view";
         /** @description A file of a board or a wiki as a list of them gives it. */
         ListedFile: {
             /**
@@ -10308,6 +10380,14 @@ export interface components {
             /** @description The new title. */
             title?: string | null;
         };
+        /** @description A page as `getPage` reads it, and the reactions to it. */
+        PageWithReactions: components["schemas"]["Page"] & {
+            /**
+             * @description The reactions to it, the emoji it was first answered with first; left out
+             *     where there are none.
+             */
+            reactions?: components["schemas"]["Reaction"][];
+        };
         /**
          * @description Request body for updating a personal note on a course unit.
          *
@@ -10464,6 +10544,13 @@ export interface components {
              *     working.
              */
             regenerate?: boolean | null;
+        };
+        /** @description Who answered a block with one emoji. */
+        Reaction: {
+            /** @description The emoji. */
+            emoji: string;
+            /** @description Who answered with it, the first of them first; never empty. */
+            userIds: string[];
         };
         /** @description The checks of the readiness: what the server depends on to serve. */
         Readiness: {
@@ -11359,6 +11446,14 @@ export interface components {
              *     revert to the unit's shared `scheduledDate`.
              */
             plannedDate: string | null;
+        };
+        /** @description A unit or a chapter as `getUnit` reads it, and the reactions to it. */
+        UnitWithReactions: components["schemas"]["Unit"] & {
+            /**
+             * @description The reactions to it, the emoji it was first answered with first; left out
+             *     where there are none.
+             */
+            reactions?: components["schemas"]["Reaction"][];
         };
         /** @description A request to remove an identity from the account of the session. */
         UnlinkRequest: {
@@ -15598,7 +15693,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Card"];
+                    "application/json": components["schemas"]["CardWithReactions"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -15790,7 +15885,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Block"][];
+                    "application/json": components["schemas"]["CommentWithReactions"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -16532,7 +16627,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Card"];
+                    "application/json": components["schemas"]["CardWithReactions"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -17326,6 +17421,78 @@ export interface operations {
                 content: {
                     "application/octet-stream": string;
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: its entries are its owner's alone. */
+                containerId: string;
+                /** @description The identifier of a comment, a card, a page or a unit of the container of the path. 404 for a block of another container, and for a block of any other type. */
+                blockId: string;
+                /** @description The emoji, percent-encoded as any text of a path is (`%F0%9F%91%8D` for 👍): one grapheme of at most 8 code points that has the shape of an emoji, as a pictograph with its variation selector and skin tone, joined to others by zero-width joiners, a flag or a keycap. 400 for any other text. */
+                emoji: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reaction is there. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: its entries are its owner's alone. */
+                containerId: string;
+                /** @description The identifier of a comment, a card, a page or a unit of the container of the path. 404 for a block of another container, and for a block of any other type. */
+                blockId: string;
+                /** @description The emoji, percent-encoded as any text of a path is (`%F0%9F%91%8D` for 👍): one grapheme of at most 8 code points that has the shape of an emoji, as a pictograph with its variation selector and skin tone, joined to others by zero-width joiners, a flag or a keycap. 400 for any other text. */
+                emoji: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reaction is not there. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -19581,7 +19748,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Unit"];
+                    "application/json": components["schemas"]["UnitWithReactions"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -19839,7 +20006,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Block"][];
+                    "application/json": components["schemas"]["CommentWithReactions"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -22429,7 +22596,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page"];
+                    "application/json": components["schemas"]["PageWithReactions"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -22687,7 +22854,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Block"][];
+                    "application/json": components["schemas"]["CommentWithReactions"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

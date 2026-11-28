@@ -97,6 +97,8 @@ export class SharedBackend implements Backend {
   readonly favorites = undefined;
   /** Nothing is taken out in Markdown through a public link: the board is read where it is. */
   readonly markdown = undefined;
+  /** A reaction names who reacted, which a reader by the link is not told. */
+  readonly reactions = undefined;
   /** Personal time tracking is strictly owner-only and never available on public links. */
   readonly time = undefined;
   /** No search through a public link: the board is all there is to read. */
@@ -451,6 +453,7 @@ export class SharedBackend implements Backend {
   createCard: Backend['createCard'] = refused;
   duplicateCard: Backend['duplicateCard'] = refused;
   moveViewCards: Backend['moveViewCards'] = refused;
+  batchPatchCards: Backend['batchPatchCards'] = refused;
   batchDeleteCards: Backend['batchDeleteCards'] = refused;
   batchRestoreCards: Backend['batchRestoreCards'] = refused;
   patchCard: Backend['patchCard'] = refused;

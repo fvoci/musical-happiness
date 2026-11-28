@@ -16,6 +16,7 @@ import {
 } from './convert.ts';
 import { unitOfBlock } from './courses.ts';
 import { entryOfBlock } from './diaries.ts';
+import { reactionsOf } from './reactions.ts';
 import { pageOfBlock } from './wikis.ts';
 
 type Members = Extract<Change, { kind: 'members' }>['members'];
@@ -51,6 +52,12 @@ type Message = { workspaceId?: string } & (
       member: { containerId: string; userId: string };
     }
   | { type: 'userChanged'; userId: string }
+  | {
+      type: 'reactionsChanged';
+      containerId: string;
+      blockId: string;
+      reactions: Schemas['Reaction'][];
+    }
   | { type: string }
 );
 
@@ -120,6 +127,10 @@ export async function dispatchLiveMessage(
     sink.tellContainer(container.id, change, true);
   } else if (message.type === 'blockChanged' && 'block' in message) {
     receiveBlock(message.block, message.summary, sink);
+  } else if (message.type === 'reactionsChanged' && 'reactions' in message) {
+    const { containerId, blockId } = message;
+    const reactions = reactionsOf(message.reactions);
+    sink.tellContainer(containerId, { kind: 'reactions', containerId, blockId, reactions }, false);
   } else if (
     (message.type === 'containerMemberChanged' || message.type === 'containerMemberRemoved') &&
     'member' in message

@@ -337,8 +337,13 @@ fn holding_ops() -> Vec<Op> {
             "/references/resolve",
             Json(|things, _| json!([things.block])),
         ),
+        op("reactions: add", Method::PUT, REACTION, None),
+        op("reactions: remove", Method::DELETE, REACTION, None),
     ]
 }
+
+/// The reaction 👍 to the container's card, page or unit.
+const REACTION: &str = "/containers/{c}/blocks/{p}/reactions/%F0%9F%91%8D";
 
 /// The operations of what a board holds.
 #[expect(

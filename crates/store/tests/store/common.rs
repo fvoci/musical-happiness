@@ -265,6 +265,17 @@ impl TestStore {
         raw_connection(&self.database)
     }
 
+    /// A second store on this test's database, as the first is: connected anew (and so
+    /// migrating what the test put back to an older state) and reaching the rows of the
+    /// test's organization.
+    pub(crate) async fn reconnect(&self) -> Store {
+        Store::connect(db_type(), &self.database_connection())
+            .await
+            .expect("the store connects to the database again")
+            .for_org(&self.org_id)
+            .expect("an identifier")
+    }
+
     /// Closes the store and removes its database.
     pub(crate) async fn teardown(self) {
         self.store.close().await;

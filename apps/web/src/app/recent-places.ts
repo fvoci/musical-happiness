@@ -112,6 +112,7 @@ export async function shownRecents(workspace: Workspace): Promise<Favorite[]> {
     const block = blocks.get(place.id);
     if (!block) return [];
     const { id, kind, title, icon, number, containerId, containerKind } = block;
+    if (kind === 'view') return [];
     return [
       {
         targetId: id,

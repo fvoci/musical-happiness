@@ -1,6 +1,6 @@
 {
   "description": "Bodies as Y documents, written by apps/web/tools/ydoc/vectors.ts from the editor's own binding (@tiptap/y-tiptap); the server's conversion (crates/collab) and the web app's tests read it. Do not edit by hand. field is the name of the XML fragment at the root of the Y document. An update is a whole Y document as a version 1 update in base64, and json is what an editor reads from it in the form that is stored (null for no body). documents: every accepted case of body-vectors.json with a body (not those with a build), by its name. bodies: more bodies, each with the body. In both, json is the body as it comes back: without an empty content or attrs, with the marks of a text in the order of the schema, neighbouring texts with the same marks as one, and an attribute the editor fills in (the start of an ordered list). readings: shared content no editor writes, which every editor that did not write it keeps as it is, and how it is read. refused: shared content the editors keep the same way though what they read (json) is no body: the editor's schema checks no value, the server's rules do. repairs: shared content that does not fit the schema; json is what is left when an editor has deleted what fails. shortened: shared content from which an editor deletes a cell that fails, which leaves its row a cell short, so that json is no body; the server puts an empty cell in its place. session: start is the document a server opens, updates are what the binding of one editor sends after it, in order, as it makes one edit after another, and json is what an editor reads at the end. schema: the marks in the order the editor stores them, and the attributes of each mark and node with the value given to one that is left out (null: left out).",
-  "bodyVersion": 6,
+  "bodyVersion": 7,
   "field": "default",
   "schema": {
     "marks": [
@@ -32,6 +32,9 @@
         "latex": null
       },
       "blockquote": {},
+      "boardView": {
+        "viewId": null
+      },
       "bulletList": {},
       "callout": {
         "tone": "info"
@@ -3632,6 +3635,203 @@
           }
         ]
       }
+    },
+    {
+      "name": "a board view",
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQZiZWZvcmWHAQADCWJvYXJkVmlldygAAQgGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxhwEIAwlwYXJhZ3JhcGgHAAEKBgQAAQsFYWZ0ZXIA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "before"
+              }
+            ]
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c001"
+            }
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "after"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a board view alone",
+      "update": "AQIBAAcBB2RlZmF1bHQDCWJvYXJkVmlldygAAQAGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c001"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a board view in a toggle, and in a toggle in that",
+      "update": "AQ4BAAcBB2RlZmF1bHQDB2RldGFpbHMHAAEAAw5kZXRhaWxzU3VtbWFyeQcAAQEGBAABAgRQbGFuhwEBAw5kZXRhaWxzQ29udGVudAcAAQcDCWJvYXJkVmlldygAAQgGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxhwEIAwdkZXRhaWxzBwABCgMOZGV0YWlsc1N1bW1hcnkHAAELBgQAAQwETW9yZYcBCwMOZGV0YWlsc0NvbnRlbnQHAAERAwlib2FyZFZpZXcoAAESBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMQA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "details",
+            "content": [
+              {
+                "type": "detailsSummary",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Plan"
+                  }
+                ]
+              },
+              {
+                "type": "detailsContent",
+                "content": [
+                  {
+                    "type": "boardView",
+                    "attrs": {
+                      "viewId": "01930000-0000-7000-8000-00000000c001"
+                    }
+                  },
+                  {
+                    "type": "details",
+                    "content": [
+                      {
+                        "type": "detailsSummary",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "More"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "detailsContent",
+                        "content": [
+                          {
+                            "type": "boardView",
+                            "attrs": {
+                              "viewId": "01930000-0000-7000-8000-00000000c001"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "two board views of one view",
+      "update": "AQQBAAcBB2RlZmF1bHQDCWJvYXJkVmlldygAAQAGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxhwEAAwlib2FyZFZpZXcoAAECBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMQA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c001"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c001"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ten board views",
+      "update": "ARQBAAcBB2RlZmF1bHQDCWJvYXJkVmlldygAAQAGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAxhwEAAwlib2FyZFZpZXcoAAECBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMocBAgMJYm9hcmRWaWV3KAABBAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDOHAQQDCWJvYXJkVmlldygAAQYGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDA0hwEGAwlib2FyZFZpZXcoAAEIBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwNYcBCAMJYm9hcmRWaWV3KAABCgZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDaHAQoDCWJvYXJkVmlldygAAQwGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDA3hwEMAwlib2FyZFZpZXcoAAEOBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwOIcBDgMJYm9hcmRWaWV3KAABEAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDmHARADCWJvYXJkVmlldygAARIGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDBhAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c001"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c002"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c003"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c004"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c005"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c006"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c007"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c008"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c009"
+            }
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "01930000-0000-7000-8000-00000000c00a"
+            }
+          }
+        ]
+      }
     }
   ],
   "bodies": [
@@ -6645,6 +6845,51 @@
       }
     },
     {
+      "name": "a board view of a view that is no identifier",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwlib2FyZFZpZXcoAAEDBnZpZXdJZAF3B3RhYmxlLTEA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          },
+          {
+            "type": "boardView",
+            "attrs": {
+              "viewId": "table-1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a board view without its view",
+      "update": "AQQBAAcBB2RlZmF1bHQDCWJvYXJkVmlld4cBAAMJcGFyYWdyYXBoBwABAQYEAAECAWEA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "boardView"
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "in a toggle, one adds a column while the other adds a row",
       "update": "AwkDAIcBFwMIdGFibGVSb3cHAAMAAwl0YWJsZUNlbGwHAAMBAwlwYXJhZ3JhcGgHAAMCBgQAAwMBZYcDAQMJdGFibGVDZWxsBwADBQMJcGFyYWdyYXBoBwADBgYEAAMHAWYIAgCHARMDCXRhYmxlQ2VsbAcAAgADCXBhcmFncmFwaAcAAgEGBAACAgVuZXcgMIcBHAMJdGFibGVDZWxsBwACCAMJcGFyYWdyYXBoBwACCQYEAAIKBW5ldyAxGwEABwEHZGVmYXVsdAMJcGFyYWdyYXBoBwABAAYEAAEBBmJlZm9yZYcBAAMHZGV0YWlscwcAAQgDDmRldGFpbHNTdW1tYXJ5BwABCQYEAAEKAXOHAQkDDmRldGFpbHNDb250ZW50BwABDAMFdGFibGUHAAENAwh0YWJsZVJvdwcAAQ4DCXRhYmxlQ2VsbAcAAQ8DCXBhcmFncmFwaAcAARAGBAABEQFhhwEPAwl0YWJsZUNlbGwHAAETAwlwYXJhZ3JhcGgHAAEUBgQAARUBYocBDgMIdGFibGVSb3cHAAEXAwl0YWJsZUNlbGwHAAEYAwlwYXJhZ3JhcGgHAAEZBgQAARoBY4cBGAMJdGFibGVDZWxsBwABHAMJcGFyYWdyYXBoBwABHQYEAAEeAWQA",
       "json": {
@@ -7652,6 +7897,94 @@
               {
                 "type": "text",
                 "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a board view in a callout: the callout goes",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwdjYWxsb3V0BwABAwMJYm9hcmRWaWV3KAABBAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDEoAAEDBHRvbmUBdwRpbmZvAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a board view in a quote: the quote goes",
+      "update": "AQYBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwMJYm9hcmRWaWV3KAABBAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDEA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a board view in a line: the line goes",
+      "update": "AQYBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwlwYXJhZ3JhcGgHAAEDAwlib2FyZFZpZXcoAAEEBnZpZXdJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMQA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a board view holding a line: it goes, and the board view in the toggle stays",
+      "update": "AQwBAAcBB2RlZmF1bHQDCWJvYXJkVmlldwcAAQADCXBhcmFncmFwaAcAAQEGBAABAgF4KAABAAZ2aWV3SWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDGHAQADB2RldGFpbHMHAAEFAw5kZXRhaWxzU3VtbWFyeQcAAQYGBAABBwFzhwEGAw5kZXRhaWxzQ29udGVudAcAAQkDCWJvYXJkVmlldygAAQoGdmlld0lkAXckMDE5MzAwMDAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDBjMDAyAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "details",
+            "content": [
+              {
+                "type": "detailsSummary",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "s"
+                  }
+                ]
+              },
+              {
+                "type": "detailsContent",
+                "content": [
+                  {
+                    "type": "boardView",
+                    "attrs": {
+                      "viewId": "01930000-0000-7000-8000-00000000c002"
+                    }
+                  }
+                ]
               }
             ]
           }

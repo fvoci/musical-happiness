@@ -51,6 +51,7 @@ mod person_name;
 mod problem;
 mod public_containers;
 mod public_link;
+mod reaction;
 mod refusal;
 mod relation;
 mod search;
@@ -104,8 +105,8 @@ pub use board_ops::{
     extract_card_due_point, is_card_done,
 };
 pub use body::{
-    BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
-    BodySummary, TaskCount,
+    BODY_MAX_BOARD_VIEWS, BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body,
+    BodyChange, BodyError, BodySummary, TaskCount,
 };
 pub use body_markdown::{ComplexBlock, ComplexBlockReason};
 pub use body_version::{
@@ -220,6 +221,10 @@ pub use person_name::{
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use public_containers::PublicContainers;
 pub use public_link::{PublicLink, PublicLinkChange};
+pub use reaction::{
+    CardWithReactions, CommentWithReactions, EMOJI_MAX_SCALARS, Emoji, PageWithReactions,
+    ParseEmojiError, REACTION_KINDS_PER_BLOCK, Reaction, UnitWithReactions,
+};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{
     ParseRelationKindError, RELATION_LAG_MAX, RELATION_LAG_MIN, RELATION_LIMIT, RelationError,

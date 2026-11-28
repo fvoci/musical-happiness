@@ -255,6 +255,7 @@ impl Named {
             .replace("{number}", "1")
             // A lease never given: its release is the member's answer as an editor's or not.
             .replace("{leaseId}", "a-lease-never-given")
+            .replace("{emoji}", "%F0%9F%91%8D")
             // A token never made: taking it back is the member's answer as its owner's or
             // an administrator's.
             .replace("{tokenId}", "a-token-never-made")

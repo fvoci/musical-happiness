@@ -252,8 +252,10 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
         }
     }
     ts.teardown().await;
+    // 78 since the reactions (addReaction, removeReaction) and the export in Markdown
+    // (exportContainerMarkdown) came, after the move.
     assert_eq!(
-        count, 76,
+        count, 78,
         "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));

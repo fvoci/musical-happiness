@@ -56,6 +56,7 @@
 |---|---|---|
 | `containerChanged` | `workspaceId`, `container`(`Container` 전체) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것(아래 "받는 사람의 규칙") |
 | `blockChanged` | `workspaceId`, `block`(`Block`). **카드·페이지·일기 항목·단원(`BlockType::WITH_ROOM`)은 본문 대신 그 요약을 싣는다**: `block`의 `body`는 `null`이고, 곁의 `summary`가 `hasBody`·`tasksTotal`·`tasksDone`(`getCards`의 카드의 그것)과 `preview`(`getCards`의 `preview=true`가 주는 `CardPreview`)를 싣는다. 본문은 방(6절)이나 HTTP로 읽는다. 다른 블록(댓글은 본문까지 블록 전체)과 지운 블록(아래 `deleteCardComment`)에는 `summary`가 없다 | 위와 같은 연결, 그리고 그 블록이나 그 블록의 부모를 `subscribeBlocks`로 따라가는 연결 |
+| `reactionsChanged` | `workspaceId`, `containerId`, `blockId`, `reactions`(`Reaction`의 목록: 그 블록의 반응 전부, 지금의 것. `getCardComments`의 `reactions`와 같은 순서. 마지막 반응을 떼면 빈 목록). 받은 클라이언트는 그 블록의 반응을 통째로 갈아 끼운다 | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것(`blockChanged`의 멤버 쪽과 같은 연결). **`subscribeBlocks`로 읽기 토큰만으로 따라가는 연결은 받지 않는다**: 반응은 사용자 ID다 |
 | `containerMemberChanged` | `workspaceId`, `member`(`ContainerMember`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것 |
 | `containerMemberRemoved` | `workspaceId`, `member`(`{containerId, userId}`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
 | `userChanged` | `workspaceId`, `userId`. 이름은 싣지 않는다: 받은 클라이언트가 그 사람을 다시 읽는다(`getWorkspaceUsersById`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 그 사람을 이름으로 보는 것(`permissions::sees_person`: 구성원은 모두, 손님은 같은 보드에 있는 사람). 그 사람 자신의 연결도 |
@@ -113,6 +114,7 @@
 | `setPublicLink`(끄기, 새 토큰) | 옛 토큰으로 따라가던 연결에 `blocksUnsubscribed` |
 | `patchMe` | 이름이 바뀌면 그 사람이 구성원인(손님 포함) 워크스페이스마다 `userChanged`. 바꾸는 것이 없는 요청은 아무것도 내지 않는다 |
 | `leaveOrganization` | 나간 사람의 연결 가운데 그 조직의 워크스페이스를 구독한 것에 워크스페이스마다 `workspaceUnsubscribed`(`workspace access ended`). 그 워크스페이스들의 방이 나간 사람을 다시 묻는다(`docLeft`). 나간 사람이 혼자 관리하던 보드가 워크스페이스의 다른 관리자에게 넘어가면 그 보드의 `containerMemberChanged`(새 관리자). 워크스페이스에서 사람을 뺄 때처럼 다른 사람에게 그 사람이 빠졌다는 메시지는 없다 |
+| `addReaction`, `removeReaction` | 반응이 생기거나 없어지면 그 블록의 `reactionsChanged`. 이미 있는 반응을 다시 달거나 없는 반응을 떼면 아무것도 내지 않는다. 블록은 바뀌지 않아 `blockChanged`는 없고, 알림도 없다. 따로 돌며 보내고, 보낼 때 반응을 다시 읽는다: 잇달아 단 것과 뗀 것은 늦게 읽은 것이 늦게 간다 |
 | `patchUserSettings`, `patchClientState` | 메시지 없음 |
 | `readNotification`, `readNotifications`, 알림 작업이 알림을 만들거나 늘릴 때 | 그 사용자의 연결에 `notificationsChanged`(위의 규칙) |
 

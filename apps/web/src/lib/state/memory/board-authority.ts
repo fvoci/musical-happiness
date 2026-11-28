@@ -339,8 +339,19 @@ export function batchRestoreMemoryCards(
   if (cardIds.length === 0 || cardIds.length > 200 || new Set(cardIds).size !== cardIds.length) {
     fail(400, 'invalid cardIds', { field: 'cardIds' });
   }
-  const restoredBlocks: StoredBlock[] = [];
+  // As the server: every card is in the trash, as deleted or with what it was under, before any
+  // comes back; one that came back with its family is not brought back again.
+  const inFamilies = new Set<string>();
   for (const cardId of cardIds) {
+    const deleted = ctx.world.deletedBlocks.get(cardId);
+    if (deleted?.containerId === boardId)
+      for (const block of deleted.blocks) inFamilies.add(block.id);
+  }
+  if (cardIds.some((cardId) => !inFamilies.has(cardId))) fail(404, 'no such block in the trash');
+  const restoredBlocks: StoredBlock[] = [];
+  const back = new Set<string>();
+  for (const cardId of cardIds) {
+    if (back.has(cardId) || !ctx.world.deletedBlocks.has(cardId)) continue;
     const restored = takeBlockBack(
       ctx.world,
       ctx.userId,
@@ -349,6 +360,7 @@ export function batchRestoreMemoryCards(
       () => memberRole(ctx.world, ctx.userId, boardId),
       () => containerInWorld(ctx.world, boardId),
     );
+    for (const block of restored) back.add(block.id);
     restoredBlocks.push(...restored);
   }
   if (restoredBlocks.length > 0) tellBlocks(ctx.world, boardId, restoredBlocks);

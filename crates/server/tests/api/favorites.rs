@@ -58,6 +58,15 @@ async fn stars_are_listed_in_their_order_with_what_they_are_on_now() {
     // Starred again, it stays where it was.
     star(client, TEST_WS, &board.id).await.check_no_content();
 
+    // A view of the board, which a reference resolves for a board view to show, is
+    // starred with its board alone.
+    let views: Vec<Value> = client
+        .get(&format!("{TEST_WS}/boards/{}/views", board.id))
+        .await
+        .ok_json();
+    let view = views[0]["id"].as_str().expect("the board's view");
+    star(client, TEST_WS, view).await.check_not_found();
+
     let listed = favorites(client, TEST_WS).await;
     assert_eq!(listed.len(), 2, "{listed:?}");
     assert_eq!(listed[0].target_id, board.id);

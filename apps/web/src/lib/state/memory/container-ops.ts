@@ -417,6 +417,18 @@ export function removeMemoryMember(ctx: MemoryContainerContext, id: string, user
   ctx.world.tellGone(userId, id);
 }
 
+/** The members of the shared container `id`, in no order. */
+export function memoryMembers(world: World, id: string): ContainerMember[] {
+  containerInWorld(world, id, 'shared');
+  return scramble(world.members.get(id) ?? []).map(copy);
+}
+
+/** The public link of the shared container `id`; one never made is off. */
+export function memoryPublicLink(world: World, id: string): PublicLink {
+  containerInWorld(world, id, 'shared');
+  return copy(world.publicLinks.get(id) ?? { enabled: false, token: '' });
+}
+
 export function setMemoryPublicLink(
   ctx: MemoryContainerContext,
   id: string,

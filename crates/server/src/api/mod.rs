@@ -37,6 +37,7 @@ mod file_versions;
 mod files;
 mod invitation_mail;
 mod invitations;
+mod items;
 mod limits;
 mod lists;
 mod mcp;
@@ -54,6 +55,7 @@ mod page_versions;
 mod password_reset;
 mod public_links;
 mod query;
+mod reactions;
 mod recovery;
 mod references;
 mod search;
@@ -89,8 +91,7 @@ use serde::Serialize;
 use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
-    BlockAction, refusal, require_admin, require_block_permission, require_container_permission,
-    require_container_visible, require_delete_permission, require_deletion_permission,
+    BlockAction, refusal, require_admin, require_container_permission, require_container_visible,
     require_granted, require_permission_through, require_workspace_access,
 };
 pub(crate) use body::{
@@ -190,6 +191,7 @@ fn routes() -> Routes {
         .merge(search::routes())
         .merge(content_search::routes())
         .merge(public_links::routes())
+        .merge(reactions::routes())
         .merge(subscriptions::routes())
         .merge(templates::routes())
         .merge(time_entries::routes())
