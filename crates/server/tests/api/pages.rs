@@ -421,10 +421,10 @@ async fn a_page_is_subscribed_to_by_its_readers_and_not_brought_back_as_a_card()
             )
             .await
     };
-    // A wiki has no cards to bring back; a board refuses the page as no deleted card of
-    // its own.
+    // A wiki has no cards to bring back; to a board the page in the wiki's trash is no
+    // deleted card of its own, as one of no identifier is not.
     restore(&of_wiki, &page.id).await.check_not_found();
-    restore(&of_board, &page.id).await.check_bad_request();
+    restore(&of_board, &page.id).await.check_not_found();
     client
         .get(&format!("{pages}/{}", page.id))
         .await
