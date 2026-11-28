@@ -152,7 +152,11 @@ async fn note_change(
                     .push(" WHERE id = ");
                 sql
             };
-            sql.changing_no_access().bind(Id(&id));
+            // With its card, so that PostgreSQL finds the line by the card's index: its
+            // key leads with the organization, which the wall asks of every row.
+            sql.changing_no_access()
+                .bind(Id(&id))
+                .push_bind(" AND card_id = ", Id(&block.id));
             scope.execute(sql).await?;
             return Ok(());
         }

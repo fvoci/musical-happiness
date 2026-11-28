@@ -11,7 +11,7 @@ use fvoci_model::{
 };
 use serde_json::Value;
 
-use crate::db::{Id, Param, Scope, SqlFragment};
+use crate::db::{Dialect, Id, Param, Scope, SqlFragment};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 use crate::search_outbox;
@@ -155,7 +155,6 @@ pub(crate) async fn forget_block(
     for prefix in [
         "DELETE FROM card_assignees WHERE card_id = ",
         "DELETE FROM card_due_notices WHERE card_id = ",
-        "DELETE FROM card_events WHERE card_id = ",
     ] {
         let mut sql = scope.sql(prefix);
         sql.changing_no_access().bind(Id(block_id));
@@ -164,6 +163,14 @@ pub(crate) async fn forget_block(
         }
         scope.execute(sql).await?;
     }
+    // A card's activity names its organization on PostgreSQL alone: a SQLite database
+    // holds one, and its rows name none (schema/sqlite/0002_card_events.sql).
+    let mut events = scope.sql("DELETE FROM card_events WHERE card_id = ");
+    events.changing_no_access().bind(Id(block_id));
+    if let Some(org) = org.filter(|_| scope.dialect() == Dialect::Postgres) {
+        events.push_bind(" AND org_id = ", org);
+    }
+    scope.execute(events).await?;
 
     let mut refs = scope.sql("DELETE FROM file_refs WHERE block_id = ");
     refs.bind(Id(block_id)).push(" RETURNING name");
