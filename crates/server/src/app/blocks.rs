@@ -47,7 +47,7 @@ impl App {
     /// says: one that is suppressed tells nobody whom it newly names. A handle an
     /// agent writes through ([`App::writing_for`]) tells of the write as the agent's.
     pub(super) fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
-        let store = match &self.agent {
+        let store = match &self.reach.agent {
             Some(delegation) => self.store().by_agent(delegation.by_agent()),
             None => self.store().clone(),
         };
@@ -107,7 +107,7 @@ impl App {
         // The handle finds the blocks of the boards it reaches only, in the one read.
         let found = self
             .store()
-            .get_block_within(block_id, self.workspace.as_deref(), self.kinds)
+            .get_block_within(block_id, self.reach.workspace.as_deref(), self.reach.kinds)
             .await;
         found.or_missing("block")
     }
