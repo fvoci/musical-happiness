@@ -2,13 +2,13 @@
  * The next card that completing a card that repeats makes, as a board shows
  * it: the one who completed it is told its number, and the undo of the
  * change makes the card not done and repeating again and takes the next card
- * away; a redo makes a next card anew. A drop into the column of done is the
- * same.
+ * away; a redo makes a next card anew. A drop into the column of done, and a
+ * value set on several cards at once, are the same.
  */
 import { describe, expect, it } from 'vitest';
 
 import { cardProperty, cardRecurredTo, cardRecurrence } from '$lib/logic/wire.ts';
-import { nextCardNotices } from '$lib/state/index.ts';
+import { nextCardNotices, setCardsProperty } from '$lib/state/index.ts';
 
 import { settle, setup, STATUS } from './support.ts';
 
@@ -89,6 +89,28 @@ describe('the next card of a card that repeats, on a board', () => {
     const undone = board.card(card.id);
     expect(undone && cardProperty(undone, STATUS)).toBe('todo');
     expect(undone && cardRecurrence(undone)).toEqual(weekly);
+  });
+
+  it('comes of a value set on several cards at once, and goes with its undo', async () => {
+    const { board, card, waters, notices, workspace } = await chores();
+    const other = await board.createCard({
+      title: 'Water',
+      properties: { [STATUS]: 'todo', [DUE]: { from: '2099-01-16' } },
+      recurrence: weekly,
+    });
+    if (!other) throw new Error('the card was not made');
+    await setCardsProperty(board, [card.id, other.id], STATUS, 'done');
+    await settle();
+    expect(notices.notice?.count).toBe(2);
+    expect(await waters()).toHaveLength(4);
+    await workspace.undoLast();
+    expect(await waters()).toHaveLength(2);
+    for (const id of [card.id, other.id]) {
+      const undone = board.card(id);
+      expect(undone && cardProperty(undone, STATUS)).toBe('todo');
+      expect(undone && cardRecurrence(undone)).toEqual(weekly);
+      expect(undone && cardRecurredTo(undone)).toBeUndefined();
+    }
   });
 
   it('leaves the history alone once a later change came', async () => {

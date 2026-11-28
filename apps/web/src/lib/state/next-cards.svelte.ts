@@ -36,6 +36,36 @@ export async function takeBackNext(store: BoardStore, nextId: string): Promise<v
   store.cards = store.cards.filter((card) => card.id !== nextId);
 }
 
+/** Notes in `made` the next cards the cards of `before`, as the board shows them now, name since: by the card completed. */
+export function noteNextCards(
+  store: BoardStore,
+  before: ReadonlyMap<string, Card | undefined>,
+  made: Map<string, MadeNext>,
+): void {
+  made.clear();
+  for (const [cardId, card] of before) {
+    const next = nextMadeBy(card, store.card(cardId));
+    if (next) made.set(cardId, next);
+  }
+}
+
+/**
+ * In the undo of a change of several cards: each completed card of `made`
+ * repeats again and its next card goes. A card gone by then is left out.
+ */
+export async function giveBackNextCards(
+  store: BoardStore,
+  made: ReadonlyMap<string, MadeNext>,
+): Promise<void> {
+  for (const [cardId, next] of made) {
+    if (!store.card(cardId)) continue;
+    const { backend } = store.workspace;
+    const patch = { recurrence: next.recurrence };
+    store.receiveCard(await backend.patchCard(store.boardId, cardId, patch, { quiet: true }));
+    await takeBackNext(store, next.nextId);
+  }
+}
+
 export interface NextCardNotice {
   /** Tells one notice from the next. */
   id: number;

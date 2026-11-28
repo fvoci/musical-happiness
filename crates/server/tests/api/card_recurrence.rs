@@ -151,3 +151,57 @@ async fn completing_a_card_that_repeats_makes_and_announces_the_next() {
     assert_eq!(undone["recurrence"], weekly(), "{undone}");
     th.teardown().await;
 }
+
+#[tokio::test]
+async fn completing_cards_that_repeat_at_once_tells_of_each_next_after_them() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board_id = chores(&th.client).await;
+    let mut cards = Vec::new();
+    for title in ["water", "feed"] {
+        let card: Card = th
+            .client
+            .post(
+                &cards_path(&board_id),
+                &json!({"title": title, "recurrence": weekly(),
+                        "properties": {STATUS: "todo", DUE: {"from": "2099-01-15"}}}),
+            )
+            .await
+            .created_json();
+        cards.push(card.id);
+    }
+    let me = th.client.me().await.id;
+    let mut socket = WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &me).await;
+
+    let completed: Vec<Value> = th
+        .client
+        .post(
+            &format!("{TEST_WS}/boards/{board_id}/cards/batch-patch"),
+            &json!({"cardIds": cards, "updatedProperties": {STATUS: "done"}}),
+        )
+        .await
+        .ok_json();
+    let next: Vec<String> = completed
+        .iter()
+        .map(|card| {
+            assert_eq!(card.get("recurrence"), None, "{card}");
+            card["recurredTo"]
+                .as_str()
+                .expect("each completed card names its next")
+                .to_owned()
+        })
+        .collect();
+    // The completed cards, then their next cards, in the order of the batch.
+    for id in cards.iter().chain(&next) {
+        socket.expect("blockChanged", "/block/id", id).await;
+    }
+    for id in &next {
+        let made: Value = th.client.get(&card_path(id)).await.ok_json();
+        assert_eq!(made["recurrence"], weekly(), "{made}");
+        assert_eq!(
+            made["properties"][DUE],
+            json!({"from": "2099-01-22"}),
+            "{made}"
+        );
+    }
+    th.teardown().await;
+}
