@@ -13,7 +13,7 @@ use super::App;
 /// What a committed write changed, to tell its workspace's listeners of in turn: the
 /// containers it made, then its blocks in the order they were added, then the
 /// memberships it made. Told by [`App::tell`] or [`App::tell_now`].
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[must_use = "a write that is not told leaves its listeners with what was there before"]
 pub(crate) struct Changes {
     workspace_id: String,
@@ -48,7 +48,9 @@ impl Changes {
     pub(crate) fn in_workspace(workspace_id: &str) -> Self {
         Self {
             workspace_id: workspace_id.to_owned(),
-            ..Self::default()
+            containers: Vec::new(),
+            blocks: Vec::new(),
+            members: Vec::new(),
         }
     }
 
@@ -89,8 +91,8 @@ impl Changes {
     /// last.
     pub(crate) fn made(
         mut self,
-        containers: Vec<Container>,
-        members: Vec<ContainerMember>,
+        containers: impl IntoIterator<Item = Container>,
+        members: impl IntoIterator<Item = ContainerMember>,
     ) -> Self {
         self.containers.extend(containers);
         self.members.extend(members);

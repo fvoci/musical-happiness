@@ -72,7 +72,7 @@ impl App {
             .first()
             .map_or("", |container| container.workspace_id.as_str());
         let changes = Changes::in_workspace(workspace_id)
-            .made(created.containers.clone(), members.to_vec())
+            .made(created.containers.iter().cloned(), members.iter().cloned())
             .changed(created.blocks.iter().cloned());
         self.tell_now(changes).await;
     }

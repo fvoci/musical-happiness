@@ -212,6 +212,8 @@ impl App {
         let mut copies: Vec<Block> = std::iter::once(first).chain(below).collect();
         self.give_copies_their_files(wiki_id, &mut copies).await;
         log_notification(ChangeNotification::Send, ChangeAction::Add, page_id);
+        // The copy answered with the files it was given; one deleted meanwhile, with
+        // every copy below it, is no longer there to answer.
         let page = copies
             .first()
             .cloned()

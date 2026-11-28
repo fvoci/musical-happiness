@@ -453,7 +453,7 @@ impl App {
         let workspace_id = containers
             .first()
             .map_or("", |container| container.workspace_id.as_str());
-        self.tell_now(Changes::in_workspace(workspace_id).made(containers.to_vec(), Vec::new()))
+        self.tell_now(Changes::in_workspace(workspace_id).made(containers.iter().cloned(), []))
             .await;
         for chunk in inserted_block_ids.chunks(ANNOUNCE_CHUNK_BLOCKS) {
             match self.store().get_blocks_by_ids(chunk).await {

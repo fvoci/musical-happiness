@@ -125,8 +125,10 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns not found unless the trash has that comment on `parent` at the top of a
-    /// deletion, the first refusal, and what [`App::undelete_block`] returns.
+    /// Returns `denial` for who may not comment on the container, before the trash is
+    /// looked in; not found unless the trash has that comment on `parent` at the top of
+    /// a deletion; the first refusal of what goes back; and what
+    /// [`App::undelete_block`] returns.
     pub async fn restore_comment(
         &self,
         on: &Reached,
@@ -134,6 +136,9 @@ impl App {
         comment_id: &str,
         denial: &str,
     ) -> Result<Block, AppError> {
+        // Asked first, as every write of a comment asks: what is in the trash is not
+        // told apart for who may not comment there.
+        on.require(ContainerPermission::CommentCards, denial)?;
         let deletion = self.deletion(comment_id).await?;
         let Some((top, below)) = deletion
             .split_first()
