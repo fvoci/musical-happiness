@@ -1235,9 +1235,15 @@ test('on a board the reader may only look at, nothing can be changed', async ({ 
   await expect(page.getByTestId('property-name')).toHaveCount(0);
   await expect(page.getByTestId('add-property')).toHaveCount(0);
   await expect(page.getByTestId('card-add-icon')).toHaveCount(0);
+  // What can be pressed opens a card, as reading does: a card that names this one.
   await expect(
-    page.getByTestId('card-properties').locator('input:not(:disabled), button:not(:disabled)'),
+    page
+      .getByTestId('card-properties')
+      .locator('input:not(:disabled), button:not(:disabled):not([data-slot="relation-referrer"])'),
   ).toHaveCount(0);
+  await expect(
+    page.getByTestId('card-properties').locator('[data-slot="relation-referrer"]'),
+  ).toHaveText(['Binary search']);
 
   // The body is read in its room (others' changes come in), never edited, and says why.
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'reading');

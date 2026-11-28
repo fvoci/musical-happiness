@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use fvoci_model::{ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks};
 
-use super::{App, Former};
+use super::{App, Changes, Former};
 use crate::collab::{AccessScope, Deletion};
 use crate::error::AppError;
 use crate::permissions::ContainerScope;
@@ -52,7 +52,6 @@ impl App {
                 .recheck_access(self, AccessScope::containers(made))
                 .await;
         }
-        super::blocks::hide_inactive_numbers(&mut created.blocks);
         self.announce_created(&created, &members).await;
 
         for container in &created.containers {
@@ -80,20 +79,10 @@ impl App {
             .containers
             .first()
             .map_or("", |container| container.workspace_id.as_str());
-        for container in &created.containers {
-            self.ws()
-                .broadcast_container_change(workspace_id, container)
-                .await;
-        }
-        for block in &created.blocks {
-            self.ws().broadcast_block_change(workspace_id, block).await;
-            self.tell_webhooks(block);
-        }
-        for member in members {
-            self.ws()
-                .broadcast_member_change(workspace_id, &member.container_id, member)
-                .await;
-        }
+        let changes = Changes::in_workspace(workspace_id)
+            .made(created.containers.clone(), members.to_vec())
+            .changed(created.blocks.iter().cloned());
+        self.tell_now(changes).await;
     }
 
     /// Deletes blocks and boards, all or none, and tells the boards' members.

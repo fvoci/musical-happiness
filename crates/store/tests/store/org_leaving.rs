@@ -107,7 +107,7 @@ async fn course_with_progress(
         )
         .await
         .expect("unit stored")
-        .unit;
+        .first;
     store
         .upsert_unit_progress(
             &course.id,

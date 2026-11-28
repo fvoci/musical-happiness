@@ -6,9 +6,10 @@ use fvoci_model::{
     Block, BlockError, BlockType, Container, DeletedPage, NewPage, Page, PageDuplicate, PageMove,
     PageNode, PagePatch, PageTree,
 };
-use fvoci_store::{ByAgent, PageCopies, PageRestore, PageWrite, StoreError};
+use fvoci_store::{ByAgent, StoreError, Written};
 
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
+use super::changes::Changes;
 use super::list_page::ListPage;
 use super::{App, Reached};
 use crate::error::{AppError, OrMissing, Reason};
@@ -89,18 +90,14 @@ impl App {
         new.check_request()?;
         let (wiki_id, user_id) = (on.container_id(), on.user_id());
         let limits = self.limits().pages;
-        let written = {
-            let _structure = self.collab().changing_structure(self, wiki_id).await;
-            self.store()
-                .create_page(wiki_id, new, limits, user_id)
-                .await?
-        };
-        log_notification(
-            ChangeNotification::Send,
-            ChangeAction::Add,
-            &written.page.id,
-        );
-        Ok(self.announce_pages(&wiki.workspace_id, written))
+        let page = self
+            .write_tree(wiki, ChangeAction::Add, async || {
+                self.store()
+                    .create_page(wiki_id, new, limits, user_id)
+                    .await
+            })
+            .await?;
+        Ok(Page::from(page))
     }
 
     /// Changes the page of the wiki `on` reached as `patch` says, for an editor of it:
@@ -155,14 +152,14 @@ impl App {
         let wiki = editing_page(on, page, MOVE_PAGE_DENIED)?;
         let (wiki_id, page_id, user_id) = (on.container_id(), page.id.as_str(), on.user_id());
         let limits = self.limits().pages;
-        let written = {
-            let _structure = self.collab().changing_structure(self, wiki_id).await;
-            self.store()
-                .move_page(wiki_id, page_id, to, limits, user_id)
-                .await?
-        };
-        log_notification(ChangeNotification::Send, ChangeAction::Update, page_id);
-        Ok(self.announce_pages(&wiki.workspace_id, written))
+        let page = self
+            .write_tree(wiki, ChangeAction::Update, async || {
+                self.store()
+                    .move_page(wiki_id, page_id, to, limits, user_id)
+                    .await
+            })
+            .await?;
+        Ok(Page::from(page))
     }
 
     /// Copies a page of the wiki `on` reached with every page below it, for an editor of
@@ -200,9 +197,11 @@ impl App {
             .collect();
         // What is typed in the bodies now is copied too.
         self.collab().write_bodies(self, &family).await?;
-        let PageCopies {
-            mut pages,
+        // Told of once the copies have their files, not as soon as they are stored.
+        let Written {
+            first,
             renumbered,
+            below,
         } = {
             let _structure = self.collab().changing_structure(self, wiki_id).await;
             self.store()
@@ -210,16 +209,16 @@ impl App {
                 .await
                 .map_err(refused_without_parent)?
         };
-        self.give_copies_their_files(wiki_id, &mut pages).await;
+        let mut copies: Vec<Block> = std::iter::once(first).chain(below).collect();
+        self.give_copies_their_files(wiki_id, &mut copies).await;
         log_notification(ChangeNotification::Send, ChangeAction::Add, page_id);
-        let page = pages
+        let page = copies
             .first()
             .cloned()
             .map(Page::from)
             .ok_or_else(|| AppError::not_found("page"))?;
-        let mut told = renumbered;
-        told.extend(pages);
-        self.announce(&wiki.workspace_id, told);
+        let told = renumbered.into_iter().chain(copies);
+        self.tell(Changes::in_workspace(&wiki.workspace_id).changed(told));
         Ok(page)
     }
 
@@ -318,45 +317,15 @@ impl App {
         let wiki = on.require(ContainerPermission::ManageCards, UNDELETE_PAGE_DENIED)?;
         let (wiki_id, user_id) = (on.container_id(), on.user_id());
         let limits = self.limits().pages;
-        let restored = {
-            let _structure = self.collab().changing_structure(self, wiki_id).await;
-            self.store()
-                .undelete_page(wiki_id, page_id, limits, user_id)
-                .await
-        };
-        let PageRestore { pages, renumbered } = restored.map_err(refused_without_parent)?;
-        log_notification(ChangeNotification::Send, ChangeAction::Add, page_id);
-        let page = pages
-            .first()
-            .cloned()
-            .map(Page::from)
-            .ok_or_else(|| AppError::not_found("page"))?;
-        let mut told = renumbered;
-        told.extend(pages);
-        self.announce(&wiki.workspace_id, told);
-        Ok(page)
-    }
-
-    /// Tells websocket listeners and webhooks in the background of the pages written,
-    /// the siblings numbered anew first, and returns the page the write was about.
-    fn announce_pages(&self, workspace_id: &str, written: PageWrite) -> Page {
-        let PageWrite { page, renumbered } = written;
-        let mut told: Vec<Block> = renumbered;
-        told.push(page.clone());
-        self.announce(workspace_id, told);
-        Page::from(page)
-    }
-
-    /// Tells websocket listeners and webhooks in the background of the pages, in turn.
-    fn announce(&self, workspace_id: &str, told: Vec<Block>) {
-        let app = self.clone();
-        let workspace_id = workspace_id.to_owned();
-        self.spawn_background(async move {
-            for block in &told {
-                app.ws().broadcast_block_change(&workspace_id, block).await;
-                app.tell_webhooks(block);
-            }
-        });
+        let page = self
+            .write_tree(wiki, ChangeAction::Add, async || {
+                self.store()
+                    .undelete_page(wiki_id, page_id, limits, user_id)
+                    .await
+            })
+            .await
+            .map_err(refused_without_parent)?;
+        Ok(Page::from(page))
     }
 }
 

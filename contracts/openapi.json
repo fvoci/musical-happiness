@@ -22106,7 +22106,7 @@
     },
     "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/comments": {
       "get": {
-        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit, each with its `reactions` where it has any. For who reads the\ncourse: its members, and of an open course\nwhoever works in the workspace. A chapter or a unit in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "Every comment on the unit, oldest first, as blocks of the `type` `comment` whose\nparent is the unit, each with its `reactions` where it has any. For who reads the\ncourse: its members, and of an open course whoever works in the workspace. A\nchapter or a unit in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getUnitComments",
         "parameters": [
           {
@@ -26563,7 +26563,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/comments": {
       "get": {
-        "description": "Every comment on the page, oldest first, as blocks of the `type` `comment` whose\nparent is the page; each says who wrote it (`createdBy`), one whose text was\nchanged when that last happened (`editedAt`), and one that has `reactions` who\nanswered it with which emoji. For who reads the wiki: its members,\nand of an open wiki whoever works in the workspace. A page in the trash is not\nthere (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "description": "Every comment on the page, oldest first, as blocks of the `type` `comment` whose\nparent is the page; each says who wrote it (`createdBy`), one whose text was\nchanged when that last happened (`editedAt`), and one that has `reactions` who\nanswered it with which emoji. For who reads the wiki: its members, and of an open\nwiki whoever works in the workspace. A page in the trash is not there (404).\n\nA personal API token is taken, of either scope (`read` or `write`).",
         "operationId": "getPageComments",
         "parameters": [
           {

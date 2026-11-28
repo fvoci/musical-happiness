@@ -1618,7 +1618,7 @@ pub(super) async fn a_page_in(
         .create_page(&wiki.id, &new, fvoci_model::PageLimits::default(), owner)
         .await
         .expect("its page")
-        .page
+        .first
 }
 
 /// A unit of a new open course of the workspace, made by `owner`.
@@ -1647,7 +1647,7 @@ pub(super) async fn a_unit_in(
         .create_unit(&course.id, &new, fvoci_model::CourseLimits::DEFAULT, owner)
         .await
         .expect("its unit")
-        .unit
+        .first
 }
 
 /// A comment on the page, by its maker.

@@ -31,11 +31,11 @@ use super::{
     ANNOUNCE_CHUNK_BLOCKS, ArchiveFiles, ImportCounts, ImportOptions, Imported, name_in,
     no_more_than_holdable, tally_container_counts,
 };
-use crate::app::App;
 use crate::app::container_copies::counted_as;
 use crate::app::doomed::Doomed;
 use crate::app::files::{FilePlace, file_record};
 use crate::app::loose_objects::WrittenPlace;
+use crate::app::{App, Changes};
 use crate::auth::secret::new_secret;
 use crate::collab::AccessScope;
 use crate::error::AppError;
@@ -453,18 +453,13 @@ impl App {
         let workspace_id = containers
             .first()
             .map_or("", |container| container.workspace_id.as_str());
-        for container in containers {
-            self.ws()
-                .broadcast_container_change(workspace_id, container)
-                .await;
-        }
+        self.tell_now(Changes::in_workspace(workspace_id).made(containers.to_vec(), Vec::new()))
+            .await;
         for chunk in inserted_block_ids.chunks(ANNOUNCE_CHUNK_BLOCKS) {
             match self.store().get_blocks_by_ids(chunk).await {
                 Ok(blocks) => {
-                    for block in &blocks {
-                        self.ws().broadcast_block_change(workspace_id, block).await;
-                        self.tell_webhooks(block);
-                    }
+                    self.tell_now(Changes::in_workspace(workspace_id).changed(blocks))
+                        .await;
                 }
                 Err(error) => {
                     tracing::error!(

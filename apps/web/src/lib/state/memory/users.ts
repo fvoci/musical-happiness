@@ -29,12 +29,12 @@ export function userFound(user: User, wanted: string): boolean {
   );
 }
 
-/** The first ten of `users` a search for `query` finds (`userFound`), the earliest made first. */
-export function usersFound(users: readonly User[], query: string): User[] {
+/** The first ten of `users` a search for `query` finds (`userFound`), the oldest accounts first. */
+export function usersMatching(users: readonly User[], query: string): User[] {
   const wanted = query.trim().toLowerCase();
   return users
     .filter((user) => userFound(user, wanted))
-    .sort((a, b) => a.createdAt - b.createdAt)
+    .sort((first, second) => first.createdAt - second.createdAt)
     .slice(0, 10);
 }
 

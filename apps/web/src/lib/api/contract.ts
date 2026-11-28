@@ -5008,8 +5008,8 @@ export interface paths {
          * The comments on a unit
          * @description Every comment on the unit, oldest first, as blocks of the `type` `comment` whose
          *     parent is the unit, each with its `reactions` where it has any. For who reads the
-         *     course: its members, and of an open course
-         *     whoever works in the workspace. A chapter or a unit in the trash is not there (404).
+         *     course: its members, and of an open course whoever works in the workspace. A
+         *     chapter or a unit in the trash is not there (404).
          *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */
@@ -6674,9 +6674,8 @@ export interface paths {
          * @description Every comment on the page, oldest first, as blocks of the `type` `comment` whose
          *     parent is the page; each says who wrote it (`createdBy`), one whose text was
          *     changed when that last happened (`editedAt`), and one that has `reactions` who
-         *     answered it with which emoji. For who reads the wiki: its members,
-         *     and of an open wiki whoever works in the workspace. A page in the trash is not
-         *     there (404).
+         *     answered it with which emoji. For who reads the wiki: its members, and of an open
+         *     wiki whoever works in the workspace. A page in the trash is not there (404).
          *
          *     A personal API token is taken, of either scope (`read` or `write`).
          */

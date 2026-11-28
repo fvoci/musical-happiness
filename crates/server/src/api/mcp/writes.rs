@@ -16,13 +16,11 @@ use super::arguments::{
 use super::reads::{card_in_markdown, listed_comment, page_in_markdown, to_json, unit_in_markdown};
 use super::tools::{Partly, ToolError, enter};
 use crate::api::access::require_container_permission;
-use crate::api::card_comments::CardCommentParent;
 use crate::api::card_markdown::append_to_card;
 use crate::api::cards::{card_with_permission, create_card_with, patch_card_with};
 use crate::api::comments::{CommentParentKind, CommenterOf};
 use crate::api::courses::{create_unit_with, patch_unit_with, unit_with_permission};
-use crate::api::page_comments::PageCommentParent;
-use crate::api::unit_comments::UnitCommentParent;
+use crate::api::items::{CardItem, ItemPath, PageItem, UnitItem};
 use crate::api::unit_progress::{ProgressToRecord, progress_update_to_record, record_progress};
 use crate::api::wikis::{create_page_with, page_with_permission, patch_page_with};
 use crate::api::workspace::InWorkspace;
@@ -654,30 +652,23 @@ pub(super) async fn post_comment(
         ContainerKinds::EVERY,
     )
     .await?;
+    let item = ItemPath::named(&container_id, &item_id);
     match kind {
-        ItemKind::Card => {
-            comment_on::<CardCommentParent>(ws, container_id, &item_id, "card", text).await
-        }
-        ItemKind::Page => {
-            comment_on::<PageCommentParent>(ws, container_id, &item_id, "page", text).await
-        }
-        ItemKind::Unit => {
-            comment_on::<UnitCommentParent>(ws, container_id, &item_id, "unit", text).await
-        }
+        ItemKind::Card => comment_on::<CardItem>(ws, item, text).await,
+        ItemKind::Page => comment_on::<PageItem>(ws, item, text).await,
+        ItemKind::Unit => comment_on::<UnitItem>(ws, item, text).await,
     }
 }
 
-/// Writes the comment saying `text` on the item `parent_id` of `container_id`, as the
-/// route that comments on a `K` does, and answers with it as `list_comments` lists it.
+/// Writes the comment saying `text` on the item `item` names, as the route that comments
+/// on a `K` does, and answers with it as `list_comments` lists it.
 async fn comment_on<K: CommentParentKind>(
     ws: InWorkspace,
-    container_id: String,
-    parent_id: &str,
-    parent_what: &'static str,
+    item: ItemPath,
     text: Body,
 ) -> Result<Value, ToolError> {
-    let commenter = CommenterOf::<K>::admit(ws, container_id, parent_id, None).await?;
-    let asked = (parent_what, K::CREATE_DENIED);
+    let commenter = CommenterOf::<K>::admit(ws, item).await?;
+    let asked = (K::WHAT, K::CREATE_DENIED);
     let comment = commenter
         .ws
         .app
@@ -690,7 +681,7 @@ async fn comment_on<K: CommentParentKind>(
         )
         .await?;
     let done = Done::made(&comment.id);
-    let listed = listed_comment(&commenter.ws, &commenter.container_id, comment)
+    let listed = listed_comment(&commenter.ws, commenter.on.container_id(), comment)
         .await
         .map_err(|error| done.told(error))?;
     to_json(&listed).map_err(|error| done.told(error))

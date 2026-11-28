@@ -12,7 +12,7 @@ use super::place::{AskedFor, Held, OpenDoc, Opening, Unanswered, died_over};
 use super::senders::SenderOf;
 use super::versions::Versioned;
 use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken};
-use crate::app::App;
+use crate::app::{App, Changes};
 use crate::collab_worker::wire::{Answer, Request};
 use crate::error::{AppError, Reason};
 
@@ -921,12 +921,5 @@ async fn announce(app: &App, card_id: &str) {
             return;
         }
     };
-    let app_of_task = app.clone();
-    app.spawn_background(async move {
-        app_of_task
-            .ws()
-            .broadcast_block_change(&container.workspace_id, &block)
-            .await;
-        app_of_task.tell_webhooks(&block);
-    });
+    app.tell(Changes::in_workspace(&container.workspace_id).changed([block]));
 }

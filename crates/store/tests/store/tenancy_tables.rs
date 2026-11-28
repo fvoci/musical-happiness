@@ -791,7 +791,7 @@ async fn a_course_with_progress(store: &Store, workspace_id: &str, user_id: &str
         )
         .await
         .expect("a unit is stored")
-        .unit;
+        .first;
     store
         .upsert_unit_progress(
             &course.id,

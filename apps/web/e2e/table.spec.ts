@@ -494,7 +494,8 @@ test.describe('editing a cell', () => {
   test('the title: edited in place', async ({ page }) => {
     const opened = await openView(page, 'Project schedule', 'Task table');
     const id = await rowId(page, 'Agree on the scope');
-    await titleCell(page, id).click({ position: { x: 6, y: 12 } });
+    // On the title: the start of the cell is the box that selects the row.
+    await titleCell(page, id).locator('[data-slot="row-title"]').click();
     const field = titleCell(page, id).locator('input');
     await expect(field).toBeFocused();
     await expect(field).toHaveValue('Agree on the scope');
