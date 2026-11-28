@@ -161,9 +161,11 @@ test('a property chosen from the menu of the bar opens its editor, and where its
   await page.keyboard.press('Escape');
   await expect(opener).toHaveAttribute('aria-expanded', 'false');
   // Where the view is narrow ("More") the button the editor opens from is hidden, and no stop for
-  // Tab; where it is wide ("Properties") it is a button of the bar like the others.
+  // Tab: the focus goes back to "More". Where it is wide ("Properties") it is a button of the bar
+  // like the others.
   if (await opener.evaluate((element) => element.classList.contains('sr-only'))) {
     await expect(opener).toHaveAttribute('tabindex', '-1');
+    await expect(bar(page).locator('[data-bulk-menu]')).toBeFocused();
   } else {
     await expect(opener).toBeVisible();
     await expect(opener).not.toHaveAttribute('tabindex', '-1');

@@ -7,7 +7,8 @@
   The kinds that pick (options, people, a date) open their own surface. The
   others are a field or a box, which are put on a surface here. Where the
   selected cards' values differ (`shared.mixed`) nothing shows as chosen, and
-  "Clear" clears them all.
+  "Clear" clears them all. Closed, the focus goes back to the opener, or
+  where `returnFocus` says when the opener is not to be seen.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -45,6 +46,8 @@
     /** Opens as soon as it is drawn: it was chosen from the bar's menu. */
     startOpen?: boolean;
     opener: Snippet<[{ props: Record<string, unknown> }]>;
+    /** Where the focus goes once the editor closes, when `opener` is not to be seen. */
+    returnFocus?: () => HTMLElement | null | undefined;
     /** The value for every selected card; undefined or empty clears it. */
     onChange: (value: PropertyValue | undefined) => void;
   }
@@ -59,6 +62,7 @@
     presentation,
     startOpen = false,
     opener,
+    returnFocus,
     onChange,
   }: Props = $props();
 
@@ -103,6 +107,7 @@
     {presentation}
     {startOpen}
     {opener}
+    {returnFocus}
     mixed={shared.mixed}
     {onChange}
   />
@@ -118,6 +123,7 @@
     {presentation}
     {startOpen}
     {opener}
+    {returnFocus}
     mixed={shared.mixed}
     {onChange}
   />
@@ -132,6 +138,7 @@
     {presentation}
     {startOpen}
     {opener}
+    {returnFocus}
     mixed={shared.mixed}
     {onChange}
   />
@@ -141,6 +148,7 @@
     {presentation}
     title={name}
     trigger={opener}
+    {returnFocus}
     onOpenChange={(next: boolean) => {
       if (next) clearing = false;
     }}

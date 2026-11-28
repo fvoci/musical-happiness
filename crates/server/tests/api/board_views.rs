@@ -182,8 +182,8 @@ async fn every_start_of_a_board_refuses_alike() {
     ts.teardown().await;
 }
 
-/// A view keeps its type: a patch that takes `viewType` away is refused at the member
-/// that names it, and the view stays as it was.
+/// A view keeps its type: a patch that takes `viewType` away, or sets it to null, is
+/// refused at the member that names it, and the view stays as it was.
 #[tokio::test]
 async fn a_view_keeps_its_type() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -205,6 +205,17 @@ async fn a_view_keeps_its_type() {
         "/deletedFields/1",
         "{}",
         response.text()
+    );
+    let nulled = ts
+        .client
+        .patch(&path, &json!({"updatedFields": {"viewType": null}}))
+        .await;
+    nulled.check_bad_request();
+    assert_eq!(
+        nulled.refused_at(),
+        "/updatedFields/viewType",
+        "{}",
+        nulled.text()
     );
     let read: Block = ts.client.get(&path).await.ok_json();
     assert_eq!(read, view, "nothing of the patch is written");

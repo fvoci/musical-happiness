@@ -151,6 +151,7 @@ export class CardStore {
   async load(): Promise<void> {
     this.status = 'loading';
     this.openBody();
+    const mark = this.#commentThread.reactionsMark();
     try {
       const [read, comments, attachments] = await Promise.all([
         this.#backend.card(this.#boardId, this.cardId),
@@ -159,9 +160,9 @@ export class CardStore {
       ]);
       if (this.#closed) return;
       this.#takeDetail(read);
-      this.#commentThread.takeReactions(read.reactions);
+      this.#commentThread.takeReactions(read.reactions, mark);
       void this.board.workspace.learnUsers(authorIds([read, ...comments]));
-      this.#commentThread.setInitial(comments);
+      this.#commentThread.setInitial(comments, mark);
       this.#attachments = attachments;
       this.status = 'ready';
       this.#collab.probeIfNotFound();
@@ -229,6 +230,7 @@ export class CardStore {
       this.#news = card;
       return;
     }
+    const mark = this.#commentThread.reactionsMark();
     void this.#backend
       .card(this.#boardId, this.cardId)
       .then((detail) => {
@@ -238,7 +240,7 @@ export class CardStore {
         }
         if (!back && detail.updatedAt <= this.#readAt) return;
         this.#takeDetail(detail);
-        this.#commentThread.takeReactions(detail.reactions);
+        this.#commentThread.takeReactions(detail.reactions, mark);
       })
       .catch(() => undefined);
   }
@@ -281,12 +283,8 @@ export class CardStore {
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
       if (this.#isClosed() || reading !== this.#refreshing) return;
-      this.#commentThread.takeReactions(read.reactions);
-      this.#commentThread.mergeRead(
-        comments,
-        commentsBefore.beforeIds,
-        commentsBefore.deletedBefore,
-      );
+      this.#commentThread.takeReactions(read.reactions, commentsBefore.mark);
+      this.#commentThread.mergeRead(comments, commentsBefore);
       this.#attachments = reread(this.#attachments, attachments, attachmentsBefore);
     } catch (error) {
       if (this.#isClosed() || reading !== this.#refreshing) return;

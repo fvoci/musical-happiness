@@ -167,7 +167,7 @@ fn references_are_emptied_but_for_what_is_shown_and_renamed_where_there_is_a_nam
     assert!(!value.to_string().contains(outside));
 
     let mut body = parsed;
-    body.rename_references(|id| (id == shown).then(|| copy.to_owned()));
+    body.rename_links(|id| (id == shown).then(|| copy.to_owned()));
     assert_eq!(body.reference_ids(), [copy, outside]);
     let value = serde_json::to_value(&body).expect("JSON");
     assert_eq!(value["content"][0]["content"][1]["text"], json!("x"));
@@ -175,7 +175,7 @@ fn references_are_emptied_but_for_what_is_shown_and_renamed_where_there_is_a_nam
 
 /// A board view shows a view by its identifier: it is told with the references where a
 /// body's links are asked, emptied for a reader by link whatever is shown, and renamed
-/// with them where they are copied.
+/// with them where they are copied: a copy names, and shows, the copies.
 #[test]
 fn board_views_are_linked_emptied_for_a_link_and_renamed_with_references() {
     let reference = |id: &str| json!({"type": "reference", "attrs": {"id": id}});
@@ -229,15 +229,14 @@ fn board_views_are_linked_emptied_for_a_link_and_renamed_with_references() {
     assert_eq!(shown.board_view_count(), 3);
 
     let mut renamed = parsed;
-    renamed.rename_references(|id| (id == table).then(|| copy.to_owned()));
+    renamed.rename_links(|id| (id == table).then(|| copy.to_owned()));
     assert_eq!(renamed.reference_ids(), [card, copy]);
     assert_eq!(
         renamed.board_view_ids(),
-        [table, kanban],
-        "references alone"
+        [copy, kanban],
+        "the board views with the references"
     );
-    renamed.rename_links(|id| (id == kanban).then(|| copy.to_owned()));
-    assert_eq!(renamed.board_view_ids(), [table, copy]);
+    assert_eq!(renamed.board_view_count(), 3);
 }
 
 /// A body shows at most ten board views, wherever they stand; the eleventh is refused

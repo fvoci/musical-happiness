@@ -15,12 +15,14 @@
 //! What has been in the trash for longer than the retention period is removed for good
 //! by [`Store::purge_trash`], and what people were told of it with it (`told.rs`).
 
+mod holds;
 mod reactions;
 mod stored;
 mod told;
 mod watchers;
 
-pub(crate) use reactions::forget_reactions_of_organization;
+pub(crate) use holds::{hold_blocks_of_containers, hold_trees_of};
+pub(crate) use reactions::{KeptReactions, forget_reactions_of_organization};
 pub(crate) use watchers::{
     forget_watcher_of_container, forget_watcher_of_organization, forget_watcher_of_workspace,
 };
@@ -260,8 +262,13 @@ impl Store {
         block_id: &str,
         user_id: &str,
     ) -> Result<Vec<Block>, StoreError> {
-        self.transaction(async |scope| undelete_block(scope, block_id, user_id).await)
-            .await
+        self.transaction(async |scope| {
+            let mut reactions = KeptReactions::default();
+            let restored = undelete_block(scope, block_id, user_id, &mut reactions).await?;
+            reactions.make_again(scope).await?;
+            Ok(restored)
+        })
+        .await
     }
 
     /// Deletes a board with all its blocks: moves them to the trash, together with the
@@ -729,6 +736,7 @@ async fn put_blocks_in_trash(
         return Ok(());
     }
     let ids: Vec<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
+    holds::hold_blocks(scope, &ids).await?;
     let mut watchers = watchers::watchers_of(scope, &ids).await?;
     let mut reactions = reactions::reactions_of(scope, &ids).await?;
     for chunk in blocks.chunks(TRASH_INSERT_BATCH) {
@@ -763,12 +771,34 @@ async fn put_blocks_in_trash(
 /// Takes the blocks of one deletion out of the trash and puts them back among the
 /// blocks, marked as modified by `user_id` at `now`, each as `adjust` leaves it, with
 /// the subscriptions and the reactions they kept. Returns them.
+///
+/// The reactions are made again last ([`KeptReactions::make_again`]): the transaction
+/// is to take no lock after it but of accounts further on.
 pub(crate) async fn take_blocks_out_of_trash(
     scope: &mut Scope<'_>,
     deletion_id: &str,
     user_id: &str,
     now: i64,
+    adjust: impl FnMut(&mut Block),
+) -> Result<Vec<Block>, StoreError> {
+    let mut reactions = KeptReactions::default();
+    let restored =
+        take_out_keeping_reactions(scope, deletion_id, user_id, now, adjust, &mut reactions)
+            .await?;
+    reactions.make_again(scope).await?;
+    Ok(restored)
+}
+
+/// Takes the blocks of one deletion out of the trash as [`take_blocks_out_of_trash`]
+/// does, but for the reactions they kept, which go to `reactions`: for a transaction
+/// that takes several deletions out, and makes the reactions of all again at its end.
+pub(crate) async fn take_out_keeping_reactions(
+    scope: &mut Scope<'_>,
+    deletion_id: &str,
+    user_id: &str,
+    now: i64,
     mut adjust: impl FnMut(&mut Block),
+    reactions: &mut KeptReactions,
 ) -> Result<Vec<Block>, StoreError> {
     let mut sql = scope.sql("SELECT block FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));
@@ -796,9 +826,9 @@ pub(crate) async fn take_blocks_out_of_trash(
     for index in parents_first(&restored) {
         blocks::insert_block_row(scope, &restored[index], NewBodyFiles::Unchecked).await?;
     }
-    for (block_id, kept_with) in &kept {
-        watchers::watch_again(scope, block_id, &kept_with.watchers).await?;
-        reactions::react_again(scope, block_id, &kept_with.reactions).await?;
+    for (block_id, kept_with) in kept {
+        watchers::watch_again(scope, &block_id, &kept_with.watchers).await?;
+        reactions.keep(block_id, kept_with.reactions);
     }
     let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));

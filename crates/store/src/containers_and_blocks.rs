@@ -1,6 +1,6 @@
 //! Operations on several boards and blocks at once, all or none.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::convert::Infallible;
 
 use fvoci_model::{
@@ -28,7 +28,7 @@ use crate::trash;
 use crate::workspace_membership;
 
 /// Message sent from a streaming block producer into [`Store::create_containers`]
-/// ([`NewBlocks::Streamed`]).
+/// ([`NewContainers::streamed`]).
 ///
 /// The producer must send [`StreamBatch::Done`] once all batches have been emitted; if the
 /// channel closes without [`StreamBatch::Done`] (e.g., because the producer task panicked),
@@ -83,9 +83,9 @@ pub struct NewContainers<'a, E = Infallible> {
     schedules: &'a [(usize, ValidatedCourseSchedule)],
 }
 
-/// The blocks of [`NewContainers`].
+/// The blocks of [`NewContainers`], which its constructors choose.
 #[derive(Debug)]
-pub enum NewBlocks<'a, E> {
+pub(crate) enum NewBlocks<'a, E> {
     /// All of them at once, inserted or updated as [`Store::insert_block`] does each,
     /// parents first wherever in the list they are, and left as they were stored.
     Whole(&'a mut Vec<Block>),
@@ -518,11 +518,12 @@ pub(crate) async fn delete_containers_and_blocks(
     request: &DeleteContainersAndBlocks,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let container_ids: HashSet<&str> = request.containers.iter().map(String::as_str).collect();
+    let container_ids: BTreeSet<&str> = request.containers.iter().map(String::as_str).collect();
     // The organization's before the boards': with a joining that ends, whose roles on
-    // them are given back in the trash too (`joinings::give_back_roles`).
+    // them are given back in the trash too (`joinings::give_back_roles`). The boards
+    // as their deletion holds them, in their order, before anything under them.
     org_admin::lock_organization(scope).await?;
-    containers::lock_containers(scope, container_ids.iter().copied()).await?;
+    containers::lock_containers_for_deletion(scope, &container_ids).await?;
 
     // Every listed block must be a block of one of the listed boards. That is all
     // there is to do about the blocks: a board takes all its blocks into the trash, as
@@ -535,7 +536,10 @@ pub(crate) async fn delete_containers_and_blocks(
             });
         }
     }
-    for container_id in &request.containers {
+    // Every block of the boards before the first goes: each then holds what it holds.
+    let ids: Vec<&str> = container_ids.iter().copied().collect();
+    trash::hold_blocks_of_containers(scope, &ids).await?;
+    for container_id in &container_ids {
         trash::delete_container(scope, container_id, user_id).await?;
     }
     Ok(())

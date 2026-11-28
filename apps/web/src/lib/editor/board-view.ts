@@ -13,7 +13,9 @@
  *
  * A board view stands where a table does: in the document and in what a
  * toggle hides, not in a list, a quote, a callout or a cell; and a body
- * shows ten at most. Only the body of a card, a page or a unit has one: the
+ * shows ten at most, which no change of the reader's goes past, however it
+ * was made (a paste of blocks, a drop): one past them already is the
+ * server's to refuse. Only the body of a card, a page or a unit has one: the
  * editor of a comment or of a diary's entry is given `allowed: false`, and
  * makes none of what is pasted, nor offers one.
  *
@@ -26,7 +28,8 @@
  * view draws inside is its own, and the editor takes no event of it.
  */
 import { mergeAttributes, Node, type Editor } from '@tiptap/core';
-import { NodeSelection, type Transaction } from '@tiptap/pm/state';
+import type { Slice } from '@tiptap/pm/model';
+import { NodeSelection, Plugin, type EditorState, type Transaction } from '@tiptap/pm/state';
 
 import { m } from '$lib/i18n/paraglide/messages.js';
 
@@ -34,6 +37,7 @@ import { boardViewPaste } from './board-view-paste.ts';
 import { BOARD_VIEW, boardViewCount, boardViewPlace, canPutBoardView } from './board-view-place.ts';
 import { MAX_BOARD_VIEWS } from './schema.ts';
 import { isBlockId } from './schema-rules.ts';
+import { fromShared } from './shared-place.ts';
 import type { SlashEntry } from './slash-menu.ts';
 import type { ChoiceList } from './suggestion-list.ts';
 import {
@@ -50,6 +54,33 @@ import { DOCUMENT_ONLY } from './table.ts';
 import './board-view.css';
 
 export { BOARD_VIEW, boardViewCount, canPutBoardView };
+
+/** Whether a step of `tr` brings a board view in: none does where the reader types. */
+function bringsBoardView(tr: Transaction): boolean {
+  return tr.steps.some((step) => {
+    const { slice } = step as { slice?: Slice };
+    let found = false;
+    slice?.content.descendants((node) => {
+      if (node.type.name === BOARD_VIEW) found = true;
+      return !found && !node.isTextblock;
+    });
+    return found;
+  });
+}
+
+/**
+ * No change of the reader's takes a body past `MAX_BOARD_VIEWS` (one past it
+ * already is the server's to refuse); another's, or the shared undo, is the
+ * shared document's.
+ */
+const withinBoardViews = (): Plugin =>
+  new Plugin({
+    filterTransaction(tr: Transaction, state: EditorState) {
+      if (!tr.docChanged || fromShared(tr) || !bringsBoardView(tr)) return true;
+      const count = boardViewCount(tr.doc);
+      return count <= MAX_BOARD_VIEWS || count <= boardViewCount(state.doc);
+    },
+  });
 export {
   BOARD_VIEW_ATTRIBUTE,
   drawBoardViewPlace,
@@ -199,7 +230,7 @@ export const BoardView = Node.create<BoardViewOptions>({
 
   addProseMirrorPlugins() {
     const { allowed, viewAt, seen, choices } = this.options;
-    if (allowed === false || !viewAt || !seen || !choices) return [];
-    return [boardViewPaste(this.editor, { viewAt, seen, choices })];
+    if (allowed === false || !viewAt || !seen || !choices) return [withinBoardViews()];
+    return [withinBoardViews(), boardViewPaste(this.editor, { viewAt, seen, choices })];
   },
 });

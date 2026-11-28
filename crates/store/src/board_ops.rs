@@ -261,6 +261,8 @@ impl Store {
         self.transaction(async |scope| {
             lock_live_board(scope, board_id).await?;
             verify_live_board_cards_or_templates(scope, board_id, card_ids).await?;
+            // Every card's tree before the first goes: each then holds what it holds.
+            trash::hold_trees_of(scope, card_ids).await?;
             let mut deleted = Vec::new();
             for card_id in card_ids {
                 deleted.extend(trash::delete_block(scope, card_id, user_id).await?);
@@ -292,17 +294,20 @@ impl Store {
             verify_trashed_board_cards(scope, board_id, card_ids).await?;
             let mut restored = Vec::new();
             let mut restored_ids = HashSet::new();
+            // Made again once all are back: each account is held once, in order.
+            let mut reactions = trash::KeptReactions::default();
             for card_id in card_ids {
                 if restored_ids.contains(card_id.as_str()) {
                     continue;
                 }
-                let family = trash::undelete_block(scope, card_id, user_id).await?;
+                let family = trash::undelete_block(scope, card_id, user_id, &mut reactions).await?;
                 for block in family {
                     if restored_ids.insert(block.id.clone()) {
                         restored.push(block);
                     }
                 }
             }
+            reactions.make_again(scope).await?;
             Ok(restored)
         })
         .await

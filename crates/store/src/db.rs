@@ -422,9 +422,9 @@ pub(crate) struct Scope<'c> {
     noting: Noting,
     /// The agent whose writes these are ([`crate::Store::by_agent`]).
     agent: Option<std::sync::Arc<crate::body_versions::AgentOfHandle>>,
-    /// Acquired `(rank, key)` locks in this scope for debug lock-order assertions.
+    /// The locks taken in this scope, for debug lock-order assertions.
     #[cfg(debug_assertions)]
-    locks: Vec<(LockRank, String)>,
+    locks: Vec<locks::TakenLock>,
 }
 
 /// Whom the writes of blocks of a handle, and of its scopes, note to be told.
@@ -505,13 +505,13 @@ impl<'c> Scope<'c> {
         }
     }
 
-    /// Records a lock acquisition at `(rank, key)` and asserts global lock ordering in
-    /// debug and test builds.
-    pub(crate) fn record_lock(&mut self, rank: LockRank, key: &str) {
+    /// Records a lock acquisition at `(rank, key)`, as strong as `lock`, and asserts
+    /// global lock ordering in debug and test builds.
+    pub(crate) fn record_lock(&mut self, rank: LockRank, key: &str, lock: RowLock) {
         #[cfg(debug_assertions)]
-        locks::push_checked_lock(&mut self.locks, rank, key);
+        locks::push_checked_lock(&mut self.locks, rank, key, lock);
         #[cfg(not(debug_assertions))]
-        let _ = (rank, key);
+        let _ = (rank, key, lock);
     }
 
     /// Attaches the owning store's monotonic [`Clock`] to this scope.

@@ -50,7 +50,7 @@ pub(crate) struct Turn(());
 /// one made by another link holds both, and the clean-up of registrations that ended
 /// holds the links of any.
 pub(crate) async fn take_turn(scope: &mut Scope<'_>) -> Result<Turn, StoreError> {
-    scope.record_lock(LockRank::LinkTurn, "links");
+    scope.record_lock(LockRank::LinkTurn, "links", RowLock::Update);
     if scope.dialect() == Dialect::Postgres {
         let mut sql = scope.sql("SELECT pg_advisory_xact_lock(");
         sql.bind(SEVERAL_LINKS_LOCK).push(")");

@@ -46,21 +46,29 @@ export function longPress(onLongPress: () => void): (element: HTMLElement) => ()
   return (element) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let origin: { x: number; y: number } | undefined;
-    let fired = false;
+    // A long press answered: the browser's menu of it is kept from the reader until
+    // another press, and the click that ends it from what was pressed.
+    let menuKept = false;
+    let clickKept = false;
     const stop = (): void => {
       clearTimeout(timer);
       timer = undefined;
       origin = undefined;
     };
     const down = (event: PointerEvent): void => {
-      if (event.pointerType !== 'touch' || !event.isPrimary) return;
+      if (!event.isPrimary) return;
+      // Another press: a long one before it that ended in no click (the finger was taken
+      // over) keeps no click from this one, on a link or with a mouse either.
+      menuKept = false;
+      clickKept = false;
+      if (event.pointerType !== 'touch') return;
       if (event.target instanceof Element && event.target.closest(PRESSED_ON_ITS_OWN)) return;
       stop();
-      fired = false;
       origin = { x: event.clientX, y: event.clientY };
       timer = setTimeout(() => {
         stop();
-        fired = true;
+        menuKept = true;
+        clickKept = true;
         onLongPress();
       }, LONG_PRESS_MS);
     };
@@ -68,19 +76,25 @@ export function longPress(onLongPress: () => void): (element: HTMLElement) => ()
       if (!origin) return;
       if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > LONG_PRESS_SLOP) stop();
     };
+    // The browser took the finger over: no click ends the press, so none is kept from
+    // what comes next (Enter or Space on a control). Its menu may still come.
+    const cancel = (): void => {
+      stop();
+      clickKept = false;
+    };
     const menu = (event: Event): void => {
-      if (timer !== undefined || fired) event.preventDefault();
+      if (timer !== undefined || menuKept) event.preventDefault();
     };
     const click = (event: Event): void => {
-      if (!fired) return;
-      fired = false;
+      if (!clickKept) return;
+      clickKept = false;
       event.preventDefault();
       event.stopPropagation();
     };
     element.addEventListener('pointerdown', down);
     element.addEventListener('pointermove', move);
     element.addEventListener('pointerup', stop);
-    element.addEventListener('pointercancel', stop);
+    element.addEventListener('pointercancel', cancel);
     element.addEventListener('contextmenu', menu);
     element.addEventListener('click', click, true);
     return () => {
@@ -88,7 +102,7 @@ export function longPress(onLongPress: () => void): (element: HTMLElement) => ()
       element.removeEventListener('pointerdown', down);
       element.removeEventListener('pointermove', move);
       element.removeEventListener('pointerup', stop);
-      element.removeEventListener('pointercancel', stop);
+      element.removeEventListener('pointercancel', cancel);
       element.removeEventListener('contextmenu', menu);
       element.removeEventListener('click', click, true);
     };

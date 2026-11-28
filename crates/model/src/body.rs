@@ -317,16 +317,6 @@ impl Body {
         });
     }
 
-    /// Puts in every reference what `rename` gives for the identifier it holds, and
-    /// leaves a reference it gives nothing for as it is: a copy of a body names the
-    /// copies of what was copied with it, and whatever else it named.
-    pub fn rename_references(&mut self, rename: impl Fn(&str) -> Option<String>) {
-        rename_links_in(&mut self.document, &|kind, id| match kind {
-            Link::Reference => rename(id),
-            Link::BoardView => None,
-        });
-    }
-
     /// Puts in every reference and every board view what `rename` gives for the
     /// identifier it holds ([`Self::linked_ids`]), and leaves one it gives nothing for as
     /// it is: a copy of a body names, and shows, the copies of what was copied with it.
@@ -346,7 +336,7 @@ impl Body {
     }
 
     /// Checks that the serialized document still fits within [`BODY_MAX_BYTES`], such as
-    /// after [`Body::rename_references`] or [`Body::with_files_renamed`] expanded short
+    /// after [`Body::rename_links`] or [`Body::with_files_renamed`] expanded short
     /// placeholders into full identifiers or stored file names.
     ///
     /// # Errors

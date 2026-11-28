@@ -9,7 +9,7 @@ use fvoci_model::{
 use crate::blocks::{CopyChanges, CopyTitles, insert_blocks};
 use crate::containers;
 use crate::containers_and_blocks::{delete_containers_and_blocks, duplicate_container};
-use crate::db::{Id, LockRank, Scope};
+use crate::db::{Id, LockRank, RowLock, Scope};
 use crate::file_refs::NewBodyFiles;
 use crate::files;
 use crate::loose_objects;
@@ -92,7 +92,7 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
             delete_containers_and_blocks(scope, copies, user_id).await?;
-            scope.record_lock(LockRank::Users, user_id);
+            scope.record_lock(LockRank::Users, user_id, RowLock::NoKeyUpdate);
             let mut sql = scope.sql("UPDATE users SET welcomed_at = NULL");
             sql.push_bind(" WHERE id = ", Id(user_id))
                 .push_bind(" AND welcomed_at = ", recorded_at);
@@ -170,7 +170,7 @@ impl Store {
         }
         let stamp = now.max(1);
         self.transaction(async |scope| {
-            scope.record_lock(LockRank::Workspace, workspace_id);
+            scope.record_lock(LockRank::Workspace, workspace_id, RowLock::NoKeyUpdate);
             let mut claim_ws = scope.sql("UPDATE workspaces SET welcomed_at = ");
             claim_ws
                 .changing_no_access()
