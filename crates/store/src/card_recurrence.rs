@@ -155,7 +155,12 @@ pub(crate) async fn settle_change(
     let due_changed = board
         .effective_due_date_property_id()
         .is_some_and(|due| values_of(existing).get(due) != values_of(block).get(due));
-    let recurrence = chained(had, recurrence, due_changed);
+    // A new due date starts a chain anew.
+    let recurrence = if due_changed {
+        recurrence.anew()
+    } else {
+        chained(had, recurrence)
+    };
     block
         .fields
         .insert(RECURRENCE_FIELD.to_owned(), recurrence.to_value());
@@ -189,13 +194,12 @@ pub(crate) async fn settle_change(
     }))
 }
 
-/// How a changed card repeats (`sent`), as for the first date of its chain: the one it
-/// had while it repeats as it did (`had`), the one a write gives back to a card that
-/// did not repeat (an undone completion), and none once how it repeats or its due
-/// date is changed.
-fn chained(had: Option<Recurrence>, sent: Recurrence, due_changed: bool) -> Recurrence {
+/// How a card whose due date stays repeats (`sent`), as for the first date of its
+/// chain: the one it had while it repeats as it did (`had`), the one a write gives back
+/// to a card that did not repeat (an undone completion), and none once how it repeats
+/// is changed.
+fn chained(had: Option<Recurrence>, sent: Recurrence) -> Recurrence {
     match had {
-        _ if due_changed => sent.anew(),
         Some(had) if had.same_rule(sent) => Recurrence {
             from: had.from,
             ..sent

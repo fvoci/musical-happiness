@@ -132,6 +132,11 @@ impl TryFrom<RecurrenceShape> for Recurrence {
 }
 
 /// Writes the first date of a chain as a date value does.
+#[expect(
+    clippy::ref_option,
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the signature `serialize_with` asks for"
+)]
 fn date_text_of<S: serde::Serializer>(from: &Option<Date>, out: S) -> Result<S::Ok, S::Error> {
     match from {
         Some(date) => out.collect_str(date),

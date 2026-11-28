@@ -280,8 +280,10 @@ async fn a_chain_starts_anew_when_how_the_card_repeats_or_its_due_date_changes()
     let chained = json!({"every": 1, "unit": "week", "anchor": "due", "from": "2027-01-15"});
     assert_eq!(second.fields["recurrence"], chained);
 
-    let mut renamed = BlockPatch::default();
-    renamed.title = Some("water the ferns".to_owned());
+    let renamed = BlockPatch {
+        title: Some("water the ferns".to_owned()),
+        ..BlockPatch::default()
+    };
     let mut same_rule = BlockPatch::default();
     same_rule
         .updated_fields
@@ -329,8 +331,10 @@ async fn a_done_card_changed_again_makes_no_other_next_card() {
     let board_id = board(&test, &user).await;
     let card = chore(&test, &board_id, &user).await;
     let completed = set(&test, &card, &set_status(DONE), &user).await;
-    let mut renamed = BlockPatch::default();
-    renamed.title = Some("water the ferns".to_owned());
+    let renamed = BlockPatch {
+        title: Some("water the ferns".to_owned()),
+        ..BlockPatch::default()
+    };
     let mut moved = BlockPatch::default();
     moved
         .property_changes
