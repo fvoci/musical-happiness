@@ -23,7 +23,14 @@
     headerOnly = false,
     quick = false,
     filtered = false,
-  }: WorkspaceExample & { narrow?: boolean; week?: boolean; headerOnly?: boolean } = $props();
+    width,
+  }: WorkspaceExample & {
+    narrow?: boolean;
+    week?: boolean;
+    headerOnly?: boolean;
+    /** The width of the view in pixels, past the narrow one's 390. */
+    width?: number;
+  } = $props();
   const example = $derived(
     exampleWorkspace({ kind, count, readOnly, cycle, late, variedRelations, quick, filtered }),
   );
@@ -39,7 +46,7 @@
 
 <div
   class="@container/pane flex h-[40rem] min-h-0 flex-col border"
-  style:max-width={narrow ? '390px' : undefined}
+  style:max-width={width ? `${width}px` : narrow ? '390px' : undefined}
   data-testid="view-example"
   {@attach pane.attach}
   {@attach () => {
