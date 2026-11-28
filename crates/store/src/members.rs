@@ -94,6 +94,7 @@ impl Store {
     /// [`StoreError::NotFound`] if the organization has no such workspace, and
     /// [`StoreError::Database`] if the statement fails, as it does for a user who is a
     /// member already or does not exist.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn add_workspace_member(
         &self,
         workspace_id: &str,

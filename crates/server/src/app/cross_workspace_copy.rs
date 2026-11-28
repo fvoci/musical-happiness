@@ -14,7 +14,7 @@ use fvoci_model::{
     Session, TEMPLATE_SCHEDULE_PROPERTY, ValidatedCourseSchedule, WorkspaceRole, add_days, is_id,
     renew_containers_and_blocks_ids_told,
 };
-use fvoci_store::{CopyChanges, StreamBatch, StreamCreateError};
+use fvoci_store::{CopyChanges, NewContainers, StreamBatch, StreamCreateError};
 use tokio::sync::mpsc;
 
 use super::accept_language::Reader;
@@ -623,13 +623,11 @@ async fn commit_copied_stream(
 
     let write_res = target_app
         .store()
-        .create_imported_containers_blocks_files_members_and_schedules_streamed(
-            containers,
-            staged_files,
-            &[],
-            schedules,
+        .create_containers(
+            NewContainers::streamed(containers, rx)
+                .recording(staged_files)
+                .with_schedules(schedules),
             user_id,
-            rx,
         )
         .await;
     let _ = producer.await;

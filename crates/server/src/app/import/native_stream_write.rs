@@ -1,7 +1,7 @@
 //! Pass-2 blocking streamer for native fvoci v1 `container.jsonl` archive entries (T12).
 //!
 //! Streams rewritten blocks line by line into bounded batches sent over a backpressured
-//! channel to `Store::create_containers_and_blocks_streamed`. Handles out-of-order parent
+//! channel to `Store::create_containers`. Handles out-of-order parent
 //! blocks using a bounded spillover buffer plus bounded revisit passes that skip already
 //! emitted lines without JSON parsing.
 

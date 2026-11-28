@@ -5,7 +5,7 @@
 //! are in [`crate::trash`]. Lists come oldest first, by creation time and then by
 //! identifier.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::num::NonZeroU32;
 
 use fvoci_model::{
@@ -480,7 +480,10 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_block_counts_by_type(&self) -> Result<BTreeMap<String, i64>, StoreError> {
+    #[cfg(any(test, feature = "test-util"))]
+    pub async fn get_block_counts_by_type(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, i64>, StoreError> {
         self.with_conn(async |scope| {
             let sql = scope.sql("SELECT type, COUNT(*) FROM blocks GROUP BY type");
             scope.all(sql).await

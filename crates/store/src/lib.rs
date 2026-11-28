@@ -144,7 +144,9 @@ pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
 pub use containers::{ContainerAccessFacts, Joined, MemberChange};
-pub use containers_and_blocks::{StreamBatch, StreamCreateError};
+pub use containers_and_blocks::{
+    Creator, NewBlocks, NewContainers, StreamBatch, StreamCreateError,
+};
 pub use course_exams::{
     ExamPublishError, ExamScoreOutcome, ExamViewer, MIN_SCORER_DELTA_TO_REPUBLISH,
     MIN_SCORERS_TO_PUBLISH,

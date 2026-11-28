@@ -8,7 +8,9 @@ use fvoci_model::{
     new_id,
 };
 use fvoci_model::{DuplicateAs, PublicContainers};
-use fvoci_store::{BlockFilter, CopyChanges, CopyTitles, NewBodyFiles, Store, StoreError};
+use fvoci_store::{
+    BlockFilter, CopyChanges, CopyTitles, Creator, NewBodyFiles, NewContainers, Store, StoreError,
+};
 
 use crate::common;
 
@@ -164,9 +166,15 @@ async fn create_containers_and_blocks() {
             blocks: vec![new_card(&block1, &board1), new_card(&block2, &board2)],
         };
 
-        test.create_containers_and_blocks(&mut new_bab, &user_id, NewBodyFiles::Recorded)
-            .await
-            .expect("the boards and blocks are created");
+        test.create_containers(
+            NewContainers::whole(&mut new_bab)
+                .body_files(NewBodyFiles::Recorded)
+                .creator(Creator::Nobody),
+            &user_id,
+        )
+        .await
+        .map_err(StoreError::from)
+        .expect("the boards and blocks are created");
         assert_eq!(new_bab.containers.len(), 3, "got {:?}", new_bab.containers);
         assert_eq!(new_bab.blocks.len(), 2, "got {:?}", new_bab.blocks);
 
@@ -196,8 +204,9 @@ async fn create_containers_and_blocks() {
         };
 
         let members = test
-            .create_containers_and_blocks_with_admin(&mut new_bab, &user_id)
+            .create_containers(NewContainers::whole(&mut new_bab), &user_id)
             .await
+            .map_err(StoreError::from)
             .expect("the boards, blocks and admins are created");
         assert_eq!(new_bab.containers.len(), 3, "got {:?}", new_bab.containers);
         assert_eq!(new_bab.blocks.len(), 2, "got {:?}", new_bab.blocks);
@@ -244,8 +253,14 @@ async fn create_containers_and_blocks() {
         };
 
         let error = test
-            .create_containers_and_blocks(&mut new_bab, &user_id, NewBodyFiles::Recorded)
+            .create_containers(
+                NewContainers::whole(&mut new_bab)
+                    .body_files(NewBodyFiles::Recorded)
+                    .creator(Creator::Nobody),
+                &user_id,
+            )
             .await
+            .map_err(StoreError::from)
             .expect_err("a block without a board is rejected");
         assert!(
             matches!(
@@ -259,8 +274,9 @@ async fn create_containers_and_blocks() {
         );
 
         let error = test
-            .create_containers_and_blocks_with_admin(&mut new_bab, &user_id)
+            .create_containers(NewContainers::whole(&mut new_bab), &user_id)
             .await
+            .map_err(StoreError::from)
             .expect_err("a block without a board is rejected");
         assert!(
             matches!(error, StoreError::InvalidBlock { .. }),
@@ -306,14 +322,21 @@ async fn create_containers_and_blocks() {
         };
 
         let error = test
-            .create_containers_and_blocks(&mut new_bab, &user_id, NewBodyFiles::Recorded)
+            .create_containers(
+                NewContainers::whole(&mut new_bab)
+                    .body_files(NewBodyFiles::Recorded)
+                    .creator(Creator::Nobody),
+                &user_id,
+            )
             .await
+            .map_err(StoreError::from)
             .expect_err("a block with an oversized title is rejected");
         assert!(is_title_size_limit_exceeded(&error), "got {error:?}");
 
         let error = test
-            .create_containers_and_blocks_with_admin(&mut new_bab, &user_id)
+            .create_containers(NewContainers::whole(&mut new_bab), &user_id)
             .await
+            .map_err(StoreError::from)
             .expect_err("a block with an oversized title is rejected");
         assert!(is_title_size_limit_exceeded(&error), "got {error:?}");
     }
@@ -468,9 +491,15 @@ async fn duplicate_container() {
         ],
     };
 
-    test.create_containers_and_blocks(&mut new_bab, &user_id, NewBodyFiles::Recorded)
-        .await
-        .expect("the boards and blocks are created");
+    test.create_containers(
+        NewContainers::whole(&mut new_bab)
+            .body_files(NewBodyFiles::Recorded)
+            .creator(Creator::Nobody),
+        &user_id,
+    )
+    .await
+    .map_err(StoreError::from)
+    .expect("the boards and blocks are created");
     assert_eq!(new_bab.containers.len(), 3, "got {:?}", new_bab.containers);
     assert_eq!(new_bab.blocks.len(), 3, "got {:?}", new_bab.blocks);
 
@@ -579,9 +608,15 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
             },
         ],
     };
-    test.create_containers_and_blocks(&mut source, &author, NewBodyFiles::Recorded)
-        .await
-        .expect("the board and its blocks are created");
+    test.create_containers(
+        NewContainers::whole(&mut source)
+            .body_files(NewBodyFiles::Recorded)
+            .creator(Creator::Nobody),
+        &author,
+    )
+    .await
+    .map_err(StoreError::from)
+    .expect("the board and its blocks are created");
 
     // board -> board, same workspace
     common::works_in(&test, &workspace_id, &copier).await;
@@ -980,9 +1015,15 @@ async fn create_containers_and_blocks_accepts_a_block_listed_before_its_parent()
             new_card(&card_id, &board_id),
         ],
     };
-    test.create_containers_and_blocks(&mut new_bab, &user_id, NewBodyFiles::Recorded)
-        .await
-        .expect("children listed before their parents are accepted");
+    test.create_containers(
+        NewContainers::whole(&mut new_bab)
+            .body_files(NewBodyFiles::Recorded)
+            .creator(Creator::Nobody),
+        &user_id,
+    )
+    .await
+    .map_err(StoreError::from)
+    .expect("children listed before their parents are accepted");
     assert_eq!(
         new_bab
             .blocks

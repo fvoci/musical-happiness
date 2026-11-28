@@ -91,6 +91,7 @@ impl Store {
     /// has the organization's name already;
     /// and [`StoreError::Database`] if a statement fails, as it
     /// does for [`Founding::New`] on an SQLite database, which holds one organization.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn sign_up(
         &self,
         user: &mut User,

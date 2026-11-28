@@ -32,7 +32,7 @@ use crate::auth::secret::new_secret;
 use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 use crate::metrics::ContainerWork;
-use fvoci_store::StoreError;
+use fvoci_store::{NewContainers, StoreError};
 
 /// A staged file belonging to a [`StagedContainer`], referencing a validated bundle entry.
 #[derive(Debug, Clone)]
@@ -147,12 +147,12 @@ impl App {
             .collect();
         let commit_result = self
             .store()
-            .create_imported_containers_blocks_and_files(
-                &mut combined,
-                &records,
+            .create_containers(
+                NewContainers::whole(&mut combined).recording(&records),
                 &options.modified_by,
             )
-            .await;
+            .await
+            .map_err(StoreError::from);
 
         let members = match commit_result {
             Ok(members) => {

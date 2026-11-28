@@ -9,7 +9,10 @@ use fvoci_model::DuplicateAs;
 use fvoci_model::{
     Block, BlockPatch, BlockType, Container, ContainerVisibility, ContainersAndBlocks, new_id,
 };
-use fvoci_store::{BlockFilter, CopyChanges, CopyTitles, DbType, NewBodyFiles, Previews, Store};
+use fvoci_store::{
+    BlockFilter, CopyChanges, CopyTitles, Creator, DbType, NewBodyFiles, NewContainers, Previews,
+    Store, StoreError,
+};
 use serde_json::Value;
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -516,9 +519,15 @@ async fn a_copy_and_an_import_are_new_cards_with_new_numbers() {
         ],
         containers: vec![imported_board.clone()],
     };
-    test.create_containers_and_blocks(&mut archive, &user_id, NewBodyFiles::Unchecked)
-        .await
-        .expect("the archive is stored");
+    test.create_containers(
+        NewContainers::whole(&mut archive)
+            .body_files(NewBodyFiles::Unchecked)
+            .creator(Creator::Nobody),
+        &user_id,
+    )
+    .await
+    .map_err(StoreError::from)
+    .expect("the archive is stored");
     assert_eq!(
         numbers_by_title(&test, &imported_board.id).await,
         [
@@ -673,8 +682,14 @@ async fn write_once(store: &Store, board_id: &str, user_id: &str, write: Write) 
                 containers: vec![*container],
             };
             store
-                .create_containers_and_blocks(&mut archive, user_id, NewBodyFiles::Unchecked)
+                .create_containers(
+                    NewContainers::whole(&mut archive)
+                        .body_files(NewBodyFiles::Unchecked)
+                        .creator(Creator::Nobody),
+                    user_id,
+                )
                 .await
+                .map_err(StoreError::from)
                 .expect("the archive is stored");
             archive.blocks
         }

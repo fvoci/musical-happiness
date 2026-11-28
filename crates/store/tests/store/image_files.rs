@@ -7,7 +7,7 @@ use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, BodyChange, Container, ContainerVisibility,
     ContainersAndBlocks, FileRecord, new_id,
 };
-use fvoci_store::{DbType, NewBodyFiles, StoreError};
+use fvoci_store::{Creator, DbType, NewBodyFiles, NewContainers, StoreError};
 use serde_json::json;
 
 use crate::common;
@@ -155,14 +155,26 @@ async fn a_write_that_shows_a_file_newly_needs_the_boards_file() {
     };
     let (mut checked, new_files) = new(NewBodyFiles::Recorded);
     let error = test
-        .create_containers_and_blocks(&mut checked, &user_id, new_files)
+        .create_containers(
+            NewContainers::whole(&mut checked)
+                .body_files(new_files)
+                .creator(Creator::Nobody),
+            &user_id,
+        )
         .await
+        .map_err(StoreError::from)
         .expect_err("a new board has no files");
     assert!(is_file_not_of_the_board(&error), "{error:?}");
     let (mut imported, new_files) = new(NewBodyFiles::Unchecked);
-    test.create_containers_and_blocks(&mut imported, &user_id, new_files)
-        .await
-        .expect("an import points its images at its files afterwards");
+    test.create_containers(
+        NewContainers::whole(&mut imported)
+            .body_files(new_files)
+            .creator(Creator::Nobody),
+        &user_id,
+    )
+    .await
+    .map_err(StoreError::from)
+    .expect("an import points its images at its files afterwards");
 
     test.teardown().await;
 }

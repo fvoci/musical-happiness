@@ -1,6 +1,7 @@
 //! Boards and blocks created together.
 
 use fvoci_model::{ContainerMember, ContainersAndBlocks};
+use fvoci_store::{NewContainers, StoreError};
 
 use super::{App, Changes};
 use crate::collab::AccessScope;
@@ -34,8 +35,9 @@ impl App {
                 .changing_structures(self, created.containers.iter().map(|c| c.id.as_str()))
                 .await;
             self.store()
-                .create_containers_and_blocks_with_admin(&mut created, user_id)
-                .await?
+                .create_containers(NewContainers::whole(&mut created), user_id)
+                .await
+                .map_err(StoreError::from)?
         };
 
         if !created.containers.is_empty() {

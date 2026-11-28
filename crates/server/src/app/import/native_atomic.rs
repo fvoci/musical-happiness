@@ -18,7 +18,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fvoci_model::{Container, ContainerKind, ContainerMember, FileRecord, ValidatedCourseSchedule};
-use fvoci_store::{StreamBatch, StreamCreateError};
+use fvoci_store::{NewContainers, StreamBatch, StreamCreateError};
 use tokio::fs;
 
 use super::archive::{Archive, entry_name, unpack_entry};
@@ -171,16 +171,13 @@ impl App {
             written_places,
             file_map: _,
         } = staged;
-        let write_future = self
-            .store()
-            .create_imported_containers_blocks_files_members_and_schedules_streamed(
-                &mut prepared.containers,
-                &records,
-                &prepared.extra_members,
-                &prepared.schedules,
-                modified_by,
-                rx,
-            );
+        let write_future = self.store().create_containers(
+            NewContainers::streamed(&mut prepared.containers, rx)
+                .recording(&records)
+                .with_members(&prepared.extra_members)
+                .with_schedules(&prepared.schedules),
+            modified_by,
+        );
         let Ok(write_result) = tokio::time::timeout(IMPORT_STREAM_TIMEOUT, write_future).await
         else {
             streamer_handle.abort();
