@@ -138,6 +138,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("patchBoardView", Reaches::BOARDS),
     ("deleteBoardView", Reaches::BOARDS),
     ("restoreBoardView", Reaches::BOARDS),
+    ("getCardActivity", Reaches::BOARDS),
     ("getCardBodyVersions", Reaches::BOARDS),
     ("getCardBodyVersion", Reaches::BOARDS),
     ("restoreCardBodyVersion", Reaches::BOARDS),

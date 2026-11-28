@@ -45,6 +45,9 @@ impl From<BlockError> for AppError {
                 .with_reason(Reason::CardTooDeep)
                 .with_limit(u64::from(limit))
                 .with_field("parentId"),
+            BlockError::RecurrenceNeedsBoardRules => Self::bad_request(error)
+                .with_reason(Reason::RecurrenceNeedsBoardRules)
+                .with_field("recurrence"),
             BlockError::TooManyPages { limit } => Self::bad_request(error)
                 .with_reason(Reason::TooManyPages)
                 .with_limit(u64::from(limit)),

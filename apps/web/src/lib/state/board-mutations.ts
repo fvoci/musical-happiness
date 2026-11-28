@@ -16,6 +16,7 @@ import {
   isEmptyContainerPatch,
   viewPatches,
 } from './patches.ts';
+import { nextCardNotices, nextMadeBy, takeBackNext, type MadeNext } from './next-cards.svelte.ts';
 import { authorIds } from './user-names.ts';
 import { reread, take } from './write.ts';
 
@@ -32,17 +33,29 @@ export async function changeBoardCard(
   const [forward, backward] = cardPatches(change(current), current);
   if (isEmptyCardPatch(forward)) return;
   let said = false;
-  await performBoardAction(
+  /** The next card the last redo made (completing a card that repeats): its undo takes it back. */
+  let made: MadeNext | undefined;
+  const performing = performBoardAction(
     store,
     async () => {
       await cardWrites.write(cardId, forward, backward, said);
+      made = nextMadeBy(current, store.card(cardId));
       said = true;
     },
-    () => cardWrites.write(cardId, backward, forward, true),
+    async () => {
+      // Its next card goes first: the card repeats again only once it is gone.
+      const next = made && (await takeBackNext(store, made.nextId)) ? made : undefined;
+      const repeat = next ? { recurrence: next.recurrence } : {};
+      await cardWrites.write(cardId, { ...backward, ...repeat }, forward, true);
+    },
     description,
     groupId,
     cardWrites.keep(cardId, backward),
   );
+  // The step is in place as soon as it is performed.
+  const checkpoint = store.workspace.undo.currentCheckpoint;
+  await performing;
+  if (made) void nextCardNotices(store.workspace).say(store, [made], checkpoint);
 }
 
 export function createBoardCard(

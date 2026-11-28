@@ -18,6 +18,7 @@ mod body;
 mod body_markdown;
 mod body_version;
 mod card;
+mod card_event;
 mod card_property;
 mod category;
 mod client_config;
@@ -52,6 +53,7 @@ mod problem;
 mod public_containers;
 mod public_link;
 mod reaction;
+mod recurrence;
 mod refusal;
 mod relation;
 mod search;
@@ -116,6 +118,7 @@ pub use body_version::{
 pub use card::{
     CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview, CompactCard, MAX_CARD_DEPTH,
 };
+pub use card_event::{CardChange, CardEvent, CardEventKind, ParseCardEventKindError, card_changes};
 pub use card_property::{
     CardPropertyDefinition, CardPropertyError, DATE_PROPERTY_TYPE, ParsePropertyColorError,
     ParsePropertyTypeError, PersonProperties, PropertyColor, PropertyOption, PropertyType,
@@ -224,6 +227,10 @@ pub use public_link::{PublicLink, PublicLinkChange};
 pub use reaction::{
     CardWithReactions, CommentWithReactions, EMOJI_MAX_SCALARS, Emoji, PageWithReactions,
     ParseEmojiError, REACTION_KINDS_PER_BLOCK, Reaction, UnitWithReactions,
+};
+pub use recurrence::{
+    InvalidRecurrence, MOST_PERIODS, RECURRED_TO_FIELD, RECURRENCE_FIELD, Recurrence,
+    RecurrenceAnchor, RecurrenceUnit, not_done_value, with_tasks_unchecked,
 };
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{

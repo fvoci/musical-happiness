@@ -1,5 +1,5 @@
-//! The descriptions of the reasons of signing in through a provider, and of linking an
-//! account to one and of an organization asking for it.
+//! The descriptions of the reasons of signing in through an organization's provider,
+//! of linking an account to it and of the organization enforcing it.
 
 use crate::error::Reason;
 

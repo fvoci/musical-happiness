@@ -555,6 +555,12 @@ async fn cards(case: &mut Case, board: &str) -> String {
     case.present("getCardBodyVersions", &[("cardId", &card)], "\"version\":1")
         .await;
     case.present(
+        "getCardActivity",
+        &[("cardId", &card)],
+        "\"kind\":\"created\"",
+    )
+    .await;
+    case.present(
         "getCardBodyVersion",
         &[("cardId", &card), ("version", "1")],
         "a kept body",

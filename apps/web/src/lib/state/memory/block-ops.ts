@@ -22,7 +22,9 @@ import type { WithReactions } from '../reaction-types.ts';
 
 import { checkedComment, checkedWhole, flushCard } from './bodies.ts';
 import { writtenWhole } from './body-versions.ts';
+import { noteCardChanged, noteCardMade } from './card-activity.ts';
 import { checkCardParent, storeNewCard } from './card-hierarchy.ts';
+import { makeNextCard, settleCardChange } from './card-recurrence.ts';
 import { lastCommentAt, mayChangeComment, noteChange } from './comments.ts';
 import { memberRole } from './container-access.ts';
 import {
@@ -114,6 +116,7 @@ export function createMemoryCard(
   mayManageCards(ctx.world, ctx.userId, boardId, 'access denied to create card');
   const block = newStoredBlock(ctx, boardId, draft.parentId ?? '', 'card');
   const stored = storeNewCard(ctx.world, board, block, draft);
+  noteCardMade(ctx.world, stored, ctx.userId);
   tellBlocks(ctx.world, boardId, [stored]);
   return withLastComment(ctx.world, summaryOf(stored));
 }
@@ -127,17 +130,15 @@ export function patchMemoryCard(
   mayManageCards(ctx.world, ctx.userId, boardId, 'access denied to patch card');
   const before = blockInBoard(ctx.world, boardId, cardId, 'card') as StoredCard;
   const card = applyCardPatch(before, patch);
+  const board = containerInWorld(ctx.world, boardId);
   checkCardParent(ctx.world, boardId, card, card.parentId, false, before);
-  checkRelations(
-    ctx.world,
-    containerInWorld(ctx.world, boardId),
-    card,
-    before,
-    'updatedProperties',
-  );
+  checkRelations(ctx.world, board, card, before, 'updatedProperties');
+  const next = settleCardChange(ctx, board, before, card);
   ctx.world.blocks.set(cardId, card);
   touchBlock(ctx, card);
-  tellBlocks(ctx.world, boardId, [card]);
+  noteCardChanged(ctx.world, before, card, ctx.userId);
+  const made = next ? [makeNextCard(ctx, board, card, next)] : [];
+  tellBlocks(ctx.world, boardId, [card, ...made]);
   return withLastComment(ctx.world, summaryOf(card));
 }
 

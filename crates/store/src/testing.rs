@@ -472,7 +472,7 @@ pub const GLOBAL_TABLES: [&str; 14] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 53] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 54] = crate::schema::ORG_TABLES;
 
 /// Takes away again, as the owner of the schema `database_connection` connects to, what
 /// the migrations after the baseline made, newest first: the schema is the baseline's.

@@ -1031,6 +1031,14 @@
             "description": "Property values keyed by property identifier: a string, a list of strings, or\n`null`; for a property of the type `date` a date value (`{\"from\":\n\"2026-03-05\"}`, `{\"from\": \"2026-03-05\", \"to\": \"2026-03-09\"}` or `{\"from\":\n1772703000000}`) or `null`; and for a property of the type `relation` a list of\nrelation links (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`, normalized with all three fields when stored) or\n`null`.",
             "type": "object"
           },
+          "recurredTo": {
+            "description": "Of a card that repeated when it was completed, the identifier of the card the\nserver made after it, which repeats in its place; left out otherwise. The server\nwrites it: what a request sends here is ignored.",
+            "type": "string"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/Recurrence",
+            "description": "How the card repeats: when it is completed, the server makes the next card\n(`recurredTo`). Only on a board with a rule of done (`doneWhen`) and a due date\nproperty, else 400 `recurrence_needs_board_rules`; a template does not repeat.\nLeft out for a card that does not repeat."
+          },
           "tasksDone": {
             "description": "How many task items of the body are checked.",
             "format": "int32",
@@ -1139,6 +1147,80 @@
           "readAt"
         ],
         "type": "object"
+      },
+      "CardEvent": {
+        "description": "One line of a card's activity.",
+        "properties": {
+          "actorId": {
+            "description": "Who did it; `null` for nobody the server names: a copy made by the server, or\nan account erased since.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actorTokenName": {
+            "description": "The name of the personal API token an agent did it through, as the token was\ncalled then; `null` for a person's own doing, and once the token's owner is\nerased.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "after": {
+            "description": "What it became, as `before` says it."
+          },
+          "before": {
+            "description": "What it was: the title, the value of the property as the card held it (`null`\nfor none), the parent card's identifier (`null` for the top of the board), or\nwhether the card was a template. `null` for `created` and `restored`."
+          },
+          "createdAt": {
+            "description": "When it was done, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The line's identifier.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CardEventKind",
+            "description": "What was done."
+          },
+          "propertyId": {
+            "description": "The property whose value changed, for `property`; `null` otherwise. It may be a\nproperty the board no longer has.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "description": "When it was last done again: the same person changing the same thing again\nwithin five minutes changes the line rather than adding one.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "actorId",
+          "actorTokenName",
+          "after",
+          "before",
+          "createdAt",
+          "id",
+          "kind",
+          "propertyId",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CardEventKind": {
+        "description": "What was done to a card.",
+        "enum": [
+          "created",
+          "title",
+          "property",
+          "parent",
+          "template",
+          "restored"
+        ],
+        "type": "string"
       },
       "CardMovesRequest": {
         "additionalProperties": false,
@@ -1252,6 +1334,17 @@
             "type": [
               "integer",
               "null"
+            ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Recurrence",
+                "description": "How the card is to repeat, as `Card.recurrence` says; `null` makes it stop. Left\nout, it stays as it is."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "title": {
@@ -4750,6 +4843,10 @@
             "description": "Property values by property identifier: a string, a list of strings, a date value,\na list of relation link objects (`{\"card\", \"kind\", \"lagDays\"}`), or `null`.",
             "type": "object"
           },
+          "recurrence": {
+            "$ref": "#/components/schemas/Recurrence",
+            "description": "How the card repeats, as `Card.recurrence` says; left out for a card that does\nnot."
+          },
           "title": {
             "description": "The display title.",
             "type": "string"
@@ -6903,6 +7000,11 @@
             "type": "/problems/card-too-deep"
           },
           {
+            "reason": "recurrence_needs_board_rules",
+            "title": "The board does not let cards repeat",
+            "type": "/problems/recurrence-needs-board-rules"
+          },
+          {
             "reason": "too_many_pages",
             "title": "Too many pages in the wiki",
             "type": "/problems/too-many-pages"
@@ -7120,6 +7222,55 @@
           "size"
         ],
         "type": "object"
+      },
+      "Recurrence": {
+        "description": "How a card repeats: every `every` days, weeks, months or years, counted from its due\ndate or from the day it was completed.",
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/RecurrenceAnchor",
+            "description": "What the next due date is counted from."
+          },
+          "every": {
+            "description": "How many units apart: from 1 to 365.",
+            "format": "int32",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "from": {
+            "description": "The due date of the first card of the chain this card is of, which every step\nof a recurrence counted from the due date is counted from: the server hands it\nto the next card, and takes it away when how the card repeats is changed or\nits due date is. None for the first card; a date after the card's due date\ncounts for none.",
+            "format": "date",
+            "type": "string"
+          },
+          "unit": {
+            "$ref": "#/components/schemas/RecurrenceUnit",
+            "description": "The unit."
+          }
+        },
+        "required": [
+          "anchor",
+          "every",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "RecurrenceAnchor": {
+        "description": "What the next due date of a card that repeats is counted from.",
+        "enum": [
+          "due",
+          "done"
+        ],
+        "type": "string"
+      },
+      "RecurrenceUnit": {
+        "description": "The unit a card repeats by.",
+        "enum": [
+          "day",
+          "week",
+          "month",
+          "year"
+        ],
+        "type": "string"
       },
       "RedistributeScheduleRequest": {
         "additionalProperties": false,
@@ -14939,7 +15090,7 @@
         "x-fvoci-api-token": "read"
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card), `relation_cycle` (ordering dependencies form\na cycle on the board) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`createCard`, `patchCard`, `batchPatchCards`)\nthe values it changes, and does not ask again for a card that a value named before.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\n`parentId` places an ordinary card below another live, non-template card of the same\nboard, at most three levels deep (top-level = 1, child = 2, grandchild = 3); empty,\n`null`, or omitted makes a top-level card. Template cards (`isTemplate: true`) cannot\nhave a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`\n(depth > 3 with reason `card_too_deep` and `limit: 3`).\n\n`recurrence` makes the card repeat, only on a board with a `doneWhen` and a\n`dueDatePropertyId`: elsewhere 400 at `/recurrence` with reason\n`recurrence_needs_board_rules`.\nA template keeps its recurrence and makes no next card.\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof relation link objects (`{\"card\": \"<cardId>\", \"kind\": \"fs\" | \"ss\" | \"ff\" | \"sf\",\n\"lagDays\": -3650..=3650}`), naming other cards of the board, in the trash or not,\neach once (even if `kind` differs), at most 50 (a value over it from before may be\nwritten with fewer of its cards, not with another). `kind` defaults to `\"fs\"` and\n`lagDays` defaults to `0` when omitted, unknown fields and plain string arrays are\nrefused with 400, and stored links always include all three fields normalized. Any\nother refusal is 400 with the reason `relation_not_a_list`, `relation_to_itself`,\n`relation_repeated`, `relation_too_many` (with the `limit`), `relation_not_a_card`\n(a block of the board that is no card), `relation_cycle` (ordering dependencies form\na cycle on the board) or `relation_card_not_found`: no card of that\nidentifier on the board, which is also the answer for a card of another board. Every\nwrite of a card checks so (`createCard`, `patchCard`, `batchPatchCards`)\nthe values it changes, and does not ask again for a card that a value named before.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -16960,7 +17111,7 @@
         "x-fvoci-api-token": "read"
       },
       "patch": {
-        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.\n`parentId` reparents the card within the same board (empty or `null` moves it to the\ntop level; left out keeps its current parent), checked for cycles and maximum depth 3\nincluding any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).\n\n`bodyMarkdown` writes the body whole from Markdown, as `getCard` with\n`format=markdown` reads it: refused with 409 `complex_blocks_use_append` while the body\nhas blocks its Markdown does not hold as they are. With a personal API token a body\nwritten whole (`body` or `bodyMarkdown`) is refused with 409 `room_has_active_editors`\nwhile people may write in the card's body, as it would lose what they typed and have\nnot sent: `appendCardMarkdown` adds to it instead.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
+        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.\n`parentId` reparents the card within the same board (empty or `null` moves it to the\ntop level; left out keeps its current parent), checked for cycles and maximum depth 3\nincluding any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).\n\n`recurrence` is checked as `createCard` says (`null` makes the card stop repeating). The\nchange that makes a card that repeats done makes its next card in the same write, once:\nthe card names it in `recurredTo` and hands it the recurrence.\n\n`bodyMarkdown` writes the body whole from Markdown, as `getCard` with\n`format=markdown` reads it: refused with 409 `complex_blocks_use_append` while the body\nhas blocks its Markdown does not hold as they are. With a personal API token a body\nwritten whole (`body` or `bodyMarkdown`) is refused with 409 `room_has_active_editors`\nwhile people may write in the card's body, as it would lose what they typed and have\nnot sent: `appendCardMarkdown` adds to it instead.\n\nA personal API token is taken that writes (`write`); one that reads only is answered 403 with the reason `token_scope_insufficient`.",
         "operationId": "patchCard",
         "parameters": [
           {
@@ -17028,6 +17179,85 @@
           "cards"
         ],
         "x-fvoci-api-token": "write"
+      }
+    },
+    "/api/v1/w/{workspaceId}/cards/{cardId}/activity": {
+      "get": {
+        "description": "What was done to the card, the newest first: its making (new, a copy, from a\ntemplate, by an import, or as the next of a card that repeats), each change of its\ntitle, of the value of a property, of its parent card and of whether it is a\ntemplate, and its coming back from the trash. Its body is not: its versions say what\nit was (`getCardBodyVersions`); nor are its comments, its attachments, or what a copy\nor an import wrote over a card that was there.\n\nA line says what changed as the card held it: a title as it was written, the value\nof a property as the card stores it (the identifier of an option or of a person, a\ndate value), the parent card by its identifier (`null` for the top of the board),\nwhether it was a template; the names are the client's to read now, so that what was\nrenamed since reads as it is called now and what is gone reads as gone. Who did it\nis `actorId`, and `actorTokenName` the name of the personal API token an agent did it\nthrough; both are `null` for what the server did itself and once the account is\nerased. The same person changing the same thing again within five minutes, with\nnobody else's change of it between, changes their line (`updatedAt`) rather than\nadding one, and changing it back to what it was takes the line away. A card keeps\nits 500 newest lines; they stay while it is in the trash and go with it for good.\n\nFor the members of the card's board, whatever their role; to a user who is no\nmember of it there is no such card, and a card in the trash is not there (404). Not\nfor a reader by the board's read token (`/shared`).\n\nA personal API token is taken, of either scope (`read` or `write`).",
+        "operationId": "getCardActivity",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CardEvent"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The lines, the newest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The activity of a card",
+        "tags": [
+          "cards"
+        ],
+        "x-fvoci-api-token": "read"
       }
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions": {

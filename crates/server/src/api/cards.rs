@@ -195,6 +195,11 @@ pub(super) async fn card_reached(
 /// have a parent or sub-cards. Invalid parents or cycles answer 400 at `/parentId`
 /// (depth > 3 with reason `card_too_deep` and `limit: 3`).
 ///
+/// `recurrence` makes the card repeat, only on a board with a `doneWhen` and a
+/// `dueDatePropertyId`: elsewhere 400 at `/recurrence` with reason
+/// `recurrence_needs_board_rules`.
+/// A template keeps its recurrence and makes no next card.
+///
 /// The value of a card relation property (of the `type` `relation`) is `null` or a list
 /// of relation link objects (`{"card": "<cardId>", "kind": "fs" | "ss" | "ff" | "sf",
 /// "lagDays": -3650..=3650}`), naming other cards of the board, in the trash or not,
@@ -390,6 +395,10 @@ fn previews_of(query: &CardsListQuery) -> CardPreviews {
 /// `parentId` reparents the card within the same board (empty or `null` moves it to the
 /// top level; left out keeps its current parent), checked for cycles and maximum depth 3
 /// including any sub-cards below it (400 at `/parentId`, `card_too_deep` when depth > 3).
+///
+/// `recurrence` is checked as `createCard` says (`null` makes the card stop repeating). The
+/// change that makes a card that repeats done makes its next card in the same write, once:
+/// the card names it in `recurredTo` and hands it the recurrence.
 ///
 /// `bodyMarkdown` writes the body whole from Markdown, as `getCard` with
 /// `format=markdown` reads it: refused with 409 `complex_blocks_use_append` while the body

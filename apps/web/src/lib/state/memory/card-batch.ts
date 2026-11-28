@@ -3,13 +3,17 @@
  * same property values set and cleared on `1..=200` distinct cards of a
  * board, all or none. Every card is checked before any is changed: a card
  * of another board or a block that is no card is not there (404), a
- * template is refused (400), and so is a value a relation cannot hold.
+ * template is refused (400), and so is a value a relation cannot hold. A
+ * card that repeats and is made done makes its next card, told after it, and
+ * every change is kept in the cards' activity, as a single patch does.
  */
 import { CARD_BATCH_LIMIT, type CardPropertiesPatch } from '../authority-types.ts';
 import type { CardSummary } from '../backend.ts';
 import { applyCardPatch } from '../patches.ts';
 
 import { blockInBoard, withLastComment } from './block-ops.ts';
+import { noteCardChanged } from './card-activity.ts';
+import { makeNextCard, settleCardChange } from './card-recurrence.ts';
 import { containerInWorld, tellBlocks, type MemoryContainerContext } from './container-ops.ts';
 import { checkRelations } from './references.ts';
 import { fail } from './refuse.ts';
@@ -38,21 +42,25 @@ export function batchPatchMemoryCards(
     updatedProperties: patch.updatedProperties ?? {},
     deletedProperties: patch.deletedProperties ?? [],
   };
-  const changed = cardIds.map((cardId) => {
+  const settled = cardIds.map((cardId) => {
     const before = blockInBoard(ctx.world, boardId, cardId, 'card') as StoredCard;
     if (before.fields.isTemplate) {
       fail(400, 'a template is not changed with the cards', { field: 'cardIds' });
     }
     const card = applyCardPatch(before, values);
     checkRelations(ctx.world, board, card, before, 'updatedProperties');
-    return card;
+    return { before, card, next: settleCardChange(ctx, board, before, card) };
   });
   const now = ctx.world.now();
-  for (const card of changed) {
+  const made: StoredCard[] = [];
+  for (const { before, card, next } of settled) {
     card.updatedAt = now;
     card.modifiedBy = ctx.userId;
     ctx.world.blocks.set(card.id, card);
+    noteCardChanged(ctx.world, before, card, ctx.userId);
+    if (next) made.push(makeNextCard(ctx, board, card, next));
   }
-  tellBlocks(ctx.world, boardId, changed);
+  const changed = settled.map(({ card }) => card);
+  tellBlocks(ctx.world, boardId, [...changed, ...made]);
   return changed.map((card) => withLastComment(ctx.world, summaryOf(card)));
 }

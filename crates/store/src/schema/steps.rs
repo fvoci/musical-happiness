@@ -9,12 +9,18 @@ pub(crate) struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-pub(crate) const STEPS: [Step; 4] = [
+pub(crate) const STEPS: [Step; 5] = [
     Step {
         version: 1,
         description: "baseline",
         sqlite: include_str!("../../schema/sqlite/0001_baseline.sql"),
         postgres: include_str!("../../schema/postgres/0001_baseline.sql"),
+    },
+    Step {
+        version: 2,
+        description: "card events",
+        sqlite: include_str!("../../schema/sqlite/0002_card_events.sql"),
+        postgres: include_str!("../../schema/postgres/0002_card_events.sql"),
     },
     Step {
         version: 3,
@@ -45,7 +51,7 @@ pub(crate) const STEPS: [Step; 4] = [
 /// one, and drops none an index names, so the index goes first. A migration added to
 /// [`STEPS`] adds its line here: a test asks that every one after the baseline has one.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const UNDONE_FOR_TESTS: [(i64, &[&str]); 3] = [
+pub(crate) const UNDONE_FOR_TESTS: [(i64, &[&str]); 4] = [
     (
         5,
         &[
@@ -55,4 +61,5 @@ pub(crate) const UNDONE_FOR_TESTS: [(i64, &[&str]); 3] = [
     ),
     (4, &["DROP TABLE IF EXISTS favorites"]),
     (3, &["DROP TABLE IF EXISTS reactions"]),
+    (2, &["DROP TABLE IF EXISTS card_events"]),
 ];

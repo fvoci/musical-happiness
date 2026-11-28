@@ -122,6 +122,7 @@ pub(super) const REACHED_BY_ITEM: &[&str] = &[
     "createUpload",
     "getCard",
     "patchCard",
+    "getCardActivity",
     "getCardBodyVersions",
     "getCardBodyVersion",
     "restoreCardBodyVersion",

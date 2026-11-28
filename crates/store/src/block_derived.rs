@@ -11,7 +11,7 @@ use fvoci_model::{
 };
 use serde_json::Value;
 
-use crate::db::{Id, Param, Scope, SqlFragment};
+use crate::db::{Dialect, Id, Param, Scope, SqlFragment};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 use crate::search_outbox;
@@ -163,6 +163,14 @@ pub(crate) async fn forget_block(
         }
         scope.execute(sql).await?;
     }
+    // A card's activity names its organization on PostgreSQL alone: a SQLite database
+    // holds one, and its rows name none (schema/sqlite/0002_card_events.sql).
+    let mut events = scope.sql("DELETE FROM card_events WHERE card_id = ");
+    events.changing_no_access().bind(Id(block_id));
+    if let Some(org) = org.filter(|_| scope.dialect() == Dialect::Postgres) {
+        events.push_bind(" AND org_id = ", org);
+    }
+    scope.execute(events).await?;
 
     let mut refs = scope.sql("DELETE FROM file_refs WHERE block_id = ");
     refs.bind(Id(block_id)).push(" RETURNING name");
@@ -188,6 +196,7 @@ pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), Stor
     unit_reviews::forget_gone_blocks(scope).await?;
     forget_gone_card_due_notices(scope).await?;
     crate::favorites::forget_gone_targets(scope).await?;
+    crate::card_events::forget_gone_cards(scope).await?;
     file_refs::forget_gone_blocks(scope).await?;
     file_refs::mark(scope, None).await
 }

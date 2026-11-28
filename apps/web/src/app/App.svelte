@@ -19,6 +19,7 @@
   import { setViewedFileSource, viewing } from '$lib/components/file-viewer/viewing.svelte.ts';
   import { daysLeft } from '$lib/features/account/account-deletion.ts';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
+  import NextCardToast from '$lib/features/card/NextCardToast.svelte';
   import AppShell, { type PaneTools } from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
@@ -483,5 +484,6 @@
     {/snippet}
   </AppShell>
   <Problems {workspace} />
+  <NextCardToast {workspace} />
   <FileViewerHost regional={workspace.regional} />
 {/if}

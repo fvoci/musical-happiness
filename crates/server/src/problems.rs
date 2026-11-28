@@ -19,8 +19,7 @@ use crate::error::{AppError, ErrorKind, PROBLEMS_PATH, Reason, type_reference};
 use crate::error_response::problems_only;
 
 mod sign_in;
-
-use self::sign_in::describe_sign_in;
+use sign_in::describe_sign_in;
 
 /// What a kind of problem is the kind of: every error either has a reason, and is the
 /// problem of that reason whatever its status, or has none and is the problem of its
@@ -322,6 +321,11 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
              than the limit (`limit`, 3: top-level card is depth 1, child is depth 2, grandchild \
              is depth 3): when a card is made, moved, or imported. `errors` names `/parentId`. \
              Nothing was changed."
+        }
+        Reason::RecurrenceNeedsBoardRules => {
+            "Status 400. The card is to repeat (`recurrence`) on a board without a rule of done \
+             (`doneWhen`) or a due date it names (`dueDatePropertyId`): the board's settings \
+             give it both. `errors` names `/recurrence`. Nothing was changed."
         }
         Reason::TooManyPages => {
             "Status 400. The wiki would have more pages than the organization's limit, which \

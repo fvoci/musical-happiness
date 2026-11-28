@@ -69,9 +69,9 @@ import * as boardAuth from './board-authority.ts';
 import { batchPatchMemoryCards } from './card-batch.ts';
 import { openMemoryRoom } from './bodies.ts';
 import { MemoryBodyVersions } from './body-versions.ts';
+import { MemoryCardActivity } from './card-activity.ts';
 import { MemoryCategories } from './categories.ts';
-import { versionsOf } from './comments.ts';
-import { memberFileUrl, memberRole, memoryPermissionsOf } from './container-access.ts';
+import { memberFileUrl, memoryPermissionsOf } from './container-access.ts';
 import * as containerOps from './container-ops.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { MemoryCourses } from './courses.ts';
@@ -110,6 +110,7 @@ export class MemoryBackend implements Backend {
   readonly diary = new MemoryDiaries(this);
   readonly course = new MemoryCourses(this);
   readonly bodyVersions: MemoryBodyVersions;
+  readonly cardActivity = new MemoryCardActivity(this, () => this.#enter('cardActivity'));
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
@@ -298,7 +299,7 @@ export class MemoryBackend implements Backend {
   }
   async members(id: string): Promise<ContainerMember[]> {
     await this.#enter('members');
-    return containerOps.memoryMembers(this.world, id);
+    return containerOps.memoryMembers(this, id);
   }
   async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('addMember');
@@ -314,7 +315,7 @@ export class MemoryBackend implements Backend {
   }
   async publicLink(id: string): Promise<PublicLink> {
     await this.#enter('publicLink');
-    return containerOps.memoryPublicLink(this.world, id);
+    return containerOps.memoryPublicLink(this, id);
   }
   async setPublicLink(id: string, change: PublicLinkChange): Promise<PublicLink> {
     await this.#enter('setPublicLink');
@@ -448,8 +449,7 @@ export class MemoryBackend implements Backend {
   }
   async commentVersions(b: string, c: string, _cardId: string): Promise<CommentVersion[]> {
     await this.#enter('commentVersions');
-    memberRole(this.world, this.userId, b);
-    return versionsOf(this.world, b, c);
+    return boardAuth.memoryCommentVersions(this, b, c);
   }
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     await this.#enter('attachments');
