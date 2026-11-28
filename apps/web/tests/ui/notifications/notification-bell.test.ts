@@ -132,6 +132,20 @@ describe('the bell', () => {
     });
   });
 
+  it('reads all with ⇧U only where its button would: while one listed is unread', async () => {
+    const { notifications, answerNext } = mount([told('a', 30, 35), told('b', 20, 25)]);
+    await fireEvent.click(screen.getByTestId('open-notifications'));
+    answerNext();
+    const line = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>('[data-notification] [data-row-focus]');
+      if (!found) throw new Error('no line to press the key on');
+      return found;
+    });
+    expect(readAll()).toBeDisabled();
+    await fireEvent.keyDown(line, { key: 'U', code: 'KeyU', shiftKey: true });
+    expect(notifications.readAll).not.toHaveBeenCalled();
+  });
+
   it('disables mark all while reloading a previously opened list with unread items', async () => {
     const { answerNext, pendingCount } = mount([told('a', 30), told('b', 10)]);
     const trigger = screen.getByTestId('open-notifications');

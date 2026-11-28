@@ -129,10 +129,15 @@
         : inbox.unarchive(notification)),
   };
 
+  /** Whether "read all" reads anything: something listed is unread. Its button and ⇧U alike. */
+  const canReadAll = $derived(inbox.listed && inbox.items.some((one) => one.readAt === 0));
+
   const keys = listKeys({
     of: (id) => inbox.items.find((one) => one.id === id),
     ...actions,
-    readAll: () => void inbox.readAll(),
+    readAll: () => {
+      if (canReadAll) void inbox.readAll();
+    },
   });
 
   function onCloseAutoFocus(event: Event): void {
@@ -215,7 +220,7 @@
   <Button
     variant="ghost"
     size="sm"
-    disabled={!inbox.listed || !inbox.items.some((one) => one.readAt === 0)}
+    disabled={!canReadAll}
     data-testid="read-all-notifications"
     onclick={() => void inbox.readAll()}
   >
